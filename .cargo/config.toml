@@ -2,3 +2,14 @@
 # scripts/release-env repeats this for release builds.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# LiveKit's libwebrtc, built against the macOS 26 SDK, weakly links three
+# ScreenCaptureKit symbols from macOS 14. Older SDKs, such as macOS 12's, lack
+# them; these let the linker leave them for the system, which leaves them null
+# where it lacks them too. scripts/release-env repeats this for release builds.
+[target.'cfg(target_os = "macos")']
+rustflags = [
+    "-C", "link-arg=-Wl,-U,_OBJC_CLASS_$_SCContentSharingPicker",
+    "-C", "link-arg=-Wl,-U,_SCStreamFrameInfoBoundingRect",
+    "-C", "link-arg=-Wl,-U,_SCStreamFrameInfoPresenterOverlayContentRect",
+]

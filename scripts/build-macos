@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Builds Yapfast on an Apple silicon Mac and packages it as Yapfast.app, in a
+# disk image in target/dist/FLAVOUR. The Nix shells are Linux's, so this fetches
+# the native inputs they pin, checked against the same kind of SHA-256, into
+# .local/macos.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# The Discord flavour is the release; full adds Matrix, as a separate preview.
+flavour=${1:-discord}
+case $flavour in
+  discord) features=(--no-default-features --features desktop,discord) ;;
+  full) features=() ;;
+  *) echo "usage: scripts/build-macos [discord|full]" >&2; exit 2 ;;
+esac
+if [[ $(uname -s) != Darwin || $(uname -m) != arm64 ]]; then
+  echo "scripts/build-macos runs on an Apple silicon Mac" >&2
+  exit 2
+fi
+target=aarch64-apple-darwin
+command -v cargo >/dev/null || PATH=${CARGO_HOME:-$HOME/.cargo}/bin:$PATH
+inputs=$PWD/.local/macos
+mkdir -p "$inputs"
+
+# fetch FILE URL SHA256: downloads URL to .local/macos/FILE, once, and keeps
+# it only if it matches SHA256.
+fetch() {
+  local file=$inputs/$1
+  if [[ -f $file ]] && echo "$3  $file" | shasum -a 256 -c --status; then
+    return
+  fi
+  curl -fL --retry 3 --progress-bar -o "$file.partial" "$2"
+  if ! echo "$3  $file.partial" | shasum -a 256 -c --status; then
+    rm -f "$file.partial"
+    echo "$2 doesn't match its SHA-256" >&2
+    exit 1
+  fi
+  mv "$file.partial" "$file"
+}
+
+# unpacked FOLDER URL SHA256 STRIP [PATTERN...]: unpacks the archive at URL
+# into .local/macos/FOLDER, once, dropping STRIP leading folders from each path
+# and keeping only what matches a PATTERN if any are given. The archive itself
+# goes once unpacked.
+unpacked() {
+  local folder=$inputs/$1 url=$2 sha256=$3 strip=$4 archive
+  shift 4
+  local stamp="$sha256 $strip $*"
+  if [[ -f $folder/.unpacked && $(cat "$folder/.unpacked") == "$stamp" ]]; then
+    return
+  fi
+  archive=$(basename "$folder").${url##*/}
+  fetch "$archive" "$url" "$sha256"
+  rm -rf "$folder" "$folder.partial"
+  mkdir -p "$folder.partial"
+  local patterns=()
+  for pattern in "$@"; do
+    patterns+=(--include "$pattern")
+  done
+  # bsdtar reads ZIP too.
+  tar -xf "$inputs/$archive" -C "$folder.partial" --strip-components "$strip" ${patterns[@]+"${patterns[@]}"}
+  rm "$inputs/$archive"
+  echo "$stamp" > "$folder.partial/.unpacked"
+  mv "$folder.partial" "$folder"
+}
+
+# The libwebrtc nix/flake.nix pins for Linux, built for macOS.
+unpacked webrtc-51ef663 \
+  https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-mac-arm64-release.zip \
+  f9be49b9fee9cd1588da8a40c85bda21f5ea49c4ed82662dc889b1c919569a08 1
+export LK_CUSTOM_WEBRTC=$inputs/webrtc-51ef663
+# pbjson-types compiles Protobuf's own types with it.
+unpacked protoc-36.2 \
+  https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protoc-36.2-osx-aarch_64.zip \
+  9cd98a532c5c5e0c4161314de0225de27e4c8a323917b6ea7b1b714d3ae23466 0
+export PROTOC=$inputs/protoc-36.2/bin/protoc
+# The Skia archive the renderer's features ask for on macOS: Linux's, with Metal
+# for Vulkan.
+skia=skia-binaries-b7f043e0b1e2a850e702-aarch64-apple-darwin-ganesh-gl-jpegd-jpege-metal-pdf.tar.gz
+fetch "$skia" "https://github.com/rust-skia/skia-binaries/releases/download/0.153.3/$skia" \
+  688dc8a8f81f918cfaaae5f5af44262e75fc5d1a69589735926add090730d16a
+export SKIA_BINARIES_URL=file://$inputs/$skia
+
+# webrtc-sys's C++ needs C++20 ranges and lambdas that capture structured
+# bindings, and Skia's prebuilt Metal code calls Objective-C selector stubs,
+# which the linker makes: Apple's clang 15 and its libc++ and linker, from the
+# Command Line Tools for macOS 13.5 and later. On older ones, as on macOS 12,
+# compile C++ with clang 18 and the libc++ headers from LLVM's own build, which
+# runs on macOS 11, and link with its lld. Its headers take Apple's
+# availability markings, as Apple's do, so nothing they call is missing from
+# the system's libc++ on macOS 11.
+export SDKROOT=${SDKROOT:-$(xcrun --show-sdk-path)}
+apple_clang=$(c++ --version | sed -n 's/^Apple clang version \([0-9]*\).*/\1/p')
+llvm=
+if [[ -n $apple_clang ]] && (( apple_clang < 15 )); then
+  llvm=$inputs/llvm-18.1.8
+  unpacked llvm-18.1.8 \
+    https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-arm64-apple-macos11.tar.xz \
+    4573b7f25f46d2a9c8882993f091c52f416c83271db6f5b213c93f0bd0346a10 1 \
+    '*/bin/clang' '*/bin/clang++' '*/bin/clang-18' '*/bin/lld' '*/bin/ld64.lld' \
+    '*/lib/clang/18/include/*' '*/include/c++/v1/*'
+  sed -i '' '/_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS/d' "$llvm/include/c++/v1/__config_site"
+  export CXX_aarch64_apple_darwin=$llvm/bin/clang++
+fi
+
+# libwebrtc and Skia ask for macOS 11.
+export MACOSX_DEPLOYMENT_TARGET=11.0
+# Source paths that name no folder here.
+source scripts/release-env "$target"
+if [[ -n $llvm ]]; then
+  CARGO_ENCODED_RUSTFLAGS+=$'\x1f'-Clink-arg=-fuse-ld=$llvm/bin/ld64.lld
+fi
+cargo build --locked --release --target "$target" ${features[@]+"${features[@]}"}
+python3 scripts/package-macos.py --flavour "$flavour"

@@ -21,6 +21,11 @@ case "$yapfast_release_target" in
     # cargo-xwin compiles C with clang-cl, which takes Clang's flags this way.
     yapfast_c=("${yapfast_c[@]/#//clang:}") ;;
   x86_64-unknown-linux-gnu) ;;
+  aarch64-apple-darwin)
+    # libwebrtc's ScreenCaptureKit symbols, as .cargo/config.toml leaves them.
+    yapfast_rust=(-Clink-arg=-Wl,-U,_OBJC_CLASS_\$_SCContentSharingPicker
+      -Clink-arg=-Wl,-U,_SCStreamFrameInfoBoundingRect
+      -Clink-arg=-Wl,-U,_SCStreamFrameInfoPresenterOverlayContentRect "${yapfast_rust[@]}") ;;
   *) echo "scripts/release-env: no flags known for $yapfast_release_target" >&2; return 2 ;;
 esac
 CARGO_ENCODED_RUSTFLAGS=$(IFS=$'\x1f'; printf '%s' "${yapfast_rust[*]}")

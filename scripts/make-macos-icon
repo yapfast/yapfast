@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Draws packaging/macos/yapfast.icns from packaging/icon.svg, at each size
+# macOS asks for, from 16 px in lists to 1024 px. Runs on a Mac, whose iconutil
+# packs the pictures; resvg (`cargo install resvg`) draws them.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+# macOS icons keep a margin around the artwork, a tenth of each side; the wider
+# view box gives it one.
+grep -q 'viewBox="12 12 78 78"' packaging/icon.svg ||
+  { echo "packaging/icon.svg's view box changed; update its margin here" >&2; exit 1; }
+sed 's/viewBox="12 12 78 78"/viewBox="4 4 94 94"/' packaging/icon.svg > "$work/icon.svg"
+icons=$work/yapfast.iconset
+mkdir "$icons"
+for size in 16 32 128 256 512; do
+  resvg -w "$size" -h "$size" "$work/icon.svg" "$icons/icon_${size}x${size}.png"
+  resvg -w $((size * 2)) -h $((size * 2)) "$work/icon.svg" "$icons/icon_${size}x${size}@2x.png"
+done
+iconutil -c icns -o packaging/macos/yapfast.icns "$icons"

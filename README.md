@@ -74,7 +74,9 @@ calls reach you. Untick that in the installer, or turn it off later in
 **Settings → Advanced**.
 
 **Linux** works today, but there's no package yet: [build it
-yourself](#build-it-yourself). **macOS** isn't supported.
+yourself](#build-it-yourself). **macOS** on Apple silicon builds and runs as
+a first port, without sound, so without voice yet: [build it on your
+Mac](docs/macos.md).
 
 ## Features
 
@@ -145,6 +147,9 @@ nix develop path:./nix --command cargo run --locked --no-default-features --feat
 # Windows installer and ZIP, cross-built from Linux, into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
 
+# Yapfast.app and a disk image, built on an Apple silicon Mac, into target/dist
+scripts/build-macos
+
 # Format, lint and test everything
 scripts/check --fast
 ```
@@ -157,6 +162,7 @@ scripts/check --fast
 | [Discord](docs/discord.md) | What's done, what's next, and the fake server the tests use |
 | [Voice](docs/voice.md) | Calls, devices and audio processing |
 | [Windows](docs/windows-beta.md) | Packaging, the installer and Windows checks |
+| [macOS](docs/macos.md) | Building on a Mac, the app bundle, and what the port lacks |
 | [Measurements](docs/measurements/README.md) | How memory and CPU are measured |
 
 Memory is a feature here. Changes keep it lean, and a change that saves memory

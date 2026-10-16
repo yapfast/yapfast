@@ -113,7 +113,8 @@ LiveKit's Rust crates must stay on the mutually compatible versions in Cargo.loc
 Do not run an unrestricted `cargo update`. Upgrade against the MatrixRTC lockfile
 and rebuild the native media stack. On Linux, the Nix shell supplies libwebrtc
 `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating that crate requires
-updating the archive URL and checksum in nix/flake.nix too.
+updating the archive URL and checksum in nix/flake.nix too, and the macOS
+archive's in scripts/build-macos.
 
 The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib, Wayland, X11,
 Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config and Protobuf. It uses the
@@ -121,7 +122,8 @@ host's graphics driver under `/run/opengl-driver/lib`. A real display session
 are required to open the window. Skia Software is the default; `--renderer gpu` uses Skia GPU and falls back to
 Skia Software if the GPU fails. The Nix shell provides a checksum-pinned,
 prepared Skia archive whose JPEG table is privately named to avoid a WebRTC
-symbol collision. See [the Slint client](slint-client.md).
+symbol collision. scripts/build-macos pins macOS's Skia archive by checksum
+too, so upgrading Skia updates both. See [the Slint client](slint-client.md).
 
 The first build downloads dependencies and compiles native C++. Cargo uses every
 core. On a machine with 8 GB of memory, set `CARGO_BUILD_JOBS=2` so the Matrix
@@ -323,6 +325,14 @@ keyboard focus, navigation, both renderers, resizing, normal close, and reopen
 on the tester's actual GPU.
 Windows execution has not been demonstrated by a Linux build.
 
+## macOS
+
+`scripts/build-macos [discord|full]` builds on an Apple silicon Mac, outside
+Nix, and packages `Yapfast.app` and a disk image into `target/dist/FLAVOUR`. It
+fetches the native inputs the Nix shells would pin, checked against their
+SHA-256, into `.local/macos`. The [macOS guide](macos.md) covers what it
+fetches and why, running the app, and what the port lacks so far.
+
 ## The app icon
 
 `packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in
@@ -342,6 +352,10 @@ and links the icon into `yapfast.exe`, for Explorer and shortcuts; the window
 loads it from there for its title bar and the taskbar, each at the size
 Windows draws it. After changing `icon.svg`, run `scripts/make-windows-icon`
 to draw `yapfast.ico` again.
+
+On macOS, `Yapfast.app` names `packaging/macos/yapfast.icns` in its
+`Info.plist`, for Finder and the Dock. `scripts/make-macos-icon` draws it from
+`icon.svg` with a margin, as macOS icons have, on a Mac with resvg installed.
 
 ## Logs
 
