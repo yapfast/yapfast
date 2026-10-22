@@ -400,7 +400,9 @@ pub struct Controller {
 }
 
 impl Controller {
-    #[cfg(all(test, feature = "matrix"))]
+    /// For matrix_voice's tests only, which need a linked stack, and so run
+    /// on Linux alone.
+    #[cfg(all(test, target_os = "linux", feature = "matrix"))]
     pub(crate) fn start(session: SessionLease) -> Result<Self> {
         let calls = Calls {
             session,
