@@ -78,6 +78,10 @@ xkeysym = { version = "0.2.1", optional = true }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
 
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
+[build-dependencies]
+# Compiles native/appkit.m, the Mac's menu bar, tray icon and notifications.
+cc = "1"
+
 [[example]]
 name = "tray_host"
 path = "testing/tray_host.rs"

@@ -1,6 +1,7 @@
-//! Desktop notifications. On Linux they go to the freedesktop notification service,
-//! which GNOME, KDE and the other desktops run; clicking one opens its conversation.
-//! Elsewhere Yapfast doesn't show them yet.
+//! Desktop notifications. On Linux they go to the freedesktop notification
+//! service, which GNOME, KDE and the other desktops run; on macOS they go to
+//! the notification centre, which wants Yapfast to be running from a bundle.
+//! Clicking one opens its conversation. Windows has none yet.
 
 use yapfast_core::chat::Alert;
 
@@ -33,7 +34,12 @@ impl Notifier {
             }
             Self { requests }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        {
+            crate::appkit::notifications_start(opened);
+            Self {}
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             let _ = opened;
             Self {}
@@ -43,7 +49,14 @@ impl Notifier {
     pub fn show(&self, alert: Alert, style: Style) {
         #[cfg(target_os = "linux")]
         let _ = self.requests.send((alert, style));
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        crate::appkit::notify(
+            &alert.room,
+            &alert.title,
+            &body(&alert, style),
+            alert.picture.as_deref(),
+        );
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let _ = (alert, style);
     }
 }

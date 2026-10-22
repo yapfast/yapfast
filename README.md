@@ -123,8 +123,22 @@ It compiles from source, so give it a few minutes. No Nix? Then
 
 ### macOS
 
-Not yet, sorry :( I'd love to make one, but I don't own an Apple machine to
-test it on.
+Built for Apple Silicon and Intel, and it's a proper Mac app: a `.app` bundle
+with its own icon, the standard menu bar, a menu bar status item, system
+notifications, and closing the window to the menu bar instead of quitting.
+
+There's no signed build to download yet, so it's one command from source:
+
+```sh
+git clone https://github.com/yapfast/yapfast
+cd yapfast
+./scripts/build-macos
+open target/dist/macos/Yapfast.app
+```
+
+The first build downloads a prebuilt libwebrtc and prebuilt Skia, so it takes a
+few minutes rather than the half hour it would take to compile them. See
+[docs/macos.md](docs/macos.md) for what works, the gaps, and how to make a dmg.
 
 ### Nightly builds
 

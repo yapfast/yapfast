@@ -4,6 +4,8 @@
 // `has_console`.
 #![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+mod appkit;
 #[cfg(feature = "desktop")]
 mod autostart;
 #[cfg(feature = "desktop")]
@@ -133,6 +135,10 @@ fn main() -> Result<()> {
         [argument] if argument == "--voice-demo" => {
             runtime.block_on(voice_demo::provision()).map(|_| ())
         }
+        [flag, seconds] if flag == "--audio-test" && seconds.len() == 1 => {
+            cli::audio_test(seconds.parse().unwrap_or(3))
+        }
+        [argument] if argument == "--audio-test" => cli::audio_test(3),
         [argument] if argument == "--audio-devices" => cli::audio_devices(),
         #[cfg(feature = "matrix")]
         [argument] if argument == "--call-experiment" => runtime.block_on(experiment::run()),
@@ -142,7 +148,7 @@ fn main() -> Result<()> {
         }
         [argument] if argument == "--help" || argument == "-h" => {
             println!(
-                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background]\n       yapfast [--smoke-test | --help]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
+                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background]\n       yapfast [--smoke-test | --help]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\n       yapfast --audio-test [SECONDS]\n--audio-test hears the microphone for a few seconds and plays a chime, and says what it found.\nSession commands support password sign-in. Secrets are read from stdin."
             );
             Ok(())
         }

@@ -11159,6 +11159,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "cc",
  "emojis",
  "futures-util",
  "i-slint-backend-testing",

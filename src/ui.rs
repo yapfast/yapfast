@@ -143,7 +143,7 @@ pub fn run(
         return failed(error, "could not show Yapfast");
     }
     if !preview {
-        AUTOSTART.set(autostart::SUPPORTED);
+        AUTOSTART.set(autostart::supported());
         autostart::refresh();
     }
     prepare(&window);
@@ -181,6 +181,9 @@ pub fn run(
         });
     }
     let shell = shell::Shell::new(window, adapter.clone(), notice, gpu);
+    // The Mac's menu bar, once, answering the same choices the tray does.
+    #[cfg(target_os = "macos")]
+    crate::appkit::install(shell::chosen);
     if hidden {
         shell.start_in_tray();
     }

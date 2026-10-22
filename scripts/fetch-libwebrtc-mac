@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Unpacks LiveKit's prebuilt libwebrtc for this Mac into .local, so every build
+# script reads the same copy. Upstream's Nix shell does this for Linux with
+# LK_CUSTOM_WEBRTC; macOS has no Nix shell, so this script fills that gap.
+#
+# The archive is the tag webrtc-sys-build pins, so it matches the Rust bindings.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+
+build="$(ls -d "$HOME"/.cargo/registry/src/*/webrtc-sys-build-*/ 2>/dev/null | sort | tail -1)"
+tag="$(sed -n 's/^pub const WEBRTC_TAG: &str = "\(.*\)";/\1/p' "${build}src/lib.rs")"
+if [[ -z "$tag" ]]; then
+  echo "could not find the libwebrtc tag webrtc-sys-build wants" >&2
+  exit 1
+fi
+# os-arch-release. This tag publishes release archives only. webrtc-sys-build
+# names a debug triple when LK_DEBUG_WEBRTC=true, and that zip is not in the
+# tag. With LK_CUSTOM_WEBRTC set, webrtc_dir() uses this directory and ignores
+# the triple, so the flag does not select different bits. The zip and the
+# folder inside it share the name.
+case "$(uname -m)" in
+  arm64) triple=mac-arm64-release ;;
+  x86_64) triple=mac-x64-release ;;
+  *) echo "unknown architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+destination=".local/libwebrtc-$triple"
+if [[ -f "$destination/lib/libwebrtc.a" && -f "$destination/webrtc.ninja" ]]; then
+  echo "libwebrtc $tag already unpacked in $destination"
+  exit 0
+fi
+
+url="https://github.com/livekit/rust-sdks/releases/download/$tag/webrtc-$triple.zip"
+archive=".local/webrtc-$triple.zip"
+echo "downloading $url"
+mkdir -p .local
+curl -fL --retry 3 -o "$archive" "$url"
+
+# The zip holds one folder named for the triple; unpack beside the destination
+# and move it into place, so a half-extracted folder never looks complete.
+rm -rf "$destination" ".local/.$triple.tmp"
+unzip -q "$archive" -d ".local/.$triple.tmp"
+mv ".local/.$triple.tmp/$triple" "$destination"
+rmdir ".local/.$triple.tmp"
+rm -f "$archive"
+chmod -R u+w "$destination"
+
+echo "libwebrtc $tag unpacked in $destination ($(du -sh "$destination" | cut -f1))"
