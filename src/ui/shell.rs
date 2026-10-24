@@ -418,6 +418,15 @@ impl Adapter {
                 .iter()
                 .any(|room| room.mentions > 0 || (room.direct && !room.muted && room.unread > 0)),
             call: state.voice.active(),
+            speaking: state.voice.active()
+                && state.voice.participants.iter().any(|person| {
+                    person.local && person.speaking && !person.muted && person.connected
+                })
+                && self.layout.tray_voice_activity.unwrap_or(true),
+            icon_style: self.layout.icon_style.unwrap_or(0).clamp(0, 2) as u8,
+            custom_icon: self.custom_icon.clone(),
+            idle_icon: self.tray_idle_icon.clone(),
+            speaking_icon: self.tray_speaking_icon.clone(),
         });
     }
 }

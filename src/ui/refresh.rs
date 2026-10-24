@@ -2700,12 +2700,14 @@ impl Adapter {
         let account = state.account.as_deref().unwrap_or("Preview");
         window.set_voice_active(voice.active());
         // The account panel's picture rings as the account's own row in the call does.
-        window.set_account_speaking(
-            voice.active()
-                && voice.participants.iter().any(|person| {
-                    person.local && person.speaking && !person.muted && person.connected
-                }),
-        );
+        let local_speaking = voice.active()
+            && voice
+                .participants
+                .iter()
+                .any(|person| person.local && person.speaking && !person.muted && person.connected);
+        window.set_account_speaking(local_speaking);
+        // Speaking changes reach only this part of the window, not refresh().
+        self.show_tray();
         window.set_voice_visible(voice.active() || voice.error.is_some());
         window.set_voice_ready(matches!(
             voice.phase,
