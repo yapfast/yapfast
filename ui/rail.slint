@@ -364,6 +364,8 @@ export component ChannelRow inherits Rectangle {
     in property <string> label: root.text;
     in property <image> icon;
     in property <bool> person;
+    /// Space before the icon; a channel under a category sits where the category's name starts.
+    in property <length> inset: 8px;
     in property <string> initial;
     in property <color> tint;
     in property <image> picture;
@@ -442,7 +444,7 @@ export component ChannelRow inherits Rectangle {
             // The row's contents sit in its pointer area, so a voice spot in
             // them takes its own clicks while the row stays hovered.
             HorizontalLayout {
-                padding-left: 8px; padding-right: 8px; spacing: root.person ? 12px : 8px;
+                padding-left: root.inset; padding-right: 8px; spacing: root.person ? 12px : 8px;
                 opacity: root.muted && !root.selected && !pointer.has-hover ? 0.5 : 1;
                 if root.person: Middle {
                     Avatar {
@@ -879,7 +881,7 @@ export component RoomList inherits VerticalLayout {
                     + (room.detail != "" ? ", " + room.detail : "")
                     + (room.pinned ? ", pinned" : "") + (room.muted ? ", muted" : "")
                     + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "") + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
-                icon: room.icon; person: room.direct; initial: room.initial; tint: room.tint;
+                icon: room.icon; person: room.direct; inset: room.direct ? 8px : 12px; initial: room.initial; tint: room.tint;
                 chat: room.chat;
                 open-chat => { root.open-chat(room.id); }
                 picture: room.picture; picture-url: room.picture-url; discord: room.discord;
