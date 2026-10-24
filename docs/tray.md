@@ -76,7 +76,7 @@ clicked while the window is closed opens it on that conversation.
 
 The icon is a StatusNotifierItem through [`ksni`](https://crates.io/crates/ksni),
 pure Rust over the zbus Yapfast already has for notifications, with ksni's
-async-io and blocking features, so it adds only `ksni` and `task-local` to
+async-io and blocking features, so it adds only `ksni`, `task-local`, `arc-swap` and `crossbeam-queue` to
 `Cargo.lock`. It connects to the session bus Yapfast is given. A thread
 (`yapfast-tray`) registers it and sends it the unread dot and the call as they
 change, since each update waits on the bus; ksni's own thread answers the

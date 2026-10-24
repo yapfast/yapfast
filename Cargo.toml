@@ -17,7 +17,7 @@ default = ["desktop", "matrix", "discord"]
 # Each network is optional, so a build can carry Matrix, Discord or both.
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:ksni", "dep:windows-sys", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -63,8 +63,10 @@ wl-clipboard-rs = { version = "0.9.4", optional = true }
 # device on winit's own connection; see src/drop.rs. Already in the tree through winit.
 wayland-client = { version = "0.31.15", optional = true }
 wayland-backend = { version = "0.3.17", features = ["client_system"], optional = true }
+# Raising the window with the tray click's xdg-activation token; see src/activation.rs.
+wayland-protocols = { version = "0.32.13", features = ["client", "staging"], optional = true }
 # The tray icon, as a StatusNotifierItem on the same bus; pure Rust, on the zbus above.
-ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"], optional = true }
+ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"], optional = true }
 # The push-to-talk key in any app: the GlobalShortcuts portal's signals as a
 # stream, XInput 2's raw key events on X11, and keysym names for the portal's
 # trigger. All three are already in the tree, through zbus and winit.
