@@ -1135,8 +1135,9 @@ an error.
   turns `:name:` into Discord's `<:name:id>` only for those. Animated emoji
   show their first frame.
 - Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
-  GIF ones from the media proxy. Lottie stickers, which are vector
-  animations, show their name.
+  GIF ones from the media proxy. Lottie stickers render locally from the
+  CDN's JSON with ThorVG, one frame at a time, and follow the same animation
+  playback setting as GIF stickers.
 - Messages from people this account blocked show collapsed as "Blocked
   message", which "Show it" opens, and they don't notify or show typing.
   Yapfast learns the blocked from READY's relationships (type 2) and keeps them

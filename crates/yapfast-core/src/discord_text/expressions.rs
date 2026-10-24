@@ -193,13 +193,12 @@ fn server_emoji(emoji: GuildEmoji) -> ServerEmoji {
     }
 }
 
-/// Discord's sticker formats that aren't a picture, and that are a GIF.
+/// Discord's sticker format that isn't a picture.
 const LOTTIE: u8 = 3;
-const GIF: u8 = 4;
 
 pub(super) fn server_sticker(sticker: GuildSticker) -> ServerSticker {
     let picture = (sticker.format != LOTTIE)
-        .then(|| yapfast_discord::ready::sticker(&sticker.id, sticker.format == GIF));
+        .then(|| yapfast_discord::ready::sticker(&sticker.id, sticker.format.into()));
     ServerSticker {
         picture,
         id: sticker.id,

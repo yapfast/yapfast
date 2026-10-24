@@ -67,7 +67,7 @@
       devShells.${system} = {
         default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-            rustup pkg-config cmake ninja llvmPackages_21.clang
+            rustup pkg-config cmake ninja llvmPackages_21.clang llvmPackages_21.libclang
             protobuf curl jq docker-compose python3 llvmPackages_21.llvm
             # pasta, nftables and iproute2 isolate one voice test participant's network.
             passt nftables iproute2
@@ -78,6 +78,7 @@
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libraries;
           CC = "clang";
           CXX = "clang++";
+          LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";
           PROTOC = "${pkgs.protobuf}/bin/protoc";
           # webrtc-sys must not download binaries from inside a Nix build sandbox.
           LK_CUSTOM_WEBRTC = "${webrtc}";
