@@ -1392,10 +1392,12 @@ pub(crate) fn media() -> &'static str {
 }
 
 /// A sticker's picture at the size Discord shows it. Animated GIF stickers come
-/// from the media proxy, the rest from the CDN.
-pub fn sticker(id: &str, gif: bool) -> String {
-    if gif {
+/// from the media proxy; Lottie stickers are JSON from the CDN.
+pub fn sticker(id: &str, format: u64) -> String {
+    if format == 4 {
         format!("{}/stickers/{id}.gif?size=160", media())
+    } else if format == 3 {
+        format!("{}/stickers/{id}.json", cdn())
     } else {
         format!("{}/stickers/{id}.png?size=160", cdn())
     }

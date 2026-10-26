@@ -61,10 +61,8 @@ const FORWARDABLE_FLAGS: u64 = 1 << 0
     | 1 << 19
     | 1 << 20;
 
-/// Sticker formats: PNG and APNG show as pictures, as do GIFs, but not Lottie.
+/// Missing sticker formats default to PNG.
 const STICKER_PNG: u64 = 1;
-const STICKER_LOTTIE: u64 = 3;
-const STICKER_GIF: u64 = 4;
 /// The size Discord shows stickers at.
 const STICKER_SIZE: u32 = 160;
 
@@ -669,21 +667,13 @@ pub fn parse(value: &Value) -> Option<Message> {
         picture.spoiler |= spoiled;
         picture
     }));
-    // Stickers show as pictures, but Lottie animations, which Yapfast can't draw,
-    // show their name.
+    // All sticker formats use the picture pipeline, including Lottie JSON.
     for sticker in shown["sticker_items"].as_array().into_iter().flatten() {
         let (Some(id), Some(name)) = (sticker["id"].as_str(), sticker["name"].as_str()) else {
             continue;
         };
         let format = sticker["format_type"].as_u64().unwrap_or(STICKER_PNG);
-        if format == STICKER_LOTTIE {
-            if !content.is_empty() {
-                content.push('\n');
-            }
-            content.push_str(&format!("Sticker: {name}"));
-            continue;
-        }
-        let url = ready::sticker(id, format == STICKER_GIF);
+        let url = ready::sticker(id, format);
         attachments.push(Attachment {
             name: name.into(),
             size: None,
@@ -1808,13 +1798,10 @@ mod tests {
                     "Dance",
                     "https://media.discordapp.net/stickers/8.gif?size=160"
                 ),
+                ("Spin", "https://cdn.discordapp.com/stickers/9.json"),
             ]
         );
-        assert!(
-            message.content.ends_with("\nSticker: Spin"),
-            "{}",
-            message.content
-        );
+        assert_eq!(message.content, "look ||https://example.com/cat.gif||");
     }
 
     #[test]

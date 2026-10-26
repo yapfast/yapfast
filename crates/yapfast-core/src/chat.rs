@@ -1134,6 +1134,8 @@ enum AnimationFormat {
     WebP,
     #[cfg(feature = "discord")]
     Video,
+    #[cfg(feature = "discord")]
+    Lottie,
 }
 
 impl Picture {
@@ -1148,6 +1150,22 @@ impl Picture {
             return Box::new(std::iter::empty());
         };
         let frames: Box<dyn Iterator<Item = Vec<u8>>> = match animation.format {
+            #[cfg(feature = "discord")]
+            AnimationFormat::Lottie => {
+                use std::io::Read;
+                let mut data = Vec::new();
+                if file
+                    .take(2 * 1024 * 1024 + 1)
+                    .read_to_end(&mut data)
+                    .is_err()
+                {
+                    return Box::new(std::iter::empty());
+                }
+                match crate::lottie::Frames::new(&data, width, height) {
+                    Some(frames) => Box::new(frames),
+                    None => Box::new(std::iter::empty()),
+                }
+            }
             #[cfg(feature = "discord")]
             AnimationFormat::Video => crate::video::frames(file, width, height),
             format => match image_frames(file, format) {
@@ -3565,6 +3583,25 @@ fn decode_kept_picture(
     kept: Option<&std::path::Path>,
 ) -> Option<Picture> {
     #[cfg(feature = "discord")]
+    if data
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace())
+        == Some(b'{')
+    {
+        let mut frames = crate::lottie::Frames::new(data, width, height)?;
+        return Some(Picture {
+            width: frames.width,
+            height: frames.height,
+            rgba: Pixels::new(frames.width, frames.height, frames.next()?),
+            animation: Some(Animation {
+                delays: std::mem::take(&mut frames.delays),
+                file: AnimationFile::of(data, kept),
+                format: AnimationFormat::Lottie,
+            }),
+        });
+    }
+    #[cfg(feature = "discord")]
     if crate::video::is_video(data) {
         return crate::video::decode_kept_animation(data, width, height, kept);
     }
@@ -3641,7 +3678,7 @@ fn frame_delays(data: &[u8], format: AnimationFormat) -> Option<Vec<u32>> {
         AnimationFormat::Png => apng_delays(data)?,
         AnimationFormat::WebP => webp_delays(data)?,
         #[cfg(feature = "discord")]
-        AnimationFormat::Video => return None,
+        AnimationFormat::Video | AnimationFormat::Lottie => return None,
     };
     // Browsers show frames meant for under 20 ms for 100 ms.
     Some(
@@ -3765,7 +3802,7 @@ fn image_frames<'a>(
             Some((size, decoder.into_frames()))
         }
         #[cfg(feature = "discord")]
-        AnimationFormat::Video => None,
+        AnimationFormat::Video | AnimationFormat::Lottie => None,
     }
 }
 

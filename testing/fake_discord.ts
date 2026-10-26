@@ -314,6 +314,7 @@ const EMOJI_TALK = "1400000000000000300";
 const EMOJI_PARTY = "1400000000000000301";
 const STICKER_WAVE = "1400000000000000310";
 const STICKER_BOUNCE = "1400000000000000311";
+const STICKER_LOTTIE = "1400000000000000312";
 const ALICE = "1400000000000000001";
 
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
@@ -6252,6 +6253,7 @@ function postShowcase(origin: string) {
     stickers: [
       { id: STICKER_WAVE, name: "Wave", format_type: 1 },
       { id: STICKER_BOUNCE, name: "Bounce", format_type: 4 },
+      { id: STICKER_LOTTIE, name: "Lottie", format_type: 3 },
     ],
   }));
   const dance = addFile({
@@ -7277,6 +7279,12 @@ const server = Bun.serve<SocketData>({
       return serveExternal(path, url) ?? notFound();
     }
     // Discord's CDN: custom emoji and stickers.
+    if (req.method === "GET" && /^\/stickers\/\d+\.json$/.test(path)) {
+      if (cdnDelay > 0) await Bun.sleep(cdnDelay);
+      return new Response(Bun.file(new URL("./fixtures/sticker.json", import.meta.url)), {
+        headers: { "content-type": "application/json" },
+      });
+    }
     const emoji = req.method === "GET" ? path.match(/^\/(emojis|stickers)\/(\d+)\.(png|gif|webp)$/) : null;
     if (emoji) {
       if (cdnDelay > 0) await Bun.sleep(cdnDelay);

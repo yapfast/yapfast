@@ -48,6 +48,8 @@ pub mod frames;
 pub mod leveling;
 pub mod links;
 pub mod logging;
+#[cfg(feature = "discord")]
+mod lottie;
 #[cfg(feature = "matrix")]
 mod matrix_chat;
 #[cfg(feature = "matrix")]

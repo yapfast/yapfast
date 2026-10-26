@@ -16,7 +16,7 @@ default = ["matrix", "discord"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
 matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord.md.
-discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src"]
+discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
@@ -71,6 +71,8 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# CPU rendering of Discord's Lottie stickers, without file access or expressions.
+thorvg-sys = { version = "0.4", default-features = false, features = ["vendored", "lottie", "threads"], optional = true }
 uuid.workspace = true
 url = { workspace = true, optional = true }
 # Levels the voice in LiveKit's calls, and sends the camera from pooled
