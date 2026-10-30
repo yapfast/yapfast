@@ -1908,6 +1908,26 @@ pub struct EventPreview {
     /// This account is interested in the event.
     pub interested: bool,
 }
+
+/// What a Discord gift, such as Nitro, shows before it is redeemed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GiftPreview {
+    pub code: String,
+    /// What the gift grants, such as "Nitro", and the name of the
+    /// subscription plan it grants, when it is one.
+    pub name: String,
+    pub plan: Option<String>,
+    /// Who made the gift, by the name Discord shows for them, when it
+    /// says.
+    pub gifter: Option<String>,
+    /// This account has redeemed the gift already.
+    pub redeemed: bool,
+    /// Every use of the gift has been redeemed, by anyone.
+    pub spent: bool,
+    /// When the gift stops being redeemable, as Discord timestamps it,
+    /// when it does.
+    pub expires_at: Option<String>,
+}
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
@@ -2167,6 +2187,18 @@ pub enum DiscordCommand {
     SetEventInterest {
         preview: Box<EventPreview>,
         interested: bool,
+    },
+    /// Look up a Discord gift by its code, before offering to redeem
+    /// it. [`Event::GiftResolved`] follows.
+    ResolveGift {
+        code: String,
+    },
+    /// Redeem the Discord gift `preview` shows for this account, in
+    /// the room `room` names when its link was opened in one.
+    /// [`Event::GiftRedeemed`] follows.
+    RedeemGift {
+        preview: Box<GiftPreview>,
+        room: Option<String>,
     },
     /// Make a channel or category in a Discord server, by its server id,
     /// inside the category `parent` names by its room id, or a copy of
@@ -3491,6 +3523,18 @@ pub enum Event {
     EventInterestSet {
         event: String,
         interested: bool,
+        result: Result<(), String>,
+    },
+    /// What the gift [`DiscordCommand::ResolveGift`] looked up by its
+    /// code shows, or why Discord showed nothing.
+    GiftResolved {
+        code: String,
+        result: Result<GiftPreview, String>,
+    },
+    /// Whether [`DiscordCommand::RedeemGift`] redeemed the gift with
+    /// this code, or why it didn't.
+    GiftRedeemed {
+        code: String,
         result: Result<(), String>,
     },
     /// The roles and groups a message in a room may mention.

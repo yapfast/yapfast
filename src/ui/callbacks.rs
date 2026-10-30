@@ -457,6 +457,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_close_invite, Action::CloseInvite);
     bind!(on_open_join_server, Action::OpenJoinServer);
     bind!(on_join_server, Action::JoinServer);
+    bind!(on_redeem_gift, Action::RedeemGift);
+    bind!(on_close_gift, Action::CloseGift);
     bind!(on_open_join_captcha, Action::OpenJoinCaptcha);
     bind!(on_open_join_form, Action::OpenJoinForm);
     bind!(on_close_join, Action::CloseJoin);
@@ -2581,6 +2583,7 @@ pub(super) fn web_address(link: &str) -> Option<&str> {
 fn discord_link_action(window: &YapfastWindow, route: discord::DiscordRoute) -> Action {
     match route {
         discord::DiscordRoute::Invite { code } => Action::OpenInviteLink(code),
+        discord::DiscordRoute::Gift { code } => Action::OpenGiftLink(code),
         discord::DiscordRoute::Event { guild, event } => Action::OpenEventLink { guild, event },
         discord::DiscordRoute::DirectMessages => Action::Navigate(Navigation::DirectMessages),
         discord::DiscordRoute::Server { guild } => {

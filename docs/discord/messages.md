@@ -234,11 +234,13 @@ an error.
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
   place in Yapfast, DM links included; an invite opens Join a Server first,
-  and an event link shows the scheduled event with its Interested button
-  ([Event links](servers.md#event-links)). Only Discord's own hosts and snowflake
-  ids match, so a look-alike stays an ordinary web link. Discord pages
-  Yapfast has no screen for, such as gifts and app authorization, still open
-  in the browser,
+  an event link shows the scheduled event with its Interested button
+  ([Event links](servers.md#event-links)), and a gift link
+  (`discord.gift/…`, `/gifts/…`) shows the gift and redeems it on the click,
+  never from opening the link (`link.rs`, `gift.rs`). Only Discord's own
+  hosts and snowflake ids match, so a look-alike stays an ordinary web link.
+  Discord pages Yapfast has no screen for, such as app authorization, still
+  open in the browser,
   as does a link Yapfast can't show: to a server the account isn't in, or any
   while Discord is offline (`AppState::opens_discord_route`).
 - Animated GIFs, APNGs and animated WebPs play, in messages, as stickers and in
