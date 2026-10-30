@@ -1199,8 +1199,7 @@ export component AdvancedSettings inherits VerticalLayout {
         checked <=> root.start-on-sign-in;
         toggled => { root.preferences-changed(); }
     }
-    SettingsSwitch {
-        visible: root.discord-links-available;
+    if root.discord-links-available: SettingsSwitch {
         text: "Open Discord links in Yapfast";
         description: "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them.";
         checked <=> root.discord-links;
