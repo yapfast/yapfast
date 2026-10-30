@@ -16,7 +16,15 @@ still gets the icon.
 
 Starting Yapfast while it runs on the same data folder brings the running
 one's window forward, making it again if it was closed to the tray, and the
-new start ends (`src/instance.rs`). A start with `--background`, as at
+new start ends (`src/instance.rs`). A start can carry one Discord link, as
+a desktop handler for `yapfast://` or `discord://` passes it; the running
+Yapfast opens the place it names once Discord is online, and a first start
+waits for its snapshot in the same way. A renderer restart doesn't open it
+again. Settings → Advanced can claim `discord://` for this Yapfast;
+turning it off gives the links back to the app that had them. The Windows
+installer registers only `yapfast://`, and Linux packages declare both
+handlers without choosing either as the default. A start with
+`--background`, as at
 sign-in, just ends. Settings → Advanced → "Allow multiple windows"
 (`multiple_windows` in `layout.json`, off unless turned on) starts another
 Yapfast instead, with its own window and tray icon. Each folder is its own:
@@ -29,11 +37,13 @@ named event, `Local\yapfast-` and a hash of the folder's path. A later start
 that finds the lock taken asks for the window there, trying for 5 seconds
 while the first may still be starting or restarting with another renderer,
 and starts anyway if nothing answers. On Linux it passes on the activation
-token the desktop launched it with (`XDG_ACTIVATION_TOKEN` on Wayland,
+token and link the desktop launched it with (`XDG_ACTIVATION_TOKEN` on Wayland,
 `DESKTOP_STARTUP_ID` on X11), so the window can take the focus: a window made
 again takes it through winit, and a shown one through Yapfast's own
 `xdg_activation_v1` on winit's Wayland connection. On Windows the later start
-lets any process take the foreground, which the first then does.
+lets any process take the foreground, which the first then does. Its link
+waits as a small file in `instance-links` for the first to take and remove;
+a new first start clears any left there by one that has gone.
 
 ## Starting at sign-in
 

@@ -1183,6 +1183,16 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 }
             }
         }
+        let discord_links = window.get_discord_links();
+        if PROTOCOL.get() && discord_links != crate::protocol::discord_enabled(&adapter.root) {
+            match crate::protocol::set_discord_enabled(&adapter.root, discord_links) {
+                Ok(()) => tracing::info!(discord_links, "Discord link handling changed"),
+                Err(error) => {
+                    tracing::warn!(%error, "could not change Discord link handling");
+                    window.set_discord_links(!discord_links);
+                }
+            }
+        }
         let (reply_ping, strip_tracking) =
             (window.get_reply_ping_default(), window.get_strip_tracking());
         adapter.app.dispatch(Action::ReplyPing(reply_ping));

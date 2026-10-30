@@ -1059,6 +1059,10 @@ export component YapfastWindow inherits Window {
     /// where the platform can, outside the preview.
     in-out property <bool> start-on-sign-in;
     in property <bool> autostart-available;
+    /// Discord protocol links open in Yapfast, where the platform can
+    /// claim them, outside the preview.
+    in-out property <bool> discord-links;
+    in property <bool> discord-links-available;
     callback restart();
     callback preferences-changed();
     /// The built-in themes, and the one shown by its id; choose-theme shows
@@ -3320,6 +3324,7 @@ export component YapfastWindow inherits Window {
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
             start-on-sign-in <=> root.start-on-sign-in; autostart-available: root.autostart-available;
+            discord-links <=> root.discord-links; discord-links-available: root.discord-links-available;
             preferences-changed => { root.preferences-changed(); }
             restart => { root.restart(); }
         }

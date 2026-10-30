@@ -29,6 +29,8 @@ mod notify;
 #[cfg(feature = "desktop")]
 mod paste;
 #[cfg(feature = "desktop")]
+mod protocol;
+#[cfg(feature = "desktop")]
 mod push_to_talk;
 #[cfg(feature = "desktop")]
 mod tray;
@@ -74,6 +76,14 @@ fn main() -> Result<()> {
     let mut arguments: Vec<_> = std::env::args().skip(1).collect();
     let renderer = renderer_argument(&mut arguments)?;
     let background = flag_argument(&mut arguments, "--background");
+    let mut matched_arguments = arguments.clone();
+    if !arguments
+        .first()
+        .is_some_and(|argument| argument == "session")
+    {
+        let _ = link_argument(&mut matched_arguments)?;
+    }
+
     #[cfg(all(windows, feature = "desktop"))]
     match data_directory(&arguments) {
         Some(directory) if !has_console() => logging::init_to_file(&directory.join("yapfast.log")),
@@ -91,7 +101,7 @@ fn main() -> Result<()> {
     {
         return runtime.block_on(cli::session(&arguments[1..]));
     }
-    match arguments.as_slice() {
+    match matched_arguments.as_slice() {
         [] => launch(
             runtime,
             yapfast_core::default_directory()?,
@@ -150,7 +160,7 @@ fn main() -> Result<()> {
         }
         [argument] if argument == "--help" || argument == "-h" => {
             println!(
-                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background]\n       yapfast [--smoke-test | --help]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
+                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n       yapfast [--smoke-test | --help]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\nLINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
             );
             Ok(())
         }
@@ -205,12 +215,16 @@ fn launch(
         _ => graphics::Renderer::Software,
     });
     let fallback = std::env::var(GPU_FALLBACK_REASON).ok();
+    let mut relaunch_arguments = arguments.to_owned();
+    let open_link = link_argument(&mut relaunch_arguments)?;
     #[cfg(feature = "discord")]
     yapfast_core::keep_discord_files(&root);
-    match ui::run(runtime, root, preview, renderer, fallback, background)? {
+    match ui::run(
+        runtime, root, preview, renderer, fallback, background, open_link,
+    )? {
         ui::Exit::Closed => Ok(()),
-        ui::Exit::UseSoftware(reason) => relaunch(arguments, Some(&reason)),
-        ui::Exit::Restart => relaunch(arguments, None),
+        ui::Exit::UseSoftware(reason) => relaunch(&relaunch_arguments, Some(&reason)),
+        ui::Exit::Restart => relaunch(&relaunch_arguments, None),
     }
 }
 
@@ -261,6 +275,66 @@ fn flag_argument(arguments: &mut Vec<String>, flag: &str) -> bool {
     let before = arguments.len();
     arguments.retain(|argument| argument != flag);
     arguments.len() != before
+}
+
+/// A Discord link given as an argument, taking it out of `arguments`, so
+/// a renderer restart doesn't open it again.
+fn link_argument(arguments: &mut Vec<String>) -> Result<Option<String>> {
+    #[cfg(all(feature = "desktop", feature = "discord"))]
+    {
+        let links: Vec<usize> = arguments
+            .iter()
+            .enumerate()
+            .filter_map(|(index, argument)| {
+                yapfast_core::discord::discord_route(argument).map(|_| index)
+            })
+            .collect();
+        return match links.as_slice() {
+            [] => Ok(None),
+            [index] => Ok(Some(arguments.remove(*index))),
+            _ => bail!("specify one Discord link"),
+        };
+    }
+    #[cfg(not(all(feature = "desktop", feature = "discord")))]
+    {
+        let _ = arguments;
+        Ok(None)
+    }
+}
+
+#[cfg(all(test, feature = "desktop", feature = "discord"))]
+mod tests {
+    use super::link_argument;
+
+    #[test]
+    fn a_discord_link_argument_is_taken_out() {
+        let mut arguments = vec![
+            "--data-dir".to_owned(),
+            "folder".to_owned(),
+            "https://discord.com/channels/10/11".to_owned(),
+        ];
+        assert_eq!(
+            link_argument(&mut arguments).unwrap().as_deref(),
+            Some("https://discord.com/channels/10/11")
+        );
+        assert_eq!(arguments, ["--data-dir", "folder"]);
+    }
+
+    #[test]
+    fn two_discord_link_arguments_are_refused() {
+        let mut arguments = vec![
+            "https://discord.gg/one".to_owned(),
+            "discord://-/users/99".to_owned(),
+        ];
+        assert!(link_argument(&mut arguments).is_err());
+    }
+
+    #[test]
+    fn other_arguments_are_left_alone() {
+        let mut arguments = vec!["session".to_owned(), "status".to_owned()];
+        assert_eq!(link_argument(&mut arguments).unwrap(), None);
+        assert_eq!(arguments, ["session", "status"]);
+    }
 }
 
 /// The renderer `--renderer` asks for; without it, the setting decides.
