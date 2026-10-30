@@ -25,6 +25,7 @@ mod compose;
 mod discord_account;
 mod forum;
 mod gifs;
+mod gift;
 mod header;
 mod join;
 mod members;
@@ -52,6 +53,7 @@ pub use channel_settings::{
 };
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{GifPicker, GifPicture, GifView};
+pub use gift::GiftDialog;
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -413,6 +415,8 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// The gift a clicked gift link opened, while its dialog is open.
+    pub gift: Option<GiftDialog>,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -651,6 +655,7 @@ impl AppState {
         };
         match route {
             DiscordRoute::Invite { .. } => self.discord_online || self.preview,
+            DiscordRoute::Gift { .. } => self.discord_online || self.preview,
             DiscordRoute::DirectMessages => self.discord_linked,
             DiscordRoute::Server { guild } => server(guild),
             DiscordRoute::Channel { guild, channel }
@@ -748,6 +753,7 @@ impl AppState {
             || self.person_dialog.is_some()
             || self.invite.is_some()
             || self.join.is_some()
+            || self.gift.is_some()
             || self.channel_dialog.is_some()
             || self.leave.is_some()
             || self.move_sync.is_some()
@@ -1622,6 +1628,11 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// Open a clicked gift link, by its code; redeem the gift it
+    /// shows, when asked; or close its dialog.
+    OpenGiftLink(String),
+    RedeemGift,
+    CloseGift,
     /// Open the dialog that makes a channel of this kind, from a Discord
     /// server's menu, by its server id, or one like a channel in its
     /// category, from the channel's menu, by its room id.
@@ -2768,6 +2779,12 @@ impl Application {
                 self.state.join = None;
                 vec![]
             }
+            Action::OpenGiftLink(code) => self.open_gift_link(code),
+            Action::RedeemGift => self.redeem_gift(),
+            Action::CloseGift => {
+                self.state.gift = None;
+                vec![]
+            }
             Action::NewChannel { place, kind } => self.new_channel(place, kind),
             Action::AskChannel(ask) => self.ask_channel(ask),
             Action::OpenChannelSettings(room) => self.open_channel_settings(room),
@@ -3354,6 +3371,8 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
+            Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),
             Event::ChannelSaved(result) => {
                 if !self.channel_settings_saved(&result) {

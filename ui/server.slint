@@ -204,6 +204,75 @@ export component JoinDialog inherits Rectangle {
     }
 }
 
+// What a gift shows: what it grants, who sent it, and how redeeming goes.
+export struct GiftPrompt {
+    title: string,
+    /// The gift, once found: what it grants, and its plan or its giver.
+    found: bool,
+    name: string,
+    detail: string,
+    /// What the main button does, such as "Redeem Gift"; empty for none.
+    confirm: string,
+    busy: bool,
+    /// How it's going, such as "Redeeming...".
+    status: string,
+    error: string,
+}
+
+// A Discord gift, such as Nitro, that a clicked gift link opened: what it
+// grants shows before anyone redeems it, as Discord's gift dialog does.
+export component GiftDialog inherits Rectangle {
+    in property <GiftPrompt> prompt;
+    callback redeem;
+    callback close;
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(440px, root.width - 48px); height: gift-content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: root.prompt.title;
+        TouchArea { }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close(); return accept; }
+                return reject;
+            }
+            gift-content := VerticalLayout {
+                padding: 20px; spacing: 12px;
+                HorizontalLayout {
+                    Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                }
+                if root.prompt.found: Rectangle {
+                    border-radius: 8px; background: Theme.sunken;
+                    height: found-row.preferred-height;
+                    found-row := VerticalLayout {
+                        padding: 12px; spacing: 2px;
+                        Text { text: root.prompt.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                        if root.prompt.detail != "": Label { text: root.prompt.detail; }
+                    }
+                }
+                if root.prompt.status != "": Label { text: root.prompt.status; }
+                if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px; padding-top: 4px;
+                    ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
+                    if root.prompt.confirm != "": ActionButton {
+                        text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
+                        clicked => { root.redeem(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // What a channel dialog asks: to make, copy or delete a channel or category,
 // and which of its fields it shows.
 export struct ChannelPrompt {

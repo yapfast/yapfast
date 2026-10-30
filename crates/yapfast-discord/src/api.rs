@@ -1729,6 +1729,26 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// A gift code, with the subscription plan it grants, as Discord's
+    /// client asks before offering to redeem it.
+    pub async fn gift_code(&self, code: &str) -> Result<Value> {
+        let path = format!(
+            "/entitlements/gift-codes/{}?with_subscription_plan=true",
+            encode(code)
+        );
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Redeems a gift code for this account, in the channel its link was
+    /// opened in when it was one, as Discord's client sends it; the
+    /// entitlement it grants.
+    pub async fn redeem_gift_code(&self, code: &str, channel: Option<&str>) -> Result<Value> {
+        let path = format!("/entitlements/gift-codes/{}/redeem", encode(code));
+        let body = json!({"channel_id": channel});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
     /// Joins a server by an invite, from this gateway `session`, as
     /// Discord's client does; `context` says where, as
     /// [`crate::invite::Preview::context`] makes it. Discord may ask for a
@@ -2102,6 +2122,9 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         }
         (_, Some(SERVER_FULL)) => anyhow!("This server is full."),
         (_, Some(INVITES_PAUSED)) => anyhow!("This server has paused invites."),
+        (_, Some(UNKNOWN_GIFT)) => anyhow!("This gift code is invalid or has expired."),
+        (_, Some(GIFT_REDEEMED)) => anyhow!("This gift has already been redeemed."),
+        (_, Some(GIFT_SELF)) => anyhow!("You can't redeem a gift you made."),
         (_, Some(mfa::INVALID_MFA)) => anyhow!("That didn't work. Check it and try again."),
         (_, Some(mfa::MFA_REQUIRED)) => {
             anyhow!("Discord asks for two-factor authentication, which Yapfast can't do here.")
@@ -2194,6 +2217,9 @@ const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
 const INVITES_PAUSED: u64 = 40069;
+const UNKNOWN_GIFT: u64 = 10038;
+const GIFT_REDEEMED: u64 = 50050;
+const GIFT_SELF: u64 = 50054;
 const MISSING_PERMISSIONS: u64 = 50013;
 const INVALID_FORM_BODY: u64 = 50035;
 

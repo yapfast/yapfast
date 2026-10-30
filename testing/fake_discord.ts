@@ -196,6 +196,9 @@
 // the next join ask for an hCaptcha, as the QR ticket's does, and POST
 // /_control/invite-form makes it answer that the server has a form to fill
 // in first.
+// A gift of Nitro from Bob resolves and redeems the same way: GET
+// /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
+// once, and GET /_control/gift-redeems lists each redemption.
 // Linking by QR code goes through a remote login gateway at /remote-auth/, as
 // remote-auth-gateway.discord.gg speaks it. POST /_control/qr-scan scans the
 // code shown as Alice, /_control/qr-confirm confirms it, /_control/qr-cancel
@@ -4153,6 +4156,10 @@ const notFound = (message = "404: Not Found", code = 0) => json({ message, code 
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
 const inviteJoins: Record<string, unknown>[] = [];
+/** Each gift redemption, oldest first, for GET /_control/gift-redeems. */
+const giftRedeems: Record<string, unknown>[] = [];
+/** The code of Bob's gift of Nitro to Alice. */
+const GIFT_CODE = "2CG6SV9QtRxerJTgCYNDnU7M";
 
 /** Files uploaded for a message that isn't sent yet, by uploaded filename. */
 const uploads = new Map<string, { filename: string; data?: Uint8Array }>();
@@ -6262,6 +6269,36 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json({ ...invite, new_member: newMember, show_verification_form: form });
   }
 
+  // Resolving a gift before redeeming it, and redeeming it. The gift is
+  // Bob's Nitro; redeeming it a second time is refused, as on Discord.
+  if ((m = path.match(/^\/entitlements\/gift-codes\/([\w-]+)(\/redeem)?$/)) && (method === "GET" || method === "POST")) {
+    if (m[1] !== GIFT_CODE) return notFound("Unknown Gift Code", 10038);
+    const redeemed = giftRedeems.some((redeem) => redeem.code === GIFT_CODE);
+    if (method === "GET" && !m[2]) {
+      return json({
+        code: GIFT_CODE,
+        sku_id: "521847234246082599",
+        application_id: "521842831262875670",
+        uses: redeemed ? 1 : 0,
+        max_uses: 1,
+        redeemed,
+        expires_at: null,
+        user: wireUser(users.bob),
+        store_listing: { id: "521848044908576803", summary: " ", sku: { id: "521847234246082599", type: 5, name: "Nitro", slug: "nitro" } },
+        subscription_plan: { id: "642251038925127690", name: "Nitro Monthly", interval: 1, interval_count: 1 },
+        subscription_plan_id: "642251038925127690",
+      });
+    }
+    if (method === "POST" && m[2]) {
+      if (redeemed) return json({ message: "This gift has been redeemed already.", code: 50050 }, 400);
+      const body: any = await req.json().catch(() => ({}));
+      giftRedeems.push({ code: GIFT_CODE, channel_id: body.channel_id ?? null });
+      dispatch("ENTITLEMENT_CREATE", { id: "521900000000000001", type: 6, sku_id: "521847234246082599", application_id: "521842831262875670", user_id: ALICE });
+      return json({ id: "521900000000000001", type: 6, sku_id: "521847234246082599", application_id: "521842831262875670", user_id: ALICE, deleted: false, starts_at: null, ends_at: null, gift_code_flags: 0 });
+    }
+    return unknown(req, path);
+  }
+
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/attachments$/))) {
     const body: any = await req.json();
     const attachments = (body.files ?? []).map((file: any) => {
@@ -6670,7 +6707,7 @@ const GENERIC_CONTROLS = new Set([
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
-  "invite-joins", "invite-captcha", "invite-form", "mfa", "soundboard-sends", "custom-call-sounds",
+  "invite-joins", "invite-captcha", "invite-form", "gift-redeems", "mfa", "soundboard-sends", "custom-call-sounds",
 ]);
 
 /** A status's emoji as the env gives it, Unicode or `<:name:id>`, as Discord sends it. */
@@ -7799,6 +7836,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);
+    }
+    if (req.method === "GET" && path === "/_control/gift-redeems") {
+      return Response.json(giftRedeems);
     }
     if (req.method === "POST" && path === "/_control/mfa") {
       if (url.searchParams.has("off")) {

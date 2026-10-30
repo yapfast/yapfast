@@ -18,6 +18,8 @@ const WEB_HOSTS: [&str; 5] = [
 pub enum Route {
     /// A server invite, by its code.
     Invite { code: String },
+    /// A gift, such as Nitro, by its code.
+    Gift { code: String },
     /// Direct messages.
     DirectMessages,
     /// A server, without naming a channel.
@@ -38,8 +40,8 @@ pub enum Route {
 ///
 /// This takes Discord's web links, `discord://-/...` app links, and the
 /// same paths under `yapfast://` for a caller handing a link to Yapfast.
-/// It deliberately leaves pages Yapfast has no screen for, such as gifts,
-/// events and app authorization, for their own handling or the browser.
+/// It deliberately leaves pages Yapfast has no screen for, such as events
+/// and app authorization, for their own handling or the browser.
 pub fn parse(link: &str) -> Option<Route> {
     if link.chars().any(char::is_control) {
         return None;
@@ -56,6 +58,12 @@ pub fn parse(link: &str) -> Option<Route> {
             if host == "discord.gg" {
                 return match segments.as_slice() {
                     [code] => invite(code),
+                    _ => None,
+                };
+            }
+            if host == "discord.gift" {
+                return match segments.as_slice() {
+                    [code] => gift(code),
                     _ => None,
                 };
             }
@@ -88,6 +96,7 @@ fn segments(url: &Url) -> Option<Vec<&str>> {
 fn from_segments(segments: &[&str]) -> Option<Route> {
     match segments {
         ["invite", code] => invite(code),
+        ["gifts", code] => gift(code),
         ["channels", "@me"] => Some(Route::DirectMessages),
         ["channels", guild] if snowflake(guild) => Some(Route::Server {
             guild: (*guild).to_owned(),
@@ -117,6 +126,13 @@ fn from_segments(segments: &[&str]) -> Option<Route> {
 fn invite(code: &str) -> Option<Route> {
     let code = code.strip_suffix('.').unwrap_or(code);
     crate::invite::valid(code).then(|| Route::Invite {
+        code: code.to_owned(),
+    })
+}
+
+fn gift(code: &str) -> Option<Route> {
+    let code = code.strip_suffix('.').unwrap_or(code);
+    crate::gift::valid(code).then(|| Route::Gift {
         code: code.to_owned(),
     })
 }
@@ -203,15 +219,33 @@ mod tests {
                 code: "gift".into(),
             })
         );
+        assert_eq!(
+            parse("https://discord.gift/AbCdEfGhIjKlMnOp"),
+            Some(Route::Gift {
+                code: "AbCdEfGhIjKlMnOp".into(),
+            })
+        );
+        assert_eq!(
+            parse("https://discord.com/gifts/AbCdEfGhIjKlMnOp"),
+            Some(Route::Gift {
+                code: "AbCdEfGhIjKlMnOp".into(),
+            })
+        );
+        assert_eq!(
+            parse("discord://-/gifts/AbCdEfGhIjKlMnOp"),
+            Some(Route::Gift {
+                code: "AbCdEfGhIjKlMnOp".into(),
+            })
+        );
     }
 
     #[test]
     fn leaves_other_pages_and_look_alikes_alone() {
         for link in [
             // Discord pages with no Yapfast screen behind this router.
-            "https://discord.gift/AbCdEfGhIjKlMnOp",
-            "https://discord.com/gifts/AbCdEfGhIjKlMnOp",
             "https://discord.com/events/10/11",
+            "https://discord.gift/gift",
+            "https://discord.com/gifts/not-a-code",
             "https://discord.com/oauth2/authorize?client_id=10&scope=bot",
             "https://discord.new/aTemplateCode",
             "https://discord.com/shop",
@@ -229,7 +263,6 @@ mod tests {
             "https://discord.com/channels/10//12",
             "https://discord.com/users/not-a-user",
             "https://discord.com/users/123456789012345678901",
-            "discord://-/gifts/AbCdEfGhIjKlMnOp",
             "discord.gg/vanity",
             "javascript://discord.com/channels/10/11",
         ] {

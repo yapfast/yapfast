@@ -9204,6 +9204,83 @@ fn an_unknown_invite_says_so() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
+    let gift = |redeemed: bool, spent: bool| chat::GiftPreview {
+        code: "2CG6SV9QtRxerJTgCYNDnU7M".into(),
+        name: "Nitro".into(),
+        plan: Some("Nitro Monthly".into()),
+        gifter: Some("Gift Giver".into()),
+        redeemed,
+        spent,
+        expires_at: None,
+    };
+    let mut app = discord_server();
+    let effects = app.dispatch(Action::OpenGiftLink("2CG6SV9QtRxerJTgCYNDnU7M".into()));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ResolveGift { code }))]
+            if code == "2CG6SV9QtRxerJTgCYNDnU7M"
+    ));
+    assert!(app.state.gift.as_ref().unwrap().resolving);
+    // Redeeming before the gift shows, or from looking it up, never
+    // happens; only the click does it.
+    assert!(app.dispatch(Action::RedeemGift).is_empty());
+    app.apply(Event::GiftResolved {
+        code: "other".into(),
+        result: Ok(gift(false, false)),
+    });
+    assert!(app.state.gift.as_ref().unwrap().preview.is_none());
+    app.apply(Event::GiftResolved {
+        code: "2CG6SV9QtRxerJTgCYNDnU7M".into(),
+        result: Ok(gift(false, false)),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(!shown.resolving && !shown.redeemed);
+    assert_eq!(shown.preview.unwrap().name, "Nitro");
+
+    let effects = app.dispatch(Action::RedeemGift);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::RedeemGift { preview, .. }))]
+            if preview.code == "2CG6SV9QtRxerJTgCYNDnU7M"
+    ));
+    assert!(
+        app.dispatch(Action::RedeemGift).is_empty(),
+        "one redemption at a time"
+    );
+    app.apply(Event::GiftRedeemed {
+        code: "2CG6SV9QtRxerJTgCYNDnU7M".into(),
+        result: Ok(()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(shown.redeemed && !shown.redeeming);
+    assert!(shown.preview.unwrap().redeemed);
+    assert!(app.dispatch(Action::RedeemGift).is_empty(), "and not twice");
+
+    // A gift this account redeemed, or anyone used up, shows but offers
+    // nothing to redeem.
+    for preview in [gift(true, false), gift(false, true)] {
+        app.dispatch(Action::OpenGiftLink(preview.code.clone()));
+        app.apply(Event::GiftResolved {
+            code: preview.code.clone(),
+            result: Ok(preview),
+        });
+        assert!(app.dispatch(Action::RedeemGift).is_empty());
+    }
+
+    // Discord's refusal stays in the dialog.
+    app.dispatch(Action::OpenGiftLink("gone".into()));
+    app.apply(Event::GiftResolved {
+        code: "gone".into(),
+        result: Err("Unknown Gift Code".into()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(shown.preview.is_none() && !shown.resolving);
+    assert_eq!(shown.error.as_deref(), Some("Unknown Gift Code"));
+}
+
+#[test]
 fn going_idle_while_signed_out_tells_nobody() {
     let inactive = || Action::Inactive {
         since: Some(1),

@@ -19,6 +19,7 @@ pub mod frecency;
 pub mod game_detection;
 pub mod gateway;
 pub mod gifs;
+pub mod gift;
 pub mod invite;
 pub mod limits;
 pub mod link;
