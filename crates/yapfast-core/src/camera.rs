@@ -1,6 +1,7 @@
-//! Cameras: listing them, and capturing one for a call. Linux and Windows
-//! capture with libwebrtc's capture module (`native/camera.cc`), through V4L2
-//! and DirectShow, which converts each frame into the same two I420 buffers.
+//! Cameras: listing them, and capturing one for a call or a Go Live stream.
+//! Linux and Windows capture with libwebrtc's capture module
+//! (`native/camera.cc`), through V4L2 and DirectShow, which converts each
+//! frame into the same two I420 buffers.
 //!
 //! `YAPFAST_CAMERA_TEST_PATTERN=1` adds a camera that films moving colour bars,
 //! for tests and screenshots on machines without a camera, and
@@ -34,6 +35,10 @@ const TEST_PATTERN_SIZE: (u32, u32) = (640, 360);
 /// What a camera's pictures go to, on the camera's own thread. The planes
 /// last until it returns.
 pub type Sink = Box<dyn FnMut(&I420<'_>) + Send>;
+
+/// The largest picture a camera gives, and how many a second: width,
+/// height, frames.
+pub type Size = (u32, u32, u32);
 
 fn test_pattern() -> bool {
     std::env::var_os("YAPFAST_CAMERA_TEST_PATTERN").is_some_and(|value| value != "0")
@@ -72,7 +77,7 @@ mod native {
 
     use anyhow::{Context, Result, bail};
 
-    use super::{FPS, HEIGHT, Sink, WIDTH};
+    use super::{Sink, Size};
     use crate::{
         picture::{I420, RawPicture},
         voice::Device,
@@ -143,7 +148,7 @@ mod native {
     }
 
     impl Camera {
-        pub(super) fn open(id: &str, sink: Sink) -> Result<Self> {
+        pub(super) fn open(id: &str, (width, height, fps): Size, sink: Sink) -> Result<Self> {
             let id = CString::new(id).context("not a camera id")?;
             let mut sink = Box::new(sink);
             let user = std::ptr::from_mut::<Sink>(sink.as_mut()).cast::<c_void>();
@@ -152,9 +157,9 @@ mod native {
             let raw = unsafe {
                 yapfast_camera_open(
                     id.as_ptr(),
-                    WIDTH as c_int,
-                    HEIGHT as c_int,
-                    FPS as c_int,
+                    width as c_int,
+                    height as c_int,
+                    fps as c_int,
                     deliver,
                     user,
                 )
@@ -187,8 +192,15 @@ pub struct Camera {
 
 impl Camera {
     /// Starts filming with the camera `id`, or the first one, sending its
-    /// pictures to `sink`.
+    /// pictures to `sink`, at a call's size: [`WIDTH`] by [`HEIGHT`] at
+    /// [`FPS`].
     pub fn open(id: Option<&str>, sink: Sink) -> Result<Self> {
+        Self::open_at(id, (WIDTH, HEIGHT, FPS), sink)
+    }
+
+    /// As [`Self::open`], with pictures at most `size`: a camera filming
+    /// larger is scaled down to fit. The test pattern keeps its own size.
+    pub fn open_at(id: Option<&str>, size: Size, sink: Sink) -> Result<Self> {
         let devices = list();
         let device = match id {
             Some(id) => devices.iter().find(|device| device.id == id),
@@ -204,7 +216,7 @@ impl Camera {
             }
             return Ok(Self::pattern(sink));
         }
-        Self::native(&device.id, sink)
+        Self::native(&device.id, size, sink)
     }
 
     /// Opens the camera `id`, or the first, as [`Self::open`] does, but on a
@@ -231,9 +243,9 @@ impl Camera {
     }
 
     #[cfg(target_os = "linux")]
-    fn native(id: &str, sink: Sink) -> Result<Self> {
+    fn native(id: &str, size: Size, sink: Sink) -> Result<Self> {
         Ok(Self {
-            _native: Some(native::Camera::open(id, sink)?),
+            _native: Some(native::Camera::open(id, size, sink)?),
             thread: None,
         })
     }
@@ -243,11 +255,11 @@ impl Camera {
     /// A thread of the camera's own does both, so no other thread's COM
     /// apartment is joined or left by mistake.
     #[cfg(windows)]
-    fn native(id: &str, sink: Sink) -> Result<Self> {
+    fn native(id: &str, size: Size, sink: Sink) -> Result<Self> {
         let id = id.to_owned();
         let (opened, result) = std::sync::mpsc::sync_channel(1);
         let camera = Self::spawn(move |stop| {
-            let camera = match native::Camera::open(&id, sink) {
+            let camera = match native::Camera::open(&id, size, sink) {
                 Ok(camera) => camera,
                 Err(error) => {
                     let _ = opened.send(Err(error));
@@ -268,7 +280,7 @@ impl Camera {
     }
 
     #[cfg(not(any(target_os = "linux", windows)))]
-    fn native(_: &str, _: Sink) -> Result<Self> {
+    fn native(_: &str, _: Size, _: Sink) -> Result<Self> {
         bail!("Cameras work on Linux and Windows for now.")
     }
 

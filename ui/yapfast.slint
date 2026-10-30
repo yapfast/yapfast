@@ -1146,22 +1146,32 @@ export component YapfastWindow inherits Window {
     callback join-deafened;
     callback toggle-deafen;
     callback toggle-share;
-    /// Share what share-screens, then share-windows, list at this index, or
-    /// the screen when they list none, at this resolution, as in
-    /// share-resolution, frame rate, and quality, as in share-high-quality.
+    /// Share what share-screens, share-windows, then share-cameras, list at
+    /// this index, or the screen when they list none, at this resolution, as
+    /// in share-resolution, frame rate, and quality, as in share-high-quality.
+    /// Where the system's dialog picks a screen or window (!share-lists), a
+    /// choice of it comes before the cameras.
     callback go-live(int, int, int, bool);
-    /// While sharing, share what share-screens, then share-windows, list at
-    /// this index in place of what's shared, or what the system's dialog
-    /// picks when they list none.
+    /// While sharing, share what the share menu lists at this index in place
+    /// of what's shared, as go-live counts them.
     callback switch-live(int);
-    /// The screens and windows to share, where Yapfast lists them (share-lists):
-    /// asked for as the share menu opens, which shows once they're in, with
-    /// the first picked. The screens' pictures come after.
+    /// The screens and windows to share, where Yapfast lists them (share-lists),
+    /// and the cameras: asked for as the share menu opens, which shows once
+    /// they're in, with the first picked. The screens' pictures come after.
     in property <bool> share-lists;
     in property <[ShareScreen]> share-screens;
     in property <[string]> share-windows;
+    in property <[string]> share-cameras;
     callback list-share-sources();
-    public function show-share-menu() { share-menu.show(); }
+    /// Opens the share menu once its lists are in. Switching where the
+    /// system's dialog picks and there's no camera goes straight to the dialog.
+    public function show-share-menu() {
+        if root.pick-switch && !root.share-lists && root.share-cameras.length == 0 {
+            root.switch-live(0);
+        } else {
+            share-menu.show();
+        }
+    }
     callback stream-tick;
     callback toggle-camera;
     /// Where the call's tiles are; see ParticipantGrid.
@@ -1518,15 +1528,8 @@ export component YapfastWindow inherits Window {
         root.pick-fps = root.share-fps;
         root.pick-high-quality = root.share-high-quality;
         root.pick-switch = root.sharing;
-        // Shown once the list is in, so it opens at its full height. Where
-        // the system's dialog picks what to share, a switch goes straight to it.
-        if root.sharing && !root.share-lists {
-            root.switch-live(-1);
-        } else if root.share-lists {
-            root.list-share-sources();
-        } else {
-            share-menu.show();
-        }
+        // Shown once the list is in, so it opens at its full height.
+        root.list-share-sources();
     }
     function open-soundboard(x: length, y: length) {
         root.menu-x = x; root.menu-y = y;
@@ -1553,7 +1556,8 @@ export component YapfastWindow inherits Window {
         width: root.share-screens.length > 0 ? 336px : 240px;
         close-policy: PopupClosePolicy.close-on-click-outside;
         ShareMenu {
-            screens: root.share-screens; windows: root.share-windows; switching: root.pick-switch;
+            screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
+            dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
             pick-high-quality <=> root.pick-high-quality;
             go-live(source, resolution, fps, high-quality) => {
