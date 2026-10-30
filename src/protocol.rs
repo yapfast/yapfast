@@ -5,7 +5,7 @@
 //! Settings says to, and gives the previous handler back when turned off.
 
 use std::path::Path;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(windows)]
 use std::path::PathBuf;
 
 /// Whether this platform can claim Discord's protocol links.
