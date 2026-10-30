@@ -1186,14 +1186,24 @@ export component AdvancedSettings inherits VerticalLayout {
     in-out property <bool> multiple-windows;
     in-out property <bool> start-on-sign-in;
     in property <bool> autostart-available;
+    in-out property <bool> discord-links;
+    in property <bool> discord-links-available;
     callback preferences-changed;
     callback restart;
     spacing: 16px;
     SettingsTitle { text: "Advanced"; }
+
     if root.autostart-available: SettingsSwitch {
         text: "Start when you sign in";
         description: "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you.";
         checked <=> root.start-on-sign-in;
+        toggled => { root.preferences-changed(); }
+    }
+    SettingsSwitch {
+        visible: root.discord-links-available;
+        text: "Open Discord links in Yapfast";
+        description: "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them.";
+        checked <=> root.discord-links;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {

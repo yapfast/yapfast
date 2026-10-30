@@ -25,6 +25,14 @@ pub enum Start {
     Handed,
 }
 
+/// What a later start asks the running Yapfast to show: the desktop's
+/// activation token, and a Discord link when the desktop handed it one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Launch {
+    pub token: Option<String>,
+    pub link: Option<String>,
+}
+
 /// A running Yapfast's hold on its folder, while it's the first there.
 #[derive(Default)]
 pub struct Instance {
@@ -34,11 +42,19 @@ pub struct Instance {
 
 /// Starts Yapfast on `root`. With another running there and `alone`, hands
 /// this start to it, which shows its window unless `background`.
-pub fn claim(root: &Path, alone: bool, background: bool) -> Start {
-    claim_with(root, alone, background, activation_token())
+pub fn claim(root: &Path, alone: bool, background: bool, link: Option<String>) -> Start {
+    claim_with(
+        root,
+        alone,
+        background,
+        Launch {
+            token: activation_token(),
+            link,
+        },
+    )
 }
 
-fn claim_with(root: &Path, alone: bool, background: bool, token: Option<String>) -> Start {
+fn claim_with(root: &Path, alone: bool, background: bool, launch: Launch) -> Start {
     let lock = std::fs::create_dir_all(root).and_then(|()| {
         File::options()
             .create(true)
@@ -65,12 +81,12 @@ fn claim_with(root: &Path, alone: bool, background: bool, token: Option<String>)
             tracing::info!("another Yapfast runs on this folder; starting one more");
             Start::Run(Instance::default())
         }
-        Err(std::fs::TryLockError::WouldBlock) if background => {
+        Err(std::fs::TryLockError::WouldBlock) if background && launch.link.is_none() => {
             tracing::info!("Yapfast already runs; nothing to start in the tray");
             Start::Handed
         }
         Err(std::fs::TryLockError::WouldBlock) => {
-            if hand(root, token.as_deref()) {
+            if hand(root, &launch) {
                 tracing::info!("Yapfast already runs; showed its window");
                 Start::Handed
             } else {
@@ -88,7 +104,7 @@ fn claim_with(root: &Path, alone: bool, background: bool, token: Option<String>)
 impl Instance {
     /// Calls `opened` on a thread of its own for each later start that asks
     /// for the window, with the activation token the desktop gave that start.
-    pub fn listen(&mut self, opened: impl Fn(Option<String>) + Send + 'static) {
+    pub fn listen(&mut self, opened: impl Fn(Launch) + Send + 'static) {
         if let Some(listener) = self.listener.as_mut() {
             listener.listen(opened);
         }
@@ -112,10 +128,10 @@ fn activation_token() -> Option<String> {
 }
 
 /// Asks the first Yapfast to show its window, waiting a little for it to listen.
-fn hand(root: &Path, token: Option<&str>) -> bool {
+fn hand(root: &Path, launch: &Launch) -> bool {
     let started = std::time::Instant::now();
     loop {
-        match ask(root, token) {
+        match ask(root, launch) {
             Ok(()) => return true,
             Err(error) if started.elapsed() >= PATIENCE => {
                 tracing::warn!(%error, "could not reach the running Yapfast");
@@ -127,13 +143,40 @@ fn hand(root: &Path, token: Option<&str>) -> bool {
 }
 
 #[cfg(unix)]
-fn ask(root: &Path, token: Option<&str>) -> std::io::Result<()> {
+fn ask(root: &Path, launch: &Launch) -> std::io::Result<()> {
     use std::io::Write;
     let mut stream = std::os::unix::net::UnixStream::connect(root.join(SOCKET))?;
-    match token {
-        Some(token) => writeln!(stream, "open {token}"),
-        None => writeln!(stream, "open"),
+    writeln!(stream, "{}", launch_line(launch))
+}
+
+/// A later start as one socket line: `open`, then its token and link,
+/// with `-` for either it hasn't got. Neither has whitespace.
+#[cfg(unix)]
+fn launch_line(launch: &Launch) -> String {
+    format!(
+        "open {} {}",
+        launch.token.as_deref().unwrap_or("-"),
+        launch.link.as_deref().unwrap_or("-")
+    )
+}
+
+/// Reads a socket line back, including the older `open [token]` shape.
+#[cfg(unix)]
+fn launch_from_line(line: &str) -> Option<Launch> {
+    let mut words = line.split_whitespace();
+    if words.next() != Some("open") {
+        return None;
     }
+    let field = |word: Option<&str>| match word {
+        None | Some("-") => None,
+        Some(word) => Some(word.to_owned()),
+    };
+    let token = field(words.next());
+    let link = field(words.next());
+    if words.next().is_some() {
+        return None;
+    }
+    Some(Launch { token, link })
 }
 
 #[cfg(unix)]
@@ -155,7 +198,7 @@ impl Listener {
         }
     }
 
-    fn listen(&mut self, opened: impl Fn(Option<String>) + Send + 'static) {
+    fn listen(&mut self, opened: impl Fn(Launch) + Send + 'static) {
         let Some(listener) = self.0.take() else {
             return;
         };
@@ -172,9 +215,8 @@ impl Listener {
                     if stream.take(4096).read_to_string(&mut request).is_err() {
                         continue;
                     }
-                    let mut words = request.split_whitespace();
-                    if words.next() == Some("open") {
-                        opened(words.next().map(str::to_owned));
+                    if let Some(launch) = launch_from_line(&request) {
+                        opened(launch);
                     }
                 }
             });
@@ -219,12 +261,18 @@ mod windows {
             .collect()
     }
 
-    pub(super) fn ask(root: &Path, _token: Option<&str>) -> std::io::Result<()> {
+    pub(super) fn ask(root: &Path, launch: &super::Launch) -> std::io::Result<()> {
         // SAFETY: the name is NUL-terminated; the handle is closed once set.
         unsafe {
             let event = OpenEventW(EVENT_MODIFY_STATE, 0, name(root).as_ptr());
             if event.is_null() {
                 return Err(std::io::Error::last_os_error());
+            }
+            if let Some(link) = launch.link.as_deref()
+                && let Err(error) = super::queue_link(root, link)
+            {
+                CloseHandle(event);
+                return Err(error);
             }
             // The started process may bring a window forward; it passes that on.
             AllowSetForegroundWindow(ASFW_ANY);
@@ -241,11 +289,13 @@ mod windows {
     pub(super) struct Listener {
         event: usize,
         stop: usize,
+        root: std::path::PathBuf,
         listening: bool,
     }
 
     impl Listener {
         pub(super) fn bind(root: &Path) -> Option<Self> {
+            super::clear_link_queue(root);
             // SAFETY: the name is NUL-terminated; null attributes are the defaults.
             let (event, stop) = unsafe {
                 (
@@ -272,12 +322,14 @@ mod windows {
             Some(Self {
                 event: event as usize,
                 stop: stop as usize,
+                root: root.to_owned(),
                 listening: false,
             })
         }
 
-        pub(super) fn listen(&mut self, opened: impl Fn(Option<String>) + Send + 'static) {
+        pub(super) fn listen(&mut self, opened: impl Fn(super::Launch) + Send + 'static) {
             let (event, stop) = (self.event, self.stop);
+            let root = self.root.clone();
             let thread = std::thread::Builder::new()
                 .name("yapfast-instance".into())
                 .stack_size(64 * 1024)
@@ -287,7 +339,17 @@ mod windows {
                     while unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) }
                         == WAIT_OBJECT_0
                     {
-                        opened(None);
+                        let links = super::drain_link_queue(&root);
+                        if links.is_empty() {
+                            opened(super::Launch::default());
+                        } else {
+                            for link in links {
+                                opened(super::Launch {
+                                    token: None,
+                                    link: Some(link),
+                                });
+                            }
+                        }
                     }
                     // SAFETY: Drop only sets `stop` once this thread runs.
                     unsafe {
@@ -321,6 +383,66 @@ mod windows {
 
 #[cfg(windows)]
 use windows::{Listener, ask};
+
+/// The folder under a data folder holding links handed to its running
+/// Yapfast on Windows, whose named event carries no words of its own.
+#[cfg(any(windows, test))]
+const LINK_QUEUE: &str = "instance-links";
+
+/// Leaves a link for the running Yapfast on `root` to take when its event
+/// is set. The file lands whole under its final name, so the running one
+/// never reads a half-written link.
+#[cfg(any(windows, test))]
+fn queue_link(root: &Path, link: &str) -> std::io::Result<()> {
+    let folder = root.join(LINK_QUEUE);
+    std::fs::create_dir_all(&folder)?;
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let path = folder.join(format!(
+        "{stamp:020}-{}-{next:020}.link",
+        std::process::id()
+    ));
+    let waiting = path.with_extension("tmp");
+    std::fs::write(&waiting, link)?;
+    std::fs::rename(&waiting, &path)
+}
+
+/// Takes the links waiting on `root`, oldest first.
+#[cfg(any(windows, test))]
+fn drain_link_queue(root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root.join(LINK_QUEUE)) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<_> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "link")
+        })
+        .collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let link = std::fs::read_to_string(&path).ok()?;
+            let _ = std::fs::remove_file(&path);
+            let link = link.trim();
+            (!link.is_empty() && link.len() <= 4096).then(|| link.to_owned())
+        })
+        .collect()
+}
+
+/// Drops links left for a Yapfast that has gone; the new first start on a
+/// folder opens no stale link when a later start shows its window.
+#[cfg(any(windows, test))]
+fn clear_link_queue(root: &Path) {
+    let _ = std::fs::remove_dir_all(root.join(LINK_QUEUE));
+}
 
 /// The token a later start brought, for the window made next.
 #[cfg(target_os = "linux")]
@@ -435,42 +557,96 @@ pub fn activate(window: &slint::winit_030::winit::window::Window, token: &str) {
 mod tests {
     use super::*;
 
-    fn opened(instance: &mut Instance) -> std::sync::mpsc::Receiver<Option<String>> {
+    fn launch(token: Option<&str>, link: Option<&str>) -> Launch {
+        Launch {
+            token: token.map(str::to_owned),
+            link: link.map(str::to_owned),
+        }
+    }
+
+    fn opened(instance: &mut Instance) -> std::sync::mpsc::Receiver<Launch> {
         let (sender, receiver) = std::sync::mpsc::channel();
-        instance.listen(move |token| {
-            let _ = sender.send(token);
+        instance.listen(move |launch| {
+            let _ = sender.send(launch);
         });
         receiver
     }
 
     #[test]
+    fn launch_lines_carry_tokens_and_links() {
+        let with_link = launch(
+            Some("token-1"),
+            Some("https://discord.com/channels/10/11/12"),
+        );
+        assert_eq!(
+            launch_line(&with_link),
+            "open token-1 https://discord.com/channels/10/11/12"
+        );
+        assert_eq!(launch_from_line(&launch_line(&with_link)), Some(with_link));
+        assert_eq!(
+            launch_from_line("open token-1"),
+            Some(launch(Some("token-1"), None))
+        );
+        assert_eq!(
+            launch_from_line("open - yapfast://channels/@me/20"),
+            Some(launch(None, Some("yapfast://channels/@me/20")))
+        );
+        assert_eq!(launch_from_line("open"), Some(Launch::default()));
+        assert_eq!(launch_from_line("open one two three"), None);
+        assert_eq!(launch_from_line("close token-1"), None);
+    }
+
+    #[test]
+    fn queued_links_are_taken_in_order_and_cleared() {
+        let root = tempfile::tempdir().unwrap();
+        queue_link(root.path(), "https://discord.com/channels/10/11").unwrap();
+        queue_link(root.path(), "https://discord.com/users/99").unwrap();
+        assert_eq!(
+            drain_link_queue(root.path()),
+            [
+                "https://discord.com/channels/10/11",
+                "https://discord.com/users/99"
+            ]
+        );
+        assert!(drain_link_queue(root.path()).is_empty());
+        queue_link(root.path(), "https://discord.gg/stale").unwrap();
+        clear_link_queue(root.path());
+        assert!(drain_link_queue(root.path()).is_empty());
+    }
+
+    #[test]
     fn a_later_start_shows_the_first_window() {
         let root = tempfile::tempdir().unwrap();
-        let Start::Run(mut first) = claim_with(root.path(), true, false, None) else {
+        let Start::Run(mut first) = claim_with(root.path(), true, false, Launch::default()) else {
             panic!("the first start runs");
         };
         let requests = opened(&mut first);
         assert!(matches!(
-            claim_with(root.path(), true, false, Some("token-1".into())),
+            claim_with(
+                root.path(),
+                true,
+                false,
+                launch(Some("token-1"), Some("https://discord.com/channels/10/11"))
+            ),
             Start::Handed
         ));
         let wait = Duration::from_secs(5);
         assert_eq!(
-            requests.recv_timeout(wait).unwrap().as_deref(),
-            Some("token-1")
+            requests.recv_timeout(wait).unwrap(),
+            launch(Some("token-1"), Some("https://discord.com/channels/10/11"))
         );
         assert!(matches!(
-            claim_with(root.path(), true, false, None),
+            claim_with(root.path(), true, false, Launch::default()),
             Start::Handed
         ));
-        assert_eq!(requests.recv_timeout(wait).unwrap(), None);
+        assert_eq!(requests.recv_timeout(wait).unwrap(), Launch::default());
         // Starting at sign-in leaves the running one as it is.
         assert!(matches!(
-            claim_with(root.path(), true, true, None),
+            claim_with(root.path(), true, true, Launch::default()),
             Start::Handed
         ));
         // Allowed, another runs beside the first, without listening.
-        let Start::Run(another) = claim_with(root.path(), false, false, None) else {
+        let Start::Run(another) = claim_with(root.path(), false, false, Launch::default()) else {
             panic!("allowed, a later start runs");
         };
         assert!(another._lock.is_none() && another.listener.is_none());
@@ -478,7 +654,7 @@ mod tests {
         // Once the first ends, the next start is the first.
         drop(first);
         assert!(matches!(
-            claim_with(root.path(), true, false, None),
+            claim_with(root.path(), true, false, Launch::default()),
             Start::Run(Instance {
                 _lock: Some(_),
                 listener: Some(_)

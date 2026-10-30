@@ -242,8 +242,9 @@ an error.
   a payment source, or is from a promotion, offers its link in the browser
   instead, since only Discord redeems those. A dialog closed while its gift
   is redeeming and opened again shows it still redeeming, and Discord's
-  answer. Only Discord's own hosts and snowflake ids match, so a look-alike
-  stays an ordinary web link. Discord pages Yapfast has no screen for, such
+  answer. The same reader takes web, `discord://` and `yapfast://` links
+  handed to a start. Only Discord's own hosts and snowflake ids match, so a
+  look-alike stays an ordinary web link. Discord pages Yapfast has no screen for, such
   as the shop and server templates, still open in the browser, as does a
   link Yapfast can't show: to a server the account isn't in, or any while
   Discord is offline (`AppState::opens_discord_route`).
