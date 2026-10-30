@@ -1953,6 +1953,7 @@ export component YapfastWindow inherits Window {
                             spacing: 0px;
                             Rectangle {
                                 height: 48px;
+                                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
                                 if root.header-server == "": Text { x: 16px; width: parent.width - (root.dms-selected && !root.preview ? (root.discord-linked ? 88px : 56px) : 32px); text: root.sidebar-title; font-size: 16px; font-weight: 700; color: Theme.text; vertical-alignment: center; overflow: elide; }
                                 if root.header-server != "": server-header := ServerHeader {
                                     x: 8px; y: 8px; width: parent.width - 16px - (root.header-invite ? 32px : 0px); height: 32px;
@@ -2979,7 +2980,7 @@ export component YapfastWindow inherits Window {
                                 if root.room-encrypted || root.preview: Image { source: @image-url("icons/lock.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
                                 Text { text: root.composer-hint; color: Theme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             }
-                            if root.composer-hint == "": Rectangle { height: 16px; }
+                            if root.composer-hint == "": Rectangle { height: 8px; }
                         }
                     }
                     if root.search-open: SearchPanel {
