@@ -60,15 +60,24 @@ there (`yapfast_discord::stream_connection`). The connection is a call's
 heartbeats acknowledge the last sequence number, and binary DAVE messages start
 with one. It identifies with the stream's RTC server and `video: true`,
 discovers its address, then uses `aead_aes256_gcm_rtpsize` transport
-encryption. Yapfast offers H264, and H265 before it when the GPU encodes H265
-([Encoding on the GPU](#encoding-on-the-gpu)), and announces its size with op
-12, again whenever someone connects. Frames come from x264 (`vendor/x264-src`,
+encryption. Yapfast offers H264, and AV1 then H265 before it where the GPU
+encodes them ([Encoding on the GPU](#encoding-on-the-gpu)), and announces its
+size with op 12, again whenever someone connects. H264 frames come from x264 (`vendor/x264-src`,
 built from source) through `native/h264.c`, with a keyframe at least every 3 s
 and whenever RTCP asks for one; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
 work sends H264. H264 goes as whole NAL units or FU-A fragments, H265 as whole
-units or FU fragments (RFC 7798), and past a frame's first 8 packets, 4 go out
+units or FU fragments (RFC 7798), and AV1 in AOM's [RTP payload
+format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html), as
+libwebrtc's packetizer sends it: OBU elements without their size fields,
+temporal delimiters, tile lists and padding dropped, an element too large
+for a packet carried on in the next, OBUs of different layers in packets of
+their own, and a keyframe's first packet marked as starting a coded video
+sequence (N). A frame with a malformed OBU isn't sent. DAVE leaves an AV1
+frame's last OBU without its size, its trailer after it, and receivers keep
+it so, since DAVE's decryptor reads the frame as it was sealed. Past a
+frame's first 8 packets, 4 go out
 each millisecond: a 1080p keyframe of 200 sent at once can overflow buffers on
 the way. Yapfast keeps the last 2048 video packets, and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
@@ -148,12 +157,14 @@ too, except those carrying keys.
 
 Watching works the same way in reverse. Clicking someone's LIVE badge, or their
 tile in the call, sends op 20 and starts a worker with a watch job. The worker
-connects as a viewer, offers H265, H264 and VP8 for decoding only (H265 only
-where it's built, on Linux and Windows), and asks for video with op 15. It
+connects as a viewer, offers AV1, H265, H264 and VP8 for decoding only (H265
+only where it's built, on Linux and Windows), and asks for video with op 15. It
 learns the streamer's SSRCs and codec from op 12 and op 14, then puts RTP
 packets back in order (`rtp::Reorder`) and together into frames
 (`rtp::Assembler`: VP8 descriptors, H264 single units, STAP-A and FU-A, and
-H265 single units, aggregation and fragmentation units, as Annex B). As
+H265 single units, aggregation and fragmentation units, as Annex B; AV1's
+OBU elements as OBUs, the last without its size, as DAVE's decryptor needs
+it and dav1d takes it). As
 Discord's client does, it asks for a missing packet again at once with a
 generic NACK, again every 80 ms up to three times, and takes the resend from
 the streamer's RTX SSRC (RFC 4588); padding there, which probes the path, is
@@ -166,9 +177,12 @@ indication, at most every 500 ms. It sends a receiver report every second
 echoed). With `YAPFAST_LOG=debug` it logs what it received every 5 s (`stream
 received`): packets out of order, resent, recovered, given up on, and keyframes
 asked for. The worker decodes with libvpx or with the FFmpeg H264 decoder in
-libwebrtc's archive (`native/decode.c`), or H265 with the HEVC decoder of
-`vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which libwebrtc's lacks, and
-writes RGBA at up to 1080p into the shared frames. That FFmpeg is built with
+libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
+archive (`native/av1.c`), a picture out for each frame in, or H265 with the
+HEVC decoder of `vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which
+libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames.
+dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
+H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor
 time. Watching is possible only in the call you're in, so clicking someone
 sharing in another channel joins it first, once asked, and watches once the
@@ -211,10 +225,12 @@ a stream's H264 goes to the graphics card's encoder where it has one:
 It's on by default because it takes almost no processor time and looks better
 than x264 at low bitrates. Intel graphics encode with x264 on Windows so far.
 The setting lives in `layout.json` and reaches the worker with each
-`Job::Share`; the camera stays on x264. When the GPU's encoder fails during a
-stream, x264 takes over from that frame with a keyframe. The worker logs which
-encoder each stream got ("encoding the stream", `engine`), and when none
-opened, why each GPU encoder failed ("no GPU encoder opened").
+`Job::Share`; the camera stays on x264. When the GPU's H264 encoder fails
+during a stream, x264 takes over from that frame with a keyframe. The worker
+logs which encoder each stream got ("encoding the stream", `engine` and
+`codec`), and for each codec none opened for, why each GPU encoder failed
+("no GPU encoder opened"). The call's Stream tab shows the encoder and the
+codec Discord chose ([Voice](voice.md)).
 
 FFmpeg is built from `vendor/ffmpeg-src` into the one binary, with only its
 hardware encoders and every symbol prefixed so it can't meet the FFmpeg
@@ -245,13 +261,43 @@ insert, with a patch to FFmpeg for each (AMF's sets the target, peak and buffer
 on the running encoder). "Higher quality" changes nothing on the GPU: NVENC's
 slowest preset looked no better than p4.
 
-Where the GPU's encoder encodes H265, the stream offers it too, first, since it
-looks better than H264 at the same bitrate. Discord picks the codec Yapfast
-offers first that every viewer's client decodes (op 4's `video_codec`), and
-when someone who can't decode it starts watching, switches the stream with op
+Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
+first, AV1 before H265, as Discord's client orders them: each looks better
+than the one after it at the same bitrate. When the stream starts, the
+worker opens each to see that it opens, and keeps the first: an encoder
+FFmpeg has isn't enough, the GPU and its driver must encode the codec. There
+is no AV1 encoder on the processor, so with "Encode streams with the GPU"
+off, the stream offers H264 alone. Discord picks the codec Yapfast offers
+first that every viewer's client decodes (op 4's `video_codec`), and when
+someone who can't decode it starts watching, switches the stream with op
 14; Yapfast then opens the other encoder and starts it with a keyframe,
-dropping frames still in the old codec. When H265 fails mid-stream, Yapfast
-withdraws it with its own op 14 `codecs`, marking it not to encode, and goes on
-in H264. Another Yapfast watching keeps the stream in H265. Which of Discord's
-own clients decode H265 isn't checked yet. AMF hasn't run on AMD hardware yet:
-Wine has no AMF runtime, so there it fails to open and x264 encodes.
+dropping frames still in the old codec. When AV1 or H265 fails mid-stream,
+or doesn't open again for a new size or after a switch, Yapfast withdraws
+it with its own op 14 `codecs`, marking it not to encode, and goes on in the
+next codec offered, H264 last. Another Yapfast watching keeps the stream in
+AV1 or H265. Which of Discord's own clients decode H265 and AV1 isn't
+checked yet.
+
+AV1 encodes on NVIDIA's RTX 40 series and newer (`av1_nvenc`), on AMD's
+RX 7000 series and newer and the Radeon 700M graphics, through AMF on
+Windows (`av1_amf`) and through Mesa's radeonsi on Linux (`av1_vaapi`), and
+on Intel's Arc and Core Ultra graphics through VA-API (iHD) on Linux. GPUs
+before those have no AV1 encoder, so the stream offers H265 and H264. On an
+RX 7900 XTX with AMD's driver 32.0.31041.1004 on Windows, `native/hwenc.c`,
+built on its own with FFmpeg's Windows build, encoded with `av1_amf`,
+`h264_amf` and `hevc_amf`, forced keyframes and a bitrate change included,
+and dav1d decoded the AV1; a whole Yapfast hasn't run there yet, nor AV1 on
+Linux, NVIDIA's or Intel's. The packetizer was checked against libaom's AV1
+of the test recording, which dav1d decodes to the same pictures after the
+packets are put back together, and against DAVE, which decrypts it.
+
+AMD's RX 7000 series codes AV1 in blocks of 64 by 16 pixels, and the
+picture's size rounds up: 320x180 came out as 320x192, and AMD gives
+1920x1080 as 1920x1082. FFmpeg hands the crop on beside the stream, which
+RTP can't carry, so viewers may see the extra rows at the bottom; sizes
+such as 1280x720 fit the blocks. See AMD's [alignment
+documentation](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/wiki/AV1-Encoder#av1-specific-api)
+and [the issue about it](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/423).
+The Stream tab gives the size Yapfast encodes, before the rounding.
+
+Wine has no AMF runtime, so there AMF fails to open and x264 encodes.

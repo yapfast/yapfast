@@ -495,6 +495,21 @@ impl Video {
     }
 }
 
+/// The codecs only a GPU encodes, most wanted first, offered before H264
+/// where the GPU's encoder for them opens.
+const GPU_CODECS: [Codec; 2] = [Codec::Av1, Codec::H265];
+
+fn log_encoder(encoder: &Encoder) {
+    let (width, height) = encoder.size();
+    tracing::info!(
+        engine = encoder.engine(),
+        codec = ?encoder.codec(),
+        width,
+        height,
+        "encoding the stream"
+    );
+}
+
 /// The kbit/s to aim for, as Discord's client does: its cap for frames of
 /// `height` lines, or what its server estimates the path carries when
 /// that's less, but at least the 500 kbit/s it gives a screen.
@@ -529,16 +544,7 @@ impl Sink {
             self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
         }
         if let Some(server) = self.server.take() {
-            // The GPU's H265 encoder, when it has one: Discord then chooses
-            // H265 while every viewer decodes it, and H264 otherwise.
-            let hevc = self
-                .hardware
-                .then(|| self.encoder(Codec::H265, width, height).ok())
-                .flatten();
-            let offers = match hevc {
-                Some(_) => vec![Codec::H265, stream_connection::SEND_CODEC],
-                None => vec![stream_connection::SEND_CODEC],
-            };
+            let (offers, encoder) = self.offers(width, height)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
@@ -548,10 +554,6 @@ impl Sink {
                     .ok()
             } else {
                 None
-            };
-            let encoder = match hevc {
-                Some(encoder) => encoder,
-                None => self.encoder(stream_connection::SEND_CODEC, width, height)?,
             };
             self.video = Some(Video {
                 sender,
@@ -567,11 +569,28 @@ impl Sink {
         let codec = video.sender.codec().unwrap_or(video.encoder.codec());
         let resized = video.encoder.size() != (width, height);
         if resized || codec != video.encoder.codec() {
-            let encoder = self.encoder(codec, width, height)?;
+            let opened = self.encoder(codec, width, height);
             let video = self.video.as_mut().expect("checked above");
-            video.encoder = encoder;
-            if resized {
-                video.sender.resize(width, height);
+            match opened {
+                Ok(encoder) => {
+                    video.encoder = encoder;
+                    if resized {
+                        video.sender.resize(width, height);
+                    }
+                }
+                // A GPU codec that opened at the start may not open again,
+                // or at another size: Discord then chooses another, which
+                // the next frame opens.
+                Err(error) if codec != stream_connection::SEND_CODEC => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        ?codec,
+                        "the GPU's encoder didn't open again"
+                    );
+                    video.sender.withdraw(codec);
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
             }
         }
         let Some(video) = self.video.as_mut() else {
@@ -599,41 +618,62 @@ impl Sink {
                 keyframe: frame.keyframe,
             }),
             Ok(None) => {}
-            // Only the GPU encodes H265: Discord chooses H264 instead, which
-            // the next frame encodes.
-            Err(error) if codec == Codec::H265 => {
+            // Only the GPU encodes AV1 and H265: Discord chooses another
+            // codec instead, which the next frame encodes.
+            Err(error) if codec != stream_connection::SEND_CODEC => {
                 tracing::warn!(
                     error = format!("{error:#}"),
-                    "the GPU's H265 encoder failed"
+                    ?codec,
+                    "the GPU's encoder failed"
                 );
-                video.sender.withdraw(Codec::H265);
+                video.sender.withdraw(codec);
             }
             Err(error) => return Err(error),
         }
         Ok(())
     }
 
-    /// An encoder for the stream in `codec`, at the bitrate Discord's cap
-    /// for its height allows.
+    /// The codecs to offer Discord, most wanted first, and an encoder for
+    /// the first: AV1, then H265, where the GPU's encoder for each opens,
+    /// then H264. Discord streams the first every viewer decodes. Each is
+    /// opened to see that it opens, and only the first kept.
+    fn offers(&self, width: u32, height: u32) -> Result<(Vec<Codec>, Encoder)> {
+        let mut offers = vec![];
+        let mut first = None;
+        for codec in GPU_CODECS.iter().copied().filter(|_| self.hardware) {
+            if let Ok(encoder) = self.open(codec, width, height) {
+                offers.push(codec);
+                first.get_or_insert(encoder);
+            }
+        }
+        offers.push(stream_connection::SEND_CODEC);
+        let encoder = match first {
+            Some(encoder) => encoder,
+            None => self.open(stream_connection::SEND_CODEC, width, height)?,
+        };
+        log_encoder(&encoder);
+        Ok((offers, encoder))
+    }
+
+    /// An encoder for the stream in `codec`, as [`Self::open`] opens it.
     fn encoder(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
-        let kbps = kbps(height, None);
-        let encoder = Encoder::new(
+        let encoder = self.open(codec, width, height)?;
+        log_encoder(&encoder);
+        Ok(encoder)
+    }
+
+    /// An encoder in `codec`, at the bitrate Discord's cap for its height
+    /// allows.
+    fn open(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
+        Encoder::new(
             codec,
             width,
             height,
             self.fps,
-            kbps,
+            kbps(height, None),
             self.effort,
             self.hardware,
-        )?;
-        tracing::info!(
-            engine = encoder.engine(),
-            ?codec,
-            width,
-            height,
-            "encoding the stream"
-        );
-        Ok(encoder)
+        )
     }
 
     /// Takes Yapfast's controls, reports the stream starting, and fails once
@@ -1472,6 +1512,41 @@ mod tests {
         assert_eq!(kbps(1080, Some(4_000_000)), 4000, "what the path carries");
         assert_eq!(kbps(720, Some(9_000_000)), 3500, "never past the cap");
         assert_eq!(kbps(1080, Some(100_000)), 500, "nor below a screen's floor");
+    }
+
+    /// With the GPU, AV1 and H265 before H264 where they open, and an
+    /// encoder for the first; without it, H264 alone, on x264.
+    #[test]
+    fn offers_the_gpus_codecs_first() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (_controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            controls: received,
+            server: None,
+            sound: false,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: true,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        let (offers, encoder) = sink.offers(320, 180).unwrap();
+        eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
+        assert_eq!(offers.last(), Some(&Codec::H264));
+        let mut order = [Codec::Av1, Codec::H265, Codec::H264].iter();
+        assert!(
+            offers.iter().all(|codec| order.any(|next| next == codec)),
+            "in order"
+        );
+        assert_eq!(encoder.codec(), offers[0]);
+        sink.hardware = false;
+        let (offers, encoder) = sink.offers(320, 180).unwrap();
+        assert_eq!((offers, encoder.engine()), (vec![Codec::H264], "x264"));
     }
 
     #[test]

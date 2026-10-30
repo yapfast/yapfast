@@ -9,6 +9,7 @@ fn main() {
         "h264.c",
         "clip.c",
         "decode.c",
+        "av1.c",
         "video.c",
         "picture.c",
         "camera.cc",
@@ -94,6 +95,7 @@ fn main() {
         .file("native/h264.c")
         .file("native/clip.c")
         .file("native/decode.c")
+        .file("native/av1.c")
         .file("native/video.c")
         .include(third_party.join("libvpx/source/libvpx"))
         // x264-src's build script hands over its headers' folder.

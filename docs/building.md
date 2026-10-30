@@ -246,9 +246,10 @@ files named here are in `crates/yapfast-core/native/`.
 - LiveKit's libwebrtc archive, `$LK_CUSTOM_WEBRTC` in the development shell,
   holds libvpx, dav1d, libyuv and Chromium's FFmpeg, which has H264 and
   common audio codecs but no HEVC decoder. `decode.c` decodes watched VP8
-  and H264 streams with it. `video.c` plays video files: libavformat
-  demuxes, libavcodec decodes H264 and the sound, libvpx VP8 and VP9, dav1d
-  AV1, and libyuv converts to RGBA. It also decodes the soundboard's MP3
+  and H264 streams with it, and `av1.c` watched AV1 with its dav1d.
+  `video.c` plays video files: libavformat demuxes, libavcodec decodes
+  H264 and the sound, libvpx VP8 and VP9, dav1d AV1, and libyuv converts to
+  RGBA. It also decodes the soundboard's MP3
   and Ogg sounds, which have no pictures. `vp8.c` and `clip.c` encode VP8 and VP9
   with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
   through libwebrtc's capture module.
