@@ -289,11 +289,11 @@ fn link_argument(arguments: &mut Vec<String>) -> Result<Option<String>> {
                 yapfast_core::discord::discord_route(argument).map(|_| index)
             })
             .collect();
-        return match links.as_slice() {
+        match links.as_slice() {
             [] => Ok(None),
             [index] => Ok(Some(arguments.remove(*index))),
             _ => bail!("specify one Discord link"),
-        };
+        }
     }
     #[cfg(not(all(feature = "desktop", feature = "discord")))]
     {
