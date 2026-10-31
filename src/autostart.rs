@@ -62,7 +62,7 @@ fn path_text(path: PathBuf) -> std::io::Result<String> {
 /// One argument of the command line, quoted when it holds a space, as
 /// Windows splits a command line into arguments.
 #[cfg(any(windows, test))]
-fn windows_argument(argument: &str) -> String {
+pub(crate) fn windows_argument(argument: &str) -> String {
     if !argument.is_empty() && !argument.contains([' ', '\t', '"']) {
         return argument.to_owned();
     }

@@ -215,7 +215,8 @@ an error.
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
   place in Yapfast, DM links included; an invite opens Join a Server first
-  (`link.rs`). Only Discord's own hosts and snowflake ids match, so a
+  (`link.rs`). The same reader takes web, `discord://` and `yapfast://`
+  links handed to a start. Only Discord's own hosts and snowflake ids match, so a
   look-alike stays an ordinary web link. Discord pages Yapfast has no screen
   for, such as gifts, events and app authorization, still open in the browser,
   as does a link Yapfast can't show: to a server the account isn't in, or any
