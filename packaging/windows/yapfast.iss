@@ -78,7 +78,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupA
 Root: HKCU; Subkey: "Software\Classes\yapfast"; ValueType: string; ValueName: ""; ValueData: "URL:Yapfast Protocol"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\yapfast"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\yapfast\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\yapfast.exe"",0"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\yapfast\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\yapfast.exe"" ""%1"""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\yapfast\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\yapfast.exe"" --open-link ""%1"""; Flags: uninsdeletekey
 ; Uninstalling stops starting at sign-in, however it was turned on.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey

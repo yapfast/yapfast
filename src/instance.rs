@@ -592,6 +592,14 @@ mod tests {
             Some(launch(None, Some("yapfast://channels/@me/20")))
         );
         assert_eq!(launch_from_line("open"), Some(Launch::default()));
+        // A start writes a link with a space as one word, which arrives whole.
+        #[cfg(feature = "discord")]
+        {
+            let link =
+                yapfast_core::discord::discord_link("https://discord.com/channels/10/11?a b");
+            let spaced = launch(None, link.as_deref());
+            assert_eq!(launch_from_line(&launch_line(&spaced)), Some(spaced));
+        }
         assert_eq!(launch_from_line("open one two three"), None);
         assert_eq!(launch_from_line("close token-1"), None);
     }

@@ -16,16 +16,9 @@ still gets the icon.
 
 Starting Yapfast while it runs on the same data folder brings the running
 one's window forward, making it again if it was closed to the tray, and the
-new start ends (`src/instance.rs`). A start can carry one Discord link, as
-a desktop handler for `yapfast://` or `discord://` passes it; the running
-Yapfast opens the place it names once Discord is online, and a first start
-waits for its snapshot in the same way. A renderer restart doesn't open it
-again. Settings → Advanced can claim `discord://` for this Yapfast;
-turning it off gives the links back to the app that had them. The Windows
-installer registers only `yapfast://`, and Linux packages declare both
-handlers without choosing either as the default. A start with
-`--background`, as at
-sign-in, just ends. Settings → Advanced → "Allow multiple windows"
+new start ends (`src/instance.rs`). A start can carry one link (see
+[Links from other apps](#links-from-other-apps)), which the running Yapfast
+opens. A start with `--background`, as at sign-in, just ends. Settings → Advanced → "Allow multiple windows"
 (`multiple_windows` in `layout.json`, off unless turned on) starts another
 Yapfast instead, with its own window and tray icon. Each folder is its own:
 another `--data-dir` always starts. The preview never asks.
@@ -44,6 +37,30 @@ again takes it through winit, and a shown one through Yapfast's own
 lets any process take the foreground, which the first then does. Its link
 waits as a small file in `instance-links` for the first to take and remove;
 a new first start clears any left there by one that has gone.
+
+## Links from other apps
+
+The desktop hands Yapfast a link after `--open-link`: Windows runs
+`"…\yapfast.exe" --open-link "%1"`, and the desktop entry
+`yapfast --open-link %u`. Windows puts the link into that command line as it
+comes, quotes included, so one link can split into several arguments. Nothing
+after `--open-link` is read as an option, and when more than one argument
+follows it, Yapfast starts, or shows the running one's window, without the
+link (`src/main.rs`). A link given on its own, as in
+`yapfast https://discord.com/channels/…`, opens too. Every argument under
+`discord:` or `yapfast:` counts as a link; one naming no place Yapfast has,
+such as Discord's library or settings, only starts Yapfast or shows its
+window, as every link does in a Matrix-only build. The link passes on as the
+URL standard writes it, a space percent-encoded, so it stays one word on the
+socket. Yapfast opens the place once Discord is online, and a first start
+waits for its snapshot in the same way. The restart a changed renderer setting
+makes doesn't open it again; the one after a failed GPU start does, as nothing
+opened it yet.
+
+Settings → Advanced can claim `discord://` for this Yapfast; turning it off
+gives the links back to the app that had them. The Windows installer
+registers only `yapfast://`, and Linux packages declare both handlers without
+choosing either as the default.
 
 ## Starting at sign-in
 

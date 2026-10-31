@@ -74,14 +74,19 @@ fn main() -> Result<()> {
         return yapfast_core::stream_worker::run();
     }
     let mut arguments: Vec<_> = std::env::args().skip(1).collect();
+    // First, so nothing a desktop handed over with the link is read as an option.
+    let handed = handed_link(&mut arguments);
     let renderer = renderer_argument(&mut arguments)?;
     let background = flag_argument(&mut arguments, "--background");
-    let mut matched_arguments = arguments.clone();
+    let mut links: Vec<String> = handed.clone().ok().flatten().into_iter().collect();
     if !arguments
         .first()
         .is_some_and(|argument| argument == "session")
     {
-        let _ = link_argument(&mut matched_arguments)?;
+        links.extend(link_arguments(&mut arguments));
+    }
+    if links.len() > 1 {
+        bail!("specify one Discord link");
     }
 
     #[cfg(all(windows, feature = "desktop"))]
@@ -91,6 +96,19 @@ fn main() -> Result<()> {
     }
     #[cfg(not(all(windows, feature = "desktop")))]
     logging::init();
+    if let Err(refused) = handed {
+        tracing::warn!(
+            refused,
+            "a handed link came as several arguments; starting without it"
+        );
+    }
+    let open_link = links.pop().and_then(|link| {
+        let written = written_link(&link);
+        if written.is_none() {
+            tracing::info!("Yapfast has no place for the link it was handed; starting without it");
+        }
+        written
+    });
     yapfast_core::init_tls()?;
 
     let runtime = BackgroundRuntime::new().context("could not start background workers")?;
@@ -101,33 +119,20 @@ fn main() -> Result<()> {
     {
         return runtime.block_on(cli::session(&arguments[1..]));
     }
-    match matched_arguments.as_slice() {
-        [] => launch(
-            runtime,
-            yapfast_core::default_directory()?,
-            false,
-            renderer,
-            background,
-            &arguments,
-        ),
-        [argument] if argument == "--preview" => launch(
-            runtime,
-            yapfast_core::default_directory()?,
-            true,
-            renderer,
-            background,
-            &arguments,
-        ),
-        [argument, path] if argument == "--data-dir" => launch(
-            runtime,
-            path.into(),
-            false,
-            renderer,
-            background,
-            &arguments,
-        ),
+    let start = Start {
+        renderer,
+        background,
+        arguments: &arguments,
+        open_link,
+    };
+    match arguments.as_slice() {
+        [] => launch(runtime, yapfast_core::default_directory()?, false, start),
+        [argument] if argument == "--preview" => {
+            launch(runtime, yapfast_core::default_directory()?, true, start)
+        }
+        [argument, path] if argument == "--data-dir" => launch(runtime, path.into(), false, start),
         [preview, argument, path] if preview == "--preview" && argument == "--data-dir" => {
-            launch(runtime, path.into(), true, renderer, background, &arguments)
+            launch(runtime, path.into(), true, start)
         }
         [argument] if argument == "--smoke-test" => {
             runtime.block_on(runtime.spawn(yapfast_core::check_build()))?;
@@ -201,30 +206,47 @@ fn data_directory(arguments: &[String]) -> Option<std::path::PathBuf> {
 #[cfg(feature = "desktop")]
 const GPU_FALLBACK_REASON: &str = "YAPFAST_GPU_FALLBACK_REASON";
 
+/// How Yapfast starts its window, besides its folder and the preview.
+#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+struct Start<'a> {
+    renderer: Option<&'static str>,
+    background: bool,
+    /// What a restart starts with: the arguments without `--renderer`,
+    /// `--background` or a link.
+    arguments: &'a [String],
+    /// A link handed to this start, as one word.
+    open_link: Option<String>,
+}
+
 #[cfg(feature = "desktop")]
 fn launch(
     runtime: BackgroundRuntime,
     root: std::path::PathBuf,
     preview: bool,
-    renderer: Option<&str>,
-    background: bool,
-    arguments: &[String],
+    start: Start<'_>,
 ) -> Result<()> {
-    let renderer = renderer.map(|renderer| match renderer {
+    let renderer = start.renderer.map(|renderer| match renderer {
         "gpu" => graphics::Renderer::Gpu,
         _ => graphics::Renderer::Software,
     });
     let fallback = std::env::var(GPU_FALLBACK_REASON).ok();
-    let mut relaunch_arguments = arguments.to_owned();
-    let open_link = link_argument(&mut relaunch_arguments)?;
     #[cfg(feature = "discord")]
     yapfast_core::keep_discord_files(&root);
     match ui::run(
-        runtime, root, preview, renderer, fallback, background, open_link,
+        runtime,
+        root,
+        preview,
+        renderer,
+        fallback,
+        start.background,
+        start.open_link.clone(),
     )? {
         ui::Exit::Closed => Ok(()),
-        ui::Exit::UseSoftware(reason) => relaunch(&relaunch_arguments, Some(&reason)),
-        ui::Exit::Restart => relaunch(&relaunch_arguments, None),
+        // The GPU failed before anything opened the link: the next start does.
+        ui::Exit::UseSoftware(reason) => {
+            relaunch(start.arguments, Some(&reason), start.open_link.as_deref())
+        }
+        ui::Exit::Restart => relaunch(start.arguments, None, None),
     }
 }
 
@@ -233,7 +255,7 @@ fn launch(
 /// released its session and runtime. `arguments` no longer hold `--renderer`,
 /// so a restart follows the setting, nor `--background`: the window shows.
 #[cfg(feature = "desktop")]
-fn relaunch(arguments: &[String], gpu_failure: Option<&str>) -> Result<()> {
+fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>) -> Result<()> {
     let mut command = std::process::Command::new(
         std::env::current_exe().context("could not find Yapfast to restart it")?,
     );
@@ -244,6 +266,10 @@ fn relaunch(arguments: &[String], gpu_failure: Option<&str>) -> Result<()> {
             .env(GPU_FALLBACK_REASON, reason),
         None => command.env_remove(GPU_FALLBACK_REASON),
     };
+    // Last, as nothing after it is read.
+    if let Some(link) = link {
+        command.args([OPEN_LINK, link]);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -257,14 +283,7 @@ fn relaunch(arguments: &[String], gpu_failure: Option<&str>) -> Result<()> {
 }
 
 #[cfg(not(feature = "desktop"))]
-fn launch(
-    _: BackgroundRuntime,
-    _: std::path::PathBuf,
-    _: bool,
-    _: Option<&str>,
-    _: bool,
-    _: &[String],
-) -> Result<()> {
+fn launch(_: BackgroundRuntime, _: std::path::PathBuf, _: bool, _: Start<'_>) -> Result<()> {
     bail!(
         "this build has no desktop UI; run --help for headless commands or rebuild with default features"
     )
@@ -277,63 +296,49 @@ fn flag_argument(arguments: &mut Vec<String>, flag: &str) -> bool {
     arguments.len() != before
 }
 
-/// A Discord link given as an argument, taking it out of `arguments`, so
-/// a renderer restart doesn't open it again.
-fn link_argument(arguments: &mut Vec<String>) -> Result<Option<String>> {
-    #[cfg(all(feature = "desktop", feature = "discord"))]
-    {
-        let links: Vec<usize> = arguments
-            .iter()
-            .enumerate()
-            .filter_map(|(index, argument)| {
-                yapfast_core::discord::discord_route(argument).map(|_| index)
-            })
-            .collect();
-        match links.as_slice() {
-            [] => Ok(None),
-            [index] => Ok(Some(arguments.remove(*index))),
-            _ => bail!("specify one Discord link"),
-        }
-    }
-    #[cfg(not(all(feature = "desktop", feature = "discord")))]
-    {
-        let _ = arguments;
-        Ok(None)
+/// Comes before the link a desktop hands Yapfast, as its registrations
+/// write it: `yapfast --open-link LINK`.
+const OPEN_LINK: &str = "--open-link";
+
+/// The link after `--open-link`, taking both, and anything after them, out
+/// of `arguments`. Windows writes a link into the registered command line
+/// as it comes, so one holding a quote splits into more arguments there:
+/// none of them is ever read as an option, and with more than one the link
+/// goes too, `Err` holding how many were refused. Without a link, as a
+/// desktop entry's `%u` is when the menu starts it, there's none.
+fn handed_link(arguments: &mut Vec<String>) -> Result<Option<String>, usize> {
+    let Some(index) = arguments.iter().position(|argument| argument == OPEN_LINK) else {
+        return Ok(None);
+    };
+    let mut handed = arguments.split_off(index);
+    match handed.len() {
+        1 => Ok(None),
+        2 => Ok(handed.pop()),
+        count => Err(count - 1),
     }
 }
 
-#[cfg(all(test, feature = "desktop", feature = "discord"))]
-mod tests {
-    use super::link_argument;
+/// Links given as arguments, taking them out of `arguments`: anything
+/// under `discord:` or `yapfast:`, whether or not Yapfast has a place for
+/// it, and Discord's web links that it has.
+fn link_arguments(arguments: &mut Vec<String>) -> Vec<String> {
+    arguments
+        .extract_if(.., |argument| {
+            argument.split_once(':').is_some_and(|(scheme, _)| {
+                scheme.eq_ignore_ascii_case("discord") || scheme.eq_ignore_ascii_case("yapfast")
+            }) || written_link(argument).is_some()
+        })
+        .collect()
+}
 
-    #[test]
-    fn a_discord_link_argument_is_taken_out() {
-        let mut arguments = vec![
-            "--data-dir".to_owned(),
-            "folder".to_owned(),
-            "https://discord.com/channels/10/11".to_owned(),
-        ];
-        assert_eq!(
-            link_argument(&mut arguments).unwrap().as_deref(),
-            Some("https://discord.com/channels/10/11")
-        );
-        assert_eq!(arguments, ["--data-dir", "folder"]);
-    }
-
-    #[test]
-    fn two_discord_link_arguments_are_refused() {
-        let mut arguments = vec![
-            "https://discord.gg/one".to_owned(),
-            "discord://-/users/99".to_owned(),
-        ];
-        assert!(link_argument(&mut arguments).is_err());
-    }
-
-    #[test]
-    fn other_arguments_are_left_alone() {
-        let mut arguments = vec!["session".to_owned(), "status".to_owned()];
-        assert_eq!(link_argument(&mut arguments).unwrap(), None);
-        assert_eq!(arguments, ["session", "status"]);
+/// A link as one word, when it names a place this Yapfast can open.
+fn written_link(link: &str) -> Option<String> {
+    #[cfg(all(feature = "desktop", feature = "discord"))]
+    return yapfast_core::discord::discord_link(link);
+    #[cfg(not(all(feature = "desktop", feature = "discord")))]
+    {
+        let _ = link;
+        None
     }
 }
 
@@ -355,4 +360,71 @@ fn renderer_argument(arguments: &mut Vec<String>) -> Result<Option<&'static str>
         bail!("specify --renderer once");
     }
     Ok(Some(renderer))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(arguments: &[&str]) -> Vec<String> {
+        arguments
+            .iter()
+            .map(|&argument| argument.to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_handed_link_is_never_read_as_an_option() {
+        let mut arguments = strings(&["--data-dir", "folder", OPEN_LINK, "--preview"]);
+        assert_eq!(handed_link(&mut arguments), Ok(Some("--preview".into())));
+        assert_eq!(arguments, ["--data-dir", "folder"]);
+        // `discord://-/channels/1/2" --data-dir "\\host\share`, put
+        // into `"yapfast.exe" --open-link "%1"` as Windows does.
+        let mut arguments = strings(&[
+            OPEN_LINK,
+            "discord://-/channels/1/2",
+            "--data-dir",
+            r"\\host\share",
+        ]);
+        assert_eq!(handed_link(&mut arguments), Err(3));
+        assert!(arguments.is_empty());
+        let mut arguments = strings(&["--background", OPEN_LINK]);
+        assert_eq!(handed_link(&mut arguments), Ok(None));
+        assert_eq!(arguments, ["--background"]);
+    }
+
+    #[test]
+    fn every_link_argument_is_taken_out() {
+        let mut arguments = strings(&[
+            "--data-dir",
+            "folder",
+            "discord://-/library",
+            "YAPFAST://channels/@me",
+            "https://example.com/channels/10/11",
+        ]);
+        assert_eq!(
+            link_arguments(&mut arguments),
+            ["discord://-/library", "YAPFAST://channels/@me"]
+        );
+        assert_eq!(
+            arguments,
+            ["--data-dir", "folder", "https://example.com/channels/10/11"]
+        );
+        let mut arguments = strings(&["session", "status"]);
+        assert!(link_arguments(&mut arguments).is_empty());
+        assert_eq!(arguments, ["session", "status"]);
+    }
+
+    #[cfg(all(feature = "desktop", feature = "discord"))]
+    #[test]
+    fn a_discord_web_link_is_taken_out_and_written_as_one_word() {
+        let mut arguments = strings(&["https://discord.com/channels/10/11?a b"]);
+        let links = link_arguments(&mut arguments);
+        assert!(arguments.is_empty());
+        assert_eq!(
+            written_link(&links[0]).as_deref(),
+            Some("https://discord.com/channels/10/11?a%20b")
+        );
+        assert_eq!(written_link("discord://-/settings/account"), None);
+    }
 }

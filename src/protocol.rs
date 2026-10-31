@@ -192,17 +192,21 @@ mod windows {
         set_string(YAPFAST_COMMAND, None, ours)
     }
 
-    /// The registered command line, with the link as its last argument.
+    /// The registered command line, with the link last, after
+    /// `--open-link`. Windows puts the link in as it comes, quotes
+    /// included, so whatever it splits into follows the marker, where
+    /// Yapfast reads no option.
     fn command_line(command: &[String]) -> String {
         let mut line: Vec<String> = command
             .iter()
             .map(|argument| crate::autostart::windows_argument(argument))
             .collect();
-        line.push("\"%1\"".to_owned());
+        line.extend([crate::OPEN_LINK.to_owned(), "\"%1\"".to_owned()]);
         line.join(" ")
     }
 
-    /// Whether a registered command runs a Yapfast, wherever it lives.
+    /// Whether a registered command runs a Yapfast, wherever it lives,
+    /// with or without `--open-link`, as earlier builds registered it.
     fn is_ours(command: &str) -> bool {
         let command = command.to_ascii_lowercase();
         command.contains("yapfast.exe") && command.contains("%1")
@@ -302,11 +306,12 @@ mod windows {
 
         #[test]
         fn recognises_its_own_registered_command() {
+            assert!(is_ours(r#""C:\Apps\Yapfast\yapfast.exe" --open-link "%1""#));
             assert!(is_ours(r#""C:\Apps\Yapfast\yapfast.exe" "%1""#));
             assert!(!is_ours(r#""C:\Apps\Discord\Discord.exe" "%1""#));
             assert_eq!(
                 command_line(&[r"C:\Apps\Yapfast\yapfast.exe".into()]),
-                r#""C:\Apps\Yapfast\yapfast.exe" "%1""#
+                r#""C:\Apps\Yapfast\yapfast.exe" --open-link "%1""#
             );
         }
 

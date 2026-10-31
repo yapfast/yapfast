@@ -85,8 +85,8 @@ pub(crate) fn install_in(data: &Path, system: &[PathBuf], image: &Path) -> io::R
 fn entry(image: &str) -> String {
     let tried = image.replace('\\', "\\\\");
     ENTRY.replace(
-        "\nExec=yapfast %u\n",
-        &format!("\nTryExec={tried}\nExec={} %u\n", quoted(image)),
+        "\nExec=yapfast --open-link %u\n",
+        &format!("\nTryExec={tried}\nExec={} --open-link %u\n", quoted(image)),
     )
 }
 
@@ -184,7 +184,9 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         assert!(install_in(data.path(), &[], Path::new(IMAGE)).unwrap());
         let text = entry_in(data.path());
-        assert!(text.contains(&format!("\nTryExec={IMAGE}\nExec=\"{IMAGE}\" %u\n")));
+        assert!(text.contains(&format!(
+            "\nTryExec={IMAGE}\nExec=\"{IMAGE}\" --open-link %u\n"
+        )));
         assert!(text.contains("MimeType=x-scheme-handler/yapfast;x-scheme-handler/discord;"));
         assert!(text.contains(&format!("\nIcon={APP_ID}\n")));
         let icon = data
@@ -203,7 +205,7 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         install_in(data.path(), &[], Path::new("/tmp/Yapfast.AppImage")).unwrap();
         assert!(install_in(data.path(), &[], Path::new(IMAGE)).unwrap());
-        assert!(entry_in(data.path()).contains(&format!("\nExec=\"{IMAGE}\" %u\n")));
+        assert!(entry_in(data.path()).contains(&format!("\nExec=\"{IMAGE}\" --open-link %u\n")));
     }
 
     #[test]
