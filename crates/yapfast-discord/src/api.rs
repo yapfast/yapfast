@@ -1788,6 +1788,35 @@ impl Api {
             .await
     }
 
+    /// What authorizing an application would do, as Discord's client asks
+    /// before showing it; `query` is [`crate::oauth::Request::preview_query`].
+    pub async fn oauth_preview(&self, query: &str) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Authorizes an application, with the query
+    /// [`crate::oauth::Request::authorize_query`] makes, in the server
+    /// `guild` when it installs to one, with a bot's `permissions`; the
+    /// answer says where Discord sends the person next.
+    pub async fn authorize_oauth(
+        &self,
+        query: &str,
+        user_install: bool,
+        guild: Option<&str>,
+        permissions: Option<u64>,
+    ) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        let body = json!({
+            "authorize": true,
+            "integration_type": u64::from(user_install),
+            "guild_id": guild,
+            "permissions": permissions.map(|bits| bits.to_string()),
+        });
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
     /// Joins a server by an invite, from this gateway `session`, as
     /// Discord's client does; `context` says where, as
     /// [`crate::invite::Preview::context`] makes it. Discord may ask for a
@@ -2152,6 +2181,7 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
             anyhow!("They don't take friend requests from people they don't know.")
         }
         (_, Some(ALREADY_FRIENDS)) => anyhow!("You're already friends."),
+        (_, Some(UNKNOWN_APPLICATION)) => anyhow!("Discord doesn't know that application."),
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
             anyhow!("This invite is invalid or has expired.")
         }
@@ -2262,6 +2292,7 @@ fn form_errors(body: &Value) -> Option<String> {
 const REQUESTS_CLOSED: u64 = 80000;
 const UNKNOWN_USERNAME: u64 = 80004;
 const ALREADY_FRIENDS: u64 = 80007;
+const UNKNOWN_APPLICATION: u64 = 10002;
 const UNKNOWN_INVITE: u64 = 10006;
 const INVALID_INVITE: u64 = 50020;
 const BANNED: u64 = 40007;

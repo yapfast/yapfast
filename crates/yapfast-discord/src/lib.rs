@@ -28,6 +28,7 @@ pub mod member_list;
 pub mod message;
 pub mod mfa;
 pub mod notifications;
+pub mod oauth;
 pub mod opus;
 pub mod own_activity;
 pub mod profile;

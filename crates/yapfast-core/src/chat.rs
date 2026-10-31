@@ -1935,6 +1935,47 @@ impl GiftPreview {
     }
 }
 
+/// A server an application could be added to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OAuthGuild {
+    /// The server, by its Discord id, its name and its icon's address.
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    /// This account may add applications to the server.
+    pub can_add: bool,
+}
+
+/// What authorizing a Discord application from its link shows first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OAuthPreview {
+    /// The link's query, which names the dialog the preview is for.
+    /// Authorizing reads the link again, so it sends what this shows.
+    pub query: String,
+    /// The application, what it says about itself, and its icon.
+    pub name: String,
+    pub about: Option<String>,
+    pub icon: Option<String>,
+    /// The bot the link would add, when it adds one.
+    pub bot: Option<String>,
+    /// What each scope it asks for lets it do, in the words of Discord's
+    /// authorization page, and a bot's permissions in the server.
+    pub wants: Vec<&'static str>,
+    pub permissions: Option<u64>,
+    /// It asks to control the person's Discord client (the `rpc` scope).
+    pub controls_client: bool,
+    /// This account authorized it for these scopes before.
+    pub authorized: bool,
+    /// Where Discord sends the person afterwards, for a sign-in flow.
+    pub redirect: Option<String>,
+    /// It installs to a server, whose picking the link may lock to
+    /// `wanted_guild`; the servers it could go to.
+    pub guild_install: bool,
+    pub guild_locked: bool,
+    pub wanted_guild: Option<String>,
+    pub guilds: Vec<OAuthGuild>,
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
@@ -2206,6 +2247,18 @@ pub enum DiscordCommand {
     RedeemGift {
         code: String,
         room: Option<String>,
+    },
+    /// Look up what authorizing a Discord application from the link
+    /// whose query this is would do. [`Event::OAuthResolved`] follows.
+    ResolveOAuth {
+        query: String,
+    },
+    /// Authorize the application the link whose query this is names,
+    /// in the server by its Discord id when it installs to one.
+    /// [`Event::OAuthAuthorized`] follows.
+    AuthorizeOAuth {
+        query: String,
+        guild: Option<String>,
     },
     /// Make a channel or category in a Discord server, by its server id,
     /// inside the category `parent` names by its room id, or a copy of
@@ -3543,6 +3596,18 @@ pub enum Event {
     GiftRedeemed {
         code: String,
         result: Result<(), String>,
+    },
+    /// What the authorization [`DiscordCommand::ResolveOAuth`] looked
+    /// up by its link's query shows, or why Discord showed nothing.
+    OAuthResolved {
+        query: String,
+        result: Result<OAuthPreview, String>,
+    },
+    /// The address [`DiscordCommand::AuthorizeOAuth`] sends the person
+    /// to next, for the link with this query, or why it didn't.
+    OAuthAuthorized {
+        query: String,
+        result: Result<String, String>,
     },
     /// The roles and groups a message in a room may mention.
     MentionGroups {

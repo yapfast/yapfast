@@ -22,6 +22,7 @@ use crate::{
     message::{self, Message, Names, Page},
     mfa,
     notifications::Change,
+    oauth,
     profile::{self, Profile},
     ready::{self, PRIVATE, Server},
     scheduled_event, search, server_settings,
@@ -2203,6 +2204,39 @@ impl Discord {
     /// the entitlement it grants over the gateway.
     pub async fn redeem_gift(&self, code: &str, channel: Option<&str>) -> Result<()> {
         self.api.redeem_gift_code(code, channel).await.map(drop)
+    }
+
+    /// What authorizing the application `request` names would do; see
+    /// [`Api::oauth_preview`].
+    pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {
+        let answer = self.api.oauth_preview(&request.preview_query()).await?;
+        oauth::Preview::of(&answer, request).context("Discord doesn't know that application.")
+    }
+
+    /// Authorizes the application `request` names, in the server
+    /// `guild` when it installs to one; the address Discord sends the
+    /// person to next.
+    pub async fn authorize_oauth(
+        &self,
+        request: &oauth::Request,
+        guild: Option<&str>,
+    ) -> Result<String> {
+        let answer = self
+            .api
+            .authorize_oauth(
+                &request.authorize_query(),
+                request.user_install,
+                guild,
+                request.permissions,
+            )
+            .await?;
+        // Discord's client reads `location`; docs.discord.food names it
+        // `url`.
+        answer["location"]
+            .as_str()
+            .or_else(|| answer["url"].as_str())
+            .map(str::to_owned)
+            .context("Discord authorized it without saying where to go next.")
     }
 
     /// A channel's name, topic, slowmode in seconds and whether it's

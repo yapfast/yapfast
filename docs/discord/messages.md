@@ -244,9 +244,28 @@ an error.
   is redeeming and opened again shows it still redeeming, and Discord's
   answer. Only Discord's own hosts and snowflake ids match, so a look-alike
   stays an ordinary web link. Discord pages Yapfast has no screen for, such
-  as app authorization, still open in the browser, as does a link Yapfast
-  can't show: to a server the account isn't in, or any while Discord is
-  offline (`AppState::opens_discord_route`).
+  as the shop and server templates, still open in the browser, as does a
+  link Yapfast can't show: to a server the account isn't in, or any while
+  Discord is offline (`AppState::opens_discord_route`).
+- An authorization link (`/oauth2/authorize`) shows what the application
+  asks for, in the words of Discord's page, and authorizes it only on the
+  click, in the server picked (`link.rs`, `oauth.rs`). A red line warns of
+  the `rpc` scope, which controls the Discord client, and of a bot asking
+  for Administrator; a bot's permissions no role switch names count as
+  "N more". A link that locks its server shows that server and can't be
+  moved to another: if the account can't add apps there, the dialog says so
+  and offers no Authorize. Like Discord's client, Yapfast sends only the
+  fields it read (`client_id`, `scope`, `response_type`, `redirect_uri`,
+  `state`, `nonce`, the PKCE pair, `integration_type`), rebuilt into each
+  query, with the server and permissions in the body; a link naming one of
+  them twice opens in the browser, as do links without scopes (install
+  links, whose scopes Discord's page reads from the application), links
+  asking for `webhook.incoming` (which needs a channel picked) and links
+  with a scope Yapfast can't describe. Afterwards Yapfast goes where
+  Discord's answer (`location`) says: a page of Discord's own ends the
+  dialog at "Authorized", a web page opens in the browser, and any other
+  address, such as an app's `myapp://`, is shown to copy and never opened,
+  as no link in a message starts another program (`links::openable`).
 - Animated GIFs, APNGs and animated WebPs play, in messages, as stickers and in
   the image viewer. The media proxy keeps GIFs as GIFs; other pictures come as
   WebP, asked for with `animated=true` as Discord's client does, so an animated

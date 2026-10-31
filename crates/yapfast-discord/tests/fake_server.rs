@@ -3640,6 +3640,102 @@ async fn links_by_qr_code() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn authorizes_an_application() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        ..
+    } = Fixture::start("authorizes_an_application").await;
+    use yapfast_discord::oauth::Request;
+
+    let query = "client_id=157730590492196864&scope=bot%20applications.commands&permissions=2048";
+    let request = Request::parse(query).unwrap();
+    // The preview its dialog shows. Looking it up authorizes nothing.
+    let preview = discord.oauth_preview(&request).await.unwrap();
+    assert_eq!(preview.name, "Alien App");
+    assert_eq!(preview.bot.as_deref(), Some("Alien App"));
+    assert!(!preview.authorized);
+    let addable: Vec<&str> = preview
+        .guilds
+        .iter()
+        .filter(|found| found.can_add)
+        .map(|found| found.id.as_str())
+        .collect();
+    assert_eq!(addable, [guild.as_str()]);
+    let made: serde_json::Value = serde_json::from_str(&control(
+        server,
+        "GET",
+        "/_control/oauth-authorizations",
+        "",
+    ))
+    .unwrap();
+    assert!(made.as_array().unwrap().is_empty(), "{made}");
+
+    // Authorizing adds it to Server with the bot permissions it asked
+    // for, and Discord sends her nowhere else.
+    let next = discord
+        .authorize_oauth(&request, Some(guild.as_str()))
+        .await
+        .unwrap();
+    assert_eq!(next, "https://discord.com/oauth2/authorized");
+    let made: serde_json::Value = serde_json::from_str(&control(
+        server,
+        "GET",
+        "/_control/oauth-authorizations",
+        "",
+    ))
+    .unwrap();
+    let made = made.as_array().unwrap();
+    assert_eq!(made.len(), 1);
+    assert_eq!(made[0]["guild_id"], guild.as_str());
+    assert_eq!(made[0]["permissions"], "2048");
+    assert_eq!(
+        made[0]["query"],
+        "client_id=157730590492196864&scope=bot+applications.commands"
+    );
+    assert!(discord.oauth_preview(&request).await.unwrap().authorized);
+
+    // A sign-in flow answers with the app's own address and its code.
+    let sign_in = Request::parse(
+        "response_type=code&client_id=157730590492196864&scope=identify&state=xyz&redirect_uri=https%3A%2F%2Fnicememe.website",
+    )
+    .unwrap();
+    let next = discord.authorize_oauth(&sign_in, None).await.unwrap();
+    assert_eq!(
+        next,
+        "https://nicememe.website?code=fake-auth-code&state=xyz"
+    );
+    // What it sends is what the link asked for, rebuilt from what the
+    // dialog read, without the fields it doesn't read.
+    let tracked = Request::parse(
+        "client_id=157730590492196864&scope=identify%20guilds&utm_source=chat&prompt=none&state=a%20b",
+    )
+    .unwrap();
+    discord.authorize_oauth(&tracked, None).await.unwrap();
+    let made: serde_json::Value = serde_json::from_str(&control(
+        server,
+        "GET",
+        "/_control/oauth-authorizations",
+        "",
+    ))
+    .unwrap();
+    let last = &made.as_array().unwrap().last().unwrap();
+    assert_eq!(
+        last["query"],
+        "client_id=157730590492196864&scope=identify+guilds&state=a+b"
+    );
+    assert_eq!(last["scope"], "identify guilds");
+
+    // An application Discord doesn't know is refused as it refuses it.
+    let unknown = Request::parse("client_id=999999999999999999&scope=bot").unwrap();
+    let error = discord.oauth_preview(&unknown).await.unwrap_err();
+    assert_eq!(error.to_string(), "Discord doesn't know that application.");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn redeems_a_gift() {
     let Fixture {
         _fake,

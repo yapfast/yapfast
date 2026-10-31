@@ -9512,6 +9512,205 @@ fn a_gift_closed_while_redeeming_shows_the_answer_when_opened_again() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn an_authorization_link_shows_the_app_and_authorizes_on_the_click() {
+    let bot_preview = |locked: bool| chat::OAuthPreview {
+        query: "client_id=157730590492196864&scope=bot&permissions=2048&guild_id=10".into(),
+        name: "Alien App".into(),
+        about: Some("Beams messages up.".into()),
+        icon: None,
+        bot: Some("Alien App".into()),
+        wants: vec!["Add a bot to a server"],
+        permissions: Some(2048),
+        controls_client: false,
+        authorized: false,
+        redirect: None,
+        guild_install: true,
+        guild_locked: locked,
+        wanted_guild: Some("10".into()),
+        guilds: vec![
+            chat::OAuthGuild {
+                id: "10".into(),
+                name: "Server".into(),
+                icon: None,
+                can_add: true,
+            },
+            chat::OAuthGuild {
+                id: "20".into(),
+                name: "Builders".into(),
+                icon: None,
+                can_add: true,
+            },
+            chat::OAuthGuild {
+                id: "30".into(),
+                name: "Elsewhere".into(),
+                icon: None,
+                can_add: false,
+            },
+        ],
+    };
+    let query = "client_id=157730590492196864&scope=bot&permissions=2048&guild_id=10";
+    let mut app = discord_server();
+    let effects = app.dispatch(Action::OpenOAuthLink(query.into()));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ResolveOAuth { query: sent }))]
+            if sent == query
+    ));
+    // Authorizing before the app shows, or from looking it up, never
+    // happens; only the click does it.
+    assert!(app.dispatch(Action::AuthorizeOAuth).is_empty());
+    app.apply(Event::OAuthResolved {
+        query: query.into(),
+        result: Ok(bot_preview(false)),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert!(!shown.resolving);
+    assert_eq!(
+        shown.guild.as_deref(),
+        Some("10"),
+        "the link's server first"
+    );
+    // Another managed server can be picked; one she doesn't manage can't.
+    app.dispatch(Action::ChooseOAuthGuild("30".into()));
+    assert_eq!(
+        app.state.oauth.as_ref().unwrap().guild.as_deref(),
+        Some("10")
+    );
+    app.dispatch(Action::ChooseOAuthGuild("20".into()));
+    assert_eq!(
+        app.state.oauth.as_ref().unwrap().guild.as_deref(),
+        Some("20")
+    );
+
+    let effects = app.dispatch(Action::AuthorizeOAuth);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::AuthorizeOAuth { guild: Some(guild), .. }))]
+            if guild == "20"
+    ));
+    assert!(
+        app.dispatch(Action::AuthorizeOAuth).is_empty(),
+        "once at a time"
+    );
+    app.apply(Event::OAuthAuthorized {
+        query: query.into(),
+        result: Ok("https://discord.com/channels/@me".into()),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert!(shown.done && !shown.authorizing);
+
+    // A link that locks its server keeps it, whatever is picked.
+    app.dispatch(Action::OpenOAuthLink(query.into()));
+    app.apply(Event::OAuthResolved {
+        query: query.into(),
+        result: Ok(bot_preview(true)),
+    });
+    app.dispatch(Action::ChooseOAuthGuild("20".into()));
+    assert_eq!(
+        app.state.oauth.as_ref().unwrap().guild.as_deref(),
+        Some("10")
+    );
+
+    // A sign-in flow sends her on to the app's own address, with its code.
+    let sign_in = "response_type=code&client_id=157730590492196864&scope=identify";
+    app.dispatch(Action::OpenOAuthLink(sign_in.into()));
+    app.apply(Event::OAuthResolved {
+        query: sign_in.into(),
+        result: Ok(chat::OAuthPreview {
+            query: sign_in.into(),
+            guild_install: false,
+            guilds: vec![],
+            wanted_guild: None,
+            ..bot_preview(false)
+        }),
+    });
+    app.dispatch(Action::AuthorizeOAuth);
+    let effects = app.apply(Event::OAuthAuthorized {
+        query: sign_in.into(),
+        result: Ok("https://nicememe.website/?code=fake".into()),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::OpenPage(page)] if page == "https://nicememe.website/?code=fake"
+    ));
+    assert!(app.state.oauth.is_none());
+
+    // Discord's refusal stays in the dialog.
+    app.dispatch(Action::OpenOAuthLink(query.into()));
+    app.apply(Event::OAuthResolved {
+        query: query.into(),
+        result: Err("Unknown Application".into()),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert!(shown.preview.is_none() && !shown.resolving);
+    assert_eq!(shown.error.as_deref(), Some("Unknown Application"));
+
+    // A link locked to a server she can't add apps to is refused, never
+    // moved to another server.
+    let locked_elsewhere =
+        "client_id=157730590492196864&scope=bot&guild_id=30&disable_guild_select=true";
+    app.dispatch(Action::OpenOAuthLink(locked_elsewhere.into()));
+    app.apply(Event::OAuthResolved {
+        query: locked_elsewhere.into(),
+        result: Ok(chat::OAuthPreview {
+            query: locked_elsewhere.into(),
+            wanted_guild: Some("30".into()),
+            ..bot_preview(true)
+        }),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert_eq!(shown.guild, None);
+    assert!(shown.error.is_some());
+    app.dispatch(Action::ChooseOAuthGuild("10".into()));
+    assert_eq!(app.state.oauth.as_ref().unwrap().guild, None);
+    assert!(app.dispatch(Action::AuthorizeOAuth).is_empty());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_authorization_never_opens_an_address_that_isnt_a_web_page() {
+    let sign_in = "response_type=code&client_id=157730590492196864&scope=identify";
+    for next in [
+        "myapp://cb?code=x",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://discord.com@evil.example/?code=x",
+    ] {
+        let mut app = discord_server();
+        app.dispatch(Action::OpenOAuthLink(sign_in.into()));
+        app.apply(Event::OAuthResolved {
+            query: sign_in.into(),
+            result: Ok(chat::OAuthPreview {
+                query: sign_in.into(),
+                name: "Alien App".into(),
+                about: None,
+                icon: None,
+                bot: None,
+                wants: vec!["Access your username, avatar, and banner"],
+                permissions: None,
+                controls_client: false,
+                authorized: false,
+                redirect: Some("myapp://cb".into()),
+                guild_install: false,
+                guild_locked: false,
+                wanted_guild: None,
+                guilds: vec![],
+            }),
+        });
+        app.dispatch(Action::AuthorizeOAuth);
+        let effects = app.apply(Event::OAuthAuthorized {
+            query: sign_in.into(),
+            result: Ok(next.into()),
+        });
+        assert!(effects.is_empty(), "{next}");
+        let shown = app.state.oauth.clone().unwrap();
+        assert!(shown.done, "{next}");
+        assert_eq!(shown.next.as_deref(), Some(next), "shown to copy");
+    }
+}
+
+#[test]
 fn going_idle_while_signed_out_tells_nobody() {
     let inactive = || Action::Inactive {
         since: Some(1),

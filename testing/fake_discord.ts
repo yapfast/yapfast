@@ -196,6 +196,10 @@
 // the next join ask for an hCaptcha, as the QR ticket's does, and POST
 // /_control/invite-form makes it answer that the server has a form to fill
 // in first.
+// Authorizing Alien App from its link previews and authorizes the same
+// way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
+// answers the `location` to go to next, and GET
+// /_control/oauth-authorizations lists each one with the query it came with.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -4171,6 +4175,11 @@ const notFound = (message = "404: Not Found", code = 0) => json({ message, code 
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
 const inviteJoins: Record<string, unknown>[] = [];
+/** Each authorization of an application, oldest first, for
+ *  GET /_control/oauth-authorizations. */
+const oauthAuthorizations: Record<string, unknown>[] = [];
+/** The application authorizing from a link adds, Alien App. */
+const OAUTH_APP = "157730590492196864";
 /** Each change of Alice's interest in the scheduled event, oldest first,
  *  for GET /_control/event-interest. */
 const eventInterest: Record<string, unknown>[] = [];
@@ -6382,6 +6391,37 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return unknown(req, path);
   }
 
+  // Authorizing Alien App from its link: the preview its dialog shows,
+  // and making it, in the server picked.
+  if (path === "/oauth2/authorize" && (method === "GET" || method === "POST")) {
+    if (url.searchParams.get("client_id") !== OAUTH_APP) return notFound("Unknown Application", 10002);
+    const scope = url.searchParams.get("scope") ?? "";
+    const scopes = scope.split(/\s+/).filter(Boolean);
+    const integrationType = Number(url.searchParams.get("integration_type") ?? 0);
+    if (method === "GET") {
+      return json({
+        application: { id: OAUTH_APP, name: "Alien App", description: "Beams messages up.", icon: null, bot_public: true },
+        user: wireUser(users.alice),
+        authorized: oauthAuthorizations.length > 0,
+        integration_type: integrationType,
+        redirect_uri: url.searchParams.get("redirect_uri"),
+        ...(scopes.includes("bot") ? { bot: { id: OAUTH_APP, username: "alienapp", global_name: "Alien App", avatar: null, discriminator: "0", public_flags: 0, bot: true } } : {}),
+        ...(integrationType === 0 && scopes.some((asked) => ["bot", "applications.commands", "webhook.incoming"].includes(asked)) ? { guilds: [
+          { id: GUILD, name: "Server", icon: null, mfa_level: 0, permissions: "40" },
+          { id: "1400000000000000200", name: "Elsewhere", icon: null, mfa_level: 0, permissions: "1048576" },
+        ] } : {}),
+      });
+    }
+    const body: any = await req.json().catch(() => ({}));
+    if (body.authorize !== true) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    oauthAuthorizations.push({ query: url.search.slice(1), client_id: OAUTH_APP, scope, guild_id: body.guild_id ?? null, permissions: body.permissions ?? null, integration_type: body.integration_type ?? 0 });
+    const redirect = url.searchParams.get("redirect_uri");
+    const state = url.searchParams.get("state");
+    // Discord's client reads `location`; without a redirect it's Discord's
+    // own "authorized" page.
+    return json({ location: redirect ? `${redirect}?code=fake-auth-code${state ? `&state=${state}` : ""}` : "https://discord.com/oauth2/authorized" });
+  }
+
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/attachments$/))) {
     const body: any = await req.json();
     const attachments = (body.files ?? []).map((file: any) => {
@@ -6790,7 +6830,7 @@ const GENERIC_CONTROLS = new Set([
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
-  "invite-joins", "invite-captcha", "invite-form", "event-interest", "gift-redeems", "mfa", "soundboard-sends", "custom-call-sounds",
+  "invite-joins", "invite-captcha", "invite-form", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
 ]);
 
 /** A status's emoji as the env gives it, Unicode or `<:name:id>`, as Discord sends it. */
@@ -7925,6 +7965,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/gift-redeems") {
       return Response.json(giftRedeems);
+    }
+    if (req.method === "GET" && path === "/_control/oauth-authorizations") {
+      return Response.json(oauthAuthorizations);
     }
     if (req.method === "POST" && path === "/_control/mfa") {
       if (url.searchParams.has("off")) {

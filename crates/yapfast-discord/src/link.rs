@@ -18,6 +18,8 @@ const WEB_HOSTS: [&str; 5] = [
 pub enum Route {
     /// A server invite, by its code.
     Invite { code: String },
+    /// Authorizing an application, by its link's query.
+    Authorize { query: String },
     /// A gift, such as Nitro, by its code.
     Gift { code: String },
     /// A server's scheduled event, by the server and the event. A link to
@@ -43,8 +45,8 @@ pub enum Route {
 ///
 /// This takes Discord's web links, `discord://-/...` app links, and the
 /// same paths under `yapfast://` for a caller handing a link to Yapfast.
-/// It deliberately leaves pages Yapfast has no screen for, such as app
-/// authorization, for their own handling or the browser.
+/// It deliberately leaves pages Yapfast has no screen for, such as the
+/// shop and server templates, for their own handling or the browser.
 pub fn parse(link: &str) -> Option<Route> {
     if link.chars().any(char::is_control) {
         return None;
@@ -54,6 +56,19 @@ pub fn parse(link: &str) -> Option<Route> {
         return None;
     }
     let mut segments = segments(&url)?;
+    if matches!(
+        segments.as_slice(),
+        ["oauth2", "authorize"] | ["api", "oauth2", "authorize"]
+    ) && matches!(url.scheme(), "http" | "https" | "discord" | "yapfast")
+    {
+        if matches!(url.scheme(), "http" | "https") && !web_host(&url) {
+            return None;
+        }
+        let query = url.query()?;
+        return crate::oauth::Request::parse(query).map(|_| Route::Authorize {
+            query: query.to_owned(),
+        });
+    }
     match url.scheme() {
         "http" | "https" => {
             let host = url.host_str()?;
@@ -70,7 +85,7 @@ pub fn parse(link: &str) -> Option<Route> {
                     _ => None,
                 };
             }
-            if !WEB_HOSTS.contains(&host) {
+            if !web_host(&url) {
                 return None;
             }
             from_segments(&segments)
@@ -84,6 +99,19 @@ pub fn parse(link: &str) -> Option<Route> {
         }
         _ => None,
     }
+}
+
+/// Whether `link` is a web page on one of Discord's own hosts, such as
+/// where Discord sends someone after authorizing an application.
+pub fn on_discord(link: &str) -> bool {
+    Url::parse(link).is_ok_and(|url| matches!(url.scheme(), "http" | "https") && web_host(&url))
+}
+
+/// Whether a web link's host is one of [`WEB_HOSTS`], with or without
+/// `www.`.
+fn web_host(url: &Url) -> bool {
+    url.host_str()
+        .is_some_and(|host| WEB_HOSTS.contains(&host.strip_prefix("www.").unwrap_or(host)))
 }
 
 /// A link's path parts, with one trailing slash left off. An empty part
@@ -273,6 +301,18 @@ mod tests {
             }),
             "one occurrence of a recurring event"
         );
+        assert_eq!(
+            parse("https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=bot"),
+            Some(Route::Authorize {
+                query: "client_id=157730590492196864&scope=bot".into(),
+            })
+        );
+        assert!(matches!(
+            parse(
+                "https://discord.com/api/oauth2/authorize?client_id=157730590492196864&scope=bot"
+            ),
+            Some(Route::Authorize { .. })
+        ));
     }
 
     #[test]
@@ -282,10 +322,17 @@ mod tests {
             "https://discord.gift/gift",
             "https://discord.com/gifts/not_a_gift_code",
             "https://discord.gift/g-i-f-t",
-            "https://discord.com/oauth2/authorize?client_id=10&scope=bot",
+            "https://discord.com/oauth2/authorize?scope=bot",
+            "https://discord.com/oauth2/authorize?client_id=not-an-app&scope=bot",
+            "https://discord.com.example.com/oauth2/authorize?client_id=157730590492196864&scope=bot",
             "https://discord.com/events/not-a-server/11",
             "https://discord.com/events/10",
             "https://discord.com/events/10/11/soon",
+            // Authorizations the browser shows as Discord sends them: an
+            // install link without scopes, a webhook, a field named twice.
+            "https://discord.com/oauth2/authorize?client_id=157730590492196864",
+            "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=webhook.incoming",
+            "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=identify&scope=bot",
             "https://discord.new/aTemplateCode",
             "https://discord.com/shop",
             // Hosts that merely contain or resemble Discord's.
@@ -306,6 +353,30 @@ mod tests {
             "javascript://discord.com/channels/10/11",
         ] {
             assert_eq!(parse(link), None, "{link}");
+        }
+    }
+
+    #[test]
+    fn tells_discords_own_pages_from_others() {
+        for page in [
+            "https://discord.com/oauth2/authorized",
+            "https://www.discord.com/channels/@me",
+            "http://ptb.discord.com/",
+            "HTTPS://DISCORD.COM/app",
+        ] {
+            assert!(on_discord(page), "{page}");
+        }
+        for page in [
+            "https://discord.com.example.com/",
+            "https://discord.com@evil.example/",
+            "https://notdiscord.com/",
+            "discord://-/channels/@me",
+            "myapp://discord.com/cb?code=x",
+            "javascript:alert(1)//discord.com",
+            "file:///discord.com",
+            "discord.com",
+        ] {
+            assert!(!on_discord(page), "{page}");
         }
     }
 }

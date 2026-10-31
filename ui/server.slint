@@ -2,7 +2,7 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField } from "controls.slint";
-import { Choices, UnsavedBar } from "settings.slint";
+import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { ProfileData, ProfileHeading } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
@@ -345,6 +345,129 @@ export component GiftDialog inherits Rectangle {
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
                         clicked => { if root.prompt.browser { root.open-in-browser(); } else { root.redeem(); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// What authorizing an application shows: what it asks for, in words, the
+// server picker for a server install, and how authorizing goes.
+export struct OAuthPrompt {
+    title: string,
+    /// The application, once found: its name, picture or initial, and
+    /// what it says about itself or the bot it adds.
+    found: bool,
+    name: string,
+    picture-url: string,
+    initial: string,
+    detail: string,
+    /// What it asks for, a line each, and what of that can take over the
+    /// account or a server, such as Administrator, in red above it.
+    wants: string,
+    warning: string,
+    /// Whether it offers the servers it could be added to, or else the
+    /// one server a link names, which can't be changed.
+    guild-picker: bool,
+    guild-name: string,
+    /// Where Discord sends the person next when Yapfast won't open it,
+    /// such as an app's own address, to copy.
+    address: string,
+    /// What the main button does, such as "Authorize"; empty for none.
+    confirm: string,
+    busy: bool,
+    status: string,
+    error: string,
+}
+
+// Authorizes a Discord application from its link, as Discord's
+// authorization page does: what it asks for shows before anyone agrees.
+export component OAuthDialog inherits Rectangle {
+    in property <OAuthPrompt> prompt;
+    in property <[string]> guilds;
+    in property <int> guild-chosen;
+    callback choose-guild(int);
+    callback authorize;
+    callback copy(string);
+    callback close;
+    // The address last copied.
+    property <string> copied-address;
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(440px, root.width - 48px); height: oauth-content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: root.prompt.title;
+        TouchArea { }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close(); return accept; }
+                return reject;
+            }
+            oauth-content := VerticalLayout {
+                padding: 20px; spacing: 12px;
+                HorizontalLayout {
+                    Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                }
+                if root.prompt.found: Rectangle {
+                    border-radius: 8px; background: Theme.sunken;
+                    height: found-row.preferred-height;
+                    found-row := HorizontalLayout {
+                        padding: 12px; spacing: 12px;
+                        Avatar { size: 48px; picture-url: root.prompt.picture-url; initial: root.prompt.initial; }
+                        VerticalLayout {
+                            alignment: center; spacing: 2px; horizontal-stretch: 1;
+                            Text { text: root.prompt.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                            if root.prompt.detail != "": Label { text: root.prompt.detail; }
+                        }
+                    }
+                }
+                if root.prompt.warning != "": Text { text: root.prompt.warning; color: Theme.danger; font-size: 14px; font-weight: 700; wrap: word-wrap; }
+                if root.prompt.wants != "": Text { text: root.prompt.wants; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+                if root.prompt.guild-picker || root.prompt.guild-name != "": Text { text: "ADD TO SERVER"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                if root.prompt.guild-picker: Picker {
+                    model: root.guilds; chosen: root.guild-chosen; enabled: !root.prompt.busy;
+                    accessible-label: "Add to server";
+                    selected => { root.choose-guild(self.current-index); }
+                }
+                if !root.prompt.guild-picker && root.prompt.guild-name != "": Rectangle {
+                    height: 44px; border-radius: 8px; background: Theme.sunken;
+                    HorizontalLayout {
+                        padding-left: 12px; padding-right: 12px;
+                        Text { text: root.prompt.guild-name; color: Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; }
+                    }
+                }
+                if root.prompt.status != "": Label { text: root.prompt.status; }
+                if root.prompt.address != "": Rectangle {
+                    height: 44px; border-radius: 8px; background: Theme.sunken;
+                    HorizontalLayout {
+                        padding-left: 12px; padding-right: 4px; spacing: 8px;
+                        Text { text: root.prompt.address; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        VerticalLayout {
+                            alignment: center;
+                            ActionButton {
+                                text: root.copied-address == root.prompt.address ? "Copied" : "Copy";
+                                primary: root.copied-address != root.prompt.address;
+                                clicked => { root.copy(root.prompt.address); root.copied-address = root.prompt.address; }
+                            }
+                        }
+                    }
+                }
+                if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px; padding-top: 4px;
+                    ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
+                    if root.prompt.confirm != "": ActionButton {
+                        text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
+                        clicked => { root.authorize(); }
                     }
                 }
             }

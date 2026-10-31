@@ -305,6 +305,7 @@ impl Adapter {
         self.show_members(window);
         self.show_invite(window);
         self.show_join(window);
+        self.show_oauth(window);
         self.show_gift(window);
         self.show_event(window);
         self.show_channel_dialog(window);
@@ -1850,6 +1851,152 @@ impl Adapter {
             busy: gift.resolving || redeeming,
             status: status.into(),
             error: gift.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
+    /// The application a clicked authorization link opened.
+    fn show_oauth(&self, window: &YapfastWindow) {
+        let dialog = self.app.state.oauth.as_ref();
+        window.set_oauth_open(dialog.is_some());
+        let Some(dialog) = dialog else {
+            return;
+        };
+        let preview = dialog.preview.as_ref();
+        let addable: Vec<&yapfast_core::chat::OAuthGuild> = preview
+            .map(|preview| {
+                preview
+                    .guilds
+                    .iter()
+                    .filter(|guild| guild.can_add)
+                    .collect()
+            })
+            .unwrap_or_default();
+        window.set_oauth_guilds(
+            Rc::new(VecModel::from(
+                addable
+                    .iter()
+                    .map(|guild| SharedString::from(guild.name.as_str()))
+                    .collect::<Vec<_>>(),
+            ))
+            .into(),
+        );
+        window.set_oauth_guild_chosen(
+            addable
+                .iter()
+                .position(|guild| Some(&guild.id) == dialog.guild.as_ref())
+                .map(|index| i32::try_from(index).unwrap_or_default())
+                .unwrap_or_default(),
+        );
+        let detail = preview.and_then(|preview| {
+            preview
+                .about
+                .clone()
+                .filter(|about| !about.is_empty())
+                .or_else(|| preview.bot.clone())
+        });
+        let wants = preview.map(|preview| {
+            let mut lines: Vec<String> = preview
+                .wants
+                .iter()
+                .map(|wants| format!("- {wants}"))
+                .collect();
+            if let Some(bits) = preview.permissions.filter(|bits| *bits != 0) {
+                lines.push(format!("- Bot permissions: {}", permission_names(bits)));
+            }
+            match preview.redirect.as_deref() {
+                Some(url) if links::openable(url) => {
+                    let host = url
+                        .split_once("://")
+                        .map(|(_, rest)| rest)
+                        .and_then(|rest| rest.split(['/', '?', '#']).next())
+                        .unwrap_or_default();
+                    lines.push(format!("Afterward, Discord sends you to {host}."));
+                }
+                Some(url) => lines.push(format!(
+                    "Afterward, Discord hands its answer to {url}, which Yapfast won't open."
+                )),
+                None => {}
+            }
+            lines.join("\n")
+        });
+        let mut warnings = Vec::new();
+        if preview.is_some_and(|preview| preview.controls_client) {
+            warnings.push(
+                "It asks to control your Discord client, which can do nearly anything \
+                 your account can. Authorize it only if you trust it with your account.",
+            );
+        }
+        if preview
+            .and_then(|preview| preview.permissions)
+            .is_some_and(|bits| bits & ADMINISTRATOR != 0)
+        {
+            warnings.push(
+                "Its bot asks for Administrator: every permission in the server, \
+                 in every channel, whatever its roles allow.",
+            );
+        }
+        let locked = preview.is_some_and(|preview| preview.guild_install && preview.guild_locked);
+        let picker =
+            preview.is_some_and(|preview| preview.guild_install && !locked && !addable.is_empty());
+        // A link that names its one server shows it, as it can't be changed.
+        let locked_to = preview
+            .filter(|_| locked)
+            .zip(dialog.guild.as_ref())
+            .and_then(|(preview, chosen)| preview.guilds.iter().find(|guild| &guild.id == chosen))
+            .map(|guild| guild.name.as_str());
+        let blocked =
+            preview.is_some_and(|preview| preview.guild_install && dialog.guild.is_none());
+        let status = if dialog.resolving {
+            "Looking up the application..."
+        } else if dialog.authorizing {
+            "Authorizing..."
+        } else if dialog.done && dialog.next.is_some() {
+            "Authorized. Discord sends you on to this address, which isn't a web page, \
+             so Yapfast doesn't open it. Copy it if the app asks for it."
+        } else if dialog.done {
+            "Authorized."
+        } else if !locked
+            && preview.is_some_and(|preview| preview.guild_install && addable.is_empty())
+        {
+            "You don't manage any server it can be added to."
+        } else if preview.is_some_and(|preview| preview.authorized) {
+            "You've authorized this before. Authorizing again is fine."
+        } else {
+            ""
+        };
+        window.set_oauth_prompt(OAuthPrompt {
+            title: match preview {
+                Some(preview) => format!("Authorize {}", preview.name),
+                None => "Authorize".to_owned(),
+            }
+            .into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            picture_url: preview
+                .and_then(|preview| preview.icon.as_deref())
+                .unwrap_or_default()
+                .into(),
+            initial: preview
+                .map(|preview| initial(&preview.name))
+                .unwrap_or_default(),
+            detail: detail.unwrap_or_default().into(),
+            wants: wants.unwrap_or_default().into(),
+            warning: warnings.join("\n").into(),
+            guild_picker: picker,
+            guild_name: locked_to.unwrap_or_default().into(),
+            address: dialog.next.as_deref().unwrap_or_default().into(),
+            confirm: if preview.is_some() && !dialog.done && !blocked {
+                "Authorize"
+            } else {
+                ""
+            }
+            .into(),
+            busy: dialog.resolving || dialog.authorizing,
+            status: status.into(),
+            error: dialog.error.as_deref().unwrap_or_default().into(),
         });
     }
 
@@ -4074,6 +4221,43 @@ fn arrived<'a>(
         emoji.id.as_str(),
         state.pictures.get(&emoji.picture)?.as_ref(),
     ))
+}
+
+/// Discord's Administrator permission, which grants every other.
+const ADMINISTRATOR: u64 = 1 << 3;
+
+/// A bot's asked-for permissions, by the titles of a role's switches,
+/// and how many more it asks for that no switch shows.
+fn permission_names(bits: u64) -> String {
+    let mut named = 0u64;
+    let mut names: Vec<&str> = Vec::new();
+    for permission in yapfast_core::application::ROLE_PERMISSIONS
+        .iter()
+        .flat_map(|group| group.permissions.iter())
+    {
+        let bit = 1u64 << permission.bit;
+        if bits & bit != 0 && named & bit == 0 {
+            named |= bit;
+            names.push(permission.title);
+        }
+    }
+    let more = (bits & !named).count_ones();
+    let more = match (more, names.is_empty()) {
+        (0, _) => None,
+        (1, true) => Some("1 permission Yapfast can't name".to_owned()),
+        (count, true) => Some(format!("{count} permissions Yapfast can't name")),
+        (1, false) => Some("1 more permission".to_owned()),
+        (count, false) => Some(format!("{count} more permissions")),
+    };
+    match (names.pop(), more) {
+        (Some(last), Some(more)) => {
+            names.push(last);
+            format!("{} and {more}", names.join(", "))
+        }
+        (Some(last), None) if names.is_empty() => last.to_owned(),
+        (Some(last), None) => format!("{} and {last}", names.join(", ")),
+        (None, more) => more.unwrap_or_default(),
+    }
 }
 
 /// Shows found messages, building rows only for those not shown already:
