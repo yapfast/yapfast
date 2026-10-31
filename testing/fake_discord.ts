@@ -198,7 +198,9 @@
 // in first.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
-// once, and GET /_control/gift-redeems lists each redemption.
+// once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
+// /_control/gift-redeems lists each redemption. Gift AbCdEfGhIjKlMnOp needs
+// a payment source.
 // A scheduled event in "Server"'s Lounge, which READY lists, resolves from
 // its link the same way: GET /guilds/{id}/scheduled-events/{id} shows it,
 // counting the interested only with ?with_user_count=true, GET
@@ -4160,6 +4162,8 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 const giftRedeems: Record<string, unknown>[] = [];
 /** The code of Bob's gift of Nitro to Alice. */
 const GIFT_CODE = "2CG6SV9QtRxerJTgCYNDnU7M";
+/** A gift of Nitro that needs a payment source to redeem. */
+const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
 const empty = () => new Response(null, { status: 204 });
 const notFound = (message = "404: Not Found", code = 0) => json({ message, code }, 404);
 
@@ -6338,31 +6342,42 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
 
   // Resolving a gift before redeeming it, and redeeming it. The gift is
-  // Bob's Nitro; redeeming it a second time is refused, as on Discord.
+  // Bob's Nitro; redeeming it a second time is refused, as on Discord. A
+  // second gift needs a payment source, which only Discord's client sends.
   if ((m = path.match(/^\/entitlements\/gift-codes\/([\w-]+)(\/redeem)?$/)) && (method === "GET" || method === "POST")) {
-    if (m[1] !== GIFT_CODE) return notFound("Unknown Gift Code", 10038);
-    const redeemed = giftRedeems.some((redeem) => redeem.code === GIFT_CODE);
+    const code = m[1];
+    if (code !== GIFT_CODE && code !== PAID_GIFT_CODE) return notFound("Unknown Gift Code", 10038);
+    const redeemed = giftRedeems.some((redeem) => redeem.code === code);
     if (method === "GET" && !m[2]) {
+      const withPlan = new URL(req.url).searchParams.get("with_subscription_plan") === "true";
       return json({
-        code: GIFT_CODE,
+        code,
         sku_id: "521847234246082599",
         application_id: "521842831262875670",
         uses: redeemed ? 1 : 0,
         max_uses: 1,
         redeemed,
         expires_at: null,
+        ...(code === PAID_GIFT_CODE ? { flags: 1 } : {}),
         user: wireUser(users.bob),
         store_listing: { id: "521848044908576803", summary: " ", sku: { id: "521847234246082599", type: 5, name: "Nitro", slug: "nitro" } },
-        subscription_plan: { id: "642251038925127690", name: "Nitro Monthly", interval: 1, interval_count: 1 },
+        ...(withPlan ? { subscription_plan: { id: "642251038925127690", name: "Nitro Monthly", interval: 1, interval_count: 1 } } : {}),
         subscription_plan_id: "642251038925127690",
       });
     }
     if (method === "POST" && m[2]) {
       if (redeemed) return json({ message: "This gift has been redeemed already.", code: 50050 }, 400);
       const body: any = await req.json().catch(() => ({}));
-      giftRedeems.push({ code: GIFT_CODE, channel_id: body.channel_id ?? null });
-      dispatch("ENTITLEMENT_CREATE", { id: "521900000000000001", type: 6, sku_id: "521847234246082599", application_id: "521842831262875670", user_id: ALICE });
-      return json({ id: "521900000000000001", type: 6, sku_id: "521847234246082599", application_id: "521842831262875670", user_id: ALICE, deleted: false, starts_at: null, ends_at: null, gift_code_flags: 0 });
+      const channel = body.channel_id ?? null;
+      giftRedeems.push({
+        code,
+        channel_id: channel,
+        gateway_checkout_context: "gateway_checkout_context" in body ? body.gateway_checkout_context : "missing",
+      });
+      const entitlement = { id: "521900000000000001", type: 6, sku_id: "521847234246082599", application_id: "521842831262875670", user_id: ALICE, deleted: false, starts_at: null, ends_at: null, gift_code_flags: 0 };
+      dispatch("ENTITLEMENT_CREATE", entitlement);
+      dispatch("GIFT_CODE_UPDATE", { code, sku_id: "521847234246082599", uses: 1, ...(channel ? { channel_id: channel, ...guildOf(channel) } : {}) });
+      return json(entitlement);
     }
     return unknown(req, path);
   }

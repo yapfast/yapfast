@@ -3677,6 +3677,10 @@ async fn redeems_a_gift() {
     assert_eq!(redeems.len(), 1);
     assert_eq!(redeems[0]["code"], "2CG6SV9QtRxerJTgCYNDnU7M");
     assert_eq!(redeems[0]["channel_id"], general.as_str());
+    assert!(
+        redeems[0]["gateway_checkout_context"].is_null(),
+        "{redeems:?}"
+    );
 
     // Afterwards the gift shows as redeemed, and redeeming again is
     // refused as Discord refuses it.
@@ -3687,6 +3691,11 @@ async fn redeems_a_gift() {
         .await
         .unwrap_err();
     assert_eq!(again.to_string(), "This gift has already been redeemed.");
+
+    // A gift that needs a payment source shows, but only Discord can
+    // redeem it.
+    let paid = discord.gift("AbCdEfGhIjKlMnOp").await.unwrap();
+    assert!(paid.in_discord && !paid.redeemable());
 }
 
 #[tokio::test(flavor = "multi_thread")]
