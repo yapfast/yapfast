@@ -656,7 +656,10 @@ impl AppState {
         };
         match route {
             DiscordRoute::Invite { .. } => self.discord_online || self.preview,
-            DiscordRoute::Event { guild, .. } => server(guild),
+            // The event is looked up before it shows.
+            DiscordRoute::Event { guild, .. } => {
+                (self.discord_online || self.preview) && server(guild)
+            }
             DiscordRoute::DirectMessages => self.discord_linked,
             DiscordRoute::Server { guild } => server(guild),
             DiscordRoute::Channel { guild, channel }

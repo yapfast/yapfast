@@ -3790,6 +3790,10 @@ fn discord_links_yapfast_cant_show_are_left_to_the_browser() {
     let user = DiscordRoute::User {
         user: "4242".into(),
     };
+    let event = |guild: &str| DiscordRoute::Event {
+        guild: guild.into(),
+        event: "12".into(),
+    };
     let mut app = discord_server();
     let state = &app.state;
     assert!(state.opens_discord_route(&DiscordRoute::Server { guild: "10".into() }));
@@ -3799,10 +3803,12 @@ fn discord_links_yapfast_cant_show_are_left_to_the_browser() {
         "a thread, which opening asks for"
     );
     assert!(state.opens_discord_route(&user));
+    assert!(state.opens_discord_route(&event("10")));
     assert!(
         !state.opens_discord_route(&DiscordRoute::Server { guild: "50".into() }),
         "a server the account isn't in"
     );
+    assert!(!state.opens_discord_route(&event("50")));
     assert!(!state.opens_discord_route(&channel("50", "51")));
     assert!(
         !state.opens_discord_route(&channel("@me", "77")),
@@ -3815,6 +3821,10 @@ fn discord_links_yapfast_cant_show_are_left_to_the_browser() {
     assert!(!state.opens_discord_route(&channel("10", "77")));
     assert!(!state.opens_discord_route(&user));
     assert!(!state.opens_discord_route(&DiscordRoute::Invite { code: "abc".into() }));
+    assert!(
+        !state.opens_discord_route(&event("10")),
+        "the server is listed, but the event can't be looked up"
+    );
 }
 
 #[test]
