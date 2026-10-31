@@ -305,6 +305,7 @@ impl Adapter {
         self.show_members(window);
         self.show_invite(window);
         self.show_join(window);
+        self.show_event(window);
         self.show_channel_dialog(window);
         self.show_leave(window);
         self.show_move_sync(window);
@@ -1714,6 +1715,80 @@ impl Adapter {
             captcha: join.captcha.is_some(),
             form: join.form.is_some(),
             error: join.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
+    /// The scheduled event a clicked event link opened.
+    fn show_event(&self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let dialog = state.scheduled_event.as_ref();
+        window.set_event_open(dialog.is_some());
+        let Some(dialog) = dialog else {
+            return;
+        };
+        let preview = dialog.preview.as_ref();
+        let when = preview
+            .filter(|preview| preview.starts_at > 0)
+            .map(|preview| {
+                yapfast_core::clock::event(
+                    preview.starts_at,
+                    preview.ends_at,
+                    yapfast_core::clock::now_ms() / 1000,
+                    self.layout.twelve_hour_clock,
+                )
+            });
+        let detail = preview.map(|preview| {
+            let mut parts = Vec::new();
+            if let Some(location) = &preview.location {
+                parts.push(location.clone());
+            } else if let Some(room) = &preview.room
+                && let Some(found) = state.rooms.iter().find(|known| &known.id == room)
+            {
+                parts.push(format!("#{}", found.name));
+            }
+            if let Some(creator) = &preview.creator {
+                parts.push(format!("by {creator}"));
+            }
+            if let Some(count) = preview.interested_count {
+                parts.push(format!("{count} interested"));
+            }
+            parts.join(" · ")
+        });
+        let confirm = match preview {
+            Some(preview) if !preview.over && preview.interested => "Remove interest",
+            Some(preview) if !preview.over => "Interested",
+            _ => "",
+        };
+        let status = if dialog.resolving {
+            "Looking up the event..."
+        } else if dialog.marking {
+            "Saving..."
+        } else if preview.is_some_and(|preview| preview.over) {
+            "This event has ended."
+        } else if preview.is_some_and(|preview| preview.active) {
+            "This event is going on now."
+        } else if preview.is_some_and(|preview| preview.interested) {
+            "You're interested in this event."
+        } else {
+            ""
+        };
+        window.set_event_prompt(EventPrompt {
+            title: "Event".into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            when: when.unwrap_or_default().into(),
+            detail: detail.unwrap_or_default().into(),
+            description: preview
+                .and_then(|preview| preview.description.as_deref())
+                .unwrap_or_default()
+                .into(),
+            confirm: confirm.into(),
+            busy: dialog.resolving || dialog.marking,
+            status: status.into(),
+            error: dialog.error.as_deref().unwrap_or_default().into(),
         });
     }
 

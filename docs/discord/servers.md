@@ -204,6 +204,30 @@ channel's invite joins the server and opens the channel without joining the
 call. Discord's client also sends `invite_instance_id` from a message's
 invite card, which Yapfast doesn't show yet, so it leaves that out.
 
+## Event links
+
+Clicking a link to a server's scheduled event, `/events/{server}/{event}`,
+opens a dialog with the event's name, when it starts and ends, where it
+happens, who made it, how many are interested and what it says, with
+Discord's Interested button, which becomes Remove interest once pressed. A
+link to one occurrence of a recurring event, with a third id, shows the
+whole series, and interest in it is for the series (`link.rs`,
+`application/scheduled_event.rs`). Links to a server the account isn't in,
+the guildless `/events/{event}`, and any while Discord is offline open in
+the browser.
+
+- `GET /guilds/{id}/scheduled-events/{event}?with_user_count=true` for the
+  event and its count, and `GET /users/@me/scheduled-events?guild_ids={id}`
+  for whether this account is interested in the series: a subscription with
+  `response` 1 and no `guild_scheduled_event_exception_id`, as one for a
+  single occurrence has.
+- `PUT /guilds/{id}/scheduled-events/{event}/users/@me` with
+  `{"response": 1}`, as Discord's client sends it, or `DELETE` on the same
+  path, from the click only. An ended or canceled event offers no button.
+
+Yapfast doesn't keep a server's events or follow their gateway events; the
+dialog shows them as they were when it opened.
+
 ## Channels and categories
 
 Where the account may manage channels (`MANAGE_CHANNELS`, on the server for one

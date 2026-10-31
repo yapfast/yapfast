@@ -1500,6 +1500,58 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
 }
 
 #[test]
+fn an_event_shows_when_it_runs_and_where() {
+    use yapfast_core::{application::EventDialog, chat::EventPreview, clock};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    // A fortnight away, past the week its weekday would name, for two hours.
+    let starts = clock::now_ms() / 1000 + 14 * 86_400;
+    adapter.borrow_mut().app.state.scheduled_event = Some(EventDialog {
+        event: Some("11".into()),
+        preview: Some(EventPreview {
+            event: "11".into(),
+            guild: "10".into(),
+            name: "Alien meetup".into(),
+            description: None,
+            starts_at: starts,
+            ends_at: Some(starts + 7_200),
+            room: None,
+            location: Some("Somewhere in the ocean".into()),
+            creator: Some("Dziurwa".into()),
+            interested_count: Some(7),
+            active: false,
+            over: false,
+            interested: false,
+        }),
+        ..EventDialog::default()
+    });
+    adapter.borrow_mut().refresh(&window);
+    assert!(window.get_event_open());
+    let prompt = window.get_event_prompt();
+    let when = prompt.when.to_string();
+    assert!(
+        when.starts_with(&clock::day(starts)) && when.contains(&clock::time(starts)),
+        "the start's day and time: {when}"
+    );
+    assert!(
+        when.ends_with(&clock::time(starts + 7_200)),
+        "and its end: {when}"
+    );
+    assert_eq!(
+        prompt.detail,
+        "Somewhere in the ocean · by Dziurwa · 7 interested"
+    );
+    assert_eq!(prompt.confirm, "Interested");
+}
+
+#[test]
 fn menus_give_each_row_its_own_submenu_and_tick_checkboxes() {
     i_slint_backend_testing::init_no_event_loop();
     let window = YapfastWindow::new().unwrap();

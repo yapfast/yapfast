@@ -11,7 +11,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa,
+    mfa, scheduled_event,
     settings::{self, CustomStatus},
 };
 
@@ -1734,6 +1734,39 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// A server's scheduled event, with how many people are interested
+    /// in it, as Discord's client asks before showing it.
+    pub async fn scheduled_event(&self, guild: &str, event: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/scheduled-events/{event}?with_user_count=true");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// This account's scheduled-event subscriptions in a server.
+    pub async fn own_scheduled_events(&self, guild: &str) -> Result<Value> {
+        let path = format!("/users/@me/scheduled-events?guild_ids={guild}");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Marks this account interested in a server's scheduled event, or
+    /// no longer interested in it.
+    pub async fn set_scheduled_event_interest(
+        &self,
+        guild: &str,
+        event: &str,
+        interested: bool,
+    ) -> Result<()> {
+        let path = format!("/guilds/{guild}/scheduled-events/{event}/users/@me");
+        let request = if interested {
+            with_json(
+                self.request(Method::PUT, &path),
+                &json!({ "response": scheduled_event::INTERESTED }),
+            )
+        } else {
+            self.request(Method::DELETE, &path)
+        };
+        self.empty(request).await
+    }
+
     /// Joins a server by an invite, from this gateway `session`, as
     /// Discord's client does; `context` says where, as
     /// [`crate::invite::Preview::context`] makes it. Discord may ask for a
@@ -2107,6 +2140,7 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         }
         (_, Some(SERVER_FULL)) => anyhow!("This server is full."),
         (_, Some(INVITES_PAUSED)) => anyhow!("This server has paused invites."),
+        (_, Some(UNKNOWN_EVENT)) => anyhow!("This event doesn't exist."),
         (_, Some(mfa::INVALID_MFA)) => anyhow!("That didn't work. Check it and try again."),
         (_, Some(mfa::MFA_REQUIRED)) => {
             anyhow!("Discord asks for two-factor authentication, which Yapfast can't do here.")
@@ -2199,6 +2233,7 @@ const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
 const INVITES_PAUSED: u64 = 40069;
+const UNKNOWN_EVENT: u64 = 10070;
 const MISSING_PERMISSIONS: u64 = 50013;
 const INVALID_FORM_BODY: u64 = 50035;
 

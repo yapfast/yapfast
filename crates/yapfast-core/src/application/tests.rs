@@ -3790,6 +3790,10 @@ fn discord_links_yapfast_cant_show_are_left_to_the_browser() {
     let user = DiscordRoute::User {
         user: "4242".into(),
     };
+    let event = |guild: &str| DiscordRoute::Event {
+        guild: guild.into(),
+        event: "12".into(),
+    };
     let mut app = discord_server();
     let state = &app.state;
     assert!(state.opens_discord_route(&DiscordRoute::Server { guild: "10".into() }));
@@ -3799,10 +3803,12 @@ fn discord_links_yapfast_cant_show_are_left_to_the_browser() {
         "a thread, which opening asks for"
     );
     assert!(state.opens_discord_route(&user));
+    assert!(state.opens_discord_route(&event("10")));
     assert!(
         !state.opens_discord_route(&DiscordRoute::Server { guild: "50".into() }),
         "a server the account isn't in"
     );
+    assert!(!state.opens_discord_route(&event("50")));
     assert!(!state.opens_discord_route(&channel("50", "51")));
     assert!(
         !state.opens_discord_route(&channel("@me", "77")),
@@ -3815,6 +3821,10 @@ fn discord_links_yapfast_cant_show_are_left_to_the_browser() {
     assert!(!state.opens_discord_route(&channel("10", "77")));
     assert!(!state.opens_discord_route(&user));
     assert!(!state.opens_discord_route(&DiscordRoute::Invite { code: "abc".into() }));
+    assert!(
+        !state.opens_discord_route(&event("10")),
+        "the server is listed, but the event can't be looked up"
+    );
 }
 
 #[test]
@@ -9223,6 +9233,124 @@ fn an_unknown_invite_says_so() {
     assert_eq!(
         join.error.as_deref(),
         Some("This invite is invalid or has expired.")
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_event_link_shows_the_event_and_marks_interest_on_the_click() {
+    let event = |interested: bool, over: bool| chat::EventPreview {
+        event: "11".into(),
+        guild: "10".into(),
+        name: "Alien meetup".into(),
+        description: Some("Aliens only!".into()),
+        starts_at: 1_800_000_000,
+        ends_at: None,
+        room: Some("discord:10:13".into()),
+        location: None,
+        creator: Some("Dziurwa".into()),
+        interested_count: Some(7),
+        active: false,
+        over,
+        interested,
+    };
+    let mut app = discord_server();
+    let effects = app.dispatch(Action::OpenEventLink {
+        guild: "10".into(),
+        event: "11".into(),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ResolveEvent { guild, event }))]
+            if guild == "10" && event == "11"
+    ));
+    assert!(app.state.scheduled_event.as_ref().unwrap().resolving);
+    // Interest changes only from the click, once the event shows.
+    assert!(app.dispatch(Action::ToggleEventInterest).is_empty());
+    app.apply(Event::EventResolved {
+        event: "other".into(),
+        result: Ok(event(false, false)),
+    });
+    assert!(
+        app.state
+            .scheduled_event
+            .as_ref()
+            .unwrap()
+            .preview
+            .is_none()
+    );
+    app.apply(Event::EventResolved {
+        event: "11".into(),
+        result: Ok(event(false, false)),
+    });
+    let shown = app.state.scheduled_event.clone().unwrap();
+    assert!(!shown.resolving);
+    assert_eq!(shown.preview.unwrap().name, "Alien meetup");
+
+    let effects = app.dispatch(Action::ToggleEventInterest);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::SetEventInterest { preview, interested: true }))]
+            if preview.event == "11"
+    ));
+    assert!(
+        app.dispatch(Action::ToggleEventInterest).is_empty(),
+        "one change at a time"
+    );
+    app.apply(Event::EventInterestSet {
+        event: "11".into(),
+        interested: true,
+        result: Ok(()),
+    });
+    let shown = app.state.scheduled_event.clone().unwrap();
+    let preview = shown.preview.unwrap();
+    assert!(preview.interested && !shown.marking);
+    assert_eq!(preview.interested_count, Some(8));
+
+    // And back again, on the next click.
+    let effects = app.dispatch(Action::ToggleEventInterest);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::SetEventInterest {
+                interested: false,
+                ..
+            }
+        ))]
+    ));
+    app.apply(Event::EventInterestSet {
+        event: "11".into(),
+        interested: false,
+        result: Ok(()),
+    });
+    let preview = app.state.scheduled_event.clone().unwrap().preview.unwrap();
+    assert!(!preview.interested);
+    assert_eq!(preview.interested_count, Some(7));
+
+    // An event that's over offers no change, and Discord's refusal to
+    // show one stays in the dialog.
+    app.dispatch(Action::OpenEventLink {
+        guild: "10".into(),
+        event: "11".into(),
+    });
+    app.apply(Event::EventResolved {
+        event: "11".into(),
+        result: Ok(event(false, true)),
+    });
+    assert!(app.dispatch(Action::ToggleEventInterest).is_empty());
+    app.dispatch(Action::OpenEventLink {
+        guild: "10".into(),
+        event: "gone".into(),
+    });
+    app.apply(Event::EventResolved {
+        event: "gone".into(),
+        result: Err("Unknown Guild Scheduled Event".into()),
+    });
+    let shown = app.state.scheduled_event.clone().unwrap();
+    assert!(shown.preview.is_none() && !shown.resolving);
+    assert_eq!(
+        shown.error.as_deref(),
+        Some("Unknown Guild Scheduled Event")
     );
 }
 
