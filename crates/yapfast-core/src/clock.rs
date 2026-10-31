@@ -61,16 +61,58 @@ fn calendar_in<Tz: TimeZone>(zone: &Tz, seconds: u64, now: u64, twelve_hour: boo
 where
     Tz::Offset: std::fmt::Display,
 {
+    near_in(zone, seconds, now, twelve_hour).unwrap_or_else(|| day_in(zone, seconds))
+}
+
+/// [`calendar`]'s words within a week of `now`; none beyond.
+fn near_in<Tz: TimeZone>(zone: &Tz, seconds: u64, now: u64, twelve_hour: bool) -> Option<String>
+where
+    Tz::Offset: std::fmt::Display,
+{
     let then = at(zone, seconds);
     let days = (then.date_naive() - at(zone, now).date_naive()).num_days();
     let time = time_in(zone, seconds, twelve_hour, false);
-    match days {
+    Some(match days {
         0 => format!("Today at {time}"),
         -1 => format!("Yesterday at {time}"),
         1 => format!("Tomorrow at {time}"),
         -6..=-2 => format!("Last {} at {time}", then.format("%A")),
         2..=6 => format!("{} at {time}", then.format("%A")),
-        _ => day_in(zone, seconds),
+        _ => return None,
+    })
+}
+
+/// When a scheduled event runs, from `now`: its start as [`calendar`]
+/// words it, but with the time on any day, such as `14 November 2026 at
+/// 21:00`, and its end after a dash, as a time on the same day or a
+/// day and time on another.
+pub fn event(starts: u64, ends: Option<u64>, now: u64, twelve_hour: bool) -> String {
+    event_in(&Local, starts, ends, now, twelve_hour)
+}
+
+fn event_in<Tz: TimeZone>(
+    zone: &Tz,
+    starts: u64,
+    ends: Option<u64>,
+    now: u64,
+    twelve_hour: bool,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let when = |seconds: u64| {
+        near_in(zone, seconds, now, twelve_hour).unwrap_or_else(|| {
+            let time = time_in(zone, seconds, twelve_hour, false);
+            format!("{} at {time}", day_in(zone, seconds))
+        })
+    };
+    let start = when(starts);
+    match ends.filter(|&ends| ends > starts) {
+        Some(ends) if at(zone, ends).date_naive() == at(zone, starts).date_naive() => {
+            format!("{start} – {}", time_in(zone, ends, twelve_hour, false))
+        }
+        Some(ends) => format!("{start} – {}", when(ends)),
+        None => start,
     }
 }
 
@@ -172,6 +214,37 @@ mod tests {
         assert_eq!(
             calendar_in(&utc, now + 4 * day, now, false),
             "Saturday at 23:30"
+        );
+    }
+
+    #[test]
+    fn event_times_give_the_time_on_any_day_and_the_end() {
+        // Tuesday 2026-10-06 23:30 UTC.
+        let now = 1_791_329_400;
+        let utc = FixedOffset::east_opt(0).unwrap();
+        let (hour, day) = (3_600, 86_400);
+        assert_eq!(
+            event_in(&utc, now + day, None, now, false),
+            "Tomorrow at 23:30"
+        );
+        assert_eq!(
+            event_in(&utc, now + 10 * day, None, now, true),
+            "16 October 2026 at 11:30 PM",
+            "a week away or more still says when"
+        );
+        let starts = now + 10 * day - 2 * hour;
+        assert_eq!(
+            event_in(&utc, starts, Some(starts + hour), now, false),
+            "16 October 2026 at 21:30 – 22:30"
+        );
+        assert_eq!(
+            event_in(&utc, now + day, Some(now + day + hour), now, false),
+            "Tomorrow at 23:30 – Thursday at 00:30",
+            "an end on another day says which"
+        );
+        assert_eq!(
+            event_in(&utc, now + day, Some(now + day), now, false),
+            "Tomorrow at 23:30"
         );
     }
 

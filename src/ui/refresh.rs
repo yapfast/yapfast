@@ -1730,8 +1730,9 @@ impl Adapter {
         let when = preview
             .filter(|preview| preview.starts_at > 0)
             .map(|preview| {
-                yapfast_core::clock::calendar(
+                yapfast_core::clock::event(
                     preview.starts_at,
+                    preview.ends_at,
                     yapfast_core::clock::now_ms() / 1000,
                     self.layout.twelve_hour_clock,
                 )
@@ -1751,7 +1752,7 @@ impl Adapter {
             if let Some(count) = preview.interested_count {
                 parts.push(format!("{count} interested"));
             }
-            parts.join(" Â· ")
+            parts.join(" · ")
         });
         let confirm = match preview {
             Some(preview) if !preview.over && preview.interested => "Remove interest",
