@@ -5,7 +5,8 @@
 
 use std::cell::Cell;
 
-/// What the tray asks for, or says. Each runs on Slint's event loop.
+/// What the tray, or the Mac's menu bar, asks for, or says. Each runs on
+/// Slint's event loop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Open,
@@ -13,6 +14,10 @@ pub enum Choice {
     Quit,
     /// A tray came or went, which decides what closing the window does.
     Available,
+    /// Settings… from the Mac's menu bar, which no tray offers.
+    Settings,
+    /// The Dock icon was clicked with no window up, which only the Mac has.
+    Reopen,
 }
 
 /// What the icon and its menu show.
@@ -80,7 +85,9 @@ fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
@@ -521,7 +528,62 @@ mod windows {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos {
+    //! An icon in the menu bar's right side, as `native/appkit.m` draws it.
+    //! Left-clicking it opens the window; its menu, from a right-click, holds
+    //! the same three things the other desktops' hold.
+
+    use super::{Choice, Shown};
+
+    /// The logo's side in pixels. The bar draws it at half, so a Retina bar
+    /// gets one pixel per dot.
+    const SIDE: u32 = 36;
+
+    pub struct Tray;
+
+    /// The logo as the bytes AppKit wants: RGBA, row by row.
+    fn pixels(unread: bool) -> Option<Vec<u8>> {
+        Some(
+            super::logo(SIDE, unread)?
+                .as_slice()
+                .iter()
+                .flat_map(|pixel| [pixel.r, pixel.g, pixel.b, pixel.a])
+                .collect(),
+        )
+    }
+
+    impl Tray {
+        pub fn start(chosen: fn(Choice)) -> Option<Self> {
+            let pixels = pixels(false)?;
+            crate::appkit::tray_start(chosen, &pixels, SIDE);
+            tracing::info!("tray icon shown");
+            // The menu bar's right side is always there, so closing the window
+            // can always mean the tray.
+            let _ = slint::invoke_from_event_loop(move || chosen(Choice::Available));
+            Some(Self)
+        }
+
+        pub fn available(&self) -> bool {
+            crate::appkit::tray_available()
+        }
+
+        pub fn show(&self, shown: Shown) {
+            let Some(pixels) = pixels(shown.unread) else {
+                return;
+            };
+            crate::appkit::tray_show(&pixels, SIDE, shown.call);
+        }
+    }
+
+    impl Drop for Tray {
+        fn drop(&mut self) {
+            crate::appkit::tray_stop();
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod none {
     use super::{Choice, Shown};
 

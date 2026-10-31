@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Draws packaging/macos/AppIcon.icns from packaging/icon.svg.
+#
+# macOS wants a rounded tile rather than a loose glyph, so Yapfast's marigold
+# yap sits on one made of the same colours the window uses: the chat panel's
+# grey at the top, the server rail's at the bottom, and the corner radius the
+# system's own grid asks for.
+#
+# Needs the Xcode command line tools for `swift` and `iconutil`, and nothing
+# else: AppKit reads the SVG and writes the PNGs.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+iconset="$work/AppIcon.iconset"
+mkdir -p "$iconset"
+
+swift "$(dirname "${BASH_SOURCE[0]}")/macos-icon.swift" "$iconset" packaging/icon.svg
+
+iconutil -c icns "$iconset" -o packaging/macos/AppIcon.icns
+echo "packaging/macos/AppIcon.icns ($(du -h packaging/macos/AppIcon.icns | cut -f1))"

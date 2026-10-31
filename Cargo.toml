@@ -83,7 +83,18 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphic
 # spins a core while it waits for the screen. See src/graphics.rs.
 i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional = true }
 
+# The Mac's Skia reaches Metal through wgpu, and the winit backend asks for
+# `SkiaRenderer::default_metal`, which the crate only compiles with wgpu in.
+# Its own default features dropped wgpu for Linux's reasons, and Windows names
+# it above, so the Mac has to name it the same way.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional = true }
+
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
+[build-dependencies]
+# Compiles native/appkit.m, the Mac's menu bar, tray icon and notifications.
+cc = "1"
+
 [[example]]
 name = "tray_host"
 path = "testing/tray_host.rs"
