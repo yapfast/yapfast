@@ -1020,6 +1020,15 @@ struct Layout {
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
+    /// Show a green status mark in the tray while the microphone is sending.
+    tray_voice_activity: Option<bool>,
+    /// The window and tray logo palette: marigold, blue or mint.
+    icon_style: Option<i32>,
+    /// A custom image is stored beside layout.json as custom-icon.png.
+    custom_icon: bool,
+    /// Separate tray icons for the quiet and speaking states.
+    tray_idle_icon: bool,
+    tray_speaking_icon: bool,
     /// Where the window was when Yapfast last ran, and how big.
     window: Option<placement::Placement>,
 }
@@ -1177,6 +1186,14 @@ impl Layout {
         chosen.apply(window);
         window.set_theme_id(id.into());
         window.set_themes(theme::cards(&self.custom_themes));
+        window.set_tray_voice_activity(self.tray_voice_activity.unwrap_or(true));
+        window.set_icon_style(self.icon_style.unwrap_or(0));
+        window.set_has_custom_icon(self.custom_icon);
+        window.set_has_tray_idle_icon(self.tray_idle_icon);
+        window.set_has_tray_speaking_icon(self.tray_speaking_icon);
+        if !self.custom_icon {
+            crate::icon::set_style(&window.window(), self.icon_style.unwrap_or(0));
+        }
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }
@@ -1652,6 +1669,10 @@ struct Adapter {
     ringer: Option<yapfast_core::ring::Ringer>,
     /// Yapfast's icon in the system tray, where the window can close to.
     tray: Option<crate::tray::Tray>,
+    /// Custom tray and window icon, normalized to a 64×64 RGBA image.
+    custom_icon: Option<Arc<Vec<u8>>>,
+    tray_idle_icon: Option<Arc<Vec<u8>>>,
+    tray_speaking_icon: Option<Arc<Vec<u8>>>,
     /// Linking a Discord account by QR code; dropping it stops the linking.
     #[cfg(feature = "discord")]
     linking: Option<yapfast_core::runtime::BackgroundTask<()>>,
@@ -1743,6 +1764,43 @@ impl Adapter {
         models.attach(window);
         let layout = Layout::read(&root);
         layout.apply(window);
+        let custom_icon = layout
+            .custom_icon
+            .then(|| std::fs::read(root.join("custom-icon.png")).ok())
+            .flatten()
+            .and_then(|bytes| crate::icon::decode_custom(&bytes).ok())
+            .map(Arc::new);
+        let tray_idle_icon = layout
+            .tray_idle_icon
+            .then(|| std::fs::read(root.join("tray-idle-icon.png")).ok())
+            .flatten()
+            .and_then(|bytes| crate::icon::decode_custom(&bytes).ok())
+            .map(Arc::new);
+        let tray_speaking_icon = layout
+            .tray_speaking_icon
+            .then(|| std::fs::read(root.join("tray-speaking-icon.png")).ok())
+            .flatten()
+            .and_then(|bytes| crate::icon::decode_custom(&bytes).ok())
+            .map(Arc::new);
+        if let Some(icon) = &custom_icon {
+            crate::icon::set_custom(&window.window(), icon);
+        }
+        window.set_has_custom_icon(custom_icon.is_some());
+        window.set_has_tray_idle_icon(tray_idle_icon.is_some());
+        window.set_has_tray_speaking_icon(tray_speaking_icon.is_some());
+        let style = layout.icon_style.unwrap_or(0).clamp(0, 2) as u8;
+        let app_pixels = custom_icon.as_ref().map(|icon| icon.as_slice());
+        let idle_pixels = tray_idle_icon
+            .as_ref()
+            .map(|icon| icon.as_slice())
+            .or(app_pixels);
+        let speaking_pixels = tray_speaking_icon
+            .as_ref()
+            .map(|icon| icon.as_slice())
+            .or(idle_pixels);
+        window.set_app_icon_preview(crate::tray::preview(style, false, app_pixels));
+        window.set_tray_idle_icon_preview(crate::tray::preview(style, false, idle_pixels));
+        window.set_tray_speaking_icon_preview(crate::tray::preview(style, true, speaking_pixels));
         let mut app = Application::default();
         app.remember_reaction_uses(layout.reactions.clone());
         app.dispatch(Action::ShowHiddenChannels(layout.show_hidden_channels));
@@ -1761,6 +1819,9 @@ impl Adapter {
                 runtime,
                 root,
                 layout,
+                custom_icon,
+                tray_idle_icon,
+                tray_speaking_icon,
                 app,
                 models,
                 icons,
@@ -1887,6 +1948,12 @@ impl Adapter {
         self.models.attach(window);
         self.layout.apply(window);
         self.watch_talk_key(window);
+        if let Some(icon) = &self.custom_icon {
+            crate::icon::set_custom(&window.window(), icon);
+            window.set_has_custom_icon(true);
+        }
+        window.set_has_tray_idle_icon(self.tray_idle_icon.is_some());
+        window.set_has_tray_speaking_icon(self.tray_speaking_icon.is_some());
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds
         // them again.
