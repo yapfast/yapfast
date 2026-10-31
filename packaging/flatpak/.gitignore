@@ -1,0 +1,4 @@
+# flatpak-builder work files, and the generated crate list (see the manifest)
+/build-dir/
+/.flatpak-builder/
+/cargo-sources.json
