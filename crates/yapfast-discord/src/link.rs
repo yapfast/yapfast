@@ -18,7 +18,8 @@ const WEB_HOSTS: [&str; 5] = [
 pub enum Route {
     /// A server invite, by its code.
     Invite { code: String },
-    /// A server's scheduled event, by the server and the event.
+    /// A server's scheduled event, by the server and the event. A link to
+    /// one occurrence of a recurring event names the whole series.
     Event { guild: String, event: String },
     /// Direct messages.
     DirectMessages,
@@ -90,10 +91,19 @@ fn segments(url: &Url) -> Option<Vec<&str>> {
 fn from_segments(segments: &[&str]) -> Option<Route> {
     match segments {
         ["invite", code] => invite(code),
-        ["events", guild, event] if snowflake(guild) && snowflake(event) => Some(Route::Event {
-            guild: (*guild).to_owned(),
-            event: (*event).to_owned(),
-        }),
+        // Discord's client adds the occurrence of a recurring event as a
+        // third id; Yapfast shows the series.
+        ["events", guild, event, occurrence @ ..]
+            if snowflake(guild)
+                && snowflake(event)
+                && occurrence.len() <= 1
+                && occurrence.iter().all(|id| snowflake(id)) =>
+        {
+            Some(Route::Event {
+                guild: (*guild).to_owned(),
+                event: (*event).to_owned(),
+            })
+        }
         ["channels", "@me"] => Some(Route::DirectMessages),
         ["channels", guild] if snowflake(guild) => Some(Route::Server {
             guild: (*guild).to_owned(),
@@ -216,6 +226,14 @@ mod tests {
                 event: "11".into(),
             })
         );
+        assert_eq!(
+            parse("https://discord.com/events/10/11/12"),
+            Some(Route::Event {
+                guild: "10".into(),
+                event: "11".into(),
+            }),
+            "one occurrence of a recurring event"
+        );
     }
 
     #[test]
@@ -227,6 +245,7 @@ mod tests {
             "https://discord.com/oauth2/authorize?client_id=10&scope=bot",
             "https://discord.com/events/not-a-server/11",
             "https://discord.com/events/10",
+            "https://discord.com/events/10/11/soon",
             "https://discord.new/aTemplateCode",
             "https://discord.com/shop",
             // Hosts that merely contain or resemble Discord's.

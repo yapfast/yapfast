@@ -11,6 +11,8 @@ use serde_json::Value;
 /// An event that hasn't started yet, and one going on now.
 const SCHEDULED: u64 = 1;
 const ACTIVE: u64 = 2;
+/// The response of a subscription the Interested button makes.
+pub const INTERESTED: u64 = 1;
 
 /// What a scheduled event shows from its link, from
 /// `GET /guilds/{guild}/scheduled-events/{event}` with its user count.
@@ -76,12 +78,15 @@ impl Preview {
 
 /// Whether the event `id` is among this account's subscriptions, from
 /// `GET /users/@me/scheduled-events`: subscribed with an interested
-/// response, as Discord's Interested button leaves it.
+/// response, as Discord's Interested button leaves it. A subscription to
+/// one occurrence of a recurring event, with its exception id, is an
+/// answer of its own and doesn't count for the series.
 pub fn interested_in(subscriptions: &Value, id: &str) -> bool {
     subscriptions.as_array().is_some_and(|subscriptions| {
         subscriptions.iter().any(|subscription| {
             subscription["guild_scheduled_event_id"].as_str() == Some(id)
-                && subscription["response"].as_u64() == Some(1)
+                && subscription["guild_scheduled_event_exception_id"].is_null()
+                && subscription["response"].as_u64() == Some(INTERESTED)
         })
     })
 }
@@ -132,9 +137,13 @@ mod tests {
         let subscriptions = json!([
             {"guild_scheduled_event_id": "11", "user_id": "99", "response": 1},
             {"guild_scheduled_event_id": "12", "user_id": "99", "response": 0},
+            // Interested in one occurrence of a recurring event only.
+            {"guild_scheduled_event_id": "14", "guild_scheduled_event_exception_id": "15",
+             "user_id": "99", "response": 1},
         ]);
         assert!(interested_in(&subscriptions, "11"));
         assert!(!interested_in(&subscriptions, "12"));
+        assert!(!interested_in(&subscriptions, "14"));
         assert!(!interested_in(&subscriptions, "13"));
         assert!(!interested_in(&json!([]), "11"));
     }

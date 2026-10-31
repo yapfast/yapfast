@@ -216,7 +216,7 @@ an error.
 - Discord's own links to a server, channel, message or person open that
   place in Yapfast, DM links included; an invite opens Join a Server first,
   and an event link shows the scheduled event with its Interested button
-  (`link.rs`, `scheduled_event.rs`). Only Discord's own hosts and snowflake
+  ([Event links](servers.md#event-links)). Only Discord's own hosts and snowflake
   ids match, so a look-alike stays an ordinary web link. Discord pages
   Yapfast has no screen for, such as gifts and app authorization, still open
   in the browser,

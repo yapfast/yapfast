@@ -3687,6 +3687,10 @@ async fn marks_interest_in_a_scheduled_event() {
     let changes = changes.as_array().unwrap();
     assert_eq!(changes.len(), 2);
     assert_eq!(changes[0]["interested"], true);
+    assert_eq!(
+        changes[0]["response"], 1,
+        "as Discord's Interested button sends"
+    );
     assert_eq!(changes[1]["interested"], false);
 }
 

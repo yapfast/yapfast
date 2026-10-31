@@ -151,7 +151,8 @@ the pages your roles let you use, and channel settings with their permissions.
 Make and edit channels and categories, invite people, hand out roles, change
 nicknames, time out, kick and ban. In voice, server mute, deafen and move
 people to another channel. Edit your server profile, and leave. Join a server
-by invite, from the + under your servers or a link in chat. Folders show up as
+by invite, from the + under your servers or a link in chat, and open a
+scheduled event from its link to mark yourself interested. Folders show up as
 they do in Discord.
 
 <p align="center">

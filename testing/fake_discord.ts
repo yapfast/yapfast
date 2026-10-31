@@ -196,11 +196,13 @@
 // the next join ask for an hCaptcha, as the QR ticket's does, and POST
 // /_control/invite-form makes it answer that the server has a form to fill
 // in first.
-// A scheduled event in "Server"'s Lounge resolves from its link the same
-// way: GET /guilds/{id}/scheduled-events/{id} shows it, GET
-// /users/@me/scheduled-events says whether Alice is interested, and PUT
-// or DELETE on its users/@me changes that. GET /_control/event-interest
-// lists each change.
+// A scheduled event in "Server"'s Lounge, which READY lists, resolves from
+// its link the same way: GET /guilds/{id}/scheduled-events/{id} shows it,
+// counting the interested only with ?with_user_count=true, GET
+// /users/@me/scheduled-events?guild_ids={id} says whether Alice is
+// interested, and PUT (with its {response}) or DELETE on its users/@me
+// changes that. GET /_control/event-interest lists each change with the
+// response the PUT sent.
 // Linking by QR code goes through a remote login gateway at /remote-auth/, as
 // remote-auth-gateway.discord.gg speaks it. POST /_control/qr-scan scans the
 // code shown as Alice, /_control/qr-confirm confirms it, /_control/qr-cancel
@@ -2232,7 +2234,7 @@ function guild() {
     // A user account hears of the active threads it's in.
     threads: [...threads.values()].filter((thread) => thread.members.has(ALICE) && !thread.archived).map(wireThread),
     stage_instances: [],
-    guild_scheduled_events: [],
+    guild_scheduled_events: [scheduledEvent()],
     activity_instances: [],
     member_count: Object.keys(users).length,
     joined_at: JOINED_AT,
@@ -4165,6 +4167,35 @@ const eventInterest: Record<string, unknown>[] = [];
  *  interested in it. */
 const SCHEDULED_EVENT = "1400000000000000901";
 let eventInterested = false;
+
+/** The scheduled event, as READY and GET /guilds/{id}/scheduled-events/{id}
+ *  give it, without the count of the interested only the GET adds. */
+function scheduledEvent() {
+  return {
+    id: SCHEDULED_EVENT,
+    guild_id: GUILD,
+    channel_id: LOUNGE,
+    creator_id: users.bob.id ?? null,
+    creator: wireUser(users.bob),
+    name: "Alien meetup",
+    description: "Aliens only!",
+    scheduled_start_time: iso(Date.now() + DAY),
+    scheduled_end_time: iso(Date.now() + DAY + 3_600_000),
+    privacy_level: 2,
+    status: 1,
+    entity_type: 2,
+    entity_id: null,
+    entity_metadata: null,
+    image: null,
+    recurrence_rule: null,
+    guild_scheduled_event_exceptions: [],
+  };
+}
+
+/** Alice's subscription to the event, for the whole series. */
+function eventSubscription(response = 1) {
+  return { guild_scheduled_event_id: SCHEDULED_EVENT, guild_scheduled_event_exception_id: null, user_id: ALICE, response };
+}
 
 /** Files uploaded for a message that isn't sent yet, by uploaded filename. */
 const uploads = new Map<string, { filename: string; data?: Uint8Array }>();
@@ -6277,38 +6308,26 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // The scheduled event in "Server"'s Lounge, from its link, and Alice's
   // interest in it: marking it fires the gateway event Discord sends.
   if (method === "GET" && path === "/users/@me/scheduled-events") {
-    return json(eventInterested ? [{ guild_scheduled_event_id: SCHEDULED_EVENT, user_id: ALICE, response: 1 }] : []);
+    const asked = url.searchParams.getAll("guild_ids").includes(GUILD);
+    return json(asked && eventInterested ? [eventSubscription()] : []);
   }
   if (method === "GET" && (m = path.match(/^\/guilds\/(\d+)\/scheduled-events\/(\d+)$/))) {
     if (m[1] !== GUILD || m[2] !== SCHEDULED_EVENT) return notFound("Unknown Guild Scheduled Event", 10070);
-    return json({
-      id: SCHEDULED_EVENT,
-      guild_id: GUILD,
-      channel_id: LOUNGE,
-      creator_id: users.bob.id ?? null,
-      creator: wireUser(users.bob),
-      name: "Alien meetup",
-      description: "Aliens only!",
-      scheduled_start_time: iso(Date.now() + DAY),
-      scheduled_end_time: iso(Date.now() + DAY + 3_600_000),
-      privacy_level: 2,
-      status: 1,
-      entity_type: 2,
-      entity_id: null,
-      entity_metadata: null,
-      user_count: eventInterested ? 8 : 7,
-      image: null,
-      recurrence_rule: null,
-      guild_scheduled_event_exceptions: [],
-    });
+    // Discord counts the interested only when asked to.
+    const counted = url.searchParams.get("with_user_count") === "true";
+    return json({ ...scheduledEvent(), ...(counted ? { user_count: eventInterested ? 8 : 7 } : {}) });
   }
   if ((m = path.match(/^\/guilds\/(\d+)\/scheduled-events\/(\d+)\/users\/@me$/)) && (method === "PUT" || method === "DELETE")) {
     if (m[1] !== GUILD || m[2] !== SCHEDULED_EVENT) return notFound("Unknown Guild Scheduled Event", 10070);
-    eventInterested = method === "PUT";
-    eventInterest.push({ event: SCHEDULED_EVENT, interested: eventInterested });
-    dispatch(eventInterested ? "GUILD_SCHEDULED_EVENT_USER_ADD" : "GUILD_SCHEDULED_EVENT_USER_REMOVE", { guild_scheduled_event_id: SCHEDULED_EVENT, user_id: ALICE, guild_id: GUILD, response: eventInterested ? 1 : 0 });
+    const body: any = method === "PUT" ? await req.json().catch(() => ({})) : {};
+    if (method === "PUT" && body.response !== 0 && body.response !== 1) {
+      return json({ message: "Invalid Form Body", code: 50035, errors: { response: { _errors: [{ code: "BASE_TYPE_REQUIRED", message: "This field is required" }] } } }, 400);
+    }
+    eventInterested = method === "PUT" && body.response === 1;
+    eventInterest.push({ event: SCHEDULED_EVENT, interested: eventInterested, response: body.response ?? null });
+    dispatch(method === "PUT" ? "GUILD_SCHEDULED_EVENT_USER_ADD" : "GUILD_SCHEDULED_EVENT_USER_REMOVE", { guild_scheduled_event_id: SCHEDULED_EVENT, guild_scheduled_event_exception_id: null, user_id: ALICE, guild_id: GUILD, response: body.response ?? 1 });
     if (method === "DELETE") return empty();
-    return json({ guild_scheduled_event_id: SCHEDULED_EVENT, user_id: ALICE, response: 1 });
+    return json(eventSubscription(body.response));
   }
 
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/attachments$/))) {

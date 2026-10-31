@@ -11,7 +11,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa,
+    mfa, scheduled_event,
     settings::{self, CustomStatus},
 };
 
@@ -1751,12 +1751,15 @@ impl Api {
         interested: bool,
     ) -> Result<()> {
         let path = format!("/guilds/{guild}/scheduled-events/{event}/users/@me");
-        let method = if interested {
-            Method::PUT
+        let request = if interested {
+            with_json(
+                self.request(Method::PUT, &path),
+                &json!({ "response": scheduled_event::INTERESTED }),
+            )
         } else {
-            Method::DELETE
+            self.request(Method::DELETE, &path)
         };
-        self.empty(self.request(method, &path)).await
+        self.empty(request).await
     }
 
     /// Joins a server by an invite, from this gateway `session`, as
