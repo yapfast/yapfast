@@ -305,6 +305,7 @@ impl Adapter {
         self.show_members(window);
         self.show_invite(window);
         self.show_join(window);
+        self.show_gift(window);
         self.show_event(window);
         self.show_channel_dialog(window);
         self.show_leave(window);
@@ -1789,6 +1790,66 @@ impl Adapter {
             busy: dialog.resolving || dialog.marking,
             status: status.into(),
             error: dialog.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
+    /// The gift a clicked gift link opened.
+    fn show_gift(&self, window: &YapfastWindow) {
+        let gift = self.app.state.gift.as_ref();
+        window.set_gift_open(gift.is_some());
+        let Some(gift) = gift else {
+            return;
+        };
+        let preview = gift.preview.as_ref();
+        let detail = preview.map(|preview| {
+            let mut parts = Vec::new();
+            if let Some(plan) = &preview.plan {
+                parts.push(plan.clone());
+            }
+            if let Some(gifter) = &preview.gifter {
+                parts.push(format!("from {gifter}"));
+            }
+            parts.join(" · ")
+        });
+        let redeeming = self.app.state.redeeming_gifts.contains(&gift.code);
+        let redeemable =
+            !gift.redeemed && preview.is_some_and(yapfast_core::chat::GiftPreview::redeemable);
+        let in_discord = !gift.redeemed && preview.is_some_and(|preview| preview.in_discord);
+        let status = if gift.redeemed {
+            "Redeemed. Enjoy!"
+        } else if redeeming {
+            "Redeeming..."
+        } else if gift.resolving {
+            "Looking up the gift..."
+        } else if preview.is_some_and(|preview| preview.redeemed) {
+            "You've already redeemed this gift."
+        } else if preview.is_some_and(|preview| preview.spent) {
+            "This gift has already been redeemed."
+        } else if in_discord {
+            "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
+        } else {
+            ""
+        };
+        window.set_gift_prompt(GiftPrompt {
+            title: "You've been sent a gift".into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            detail: detail.unwrap_or_default().into(),
+            confirm: if redeemable {
+                "Redeem Gift"
+            } else if in_discord {
+                "Open in Browser"
+            } else {
+                ""
+            }
+            .into(),
+            browser: in_discord,
+            busy: gift.resolving || redeeming,
+            status: status.into(),
+            error: gift.error.as_deref().unwrap_or_default().into(),
         });
     }
 

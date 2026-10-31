@@ -1767,6 +1767,27 @@ impl Api {
         self.empty(request).await
     }
 
+    /// A gift code, with the subscription plan it grants, as Discord's
+    /// client asks for a gift link in a message: without the SKU's
+    /// application, which Yapfast doesn't show.
+    pub async fn gift_code(&self, code: &str) -> Result<Value> {
+        let path = format!(
+            "/entitlements/gift-codes/{}?with_application=false&with_subscription_plan=true",
+            encode(code)
+        );
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Redeems a gift code for this account, in the channel its link was
+    /// opened in when it was one, as Discord's client sends it without a
+    /// payment source; the entitlement it grants.
+    pub async fn redeem_gift_code(&self, code: &str, channel: Option<&str>) -> Result<Value> {
+        let path = format!("/entitlements/gift-codes/{}/redeem", encode(code));
+        let body = json!({"channel_id": channel, "gateway_checkout_context": null});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
     /// Joins a server by an invite, from this gateway `session`, as
     /// Discord's client does; `context` says where, as
     /// [`crate::invite::Preview::context`] makes it. Discord may ask for a
@@ -2140,6 +2161,20 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         }
         (_, Some(SERVER_FULL)) => anyhow!("This server is full."),
         (_, Some(INVITES_PAUSED)) => anyhow!("This server has paused invites."),
+        (_, Some(UNKNOWN_GIFT)) => anyhow!("This gift code is invalid or has expired."),
+        (_, Some(GIFT_EXHAUSTED)) => anyhow!("This gift has already been redeemed."),
+        (_, Some(GIFT_OWNED)) => anyhow!("You already have what this gift grants."),
+        (_, Some(GIFT_SELF)) => anyhow!("You can't redeem a gift you made."),
+        (_, Some(GIFT_SUBSCRIPTION_MANAGED)) => anyhow!(
+            "You subscribe to Nitro through another provider, such as an app store, so you can't redeem Nitro gifts."
+        ),
+        (_, Some(GIFT_SUBSCRIPTION_INCOMPATIBLE)) => {
+            anyhow!("You can't redeem this gift while you're subscribed to Nitro.")
+        }
+        (_, Some(GIFT_INVOICE_OPEN)) => {
+            anyhow!("You can't redeem this gift while your subscription has an open invoice.")
+        }
+        (_, Some(GIFT_FRAUD_REJECTED)) => anyhow!("Discord won't let this account use this gift."),
         (_, Some(UNKNOWN_EVENT)) => anyhow!("This event doesn't exist."),
         (_, Some(mfa::INVALID_MFA)) => anyhow!("That didn't work. Check it and try again."),
         (_, Some(mfa::MFA_REQUIRED)) => {
@@ -2232,6 +2267,14 @@ const INVALID_INVITE: u64 = 50020;
 const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
+const UNKNOWN_GIFT: u64 = 10038;
+const GIFT_EXHAUSTED: u64 = 50050;
+const GIFT_OWNED: u64 = 50051;
+const GIFT_SELF: u64 = 50054;
+const GIFT_FRAUD_REJECTED: u64 = 50097;
+const GIFT_SUBSCRIPTION_MANAGED: u64 = 100021;
+const GIFT_SUBSCRIPTION_INCOMPATIBLE: u64 = 100023;
+const GIFT_INVOICE_OPEN: u64 = 100024;
 const INVITES_PAUSED: u64 = 40069;
 const UNKNOWN_EVENT: u64 = 10070;
 const MISSING_PERMISSIONS: u64 = 50013;

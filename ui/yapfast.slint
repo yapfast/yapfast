@@ -33,7 +33,7 @@ import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, Theme
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
-import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
+import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
 import { BoostPicture, BoostPrompt, EngagementPrompt, ServerProfilePrompt, ServerSettingsPrompt, ServerSettingsScreen } from "server_settings.slint";
 import { PermissionRow, RoleMemberRow, RoleRow, RoleSwatch, RolesPrompt } from "roles.slint";
@@ -173,6 +173,12 @@ export component YapfastWindow inherits Window {
     callback open-join-captcha;
     callback open-join-form;
     callback close-join;
+    // A gift a clicked gift link opened; see GiftDialog.
+    in property <bool> gift-open;
+    in property <GiftPrompt> gift-prompt;
+    callback redeem-gift;
+    callback open-gift-in-browser;
+    callback close-gift;
     // A scheduled event a clicked event link opened; see EventDialog.
     in property <bool> event-open;
     in property <EventPrompt> event-prompt;
@@ -3646,6 +3652,14 @@ export component YapfastWindow inherits Window {
         prompt: root.event-prompt;
         toggle-interest => { root.toggle-event-interest(); }
         close => { root.close-event(); }
+    }
+    gift-motion := PopupMotion { open: root.gift-open; }
+    if gift-motion.shown: GiftDialog {
+        motion: gift-motion.amount;
+        prompt: root.gift-prompt;
+        redeem => { root.redeem-gift(); }
+        open-in-browser => { root.open-gift-in-browser(); }
+        close => { root.close-gift(); }
     }
     channel-motion := PopupMotion { open: root.channel-open; }
     if channel-motion.shown: ChannelDialog {

@@ -11,8 +11,8 @@ use super::{
     *,
 };
 use crate::chat::{
-    EventPreview, InvitePreview, JoinedServer, MemberChange, Muting, NotificationChange,
-    NotifyLevel, RelationshipChange,
+    EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
+    NotificationChange, NotifyLevel, RelationshipChange,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -1012,6 +1012,62 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ResolveGift { code }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .gift(&code)
+                        .await
+                        .map(gift_preview)
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not look up a gift"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::GiftResolved { code, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::GiftResolved {
+                    code,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::RedeemGift { code, room }) = command {
+        let channel = room
+            .as_deref()
+            .and_then(discord::parse_room)
+            .map(|(_, channel)| channel.to_owned());
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .redeem_gift(&code, channel.as_deref())
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(error = format!("{error:#}"), "could not redeem a gift");
+                            format!("Couldn't redeem the gift: {error}")
+                        });
+                    let _ = events.send(Event::GiftRedeemed { code, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::GiftRedeemed {
+                    code,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::OpenThread { room, beside }) = command {
         let place =
             discord::parse_room(&room).map(|(guild, thread)| (guild.to_owned(), thread.to_owned()));
@@ -1643,4 +1699,15 @@ fn unix_seconds(timestamp: &str) -> u64 {
     chrono::DateTime::parse_from_rfc3339(timestamp)
         .map(|time| u64::try_from(time.timestamp()).unwrap_or_default())
         .unwrap_or_default()
+}
+
+fn gift_preview(preview: yapfast_discord::gift::Preview) -> GiftPreview {
+    GiftPreview {
+        name: preview.name,
+        plan: preview.plan,
+        gifter: preview.gifter,
+        redeemed: preview.redeemed,
+        spent: preview.spent,
+        in_discord: preview.in_discord,
+    }
 }

@@ -16,7 +16,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use crate::{
     activity,
     api::{self, Api, PAGE, Span},
-    cache, forum, invite, limits,
+    cache, forum, gift, invite, limits,
     marked::MarkedServer,
     member_list::{ListedMember, Presence},
     message::{self, Message, Names, Page},
@@ -2189,6 +2189,20 @@ impl Discord {
         self.api
             .set_scheduled_event_interest(guild, event, interested)
             .await
+    }
+
+    /// What a gift shows before it is redeemed, by its code; see
+    /// [`Api::gift_code`]. An answer without a gift code is refused.
+    pub async fn gift(&self, code: &str) -> Result<gift::Preview> {
+        let gift = self.api.gift_code(code).await?;
+        gift::Preview::of(&gift).context("Discord didn't answer with a gift.")
+    }
+
+    /// Redeems the gift with this code for this account; `channel` is
+    /// where its link was opened, when it was a channel. Discord sends
+    /// the entitlement it grants over the gateway.
+    pub async fn redeem_gift(&self, code: &str, channel: Option<&str>) -> Result<()> {
+        self.api.redeem_gift_code(code, channel).await.map(drop)
     }
 
     /// A channel's name, topic, slowmode in seconds and whether it's

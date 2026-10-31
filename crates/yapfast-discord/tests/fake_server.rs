@@ -3640,6 +3640,66 @@ async fn links_by_qr_code() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn redeems_a_gift() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        general,
+        ..
+    } = Fixture::start("redeems_a_gift").await;
+
+    let unknown = discord.gift("gone").await.unwrap_err();
+    assert_eq!(
+        unknown.to_string(),
+        "This gift code is invalid or has expired."
+    );
+
+    // Bob's gift of Nitro, as a clicked gift link looks it up. Looking it
+    // up redeems nothing.
+    let preview = discord.gift("2CG6SV9QtRxerJTgCYNDnU7M").await.unwrap();
+    assert_eq!(preview.name, "Nitro");
+    assert_eq!(preview.plan.as_deref(), Some("Nitro Monthly"));
+    assert!(preview.gifter.is_some());
+    assert!(preview.redeemable());
+    let redeems: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/gift-redeems", "")).unwrap();
+    assert!(redeems.as_array().unwrap().is_empty(), "{redeems}");
+
+    // Redeeming names the channel its link was opened in, once.
+    discord
+        .redeem_gift(&preview.code, Some(general.as_str()))
+        .await
+        .unwrap();
+    let redeems: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/gift-redeems", "")).unwrap();
+    let redeems = redeems.as_array().unwrap();
+    assert_eq!(redeems.len(), 1);
+    assert_eq!(redeems[0]["code"], "2CG6SV9QtRxerJTgCYNDnU7M");
+    assert_eq!(redeems[0]["channel_id"], general.as_str());
+    assert!(
+        redeems[0]["gateway_checkout_context"].is_null(),
+        "{redeems:?}"
+    );
+
+    // Afterwards the gift shows as redeemed, and redeeming again is
+    // refused as Discord refuses it.
+    let preview = discord.gift("2CG6SV9QtRxerJTgCYNDnU7M").await.unwrap();
+    assert!(preview.redeemed && !preview.redeemable());
+    let again = discord
+        .redeem_gift(&preview.code, Some(general.as_str()))
+        .await
+        .unwrap_err();
+    assert_eq!(again.to_string(), "This gift has already been redeemed.");
+
+    // A gift that needs a payment source shows, but only Discord can
+    // redeem it.
+    let paid = discord.gift("AbCdEfGhIjKlMnOp").await.unwrap();
+    assert!(paid.in_discord && !paid.redeemable());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn marks_interest_in_a_scheduled_event() {
     let Fixture {
         _fake,
