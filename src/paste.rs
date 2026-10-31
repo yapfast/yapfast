@@ -17,6 +17,9 @@ pub enum Clipboard {
 }
 
 /// Picture types Discord shows inline, best first, with their extensions.
+/// Only the Wayland path needs them: elsewhere a copied picture arrives as
+/// pixels rather than as one of these, and goes to the composer as a PNG.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const PICTURES: [(&str, &str); 4] = [
     ("image/png", "png"),
     ("image/gif", "gif"),
@@ -32,6 +35,16 @@ pub fn read() -> Clipboard {
         match wayland::read() {
             Ok(clipboard) => return clipboard,
             Err(error) => tracing::debug!(%error, "could not read the Wayland clipboard"),
+        }
+    }
+    // What a copy in Finder holds comes off the pasteboard directly: arboard
+    // reads a list of files from Windows and the X11 and Wayland clipboards,
+    // not from macOS's.
+    #[cfg(target_os = "macos")]
+    {
+        let files = crate::appkit::pasteboard_files();
+        if !files.is_empty() {
+            return Clipboard::Files(files);
         }
     }
     read_arboard()

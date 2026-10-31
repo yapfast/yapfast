@@ -9,7 +9,9 @@ pub enum Drag {
     /// Files came over the window.
     Entered,
     /// The pointer dragging them is here, in the window's logical pixels as
-    /// the platform has them, before Yapfast's zoom.
+    /// the platform has them, before Yapfast's zoom. Only a platform with a
+    /// `Pointer` to ask has one; the others' tests still move it around.
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     Moved { x: f64, y: f64 },
     /// They left it, or the drag ended elsewhere.
     Left,
@@ -20,12 +22,14 @@ pub enum Drag {
 /// Where the pointer is over a window, for the drags winit reports without
 /// it: on X11 and Windows. One is made for each drag and asked while the
 /// files hover.
+#[cfg(any(target_os = "linux", windows))]
 pub struct Pointer {
     source: Source,
     /// The window's scale, from its physical pixels to its logical ones.
     scale: f64,
 }
 
+#[cfg(any(target_os = "linux", windows))]
 enum Source {
     /// A connection of its own, and the window.
     #[cfg(target_os = "linux")]
@@ -34,6 +38,7 @@ enum Source {
     Win32(isize),
 }
 
+#[cfg(any(target_os = "linux", windows))]
 impl Pointer {
     pub fn of(window: &slint::winit_030::winit::window::Window) -> Option<Self> {
         use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -93,6 +98,23 @@ impl Pointer {
             x: x / self.scale,
             y: y / self.scale,
         })
+    }
+}
+
+/// The Mac's winit says where a drag is with the drag itself, so there's
+/// nothing to ask and nothing to ask it with. One is still made, so the code
+/// that watches a hover doesn't branch on the platform, and it knows no more.
+#[cfg(not(any(target_os = "linux", windows)))]
+pub struct Pointer;
+
+#[cfg(not(any(target_os = "linux", windows)))]
+impl Pointer {
+    pub fn of(_window: &slint::winit_030::winit::window::Window) -> Option<Self> {
+        None
+    }
+
+    pub fn at(&self) -> Option<Drag> {
+        None
     }
 }
 

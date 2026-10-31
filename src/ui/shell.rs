@@ -348,8 +348,8 @@ pub(super) fn launched(token: Option<String>) {
     let _ = (window, token);
 }
 
-/// What the person chose in the tray.
-fn chosen(choice: Choice) {
+/// What the person chose in the tray, or in the Mac's menu bar.
+pub(super) fn chosen(choice: Choice) {
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
         return;
     };
@@ -361,6 +361,21 @@ fn chosen(choice: Choice) {
         Choice::Quit => {
             let _ = slint::quit_event_loop();
         }
+        Choice::Settings => {
+            // The menu bar offers Settings whether the window is open or not,
+            // so this opens it first, as clicking the Dock icon does.
+            if let Some(window) = shell.open() {
+                window.set_settings_open(true);
+            }
+        }
+        // The Dock icon brings Yapfast back once a window was closed to it.
+        // One that started in the menu bar, as starting at sign-in does, has
+        // nothing to bring back and waits for the status item instead, like
+        // the other desktops' do.
+        Choice::Reopen if shell.view.borrow().is_some() => {
+            shell.open();
+        }
+        Choice::Reopen => {}
         Choice::Available => {
             let available = shell
                 .adapter

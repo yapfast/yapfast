@@ -6,8 +6,9 @@
 //! room in the speakers' queue. Samples go to the system as they are, with no
 //! copy of their own.
 //!
-//! Linux goes through PulseAudio, or PipeWire's PulseAudio server, and
-//! Windows through WASAPI. Other systems have no sound here yet.
+//! Linux goes through PulseAudio, or PipeWire's PulseAudio server, Windows
+//! through WASAPI, and macOS through CoreAudio's output unit. Other systems
+//! have no sound here yet.
 
 use std::{marker::PhantomData, time::Duration};
 #[cfg(feature = "discord")]
@@ -28,9 +29,14 @@ mod wasapi;
 #[cfg(target_os = "windows")]
 use wasapi as platform;
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+mod coreaudio;
+#[cfg(target_os = "macos")]
+use coreaudio as platform;
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 mod unsupported;
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 use unsupported as platform;
 
 #[cfg(feature = "discord")]
@@ -39,7 +45,11 @@ mod lasting;
 pub use lasting::{LastingInput, LastingOutput};
 
 /// Whether this system has sound here.
-pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+pub const AVAILABLE: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "macos"
+));
 
 /// The rate every stream runs at, unless it asks for another.
 pub const RATE: u32 = 48_000;
@@ -198,7 +208,11 @@ impl<S: Sample> Input<S> {
 }
 
 /// What [`others`] hears from the other applications playing.
+///
+/// macOS has no way to hear another application's sound, so nothing builds
+/// these there, only the match in [`crate::stream_audio`] that would take them.
 #[cfg(feature = "discord")]
+#[allow(dead_code)]
 pub enum Heard<'a> {
     /// An application started playing, from this process when the system says.
     Started {

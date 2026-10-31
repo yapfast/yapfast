@@ -117,8 +117,10 @@ impl Filming {
         Ok(())
     }
 
-    /// Whether a camera films, rather than none or one opening.
-    #[cfg(test)]
+    /// Whether a camera films, rather than none or one opening. Only
+    /// matrix_voice's tests read it, and those need a linked stack, which
+    /// only Linux runs.
+    #[cfg(all(test, target_os = "linux"))]
     pub fn filming(&self) -> bool {
         self.camera.is_some()
     }

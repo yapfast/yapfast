@@ -1,12 +1,17 @@
 //! Starting Yapfast when the person signs in to their computer: a value in the
-//! registry's Run key on Windows, an XDG autostart entry on Linux. The entry is
-//! the setting, so one turned off in Task Manager, or a deleted file, shows as
-//! off in Settings too. It starts Yapfast with `--background`, in the tray.
+//! registry's Run key on Windows, an XDG autostart entry on Linux, and a login
+//! item registered by the bundle on macOS. The entry is the setting, so one
+//! turned off in Task Manager, or a deleted file, shows as off in Settings too.
+//! Linux and Windows start Yapfast with `--background`, in the tray; macOS's
+//! login items take no arguments, so it starts as it was left, with its window.
 
 use std::path::PathBuf;
 
-/// Whether this platform can start Yapfast at sign-in.
-pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows));
+/// Whether this platform can start Yapfast at sign-in. macOS can from 13 on,
+/// where the system registers the bundle rather than a command line.
+pub fn supported() -> bool {
+    platform::supported()
+}
 
 /// The name the entry goes by: the Run key's value, and the Inno Setup
 /// installer's, which writes the same one.
@@ -91,7 +96,9 @@ fn windows_argument(argument: &str) -> String {
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
@@ -101,6 +108,10 @@ mod linux {
     use std::path::{Path, PathBuf};
 
     use crate::desktop_entry;
+
+    pub fn supported() -> bool {
+        true
+    }
 
     pub fn enabled() -> bool {
         config().is_some_and(|config| entry_enabled(&config))
@@ -213,6 +224,10 @@ mod windows {
     /// Where Task Manager's Startup apps page keeps an entry turned off.
     const APPROVED: &str =
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+    pub fn supported() -> bool {
+        true
+    }
 
     pub fn enabled() -> bool {
         let run = query(RUN, RRF_RT_REG_SZ);
@@ -359,8 +374,37 @@ mod windows {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos {
+    //! A login item for the bundle Yapfast is running from, which is why the
+    //! setting only works from `Yapfast.app` and not from `cargo run`.
+    //! Registering takes the person to System Settings to agree.
+
+    pub fn supported() -> bool {
+        crate::appkit::login_item_supported()
+    }
+
+    pub fn enabled() -> bool {
+        crate::appkit::login_item_enabled()
+    }
+
+    /// The command Linux and Windows write means nothing here: the system
+    /// starts the bundle it was registered from.
+    pub fn write(_: &[String]) -> std::io::Result<()> {
+        crate::appkit::login_item_set(true)
+    }
+
+    pub fn remove() -> std::io::Result<()> {
+        crate::appkit::login_item_set(false)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod none {
+    pub fn supported() -> bool {
+        false
+    }
+
     pub fn enabled() -> bool {
         false
     }
