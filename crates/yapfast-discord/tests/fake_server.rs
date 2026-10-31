@@ -3661,7 +3661,10 @@ async fn marks_interest_in_a_scheduled_event() {
         serde_json::from_str(&control(server, "GET", "/_control/event-interest", "")).unwrap();
     assert!(changes.as_array().unwrap().is_empty(), "{changes}");
 
-    discord.set_event_interest(&preview, true).await.unwrap();
+    discord
+        .set_event_interest(&guild, &preview.id, true)
+        .await
+        .unwrap();
     let preview = discord
         .scheduled_event(&guild, "1400000000000000901")
         .await
@@ -3669,7 +3672,10 @@ async fn marks_interest_in_a_scheduled_event() {
     assert!(preview.interested);
     assert_eq!(preview.interested_count, Some(8));
 
-    discord.set_event_interest(&preview, false).await.unwrap();
+    discord
+        .set_event_interest(&guild, &preview.id, false)
+        .await
+        .unwrap();
     let preview = discord
         .scheduled_event(&guild, "1400000000000000901")
         .await

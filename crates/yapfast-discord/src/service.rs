@@ -2149,15 +2149,16 @@ impl Discord {
             .context("This event is not in that server.")
     }
 
-    /// Marks this account interested in the event `preview` shows, or
+    /// Marks this account interested in a server's scheduled event, or
     /// no longer interested in it.
     pub async fn set_event_interest(
         &self,
-        preview: &scheduled_event::Preview,
+        guild: &str,
+        event: &str,
         interested: bool,
     ) -> Result<()> {
         self.api
-            .set_scheduled_event_interest(&preview.guild, &preview.id, interested)
+            .set_scheduled_event_interest(guild, event, interested)
             .await
     }
 

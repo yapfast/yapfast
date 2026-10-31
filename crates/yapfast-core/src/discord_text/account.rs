@@ -980,31 +980,13 @@ pub(super) fn command(
     }) = command
     {
         let event = preview.event.clone();
-        let shown = yapfast_discord::scheduled_event::Preview {
-            id: preview.event.clone(),
-            guild: preview.guild.clone(),
-            name: preview.name.clone(),
-            description: preview.description.clone(),
-            starts_at: preview.starts_at.clone(),
-            ends_at: preview.ends_at.clone(),
-            channel: preview
-                .room
-                .as_deref()
-                .and_then(discord::parse_room)
-                .map(|(_, channel)| channel.to_owned()),
-            location: preview.location.clone(),
-            creator: preview.creator.clone(),
-            interested_count: preview.interested_count,
-            active: preview.active,
-            over: preview.over,
-            interested: preview.interested,
-        };
+        let guild = preview.guild.clone();
         match discord {
             Ok(discord) => {
                 let (discord, events) = (discord.clone(), events.clone());
                 tokio::spawn(async move {
                     let result = discord
-                        .set_event_interest(&shown, interested)
+                        .set_event_interest(&guild, &event, interested)
                         .await
                         .map_err(|error| {
                             tracing::warn!(
