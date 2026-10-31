@@ -332,16 +332,25 @@ mod windows {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    //! The person's own `mimeapps.list` is the setting: it's on while its
+    //! default applications name Yapfast first for `discord:`. Yapfast's
+    //! desktop entry declares only `yapfast:`, so without a Discord app
+    //! installed the desktop doesn't fall back to Yapfast for Discord's
+    //! links; gio and xdg-open follow a default all the same.
+
     use std::{
-        io,
+        io::{self, Write},
         path::{Path, PathBuf},
-        process::{Command, Stdio},
     };
 
     use crate::desktop_entry;
 
-    const DISCORD: &str = "x-scheme-handler/discord";
-    const YAPFAST: &str = "x-scheme-handler/yapfast";
+    /// What the switch claims: Discord's links, and Yapfast's own, which
+    /// another app may have been chosen for.
+    const SCHEMES: [&str; 2] = ["x-scheme-handler/discord", "x-scheme-handler/yapfast"];
+    const DEFAULTS: &str = "[Default Applications]";
+    /// In the data folder: each scheme's line in `mimeapps.list` before
+    /// Yapfast claimed it, as it was, or nothing when there was none.
     const PREVIOUS: &str = "discord-protocol-previous";
 
     fn desktop() -> String {
@@ -349,44 +358,18 @@ mod linux {
     }
 
     pub fn enabled(_: &Path) -> bool {
-        query_default(DISCORD).as_deref() == Some(desktop().as_str())
+        list().is_some_and(|list| enabled_in(&list))
     }
 
     pub fn set(root: &Path, enabled: bool) -> io::Result<()> {
-        let config = config().ok_or_else(|| io::Error::other("no home folder"))?;
-        match enabled {
-            true => {
-                desktop_entry::install();
-                if !desktop_exists() {
-                    return Err(io::Error::other("Yapfast's desktop entry isn't installed"));
-                }
-                let previous = root.join(PREVIOUS);
-                if !previous.exists() {
-                    let current = [query_default(DISCORD), query_default(YAPFAST)];
-                    if current
-                        .iter()
-                        .any(|current| current.as_deref() != Some(&desktop()))
-                    {
-                        write_previous(&previous, &current)?;
-                    }
-                }
-                set_default(&config, DISCORD, Some(&desktop()))?;
-                set_default(&config, YAPFAST, Some(&desktop()))
-            }
-            false => {
-                let previous = read_previous(&root.join(PREVIOUS));
-                if query_default(DISCORD).as_deref() == Some(desktop().as_str()) {
-                    set_default(&config, DISCORD, previous[0].as_deref())?;
-                }
-                if query_default(YAPFAST).as_deref() == Some(desktop().as_str()) {
-                    set_default(&config, YAPFAST, previous[1].as_deref())?;
-                }
-                match std::fs::remove_file(root.join(PREVIOUS)) {
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-                    result => result,
-                }
+        let list = list().ok_or_else(|| io::Error::other("no home folder"))?;
+        if enabled {
+            desktop_entry::install();
+            if !desktop_exists() {
+                return Err(io::Error::other("Yapfast's desktop entry isn't installed"));
             }
         }
+        apply(&list, &root.join(PREVIOUS), enabled)
     }
 
     pub fn refresh(_: &Path) -> io::Result<()> {
@@ -395,22 +378,157 @@ mod linux {
         Ok(())
     }
 
-    /// The desktop file a scheme opens, as xdg-mime reads every
-    /// mimeapps.list in turn.
-    fn query_default(scheme: &str) -> Option<String> {
-        let output = Command::new("xdg-mime")
-            .args(["query", "default", scheme])
-            .env_remove("LD_LIBRARY_PATH")
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+    fn enabled_in(list: &Path) -> bool {
+        std::fs::read_to_string(list)
+            .is_ok_and(|text| default_line(&text, SCHEMES[0]).is_some_and(names_yapfast))
+    }
+
+    /// Claims the schemes in `list`, keeping their lines in `previous`, or
+    /// puts those lines back where Yapfast still has them.
+    fn apply(list: &Path, previous: &Path, enabled: bool) -> io::Result<()> {
+        let current = match std::fs::read_to_string(list) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+            text => text?,
+        };
+        let mut text = current.clone();
+        if enabled {
+            // Kept from the first claim on: a line naming Yapfast is no
+            // one else's to give back.
+            if !previous.exists() {
+                let lines = SCHEMES.map(|scheme| {
+                    default_line(&current, scheme).filter(|line| !names_yapfast(line))
+                });
+                let kept: String = lines
+                    .into_iter()
+                    .flatten()
+                    .map(|line| format!("{line}\n"))
+                    .collect();
+                desktop_entry::write(previous, kept.as_bytes())?;
+            }
+            for scheme in SCHEMES {
+                text = with_line(&text, scheme, Some(&format!("{scheme}={};", desktop())));
+            }
+        } else {
+            let kept = std::fs::read_to_string(previous).unwrap_or_default();
+            for scheme in SCHEMES {
+                if default_line(&text, scheme).is_some_and(names_yapfast) {
+                    let line = kept.lines().find(|line| key(line) == Some(scheme));
+                    text = with_line(&text, scheme, line);
+                }
+            }
         }
-        let text = String::from_utf8(output.stdout).ok()?;
-        let value = text.trim().split(';').next()?.trim();
-        (!value.is_empty()).then(|| value.to_owned())
+        if text != current {
+            write_list(list, &text)?;
+        }
+        if !enabled {
+            match std::fs::remove_file(previous) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                result => result?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether a default line names Yapfast first.
+    fn names_yapfast(line: &str) -> bool {
+        line.split_once('=')
+            .and_then(|(_, value)| value.split(';').next())
+            .is_some_and(|first| first.trim() == desktop())
+    }
+
+    /// The key a `key=value` line sets.
+    fn key(line: &str) -> Option<&str> {
+        line.split_once('=').map(|(key, _)| key.trim())
+    }
+
+    /// Where the `[Default Applications]` section's lines start and end.
+    fn defaults(lines: &[&str]) -> Option<(usize, usize)> {
+        let start = lines.iter().position(|line| line.trim() == DEFAULTS)? + 1;
+        let end = lines[start..]
+            .iter()
+            .position(|line| line.trim_start().starts_with('['))
+            .map_or(lines.len(), |next| start + next);
+        Some((start, end))
+    }
+
+    /// `scheme`'s line among the default applications, as it's written.
+    fn default_line<'a>(text: &'a str, scheme: &str) -> Option<&'a str> {
+        let lines: Vec<&str> = text.lines().collect();
+        let (start, end) = defaults(&lines)?;
+        lines[start..end]
+            .iter()
+            .find(|line| key(line) == Some(scheme))
+            .copied()
+    }
+
+    /// A mimeapps.list with `scheme`'s default line set to `line` or taken
+    /// out, its other sections and lines as they were.
+    fn with_line(text: &str, scheme: &str, line: Option<&str>) -> String {
+        let mut lines: Vec<&str> = text.lines().collect();
+        match defaults(&lines) {
+            None => {
+                if let Some(line) = line {
+                    if !lines.is_empty() {
+                        lines.push("");
+                    }
+                    lines.extend([DEFAULTS, line]);
+                }
+            }
+            Some((start, end)) => {
+                let index = lines[start..end]
+                    .iter()
+                    .position(|line| key(line) == Some(scheme))
+                    .map(|index| start + index);
+                match (index, line) {
+                    (Some(index), Some(line)) => lines[index] = line,
+                    (Some(index), None) => {
+                        lines.remove(index);
+                    }
+                    (None, Some(line)) => {
+                        // After the section's last line, before a blank one.
+                        let after = lines[start..end]
+                            .iter()
+                            .rposition(|line| !line.trim().is_empty())
+                            .map_or(start, |last| start + last + 1);
+                        lines.insert(after, line);
+                    }
+                    (None, None) => {}
+                }
+            }
+        }
+        let mut text = lines.join("\n");
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text
+    }
+
+    /// Writes the list where it is: through a link, as home-manager or a
+    /// dotfiles folder links it from elsewhere, which a new file would cut
+    /// off, and keeping its permissions. One that can't be written there
+    /// is reported rather than replaced.
+    fn write_list(list: &Path, text: &str) -> io::Result<()> {
+        let target = match std::fs::symlink_metadata(list) {
+            Ok(metadata) if metadata.file_type().is_symlink() => std::fs::canonicalize(list)?,
+            _ => list.to_owned(),
+        };
+        let permissions = match std::fs::metadata(&target) {
+            Ok(metadata) => {
+                // A rename would replace a file that can't be written.
+                std::fs::OpenOptions::new().write(true).open(&target)?;
+                metadata.permissions()
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                std::os::unix::fs::PermissionsExt::from_mode(0o644)
+            }
+            Err(error) => return Err(error),
+        };
+        let folder = target.parent().expect("the list is in a folder");
+        std::fs::create_dir_all(folder)?;
+        let mut file = tempfile::NamedTempFile::new_in(folder)?;
+        file.write_all(text.as_bytes())?;
+        file.as_file().set_permissions(permissions)?;
+        file.persist(&target).map(drop).map_err(|error| error.error)
     }
 
     fn desktop_exists() -> bool {
@@ -427,136 +545,138 @@ mod linux {
             .any(|folder| folder.join("applications").join(desktop()).exists())
     }
 
-    fn write_previous(path: &Path, previous: &[Option<String>; 2]) -> io::Result<()> {
-        let text = format!(
-            "{}\n{}\n",
-            previous[0].as_deref().unwrap_or_default(),
-            previous[1].as_deref().unwrap_or_default()
-        );
-        desktop_entry::write(path, text.as_bytes())
-    }
-
-    fn read_previous(path: &Path) -> [Option<String>; 2] {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return [None, None];
-        };
-        let mut lines = text.lines();
-        let value = |lines: &mut std::str::Lines<'_>| {
-            lines
-                .next()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-        };
-        [value(&mut lines), value(&mut lines)]
-    }
-
-    fn set_default(config: &Path, scheme: &str, desktop: Option<&str>) -> io::Result<()> {
-        let path = config.join("mimeapps.list");
-        let current = match std::fs::read_to_string(&path) {
-            Ok(text) => Some(text),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error),
-        };
-        let text = with_default(current.as_deref(), scheme, desktop);
-        desktop_entry::write(&path, text.as_bytes())
-    }
-
-    /// A mimeapps.list with `scheme`'s default set or taken out, its other
-    /// sections and lines as they were.
-    fn with_default(current: Option<&str>, scheme: &str, desktop: Option<&str>) -> String {
-        let key = format!("{scheme}=");
-        let mut lines: Vec<String> = current
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_owned)
-            .collect();
-        let start = lines
-            .iter()
-            .position(|line| line.trim() == "[Default Applications]");
-        let Some(start) = start else {
-            if let Some(desktop) = desktop {
-                if !lines.is_empty() {
-                    lines.push(String::new());
-                }
-                lines.push("[Default Applications]".to_owned());
-                lines.push(format!("{key}{desktop};"));
-            }
-            return finish(lines);
-        };
-        let end = lines[start + 1..]
-            .iter()
-            .position(|line| line.trim_start().starts_with('['))
-            .map_or(lines.len(), |next| start + 1 + next);
-        if let Some(index) = lines[start + 1..end]
-            .iter()
-            .position(|line| line.trim_start().starts_with(&key))
-        {
-            let index = start + 1 + index;
-            match desktop {
-                Some(desktop) => lines[index] = format!("{key}{desktop};"),
-                None => {
-                    lines.remove(index);
-                }
-            }
-        } else if let Some(desktop) = desktop {
-            lines.insert(end, format!("{key}{desktop};"));
-        }
-        finish(lines)
-    }
-
-    fn finish(mut lines: Vec<String>) -> String {
-        if lines.last().is_some_and(|line| !line.is_empty()) {
-            lines.push(String::new());
-        }
-        lines.join("\n")
-    }
-
-    fn config() -> Option<PathBuf> {
+    /// The person's own default applications.
+    fn list() -> Option<PathBuf> {
         desktop_entry::xdg_home("XDG_CONFIG_HOME", ".config")
+            .map(|config| config.join("mimeapps.list"))
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
 
+        const DISCORD: &str = SCHEMES[0];
+
+        struct Folders {
+            _folder: tempfile::TempDir,
+            list: PathBuf,
+            previous: PathBuf,
+        }
+
+        fn folders() -> Folders {
+            let folder = tempfile::tempdir().unwrap();
+            Folders {
+                list: folder.path().join("config/mimeapps.list"),
+                previous: folder.path().join(PREVIOUS),
+                _folder: folder,
+            }
+        }
+
+        fn read(path: &Path) -> String {
+            std::fs::read_to_string(path).unwrap()
+        }
+
         #[test]
-        fn sets_and_restores_a_default_without_touching_the_rest() {
+        fn claims_and_gives_back_the_lines_as_they_were() {
+            let folders = folders();
             let current = "[Added Associations]\n\
                 x-scheme-handler/discord=other.desktop;\n\
+                \n\
                 [Default Applications]\n\
                 text/html=browser.desktop;\n\
-                x-scheme-handler/discord=discord.desktop;\n";
-            let claimed = with_default(Some(current), DISCORD, Some("yapfast.desktop"));
+                x-scheme-handler/discord = discord.desktop;vesktop.desktop;\n\
+                \n\
+                [Removed Associations]\n";
+            desktop_entry::write(&folders.list, current.as_bytes()).unwrap();
+            assert!(!enabled_in(&folders.list));
+            apply(&folders.list, &folders.previous, true).unwrap();
+            assert!(enabled_in(&folders.list));
+            let claimed = read(&folders.list);
+            let ours = format!("x-scheme-handler/discord={};", desktop());
+            assert!(claimed.contains(&format!("text/html=browser.desktop;\n{ours}\n")));
             assert!(
                 claimed.contains("[Added Associations]\nx-scheme-handler/discord=other.desktop;")
             );
-            assert!(claimed.contains("text/html=browser.desktop;"));
-            assert!(claimed.contains("x-scheme-handler/discord=yapfast.desktop;"));
-            let restored = with_default(Some(&claimed), DISCORD, Some("discord.desktop"));
-            assert_eq!(restored, current);
-            let removed = with_default(Some(current), DISCORD, None);
-            assert!(!removed.contains(
-                "[Default Applications]\ntext/html=browser.desktop;\nx-scheme-handler/discord="
-            ));
+            assert!(claimed.contains(&format!(
+                "x-scheme-handler/yapfast={};\n\n[Removed",
+                desktop()
+            )));
+            // A second claim keeps what the first kept.
+            apply(&folders.list, &folders.previous, true).unwrap();
+            apply(&folders.list, &folders.previous, false).unwrap();
+            assert_eq!(read(&folders.list), current);
+            assert!(!enabled_in(&folders.list));
+            assert!(!folders.previous.exists());
         }
 
         #[test]
-        fn makes_a_default_applications_section_when_there_is_none() {
+        fn takes_out_a_line_there_was_none_of() {
+            let folders = folders();
+            apply(&folders.list, &folders.previous, true).unwrap();
             assert_eq!(
-                with_default(None, DISCORD, Some("yapfast.desktop")),
-                "[Default Applications]\nx-scheme-handler/discord=yapfast.desktop;\n"
+                read(&folders.list),
+                format!(
+                    "[Default Applications]\nx-scheme-handler/discord={0};\nx-scheme-handler/yapfast={0};\n",
+                    desktop()
+                )
             );
-            assert_eq!(with_default(None, DISCORD, None), "");
+            apply(&folders.list, &folders.previous, false).unwrap();
+            assert_eq!(read(&folders.list), "[Default Applications]\n");
+            assert!(!enabled_in(&folders.list));
         }
 
         #[test]
-        fn previous_handlers_round_trip() {
-            let root = tempfile::tempdir().unwrap();
-            let path = root.path().join(PREVIOUS);
-            let previous = [Some("discord.desktop".to_owned()), None];
-            write_previous(&path, &previous).unwrap();
-            assert_eq!(read_previous(&path), previous);
+        fn leaves_a_default_chosen_since() {
+            let folders = folders();
+            apply(&folders.list, &folders.previous, true).unwrap();
+            let chosen = with_line(
+                &read(&folders.list),
+                DISCORD,
+                Some("x-scheme-handler/discord=vesktop.desktop;"),
+            );
+            desktop_entry::write(&folders.list, chosen.as_bytes()).unwrap();
+            apply(&folders.list, &folders.previous, false).unwrap();
+            assert_eq!(
+                default_line(&read(&folders.list), DISCORD),
+                Some("x-scheme-handler/discord=vesktop.desktop;")
+            );
+        }
+
+        #[test]
+        fn writes_through_a_linked_list_and_never_replaces_one() {
+            use std::os::unix::fs::PermissionsExt;
+            let folders = folders();
+            let dotfiles = folders.previous.with_file_name("dotfiles");
+            std::fs::create_dir_all(&dotfiles).unwrap();
+            std::fs::create_dir_all(folders.list.parent().unwrap()).unwrap();
+            let target = dotfiles.join("mimeapps.list");
+            std::fs::write(&target, "[Default Applications]\n").unwrap();
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+            std::os::unix::fs::symlink(&target, &folders.list).unwrap();
+            apply(&folders.list, &folders.previous, true).unwrap();
+            assert!(
+                std::fs::symlink_metadata(&folders.list)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            assert!(enabled_in(&target));
+            assert_eq!(
+                std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+
+            // As in a read-only store, the setting fails and the list stays.
+            let before = read(&target);
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o400)).unwrap();
+            assert!(apply(&folders.list, &folders.previous, false).is_err());
+            assert_eq!(read(&target), before);
+            assert!(
+                std::fs::symlink_metadata(&folders.list)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
         }
     }
 }

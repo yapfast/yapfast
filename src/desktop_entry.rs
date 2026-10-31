@@ -187,7 +187,7 @@ mod tests {
         assert!(text.contains(&format!(
             "\nTryExec={IMAGE}\nExec=\"{IMAGE}\" --open-link %u\n"
         )));
-        assert!(text.contains("MimeType=x-scheme-handler/yapfast;x-scheme-handler/discord;"));
+        assert!(text.contains("\nMimeType=x-scheme-handler/yapfast;\n"));
         assert!(text.contains(&format!("\nIcon={APP_ID}\n")));
         let icon = data
             .path()

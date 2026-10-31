@@ -57,10 +57,28 @@ waits for its snapshot in the same way. The restart a changed renderer setting
 makes doesn't open it again; the one after a failed GPU start does, as nothing
 opened it yet.
 
-Settings → Advanced can claim `discord://` for this Yapfast; turning it off
-gives the links back to the app that had them. The Windows installer
-registers only `yapfast://`, and Linux packages declare both handlers without
-choosing either as the default.
+Settings → Advanced → "Open Discord links in Yapfast" claims `discord://`
+for this Yapfast, and its own `yapfast://` with it; turning it off gives each
+back as it was (`src/protocol.rs`). Showing the switch reads a file or the
+registry and starts no process.
+
+- **Windows**: the switch is the current user's
+  `Software\Classes\discord` command, with the one there before kept under
+  `Software\Yapfast\DiscordProtocol`. The installer registers only
+  `yapfast://`.
+- **Linux**: the switch is the person's own `mimeapps.list`, in
+  `$XDG_CONFIG_HOME` or `~/.config`, and it's on while its
+  `[Default Applications]` name Yapfast's entry first for
+  `x-scheme-handler/discord`. Claiming keeps each scheme's line as it was, or
+  that there was none, in `discord-protocol-previous` in the data folder;
+  turning the switch off puts that line back or takes Yapfast's out, and
+  leaves a default someone chose since. The list is written where a link to
+  it points, as home-manager or a dotfiles folder links it, keeping its
+  permissions; one that can't be written, as in a read-only store, fails the
+  switch and stays as it was. Yapfast's desktop entry declares only
+  `x-scheme-handler/yapfast`. gio and xdg-open follow a default to an entry
+  that doesn't declare the scheme, so the claim works, and without a Discord
+  app installed the desktop doesn't fall back to Yapfast for Discord's links.
 
 ## Starting at sign-in
 
