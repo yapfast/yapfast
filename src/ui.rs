@@ -2317,10 +2317,14 @@ impl Adapter {
         );
     }
 
-    /// Opens a Discord link handed to this start once Discord is online.
-    /// The opening is scheduled, as its callback borrows this adapter.
+    /// Opens a Discord link handed to this start once Discord is online
+    /// and no dialog is open. Any app or web page can hand Yapfast a
+    /// link, so one never takes an open dialog's place: an Authorize or
+    /// Join click meant for what the dialog showed would otherwise land
+    /// on what the link opened instead. The opening is scheduled, as its
+    /// callback borrows this adapter.
     fn open_pending_link(&mut self, window: &YapfastWindow) {
-        if !self.app.state.discord_online {
+        if !self.app.state.discord_online || self.app.state.dialog_open() {
             return;
         }
         let Some(link) = self.pending_link.take() else {
@@ -2374,6 +2378,8 @@ impl Adapter {
         } else {
             self.refresh(window);
         }
+        // A handed link may have waited for the dialog this closed.
+        self.open_pending_link(window);
     }
 
     /// Applies a backend event; the caller shows what it can have changed after.

@@ -53,7 +53,9 @@ such as Discord's library or settings, only starts Yapfast or shows its
 window, as every link does in a Matrix-only build. The link passes on as the
 URL standard writes it, a space percent-encoded, so it stays one word on the
 socket. Yapfast opens the place once Discord is online, and a first start
-waits for its snapshot in the same way. The restart a changed renderer setting
+waits for its snapshot in the same way. A link that comes while a dialog is
+open waits until it closes, so a link from another app or a web page never
+swaps what an Authorize, Redeem or Join click is for. The restart a changed renderer setting
 makes doesn't open it again; the one after a failed GPU start does, as nothing
 opened it yet.
 

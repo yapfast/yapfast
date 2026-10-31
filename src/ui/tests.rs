@@ -6230,6 +6230,39 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn a_handed_link_waits_for_the_open_dialog() {
+    let (window, adapter, _directory) = discord_server_window();
+    adapter.borrow_mut().refresh(&window);
+    let query = |adapter: &Rc<RefCell<Adapter>>| {
+        let adapter = adapter.borrow();
+        let dialog = adapter.app.state.oauth.as_ref();
+        dialog.and_then(|dialog| dialog.query.clone())
+    };
+    window.invoke_open_link(
+        "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=bot".into(),
+    );
+    let shown = query(&adapter);
+    assert!(shown.is_some());
+    // Another app hands Yapfast a link to a different application while
+    // the dialog is open: an Authorize click is still for the first.
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.pending_link =
+            Some("discord://-/oauth2/authorize?client_id=157730590492196865&scope=bot".into());
+        adapter.open_pending_link(&window);
+    }
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+    assert_eq!(query(&adapter), shown, "the dialog keeps what it showed");
+    assert!(adapter.borrow().pending_link.is_some());
+    // Closing it opens the link that waited.
+    window.invoke_close_oauth();
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+    assert!(query(&adapter).is_some_and(|query| query.contains("157730590492196865")));
+    assert!(adapter.borrow().pending_link.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
     use yapfast_core::application::OAuthDialog;
     use yapfast_core::chat::{OAuthGuild, OAuthPreview};
