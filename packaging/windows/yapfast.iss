@@ -74,9 +74,23 @@ Name: "{autodesktop}\Yapfast"; Filename: "{app}\yapfast.exe"; Tasks: desktopicon
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Yapfast"; ValueData: """{app}\yapfast.exe"" --background"; Tasks: startonsignin
 ; Chosen here, it starts even if Task Manager had turned it off before.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "Yapfast"; Flags: deletevalue dontcreatekey; Tasks: startonsignin
+; Yapfast's own links open here; claiming Discord's stays the person's choice.
+Root: HKCU; Subkey: "Software\Classes\yapfast"; ValueType: string; ValueName: ""; ValueData: "URL:Yapfast Protocol"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\yapfast"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\yapfast\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\yapfast.exe"",0"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\yapfast\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\yapfast.exe"" --open-link ""%1"""; Flags: uninsdeletekey
+; Settings keeps the app discord:// links opened before claiming them here;
+; uninstalling gives them back (below) and drops what was kept.
+Root: HKCU; Subkey: "Software\Yapfast"; Flags: uninsdeletekeyifempty dontcreatekey
+Root: HKCU; Subkey: "Software\Yapfast\DiscordProtocol"; Flags: uninsdeletekey dontcreatekey
 ; Uninstalling stops starting at sign-in, however it was turned on.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey
 
 [Run]
 Filename: "{app}\yapfast.exe"; Description: "{cm:LaunchProgram,Yapfast}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Before the files go: discord:// links open in the app that had them again,
+; if Settings claimed them for this Yapfast.
+Filename: "{app}\yapfast.exe"; Parameters: "--release-discord-links"; Flags: runhidden waituntilterminated; RunOnceId: "ReleaseDiscordLinks"

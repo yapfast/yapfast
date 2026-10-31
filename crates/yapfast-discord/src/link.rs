@@ -48,20 +48,31 @@ pub enum Route {
 /// It deliberately leaves pages Yapfast has no screen for, such as the
 /// shop and server templates, for their own handling or the browser.
 pub fn parse(link: &str) -> Option<Route> {
+    parse_written(link).map(|(route, _)| route)
+}
+
+/// [`parse`]'s route, with the link as the URL standard writes it: a
+/// space or another character a URL can't hold comes percent-encoded, so
+/// the link passes on as one word.
+pub fn parse_written(link: &str) -> Option<(Route, String)> {
     if link.chars().any(char::is_control) {
         return None;
     }
     let url = Url::parse(link).ok()?;
+    Some((route(&url)?, url.into()))
+}
+
+fn route(url: &Url) -> Option<Route> {
     if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
         return None;
     }
-    let mut segments = segments(&url)?;
+    let mut segments = segments(url)?;
     if matches!(
         segments.as_slice(),
         ["oauth2", "authorize"] | ["api", "oauth2", "authorize"]
     ) && matches!(url.scheme(), "http" | "https" | "discord" | "yapfast")
     {
-        if matches!(url.scheme(), "http" | "https") && !web_host(&url) {
+        if matches!(url.scheme(), "http" | "https") && !web_host(url) {
             return None;
         }
         let query = url.query()?;
@@ -85,7 +96,7 @@ pub fn parse(link: &str) -> Option<Route> {
                     _ => None,
                 };
             }
-            if !web_host(&url) {
+            if !web_host(url) {
                 return None;
             }
             from_segments(&segments)
@@ -313,6 +324,21 @@ mod tests {
             ),
             Some(Route::Authorize { .. })
         ));
+    }
+
+    #[test]
+    fn writes_a_link_as_one_word() {
+        assert_eq!(
+            parse_written("https://discord.com/channels/10/11?a b#c d"),
+            Some((
+                Route::Channel {
+                    guild: "10".into(),
+                    channel: "11".into()
+                },
+                "https://discord.com/channels/10/11?a%20b#c%20d".into()
+            ))
+        );
+        assert_eq!(parse_written("discord://-/library"), None);
     }
 
     #[test]

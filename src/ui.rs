@@ -91,13 +91,19 @@ pub fn run(
     renderer: Option<graphics::Renderer>,
     gpu_failure: Option<String>,
     background: bool,
+    open_link: Option<String>,
 ) -> Result<Exit> {
     let (plan, placement, system_title_bar, mut instance) = {
         let mut layout = Layout::read(&root);
         let instance = if preview {
             crate::instance::Instance::default()
         } else {
-            match crate::instance::claim(&root, !layout.multiple_windows, background) {
+            match crate::instance::claim(
+                &root,
+                !layout.multiple_windows,
+                background,
+                open_link.clone(),
+            ) {
                 crate::instance::Start::Run(instance) => instance,
                 crate::instance::Start::Handed => return Ok(Exit::Closed),
             }
@@ -146,7 +152,8 @@ pub fn run(
     };
     // Started at sign-in, Yapfast goes to the tray with the saved session.
     // Without one there's nothing to do there but sign in, which needs the window.
-    let hidden = background && !preview && yapfast_core::chat::can_restore(&root);
+    let hidden =
+        background && open_link.is_none() && !preview && yapfast_core::chat::can_restore(&root);
     // Before the window maps, as the desktop looks up its icon then.
     #[cfg(target_os = "linux")]
     if !preview {
@@ -165,6 +172,10 @@ pub fn run(
     }
     if !preview {
         AUTOSTART.set(autostart::SUPPORTED);
+        PROTOCOL.set(cfg!(feature = "discord") && crate::protocol::SUPPORTED);
+        if PROTOCOL.get() {
+            crate::protocol::refresh(&root);
+        }
         autostart::refresh();
     }
     prepare(&window);
@@ -173,6 +184,10 @@ pub fn run(
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
+    adapter.borrow().show_protocol(&window);
+    if !preview {
+        adapter.borrow_mut().pending_link = open_link;
+    }
     adapter.borrow_mut().refresh(&window);
     if preview {
         adapter.borrow_mut().action(&window, Action::Preview);
@@ -206,8 +221,8 @@ pub fn run(
     if hidden {
         shell.start_in_tray();
     }
-    instance.listen(|token| {
-        let _ = slint::invoke_from_event_loop(move || shell::launched(token));
+    instance.listen(|launch| {
+        let _ = slint::invoke_from_event_loop(move || shell::launched(launch));
     });
     tracing::info!(renderer, hidden, "starting the Slint desktop window");
     let _control = test_control().map(|path| control(path, shell.clone()));
@@ -589,6 +604,9 @@ thread_local! {
     static FOCUSED: Cell<bool> = const { Cell::new(false) };
     /// Settings offer starting at sign-in: the platform can, and this isn't the preview.
     static AUTOSTART: Cell<bool> = const { Cell::new(false) };
+    /// Settings offer claiming Discord's protocol links: the platform
+    /// can, this build speaks Discord, and this isn't the preview.
+    static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
     /// Opens a conversation from a clicked notification, in the current window.
@@ -1663,6 +1681,8 @@ struct Adapter {
     link_code: Option<(String, slint::Image)>,
     /// What the GIF picker's grid shows.
     gifs: gifs::Shown,
+    /// A Discord link handed to this start before Discord is online.
+    pending_link: Option<String>,
 }
 
 impl Adapter {
@@ -1840,6 +1860,7 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 link_code: None,
                 gifs: gifs::Shown::default(),
+                pending_link: None,
             })
         }))
     }
@@ -1882,11 +1903,20 @@ impl Adapter {
         self.watch_talk_key(window);
     }
 
+    /// Shows whether Discord protocol links open here, as the desktop
+    /// has it rather than as a setting remembers it.
+    fn show_protocol(&self, window: &YapfastWindow) {
+        let offered = PROTOCOL.get();
+        window.set_discord_links_available(offered);
+        window.set_discord_links(offered && crate::protocol::discord_enabled(&self.root));
+    }
+
     /// Present the existing models and state in a new window.
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
         self.watch_talk_key(window);
+        self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds
         // them again.
@@ -2089,7 +2119,10 @@ impl Adapter {
                             // Without a window, a call still rings, and the tray shows
                             // what's unread and offers Disconnect in a call.
                             match window {
-                                Some(window) => adapter.show(&window, reach),
+                                Some(window) => {
+                                    adapter.show(&window, reach);
+                                    adapter.open_pending_link(&window);
+                                }
                                 None => adapter.ring(),
                             }
                             adapter.show_tray();
@@ -2284,6 +2317,27 @@ impl Adapter {
         );
     }
 
+    /// Opens a Discord link handed to this start once Discord is online
+    /// and no dialog is open. Any app or web page can hand Yapfast a
+    /// link, so one never takes an open dialog's place: an Authorize or
+    /// Join click meant for what the dialog showed would otherwise land
+    /// on what the link opened instead. The opening is scheduled, as its
+    /// callback borrows this adapter.
+    fn open_pending_link(&mut self, window: &YapfastWindow) {
+        if !self.app.state.discord_online || self.app.state.dialog_open() {
+            return;
+        }
+        let Some(link) = self.pending_link.take() else {
+            return;
+        };
+        let window = window.as_weak();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            if let Some(window) = window.upgrade() {
+                window.invoke_open_link(link.into());
+            }
+        });
+    }
+
     fn action(&mut self, window: &YapfastWindow, action: Action) {
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
@@ -2324,6 +2378,8 @@ impl Adapter {
         } else {
             self.refresh(window);
         }
+        // A handed link may have waited for the dialog this closed.
+        self.open_pending_link(window);
     }
 
     /// Applies a backend event; the caller shows what it can have changed after.

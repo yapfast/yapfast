@@ -761,8 +761,8 @@ impl AppState {
     }
 
     /// A dialog that takes the keyboard is open, over which the quick
-    /// switcher doesn't open.
-    fn dialog_open(&self) -> bool {
+    /// switcher doesn't open and a link handed from outside waits.
+    pub fn dialog_open(&self) -> bool {
         !self.mfa.is_empty()
             || self.forwarding.is_some()
             || self.new_dm.is_some()

@@ -136,6 +136,13 @@ pub fn discord_route(link: &str) -> Option<DiscordRoute> {
     yapfast_discord::link::parse(link)
 }
 
+/// A link Yapfast can open itself, written as one word, as
+/// [`yapfast_discord::link::parse_written`] writes it.
+#[cfg(feature = "discord")]
+pub fn discord_link(link: &str) -> Option<String> {
+    yapfast_discord::link::parse_written(link).map(|(_, link)| link)
+}
+
 /// The Discord server a server id names, as [`server_id`] makes it.
 pub fn parse_server(id: &str) -> Option<&str> {
     id.strip_prefix(PREFIX).filter(|guild| !guild.contains(':'))
