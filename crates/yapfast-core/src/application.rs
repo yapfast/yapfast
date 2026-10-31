@@ -39,6 +39,7 @@ mod profile_editor;
 mod profiles;
 mod reactions;
 mod rooms;
+mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
@@ -71,6 +72,7 @@ pub use profile_editor::{
 };
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
+pub use scheduled_event::EventDialog;
 pub use server_settings::{
     ADD_MEMBERS_LIMIT, AFK_TIMEOUTS, AUDIT_ACTIONS, AUDIT_PAGE, AddMembers, AuditInput, AuditKind,
     AuditLine, AuditLogPage, AuditRow, AuditSpan, AuditWords, BANS_BATCH, BANS_PER_PAGE, BOOSTED,
@@ -413,6 +415,9 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// The scheduled event a clicked event link opened, while its
+    /// dialog is open.
+    pub scheduled_event: Option<EventDialog>,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -651,6 +656,7 @@ impl AppState {
         };
         match route {
             DiscordRoute::Invite { .. } => self.discord_online || self.preview,
+            DiscordRoute::Event { guild, .. } => server(guild),
             DiscordRoute::DirectMessages => self.discord_linked,
             DiscordRoute::Server { guild } => server(guild),
             DiscordRoute::Channel { guild, channel }
@@ -748,6 +754,7 @@ impl AppState {
             || self.person_dialog.is_some()
             || self.invite.is_some()
             || self.join.is_some()
+            || self.scheduled_event.is_some()
             || self.channel_dialog.is_some()
             || self.leave.is_some()
             || self.move_sync.is_some()
@@ -1622,6 +1629,15 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// Open a clicked scheduled-event link, by its server and event
+    /// ids; mark this account interested in the event it shows, or no
+    /// longer interested; or close its dialog.
+    OpenEventLink {
+        guild: String,
+        event: String,
+    },
+    ToggleEventInterest,
+    CloseEvent,
     /// Open the dialog that makes a channel of this kind, from a Discord
     /// server's menu, by its server id, or one like a channel in its
     /// category, from the channel's menu, by its room id.
@@ -2768,6 +2784,12 @@ impl Application {
                 self.state.join = None;
                 vec![]
             }
+            Action::OpenEventLink { guild, event } => self.open_event_link(guild, event),
+            Action::ToggleEventInterest => self.toggle_event_interest(),
+            Action::CloseEvent => {
+                self.state.scheduled_event = None;
+                vec![]
+            }
             Action::NewChannel { place, kind } => self.new_channel(place, kind),
             Action::AskChannel(ask) => self.ask_channel(ask),
             Action::OpenChannelSettings(room) => self.open_channel_settings(room),
@@ -3354,6 +3376,12 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::EventResolved { event, result } => return self.event_resolved(event, result),
+            Event::EventInterestSet {
+                event,
+                interested,
+                result,
+            } => return self.event_interest_set(event, interested, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),
             Event::ChannelSaved(result) => {
                 if !self.channel_settings_saved(&result) {

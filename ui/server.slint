@@ -204,6 +204,81 @@ export component JoinDialog inherits Rectangle {
     }
 }
 
+// What a scheduled event shows: when and where it is, what it says, and
+// how changing interest in it goes.
+export struct EventPrompt {
+    title: string,
+    /// The event, once found: its name, when it is, and where.
+    found: bool,
+    name: string,
+    when: string,
+    detail: string,
+    /// What the event says about itself.
+    description: string,
+    /// What the main button does, such as "Interested"; empty for none.
+    confirm: string,
+    busy: bool,
+    /// How it's going, such as "This event is going on now.".
+    status: string,
+    error: string,
+}
+
+// A Discord server's scheduled event that a clicked event link opened,
+// as Discord's event dialog shows it, with its Interested button.
+export component EventDialog inherits Rectangle {
+    in property <EventPrompt> prompt;
+    callback toggle-interest;
+    callback close;
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(440px, root.width - 48px); height: event-content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: root.prompt.title;
+        TouchArea { }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close(); return accept; }
+                return reject;
+            }
+            event-content := VerticalLayout {
+                padding: 20px; spacing: 12px;
+                HorizontalLayout {
+                    Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                }
+                if root.prompt.found: Rectangle {
+                    border-radius: 8px; background: Theme.sunken;
+                    height: found-row.preferred-height;
+                    found-row := VerticalLayout {
+                        padding: 12px; spacing: 2px;
+                        Text { text: root.prompt.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                        if root.prompt.when != "": Label { text: root.prompt.when; }
+                        if root.prompt.detail != "": Label { text: root.prompt.detail; }
+                    }
+                }
+                if root.prompt.description != "": Text { text: root.prompt.description; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+                if root.prompt.status != "": Label { text: root.prompt.status; }
+                if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px; padding-top: 4px;
+                    ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
+                    if root.prompt.confirm != "": ActionButton {
+                        text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
+                        clicked => { root.toggle-interest(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // What a channel dialog asks: to make, copy or delete a channel or category,
 // and which of its fields it shows.
 export struct ChannelPrompt {
