@@ -305,6 +305,7 @@ impl Adapter {
         self.show_members(window);
         self.show_invite(window);
         self.show_join(window);
+        self.show_oauth(window);
         self.show_gift(window);
         self.show_event(window);
         self.show_channel_dialog(window);
@@ -1850,6 +1851,113 @@ impl Adapter {
             busy: gift.resolving || redeeming,
             status: status.into(),
             error: gift.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
+    /// The application a clicked authorization link opened.
+    fn show_oauth(&self, window: &YapfastWindow) {
+        let dialog = self.app.state.oauth.as_ref();
+        window.set_oauth_open(dialog.is_some());
+        let Some(dialog) = dialog else {
+            return;
+        };
+        let preview = dialog.preview.as_ref();
+        let addable: Vec<&yapfast_core::chat::OAuthGuild> = preview
+            .map(|preview| {
+                preview
+                    .guilds
+                    .iter()
+                    .filter(|guild| guild.can_add)
+                    .collect()
+            })
+            .unwrap_or_default();
+        window.set_oauth_guilds(
+            Rc::new(VecModel::from(
+                addable
+                    .iter()
+                    .map(|guild| SharedString::from(guild.name.as_str()))
+                    .collect::<Vec<_>>(),
+            ))
+            .into(),
+        );
+        window.set_oauth_guild_chosen(
+            addable
+                .iter()
+                .position(|guild| Some(&guild.id) == dialog.guild.as_ref())
+                .map(|index| i32::try_from(index).unwrap_or_default())
+                .unwrap_or_default(),
+        );
+        let detail = preview.and_then(|preview| {
+            preview
+                .about
+                .clone()
+                .filter(|about| !about.is_empty())
+                .or_else(|| preview.bot.clone())
+        });
+        let wants = preview.map(|preview| {
+            let mut lines: Vec<String> = preview
+                .scopes
+                .iter()
+                .map(|scope| format!("- {}", scope_wants(scope)))
+                .collect();
+            if let Some(bits) = preview.permissions.filter(|bits| *bits != 0) {
+                lines.push(format!("- Bot permissions: {}", permission_names(bits)));
+            }
+            if let Some(host) = preview
+                .redirect
+                .as_deref()
+                .and_then(|url| url.split('/').nth(2))
+            {
+                lines.push(format!("Afterward, Discord sends you to {host}."));
+            }
+            lines.join("\n")
+        });
+        let picker = preview.is_some_and(|preview| {
+            preview.guild_install && !preview.guild_locked && !addable.is_empty()
+        });
+        let status = if dialog.resolving {
+            "Looking up the application..."
+        } else if dialog.authorizing {
+            "Authorizing..."
+        } else if dialog.done {
+            "Authorized."
+        } else if preview.is_some_and(|preview| preview.guild_install && addable.is_empty()) {
+            "You don't manage any server it can be added to."
+        } else if preview.is_some_and(|preview| preview.authorized) {
+            "You've authorized this before. Authorizing again is fine."
+        } else {
+            ""
+        };
+        window.set_oauth_prompt(OAuthPrompt {
+            title: match preview {
+                Some(preview) => format!("Authorize {}", preview.name),
+                None => "Authorize".to_owned(),
+            }
+            .into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            picture_url: preview
+                .and_then(|preview| preview.icon.as_deref())
+                .unwrap_or_default()
+                .into(),
+            initial: preview
+                .map(|preview| initial(&preview.name))
+                .unwrap_or_default(),
+            detail: detail.unwrap_or_default().into(),
+            wants: wants.unwrap_or_default().into(),
+            guild_picker: picker,
+            confirm: if preview.is_some() && !dialog.done {
+                "Authorize"
+            } else {
+                ""
+            }
+            .into(),
+            busy: dialog.resolving || dialog.authorizing,
+            status: status.into(),
+            error: dialog.error.as_deref().unwrap_or_default().into(),
         });
     }
 
@@ -4078,6 +4186,44 @@ fn arrived<'a>(
 
 /// Shows found messages, building rows only for those not shown already:
 /// a search's next page adds to the end of the results.
+/// What one of Discord's OAuth scopes lets an application do, in words.
+fn scope_wants(scope: &str) -> String {
+    match scope {
+        "bot" => "Add its bot to a server".to_owned(),
+        "applications.commands" => "Use its slash commands".to_owned(),
+        "identify" => "Know your username and avatar".to_owned(),
+        "email" => "Know your email address".to_owned(),
+        "guilds" => "Know which servers you're in".to_owned(),
+        "guilds.join" => "Join servers for you".to_owned(),
+        "guilds.members.read" => "Know your roles in a server".to_owned(),
+        "connections" => "Know your connected accounts".to_owned(),
+        "webhook.incoming" => "Post messages through a webhook".to_owned(),
+        "messages.read" => "Read your messages".to_owned(),
+        "activities.read" => "Know what you're playing".to_owned(),
+        "activities.write" => "Set what you're playing".to_owned(),
+        other => format!("Use the {other} scope"),
+    }
+}
+
+/// The names of a bot's asked-for permissions, as a role's switch titles
+/// them; Administrator stands for all of them.
+fn permission_names(bits: u64) -> String {
+    if bits & (1 << 3) != 0 {
+        return "Administrator (everything)".to_owned();
+    }
+    let names: Vec<&str> = yapfast_core::application::ROLE_PERMISSIONS
+        .iter()
+        .flat_map(|group| group.permissions.iter())
+        .filter(|permission| bits & (1u64 << permission.bit) != 0)
+        .map(|permission| permission.title)
+        .collect();
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
 fn show_found(model: &VecModel<FoundRow>, messages: &[ChatMessage], twelve_hour: bool) {
     let kept = model
         .iter()

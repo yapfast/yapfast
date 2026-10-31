@@ -33,7 +33,7 @@ import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, Theme
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
-import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
+import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
 import { BoostPicture, BoostPrompt, EngagementPrompt, ServerProfilePrompt, ServerSettingsPrompt, ServerSettingsScreen } from "server_settings.slint";
 import { PermissionRow, RoleMemberRow, RoleRow, RoleSwatch, RolesPrompt } from "roles.slint";
@@ -173,6 +173,14 @@ export component YapfastWindow inherits Window {
     callback open-join-captcha;
     callback open-join-form;
     callback close-join;
+    // An application a clicked authorization link opened; see OAuthDialog.
+    in property <bool> oauth-open;
+    in property <OAuthPrompt> oauth-prompt;
+    in property <[string]> oauth-guilds;
+    in property <int> oauth-guild-chosen;
+    callback choose-oauth-guild(int);
+    callback authorize-oauth;
+    callback close-oauth;
     // A gift a clicked gift link opened; see GiftDialog.
     in property <bool> gift-open;
     in property <GiftPrompt> gift-prompt;
@@ -3660,6 +3668,14 @@ export component YapfastWindow inherits Window {
         redeem => { root.redeem-gift(); }
         open-in-browser => { root.open-gift-in-browser(); }
         close => { root.close-gift(); }
+    }
+    oauth-motion := PopupMotion { open: root.oauth-open; }
+    if oauth-motion.shown: OAuthDialog {
+        motion: oauth-motion.amount;
+        prompt: root.oauth-prompt; guilds: root.oauth-guilds; guild-chosen: root.oauth-guild-chosen;
+        choose-guild(index) => { root.choose-oauth-guild(index); }
+        authorize => { root.authorize-oauth(); }
+        close => { root.close-oauth(); }
     }
     channel-motion := PopupMotion { open: root.channel-open; }
     if channel-motion.shown: ChannelDialog {

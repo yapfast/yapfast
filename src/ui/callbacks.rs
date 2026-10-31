@@ -457,6 +457,36 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_close_invite, Action::CloseInvite);
     bind!(on_open_join_server, Action::OpenJoinServer);
     bind!(on_join_server, Action::JoinServer);
+    bind!(on_authorize_oauth, Action::AuthorizeOAuth);
+    bind!(on_close_oauth, Action::CloseOAuth);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_choose_oauth_guild(move |index| {
+            let guild = {
+                let adapter = adapter.borrow();
+                adapter
+                    .app
+                    .state
+                    .oauth
+                    .as_ref()
+                    .and_then(|dialog| dialog.preview.as_ref())
+                    .and_then(|preview| {
+                        preview
+                            .guilds
+                            .iter()
+                            .filter(|guild| guild.can_add)
+                            .nth(usize::try_from(index).unwrap_or_default())
+                    })
+                    .map(|guild| guild.id.clone())
+            };
+            if let (Some(window), Some(guild)) = (weak.upgrade(), guild) {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::ChooseOAuthGuild(guild));
+            }
+        });
+    }
     bind!(on_redeem_gift, Action::RedeemGift);
     bind!(on_open_gift_in_browser, Action::OpenGiftInBrowser);
     bind!(on_close_gift, Action::CloseGift);
@@ -2584,6 +2614,7 @@ pub(super) fn web_address(link: &str) -> Option<&str> {
 fn discord_link_action(window: &YapfastWindow, route: discord::DiscordRoute) -> Action {
     match route {
         discord::DiscordRoute::Invite { code } => Action::OpenInviteLink(code),
+        discord::DiscordRoute::Authorize { query } => Action::OpenOAuthLink(query),
         discord::DiscordRoute::Gift { code } => Action::OpenGiftLink(code),
         discord::DiscordRoute::Event { guild, event } => Action::OpenEventLink { guild, event },
         discord::DiscordRoute::DirectMessages => Action::Navigate(Navigation::DirectMessages),

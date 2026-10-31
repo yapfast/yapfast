@@ -18,6 +18,8 @@ const WEB_HOSTS: [&str; 5] = [
 pub enum Route {
     /// A server invite, by its code.
     Invite { code: String },
+    /// Authorizing an application, by its link's query.
+    Authorize { query: String },
     /// A gift, such as Nitro, by its code.
     Gift { code: String },
     /// A server's scheduled event, by the server and the event. A link to
@@ -43,8 +45,8 @@ pub enum Route {
 ///
 /// This takes Discord's web links, `discord://-/...` app links, and the
 /// same paths under `yapfast://` for a caller handing a link to Yapfast.
-/// It deliberately leaves pages Yapfast has no screen for, such as app
-/// authorization, for their own handling or the browser.
+/// It deliberately leaves pages Yapfast has no screen for, such as the
+/// shop and server templates, for their own handling or the browser.
 pub fn parse(link: &str) -> Option<Route> {
     if link.chars().any(char::is_control) {
         return None;
@@ -54,6 +56,23 @@ pub fn parse(link: &str) -> Option<Route> {
         return None;
     }
     let mut segments = segments(&url)?;
+    if matches!(
+        segments.as_slice(),
+        ["oauth2", "authorize"] | ["api", "oauth2", "authorize"]
+    ) && matches!(url.scheme(), "http" | "https" | "discord" | "yapfast")
+    {
+        if matches!(url.scheme(), "http" | "https") {
+            let host = url.host_str()?;
+            let host = host.strip_prefix("www.").unwrap_or(host);
+            if !WEB_HOSTS.contains(&host) {
+                return None;
+            }
+        }
+        let query = url.query()?;
+        return crate::oauth::Request::parse(query).map(|_| Route::Authorize {
+            query: query.to_owned(),
+        });
+    }
     match url.scheme() {
         "http" | "https" => {
             let host = url.host_str()?;
@@ -273,6 +292,18 @@ mod tests {
             }),
             "one occurrence of a recurring event"
         );
+        assert_eq!(
+            parse("https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=bot"),
+            Some(Route::Authorize {
+                query: "client_id=157730590492196864&scope=bot".into(),
+            })
+        );
+        assert!(matches!(
+            parse(
+                "https://discord.com/api/oauth2/authorize?client_id=157730590492196864&scope=bot"
+            ),
+            Some(Route::Authorize { .. })
+        ));
     }
 
     #[test]
@@ -282,7 +313,9 @@ mod tests {
             "https://discord.gift/gift",
             "https://discord.com/gifts/not_a_gift_code",
             "https://discord.gift/g-i-f-t",
-            "https://discord.com/oauth2/authorize?client_id=10&scope=bot",
+            "https://discord.com/oauth2/authorize?scope=bot",
+            "https://discord.com/oauth2/authorize?client_id=not-an-app&scope=bot",
+            "https://discord.com.example.com/oauth2/authorize?client_id=157730590492196864&scope=bot",
             "https://discord.com/events/not-a-server/11",
             "https://discord.com/events/10",
             "https://discord.com/events/10/11/soon",

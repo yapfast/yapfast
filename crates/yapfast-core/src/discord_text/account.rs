@@ -12,7 +12,7 @@ use super::{
 };
 use crate::chat::{
     EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
-    NotificationChange, NotifyLevel, RelationshipChange,
+    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -1068,6 +1068,69 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ResolveOAuth { query }) = command {
+        let request = yapfast_discord::oauth::Request::parse(&query);
+        match (discord, request) {
+            (Ok(discord), Some(request)) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .oauth_preview(&request)
+                        .await
+                        .map(|preview| oauth_preview(&preview, &request))
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not look up an authorization"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::OAuthResolved { query, result });
+                });
+            }
+            (discord, _) => {
+                let _ = events.send(Event::OAuthResolved {
+                    query,
+                    result: Err(discord
+                        .err()
+                        .unwrap_or("That isn't an authorization link.")
+                        .into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::AuthorizeOAuth { query, guild }) = command {
+        let request = yapfast_discord::oauth::Request::parse(&query);
+        match (discord, request) {
+            (Ok(discord), Some(request)) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .authorize_oauth(&request, guild.as_deref())
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not authorize an application"
+                            );
+                            format!("Couldn't authorize it: {error}")
+                        });
+                    let _ = events.send(Event::OAuthAuthorized { query, result });
+                });
+            }
+            (discord, _) => {
+                let _ = events.send(Event::OAuthAuthorized {
+                    query,
+                    result: Err(discord
+                        .err()
+                        .unwrap_or("That isn't an authorization link.")
+                        .into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::OpenThread { room, beside }) = command {
         let place =
             discord::parse_room(&room).map(|(guild, thread)| (guild.to_owned(), thread.to_owned()));
@@ -1709,5 +1772,35 @@ fn gift_preview(preview: yapfast_discord::gift::Preview) -> GiftPreview {
         redeemed: preview.redeemed,
         spent: preview.spent,
         in_discord: preview.in_discord,
+    }
+}
+
+fn oauth_preview(
+    preview: &yapfast_discord::oauth::Preview,
+    request: &yapfast_discord::oauth::Request,
+) -> OAuthPreview {
+    OAuthPreview {
+        query: request.query.clone(),
+        name: preview.name.clone(),
+        about: preview.about.clone(),
+        icon: preview.icon.clone(),
+        bot: preview.bot.clone(),
+        scopes: request.scopes.clone(),
+        permissions: request.permissions,
+        authorized: preview.authorized,
+        redirect: preview.redirect_uri.clone(),
+        guild_install: request.guild_install(),
+        guild_locked: request.guild_locked,
+        wanted_guild: request.guild.clone(),
+        guilds: preview
+            .guilds
+            .iter()
+            .map(|guild| OAuthGuild {
+                id: guild.id.clone(),
+                name: guild.name.clone(),
+                icon: guild.icon.clone(),
+                can_add: guild.can_add,
+            })
+            .collect(),
     }
 }
