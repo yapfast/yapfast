@@ -1809,7 +1809,7 @@ impl Adapter {
             if let Some(gifter) = &preview.gifter {
                 parts.push(format!("from {gifter}"));
             }
-            parts.join(" Â· ")
+            parts.join(" · ")
         });
         let redeemable =
             !gift.redeemed && preview.is_some_and(|preview| !preview.redeemed && !preview.spent);
