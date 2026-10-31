@@ -216,26 +216,28 @@ impl Shell {
     /// Brings the window to the front, making it again if it was closed.
     pub(super) fn open(self: &Rc<Self>) -> Option<YapfastWindow> {
         if let Some(window) = self.window() {
-            let _ = window.show();
-            window.window().set_minimized(false);
-            window.window().with_winit_window(|winit| {
-                winit.focus_window();
-                #[cfg(target_os = "linux")]
-                {
-                    use slint::winit_030::winit::{
-                        raw_window_handle::{HasDisplayHandle, RawDisplayHandle},
-                        window::UserAttentionType,
-                    };
-                    // On Wayland focus_window is a no-op; winit requests
-                    // xdg_activation through request_user_attention instead.
-                    if winit.display_handle().is_ok_and(|display| {
-                        matches!(display.as_raw(), RawDisplayHandle::Wayland(_))
-                    }) {
-                        winit.request_user_attention(Some(UserAttentionType::Informational));
-                    }
-                }
-            });
-            return Some(window);
+            // Taken always, so a token never outlives its click.
+            let token = crate::tray::take_activation_token();
+            // Wayland has no plain way to raise a window: winit's focus_window
+            // does nothing, and an activation request needs a token from
+            // input the compositor saw. KDE Plasma gives the tray click's own,
+            // which raises the window as it is. Without one, as in GNOME, a
+            // new window the compositor does show in front, so make it again
+            // as the closed one is.
+            if FOCUSED.get() || !on_wayland(&window) {
+                let _ = window.show();
+                window.window().set_minimized(false);
+                window
+                    .window()
+                    .with_winit_window(|winit| winit.focus_window());
+                return Some(window);
+            }
+            if token.is_some_and(|token| raise_on_wayland(&window, token)) {
+                let _ = window.show();
+                return Some(window);
+            }
+            drop(window);
+            self.drop_window();
         }
         match self.make() {
             Ok(window) => Some(window),
@@ -466,4 +468,61 @@ pub(super) fn release_memory() {
         }
     }
     tracing::info!("memory released");
+}
+
+/// Asks a Wayland compositor to raise the window with a click's activation
+/// token; whether the request went out.
+fn raise_on_wayland(window: &YapfastWindow, token: String) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        use slint::winit_030::winit::raw_window_handle::{
+            HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+        };
+        window
+            .window()
+            .with_winit_window(|winit| {
+                let Ok(RawDisplayHandle::Wayland(display)) =
+                    winit.display_handle().map(|handle| handle.as_raw())
+                else {
+                    return false;
+                };
+                let Ok(RawWindowHandle::Wayland(surface)) =
+                    winit.window_handle().map(|handle| handle.as_raw())
+                else {
+                    return false;
+                };
+                // SAFETY: both are winit's live handles for this window, used
+                // on the thread that owns it.
+                unsafe { crate::activation::raise(display.display, surface.surface, token) }
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (window, token);
+        false
+    }
+}
+
+/// Whether the window is on a Wayland compositor.
+fn on_wayland(window: &YapfastWindow) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        use slint::winit_030::winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+        window
+            .window()
+            .with_winit_window(|winit| {
+                winit
+                    .display_handle()
+                    .is_ok_and(|display| matches!(display.as_raw(), RawDisplayHandle::Wayland(_)))
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = window;
+        false
+    }
 }
