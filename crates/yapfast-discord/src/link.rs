@@ -61,12 +61,8 @@ pub fn parse(link: &str) -> Option<Route> {
         ["oauth2", "authorize"] | ["api", "oauth2", "authorize"]
     ) && matches!(url.scheme(), "http" | "https" | "discord" | "yapfast")
     {
-        if matches!(url.scheme(), "http" | "https") {
-            let host = url.host_str()?;
-            let host = host.strip_prefix("www.").unwrap_or(host);
-            if !WEB_HOSTS.contains(&host) {
-                return None;
-            }
+        if matches!(url.scheme(), "http" | "https") && !web_host(&url) {
+            return None;
         }
         let query = url.query()?;
         return crate::oauth::Request::parse(query).map(|_| Route::Authorize {
@@ -89,7 +85,7 @@ pub fn parse(link: &str) -> Option<Route> {
                     _ => None,
                 };
             }
-            if !WEB_HOSTS.contains(&host) {
+            if !web_host(&url) {
                 return None;
             }
             from_segments(&segments)
@@ -103,6 +99,19 @@ pub fn parse(link: &str) -> Option<Route> {
         }
         _ => None,
     }
+}
+
+/// Whether `link` is a web page on one of Discord's own hosts, such as
+/// where Discord sends someone after authorizing an application.
+pub fn on_discord(link: &str) -> bool {
+    Url::parse(link).is_ok_and(|url| matches!(url.scheme(), "http" | "https") && web_host(&url))
+}
+
+/// Whether a web link's host is one of [`WEB_HOSTS`], with or without
+/// `www.`.
+fn web_host(url: &Url) -> bool {
+    url.host_str()
+        .is_some_and(|host| WEB_HOSTS.contains(&host.strip_prefix("www.").unwrap_or(host)))
 }
 
 /// A link's path parts, with one trailing slash left off. An empty part
@@ -339,6 +348,30 @@ mod tests {
             "javascript://discord.com/channels/10/11",
         ] {
             assert_eq!(parse(link), None, "{link}");
+        }
+    }
+
+    #[test]
+    fn tells_discords_own_pages_from_others() {
+        for page in [
+            "https://discord.com/oauth2/authorized",
+            "https://www.discord.com/channels/@me",
+            "http://ptb.discord.com/",
+            "HTTPS://DISCORD.COM/app",
+        ] {
+            assert!(on_discord(page), "{page}");
+        }
+        for page in [
+            "https://discord.com.example.com/",
+            "https://discord.com@evil.example/",
+            "https://notdiscord.com/",
+            "discord://-/channels/@me",
+            "myapp://discord.com/cb?code=x",
+            "javascript:alert(1)//discord.com",
+            "file:///discord.com",
+            "discord.com",
+        ] {
+            assert!(!on_discord(page), "{page}");
         }
     }
 }

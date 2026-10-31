@@ -2210,7 +2210,7 @@ impl Discord {
     /// [`Api::oauth_preview`].
     pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {
         let answer = self.api.oauth_preview(&request.query).await?;
-        oauth::Preview::of(&answer, request).context("Discord has no application by that id.")
+        oauth::Preview::of(&answer, request).context("Discord doesn't know that application.")
     }
 
     /// Authorizes the application `request` names, in the server
@@ -2230,8 +2230,11 @@ impl Discord {
                 request.permissions,
             )
             .await?;
-        answer["url"]
+        // Discord's client reads `location`; docs.discord.food names it
+        // `url`.
+        answer["location"]
             .as_str()
+            .or_else(|| answer["url"].as_str())
             .map(str::to_owned)
             .context("Discord authorized it without saying where to go next.")
     }

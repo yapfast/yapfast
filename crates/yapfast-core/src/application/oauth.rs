@@ -18,8 +18,13 @@ pub struct OAuthDialog {
     pub guild: Option<String>,
     pub resolving: bool,
     pub authorizing: bool,
-    /// Authorized, with nowhere else for Discord to send the person.
+    /// Authorized, with nowhere else for Discord to send the person, or
+    /// with an address Yapfast doesn't open.
     pub done: bool,
+    /// Where Discord sends the person next, when that isn't a web page,
+    /// such as an app's own `myapp://` address: Yapfast shows it to copy
+    /// and never opens it, as it opens no such link in a message.
+    pub next: Option<String>,
     pub error: Option<String>,
 }
 
@@ -147,9 +152,16 @@ impl Application {
             }
             // The application's own address, with its code: the browser
             // takes the person there, as Discord's page would.
-            Ok(url) => {
+            Ok(url) if crate::links::openable(&url) => {
                 self.state.oauth = None;
                 vec![Effect::OpenPage(url)]
+            }
+            // Any other address could start another program or open a
+            // file, which a link from a message never does.
+            Ok(url) => {
+                dialog.done = true;
+                dialog.next = Some(url);
+                vec![]
             }
             Err(error) => {
                 dialog.error = Some(error);
@@ -159,22 +171,13 @@ impl Application {
     }
 }
 
-/// Whether an address is one of Discord's own web hosts.
+/// Whether an address is a page on one of Discord's own web hosts.
+#[cfg(feature = "discord")]
 fn on_discord(url: &str) -> bool {
-    let Some(rest) = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-    else {
-        return false;
-    };
-    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let host = host.strip_prefix("www.").unwrap_or(host);
-    matches!(
-        host,
-        "discord.com"
-            | "discordapp.com"
-            | "canary.discord.com"
-            | "ptb.discord.com"
-            | "canary.discordapp.com"
-    )
+    yapfast_discord::link::on_discord(url)
+}
+
+#[cfg(not(feature = "discord"))]
+fn on_discord(_url: &str) -> bool {
+    false
 }

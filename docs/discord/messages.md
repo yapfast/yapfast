@@ -244,6 +244,11 @@ an error.
   is redeeming and opened again shows it still redeeming, and Discord's
   answer. An authorization link shows what the application asks for and
   authorizes it on the click, in the server picked (`link.rs`, `oauth.rs`).
+  Afterwards Yapfast goes where Discord's answer (`location`) says: a page
+  of Discord's own ends the dialog at "Authorized", a web page opens in the
+  browser, and any other address, such as an app's `myapp://`, is kept in
+  the dialog and never opened, as no link in a message starts another
+  program (`links::openable`).
   Only Discord's own hosts and snowflake ids match, so a look-alike stays an
   ordinary web link. Discord pages Yapfast has no screen for, such as the
   shop and server templates, still open in the browser, as does a link

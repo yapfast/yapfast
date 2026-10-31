@@ -9647,6 +9647,48 @@ fn an_authorization_link_shows_the_app_and_authorizes_on_the_click() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn an_authorization_never_opens_an_address_that_isnt_a_web_page() {
+    let sign_in = "response_type=code&client_id=157730590492196864&scope=identify";
+    for next in [
+        "myapp://cb?code=x",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://discord.com@evil.example/?code=x",
+    ] {
+        let mut app = discord_server();
+        app.dispatch(Action::OpenOAuthLink(sign_in.into()));
+        app.apply(Event::OAuthResolved {
+            query: sign_in.into(),
+            result: Ok(chat::OAuthPreview {
+                query: sign_in.into(),
+                name: "Alien App".into(),
+                about: None,
+                icon: None,
+                bot: None,
+                scopes: vec!["identify".into()],
+                permissions: None,
+                authorized: false,
+                redirect: Some("myapp://cb".into()),
+                guild_install: false,
+                guild_locked: false,
+                wanted_guild: None,
+                guilds: vec![],
+            }),
+        });
+        app.dispatch(Action::AuthorizeOAuth);
+        let effects = app.apply(Event::OAuthAuthorized {
+            query: sign_in.into(),
+            result: Ok(next.into()),
+        });
+        assert!(effects.is_empty(), "{next}");
+        let shown = app.state.oauth.clone().unwrap();
+        assert!(shown.done, "{next}");
+        assert_eq!(shown.next.as_deref(), Some(next), "shown to copy");
+    }
+}
+
+#[test]
 fn going_idle_while_signed_out_tells_nobody() {
     let inactive = || Action::Inactive {
         since: Some(1),

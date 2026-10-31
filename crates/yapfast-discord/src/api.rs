@@ -2180,6 +2180,7 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
             anyhow!("They don't take friend requests from people they don't know.")
         }
         (_, Some(ALREADY_FRIENDS)) => anyhow!("You're already friends."),
+        (_, Some(UNKNOWN_APPLICATION)) => anyhow!("Discord doesn't know that application."),
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
             anyhow!("This invite is invalid or has expired.")
         }
@@ -2290,6 +2291,7 @@ fn form_errors(body: &Value) -> Option<String> {
 const REQUESTS_CLOSED: u64 = 80000;
 const UNKNOWN_USERNAME: u64 = 80004;
 const ALREADY_FRIENDS: u64 = 80007;
+const UNKNOWN_APPLICATION: u64 = 10002;
 const UNKNOWN_INVITE: u64 = 10006;
 const INVALID_INVITE: u64 = 50020;
 const BANNED: u64 = 40007;

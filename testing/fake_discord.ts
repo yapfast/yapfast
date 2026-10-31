@@ -197,8 +197,9 @@
 // /_control/invite-form makes it answer that the server has a form to fill
 // in first.
 // Authorizing Alien App from its link previews and authorizes the same
-// way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it,
-// and GET /_control/oauth-authorizations lists each one.
+// way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
+// answers the `location` to go to next, and GET
+// /_control/oauth-authorizations lists each one.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -6416,7 +6417,9 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     oauthAuthorizations.push({ client_id: OAUTH_APP, scope, guild_id: body.guild_id ?? null, permissions: body.permissions ?? null, integration_type: body.integration_type ?? 0 });
     const redirect = url.searchParams.get("redirect_uri");
     const state = url.searchParams.get("state");
-    return json({ url: redirect ? `${redirect}?code=fake-auth-code${state ? `&state=${state}` : ""}` : "https://discord.com/channels/@me" });
+    // Discord's client reads `location`; without a redirect it's Discord's
+    // own "authorized" page.
+    return json({ location: redirect ? `${redirect}?code=fake-auth-code${state ? `&state=${state}` : ""}` : "https://discord.com/oauth2/authorized" });
   }
 
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/attachments$/))) {

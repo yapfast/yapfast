@@ -3679,7 +3679,7 @@ async fn authorizes_an_application() {
         .authorize_oauth(&request, Some(guild.as_str()))
         .await
         .unwrap();
-    assert_eq!(next, "https://discord.com/channels/@me");
+    assert_eq!(next, "https://discord.com/oauth2/authorized");
     let made: serde_json::Value = serde_json::from_str(&control(
         server,
         "GET",
@@ -3706,7 +3706,8 @@ async fn authorizes_an_application() {
 
     // An application Discord doesn't know is refused as it refuses it.
     let unknown = Request::parse("client_id=999999999999999999&scope=bot").unwrap();
-    assert!(discord.oauth_preview(&unknown).await.is_err());
+    let error = discord.oauth_preview(&unknown).await.unwrap_err();
+    assert_eq!(error.to_string(), "Discord doesn't know that application.");
 }
 
 #[tokio::test(flavor = "multi_thread")]
