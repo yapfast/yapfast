@@ -1729,6 +1729,34 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// What authorizing an application would do, for the link whose
+    /// query `query` is, as Discord's client asks before showing it.
+    pub async fn oauth_preview(&self, query: &str) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Authorizes an application, for the link whose query `query` is,
+    /// in the server `guild` when it installs to one, with a bot's
+    /// `permissions`; the address Discord sends the person to next.
+    pub async fn authorize_oauth(
+        &self,
+        query: &str,
+        user_install: bool,
+        guild: Option<&str>,
+        permissions: Option<u64>,
+    ) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        let body = json!({
+            "authorize": true,
+            "integration_type": u64::from(user_install),
+            "guild_id": guild,
+            "permissions": permissions.map(|bits| bits.to_string()),
+        });
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
     /// Joins a server by an invite, from this gateway `session`, as
     /// Discord's client does; `context` says where, as
     /// [`crate::invite::Preview::context`] makes it. Discord may ask for a

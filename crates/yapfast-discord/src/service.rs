@@ -22,6 +22,7 @@ use crate::{
     message::{self, Message, Names, Page},
     mfa,
     notifications::Change,
+    oauth,
     profile::{self, Profile},
     ready::{self, PRIVATE, Server},
     search, server_settings,
@@ -2132,6 +2133,36 @@ impl Discord {
         )
         .await?;
         Ok(invite::Joined::of(&answer, preview))
+    }
+
+    /// What authorizing the application `request` names would do; see
+    /// [`Api::oauth_preview`].
+    pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {
+        let answer = self.api.oauth_preview(&request.query).await?;
+        oauth::Preview::of(&answer, request).context("Discord has no application by that id.")
+    }
+
+    /// Authorizes the application `request` names, in the server
+    /// `guild` when it installs to one; the address Discord sends the
+    /// person to next.
+    pub async fn authorize_oauth(
+        &self,
+        request: &oauth::Request,
+        guild: Option<&str>,
+    ) -> Result<String> {
+        let answer = self
+            .api
+            .authorize_oauth(
+                &request.query,
+                request.user_install,
+                guild,
+                request.permissions,
+            )
+            .await?;
+        answer["url"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord authorized it without saying where to go next.")
     }
 
     /// A channel's name, topic, slowmode in seconds and whether it's

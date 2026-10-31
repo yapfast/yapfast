@@ -31,6 +31,7 @@ mod members;
 mod messages;
 mod mfa;
 mod new_post;
+mod oauth;
 mod place_search;
 mod places;
 mod polls;
@@ -58,6 +59,7 @@ pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 pub use members::{member_server, with_clubs};
 pub use mfa::MfaPrompt;
 pub use new_post::{NewPost, POST_TAGS, POST_TITLE_LIMIT};
+pub use oauth::OAuthDialog;
 pub use place_search::Place;
 pub use places::{
     ChannelAsk, ChannelDialog, INVITE_AGES, INVITE_USES, InviteDialog, LeaveDialog, ListedCategory,
@@ -413,6 +415,9 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// The application a clicked authorization link opened, while its
+    /// dialog is open.
+    pub oauth: Option<OAuthDialog>,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -651,6 +656,7 @@ impl AppState {
         };
         match route {
             DiscordRoute::Invite { .. } => self.discord_online || self.preview,
+            DiscordRoute::Authorize { .. } => self.discord_online || self.preview,
             DiscordRoute::DirectMessages => self.discord_linked,
             DiscordRoute::Server { guild } => server(guild),
             DiscordRoute::Channel { guild, channel }
@@ -748,6 +754,7 @@ impl AppState {
             || self.person_dialog.is_some()
             || self.invite.is_some()
             || self.join.is_some()
+            || self.oauth.is_some()
             || self.channel_dialog.is_some()
             || self.leave.is_some()
             || self.move_sync.is_some()
@@ -1622,6 +1629,13 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// Open a clicked authorization link, by its query; pick the
+    /// server it installs to, by its Discord id; authorize it; or
+    /// close its dialog.
+    OpenOAuthLink(String),
+    ChooseOAuthGuild(String),
+    AuthorizeOAuth,
+    CloseOAuth,
     /// Open the dialog that makes a channel of this kind, from a Discord
     /// server's menu, by its server id, or one like a channel in its
     /// category, from the channel's menu, by its room id.
@@ -2768,6 +2782,13 @@ impl Application {
                 self.state.join = None;
                 vec![]
             }
+            Action::OpenOAuthLink(query) => self.open_oauth_link(query),
+            Action::ChooseOAuthGuild(guild) => self.choose_oauth_guild(guild),
+            Action::AuthorizeOAuth => self.authorize_oauth(),
+            Action::CloseOAuth => {
+                self.state.oauth = None;
+                vec![]
+            }
             Action::NewChannel { place, kind } => self.new_channel(place, kind),
             Action::AskChannel(ask) => self.ask_channel(ask),
             Action::OpenChannelSettings(room) => self.open_channel_settings(room),
@@ -3354,6 +3375,10 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),
+            Event::OAuthAuthorized { query, result } => {
+                return self.oauth_authorized(query, result);
+            }
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),
             Event::ChannelSaved(result) => {
                 if !self.channel_settings_saved(&result) {

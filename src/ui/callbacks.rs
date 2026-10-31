@@ -457,6 +457,36 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_join_captcha, Action::OpenJoinCaptcha);
     bind!(on_open_join_form, Action::OpenJoinForm);
     bind!(on_close_join, Action::CloseJoin);
+    bind!(on_authorize_oauth, Action::AuthorizeOAuth);
+    bind!(on_close_oauth, Action::CloseOAuth);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_choose_oauth_guild(move |index| {
+            let guild = {
+                let adapter = adapter.borrow();
+                adapter
+                    .app
+                    .state
+                    .oauth
+                    .as_ref()
+                    .and_then(|dialog| dialog.preview.as_ref())
+                    .and_then(|preview| {
+                        preview
+                            .guilds
+                            .iter()
+                            .filter(|guild| guild.can_add)
+                            .nth(usize::try_from(index).unwrap_or_default())
+                    })
+                    .map(|guild| guild.id.clone())
+            };
+            if let (Some(window), Some(guild)) = (weak.upgrade(), guild) {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::ChooseOAuthGuild(guild));
+            }
+        });
+    }
     bind_item!(on_find_invite, Action::FindInvite);
     bind_item!(on_open_invite, Action::OpenInvite);
     {
@@ -2576,6 +2606,7 @@ pub(super) fn web_address(link: &str) -> Option<&str> {
 fn discord_link_action(window: &YapfastWindow, route: discord::DiscordRoute) -> Action {
     match route {
         discord::DiscordRoute::Invite { code } => Action::OpenInviteLink(code),
+        discord::DiscordRoute::Authorize { query } => Action::OpenOAuthLink(query),
         discord::DiscordRoute::DirectMessages => Action::Navigate(Navigation::DirectMessages),
         discord::DiscordRoute::Server { guild } => {
             Action::Navigate(Navigation::Server(discord::server_id(&guild)))
