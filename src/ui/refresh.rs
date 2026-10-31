@@ -305,6 +305,7 @@ impl Adapter {
         self.show_members(window);
         self.show_invite(window);
         self.show_join(window);
+        self.show_gift(window);
         self.show_channel_dialog(window);
         self.show_leave(window);
         self.show_move_sync(window);
@@ -1714,6 +1715,54 @@ impl Adapter {
             captcha: join.captcha.is_some(),
             form: join.form.is_some(),
             error: join.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
+    /// The gift a clicked gift link opened.
+    fn show_gift(&self, window: &YapfastWindow) {
+        let gift = self.app.state.gift.as_ref();
+        window.set_gift_open(gift.is_some());
+        let Some(gift) = gift else {
+            return;
+        };
+        let preview = gift.preview.as_ref();
+        let detail = preview.map(|preview| {
+            let mut parts = Vec::new();
+            if let Some(plan) = &preview.plan {
+                parts.push(plan.clone());
+            }
+            if let Some(gifter) = &preview.gifter {
+                parts.push(format!("from {gifter}"));
+            }
+            parts.join(" Â· ")
+        });
+        let redeemable =
+            !gift.redeemed && preview.is_some_and(|preview| !preview.redeemed && !preview.spent);
+        let status = if gift.redeemed {
+            "Redeemed. Enjoy!"
+        } else if gift.redeeming {
+            "Redeeming..."
+        } else if gift.resolving {
+            "Looking up the gift..."
+        } else if preview.is_some_and(|preview| preview.redeemed) {
+            "You've already redeemed this gift."
+        } else if preview.is_some_and(|preview| preview.spent) {
+            "This gift has already been redeemed."
+        } else {
+            ""
+        };
+        window.set_gift_prompt(GiftPrompt {
+            title: "You've been sent a gift".into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            detail: detail.unwrap_or_default().into(),
+            confirm: if redeemable { "Redeem Gift" } else { "" }.into(),
+            busy: gift.resolving || gift.redeeming,
+            status: status.into(),
+            error: gift.error.as_deref().unwrap_or_default().into(),
         });
     }
 
