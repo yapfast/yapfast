@@ -9358,20 +9358,20 @@ fn an_event_link_shows_the_event_and_marks_interest_on_the_click() {
 #[cfg(feature = "discord")]
 fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
     let gift = |redeemed: bool, spent: bool| chat::GiftPreview {
-        code: "2CG6SV9QtRxerJTgCYNDnU7M".into(),
         name: "Nitro".into(),
         plan: Some("Nitro Monthly".into()),
         gifter: Some("Gift Giver".into()),
         redeemed,
         spent,
-        expires_at: None,
+        in_discord: false,
     };
+    let code = "2CG6SV9QtRxerJTgCYNDnU7M";
     let mut app = discord_server();
-    let effects = app.dispatch(Action::OpenGiftLink("2CG6SV9QtRxerJTgCYNDnU7M".into()));
+    let effects = app.dispatch(Action::OpenGiftLink(code.into()));
     assert!(matches!(
         effects.as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::ResolveGift { code }))]
-            if code == "2CG6SV9QtRxerJTgCYNDnU7M"
+        [Effect::Backend(Command::Discord(DiscordCommand::ResolveGift { code: asked }))]
+            if asked == code
     ));
     assert!(app.state.gift.as_ref().unwrap().resolving);
     // Redeeming before the gift shows, or from looking it up, never
@@ -9383,7 +9383,7 @@ fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
     });
     assert!(app.state.gift.as_ref().unwrap().preview.is_none());
     app.apply(Event::GiftResolved {
-        code: "2CG6SV9QtRxerJTgCYNDnU7M".into(),
+        code: code.into(),
         result: Ok(gift(false, false)),
     });
     let shown = app.state.gift.clone().unwrap();
@@ -9393,28 +9393,28 @@ fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
     let effects = app.dispatch(Action::RedeemGift);
     assert!(matches!(
         effects.as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::RedeemGift { preview, .. }))]
-            if preview.code == "2CG6SV9QtRxerJTgCYNDnU7M"
+        [Effect::Backend(Command::Discord(DiscordCommand::RedeemGift { code: redeemed, .. }))]
+            if redeemed == code
     ));
     assert!(
         app.dispatch(Action::RedeemGift).is_empty(),
         "one redemption at a time"
     );
     app.apply(Event::GiftRedeemed {
-        code: "2CG6SV9QtRxerJTgCYNDnU7M".into(),
+        code: code.into(),
         result: Ok(()),
     });
     let shown = app.state.gift.clone().unwrap();
-    assert!(shown.redeemed && !shown.redeeming);
+    assert!(shown.redeemed && app.state.redeeming_gifts.is_empty());
     assert!(shown.preview.unwrap().redeemed);
     assert!(app.dispatch(Action::RedeemGift).is_empty(), "and not twice");
 
     // A gift this account redeemed, or anyone used up, shows but offers
     // nothing to redeem.
     for preview in [gift(true, false), gift(false, true)] {
-        app.dispatch(Action::OpenGiftLink(preview.code.clone()));
+        app.dispatch(Action::OpenGiftLink(code.into()));
         app.apply(Event::GiftResolved {
-            code: preview.code.clone(),
+            code: code.into(),
             result: Ok(preview),
         });
         assert!(app.dispatch(Action::RedeemGift).is_empty());
@@ -9429,6 +9429,86 @@ fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
     let shown = app.state.gift.clone().unwrap();
     assert!(shown.preview.is_none() && !shown.resolving);
     assert_eq!(shown.error.as_deref(), Some("Unknown Gift Code"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_gift_only_discord_can_redeem_opens_in_the_browser() {
+    let mut app = discord_server();
+    app.dispatch(Action::OpenGiftLink("AbCdEfGhIjKlMnOp".into()));
+    app.apply(Event::GiftResolved {
+        code: "AbCdEfGhIjKlMnOp".into(),
+        result: Ok(chat::GiftPreview {
+            name: "Nitro".into(),
+            plan: None,
+            gifter: None,
+            redeemed: false,
+            spent: false,
+            in_discord: true,
+        }),
+    });
+    assert!(app.dispatch(Action::RedeemGift).is_empty());
+    assert!(matches!(
+        app.dispatch(Action::OpenGiftInBrowser).as_slice(),
+        [Effect::OpenPage(page)] if page == "https://discord.com/gifts/AbCdEfGhIjKlMnOp"
+    ));
+    assert!(app.state.gift.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_gift_closed_while_redeeming_shows_the_answer_when_opened_again() {
+    let gift = || chat::GiftPreview {
+        name: "Nitro".into(),
+        plan: None,
+        gifter: None,
+        redeemed: false,
+        spent: false,
+        in_discord: false,
+    };
+    let code = "2CG6SV9QtRxerJTgCYNDnU7M";
+    let mut app = discord_server();
+    let open = |app: &mut Application| {
+        app.dispatch(Action::OpenGiftLink(code.into()));
+        app.apply(Event::GiftResolved {
+            code: code.into(),
+            result: Ok(gift()),
+        });
+    };
+    open(&mut app);
+    assert_eq!(app.dispatch(Action::RedeemGift).len(), 1);
+    app.dispatch(Action::CloseGift);
+
+    // Opened again before Discord answers, and looked up before it does:
+    // the gift is still redeeming, so it isn't redeemed a second time.
+    open(&mut app);
+    assert_eq!(app.state.redeeming_gifts, [code]);
+    assert!(app.dispatch(Action::RedeemGift).is_empty());
+    app.apply(Event::GiftRedeemed {
+        code: code.into(),
+        result: Ok(()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(shown.redeemed && shown.preview.unwrap().redeemed);
+    assert!(app.state.redeeming_gifts.is_empty());
+
+    // A refusal reaches the reopened dialog too, and the gift can be
+    // tried again.
+    open(&mut app);
+    app.dispatch(Action::RedeemGift);
+    app.dispatch(Action::CloseGift);
+    app.dispatch(Action::OpenGiftLink(code.into()));
+    app.apply(Event::GiftRedeemed {
+        code: code.into(),
+        result: Err("Couldn't redeem the gift".into()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert_eq!(shown.error.as_deref(), Some("Couldn't redeem the gift"));
+    app.apply(Event::GiftResolved {
+        code: code.into(),
+        result: Ok(gift()),
+    });
+    assert_eq!(app.dispatch(Action::RedeemGift).len(), 1);
 }
 
 #[test]

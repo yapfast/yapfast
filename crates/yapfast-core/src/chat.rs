@@ -1912,7 +1912,6 @@ pub struct EventPreview {
 /// What a Discord gift, such as Nitro, shows before it is redeemed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GiftPreview {
-    pub code: String,
     /// What the gift grants, such as "Nitro", and the name of the
     /// subscription plan it grants, when it is one.
     pub name: String,
@@ -1924,10 +1923,18 @@ pub struct GiftPreview {
     pub redeemed: bool,
     /// Every use of the gift has been redeemed, by anyone.
     pub spent: bool,
-    /// When the gift stops being redeemable, as Discord timestamps it,
-    /// when it does.
-    pub expires_at: Option<String>,
+    /// Only Discord can redeem the gift: it needs a payment source, or
+    /// it's from a promotion. Yapfast offers its link in the browser.
+    pub in_discord: bool,
 }
+
+impl GiftPreview {
+    /// Whether this account may still redeem the gift here.
+    pub fn redeemable(&self) -> bool {
+        !self.redeemed && !self.spent && !self.in_discord
+    }
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
@@ -2193,11 +2200,11 @@ pub enum DiscordCommand {
     ResolveGift {
         code: String,
     },
-    /// Redeem the Discord gift `preview` shows for this account, in
-    /// the room `room` names when its link was opened in one.
+    /// Redeem the Discord gift with this code for this account, in the
+    /// room `room` names when its link was opened in one.
     /// [`Event::GiftRedeemed`] follows.
     RedeemGift {
-        preview: Box<GiftPreview>,
+        code: String,
         room: Option<String>,
     },
     /// Make a channel or category in a Discord server, by its server id,

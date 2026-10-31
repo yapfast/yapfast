@@ -177,6 +177,7 @@ export component YapfastWindow inherits Window {
     in property <bool> gift-open;
     in property <GiftPrompt> gift-prompt;
     callback redeem-gift;
+    callback open-gift-in-browser;
     callback close-gift;
     // A scheduled event a clicked event link opened; see EventDialog.
     in property <bool> event-open;
@@ -3657,6 +3658,7 @@ export component YapfastWindow inherits Window {
         motion: gift-motion.amount;
         prompt: root.gift-prompt;
         redeem => { root.redeem-gift(); }
+        open-in-browser => { root.open-gift-in-browser(); }
         close => { root.close-gift(); }
     }
     channel-motion := PopupMotion { open: root.channel-open; }

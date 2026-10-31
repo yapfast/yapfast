@@ -2192,21 +2192,17 @@ impl Discord {
     }
 
     /// What a gift shows before it is redeemed, by its code; see
-    /// [`Api::gift_code`]. A gift that grants nothing Yapfast can name
-    /// is refused.
+    /// [`Api::gift_code`]. An answer without a gift code is refused.
     pub async fn gift(&self, code: &str) -> Result<gift::Preview> {
         let gift = self.api.gift_code(code).await?;
-        gift::Preview::of(&gift).context("This gift grants nothing Yapfast can show.")
+        gift::Preview::of(&gift).context("Discord didn't answer with a gift.")
     }
 
-    /// Redeems the gift `preview` shows for this account; `channel` is
+    /// Redeems the gift with this code for this account; `channel` is
     /// where its link was opened, when it was a channel. Discord sends
     /// the entitlement it grants over the gateway.
-    pub async fn redeem_gift(&self, preview: &gift::Preview, channel: Option<&str>) -> Result<()> {
-        self.api
-            .redeem_gift_code(&preview.code, channel)
-            .await
-            .map(drop)
+    pub async fn redeem_gift(&self, code: &str, channel: Option<&str>) -> Result<()> {
+        self.api.redeem_gift_code(code, channel).await.map(drop)
     }
 
     /// A channel's name, topic, slowmode in seconds and whether it's

@@ -148,9 +148,7 @@ fn invite(code: &str) -> Option<Route> {
 
 fn gift(code: &str) -> Option<Route> {
     let code = code.strip_suffix('.').unwrap_or(code);
-    crate::gift::valid(code).then(|| Route::Gift {
-        code: code.to_owned(),
-    })
+    crate::gift::code(code).map(|code| Route::Gift { code })
 }
 
 /// The guild part of a channel link: a server's snowflake, or `@me` for
@@ -247,6 +245,13 @@ mod tests {
                 code: "AbCdEfGhIjKlMnOp".into(),
             })
         );
+        // Discord's client drops the dashes a code may be grouped with.
+        assert_eq!(
+            parse("https://discord.gift/AbCd-EfGh-IjKl-MnOp"),
+            Some(Route::Gift {
+                code: "AbCdEfGhIjKlMnOp".into(),
+            })
+        );
         assert_eq!(
             parse("discord://-/gifts/AbCdEfGhIjKlMnOp"),
             Some(Route::Gift {
@@ -275,7 +280,8 @@ mod tests {
         for link in [
             // Discord pages with no Yapfast screen behind this router.
             "https://discord.gift/gift",
-            "https://discord.com/gifts/not-a-code",
+            "https://discord.com/gifts/not_a_gift_code",
+            "https://discord.gift/g-i-f-t",
             "https://discord.com/oauth2/authorize?client_id=10&scope=bot",
             "https://discord.com/events/not-a-server/11",
             "https://discord.com/events/10",

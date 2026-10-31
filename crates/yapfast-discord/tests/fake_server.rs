@@ -3668,7 +3668,7 @@ async fn redeems_a_gift() {
 
     // Redeeming names the channel its link was opened in, once.
     discord
-        .redeem_gift(&preview, Some(general.as_str()))
+        .redeem_gift(&preview.code, Some(general.as_str()))
         .await
         .unwrap();
     let redeems: serde_json::Value =
@@ -3683,7 +3683,7 @@ async fn redeems_a_gift() {
     let preview = discord.gift("2CG6SV9QtRxerJTgCYNDnU7M").await.unwrap();
     assert!(preview.redeemed && !preview.redeemable());
     let again = discord
-        .redeem_gift(&preview, Some(general.as_str()))
+        .redeem_gift(&preview.code, Some(general.as_str()))
         .await
         .unwrap_err();
     assert_eq!(again.to_string(), "This gift has already been redeemed.");

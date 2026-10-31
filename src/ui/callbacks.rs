@@ -458,6 +458,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_join_server, Action::OpenJoinServer);
     bind!(on_join_server, Action::JoinServer);
     bind!(on_redeem_gift, Action::RedeemGift);
+    bind!(on_open_gift_in_browser, Action::OpenGiftInBrowser);
     bind!(on_close_gift, Action::CloseGift);
     bind!(on_open_join_captcha, Action::OpenJoinCaptcha);
     bind!(on_open_join_form, Action::OpenJoinForm);

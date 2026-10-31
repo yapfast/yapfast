@@ -422,6 +422,9 @@ pub struct AppState {
     pub scheduled_event: Option<EventDialog>,
     /// The gift a clicked gift link opened, while its dialog is open.
     pub gift: Option<GiftDialog>,
+    /// The codes of the gifts being redeemed, until Discord answers, so a
+    /// dialog closed and opened again meanwhile shows the answer.
+    pub redeeming_gifts: Vec<String>,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -1648,9 +1651,11 @@ pub enum Action {
     ToggleEventInterest,
     CloseEvent,
     /// Open a clicked gift link, by its code; redeem the gift it
-    /// shows, when asked; or close its dialog.
+    /// shows, when asked; open it in the browser, for a gift only Discord
+    /// can redeem; or close its dialog.
     OpenGiftLink(String),
     RedeemGift,
+    OpenGiftInBrowser,
     CloseGift,
     /// Open the dialog that makes a channel of this kind, from a Discord
     /// server's menu, by its server id, or one like a channel in its
@@ -2806,6 +2811,7 @@ impl Application {
             }
             Action::OpenGiftLink(code) => self.open_gift_link(code),
             Action::RedeemGift => self.redeem_gift(),
+            Action::OpenGiftInBrowser => self.open_gift_in_browser(),
             Action::CloseGift => {
                 self.state.gift = None;
                 vec![]

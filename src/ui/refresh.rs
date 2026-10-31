@@ -1811,11 +1811,13 @@ impl Adapter {
             }
             parts.join(" · ")
         });
+        let redeeming = self.app.state.redeeming_gifts.contains(&gift.code);
         let redeemable =
-            !gift.redeemed && preview.is_some_and(|preview| !preview.redeemed && !preview.spent);
+            !gift.redeemed && preview.is_some_and(yapfast_core::chat::GiftPreview::redeemable);
+        let in_discord = !gift.redeemed && preview.is_some_and(|preview| preview.in_discord);
         let status = if gift.redeemed {
             "Redeemed. Enjoy!"
-        } else if gift.redeeming {
+        } else if redeeming {
             "Redeeming..."
         } else if gift.resolving {
             "Looking up the gift..."
@@ -1823,6 +1825,8 @@ impl Adapter {
             "You've already redeemed this gift."
         } else if preview.is_some_and(|preview| preview.spent) {
             "This gift has already been redeemed."
+        } else if in_discord {
+            "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
         } else {
             ""
         };
@@ -1834,8 +1838,16 @@ impl Adapter {
                 .unwrap_or_default()
                 .into(),
             detail: detail.unwrap_or_default().into(),
-            confirm: if redeemable { "Redeem Gift" } else { "" }.into(),
-            busy: gift.resolving || gift.redeeming,
+            confirm: if redeemable {
+                "Redeem Gift"
+            } else if in_discord {
+                "Open in Browser"
+            } else {
+                ""
+            }
+            .into(),
+            browser: in_discord,
+            busy: gift.resolving || redeeming,
             status: status.into(),
             error: gift.error.as_deref().unwrap_or_default().into(),
         });

@@ -1020,7 +1020,7 @@ pub(super) fn command(
                     let result = discord
                         .gift(&code)
                         .await
-                        .map(|preview| gift_preview(&preview))
+                        .map(gift_preview)
                         .map_err(|error| {
                             tracing::warn!(
                                 error = format!("{error:#}"),
@@ -1040,17 +1040,7 @@ pub(super) fn command(
         }
         return None;
     }
-    if let Command::Discord(DiscordCommand::RedeemGift { preview, room }) = command {
-        let code = preview.code.clone();
-        let gift = yapfast_discord::gift::Preview {
-            code: preview.code.clone(),
-            name: preview.name.clone(),
-            plan: preview.plan.clone(),
-            gifter: preview.gifter.clone(),
-            redeemed: preview.redeemed,
-            spent: preview.spent,
-            expires_at: preview.expires_at.clone(),
-        };
+    if let Command::Discord(DiscordCommand::RedeemGift { code, room }) = command {
         let channel = room
             .as_deref()
             .and_then(discord::parse_room)
@@ -1060,7 +1050,7 @@ pub(super) fn command(
                 let (discord, events) = (discord.clone(), events.clone());
                 tokio::spawn(async move {
                     let result = discord
-                        .redeem_gift(&gift, channel.as_deref())
+                        .redeem_gift(&code, channel.as_deref())
                         .await
                         .map_err(|error| {
                             tracing::warn!(error = format!("{error:#}"), "could not redeem a gift");
@@ -1711,14 +1701,13 @@ fn unix_seconds(timestamp: &str) -> u64 {
         .unwrap_or_default()
 }
 
-fn gift_preview(preview: &yapfast_discord::gift::Preview) -> GiftPreview {
+fn gift_preview(preview: yapfast_discord::gift::Preview) -> GiftPreview {
     GiftPreview {
-        code: preview.code.clone(),
-        name: preview.name.clone(),
-        plan: preview.plan.clone(),
-        gifter: preview.gifter.clone(),
+        name: preview.name,
+        plan: preview.plan,
+        gifter: preview.gifter,
         redeemed: preview.redeemed,
         spent: preview.spent,
-        expires_at: preview.expires_at.clone(),
+        in_discord: preview.in_discord,
     }
 }

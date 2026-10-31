@@ -1,7 +1,9 @@
 //! A Discord gift, such as Nitro, that a clicked gift link opens. The
 //! gift is looked up and shown first; redeeming it waits for the click,
 //! as joining a server by an invite does, and a gift this account
-//! redeemed, or anyone used up, offers nothing to redeem.
+//! redeemed, or anyone used up, offers nothing to redeem. A gift only
+//! Discord can redeem, one that needs a payment source or is from a
+//! promotion, offers its link in the browser instead.
 
 use super::*;
 use crate::chat::GiftPreview;
@@ -10,14 +12,14 @@ use crate::chat::GiftPreview;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GiftDialog {
     /// The code of the gift looked up or shown.
-    pub code: Option<String>,
+    pub code: String,
     /// What the gift shows, once Discord answered.
     pub preview: Option<GiftPreview>,
     /// The room its link was opened in, which redeeming names.
     pub room: Option<String>,
     pub resolving: bool,
-    pub redeeming: bool,
-    /// This account redeemed the gift, from this dialog.
+    /// This account redeemed the gift, from this dialog or one closed
+    /// while it was redeeming.
     pub redeemed: bool,
     pub error: Option<String>,
 }
@@ -30,7 +32,7 @@ impl Application {
             return vec![];
         }
         self.state.gift = Some(GiftDialog {
-            code: Some(code.clone()),
+            code: code.clone(),
             room: self.state.selected.clone(),
             resolving: true,
             ..GiftDialog::default()
@@ -52,7 +54,7 @@ impl Application {
             .state
             .gift
             .as_mut()
-            .filter(|gift| gift.resolving && gift.code.as_ref() == Some(&code))
+            .filter(|gift| gift.resolving && gift.code == code)
         else {
             return vec![];
         };
@@ -66,25 +68,21 @@ impl Application {
 
     /// Redeems the gift the dialog shows, when it still can be.
     pub(super) fn redeem_gift(&mut self) -> Vec<Effect> {
-        let Some(gift) = self
-            .state
-            .gift
-            .as_mut()
-            .filter(|gift| !gift.redeeming && !gift.redeemed)
-        else {
+        let Some(gift) = self.state.gift.as_mut() else {
             return vec![];
         };
-        let Some(preview) = gift.preview.clone() else {
-            return vec![];
-        };
-        if preview.redeemed || preview.spent || self.state.preview {
+        if gift.redeemed
+            || self.state.preview
+            || !gift.preview.as_ref().is_some_and(GiftPreview::redeemable)
+            || self.state.redeeming_gifts.contains(&gift.code)
+        {
             return vec![];
         }
-        gift.redeeming = true;
         gift.error = None;
+        self.state.redeeming_gifts.push(gift.code.clone());
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::RedeemGift {
-                preview: Box::new(preview),
+                code: gift.code.clone(),
                 room: gift.room.clone(),
             },
         ))]
@@ -95,15 +93,16 @@ impl Application {
         code: String,
         result: Result<(), String>,
     ) -> Vec<Effect> {
-        let Some(gift) = self
-            .state
-            .gift
-            .as_mut()
-            .filter(|gift| gift.redeeming && gift.code.as_ref() == Some(&code))
-        else {
+        let before = self.state.redeeming_gifts.len();
+        self.state.redeeming_gifts.retain(|gift| *gift != code);
+        if self.state.redeeming_gifts.len() == before {
+            return vec![];
+        }
+        // The dialog shows the answer, whether it stayed open or was
+        // opened again by the same link.
+        let Some(gift) = self.state.gift.as_mut().filter(|gift| gift.code == code) else {
             return vec![];
         };
-        gift.redeeming = false;
         match result {
             Ok(()) => {
                 gift.redeemed = true;
@@ -114,5 +113,17 @@ impl Application {
             Err(error) => gift.error = Some(error),
         }
         vec![]
+    }
+
+    /// Opens the gift's link in the browser, for a gift only Discord can
+    /// redeem, and closes the dialog.
+    pub(super) fn open_gift_in_browser(&mut self) -> Vec<Effect> {
+        match self.state.gift.take() {
+            Some(gift) => vec![Effect::OpenPage(format!(
+                "https://discord.com/gifts/{}",
+                gift.code
+            ))],
+            None => vec![],
+        }
     }
 }

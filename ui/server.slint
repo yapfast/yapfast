@@ -288,6 +288,9 @@ export struct GiftPrompt {
     detail: string,
     /// What the main button does, such as "Redeem Gift"; empty for none.
     confirm: string,
+    /// The main button opens the gift in the browser, for a gift only
+    /// Discord can redeem.
+    browser: bool,
     busy: bool,
     /// How it's going, such as "Redeeming...".
     status: string,
@@ -299,6 +302,7 @@ export struct GiftPrompt {
 export component GiftDialog inherits Rectangle {
     in property <GiftPrompt> prompt;
     callback redeem;
+    callback open-in-browser;
     callback close;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
@@ -340,7 +344,7 @@ export component GiftDialog inherits Rectangle {
                     ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
-                        clicked => { root.redeem(); }
+                        clicked => { if root.prompt.browser { root.open-in-browser(); } else { root.redeem(); } }
                     }
                 }
             }
