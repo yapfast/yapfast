@@ -64,10 +64,11 @@ wl-clipboard-rs = { version = "0.9.4", optional = true }
 wayland-client = { version = "0.31.15", optional = true }
 wayland-backend = { version = "0.3.17", features = ["client_system"], optional = true }
 # Bringing the window forward when Yapfast starts again, with the token the
-# desktop gave that start; see src/instance.rs. Already in the tree through winit.
+# desktop gave that start; see src/instance.rs, and with the tray click's token; see
+# src/activation.rs. Already in the tree through winit.
 wayland-protocols = { version = "0.32.13", features = ["client", "staging"], optional = true }
 # The tray icon, as a StatusNotifierItem on the same bus; pure Rust, on the zbus above.
-ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"], optional = true }
+ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"], optional = true }
 # The push-to-talk key in any app: the GlobalShortcuts portal's signals as a
 # stream, XInput 2's raw key events on X11, and keysym names for the portal's
 # trigger. All three are already in the tree, through zbus and winit.

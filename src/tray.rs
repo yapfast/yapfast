@@ -5,6 +5,23 @@
 
 use std::cell::Cell;
 
+/// The xdg-activation token of the last tray click. KDE Plasma sends it just
+/// before the click itself; it lets a Wayland window come to the front.
+#[cfg(target_os = "linux")]
+static ACTIVATION_TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The token the tray click that is opening the window came with, once.
+pub fn take_activation_token() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        ACTIVATION_TOKEN.lock().ok()?.take()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 /// What the tray asks for, or says. Each runs on Slint's event loop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
@@ -219,6 +236,17 @@ mod linux {
         }
 
         fn activate(&mut self, _x: i32, _y: i32) {
+            // KDE Plasma may deliver the token a moment after the click.
+            let token = ksni::current_xdg_activation_token().or_else(|| {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                ksni::current_xdg_activation_token()
+            });
+            if let Some(token) = token
+                && token.len() <= 256
+                && let Ok(mut kept) = super::ACTIVATION_TOKEN.lock()
+            {
+                *kept = Some(token);
+            }
             choose(self.chosen, Choice::Open);
         }
 
