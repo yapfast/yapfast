@@ -3,7 +3,7 @@
 //! and a notification-area icon on Windows. Clicking it opens the window; its
 //! menu opens Yapfast, leaves a call and quits.
 
-use std::cell::Cell;
+use std::{cell::Cell, sync::Arc};
 
 /// What the tray asks for, or says. Each runs on Slint's event loop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,12 +16,34 @@ pub enum Choice {
 }
 
 /// What the icon and its menu show.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shown {
     /// A mention or a DM waits unread: the icon has a dot.
     pub unread: bool,
     /// In a call: the menu offers Disconnect.
     pub call: bool,
+    /// The local microphone gate is currently sending voice.
+    pub speaking: bool,
+    /// Marigold, blue or mint.
+    pub icon_style: u8,
+    /// Custom RGBA icon, already normalized to 64×64 pixels.
+    pub custom_icon: Option<Arc<Vec<u8>>>,
+    /// Tray-specific icon overrides for quiet and speaking states.
+    pub idle_icon: Option<Arc<Vec<u8>>>,
+    pub speaking_icon: Option<Arc<Vec<u8>>>,
+}
+
+impl Shown {
+    fn image(&self) -> Option<&Arc<Vec<u8>>> {
+        if self.speaking {
+            self.speaking_icon
+                .as_ref()
+                .or(self.idle_icon.as_ref())
+                .or(self.custom_icon.as_ref())
+        } else {
+            self.idle_icon.as_ref().or(self.custom_icon.as_ref())
+        }
+    }
 }
 
 pub struct Tray {
@@ -48,7 +70,7 @@ impl Tray {
     /// Shows the unread dot and the call's Disconnect, telling the tray only
     /// when they change.
     pub fn show(&self, shown: Shown) {
-        if self.shown.replace(shown) != shown {
+        if self.shown.replace(shown.clone()) != shown {
             self.platform.show(shown);
         }
     }
@@ -56,14 +78,28 @@ impl Tray {
 
 /// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
 /// unread messages cut into its corner.
-fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
+fn logo(
+    size: u32,
+    unread: bool,
+    speaking: bool,
+    style: u8,
+) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
+    let colour = match style {
+        1 => "#748bff",
+        2 => "#54d68b",
+        _ => "#ffbf47",
+    };
     let mut svg = include_str!("../ui/icons/logo.svg")
         .replacen(
             r#"width="24" height="24""#,
             &format!(r#"width="{size}" height="{size}""#),
             1,
         )
-        .replacen(r##"fill="#fff" mask"##, r##"fill="#ffbf47" mask"##, 1);
+        .replacen(
+            r##"fill="#fff" mask"##,
+            &format!("fill=\"{colour}\" mask"),
+            1,
+        );
     if unread {
         svg = svg
             .replacen("</mask>", r#"<circle cx="74" cy="74" r="21" /></mask>"#, 1)
@@ -73,9 +109,53 @@ fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8
                 1,
             );
     }
+    if speaking {
+        svg = svg.replacen(
+            "</svg>",
+            r##"<circle cx="26" cy="74" r="10" fill="#54d68b" stroke="#252525" stroke-width="4" /></svg>"##,
+            1,
+        );
+    }
     slint::Image::load_from_svg_data(svg.as_bytes())
         .ok()?
         .to_rgba8()
+}
+
+/// Makes a small settings preview using the same image and voice indicator as the tray.
+pub fn preview(style: u8, speaking: bool, pixels: Option<&[u8]>) -> slint::Image {
+    let image = pixels
+        .filter(|pixels| pixels.len() == 64 * 64 * 4)
+        .map(|pixels| custom_with_status(pixels, false, speaking))
+        .map(|pixels| {
+            slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(&pixels, 64, 64))
+        })
+        .or_else(|| logo(64, false, speaking, style).map(slint::Image::from_rgba8));
+    image.unwrap_or_default()
+}
+
+/// Keeps unread and speaking states visible when a custom base icon is in use.
+fn custom_with_status(pixels: &[u8], unread: bool, speaking: bool) -> Vec<u8> {
+    let mut output = pixels.to_vec();
+    for (enabled, center, colour) in [
+        (speaking, (14i32, 50i32), [84u8, 214, 139]),
+        (unread, (50i32, 50i32), [240u8, 84, 94]),
+    ] {
+        if !enabled {
+            continue;
+        }
+        for y in (center.1 - 8).max(0)..=(center.1 + 8).min(63) {
+            for x in (center.0 - 8).max(0)..=(center.0 + 8).min(63) {
+                let distance = (x - center.0).pow(2) + (y - center.1).pow(2);
+                if distance <= 64 {
+                    let offset = (y as usize * 64 + x as usize) * 4;
+                    let color = if distance >= 36 { [37, 37, 37] } else { colour };
+                    output[offset..offset + 4]
+                        .copy_from_slice(&[color[0], color[1], color[2], 255]);
+                }
+            }
+        }
+    }
+    output
 }
 
 #[cfg(target_os = "linux")]
@@ -108,26 +188,10 @@ mod linux {
 
     impl Tray {
         pub fn start(chosen: fn(Choice)) -> Option<Self> {
-            let icons = |unread| {
-                SIZES
-                    .iter()
-                    .filter_map(|&size| super::logo(size, unread))
-                    .map(|pixels| ksni::Icon {
-                        width: pixels.width() as i32,
-                        height: pixels.height() as i32,
-                        // ARGB, in network byte order.
-                        data: pixels
-                            .as_slice()
-                            .iter()
-                            .flat_map(|pixel| [pixel.a, pixel.r, pixel.g, pixel.b])
-                            .collect(),
-                    })
-                    .collect()
-            };
             let online = Arc::new(AtomicBool::new(false));
             let item = Item {
                 shown: Shown::default(),
-                icons: [icons(false), icons(true)],
+                icons: Default::default(),
                 chosen,
                 online: online.clone(),
             };
@@ -179,10 +243,29 @@ mod linux {
 
     struct Item {
         shown: Shown,
-        /// The icon without the unread dot, and with it.
-        icons: [Vec<ksni::Icon>; 2],
+        /// Each palette without and with the unread dot, then the same with
+        /// the speaking mark; drawn when first shown.
+        icons: [std::cell::OnceCell<Vec<ksni::Icon>>; 12],
         chosen: fn(Choice),
         online: Arc<AtomicBool>,
+    }
+
+    /// The logo at each of the tray's sizes.
+    fn icons(style: u8, unread: bool, speaking: bool) -> Vec<ksni::Icon> {
+        SIZES
+            .iter()
+            .filter_map(|&size| super::logo(size, unread, speaking, style))
+            .map(|pixels| ksni::Icon {
+                width: pixels.width() as i32,
+                height: pixels.height() as i32,
+                // ARGB, in network byte order.
+                data: pixels
+                    .as_slice()
+                    .iter()
+                    .flat_map(|pixel| [pixel.a, pixel.r, pixel.g, pixel.b])
+                    .collect(),
+            })
+            .collect()
     }
 
     fn choose(chosen: fn(Choice), choice: Choice) {
@@ -203,7 +286,27 @@ mod linux {
         }
 
         fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-            self.icons[usize::from(self.shown.unread)].clone()
+            if let Some(pixels) = self.shown.image() {
+                let pixels = super::custom_with_status(
+                    pixels,
+                    self.shown.unread,
+                    self.shown.speaking && self.shown.speaking_icon.is_none(),
+                );
+                return vec![ksni::Icon {
+                    width: 64,
+                    height: 64,
+                    data: pixels
+                        .chunks_exact(4)
+                        .flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]])
+                        .collect(),
+                }];
+            }
+            let index = (self.shown.icon_style.min(2) as usize * 4)
+                | usize::from(self.shown.unread)
+                | (usize::from(self.shown.speaking) << 1);
+            self.icons[index]
+                .get_or_init(|| icons((index / 4) as u8, index & 1 != 0, index & 2 != 0))
+                .clone()
         }
 
         fn tool_tip(&self) -> ksni::ToolTip {
@@ -304,8 +407,10 @@ mod windows {
         data: NOTIFYICONDATAW,
         /// The notification area shows it.
         added: bool,
-        /// Without the unread dot, and with it.
-        icons: [HICON; 2],
+        /// Without the unread dot, and with it, for each speaking state.
+        icons: [HICON; 12],
+        /// The user's custom icon, when one is selected.
+        custom_icon: Option<HICON>,
         shown: Shown,
         chosen: fn(Choice),
     }
@@ -350,7 +455,9 @@ mod windows {
                 }
                 TASKBAR_CREATED.set(RegisterWindowMessageW(w!("TaskbarCreated")));
                 let size = GetSystemMetrics(SM_CXSMICON).clamp(16, 256) as u32;
-                let icons = [icon(size, false), icon(size, true)];
+                let icons = std::array::from_fn(|index| {
+                    icon(size, index & 1 != 0, index & 2 != 0, (index / 4) as u8)
+                });
                 let mut data = NOTIFYICONDATAW {
                     cbSize: size_of::<NOTIFYICONDATAW>() as u32,
                     hWnd: window,
@@ -371,6 +478,7 @@ mod windows {
                     data,
                     added,
                     icons,
+                    custom_icon: None,
                     shown: Shown::default(),
                     chosen,
                 }));
@@ -385,8 +493,28 @@ mod windows {
         pub fn show(&self, shown: Shown) {
             let data = ICON.with_borrow_mut(|icon| {
                 let icon = icon.as_mut()?;
-                icon.shown = shown;
-                icon.data.hIcon = icon.icons[usize::from(shown.unread)];
+                let custom_changed = icon.shown.image() != shown.image()
+                    || icon.shown.unread != shown.unread
+                    || icon.shown.speaking != shown.speaking;
+                icon.shown = shown.clone();
+                if custom_changed {
+                    if let Some(previous) = icon.custom_icon.take() {
+                        // SAFETY: the previous user icon is no longer displayed.
+                        unsafe { DestroyIcon(previous) };
+                    }
+                    icon.custom_icon = shown.image().map(|pixels| {
+                        custom_icon(&super::custom_with_status(
+                            pixels,
+                            shown.unread,
+                            shown.speaking && shown.speaking_icon.is_none(),
+                        ))
+                    });
+                }
+                icon.data.hIcon = icon.custom_icon.unwrap_or_else(|| {
+                    icon.icons[(shown.icon_style.min(2) as usize * 4)
+                        | usize::from(shown.unread)
+                        | (usize::from(shown.speaking) << 1)]
+                });
                 Some(icon.data)
             });
             if let Some(data) = data {
@@ -401,6 +529,10 @@ mod windows {
                 notify(NIM_DELETE, &icon.data);
                 for picture in icon.icons {
                     // SAFETY: the pictures are this tray's, and no longer shown.
+                    unsafe { DestroyIcon(picture) };
+                }
+                if let Some(picture) = icon.custom_icon {
+                    // SAFETY: the custom picture is this tray's and no longer shown.
                     unsafe { DestroyIcon(picture) };
                 }
             }
@@ -418,8 +550,8 @@ mod windows {
 
     /// The logo as an icon with an alpha channel: colour as BGRA, and an empty
     /// mask, which the alpha replaces.
-    fn icon(size: u32, unread: bool) -> HICON {
-        let Some(pixels) = super::logo(size, unread) else {
+    fn icon(size: u32, unread: bool, speaking: bool, style: u8) -> HICON {
+        let Some(pixels) = super::logo(size, unread, speaking, style) else {
             return std::ptr::null_mut();
         };
         let colour: Vec<u8> = pixels
@@ -435,6 +567,26 @@ mod windows {
                 GetModuleHandleW(std::ptr::null()),
                 size as i32,
                 size as i32,
+                1,
+                32,
+                mask.as_ptr(),
+                colour.as_ptr(),
+            )
+        }
+    }
+
+    fn custom_icon(pixels: &[u8]) -> HICON {
+        let colour: Vec<u8> = pixels
+            .chunks_exact(4)
+            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
+            .collect();
+        let mask = vec![0u8; 8 * 2 * 64];
+        // SAFETY: the validated buffer holds exactly 64×64 RGBA pixels.
+        unsafe {
+            CreateIcon(
+                GetModuleHandleW(std::ptr::null()),
+                64,
+                64,
                 1,
                 32,
                 mask.as_ptr(),
