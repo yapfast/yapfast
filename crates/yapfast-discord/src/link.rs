@@ -328,6 +328,11 @@ mod tests {
             "https://discord.com/events/not-a-server/11",
             "https://discord.com/events/10",
             "https://discord.com/events/10/11/soon",
+            // Authorizations the browser shows as Discord sends them: an
+            // install link without scopes, a webhook, a field named twice.
+            "https://discord.com/oauth2/authorize?client_id=157730590492196864",
+            "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=webhook.incoming",
+            "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=identify&scope=bot",
             "https://discord.new/aTemplateCode",
             "https://discord.com/shop",
             // Hosts that merely contain or resemble Discord's.

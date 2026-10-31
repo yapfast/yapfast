@@ -1077,7 +1077,7 @@ pub(super) fn command(
                     let result = discord
                         .oauth_preview(&request)
                         .await
-                        .map(|preview| oauth_preview(&preview, &request))
+                        .map(|preview| oauth_preview(&query, &preview, &request))
                         .map_err(|error| {
                             tracing::warn!(
                                 error = format!("{error:#}"),
@@ -1776,17 +1776,23 @@ fn gift_preview(preview: yapfast_discord::gift::Preview) -> GiftPreview {
 }
 
 fn oauth_preview(
+    query: &str,
     preview: &yapfast_discord::oauth::Preview,
     request: &yapfast_discord::oauth::Request,
 ) -> OAuthPreview {
     OAuthPreview {
-        query: request.query.clone(),
+        query: query.to_owned(),
         name: preview.name.clone(),
         about: preview.about.clone(),
         icon: preview.icon.clone(),
         bot: preview.bot.clone(),
-        scopes: request.scopes.clone(),
+        wants: request
+            .scopes
+            .iter()
+            .filter_map(|scope| yapfast_discord::oauth::scope_wants(scope))
+            .collect(),
         permissions: request.permissions,
+        controls_client: request.controls_client(),
         authorized: preview.authorized,
         redirect: preview.redirect_uri.clone(),
         guild_install: request.guild_install(),

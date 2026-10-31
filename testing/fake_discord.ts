@@ -199,7 +199,7 @@
 // Authorizing Alien App from its link previews and authorizes the same
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
-// /_control/oauth-authorizations lists each one.
+// /_control/oauth-authorizations lists each one with the query it came with.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -6414,7 +6414,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     }
     const body: any = await req.json().catch(() => ({}));
     if (body.authorize !== true) return json({ message: "Invalid Form Body", code: 50035 }, 400);
-    oauthAuthorizations.push({ client_id: OAUTH_APP, scope, guild_id: body.guild_id ?? null, permissions: body.permissions ?? null, integration_type: body.integration_type ?? 0 });
+    oauthAuthorizations.push({ query: url.search.slice(1), client_id: OAUTH_APP, scope, guild_id: body.guild_id ?? null, permissions: body.permissions ?? null, integration_type: body.integration_type ?? 0 });
     const redirect = url.searchParams.get("redirect_uri");
     const state = url.searchParams.get("state");
     // Discord's client reads `location`; without a redirect it's Discord's

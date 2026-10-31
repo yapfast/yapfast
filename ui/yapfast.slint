@@ -3675,6 +3675,7 @@ export component YapfastWindow inherits Window {
         prompt: root.oauth-prompt; guilds: root.oauth-guilds; guild-chosen: root.oauth-guild-chosen;
         choose-guild(index) => { root.choose-oauth-guild(index); }
         authorize => { root.authorize-oauth(); }
+        copy(address) => { root.copy-text(address); }
         close => { root.close-oauth(); }
     }
     channel-motion := PopupMotion { open: root.channel-open; }

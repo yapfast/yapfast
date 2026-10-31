@@ -1949,7 +1949,8 @@ pub struct OAuthGuild {
 /// What authorizing a Discord application from its link shows first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OAuthPreview {
-    /// The link's query, which authorizing replays as written.
+    /// The link's query, which names the dialog the preview is for.
+    /// Authorizing reads the link again, so it sends what this shows.
     pub query: String,
     /// The application, what it says about itself, and its icon.
     pub name: String,
@@ -1957,9 +1958,12 @@ pub struct OAuthPreview {
     pub icon: Option<String>,
     /// The bot the link would add, when it adds one.
     pub bot: Option<String>,
-    /// The scopes it asks for, and a bot's permissions in the server.
-    pub scopes: Vec<String>,
+    /// What each scope it asks for lets it do, in the words of Discord's
+    /// authorization page, and a bot's permissions in the server.
+    pub wants: Vec<&'static str>,
     pub permissions: Option<u64>,
+    /// It asks to control the person's Discord client (the `rpc` scope).
+    pub controls_client: bool,
     /// This account authorized it for these scopes before.
     pub authorized: bool,
     /// Where Discord sends the person afterwards, for a sign-in flow.
@@ -1971,6 +1975,7 @@ pub struct OAuthPreview {
     pub wanted_guild: Option<String>,
     pub guilds: Vec<OAuthGuild>,
 }
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {

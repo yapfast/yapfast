@@ -1788,16 +1788,17 @@ impl Api {
             .await
     }
 
-    /// What authorizing an application would do, for the link whose
-    /// query `query` is, as Discord's client asks before showing it.
+    /// What authorizing an application would do, as Discord's client asks
+    /// before showing it; `query` is [`crate::oauth::Request::preview_query`].
     pub async fn oauth_preview(&self, query: &str) -> Result<Value> {
         let path = format!("/oauth2/authorize?{query}");
         self.json(self.request(Method::GET, &path)).await
     }
 
-    /// Authorizes an application, for the link whose query `query` is,
-    /// in the server `guild` when it installs to one, with a bot's
-    /// `permissions`; the address Discord sends the person to next.
+    /// Authorizes an application, with the query
+    /// [`crate::oauth::Request::authorize_query`] makes, in the server
+    /// `guild` when it installs to one, with a bot's `permissions`; the
+    /// answer says where Discord sends the person next.
     pub async fn authorize_oauth(
         &self,
         query: &str,

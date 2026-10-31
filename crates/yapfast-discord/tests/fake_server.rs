@@ -3691,6 +3691,10 @@ async fn authorizes_an_application() {
     assert_eq!(made.len(), 1);
     assert_eq!(made[0]["guild_id"], guild.as_str());
     assert_eq!(made[0]["permissions"], "2048");
+    assert_eq!(
+        made[0]["query"],
+        "client_id=157730590492196864&scope=bot+applications.commands"
+    );
     assert!(discord.oauth_preview(&request).await.unwrap().authorized);
 
     // A sign-in flow answers with the app's own address and its code.
@@ -3703,6 +3707,26 @@ async fn authorizes_an_application() {
         next,
         "https://nicememe.website?code=fake-auth-code&state=xyz"
     );
+    // What it sends is what the link asked for, rebuilt from what the
+    // dialog read, without the fields it doesn't read.
+    let tracked = Request::parse(
+        "client_id=157730590492196864&scope=identify%20guilds&utm_source=chat&prompt=none&state=a%20b",
+    )
+    .unwrap();
+    discord.authorize_oauth(&tracked, None).await.unwrap();
+    let made: serde_json::Value = serde_json::from_str(&control(
+        server,
+        "GET",
+        "/_control/oauth-authorizations",
+        "",
+    ))
+    .unwrap();
+    let last = &made.as_array().unwrap().last().unwrap();
+    assert_eq!(
+        last["query"],
+        "client_id=157730590492196864&scope=identify+guilds&state=a+b"
+    );
+    assert_eq!(last["scope"], "identify guilds");
 
     // An application Discord doesn't know is refused as it refuses it.
     let unknown = Request::parse("client_id=999999999999999999&scope=bot").unwrap();

@@ -9520,8 +9520,9 @@ fn an_authorization_link_shows_the_app_and_authorizes_on_the_click() {
         about: Some("Beams messages up.".into()),
         icon: None,
         bot: Some("Alien App".into()),
-        scopes: vec!["bot".into()],
+        wants: vec!["Add a bot to a server"],
         permissions: Some(2048),
+        controls_client: false,
         authorized: false,
         redirect: None,
         guild_install: true,
@@ -9644,6 +9645,26 @@ fn an_authorization_link_shows_the_app_and_authorizes_on_the_click() {
     let shown = app.state.oauth.clone().unwrap();
     assert!(shown.preview.is_none() && !shown.resolving);
     assert_eq!(shown.error.as_deref(), Some("Unknown Application"));
+
+    // A link locked to a server she can't add apps to is refused, never
+    // moved to another server.
+    let locked_elsewhere =
+        "client_id=157730590492196864&scope=bot&guild_id=30&disable_guild_select=true";
+    app.dispatch(Action::OpenOAuthLink(locked_elsewhere.into()));
+    app.apply(Event::OAuthResolved {
+        query: locked_elsewhere.into(),
+        result: Ok(chat::OAuthPreview {
+            query: locked_elsewhere.into(),
+            wanted_guild: Some("30".into()),
+            ..bot_preview(true)
+        }),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert_eq!(shown.guild, None);
+    assert!(shown.error.is_some());
+    app.dispatch(Action::ChooseOAuthGuild("10".into()));
+    assert_eq!(app.state.oauth.as_ref().unwrap().guild, None);
+    assert!(app.dispatch(Action::AuthorizeOAuth).is_empty());
 }
 
 #[test]
@@ -9666,8 +9687,9 @@ fn an_authorization_never_opens_an_address_that_isnt_a_web_page() {
                 about: None,
                 icon: None,
                 bot: None,
-                scopes: vec!["identify".into()],
+                wants: vec!["Access your username, avatar, and banner"],
                 permissions: None,
+                controls_client: false,
                 authorized: false,
                 redirect: Some("myapp://cb".into()),
                 guild_install: false,

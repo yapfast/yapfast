@@ -2209,7 +2209,7 @@ impl Discord {
     /// What authorizing the application `request` names would do; see
     /// [`Api::oauth_preview`].
     pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {
-        let answer = self.api.oauth_preview(&request.query).await?;
+        let answer = self.api.oauth_preview(&request.preview_query()).await?;
         oauth::Preview::of(&answer, request).context("Discord doesn't know that application.")
     }
 
@@ -2224,7 +2224,7 @@ impl Discord {
         let answer = self
             .api
             .authorize_oauth(
-                &request.query,
+                &request.authorize_query(),
                 request.user_install,
                 guild,
                 request.permissions,

@@ -6230,6 +6230,106 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
+    use yapfast_core::application::OAuthDialog;
+    use yapfast_core::chat::{OAuthGuild, OAuthPreview};
+    let (window, adapter, _directory) = discord_server_window();
+    adapter.borrow_mut().refresh(&window);
+    // A plain bot link is the dialog's, not the browser's.
+    window.invoke_open_link(
+        "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=bot".into(),
+    );
+    assert!(adapter.borrow().app.state.oauth.is_some());
+    assert!(window.get_oauth_open());
+
+    let guild = |id: &str, name: &str, can_add| OAuthGuild {
+        id: id.into(),
+        name: name.into(),
+        icon: None,
+        can_add,
+    };
+    let preview = OAuthPreview {
+        query: "q".into(),
+        name: "Alien App".into(),
+        about: None,
+        icon: None,
+        bot: Some("Alien App".into()),
+        wants: vec![
+            "Add a bot to a server",
+            "Interface with your Discord client",
+        ],
+        // Administrator, View Channels, and bit 60, which no switch shows.
+        permissions: Some((1 << 3) | (1 << 10) | (1 << 60)),
+        controls_client: true,
+        authorized: false,
+        redirect: None,
+        guild_install: true,
+        guild_locked: true,
+        wanted_guild: Some("20".into()),
+        guilds: vec![guild("10", "Server", true), guild("20", "Builders", true)],
+    };
+    let mut adapter = adapter.borrow_mut();
+    adapter.app.state.oauth = Some(OAuthDialog {
+        query: Some("q".into()),
+        preview: Some(preview.clone()),
+        guild: Some("20".into()),
+        ..Default::default()
+    });
+    adapter.refresh(&window);
+    let prompt = window.get_oauth_prompt();
+    assert!(
+        prompt.warning.contains("control your Discord client"),
+        "{}",
+        prompt.warning
+    );
+    assert!(
+        prompt.warning.contains("Administrator"),
+        "{}",
+        prompt.warning
+    );
+    assert!(
+        prompt
+            .wants
+            .contains("- Interface with your Discord client")
+    );
+    assert!(
+        prompt.wants.contains("and 1 more permission"),
+        "{}",
+        prompt.wants
+    );
+    // The one server the link names shows, and no picker.
+    assert!(!prompt.guild_picker);
+    assert_eq!(prompt.guild_name, "Builders");
+    assert_eq!(prompt.confirm, "Authorize");
+
+    // A locked server she can't add apps to: no Authorize.
+    adapter.app.state.oauth = Some(OAuthDialog {
+        query: Some("q".into()),
+        preview: Some(preview),
+        guild: None,
+        error: Some("The link adds it only to a server you can't add apps to.".into()),
+        ..Default::default()
+    });
+    adapter.refresh(&window);
+    let prompt = window.get_oauth_prompt();
+    assert_eq!(prompt.confirm, "");
+    assert!(!prompt.error.is_empty());
+
+    // An address that isn't a web page waits to be copied.
+    adapter.app.state.oauth = Some(OAuthDialog {
+        query: Some("q".into()),
+        done: true,
+        next: Some("myapp://cb?code=x".into()),
+        ..Default::default()
+    });
+    adapter.refresh(&window);
+    let prompt = window.get_oauth_prompt();
+    assert_eq!(prompt.address, "myapp://cb?code=x");
+    assert_eq!(prompt.confirm, "");
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn discord_links_open_channels_messages_and_profiles_here() {
     let (window, adapter, _directory) = discord_server_window();
     adapter.borrow_mut().refresh(&window);

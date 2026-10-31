@@ -70,7 +70,14 @@ impl Application {
                         .iter()
                         .any(|guild| &guild.id == wanted && guild.can_add)
                 });
-                if dialog.guild.is_none() {
+                if preview.guild_install && preview.guild_locked {
+                    // A link that names its one server gets that server or
+                    // none: another would add the bot where it didn't ask.
+                    if dialog.guild.is_none() {
+                        dialog.error =
+                            Some("The link adds it only to a server you can't add apps to.".into());
+                    }
+                } else if dialog.guild.is_none() {
                     dialog.guild = preview
                         .guilds
                         .iter()
@@ -117,8 +124,10 @@ impl Application {
             return vec![];
         }
         if preview.guild_install && dialog.guild.is_none() {
-            dialog.error =
-                Some("Pick a server you manage first, or ask its admin to add it.".into());
+            if !preview.guild_locked {
+                dialog.error =
+                    Some("Pick a server you manage first, or ask its admin to add it.".into());
+            }
             return vec![];
         }
         dialog.authorizing = true;

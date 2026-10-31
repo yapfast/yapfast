@@ -1896,32 +1896,68 @@ impl Adapter {
         });
         let wants = preview.map(|preview| {
             let mut lines: Vec<String> = preview
-                .scopes
+                .wants
                 .iter()
-                .map(|scope| format!("- {}", scope_wants(scope)))
+                .map(|wants| format!("- {wants}"))
                 .collect();
             if let Some(bits) = preview.permissions.filter(|bits| *bits != 0) {
                 lines.push(format!("- Bot permissions: {}", permission_names(bits)));
             }
-            if let Some(host) = preview
-                .redirect
-                .as_deref()
-                .and_then(|url| url.split('/').nth(2))
-            {
-                lines.push(format!("Afterward, Discord sends you to {host}."));
+            match preview.redirect.as_deref() {
+                Some(url) if links::openable(url) => {
+                    let host = url
+                        .split_once("://")
+                        .map(|(_, rest)| rest)
+                        .and_then(|rest| rest.split(['/', '?', '#']).next())
+                        .unwrap_or_default();
+                    lines.push(format!("Afterward, Discord sends you to {host}."));
+                }
+                Some(url) => lines.push(format!(
+                    "Afterward, Discord hands its answer to {url}, which Yapfast won't open."
+                )),
+                None => {}
             }
             lines.join("\n")
         });
-        let picker = preview.is_some_and(|preview| {
-            preview.guild_install && !preview.guild_locked && !addable.is_empty()
-        });
+        let mut warnings = Vec::new();
+        if preview.is_some_and(|preview| preview.controls_client) {
+            warnings.push(
+                "It asks to control your Discord client, which can do nearly anything \
+                 your account can. Authorize it only if you trust it with your account.",
+            );
+        }
+        if preview
+            .and_then(|preview| preview.permissions)
+            .is_some_and(|bits| bits & ADMINISTRATOR != 0)
+        {
+            warnings.push(
+                "Its bot asks for Administrator: every permission in the server, \
+                 in every channel, whatever its roles allow.",
+            );
+        }
+        let locked = preview.is_some_and(|preview| preview.guild_install && preview.guild_locked);
+        let picker =
+            preview.is_some_and(|preview| preview.guild_install && !locked && !addable.is_empty());
+        // A link that names its one server shows it, as it can't be changed.
+        let locked_to = preview
+            .filter(|_| locked)
+            .zip(dialog.guild.as_ref())
+            .and_then(|(preview, chosen)| preview.guilds.iter().find(|guild| &guild.id == chosen))
+            .map(|guild| guild.name.as_str());
+        let blocked =
+            preview.is_some_and(|preview| preview.guild_install && dialog.guild.is_none());
         let status = if dialog.resolving {
             "Looking up the application..."
         } else if dialog.authorizing {
             "Authorizing..."
+        } else if dialog.done && dialog.next.is_some() {
+            "Authorized. Discord sends you on to this address, which isn't a web page, \
+             so Yapfast doesn't open it. Copy it if the app asks for it."
         } else if dialog.done {
             "Authorized."
-        } else if preview.is_some_and(|preview| preview.guild_install && addable.is_empty()) {
+        } else if !locked
+            && preview.is_some_and(|preview| preview.guild_install && addable.is_empty())
+        {
             "You don't manage any server it can be added to."
         } else if preview.is_some_and(|preview| preview.authorized) {
             "You've authorized this before. Authorizing again is fine."
@@ -1948,8 +1984,11 @@ impl Adapter {
                 .unwrap_or_default(),
             detail: detail.unwrap_or_default().into(),
             wants: wants.unwrap_or_default().into(),
+            warning: warnings.join("\n").into(),
             guild_picker: picker,
-            confirm: if preview.is_some() && !dialog.done {
+            guild_name: locked_to.unwrap_or_default().into(),
+            address: dialog.next.as_deref().unwrap_or_default().into(),
+            confirm: if preview.is_some() && !dialog.done && !blocked {
                 "Authorize"
             } else {
                 ""
@@ -4184,46 +4223,45 @@ fn arrived<'a>(
     ))
 }
 
-/// Shows found messages, building rows only for those not shown already:
-/// a search's next page adds to the end of the results.
-/// What one of Discord's OAuth scopes lets an application do, in words.
-fn scope_wants(scope: &str) -> String {
-    match scope {
-        "bot" => "Add its bot to a server".to_owned(),
-        "applications.commands" => "Use its slash commands".to_owned(),
-        "identify" => "Know your username and avatar".to_owned(),
-        "email" => "Know your email address".to_owned(),
-        "guilds" => "Know which servers you're in".to_owned(),
-        "guilds.join" => "Join servers for you".to_owned(),
-        "guilds.members.read" => "Know your roles in a server".to_owned(),
-        "connections" => "Know your connected accounts".to_owned(),
-        "webhook.incoming" => "Post messages through a webhook".to_owned(),
-        "messages.read" => "Read your messages".to_owned(),
-        "activities.read" => "Know what you're playing".to_owned(),
-        "activities.write" => "Set what you're playing".to_owned(),
-        other => format!("Use the {other} scope"),
-    }
-}
+/// Discord's Administrator permission, which grants every other.
+const ADMINISTRATOR: u64 = 1 << 3;
 
-/// The names of a bot's asked-for permissions, as a role's switch titles
-/// them; Administrator stands for all of them.
+/// A bot's asked-for permissions, by the titles of a role's switches,
+/// and how many more it asks for that no switch shows.
 fn permission_names(bits: u64) -> String {
-    if bits & (1 << 3) != 0 {
-        return "Administrator (everything)".to_owned();
-    }
-    let names: Vec<&str> = yapfast_core::application::ROLE_PERMISSIONS
+    let mut named = 0u64;
+    let mut names: Vec<&str> = Vec::new();
+    for permission in yapfast_core::application::ROLE_PERMISSIONS
         .iter()
         .flat_map(|group| group.permissions.iter())
-        .filter(|permission| bits & (1u64 << permission.bit) != 0)
-        .map(|permission| permission.title)
-        .collect();
-    if names.is_empty() {
-        "none".to_owned()
-    } else {
-        names.join(", ")
+    {
+        let bit = 1u64 << permission.bit;
+        if bits & bit != 0 && named & bit == 0 {
+            named |= bit;
+            names.push(permission.title);
+        }
+    }
+    let more = (bits & !named).count_ones();
+    let more = match (more, names.is_empty()) {
+        (0, _) => None,
+        (1, true) => Some("1 permission Yapfast can't name".to_owned()),
+        (count, true) => Some(format!("{count} permissions Yapfast can't name")),
+        (1, false) => Some("1 more permission".to_owned()),
+        (count, false) => Some(format!("{count} more permissions")),
+    };
+    match (names.pop(), more) {
+        (Some(last), Some(more)) => {
+            names.push(last);
+            format!("{} and {more}", names.join(", "))
+        }
+        (Some(last), None) if names.is_empty() => last.to_owned(),
+        (Some(last), None) => format!("{} and {last}", names.join(", ")),
+        (None, more) => more.unwrap_or_default(),
     }
 }
 
+/// Shows found messages, building rows only for those not shown already:
+/// a search's next page adds to the end of the results.
 fn show_found(model: &VecModel<FoundRow>, messages: &[ChatMessage], twelve_hour: bool) {
     let kept = model
         .iter()
