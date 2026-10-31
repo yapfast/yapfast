@@ -1448,6 +1448,14 @@ pub fn role_icon(role: &str, hash: &str) -> String {
     format!("{}/role-icons/{role}/{hash}.png?size=64", cdn())
 }
 
+/// An application's icon, as authorizing it shows it.
+pub fn application_icon(application: &str, hash: &str) -> String {
+    format!(
+        "{}/app-icons/{application}/{hash}.png?size={PICTURE_SIZE}",
+        cdn()
+    )
+}
+
 /// The banner a member set for one server.
 pub fn member_banner(guild: &str, user: &str, hash: &str) -> String {
     format!(
