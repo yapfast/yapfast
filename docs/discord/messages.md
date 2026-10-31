@@ -214,10 +214,12 @@ an error.
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
-  place in Yapfast, DM links included; an invite opens Join a Server first
-  (`link.rs`). Only Discord's own hosts and snowflake ids match, so a
-  look-alike stays an ordinary web link. Discord pages Yapfast has no screen
-  for, such as gifts, events and app authorization, still open in the browser,
+  place in Yapfast, DM links included; an invite opens Join a Server first,
+  and an event link shows the scheduled event with its Interested button
+  (`link.rs`, `scheduled_event.rs`). Only Discord's own hosts and snowflake
+  ids match, so a look-alike stays an ordinary web link. Discord pages
+  Yapfast has no screen for, such as gifts and app authorization, still open
+  in the browser,
   as does a link Yapfast can't show: to a server the account isn't in, or any
   while Discord is offline (`AppState::opens_discord_route`).
 - Animated GIFs, APNGs and animated WebPs play, in messages, as stickers and in

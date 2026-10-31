@@ -24,7 +24,7 @@ use crate::{
     notifications::Change,
     profile::{self, Profile},
     ready::{self, PRIVATE, Server},
-    search, server_settings,
+    scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
     soundboard,
     stream::StreamServer,
@@ -2132,6 +2132,33 @@ impl Discord {
         )
         .await?;
         Ok(invite::Joined::of(&answer, preview))
+    }
+
+    /// What a server's scheduled event shows from its link, and
+    /// whether this account is interested in it; see
+    /// [`Api::scheduled_event`].
+    pub async fn scheduled_event(
+        &self,
+        guild: &str,
+        event: &str,
+    ) -> Result<scheduled_event::Preview> {
+        let found = self.api.scheduled_event(guild, event).await?;
+        let own = self.api.own_scheduled_events(guild).await?;
+        let interested = scheduled_event::interested_in(&own, event);
+        scheduled_event::Preview::of(&found, interested)
+            .context("This event is not in that server.")
+    }
+
+    /// Marks this account interested in the event `preview` shows, or
+    /// no longer interested in it.
+    pub async fn set_event_interest(
+        &self,
+        preview: &scheduled_event::Preview,
+        interested: bool,
+    ) -> Result<()> {
+        self.api
+            .set_scheduled_event_interest(&preview.guild, &preview.id, interested)
+            .await
     }
 
     /// A channel's name, topic, slowmode in seconds and whether it's

@@ -3631,6 +3631,61 @@ async fn links_by_qr_code() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn marks_interest_in_a_scheduled_event() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        ..
+    } = Fixture::start("marks_interest_in_a_scheduled_event").await;
+
+    let unknown = discord
+        .scheduled_event(&guild, "999999999999999999")
+        .await
+        .unwrap_err();
+    assert_eq!(unknown.to_string(), "This event doesn't exist.");
+
+    // The event in the Lounge, as a clicked event link looks it up.
+    // Looking it up marks nothing.
+    let preview = discord
+        .scheduled_event(&guild, "1400000000000000901")
+        .await
+        .unwrap();
+    assert_eq!(preview.name, "Alien meetup");
+    assert_eq!(preview.channel.as_deref(), Some(lounge.as_str()));
+    assert_eq!(preview.interested_count, Some(7));
+    assert!(!preview.interested && !preview.over);
+    let changes: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/event-interest", "")).unwrap();
+    assert!(changes.as_array().unwrap().is_empty(), "{changes}");
+
+    discord.set_event_interest(&preview, true).await.unwrap();
+    let preview = discord
+        .scheduled_event(&guild, "1400000000000000901")
+        .await
+        .unwrap();
+    assert!(preview.interested);
+    assert_eq!(preview.interested_count, Some(8));
+
+    discord.set_event_interest(&preview, false).await.unwrap();
+    let preview = discord
+        .scheduled_event(&guild, "1400000000000000901")
+        .await
+        .unwrap();
+    assert!(!preview.interested);
+    assert_eq!(preview.interested_count, Some(7));
+    let changes: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/event-interest", "")).unwrap();
+    let changes = changes.as_array().unwrap();
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0]["interested"], true);
+    assert_eq!(changes[1]["interested"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn makes_invites() {
     let Fixture {
         _fake,

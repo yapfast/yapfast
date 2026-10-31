@@ -11,8 +11,8 @@ use super::{
     *,
 };
 use crate::chat::{
-    InvitePreview, JoinedServer, MemberChange, Muting, NotificationChange, NotifyLevel,
-    RelationshipChange,
+    EventPreview, InvitePreview, JoinedServer, MemberChange, Muting, NotificationChange,
+    NotifyLevel, RelationshipChange,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -946,6 +946,90 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ResolveEvent { guild, event }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .scheduled_event(&guild, &event)
+                        .await
+                        .map(|preview| event_preview(&preview))
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not look up a scheduled event"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::EventResolved { event, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::EventResolved {
+                    event,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::SetEventInterest {
+        preview,
+        interested,
+    }) = command
+    {
+        let event = preview.event.clone();
+        let shown = yapfast_discord::scheduled_event::Preview {
+            id: preview.event.clone(),
+            guild: preview.guild.clone(),
+            name: preview.name.clone(),
+            description: preview.description.clone(),
+            starts_at: preview.starts_at.clone(),
+            ends_at: preview.ends_at.clone(),
+            channel: preview
+                .room
+                .as_deref()
+                .and_then(discord::parse_room)
+                .map(|(_, channel)| channel.to_owned()),
+            location: preview.location.clone(),
+            creator: preview.creator.clone(),
+            interested_count: preview.interested_count,
+            active: preview.active,
+            over: preview.over,
+            interested: preview.interested,
+        };
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .set_event_interest(&shown, interested)
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not change event interest"
+                            );
+                            format!("Couldn't change your interest: {error}")
+                        });
+                    let _ = events.send(Event::EventInterestSet {
+                        event,
+                        interested,
+                        result,
+                    });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::EventInterestSet {
+                    event,
+                    interested,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::OpenThread { room, beside }) = command {
         let place =
             discord::parse_room(&room).map(|(guild, thread)| (guild.to_owned(), thread.to_owned()));
@@ -1549,4 +1633,32 @@ fn invite_preview(preview: &yapfast_discord::invite::Preview) -> InvitePreview {
         members: preview.members,
         online: preview.online,
     }
+}
+
+fn event_preview(preview: &yapfast_discord::scheduled_event::Preview) -> EventPreview {
+    EventPreview {
+        event: preview.id.clone(),
+        guild: preview.guild.clone(),
+        name: preview.name.clone(),
+        description: preview.description.clone(),
+        starts_at: unix_seconds(&preview.starts_at),
+        ends_at: preview.ends_at.as_deref().map(unix_seconds),
+        room: preview
+            .channel
+            .as_deref()
+            .map(|channel| discord::room_id(&preview.guild, channel)),
+        location: preview.location.clone(),
+        creator: preview.creator.clone(),
+        interested_count: preview.interested_count,
+        active: preview.active,
+        over: preview.over,
+        interested: preview.interested,
+    }
+}
+
+/// A Discord timestamp in Unix seconds; 0 for one Discord wrote oddly.
+fn unix_seconds(timestamp: &str) -> u64 {
+    chrono::DateTime::parse_from_rfc3339(timestamp)
+        .map(|time| u64::try_from(time.timestamp()).unwrap_or_default())
+        .unwrap_or_default()
 }

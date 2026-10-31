@@ -196,6 +196,11 @@
 // the next join ask for an hCaptcha, as the QR ticket's does, and POST
 // /_control/invite-form makes it answer that the server has a form to fill
 // in first.
+// A scheduled event in "Server"'s Lounge resolves from its link the same
+// way: GET /guilds/{id}/scheduled-events/{id} shows it, GET
+// /users/@me/scheduled-events says whether Alice is interested, and PUT
+// or DELETE on its users/@me changes that. GET /_control/event-interest
+// lists each change.
 // Linking by QR code goes through a remote login gateway at /remote-auth/, as
 // remote-auth-gateway.discord.gg speaks it. POST /_control/qr-scan scans the
 // code shown as Alice, /_control/qr-confirm confirms it, /_control/qr-cancel
@@ -4153,6 +4158,13 @@ const notFound = (message = "404: Not Found", code = 0) => json({ message, code 
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
 const inviteJoins: Record<string, unknown>[] = [];
+/** Each change of Alice's interest in the scheduled event, oldest first,
+ *  for GET /_control/event-interest. */
+const eventInterest: Record<string, unknown>[] = [];
+/** The scheduled event in "Server"'s Lounge, and whether Alice is
+ *  interested in it. */
+const SCHEDULED_EVENT = "1400000000000000901";
+let eventInterested = false;
 
 /** Files uploaded for a message that isn't sent yet, by uploaded filename. */
 const uploads = new Map<string, { filename: string; data?: Uint8Array }>();
@@ -6262,6 +6274,43 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json({ ...invite, new_member: newMember, show_verification_form: form });
   }
 
+  // The scheduled event in "Server"'s Lounge, from its link, and Alice's
+  // interest in it: marking it fires the gateway event Discord sends.
+  if (method === "GET" && path === "/users/@me/scheduled-events") {
+    return json(eventInterested ? [{ guild_scheduled_event_id: SCHEDULED_EVENT, user_id: ALICE, response: 1 }] : []);
+  }
+  if (method === "GET" && (m = path.match(/^\/guilds\/(\d+)\/scheduled-events\/(\d+)$/))) {
+    if (m[1] !== GUILD || m[2] !== SCHEDULED_EVENT) return notFound("Unknown Guild Scheduled Event", 10070);
+    return json({
+      id: SCHEDULED_EVENT,
+      guild_id: GUILD,
+      channel_id: LOUNGE,
+      creator_id: users.bob.id ?? null,
+      creator: wireUser(users.bob),
+      name: "Alien meetup",
+      description: "Aliens only!",
+      scheduled_start_time: iso(Date.now() + DAY),
+      scheduled_end_time: iso(Date.now() + DAY + 3_600_000),
+      privacy_level: 2,
+      status: 1,
+      entity_type: 2,
+      entity_id: null,
+      entity_metadata: null,
+      user_count: eventInterested ? 8 : 7,
+      image: null,
+      recurrence_rule: null,
+      guild_scheduled_event_exceptions: [],
+    });
+  }
+  if ((m = path.match(/^\/guilds\/(\d+)\/scheduled-events\/(\d+)\/users\/@me$/)) && (method === "PUT" || method === "DELETE")) {
+    if (m[1] !== GUILD || m[2] !== SCHEDULED_EVENT) return notFound("Unknown Guild Scheduled Event", 10070);
+    eventInterested = method === "PUT";
+    eventInterest.push({ event: SCHEDULED_EVENT, interested: eventInterested });
+    dispatch(eventInterested ? "GUILD_SCHEDULED_EVENT_USER_ADD" : "GUILD_SCHEDULED_EVENT_USER_REMOVE", { guild_scheduled_event_id: SCHEDULED_EVENT, user_id: ALICE, guild_id: GUILD, response: eventInterested ? 1 : 0 });
+    if (method === "DELETE") return empty();
+    return json({ guild_scheduled_event_id: SCHEDULED_EVENT, user_id: ALICE, response: 1 });
+  }
+
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/attachments$/))) {
     const body: any = await req.json();
     const attachments = (body.files ?? []).map((file: any) => {
@@ -6670,7 +6719,7 @@ const GENERIC_CONTROLS = new Set([
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
-  "invite-joins", "invite-captcha", "invite-form", "mfa", "soundboard-sends", "custom-call-sounds",
+  "invite-joins", "invite-captcha", "invite-form", "event-interest", "mfa", "soundboard-sends", "custom-call-sounds",
 ]);
 
 /** A status's emoji as the env gives it, Unicode or `<:name:id>`, as Discord sends it. */
@@ -7799,6 +7848,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);
+    }
+    if (req.method === "GET" && path === "/_control/event-interest") {
+      return Response.json(eventInterest);
     }
     if (req.method === "POST" && path === "/_control/mfa") {
       if (url.searchParams.has("off")) {

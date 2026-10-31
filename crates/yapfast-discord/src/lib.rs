@@ -35,6 +35,7 @@ pub mod remote_auth;
 #[cfg(target_os = "linux")]
 mod rpc;
 pub mod rtp;
+pub mod scheduled_event;
 pub mod search;
 pub mod server_settings;
 pub mod service;

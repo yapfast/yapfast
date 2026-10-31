@@ -18,6 +18,8 @@ const WEB_HOSTS: [&str; 5] = [
 pub enum Route {
     /// A server invite, by its code.
     Invite { code: String },
+    /// A server's scheduled event, by the server and the event.
+    Event { guild: String, event: String },
     /// Direct messages.
     DirectMessages,
     /// A server, without naming a channel.
@@ -38,8 +40,8 @@ pub enum Route {
 ///
 /// This takes Discord's web links, `discord://-/...` app links, and the
 /// same paths under `yapfast://` for a caller handing a link to Yapfast.
-/// It deliberately leaves pages Yapfast has no screen for, such as gifts,
-/// events and app authorization, for their own handling or the browser.
+/// It deliberately leaves pages Yapfast has no screen for, such as gifts
+/// and app authorization, for their own handling or the browser.
 pub fn parse(link: &str) -> Option<Route> {
     if link.chars().any(char::is_control) {
         return None;
@@ -88,6 +90,10 @@ fn segments(url: &Url) -> Option<Vec<&str>> {
 fn from_segments(segments: &[&str]) -> Option<Route> {
     match segments {
         ["invite", code] => invite(code),
+        ["events", guild, event] if snowflake(guild) && snowflake(event) => Some(Route::Event {
+            guild: (*guild).to_owned(),
+            event: (*event).to_owned(),
+        }),
         ["channels", "@me"] => Some(Route::DirectMessages),
         ["channels", guild] if snowflake(guild) => Some(Route::Server {
             guild: (*guild).to_owned(),
@@ -203,6 +209,13 @@ mod tests {
                 code: "gift".into(),
             })
         );
+        assert_eq!(
+            parse("https://discord.com/events/10/11"),
+            Some(Route::Event {
+                guild: "10".into(),
+                event: "11".into(),
+            })
+        );
     }
 
     #[test]
@@ -211,8 +224,9 @@ mod tests {
             // Discord pages with no Yapfast screen behind this router.
             "https://discord.gift/AbCdEfGhIjKlMnOp",
             "https://discord.com/gifts/AbCdEfGhIjKlMnOp",
-            "https://discord.com/events/10/11",
             "https://discord.com/oauth2/authorize?client_id=10&scope=bot",
+            "https://discord.com/events/not-a-server/11",
+            "https://discord.com/events/10",
             "https://discord.new/aTemplateCode",
             "https://discord.com/shop",
             // Hosts that merely contain or resemble Discord's.

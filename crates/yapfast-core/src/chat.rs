@@ -1882,6 +1882,32 @@ pub struct JoinedServer {
     pub form: bool,
 }
 
+/// What a Discord server's scheduled event shows from its link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EventPreview {
+    /// The event and its server, by their Discord ids.
+    pub event: String,
+    pub guild: String,
+    pub name: String,
+    /// What the event says about itself, when it says anything.
+    pub description: Option<String>,
+    /// When it starts and ends, in Unix seconds.
+    pub starts_at: u64,
+    pub ends_at: Option<u64>,
+    /// The channel it happens in, by its room id, or where it happens
+    /// when it happens somewhere else.
+    pub room: Option<String>,
+    pub location: Option<String>,
+    /// Who made the event, when Discord says, and how many people are
+    /// interested, when it counts them.
+    pub creator: Option<String>,
+    pub interested_count: Option<u64>,
+    /// The event is going on now, or has ended or was canceled.
+    pub active: bool,
+    pub over: bool,
+    /// This account is interested in the event.
+    pub interested: bool,
+}
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
@@ -2127,6 +2153,20 @@ pub enum DiscordCommand {
         // Boxed: it's the largest command by far.
         preview: Box<InvitePreview>,
         from_link: bool,
+    },
+    /// Look up a Discord server's scheduled event by its server and
+    /// event ids, with whether this account is interested in it.
+    /// [`Event::EventResolved`] follows.
+    ResolveEvent {
+        guild: String,
+        event: String,
+    },
+    /// Mark this account interested in the scheduled event `preview`
+    /// shows, or no longer interested in it.
+    /// [`Event::EventInterestSet`] follows.
+    SetEventInterest {
+        preview: Box<EventPreview>,
+        interested: bool,
     },
     /// Make a channel or category in a Discord server, by its server id,
     /// inside the category `parent` names by its room id, or a copy of
@@ -3439,6 +3479,19 @@ pub enum Event {
     ServerJoined {
         code: String,
         result: Result<JoinedServer, String>,
+    },
+    /// What the scheduled event [`DiscordCommand::ResolveEvent`] looked
+    /// up by its id shows, or why Discord showed nothing.
+    EventResolved {
+        event: String,
+        result: Result<EventPreview, String>,
+    },
+    /// Whether [`DiscordCommand::SetEventInterest`] marked this account
+    /// `interested` in the event with this id, or why it didn't.
+    EventInterestSet {
+        event: String,
+        interested: bool,
+        result: Result<(), String>,
     },
     /// The roles and groups a message in a room may mention.
     MentionGroups {
