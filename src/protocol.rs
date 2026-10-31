@@ -5,8 +5,6 @@
 //! Settings says to, and gives the previous handler back when turned off.
 
 use std::path::Path;
-#[cfg(windows)]
-use std::path::PathBuf;
 
 /// Whether this platform can claim Discord's protocol links.
 pub const SUPPORTED: bool = cfg!(any(windows, target_os = "linux"));
@@ -33,10 +31,8 @@ pub fn refresh(root: &Path) {
 /// usual one, then the link the desktop hands it.
 #[cfg(windows)]
 fn command(root: &Path) -> std::io::Result<Vec<String>> {
-    let program = std::env::current_exe()?;
-    #[cfg(target_os = "linux")]
-    let program = crate::desktop_entry::appimage(&program).unwrap_or(program);
-    let mut command = vec![path_text(program)?];
+    use crate::autostart::path_text;
+    let mut command = vec![path_text(std::env::current_exe()?)?];
     let usual = yapfast_core::default_directory().ok();
     if usual.as_deref() != Some(root) {
         command.extend([
@@ -45,13 +41,6 @@ fn command(root: &Path) -> std::io::Result<Vec<String>> {
         ]);
     }
     Ok(command)
-}
-
-#[cfg(windows)]
-fn path_text(path: PathBuf) -> std::io::Result<String> {
-    path.into_os_string()
-        .into_string()
-        .map_err(|path| std::io::Error::other(format!("{} isn't valid Unicode", path.display())))
 }
 
 #[cfg(target_os = "linux")]
@@ -87,8 +76,8 @@ mod windows {
     use windows_sys::Win32::{
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR},
         System::Registry::{
-            HKEY_CURRENT_USER, REG_SZ, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ,
-            RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
+            HKEY_CURRENT_USER, REG_SZ, REG_VALUE_TYPE, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ,
+            RRF_RT_REG_SZ, RegDeleteKeyValueW, RegDeleteKeyW, RegGetValueW, RegSetKeyValueW,
         },
     };
 
@@ -122,11 +111,9 @@ mod windows {
                         Some(HAD_COMMAND),
                         if current.is_some() { "1" } else { "0" },
                     )?;
-                    set_string(
-                        BACKUP,
-                        Some(PREVIOUS_COMMAND),
-                        current.as_deref().unwrap_or_default(),
-                    )?;
+                    // In its own type: a REG_EXPAND_SZ command comes back as one.
+                    let (previous, kind) = query_value(COMMAND, None).unwrap_or_default();
+                    set_value(BACKUP, Some(PREVIOUS_COMMAND), &previous, kind.max(REG_SZ))?;
                     set_string(
                         BACKUP,
                         Some(HAD_URL_PROTOCOL),
@@ -147,9 +134,9 @@ mod windows {
                 if current.as_deref().is_some_and(is_ours) {
                     match query_string(BACKUP, Some(HAD_COMMAND)).as_deref() {
                         Some("1") => {
-                            let previous =
-                                query_string(BACKUP, Some(PREVIOUS_COMMAND)).unwrap_or_default();
-                            set_string(COMMAND, None, &previous)?;
+                            let (previous, kind) =
+                                query_value(BACKUP, Some(PREVIOUS_COMMAND)).unwrap_or_default();
+                            set_value(COMMAND, None, &previous, kind.max(REG_SZ))?;
                         }
                         _ => delete_value(COMMAND, None)?,
                     }
@@ -157,9 +144,10 @@ mod windows {
                         delete_value(PROTOCOL, Some("URL Protocol"))?;
                     }
                 }
-                delete_value(BACKUP, Some(PREVIOUS_COMMAND))?;
-                delete_value(BACKUP, Some(HAD_COMMAND))?;
-                delete_value(BACKUP, Some(HAD_URL_PROTOCOL))
+                match unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, wide(BACKUP).as_ptr()) } {
+                    ERROR_FILE_NOT_FOUND => Ok(()),
+                    status => checked(status),
+                }
             }
         }
     }
@@ -213,6 +201,16 @@ mod windows {
     }
 
     fn set_string(key: &str, name: Option<&str>, value: &str) -> io::Result<()> {
+        set_value(key, name, value, REG_SZ)
+    }
+
+    /// Writes a string value of `kind`, REG_SZ or REG_EXPAND_SZ.
+    fn set_value(
+        key: &str,
+        name: Option<&str>,
+        value: &str,
+        kind: REG_VALUE_TYPE,
+    ) -> io::Result<()> {
         let value = wide(value);
         let status = unsafe {
             RegSetKeyValueW(
@@ -221,7 +219,7 @@ mod windows {
                 name.map(wide)
                     .as_ref()
                     .map_or(std::ptr::null(), Vec::as_ptr),
-                REG_SZ,
+                kind,
                 value.as_ptr().cast(),
                 (value.len() * 2) as u32,
             )
@@ -248,6 +246,11 @@ mod windows {
     /// A string value under `key`, unexpanded, by its name or the key's
     /// default value when it has none.
     fn query_string(key: &str, name: Option<&str>) -> Option<String> {
+        query_value(key, name).map(|(value, _)| value)
+    }
+
+    /// [`query_string`], with the value's type.
+    fn query_value(key: &str, name: Option<&str>) -> Option<(String, REG_VALUE_TYPE)> {
         let (key, name) = (wide(key), name.map(wide));
         let name = name.as_ref().map_or(std::ptr::null(), Vec::as_ptr);
         let mut size = 0u32;
@@ -266,13 +269,14 @@ mod windows {
             return None;
         }
         let mut data = vec![0u8; size as usize];
+        let mut kind = REG_SZ;
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
                 key.as_ptr(),
                 name,
                 RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND,
-                std::ptr::null_mut(),
+                &mut kind,
                 data.as_mut_ptr().cast(),
                 &mut size,
             )
@@ -286,7 +290,7 @@ mod windows {
             .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
             .take_while(|&unit| unit != 0)
             .collect();
-        String::from_utf16(&text).ok()
+        String::from_utf16(&text).ok().map(|text| (text, kind))
     }
 
     fn checked(status: WIN32_ERROR) -> io::Result<()> {
