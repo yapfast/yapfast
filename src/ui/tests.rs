@@ -6666,3 +6666,136 @@ fn a_found_message_shows_its_blocks_with_spoilers_hidden() {
         .collect();
     assert_eq!(plain, ["Plans", "meet at (spoiler)"]);
 }
+
+#[test]
+fn the_gif_picker_keeps_the_width_it_was_dragged_to() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_gif_picker_width_chosen(648.);
+    assert_eq!(Layout::read(directory.path()).gif_picker_width, Some(648.));
+    // A new window starts at the stored width.
+    let next = YapfastWindow::new().unwrap();
+    adapter.borrow_mut().attach(&next);
+    assert_eq!(next.get_gif_picker_width(), 648.);
+}
+
+#[test]
+fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list() {
+    let window = showing(vec![]);
+    window.set_can_pick_gifs(true);
+    settle(&window);
+    let button = slint::platform::PointerEventButton::Left;
+    let at = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
+    let click = |x: f32, y: f32| {
+        let native = window.window();
+        native.dispatch_event(slint::platform::WindowEvent::PointerMoved { position: at(x, y) });
+        native.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: at(x, y),
+            button,
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: at(x, y),
+            button,
+        });
+        settle(&window);
+    };
+    // The GIF button in the composer opens the picker, 498px wide, its right
+    // edge on the emoji button's.
+    click(992., 710.);
+    assert_eq!(window.get_gif_picker_shown(), 498.);
+    assert_eq!(window.get_gif_grid_width(), 474.);
+    // Room for it up to 8px right of the server list, which is 80px from the
+    // window's left edge.
+    let room = window.get_gif_picker_room();
+    assert_eq!(room, 978.);
+    // Where the picker is on screen: its right edge, which is the emoji
+    // button's, must stay there however far its left edge is dragged.
+    let right_edge = || {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let popups = inner.active_popups();
+        let popup = popups.last().expect("the picker is open");
+        let x = match &popup.location {
+            i_slint_core::window::PopupWindowLocation::ChildWindow(place) => place.x,
+            i_slint_core::window::PopupWindowLocation::TopLevel(_) => panic!("not a child"),
+        };
+        let width = i_slint_core::item_tree::ItemTreeRc::borrow_pin(&popup.component)
+            .as_ref()
+            .item_geometry(0)
+            .width();
+        x + width
+    };
+    assert_eq!(right_edge(), 1058.);
+    // Its left edge is the right edge less its width, 1058 - 498 = 560, and
+    // the handle starts there: press 4px into it, then move the pointer, as a
+    // mouse reports it, several times. Each move must widen the picker by the
+    // distance the pointer travelled: Slint measures the pointer against the
+    // popup's place when it was pressed for the whole drag, so a width taken
+    // from the width so far would count that travel again on every move.
+    let press = |x: f32| {
+        let native = window.window();
+        native.dispatch_event(slint::platform::WindowEvent::PointerMoved {
+            position: at(x, 400.),
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: at(x, 400.),
+            button,
+        });
+    };
+    let moved = |x: f32| {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerMoved {
+                position: at(x, 400.),
+            });
+    };
+    let release = |x: f32| {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                position: at(x, 400.),
+                button,
+            });
+        settle(&window);
+    };
+    press(564.);
+    moved(514.);
+    assert_eq!(window.get_gif_picker_shown(), 548.);
+    assert_eq!(right_edge(), 1058.);
+    moved(464.);
+    assert_eq!(window.get_gif_picker_shown(), 598.);
+    assert_eq!(right_edge(), 1058.);
+    moved(414.);
+    assert_eq!(window.get_gif_picker_shown(), 648.);
+    assert_eq!(right_edge(), 1058.);
+    // The grid takes the width it got: three columns of 200px.
+    assert_eq!(window.get_gif_grid_width(), 624.);
+    release(414.);
+    assert_eq!(window.get_gif_picker_width(), 648.);
+    assert_eq!(right_edge(), 1058.);
+    // Back to the right, the edge follows the pointer to the width it opens
+    // at, and no further.
+    press(414.);
+    moved(514.);
+    assert_eq!(window.get_gif_picker_shown(), 548.);
+    moved(700.);
+    assert_eq!(window.get_gif_picker_shown(), 498.);
+    release(700.);
+    assert_eq!(window.get_gif_picker_width(), 498.);
+    // Left again, the edge stops just past the server list.
+    press(564.);
+    moved(0.);
+    assert_eq!(window.get_gif_picker_shown(), room);
+    assert_eq!(right_edge(), 1058.);
+    release(0.);
+    assert_eq!(window.get_gif_picker_width(), room);
+    assert_eq!(right_edge(), 1058.);
+    window.hide().unwrap();
+}
