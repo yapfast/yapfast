@@ -25,9 +25,10 @@ flowchart LR
 ## Where things live
 
 `crates/yapfast-ui` holds only the Slint build: `build.rs` compiles
-`ui/yapfast.slint` and `src/lib.rs` includes the generated code. The Slint
-files themselves are `ui/*.slint`, and the Rust that fills them is
-`src/ui.rs` and `src/ui/`. The menus a right click opens are in
+`ui/yapfast.slint` and `src/lib.rs` includes the generated code. It is a
+path dependency outside the Cargo workspace, so Clippy doesn't lint that
+code. The Slint files themselves are `ui/*.slint`, and the Rust that fills
+them is `src/ui.rs` and `src/ui/`. The menus a right click opens are in
 `src/ui/menus.rs`.
 
 The Discord connection is `crates/yapfast-discord/src/service.rs`, with its

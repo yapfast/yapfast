@@ -49,11 +49,11 @@ clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 
 run fmt cargo fmt --all -- --check
 run doc-links scripts/check-doc-links
-# Without yapfast-ui: --all-targets checks a library in test mode too, despite
-# its `test = false`, and that compiles the generated interface a second time
-# alongside the first. It still builds, as a dependency, and holds no code to
-# lint.
-run clippy "${clippy[@]}" --workspace --exclude yapfast-ui -- -D warnings
+# yapfast-ui is outside the workspace (see Cargo.toml), so Clippy checks it
+# only as a dependency, with plain rustc: it neither lints the generated
+# interface nor checks it a second time in test mode, as --all-targets would
+# a member despite its `test = false`.
+run clippy "${clippy[@]}" --workspace -- -D warnings
 run test cargo test --locked "${profile[@]}" --workspace
 run build cargo build --locked "${profile[@]}" --workspace
 # The binary the build step made: `cargo run` would resolve the dependencies'

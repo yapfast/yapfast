@@ -7,9 +7,13 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-ui"]
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord"]
 default-members = ["."]
-exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
+# crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
+# every workspace member it compiles, even one --exclude leaves out, and
+# linting Slint's generated code took 190 s of a 253 s check after a UI change.
+# Outside, rustc checks it in 37 s.
+exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
 
 [features]

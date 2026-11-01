@@ -277,9 +277,10 @@ or Intel's driver.
 builds with the `fast` profile, as local work does. It runs, in order:
 formatting; `scripts/check-doc-links`, which fails on a Markdown link to a
 missing file or heading; Clippy with warnings denied and the tests for the whole workspace
-(Clippy leaves out the UI crate's own targets, which hold no code to lint, but
-still checks it as a dependency); a build; and the desktop smoke test, which
-runs `target/<profile>/yapfast`, the desktop build, from that build. After
+(the UI crate is outside the workspace, so Clippy checks it only as a
+dependency, with plain rustc, and doesn't lint its generated code); a
+build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
+the desktop build, from that build. After
 those, one at a time, as each compile of the UI crate takes several GiB of
 memory, it runs Clippy for the Discord-only and Matrix-only builds, then the
 headless build's Clippy and smoke test in `target/check-combinations/`, so the
