@@ -921,6 +921,8 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// The GIF picker's width, as its left edge last dragged it wider.
+    gif_picker_width: Option<f32>,
     /// The member list shows until someone closes it.
     members_hidden: bool,
     /// So does the profile beside a one-to-one DM.
@@ -1200,6 +1202,9 @@ impl Layout {
         }
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
+        }
+        if let Some(width) = self.gif_picker_width {
+            window.set_gif_picker_width(width);
         }
         window.set_member_list(!self.members_hidden);
         window.set_profile_panel(!self.profile_panel_hidden);
@@ -2647,6 +2652,23 @@ fn device_rows(
         .and_then(|index| i32::try_from(index).ok())
         .unwrap_or(-1);
     (rows, index)
+}
+
+/// Repaints the whole window, telling Slint every pixel is dirty: it repaints
+/// the regions it is told of otherwise, which a popup moving or resizing
+/// leaves short of what it drew, such as its shadow.
+fn repaint_whole(window: &YapfastWindow) {
+    let native = window.window();
+    let size = native.size().to_logical(native.scale_factor());
+    let whole = i_slint_core::lengths::LogicalRect::new(
+        i_slint_core::lengths::LogicalPoint::new(0., 0.),
+        i_slint_core::lengths::LogicalSize::new(size.width, size.height),
+    );
+    let adapter = i_slint_core::window::WindowInner::from_pub(native).window_adapter();
+    adapter
+        .renderer()
+        .mark_dirty_region(i_slint_core::partial_renderer::DirtyRegion::from(whole));
+    native.request_redraw();
 }
 
 fn update_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {

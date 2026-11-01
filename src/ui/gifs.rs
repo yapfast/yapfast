@@ -5,9 +5,9 @@ use yapfast_core::application::{GifPicture, GifView};
 
 use super::*;
 
-/// The picker's grid: 498px wide less 12px each side, in columns about
-/// 200px wide, 12px apart, as Discord's.
-const GRID_WIDTH: f32 = 474.0;
+/// The picker starts 498px wide; the grid, that less 12px each side, in
+/// columns about 200px wide, 12px apart, as Discord's. Dragging its left edge
+/// wider fits more columns.
 const GUTTER: f32 = 12.0;
 const DESIRED_WIDTH: f32 = 200.0;
 const MAX_COLUMNS: f32 = 8.0;
@@ -50,11 +50,22 @@ struct Masonry {
 }
 
 impl Masonry {
-    fn new() -> Self {
-        let count = (GRID_WIDTH / DESIRED_WIDTH).floor().clamp(1.0, MAX_COLUMNS);
+    /// How many columns a grid `width` wide holds, about 200px each.
+    fn column_count(width: f32) -> f32 {
+        (width / DESIRED_WIDTH).floor().clamp(1.0, MAX_COLUMNS)
+    }
+
+    /// How wide each of those columns is.
+    fn column_width(width: f32) -> f32 {
+        let count = Self::column_count(width);
+        (width - GUTTER * (count - 1.0)) / count
+    }
+
+    fn new(width: f32) -> Self {
+        let count = Self::column_count(width);
         Self {
             columns: vec![GUTTER; count as usize],
-            width: (GRID_WIDTH - GUTTER * (count - 1.0)) / count,
+            width: Self::column_width(width),
         }
     }
 
@@ -71,17 +82,18 @@ impl Masonry {
         (GUTTER + column as f32 * (self.width + GUTTER), top)
     }
 
-    /// The height of a tile for a picture `width` by `height`.
-    fn height_of(&self, width: u32, height: u32) -> f32 {
-        if width == 0 || height == 0 {
-            self.width
-        } else {
-            self.width * height as f32 / width as f32
-        }
-    }
-
     fn bottom(&self) -> f32 {
         self.columns.iter().copied().fold(0.0, f32::max)
+    }
+}
+
+/// The height of a GIF's tile in the columns of a grid `width` wide.
+fn masonry_height(grid: f32, width: u32, height: u32) -> f32 {
+    let column = Masonry::column_width(grid);
+    if width == 0 || height == 0 {
+        column
+    } else {
+        column * height as f32 / width as f32
     }
 }
 
@@ -138,7 +150,8 @@ impl Adapter {
         }
         let has_favorites = state.favorite_gifs.as_ref().is_some_and(|f| !f.is_empty());
         window.set_gif_has_favorites(has_favorites);
-        let mut masonry = Masonry::new();
+        let grid = window.get_gif_grid_width();
+        let mut masonry = Masonry::new(grid);
         let mut tiles = vec![];
         let mut placed = vec![];
         let mut note = String::new();
@@ -235,7 +248,7 @@ impl Adapter {
                     note = "No GIFs match your search.".into();
                 }
                 for gif in picker.results.iter().filter(|_| !picker.loading) {
-                    let height = masonry_height(gif.width, gif.height);
+                    let height = masonry_height(grid, gif.width, gif.height);
                     let favorite = state.is_favorite_gif(&gif.url);
                     tile(0, "", &gif.url, &gif.src, height, favorite);
                 }
@@ -250,7 +263,7 @@ impl Adapter {
                         note = "No favorite GIFs match your search.".into();
                     }
                     for favorite in shown {
-                        let height = masonry_height(favorite.width, favorite.height);
+                        let height = masonry_height(grid, favorite.width, favorite.height);
                         tile(0, "", &favorite.url, &favorite.src, height, true);
                     }
                 }
@@ -286,6 +299,18 @@ impl Adapter {
     pub(super) fn gifs_scrolled(&mut self, window: &YapfastWindow, top: f32, height: f32) {
         self.gifs.viewport = (top, height);
         self.ask_gif_pictures(window);
+    }
+
+    /// The picker's grid changed width, as its left edge dragged it: the
+    /// tiles take new columns, and the window paints again whole.
+    pub(super) fn gifs_resized(&mut self, window: &YapfastWindow) {
+        // Skia repaints only what it is told has changed, and for a popup that
+        // is its own rectangle: the shadow it draws outside that, and the
+        // popup's edge, would keep the pixels they had where it was before.
+        repaint_whole(window);
+        if self.app.state.gifs.open {
+            self.show_gifs(window);
+        }
     }
 
     /// Asks for the pictures of the tiles in sight and a screen either side,
@@ -329,11 +354,6 @@ impl Adapter {
         self.gifs.near_end = near_end;
         self.action(window, Action::GifsShown { shown, near_end });
     }
-}
-
-/// The height of a GIF's tile in the grid's columns.
-fn masonry_height(width: u32, height: u32) -> f32 {
-    Masonry::new().height_of(width, height)
 }
 
 pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
@@ -387,6 +407,13 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_gif_picker_resized(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().gifs_resized(&window);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_gifs_scrolled(move |top, height| {
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().gifs_scrolled(&window, top, height);
@@ -400,7 +427,7 @@ mod tests {
 
     #[test]
     fn masonry_fills_the_shortest_column_first() {
-        let mut masonry = Masonry::new();
+        let mut masonry = Masonry::new(474.0);
         assert_eq!(masonry.columns.len(), 2);
         assert_eq!(masonry.width, 231.0);
         assert_eq!(masonry.place(100.0), (12.0, 12.0));
@@ -409,6 +436,21 @@ mod tests {
         assert_eq!(masonry.place(50.0), (12.0, 124.0));
         assert_eq!(masonry.place(50.0), (12.0, 186.0));
         assert_eq!(masonry.bottom(), 324.0);
-        assert_eq!(masonry.height_of(220, 110), 115.5);
+        assert_eq!(masonry_height(474.0, 220, 110), 115.5);
+    }
+
+    /// The picker's left edge fits more columns as it widens, and no more
+    /// than 8.
+    #[test]
+    fn a_wider_grid_fits_more_columns() {
+        let mut masonry = Masonry::new(624.0);
+        assert_eq!(masonry.columns.len(), 3);
+        assert_eq!(masonry.width, 200.0);
+        assert_eq!(masonry.place(100.0), (12.0, 12.0));
+        assert_eq!(masonry.place(100.0), (224.0, 12.0));
+        assert_eq!(masonry.place(100.0), (436.0, 12.0));
+        assert_eq!(masonry_height(624.0, 220, 110), 100.0);
+        // Eight columns is the most, however far the drag goes.
+        assert_eq!(Masonry::new(2400.0).columns.len(), 8);
     }
 }

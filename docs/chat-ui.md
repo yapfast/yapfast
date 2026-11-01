@@ -132,8 +132,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
 - A GIF picker next to the emoji button, on Discord: a search over Klipy,
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the
-  favourites; GIFs and moving pictures in messages have the star too. See
-  [Discord](discord/messages.md#gifs).
+  favourites; GIFs and moving pictures in messages have the star too. Its left
+  edge drags it wider, as Discord's does: the right edge and the height stay,
+  the grid fits another column for every 212px, and the edge stops 8px past
+  the server list. The width is kept in `layout.json` (`gif_picker_width`) and
+  comes back at the next start. See [Discord](discord/messages.md#gifs).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the

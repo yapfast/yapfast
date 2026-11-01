@@ -1607,6 +1607,24 @@ export component YapfastWindow inherits Window {
         root.anchor-x = x; root.anchor-y = y; root.anchor-width = width; root.anchor-height = height;
         root.anchor-pointer = pointer;
     }
+    // The GIF picker's width, which its left edge drags wider: 498px unless
+    // dragged. Its right edge stays on the control it opened from, and its
+    // height stays, as Discord's. It grows only, and stops 8px right of the
+    // 72px server rail, or 8px from the window's own edge if that comes first.
+    // The grid takes its columns from the width it shows at.
+    in-out property <length> gif-picker-width: 498px;
+    out property <length> gif-picker-room: max(498px, min(root.width - 88px, root.anchor-x + root.anchor-width - 80px));
+    out property <length> gif-picker-shown: min(max(498px, root.gif-picker-width), root.gif-picker-room);
+    out property <length> gif-grid-width: root.gif-picker-shown - 24px;
+    callback gif-picker-resized;
+    /// The drag let go at this width, which the next start shows again.
+    callback gif-picker-width-chosen(length);
+    // The width the GIF picker's left edge is dragged to: it moves the edge
+    // with the pointer, so the width it shows at now less the distance the
+    // pointer travelled since it pressed leaves the edge where the pointer is.
+    pure function drag-width(mouse-x: length, pressed-x: length) -> length {
+        return max(498px, min(root.gif-picker-room, root.gif-picker-shown - (mouse-x - pressed-x)));
+    }
     // A card opened from a mention sits right of what was clicked, or left of it
     // when there isn't room.
     pure function beside(x: length, width: length, card: length) -> length {
@@ -1794,12 +1812,21 @@ export component YapfastWindow inherits Window {
             root.react-item = "";
         }
     }
+    // The popup spans all the room the picker could take, so that dragging its
+    // left edge never moves or resizes the popup itself: Slint moves a popup a
+    // moment after its width changes, and in between it draws the picker the
+    // wider width from the place it had, which walked it right. The panel
+    // inside it is what shows, its right edge against the popup's.
     expressions := PopupWindow {
-        width: 498px; height: 486px;
+        width: root.gif-picker-room; height: 486px;
         x: max(8px, min(root.width - self.width - 8px, root.anchor-x + root.anchor-width - self.width));
         y: max(8px, root.anchor-y - self.height - 8px);
         close-policy: PopupClosePolicy.close-on-click-outside;
-        Rectangle {
+        // A click beside the picker, in the room it could have taken, closes
+        // it as one outside the popup does.
+        TouchArea { clicked => { expressions.close(); } }
+        panel := Rectangle {
+            x: parent.width - root.gif-picker-shown; width: root.gif-picker-shown;
             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             clip: true;
@@ -1821,6 +1848,7 @@ export component YapfastWindow inherits Window {
                     pick(url, insert) => { root.gif-pick(url, insert); expressions.close(); }
                     favorite(url) => { root.gif-favorite(url); }
                     scrolled-to(top, height) => { root.gifs-scrolled(top, height); }
+                    resized => { root.gif-picker-resized(); }
                     close => { expressions.close(); }
                 }
                 if root.expression-tab == 1: EmojiPicker {
@@ -1830,6 +1858,27 @@ export component YapfastWindow inherits Window {
                     emoji-search(text) => { root.emoji-search(text); }
                     pick(cell) => { root.pick(cell); }
                     close-picker => { expressions.close(); }
+                }
+            }
+            // The picker's left edge drags it wider, as Discord's: the right
+            // edge and the height stay, and it stops just past the server
+            // list. Letting go keeps the width for the next start.
+            if root.expression-tab == 0: edge := TouchArea {
+                x: 0px; y: 0px; width: 8px; height: parent.height;
+                mouse-cursor: ew-resize;
+                moved => {
+                    if self.pressed {
+                        root.gif-picker-width = root.drag-width(self.mouse-x, self.pressed-x);
+                    }
+                }
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.up { root.gif-picker-width-chosen(root.gif-picker-shown); }
+                }
+                Rectangle {
+                    x: 3px; width: 2px; height: parent.height;
+                    background: edge.pressed ? Theme.faint : Theme.line;
+                    opacity: edge.has-hover || edge.pressed ? 1 : 0;
+                    animate opacity { duration: 120ms; }
                 }
             }
         }
