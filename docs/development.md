@@ -150,7 +150,7 @@ Inside the development shell:
 
 ```sh
 scripts/test-stack up
-cargo run --locked -- --voice-demo
+cargo run --locked --features matrix -- --voice-demo
 ```
 
 The demo prints commands for two saved test accounts. Open them in separate

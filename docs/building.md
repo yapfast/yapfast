@@ -280,17 +280,24 @@ missing file or heading; Clippy with warnings denied and the tests for the whole
 (the UI crate is outside the workspace, so Clippy checks it only as a
 dependency, with plain rustc, and doesn't lint its generated code); a
 build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
-the desktop build, from that build. After
-those, one at a time, as each compile of the UI crate takes several GiB of
-memory, it runs Clippy for the Discord-only and Matrix-only builds, then the
-headless build's Clippy and smoke test in `target/check-combinations/`, so the
-headless binary doesn't replace the desktop one. The Discord-only and
-Matrix-only steps also select `crates/feature-union`, a crate without code
-that turns on the features the full build turns on in the crates below Slint.
-Slint and the UI crate then resolve as in the first Clippy step, and those
-steps reuse its check of the UI crate, taking seconds instead of several
-minutes each. When they compile `yapfast-ui` again, a dependency has drifted
-and `feature-union` needs its features. Each step prints `=== step` and `rc=N` when it ends,
+the desktop build, from that build. These build the default features, the
+release's: Discord on the desktop (see [Networks](#networks)).
+
+`scripts/check --matrix` adds the builds with Matrix, after those and one at
+a time, as each compile of the UI crate takes several GiB of memory: Clippy
+and the tests with Matrix beside Discord, Clippy for the Matrix-only build,
+then the headless build's Clippy and smoke test in
+`target/check-combinations/`, so the headless binary doesn't replace the
+desktop one. Run it before a release and after a change to code that Matrix
+shares, such as `#[cfg(feature = "matrix")]` branches in `yapfast-core` and
+the app. The Matrix-only step also selects `crates/feature-union`, a crate
+without code that turns on the features the full build turns on in the
+crates below Slint. Slint and the UI crate then resolve as in the Clippy step
+with Matrix, and the Matrix-only step reuses its check of the UI crate,
+taking seconds instead of several minutes. When it compiles `yapfast-ui`
+again, a dependency has drifted and `feature-union` needs its features. The
+default steps leave `feature-union` out, so they resolve as a plain
+`cargo build`. Each step prints `=== step` and `rc=N` when it ends,
 with Rust's errors when it fails, and keeps its full log under `target/check/`.
 The script runs every step and exits non-zero if any failed.
 
@@ -362,18 +369,21 @@ before.
 
 ## Networks
 
-Matrix and Discord are Cargo features, `matrix` and `discord`, and the default
-build has both. A build can leave either one out:
+Matrix and Discord are Cargo features, `matrix` and `discord`. The default
+build is the release's, Discord on the desktop; a build can add Matrix, or
+carry Matrix alone:
 
 ```sh
-cargo build --release --no-default-features --features desktop,discord  # Discord only
-cargo build --release --no-default-features --features desktop,matrix   # Matrix only
+cargo build --release                                                  # Discord only
+cargo build --release --features matrix                                # Discord and Matrix
+cargo build --release --no-default-features --features desktop,matrix  # Matrix only
 ```
 
 Releases are the Discord-only build: `nix/package.nix` (`buildFeatures`) and
-`scripts/package-linux.py` (`FEATURES`) build with `--no-default-features
---features desktop,discord`, while a plain `cargo build` carries Matrix too.
-Measure with the release's features.
+`scripts/package-linux.py` (`FEATURES`) name its features, `desktop,discord`,
+rather than rely on the defaults. The Matrix tools, such as `--voice-demo`,
+`--call-experiment`, the session commands and `scripts/test-voice`, need
+`--features matrix`. Measure with the release's features.
 
 A Discord-only build signs in by linking Discord by QR code, and connects with
 the account linked on the device from then on. Voice calls

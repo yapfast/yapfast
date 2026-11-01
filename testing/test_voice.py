@@ -38,7 +38,7 @@ try:
         env = dict(os.environ, PULSE_SOURCE="yapfast_test_microphone", PULSE_SINK="yapfast_test_output")
         if "--fast" in sys.argv:
             env["YAPFAST_TEST_FAST"] = "1"
-        result = subprocess.run(["cargo", "test", "--locked", "--profile", "fast", "-p", "yapfast-core", "matrix_voice::tests::persistent_encrypted_voice_and_native_audio", "--", "--ignored", "--nocapture"], env=env)
+        result = subprocess.run(["cargo", "test", "--locked", "--profile", "fast", "-p", "yapfast-core", "--features", "matrix", "matrix_voice::tests::persistent_encrypted_voice_and_native_audio", "--", "--ignored", "--nocapture"], env=env)
         raise SystemExit(result.returncode)
 finally:
     if tone:

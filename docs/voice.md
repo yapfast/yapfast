@@ -252,7 +252,7 @@ To test on one machine, from the project folder, enter the development shell and
 ```sh
 nix develop path:./nix
 scripts/test-stack up
-cargo run --locked -- --voice-demo
+cargo run --locked --features matrix -- --voice-demo
 ```
 
 The demo creates two disposable cross-signed accounts, a Matrix Space, an

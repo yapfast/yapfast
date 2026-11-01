@@ -26,7 +26,7 @@ INNO_SETUP_SHA256 = "0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b4
 # installer shows, for each flavour scripts/build-windows builds.
 FLAVOURS = {
     "discord": {"features": ["--no-default-features", "--features", "desktop,discord"], "suffix": "", "edition": None},
-    "full": {"features": [], "suffix": "-full-preview", "edition": "full preview"},
+    "full": {"features": ["--features", "matrix"], "suffix": "-full-preview", "edition": "full preview"},
 }
 
 

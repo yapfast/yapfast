@@ -15,7 +15,7 @@ Start the local stack (scripts/test-stack up). Copy target/measure/yapfast, buil
 with each feature set, into --builds (target/networks) as yapfast-matrix,
 yapfast-discord and yapfast-combined; docs/measurements/README.md gives the builds.
 Find the yapfast-core test binary with
-`nix develop path:./nix --command cargo test --profile fast --locked -p yapfast-core --no-run --message-format short`
+`nix develop path:./nix --command cargo test --profile fast --locked -p yapfast-core --features matrix --no-run --message-format short`
 (its "Executable unittests src/lib.rs" line), then run from the repository root:
 
     nix-shell --impure testing/display/shell.nix --run 'scripts/run-framework-isolated
