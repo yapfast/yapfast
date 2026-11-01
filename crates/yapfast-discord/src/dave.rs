@@ -73,6 +73,7 @@ impl Dave {
             rtp::Codec::Vp8 => Codec::VP8,
             rtp::Codec::H264 => Codec::H264,
             rtp::Codec::H265 => Codec::H265,
+            rtp::Codec::Av1 => Codec::AV1,
         };
         if self.version != 0
             && let Some(session) = self.session.as_mut()
@@ -647,11 +648,37 @@ mod tests {
         let mut packetizer = rtp::Packetizer::new(9, rtp::Codec::H264);
         let mut assembler = rtp::Assembler::new(rtp::Codec::H264);
         let whole = packetizer
-            .packets(&sealed, 0)
+            .packets(&sealed, 0, false)
             .iter()
             .find_map(|packet| assembler.push(&rtp::parse(packet).unwrap()).frame)
             .expect("the frame, reassembled");
         assert_eq!(dave.decrypt(streamer, whole.data), Some(frame));
+
+        // AV1: a temporal delimiter, which DAVE and the packetizer drop, a
+        // sequence header and a frame OBU of 2500 bytes; DAVE leaves the
+        // last OBU without its size, before the trailer.
+        let tile: Vec<u8> = (0..2500u32).map(|index| (index % 251) as u8).collect();
+        let frame = [
+            &[0x12, 0][..],
+            &[1 << 3 | 2, 11],
+            &[7; 11],
+            &[6 << 3 | 2, 0xc4, 0x13],
+            &tile,
+        ]
+        .concat();
+        let sealed = host
+            .encrypt(MediaType::VIDEO, Codec::AV1, &frame)
+            .unwrap()
+            .into_owned();
+        let mut packetizer = rtp::Packetizer::new(9, rtp::Codec::Av1);
+        let mut assembler = rtp::Assembler::new(rtp::Codec::Av1);
+        let whole = packetizer
+            .packets(&sealed, 3000, true)
+            .iter()
+            .find_map(|packet| assembler.push(&rtp::parse(packet).unwrap()).frame)
+            .expect("the frame, reassembled");
+        let opened = dave.decrypt(streamer, whole.data).expect("decrypted");
+        assert_eq!(rtp::obu_elements(&opened), rtp::obu_elements(&frame));
     }
 
     /// Someone already in a call commits Yapfast's addition, and the voice
