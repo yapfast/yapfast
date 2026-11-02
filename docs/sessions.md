@@ -37,7 +37,9 @@ prints the account ID, device ID and current cross-signing trust result.
 ## Storage and lifecycle
 
 Without `--data-dir`, Yapfast uses the platform's local application data directory.
-Each directory has one active session and an exclusive process lock. Corrupt
+Each directory has one active session and an exclusive process lock. Since
+that lock keeps the stores to one process, the SDK's own cross-process store
+lock is off; it would rewrite a lease in the crypto store every 50 ms. Corrupt
 metadata, missing credentials and a missing crypto store stop restoration. They
 never silently create a replacement device or reset its identity.
 
