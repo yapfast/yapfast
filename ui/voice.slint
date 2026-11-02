@@ -1214,12 +1214,20 @@ component ScreenCard inherits Rectangle {
 // Going live: what to share, where Yapfast lists it, and the resolution, frame
 // rate and quality to share it at; or while sharing, what to share instead.
 export component ShareMenu inherits Rectangle {
-    /// The screens, then the windows, to share; a pick counts the screens
-    /// first.
+    /// The screens, then the windows, then the cameras, to share; a pick
+    /// counts the screens first.
     in property <[ShareScreen]> screens;
     in property <[string]> windows;
+    in property <[string]> cameras;
+    /// The system's dialog picks a screen or window: with cameras listed, a
+    /// choice of it comes before them.
+    in property <bool> dialog;
     /// Switching what's shared, at the stream's quality.
     in property <bool> switching;
+    property <int> dialog-index: root.screens.length + root.windows.length;
+    property <int> first-camera: root.dialog-index + (root.dialog ? 1 : 0);
+    property <bool> asks-dialog: root.dialog && root.cameras.length > 0;
+    property <bool> lists: root.screens.length + root.windows.length + root.cameras.length > 0;
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
@@ -1262,8 +1270,31 @@ export component ShareMenu inherits Rectangle {
                 }
             }
         }
+        if root.asks-dialog: HorizontalLayout {
+            padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
+            Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+        }
+        if root.asks-dialog: MenuItem {
+            text: "Screen or window"; subtitle: "Picked in the system's dialog";
+            checked: root.dialog-index == root.pick-source;
+            clicked => { root.pick-source = root.dialog-index; }
+        }
+        if root.cameras.length > 0: HorizontalLayout {
+            padding-left: 8px; padding-top: root.dialog-index > 0 || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
+            Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+        }
+        if root.cameras.length > 0: ScrollView {
+            // Five before the list scrolls.
+            height: min(5, root.cameras.length) * 32px;
+            VerticalLayout {
+                for camera[index] in root.cameras: MenuItem {
+                    text: camera; checked: root.first-camera + index == root.pick-source;
+                    clicked => { root.pick-source = root.first-camera + index; }
+                }
+            }
+        }
         if !root.switching: HorizontalLayout {
-            padding-left: 8px; padding-top: root.screens.length + root.windows.length > 0 ? 8px : 4px; padding-bottom: 4px;
+            padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
             Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
         }
         if !root.switching: VerticalLayout {

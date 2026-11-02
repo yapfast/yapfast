@@ -53,6 +53,18 @@ gives a frame, it replaces the first. If the dialog is cancelled, the first
 one goes on. The encoder takes the new size on the same connection.
 `YAPFAST_STREAM_TEST_PATTERN=1` shares moving colour bars instead of a screen.
 
+A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
+Linux, its DirectShow filter on Windows). The share menu lists the cameras
+[the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
+screens and windows; on Linux, where the portal picks a screen or window, a
+"Screen or window" choice comes first, and switching with no camera listed
+goes straight to the dialog. The worker films the camera through the same
+capture module (`camera::Camera::open_at`), asking for the stream's
+resolution and frame rate rather than the call camera's 720p at 30, and
+copies each picture into one buffer it keeps for the next before the encoder
+takes it. Switching between a camera and a screen works as between two
+screens. `YAPFAST_CAMERA_TEST_PATTERN=1` lists a test pattern camera to share.
+
 Once Discord has started the stream, Yapfast unpauses it with op 22, as
 Discord-video-stream does, and the worker gets its server and sends the video
 there (`yapfast_discord::stream_connection`). The connection is a call's
