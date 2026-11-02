@@ -8673,6 +8673,58 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
     );
     assert_eq!(app.state.gifs.pictures.len(), 1, "cat's picture goes");
 
+    // A picture whose tile grows past a tenth, as the picker widens, is
+    // fetched again larger, once; the smaller one shows until it comes.
+    let src = gif("dog").src;
+    let came = |app: &mut Application, width: u32, picture: bool| {
+        app.apply(Event::GifPicture {
+            url: src.clone(),
+            picture: picture.then(|| {
+                Arc::new(Picture {
+                    width,
+                    height: width / 2,
+                    ..Default::default()
+                })
+            }),
+        });
+    };
+    let shown_width = |app: &Application| match &app.state.gifs.pictures[&src].picture {
+        GifPicture::Shown(picture) => picture.width,
+        other => panic!("{other:?}"),
+    };
+    let sized = |app: &mut Application, width: u32, height: u32| {
+        backend(app.dispatch(Action::GifsShown {
+            shown: vec![(src.clone(), width, height)],
+            near_end: true,
+        }))
+    };
+    came(&mut app, 231, true);
+    assert!(
+        sized(&mut app, 250, 124).is_empty(),
+        "a tenth larger isn't worth it"
+    );
+    assert!(matches!(
+        sized(&mut app, 293, 146).as_slice(),
+        [Command::Discord(DiscordCommand::GifPicture {
+            width: 293,
+            height: 146,
+            ..
+        })]
+    ));
+    assert!(sized(&mut app, 293, 146).is_empty());
+    assert_eq!(shown_width(&app), 231);
+    // One that doesn't come, or comes no larger, leaves the one shown.
+    came(&mut app, 0, false);
+    came(&mut app, 231, true);
+    assert_eq!(shown_width(&app), 231);
+    came(&mut app, 293, true);
+    assert_eq!(shown_width(&app), 293);
+    // A picture smaller than its tile keeps its own size, so a still larger
+    // tile asks for none.
+    assert_eq!(sized(&mut app, 400, 200).len(), 1);
+    came(&mut app, 300, true);
+    assert!(sized(&mut app, 600, 300).is_empty());
+
     // Starring keeps the GIF among the favourites on Discord, the newest
     // first.
     let saved = backend(app.dispatch(Action::FavoriteGif(gif("dog").url)));

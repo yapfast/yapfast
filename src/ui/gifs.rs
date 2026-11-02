@@ -23,8 +23,9 @@ pub(super) struct Shown {
     placed: Vec<Placed>,
     /// How far the grid is scrolled and how tall it shows, as it last said.
     viewport: (f32, f32),
-    /// The pictures last asked for, and whether the grid was near its end.
-    asked: Vec<String>,
+    /// The pictures last asked for, with their sizes, and whether the grid
+    /// was near its end.
+    asked: Vec<(String, u32, u32)>,
     near_end: bool,
     /// The search text the field was last given.
     query: Option<String>,
@@ -32,15 +33,57 @@ pub(super) struct Shown {
     note: String,
     /// The change to the favourites the stars last took.
     favorites_seen: u32,
+    /// Asks for the pictures at their new sizes once the picker's width has
+    /// held still a moment, rather than at each step of a drag.
+    resized: slint::Timer,
 }
 
 #[derive(PartialEq)]
 struct Placed {
     src: String,
+    shape: Shape,
     top: f32,
     bottom: f32,
     width: u32,
     height: u32,
+}
+
+/// How tall a tile is in a column of a given width.
+#[derive(Clone, Copy, PartialEq)]
+enum Shape {
+    /// A GIF's: its picture's height over its width.
+    Picture(f32),
+    /// The home's and placeholders': this tall, the picture cropped to the
+    /// column's width.
+    Fixed(f32),
+}
+
+impl Shape {
+    /// A GIF's picture, `width` by `height`; square when unknown.
+    fn of(width: u32, height: u32) -> Self {
+        if width == 0 || height == 0 {
+            Self::Picture(1.0)
+        } else {
+            Self::Picture(height as f32 / width as f32)
+        }
+    }
+
+    /// Its height in a column `width` wide.
+    fn height(self, width: f32) -> f32 {
+        match self {
+            Self::Picture(ratio) => width * ratio,
+            Self::Fixed(height) => height,
+        }
+    }
+
+    /// The size to decode its picture at, in a column `width` wide: a home
+    /// tile crops a picture to its width, and a placeholder has none.
+    fn decoded(self, width: f32) -> (u32, u32) {
+        match self {
+            Self::Picture(_) => (width as u32, self.height(width) as u32),
+            Self::Fixed(height) => (width as u32, height.max(width) as u32),
+        }
+    }
 }
 
 /// Places tiles in the shortest column, leftmost on ties.
@@ -87,16 +130,6 @@ impl Masonry {
     }
 }
 
-/// The height of a GIF's tile in the columns of a grid `width` wide.
-fn masonry_height(grid: f32, width: u32, height: u32) -> f32 {
-    let column = Masonry::column_width(grid);
-    if width == 0 || height == 0 {
-        column
-    } else {
-        column * height as f32 / width as f32
-    }
-}
-
 /// Grounds for tiles whose picture isn't in yet, in turn.
 const GROUNDS: [slint::Color; 3] = [
     slint::Color::from_rgb_u8(0x3b, 0x3f, 0x63),
@@ -104,9 +137,9 @@ const GROUNDS: [slint::Color; 3] = [
     slint::Color::from_rgb_u8(0x3b, 0x52, 0x63),
 ];
 
-/// Adds a tile: its kind, label, page, picture, height and whether it's a
+/// Adds a tile: its kind, label, page, picture, shape and whether it's a
 /// favourite.
-type AddTile<'a> = dyn FnMut(i32, &str, &str, &str, f32, bool) + 'a;
+type AddTile<'a> = dyn FnMut(i32, &str, &str, &str, Shape, bool) + 'a;
 
 thread_local! {
     /// The favourite GIFs' pages, which the stars on messages' GIFs ask
@@ -150,12 +183,11 @@ impl Adapter {
         }
         let has_favorites = state.favorite_gifs.as_ref().is_some_and(|f| !f.is_empty());
         window.set_gif_has_favorites(has_favorites);
-        let grid = window.get_gif_grid_width();
-        let mut masonry = Masonry::new(grid);
+        let mut masonry = Masonry::new(window.get_gif_grid_width());
         let mut tiles = vec![];
         let mut placed = vec![];
         let mut note = String::new();
-        let picture = |src: &str| match picker.pictures.get(src) {
+        let picture = |src: &str| match picker.pictures.get(src).map(|asked| &asked.picture) {
             Some(GifPicture::Shown(picture)) => {
                 let (frames, delays) = pictures::animation(picture);
                 (pictures::picture(picture), frames, delays)
@@ -163,19 +195,19 @@ impl Adapter {
             _ => Default::default(),
         };
         let mut tile =
-            |kind: i32, label: &str, url: &str, src: &str, height: f32, favorite: bool| {
-                let (x, y) = masonry.place(height);
+            |kind: i32, label: &str, url: &str, src: &str, shape: Shape, favorite: bool| {
                 let width = masonry.width;
+                let height = shape.height(width);
+                let (x, y) = masonry.place(height);
                 let (image, frames, delays) = picture(src);
-                // A home tile crops a picture to its width. A placeholder has
-                // none, but takes its place.
-                let decoded = if kind == 0 { height } else { height.max(width) };
+                let (decoded_width, decoded_height) = shape.decoded(width);
                 placed.push(Placed {
                     src: src.to_owned(),
+                    shape,
                     top: y,
                     bottom: y + height,
-                    width: width as u32,
-                    height: decoded as u32,
+                    width: decoded_width,
+                    height: decoded_height,
                 });
                 tiles.push(GifTile {
                     kind,
@@ -196,14 +228,14 @@ impl Adapter {
             for index in 0..count {
                 // Heights that vary, the same each time.
                 let height = 120.0 + ((index * 37 + 11) % 100) as f32;
-                tile(4, "", "", "", height, false);
+                tile(4, "", "", "", Shape::Fixed(height), false);
             }
         };
         match picker.view {
             GifView::Home => {
                 if picker.categories.is_empty() && picker.home_loading {
                     for _ in 0..8 {
-                        tile(4, "", "", "", HOME_TILE, false);
+                        tile(4, "", "", "", Shape::Fixed(HOME_TILE), false);
                     }
                 } else {
                     let newest = state.shown_favorite_gifs().first().map(|f| f.src.clone());
@@ -212,7 +244,7 @@ impl Adapter {
                         "Favorites",
                         "",
                         newest.as_deref().unwrap_or_default(),
-                        HOME_TILE,
+                        Shape::Fixed(HOME_TILE),
                         false,
                     );
                     let trending = picker.trending_preview.as_ref().map(|gif| gif.src.as_str());
@@ -221,7 +253,7 @@ impl Adapter {
                         "Trending GIFs",
                         "",
                         trending.unwrap_or_default(),
-                        HOME_TILE,
+                        Shape::Fixed(HOME_TILE),
                         false,
                     );
                     for category in &picker.categories {
@@ -230,7 +262,7 @@ impl Adapter {
                             &category.name,
                             &category.name,
                             &category.src,
-                            HOME_TILE,
+                            Shape::Fixed(HOME_TILE),
                             false,
                         );
                     }
@@ -248,9 +280,9 @@ impl Adapter {
                     note = "No GIFs match your search.".into();
                 }
                 for gif in picker.results.iter().filter(|_| !picker.loading) {
-                    let height = masonry_height(grid, gif.width, gif.height);
                     let favorite = state.is_favorite_gif(&gif.url);
-                    tile(0, "", &gif.url, &gif.src, height, favorite);
+                    let shape = Shape::of(gif.width, gif.height);
+                    tile(0, "", &gif.url, &gif.src, shape, favorite);
                 }
             }
             GifView::Favorites => match &state.favorite_gifs {
@@ -263,8 +295,8 @@ impl Adapter {
                         note = "No favorite GIFs match your search.".into();
                     }
                     for favorite in shown {
-                        let height = masonry_height(grid, favorite.width, favorite.height);
-                        tile(0, "", &favorite.url, &favorite.src, height, true);
+                        let shape = Shape::of(favorite.width, favorite.height);
+                        tile(0, "", &favorite.url, &favorite.src, shape, true);
                     }
                 }
             },
@@ -302,15 +334,48 @@ impl Adapter {
     }
 
     /// The picker's grid changed width, as its left edge dragged it: the
-    /// tiles take new columns, and the window paints again whole.
+    /// tiles take new columns, keeping their pictures, and once the width
+    /// holds still they're asked for at their new sizes.
     pub(super) fn gifs_resized(&mut self, window: &YapfastWindow) {
         // Skia repaints only what it is told has changed, and for a popup that
-        // is its own rectangle: the shadow it draws outside that, and the
-        // popup's edge, would keep the pixels they had where it was before.
-        repaint_whole(window);
-        if self.app.state.gifs.open {
-            self.show_gifs(window);
+        // is its own rectangle: the shadow it draws outside that would keep
+        // the pixels it had where the picker was before.
+        repaint_popup(window);
+        if !self.app.state.gifs.open {
+            return;
         }
+        let mut masonry = Masonry::new(window.get_gif_grid_width());
+        let tiles = &self.models.gif_tiles;
+        for (row, placed) in self.gifs.placed.iter_mut().enumerate() {
+            let width = masonry.width;
+            let height = placed.shape.height(width);
+            let (x, y) = masonry.place(height);
+            (placed.width, placed.height) = placed.shape.decoded(width);
+            (placed.top, placed.bottom) = (y, y + height);
+            if let Some(tile) = tiles.row_data(row) {
+                tiles.set_row_data(
+                    row,
+                    GifTile {
+                        x,
+                        y,
+                        w: width,
+                        h: height,
+                        ..tile
+                    },
+                );
+            }
+        }
+        window.set_gif_grid_height(masonry.bottom());
+        let (weak, window) = (self.weak.clone(), self.window.clone());
+        self.gifs.resized.start(
+            slint::TimerMode::SingleShot,
+            Duration::from_millis(250),
+            move || {
+                if let (Some(adapter), Some(window)) = (weak.upgrade(), window.upgrade()) {
+                    adapter.borrow_mut().ask_gif_pictures(&window);
+                }
+            },
+        );
     }
 
     /// Asks for the pictures of the tiles in sight and a screen either side,
@@ -323,17 +388,15 @@ impl Adapter {
         let scale = window.window().scale_factor();
         let (from, to) = (top - height, top + 2.0 * height);
         let mut asked = vec![];
-        let mut shown = vec![];
         for placed in &self.gifs.placed {
             if placed.src.is_empty()
                 || placed.bottom < from
                 || placed.top > to
-                || asked.contains(&placed.src)
+                || asked.iter().any(|(src, _, _)| *src == placed.src)
             {
                 continue;
             }
-            asked.push(placed.src.clone());
-            shown.push((
+            asked.push((
                 placed.src.clone(),
                 (placed.width as f32 * scale) as u32,
                 (placed.height as f32 * scale) as u32,
@@ -350,9 +413,15 @@ impl Adapter {
         if asked == self.gifs.asked && near_end == self.gifs.near_end {
             return;
         }
-        self.gifs.asked = asked;
+        self.gifs.asked.clone_from(&asked);
         self.gifs.near_end = near_end;
-        self.action(window, Action::GifsShown { shown, near_end });
+        self.action(
+            window,
+            Action::GifsShown {
+                shown: asked,
+                near_end,
+            },
+        );
     }
 }
 
@@ -436,7 +505,7 @@ mod tests {
         assert_eq!(masonry.place(50.0), (12.0, 124.0));
         assert_eq!(masonry.place(50.0), (12.0, 186.0));
         assert_eq!(masonry.bottom(), 324.0);
-        assert_eq!(masonry_height(474.0, 220, 110), 115.5);
+        assert_eq!(Shape::of(220, 110).height(masonry.width), 115.5);
     }
 
     /// The picker's left edge fits more columns as it widens, and no more
@@ -449,7 +518,7 @@ mod tests {
         assert_eq!(masonry.place(100.0), (12.0, 12.0));
         assert_eq!(masonry.place(100.0), (224.0, 12.0));
         assert_eq!(masonry.place(100.0), (436.0, 12.0));
-        assert_eq!(masonry_height(624.0, 220, 110), 100.0);
+        assert_eq!(Shape::of(220, 110).height(masonry.width), 100.0);
         // Eight columns is the most, however far the drag goes.
         assert_eq!(Masonry::new(2400.0).columns.len(), 8);
     }

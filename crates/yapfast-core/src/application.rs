@@ -54,7 +54,7 @@ pub use channel_settings::{
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
-pub use gifs::{GifPicker, GifPicture, GifView};
+pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
