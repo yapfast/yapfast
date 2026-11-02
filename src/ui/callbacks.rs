@@ -1907,14 +1907,21 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             .upgrade()
             .map_or(1.0, |window| window.window().scale_factor());
         let (width, height) = ((160.0 * scale).ceil() as u32, (90.0 * scale).ceil() as u32);
-        // Listing starts a capturer for screens and one for windows, so it
-        // runs beside the window, and the menu opens when it's done.
+        // Listing starts a capturer for screens and one for windows, and
+        // looks at each camera, so it runs beside the window, and the menu
+        // opens when it's done.
         let weak = weak.clone();
         std::thread::spawn(move || {
-            let listed = yapfast_core::stream_worker::shareable();
-            let (screens, windows): (Vec<_>, Vec<_>) = listed
-                .into_iter()
-                .partition(|listed| matches!(listed.source, Source::Display(_)));
+            let mut screens = vec![];
+            let mut windows = vec![];
+            let mut cameras = vec![];
+            for listed in yapfast_core::stream_worker::shareable() {
+                match listed.source {
+                    Source::Display(_) => screens.push(listed),
+                    Source::Camera(_) => cameras.push(listed),
+                    _ => windows.push(listed),
+                }
+            }
             let ids: Vec<u64> = screens
                 .iter()
                 .filter_map(|listed| match listed.source {
@@ -1930,17 +1937,27 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                         picture: Default::default(),
                     })
                     .collect();
-                let titles: Vec<SharedString> = windows
-                    .iter()
-                    .map(|listed| listed.title.as_str().into())
-                    .collect();
+                let titles = |listed: &[yapfast_core::stream_worker::Shareable]| {
+                    let titles: Vec<SharedString> = listed
+                        .iter()
+                        .map(|listed| listed.title.as_str().into())
+                        .collect();
+                    ModelRc::new(VecModel::from(titles))
+                };
                 window.set_share_screens(Rc::new(VecModel::from(rows)).into());
-                window.set_share_windows(Rc::new(VecModel::from(titles)).into());
+                window.set_share_windows(titles(&windows));
+                window.set_share_cameras(titles(&cameras));
+                // Where the system's dialog picks a screen or window, the
+                // menu's first choice asks it, before the cameras.
+                let dialog =
+                    (!yapfast_core::stream_worker::LISTS_SOURCES).then_some(Source::Screen);
                 SHAREABLE.with_borrow_mut(|shareable| {
                     *shareable = screens
-                        .iter()
-                        .chain(&windows)
+                        .into_iter()
+                        .chain(windows)
                         .map(|listed| listed.source)
+                        .chain(dialog)
+                        .chain(cameras.into_iter().map(|listed| listed.source))
                         .collect();
                 });
                 window.invoke_show_share_menu();
@@ -1973,7 +1990,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                             let at = SHAREABLE.with_borrow(|shareable| {
                                 shareable
                                     .iter()
-                                    .position(|&source| source == Source::Display(id))
+                                    .position(|source| *source == Source::Display(id))
                             });
                             let screens = window.get_share_screens();
                             if let Some(at) = at
@@ -1995,6 +2012,16 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
         });
     });
+    // Without Discord there's nothing to list; the menu still picks the
+    // quality.
+    #[cfg(not(feature = "discord"))]
+    let weak = window.as_weak();
+    #[cfg(not(feature = "discord"))]
+    window.on_list_share_sources(move || {
+        if let Some(window) = weak.upgrade() {
+            window.invoke_show_share_menu();
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_go_live(move |source, resolution, fps, high_quality| {
@@ -2002,7 +2029,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             #[cfg(feature = "discord")]
             {
                 let picked =
-                    SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).copied());
+                    SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).cloned());
                 yapfast_core::stream_worker::pick(
                     picked.unwrap_or(yapfast_core::stream_worker::Source::Screen),
                 );
@@ -2030,7 +2057,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if let Some(window) = weak.upgrade() {
             #[cfg(feature = "discord")]
             if let Some(picked) =
-                SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).copied())
+                SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).cloned())
             {
                 yapfast_core::stream_worker::pick(picked);
             }
