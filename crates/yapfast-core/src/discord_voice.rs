@@ -460,7 +460,7 @@ pub(crate) async fn call(
                 filming.as_ref().map(|filming| &filming.feed),
                 &mut cameras,
             );
-            cameras.ask(&mut call);
+            cameras.ask(&mut call, participants.iter().filter(|person| !person.local).count());
             if participants != state.participants {
                 state.participants = participants;
                 snapshots.send_replace(state.clone());

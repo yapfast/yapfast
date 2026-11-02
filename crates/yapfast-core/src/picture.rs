@@ -7,7 +7,7 @@ use std::{
     ffi::{c_int, c_uchar},
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -207,8 +207,11 @@ struct Shared {
     /// The size shown, in pixels, as width and height in a word; zero while
     /// it isn't on screen.
     shown_at: AtomicU64,
+    /// Whether it shows large, as the call's focused tile.
+    large: AtomicBool,
     buffers: Mutex<Buffers>,
-    /// Told whenever the size shown changes, for a sender to match.
+    /// Told whenever the size shown changes, or whether it's large, for a
+    /// sender to match.
     shown: Option<Arc<tokio::sync::Notify>>,
 }
 
@@ -252,8 +255,9 @@ impl Feed {
         Self::default()
     }
 
-    /// A feed that tells `shown` whenever the size it shows at changes, so
-    /// whoever sends its pictures can send them at that size, or stop.
+    /// A feed that tells `shown` whenever the size it shows at changes, or
+    /// whether it shows large, so whoever sends its pictures can send them
+    /// to match, or stop.
     pub fn watched(shown: Arc<tokio::sync::Notify>) -> Self {
         Self(Arc::new(Shared {
             shown: Some(shown),
@@ -274,6 +278,20 @@ impl Feed {
                 shown.notify_one();
             }
         }
+    }
+
+    /// The UI shows the feed large, as the tile in focus, or not.
+    pub fn show_large(&self, large: bool) {
+        if self.0.large.swap(large, Ordering::Relaxed) != large
+            && let Some(shown) = &self.0.shown
+        {
+            shown.notify_one();
+        }
+    }
+
+    /// Whether the UI shows the feed large.
+    pub fn shown_large(&self) -> bool {
+        self.0.large.load(Ordering::Relaxed)
     }
 
     /// The size the UI shows the feed at, in pixels, while it's on screen.
@@ -420,6 +438,10 @@ mod tests {
         assert!(!told(), "the same size");
         feed.show_at(None);
         assert!(told(), "scrolled away");
+        feed.show_large(true);
+        assert!(told(), "in focus");
+        feed.show_large(true);
+        assert!(!told(), "still in focus");
     }
 
     #[test]

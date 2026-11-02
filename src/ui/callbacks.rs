@@ -2574,8 +2574,9 @@ fn start_camera_test(adapter: &mut Adapter, window: &YapfastWindow) {
 }
 
 /// Tells each camera in the call where its tile shows, or that it doesn't,
-/// so pictures are made only for tiles in sight, at their size. With the
-/// call off screen, the camera in the corner shows there.
+/// so pictures are made only for tiles in sight, at their size, and
+/// whether it's the tile in focus. With the call off screen, the camera in
+/// the corner shows there.
 fn place_videos(adapter: &Adapter, window: &YapfastWindow) {
     let voice = &adapter.app.state.voice;
     let shown = window.get_grid_shown() && voice.active();
@@ -2600,7 +2601,13 @@ fn place_videos(adapter: &Adapter, window: &YapfastWindow) {
                     .filter(|_| shown)
                     .and_then(|tiles| tiles.shown_at(index + before, scale))
             };
+            let large = corner != Some(index)
+                && shown
+                && adapter
+                    .tiles
+                    .is_some_and(|tiles| tiles.focused == Some(index + before));
             feed.show_at(at);
+            feed.show_large(large);
         }
     }
 }

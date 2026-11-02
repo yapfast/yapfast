@@ -165,9 +165,15 @@ call's thread can't take in time is dropped, and the next one is a keyframe.
 The others' cameras arrive the same way round. Op 12 says who films on which
 SSRC, and Discord forwards a camera only to those who ask for it with op 15
 ("media sink wants"): `{"any": 0, "<video SSRC>": quality, "pixelCounts":
-{...}}`, quality from 0 to 100. Yapfast asks for each camera whose tile is in
-sight, at 100 for a tile at least 360 pixels tall and 50 for a smaller one,
-with the tile's pixels; for any other, 0. Frames come together as Go Live's
+{...}}`, quality from 0 to 100. The sender films at the quality asked of it, on a
+ladder Discord's clients work out from 1280×720: 100 is 1280×720 at up to
+2.5 Mbit/s, 90 896×504, 80 672×378, 70 640×360, 60 512×288, 50 416×234 at
+264 kbit/s, down to 20. Yapfast asks for each camera whose tile is in
+sight as Discord's desktop app does, with the tile's pixels: while more
+than one camera films, the tile in focus at 100; in a call with one other person, the first step larger
+than the tile, as far as all the cameras fit in 1280×720 together; in a
+larger call, the largest step at which they fit (90 for two cameras, 80
+for three). Any other camera, 0. Frames come together as Go Live's
 do (reordering, NACK, a PLI after a loss) and are decrypted with the
 sender's DAVE key. Whole frames go to one thread, `yapfast-discord-video`,
 which keeps an FFmpeg H264 or libvpx VP8 decoder on one thread for each
