@@ -921,6 +921,8 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// The GIF picker's width, as its left edge last dragged it wider.
+    gif_picker_width: Option<f32>,
     /// The member list shows until someone closes it.
     members_hidden: bool,
     /// So does the profile beside a one-to-one DM.
@@ -1200,6 +1202,9 @@ impl Layout {
         }
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
+        }
+        if let Some(width) = self.gif_picker_width {
+            window.set_gif_picker_width(width);
         }
         window.set_member_list(!self.members_hidden);
         window.set_profile_panel(!self.profile_panel_hidden);
@@ -2647,6 +2652,43 @@ fn device_rows(
         .and_then(|index| i32::try_from(index).ok())
         .unwrap_or(-1);
     (rows, index)
+}
+
+/// Repaints the popup on top and the shadow around it, telling Slint they're
+/// dirty: it repaints the regions it is told of otherwise, which a popup's
+/// contents moving or resizing leaves short of the shadow they draw outside
+/// it. A popup in a window of its own repaints the window whole.
+fn repaint_popup(window: &YapfastWindow) {
+    use i_slint_core::lengths::{LogicalPoint, LogicalRect, LogicalSize};
+    use i_slint_core::window::{PopupWindowLocation, WindowInner};
+    /// How far a popup's shadow reaches past it: its 24px blur and 8px drop.
+    const SHADOW: f32 = 32.;
+    let native = window.window();
+    let inner = WindowInner::from_pub(native);
+    let size = native.size().to_logical(native.scale_factor());
+    let whole = LogicalRect::new(
+        LogicalPoint::new(0., 0.),
+        LogicalSize::new(size.width, size.height),
+    );
+    let dirty = inner
+        .active_popups()
+        .last()
+        .and_then(|popup| match &popup.location {
+            PopupWindowLocation::ChildWindow(place) => {
+                let geometry = i_slint_core::item_tree::ItemTreeRc::borrow_pin(&popup.component)
+                    .as_ref()
+                    .item_geometry(0);
+                Some(LogicalRect::new(*place, geometry.size).inflate(SHADOW, SHADOW))
+            }
+            PopupWindowLocation::TopLevel(_) => None,
+        })
+        .and_then(|popup| popup.intersection(&whole))
+        .unwrap_or(whole);
+    inner
+        .window_adapter()
+        .renderer()
+        .mark_dirty_region(i_slint_core::partial_renderer::DirtyRegion::from(dirty));
+    native.request_redraw();
 }
 
 fn update_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {

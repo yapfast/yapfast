@@ -2,7 +2,8 @@
 //! trending terms, a search, the trending GIFs and the account's favourites.
 //! A click sends a GIF's page as a message; Shift puts it in the composer.
 //! The picker keeps pictures only for the GIFs on screen, or about to be,
-//! and none once it closes.
+//! and none once it closes. A picture whose tile grows, as the picker widens,
+//! is fetched again larger, the smaller one showing until it comes.
 
 use super::*;
 use crate::chat::{FavoriteGif, Gif, GifCategory};
@@ -25,6 +26,29 @@ pub enum GifPicture {
     Loading,
     Shown(Arc<Picture>),
     Failed,
+}
+
+/// A picture the picker shows, and the size it was last asked for at.
+#[derive(Clone, Debug)]
+pub struct AskedPicture {
+    pub picture: GifPicture,
+    size: (u32, u32),
+}
+
+impl AskedPicture {
+    /// Its tile has grown past a tenth over the size it was asked for at, and
+    /// the picture filled that: a larger one would be sharper. A picture
+    /// smaller than its tile keeps its own size, larger or not.
+    fn outgrown(&self, width: u32, height: u32) -> bool {
+        let GifPicture::Shown(picture) = &self.picture else {
+            return false;
+        };
+        let (asked_width, asked_height) = self.size;
+        let filled = picture.width + 1 >= asked_width || picture.height + 1 >= asked_height;
+        filled
+            && u64::from(width) * 10 > u64::from(asked_width) * 11
+            && u64::from(height) * 10 > u64::from(asked_height) * 11
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -50,7 +74,7 @@ pub struct GifPicker {
     /// Terms to try instead, for the search shown.
     pub suggestions: Vec<String>,
     suggested: Option<String>,
-    pub pictures: HashMap<String, GifPicture>,
+    pub pictures: HashMap<String, AskedPicture>,
     /// The favourites were asked for, and those shown are Discord's rather
     /// than those kept on disk.
     favorites_asked: bool,
@@ -233,10 +257,20 @@ impl Application {
             .retain(|url, _| shown.iter().any(|(shown, _, _)| shown == url));
         let mut effects = vec![];
         for (url, width, height) in shown {
-            if url.is_empty() || picker.pictures.contains_key(&url) {
+            if url.is_empty() {
                 continue;
             }
-            picker.pictures.insert(url.clone(), GifPicture::Loading);
+            match picker.pictures.get_mut(&url) {
+                Some(asked) if asked.outgrown(width, height) => asked.size = (width, height),
+                Some(_) => continue,
+                None => {
+                    let asked = AskedPicture {
+                        picture: GifPicture::Loading,
+                        size: (width, height),
+                    };
+                    picker.pictures.insert(url.clone(), asked);
+                }
+            }
             let favorite = self
                 .state
                 .favorite_gifs
@@ -453,8 +487,17 @@ impl Application {
     }
 
     pub(super) fn gif_picture_came(&mut self, url: String, picture: Option<Arc<Picture>>) {
-        if let Some(shown) = self.state.gifs.pictures.get_mut(&url) {
-            *shown = picture.map_or(GifPicture::Failed, GifPicture::Shown);
+        let Some(asked) = self.state.gifs.pictures.get_mut(&url) else {
+            return;
+        };
+        match (picture, &asked.picture) {
+            // A larger picture that didn't come, or one no larger than that
+            // shown, as an earlier ask's coming late, leaves it.
+            (None, GifPicture::Shown(_)) => {}
+            (Some(picture), GifPicture::Shown(shown)) if picture.width <= shown.width => {}
+            (picture, _) => {
+                asked.picture = picture.map_or(GifPicture::Failed, GifPicture::Shown);
+            }
         }
     }
 }

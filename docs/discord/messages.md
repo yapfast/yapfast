@@ -411,7 +411,10 @@ finds GIFs through Klipy, and Yapfast asks Discord as its desktop client does:
   plays. Shift and a click puts the URL in the message instead.
 - Only the GIFs in sight, and a screen either side, load and play; they come
   from Klipy's or Tenor's media hosts, at the size they show, and go when the
-  picker closes.
+  picker closes. Dragging the picker wider moves and stretches the tiles
+  already shown; a quarter second after the width stops changing, a picture
+  whose tile grew by more than a tenth, and that filled its old tile, is
+  fetched again at the new size, the old one showing until it comes.
 - Favourites are kept as Discord's are, in the second settings protobuf
   (`FrecencyUserSettings`, field 2): a map from each GIF's page to its
   picture, size, format and order. `GET /users/@me/settings-proto/2` reads
