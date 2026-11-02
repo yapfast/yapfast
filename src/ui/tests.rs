@@ -6691,6 +6691,10 @@ fn the_gif_picker_keeps_the_width_it_was_dragged_to() {
 fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list() {
     let window = showing(vec![]);
     window.set_can_pick_gifs(true);
+    // The widths letting go of the edge keeps.
+    let chosen = Rc::new(RefCell::new(vec![]));
+    let kept = chosen.clone();
+    window.on_gif_picker_width_chosen(move |width| kept.borrow_mut().push(width));
     settle(&window);
     let button = slint::platform::PointerEventButton::Left;
     let at = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
@@ -6716,23 +6720,42 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     // window's left edge.
     let room = window.get_gif_picker_room();
     assert_eq!(room, 978.);
-    // Where the picker is on screen: its right edge, which is the emoji
+    // Where the picker shows on screen: its right edge, which is the emoji
     // button's, must stay there however far its left edge is dragged.
-    let right_edge = || {
+    // The panel inside the popup, which spans all the room it could take:
+    // its left edge on the window and its width; and its top.
+    let found = || {
+        use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+        use std::ops::ControlFlow;
         let inner = i_slint_core::window::WindowInner::from_pub(window.window());
         let popups = inner.active_popups();
         let popup = popups.last().expect("the picker is open");
-        let x = match &popup.location {
-            i_slint_core::window::PopupWindowLocation::ChildWindow(place) => place.x,
-            i_slint_core::window::PopupWindowLocation::TopLevel(_) => panic!("not a child"),
+        let i_slint_core::window::PopupWindowLocation::ChildWindow(place) = popup.location else {
+            panic!("not a child window");
         };
-        let width = i_slint_core::item_tree::ItemTreeRc::borrow_pin(&popup.component)
-            .as_ref()
-            .item_geometry(0)
-            .width();
+        let panel = ItemRc::new_root(popup.component.clone())
+            .visit_descendants(|item| {
+                let label = item.accessible_string_property(AccessibleStringProperty::Label);
+                if label.as_deref() == Some("Expression Picker") {
+                    ControlFlow::Break(item.clone())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .expect("the picker's panel");
+        let geometry = panel.geometry();
+        let at = panel.map_to_item_tree(geometry.origin, &popup.component);
+        (place.x + at.x, geometry.width(), place.y + at.y)
+    };
+    let panel = || {
+        let (x, width, _) = found();
+        (x, width)
+    };
+    let right_edge = || {
+        let (x, width) = panel();
         x + width
     };
-    assert_eq!(right_edge(), 1058.);
+    assert_eq!(panel(), (560., 498.));
     // Its left edge is the right edge less its width, 1058 - 498 = 560, and
     // the handle starts there: press 4px into it, then move the pointer, as a
     // mouse reports it, several times. Each move must widen the picker by the
@@ -6765,10 +6788,14 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
             });
         settle(&window);
     };
+    // A press and a release that don't move it keep no width.
+    press(564.);
+    release(564.);
+    assert!(chosen.borrow().is_empty());
     press(564.);
     moved(514.);
     assert_eq!(window.get_gif_picker_shown(), 548.);
-    assert_eq!(right_edge(), 1058.);
+    assert_eq!(panel(), (510., 548.));
     moved(464.);
     assert_eq!(window.get_gif_picker_shown(), 598.);
     assert_eq!(right_edge(), 1058.);
@@ -6780,6 +6807,22 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     release(414.);
     assert_eq!(window.get_gif_picker_width(), 648.);
     assert_eq!(right_edge(), 1058.);
+    assert_eq!(*chosen.borrow(), [648.]);
+    // The emoji keep the width the picker opens at; the GIFs come back at
+    // the width dragged.
+    let tabs = found().2 + 30.;
+    click(410. + 110., tabs);
+    assert_eq!(panel(), (560., 498.));
+    // A click on the panel's empty places keeps it open; one beside it, in
+    // the room it could take, closes it.
+    click(560. + 300., tabs);
+    assert_eq!(panel(), (560., 498.));
+    click(300., tabs);
+    let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+    assert!(inner.active_popups().is_empty());
+    // It opens again on the GIFs, at the width dragged.
+    click(992., 710.);
+    assert_eq!(panel(), (410., 648.));
     // Back to the right, the edge follows the pointer to the width it opens
     // at, and no further.
     press(414.);

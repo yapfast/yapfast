@@ -1823,10 +1823,18 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.anchor-y - self.height - 8px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         // A click beside the picker, in the room it could have taken, closes
-        // it as one outside the popup does.
-        TouchArea { clicked => { expressions.close(); } }
+        // it as one outside the popup does. It covers only that room: under
+        // the panel it would take the clicks that fall through the panel's
+        // own empty places.
+        TouchArea {
+            width: parent.width - panel.width; x: 0px;
+            clicked => { expressions.close(); }
+        }
+        // The emoji keep the width the picker opens at: only the GIFs' grid
+        // takes more columns as it widens.
         panel := Rectangle {
-            x: parent.width - root.gif-picker-shown; width: root.gif-picker-shown;
+            width: root.expression-tab == 0 ? root.gif-picker-shown : 498px;
+            x: parent.width - self.width;
             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             clip: true;
@@ -1862,8 +1870,11 @@ export component YapfastWindow inherits Window {
             }
             // The picker's left edge drags it wider, as Discord's: the right
             // edge and the height stay, and it stops just past the server
-            // list. Letting go keeps the width for the next start.
+            // list. Letting go keeps the width for the next start, if the
+            // drag changed it.
             if root.expression-tab == 0: edge := TouchArea {
+                // The width the drag started from.
+                property <length> from;
                 x: 0px; y: 0px; width: 8px; height: parent.height;
                 mouse-cursor: ew-resize;
                 moved => {
@@ -1872,7 +1883,13 @@ export component YapfastWindow inherits Window {
                     }
                 }
                 pointer-event(event) => {
-                    if event.kind == PointerEventKind.up { root.gif-picker-width-chosen(root.gif-picker-shown); }
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                        self.from = root.gif-picker-shown;
+                    }
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.up
+                        && root.gif-picker-shown != self.from {
+                        root.gif-picker-width-chosen(root.gif-picker-shown);
+                    }
                 }
                 Rectangle {
                     x: 3px; width: 2px; height: parent.height;

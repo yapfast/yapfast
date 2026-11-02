@@ -135,8 +135,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   favourites; GIFs and moving pictures in messages have the star too. Its left
   edge drags it wider, as Discord's does: the right edge and the height stay,
   the grid fits another column for every 212px, and the edge stops 8px past
-  the server list. The width is kept in `layout.json` (`gif_picker_width`) and
-  comes back at the next start. See [Discord](discord/messages.md#gifs).
+  the server list. The Emoji tab keeps the 498px the picker opens at. A drag
+  that changed the width keeps it in `layout.json` (`gif_picker_width`), and
+  it comes back at the next start. See [Discord](discord/messages.md#gifs).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the
