@@ -103,6 +103,16 @@ row is no longer shown or goes. A wheel scroll animates
 animation when rows go in above inside `hold`. This is `yapfast_anchor.rs` and the
 changes marked `Yapfast:` in `model/repeater.rs`.
 
+When `content-y` moves to the end of a `ListView` or past it, as when the
+timeline follows its newest message or a scroll reaches the end, the list lays
+its rows out up from the last, which ends at the bottom of the view, measuring
+each as drawn. Upstream lays them out down from the row the average row height
+puts there, which lands short of the end or past it, so `content-height`
+changes again and whatever follows the end moves `content-y` again, one round
+of change handlers each time. Slint allows ten such rounds in a row before it
+warns of a long callback chain. This is `yapfast_layout_end` in
+`model/repeater.rs`.
+
 A `TextInput` draws parts of its text as a `StyledText` draws a mention, in
 a colour on a pill of it, so the composer shows whom its message will
 mention. Yapfast marks a text's byte ranges with

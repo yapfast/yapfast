@@ -128,7 +128,8 @@ struct RepeaterInner<C: RepeatedItemTree> {
     yapfast_hold: YapfastHold,
 }
 
-/// Yapfast: what `yapfast_anchor::hold` asks of a ListView's layout.
+/// Yapfast: what `yapfast_anchor::hold` asks of a ListView's layout, and what the layout at the
+/// end of the list needs from the one before.
 #[derive(Clone, Copy, Default, Debug)]
 struct YapfastHold {
     /// Rows went in above the instances, and the first instance's height then, when they went in
@@ -137,6 +138,8 @@ struct YapfastHold {
     /// The row that keeps its bottom edge where it is in the view, as its height changes, once
     /// rows went in right above it, until it isn't instantiated anymore.
     anchor: Option<YapfastAnchor>,
+    /// The `content-height` the last layout set.
+    content_height: Coord,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -323,12 +326,38 @@ fn update_visible_instances(
         props.content_height_set(zero);
         props.content_y_set(zero);
         props.content_width_set(listview_width);
+        yapfast.content_height = 0 as Coord;
         return false;
     }
 
     let mut content_y_value = props.content_y_get().get();
     if !props.content_y_has_binding() {
         content_y_value = content_y_value.min(0 as Coord);
+    }
+
+    // Yapfast: `content-y` moved to the end of the list or past it, as when a chat's timeline
+    // follows its newest row, or a scroll reaches the end. The rows are laid out up from the
+    // last, which ends at the bottom of the view. Laid out down from the row the average height
+    // puts at that `content-y`, they end short of the end or past it: `content-height` changes
+    // again, and whatever follows the end moves `content-y` again, a round of change handlers
+    // each time, until the average settles.
+    if yapfast.added.is_none()
+        && props.computes_content_height()
+        && content_y_value != state.previous_content_y
+        && listview_height > 0 as Coord
+        && yapfast.content_height > listview_height
+        && content_y_value <= listview_height - yapfast.content_height + 0.5 as Coord
+    {
+        yapfast.anchor = None;
+        return yapfast_layout_end(
+            ops,
+            state,
+            row_count,
+            props,
+            listview_width,
+            listview_height,
+            yapfast,
+        );
     }
 
     let mut changed = false;
@@ -492,7 +521,8 @@ fn update_visible_instances(
         // Recompute coordinates for the scrollbar.
         state.cached_item_height = (y - new_offset_y) / ops.len() as Coord;
         state.anchor_y = state.cached_item_height * state.offset as Coord;
-        props.content_height_set(LogicalLength::new(state.cached_item_height * row_count as Coord));
+        yapfast.content_height = state.cached_item_height * row_count as Coord;
+        props.content_height_set(LogicalLength::new(yapfast.content_height));
         props.content_width_set(LogicalLength::new(content_width_value));
         let new_content_y = -state.anchor_y + new_offset_y;
         if let (Some(anchor), Some(bottom)) = (&mut yapfast.anchor, anchor_bottom) {
@@ -519,6 +549,72 @@ fn update_visible_instances(
         break;
     }
 
+    changed
+}
+
+/// Yapfast: lays the rows out up from the last, whose bottom edge is the bottom of the view, for
+/// `content-y` at the end of the list; see `update_visible_instances`. Returns whether any instance
+/// was created.
+fn yapfast_layout_end(
+    ops: &mut impl RepeaterInstanceOps,
+    state: &mut RepeaterLayoutState,
+    row_count: usize,
+    props: &dyn ListViewProperties,
+    listview_width: LogicalLength,
+    listview_height: Coord,
+    yapfast: &mut YapfastHold,
+) -> bool {
+    let mut changed = false;
+    // The instances run on to the last row: the rows after them go in, unless there are more of
+    // those than instances, when the instances go and new ones are made from the end.
+    let end = state.offset + ops.len();
+    if ops.len() == 0 || end > row_count || row_count - end > ops.len() {
+        ops.splice(0, ops.len(), 0);
+        state.offset = row_count;
+    } else if end < row_count {
+        ops.splice(ops.len(), 0, row_count - end);
+    }
+
+    // Up from the last row, until the rows fill the view or the first row is reached. Each is
+    // measured with the parts its data shows or hides made, as drawing it would make them.
+    let mut top = listview_height;
+    let mut first = ops.len();
+    while top > 0 as Coord && first > 0 {
+        first -= 1;
+        changed |= ops.ensure_updated(first, state.offset + first);
+        top -= ops.yapfast_settled_height(first).unwrap_or(0 as Coord);
+    }
+    while top > 0 as Coord && state.offset > 0 {
+        state.offset -= 1;
+        ops.splice(0, 0, 1);
+        changed |= ops.ensure_updated(0, state.offset);
+        top -= ops.yapfast_settled_height(0).unwrap_or(0 as Coord);
+    }
+    if first > 0 {
+        ops.splice(0, first, 0);
+        state.offset += first;
+    }
+    // Rows shorter than the view all together start at its top.
+    let top = top.min(0 as Coord);
+
+    let mut y = top;
+    let mut content_width_value = listview_width.get();
+    for i in 0..ops.len() {
+        content_width_value = content_width_value.max(ops.listview_layout(i, &mut y));
+    }
+
+    state.cached_item_height = (y - top) / ops.len() as Coord;
+    state.anchor_y = state.cached_item_height * state.offset as Coord;
+    yapfast.content_height = state.cached_item_height * row_count as Coord;
+    props.content_height_set(LogicalLength::new(yapfast.content_height));
+    props.content_width_set(LogicalLength::new(content_width_value));
+    // Worked out as a timeline works out its end, `min(0px, height - content-height)`, so that
+    // following the end sets the same `content-y` again.
+    let content_y = (listview_height - yapfast.content_height).min(0 as Coord);
+    if content_y != props.content_y_get_internal().get() {
+        props.content_y_set(LogicalLength::new(content_y));
+    }
+    state.previous_content_y = content_y;
     changed
 }
 
