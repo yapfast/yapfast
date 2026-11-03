@@ -14,6 +14,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // Deliver their requests in one batch after the current UI work.
     let pending = Rc::new(RefCell::new(HashSet::new()));
     let timer = Rc::new(slint::Timer::default());
+    let last = Rc::new(Cell::new(None));
     let state = Rc::downgrade(adapter);
     let weak = window.as_weak();
     window
@@ -28,7 +29,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let (pending, state, weak) = (pending.clone(), state.clone(), weak.clone());
             timer.start(
                 slint::TimerMode::SingleShot,
-                Duration::from_millis(50),
+                report_delay(&last),
                 move || {
                     let urls = pending.borrow_mut().drain().collect();
                     if let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) {
@@ -41,6 +42,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let timer = Rc::new(slint::Timer::default());
+    let last = Rc::new(Cell::new(None));
     let state = Rc::downgrade(adapter);
     let weak = window.as_weak();
     window.on_media_viewport(move || {
@@ -50,7 +52,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let (state, weak) = (state.clone(), weak.clone());
         timer.start(
             slint::TimerMode::SingleShot,
-            Duration::from_millis(50),
+            report_delay(&last),
             move || {
                 let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) else {
                     return;
@@ -87,6 +89,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // The thread beside the open channel reports its rows in view the same
     // way, the latest of those a burst of scrolling reported.
     let timer = Rc::new(slint::Timer::default());
+    let last = Rc::new(Cell::new(None));
     let range = Rc::new(Cell::new((-1, -1)));
     let state = Rc::downgrade(adapter);
     let weak = window.as_weak();
@@ -98,7 +101,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let (state, weak, range) = (state.clone(), weak.clone(), range.clone());
         timer.start(
             slint::TimerMode::SingleShot,
-            Duration::from_millis(50),
+            report_delay(&last),
             move || {
                 let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) else {
                     return;
@@ -302,6 +305,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     }
     bind!(on_close_forward, Action::CloseForward);
+    bind!(on_close_switcher, Action::CloseSwitcher);
     bind!(on_dismiss_notice, Action::DismissNotice);
     bind!(on_close_image, Action::CloseImage);
     {
@@ -435,6 +439,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind_item!(on_start_forward, Action::StartForward);
     bind_item!(on_forward_choose, Action::ChooseForward);
     bind_item!(on_forward_send, Action::Forward);
+    bind_item!(on_switcher_search, Action::SearchSwitcher);
+    bind_item!(on_switch_to, Action::SwitchTo);
     bind!(on_open_new_dm, Action::OpenNewDm);
     bind!(on_open_add_friend, Action::OpenAddFriend);
     bind!(on_open_requests, Action::OpenDmScreen(DmScreen::Requests));
@@ -451,9 +457,44 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_close_invite, Action::CloseInvite);
     bind!(on_open_join_server, Action::OpenJoinServer);
     bind!(on_join_server, Action::JoinServer);
+    bind!(on_authorize_oauth, Action::AuthorizeOAuth);
+    bind!(on_close_oauth, Action::CloseOAuth);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_choose_oauth_guild(move |index| {
+            let guild = {
+                let adapter = adapter.borrow();
+                adapter
+                    .app
+                    .state
+                    .oauth
+                    .as_ref()
+                    .and_then(|dialog| dialog.preview.as_ref())
+                    .and_then(|preview| {
+                        preview
+                            .guilds
+                            .iter()
+                            .filter(|guild| guild.can_add)
+                            .nth(usize::try_from(index).unwrap_or_default())
+                    })
+                    .map(|guild| guild.id.clone())
+            };
+            if let (Some(window), Some(guild)) = (weak.upgrade(), guild) {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::ChooseOAuthGuild(guild));
+            }
+        });
+    }
+    bind!(on_redeem_gift, Action::RedeemGift);
+    bind!(on_open_gift_in_browser, Action::OpenGiftInBrowser);
+    bind!(on_close_gift, Action::CloseGift);
     bind!(on_open_join_captcha, Action::OpenJoinCaptcha);
     bind!(on_open_join_form, Action::OpenJoinForm);
     bind!(on_close_join, Action::CloseJoin);
+    bind!(on_toggle_event_interest, Action::ToggleEventInterest);
+    bind!(on_close_event, Action::CloseEvent);
     bind_item!(on_find_invite, Action::FindInvite);
     bind_item!(on_open_invite, Action::OpenInvite);
     {
@@ -909,6 +950,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter.layout.write(&adapter.root);
     });
     let state = adapter.clone();
+    window.on_gif_picker_width_chosen(move |width| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.gif_picker_width = Some(width);
+        adapter.layout.write(&adapter.root);
+    });
+    let state = adapter.clone();
     window.on_member_list_toggled(move |shown| {
         let mut adapter = state.borrow_mut();
         adapter.layout.members_hidden = !shown;
@@ -1007,16 +1054,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             state.borrow_mut().action(&window, action);
             return;
         }
-        // An invite to a Discord server shows the server, and joins only
-        // when asked, whatever the link's text says.
+        // Discord's own links open their place here, when Yapfast can show
+        // it, and in the browser otherwise. An invite shows its server
+        // first and joins only when asked, whatever the text says.
         #[cfg(feature = "discord")]
-        if let Some(code) =
-            yapfast_core::discord::invite_code(links::masked(&link).unwrap_or(&link))
+        if let Some(route) =
+            yapfast_core::discord::discord_route(links::masked(&link).unwrap_or(&link))
+                .filter(|route| state.borrow().app.state.opens_discord_route(route))
         {
             if let Some(window) = weak.upgrade() {
                 state
                     .borrow_mut()
-                    .action(&window, Action::OpenInviteLink(code.to_owned()));
+                    .action(&window, discord_link_action(&window, route));
             }
             return;
         }
@@ -1108,6 +1157,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let weak = window.as_weak();
+    window.on_call_volumes_changed(move || {
+        if let Some(window) = weak.upgrade() {
+            play_call_volumes(&window);
+        }
+    });
+    let weak = window.as_weak();
     window.on_record_talk_key(move |on| {
         if let Some(window) = weak.upgrade() {
             window.set_talk_recording(on);
@@ -1144,6 +1199,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         yapfast_core::push_to_talk::set_on(layout.input_mode == InputMode::PushToTalk);
         layout.push_to_talk_release_delay = Some(window.get_talk_delay().max(0) as u32);
         yapfast_core::push_to_talk::set_release_delay(layout.release_delay());
+        layout.microphone_volume = Some(window.get_microphone_volume().clamp(0, 200) as u8);
+        layout.speaker_volume = Some(window.get_speaker_volume().clamp(0, 200) as u8);
+        play_call_volumes(&window);
         layout.share_typing = Some(window.get_share_typing());
         layout.notifications = Some(window.get_notifications());
         layout.notification_text = Some(window.get_notification_text());
@@ -1166,6 +1224,16 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 Err(error) => {
                     tracing::warn!(%error, "could not change starting at sign-in");
                     window.set_start_on_sign_in(!start);
+                }
+            }
+        }
+        let discord_links = window.get_discord_links();
+        if PROTOCOL.get() && discord_links != crate::protocol::discord_enabled(&adapter.root) {
+            match crate::protocol::set_discord_enabled(&adapter.root, discord_links) {
+                Ok(()) => tracing::info!(discord_links, "Discord link handling changed"),
+                Err(error) => {
+                    tracing::warn!(%error, "could not change Discord link handling");
+                    window.set_discord_links(!discord_links);
                 }
             }
         }
@@ -1845,14 +1913,21 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             .upgrade()
             .map_or(1.0, |window| window.window().scale_factor());
         let (width, height) = ((160.0 * scale).ceil() as u32, (90.0 * scale).ceil() as u32);
-        // Listing starts a capturer for screens and one for windows, so it
-        // runs beside the window, and the menu opens when it's done.
+        // Listing starts a capturer for screens and one for windows, and
+        // looks at each camera, so it runs beside the window, and the menu
+        // opens when it's done.
         let weak = weak.clone();
         std::thread::spawn(move || {
-            let listed = yapfast_core::stream_worker::shareable();
-            let (screens, windows): (Vec<_>, Vec<_>) = listed
-                .into_iter()
-                .partition(|listed| matches!(listed.source, Source::Display(_)));
+            let mut screens = vec![];
+            let mut windows = vec![];
+            let mut cameras = vec![];
+            for listed in yapfast_core::stream_worker::shareable() {
+                match listed.source {
+                    Source::Display(_) => screens.push(listed),
+                    Source::Camera(_) => cameras.push(listed),
+                    _ => windows.push(listed),
+                }
+            }
             let ids: Vec<u64> = screens
                 .iter()
                 .filter_map(|listed| match listed.source {
@@ -1868,17 +1943,27 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                         picture: Default::default(),
                     })
                     .collect();
-                let titles: Vec<SharedString> = windows
-                    .iter()
-                    .map(|listed| listed.title.as_str().into())
-                    .collect();
+                let titles = |listed: &[yapfast_core::stream_worker::Shareable]| {
+                    let titles: Vec<SharedString> = listed
+                        .iter()
+                        .map(|listed| listed.title.as_str().into())
+                        .collect();
+                    ModelRc::new(VecModel::from(titles))
+                };
                 window.set_share_screens(Rc::new(VecModel::from(rows)).into());
-                window.set_share_windows(Rc::new(VecModel::from(titles)).into());
+                window.set_share_windows(titles(&windows));
+                window.set_share_cameras(titles(&cameras));
+                // Where the system's dialog picks a screen or window, the
+                // menu's first choice asks it, before the cameras.
+                let dialog =
+                    (!yapfast_core::stream_worker::LISTS_SOURCES).then_some(Source::Screen);
                 SHAREABLE.with_borrow_mut(|shareable| {
                     *shareable = screens
-                        .iter()
-                        .chain(&windows)
+                        .into_iter()
+                        .chain(windows)
                         .map(|listed| listed.source)
+                        .chain(dialog)
+                        .chain(cameras.into_iter().map(|listed| listed.source))
                         .collect();
                 });
                 window.invoke_show_share_menu();
@@ -1911,7 +1996,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                             let at = SHAREABLE.with_borrow(|shareable| {
                                 shareable
                                     .iter()
-                                    .position(|&source| source == Source::Display(id))
+                                    .position(|source| *source == Source::Display(id))
                             });
                             let screens = window.get_share_screens();
                             if let Some(at) = at
@@ -1933,6 +2018,16 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
         });
     });
+    // Without Discord there's nothing to list; the menu still picks the
+    // quality.
+    #[cfg(not(feature = "discord"))]
+    let weak = window.as_weak();
+    #[cfg(not(feature = "discord"))]
+    window.on_list_share_sources(move || {
+        if let Some(window) = weak.upgrade() {
+            window.invoke_show_share_menu();
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_go_live(move |source, resolution, fps, high_quality| {
@@ -1940,7 +2035,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             #[cfg(feature = "discord")]
             {
                 let picked =
-                    SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).copied());
+                    SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).cloned());
                 yapfast_core::stream_worker::pick(
                     picked.unwrap_or(yapfast_core::stream_worker::Source::Screen),
                 );
@@ -1968,7 +2063,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if let Some(window) = weak.upgrade() {
             #[cfg(feature = "discord")]
             if let Some(picked) =
-                SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).copied())
+                SHAREABLE.with_borrow(|shareable| shareable.get(source as usize).cloned())
             {
                 yapfast_core::stream_worker::pick(picked);
             }
@@ -2268,6 +2363,92 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_play_soundboard(move |id| {
+        let Some(window) = weak.upgrade() else { return };
+        state.borrow_mut().action(
+            &window,
+            Action::Voice(voice::Command::Soundboard(id.into())),
+        );
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_preview_soundboard(move |id| {
+        let Some(window) = weak.upgrade() else { return };
+        state.borrow_mut().action(
+            &window,
+            Action::Voice(voice::Command::PreviewSound(id.into())),
+        );
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_favorite_soundboard(move |id, favorite| {
+        let Some(window) = weak.upgrade() else { return };
+        state.borrow_mut().action(
+            &window,
+            Action::Voice(voice::Command::FavoriteSound(id.into(), favorite)),
+        );
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_soundboard_volume_committed(move |volume| {
+        let Some(window) = weak.upgrade() else { return };
+        state
+            .borrow_mut()
+            .action(&window, Action::SoundboardVolume(volume as f32));
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_entrance_sounds_wanted(move || {
+        let Some(window) = weak.upgrade() else { return };
+        state.borrow_mut().action(&window, Action::LoadSoundCatalog);
+    });
+    // Another server's entrance sound shows.
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_entrance_server_chosen(move |_| {
+        let Some(window) = weak.upgrade() else { return };
+        state.borrow_mut().refresh(&window);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_choose_entrance_sound(move |id| {
+        let Some(window) = weak.upgrade() else { return };
+        let server = {
+            let adapter = state.borrow();
+            usize::try_from(window.get_entrance_server())
+                .ok()
+                .and_then(|index| adapter.entrance_servers.get(index).cloned())
+                .flatten()
+        };
+        let sound = (!id.is_empty()).then(|| id.to_string());
+        state
+            .borrow_mut()
+            .action(&window, Action::SetJoinSound { server, sound });
+    });
+    // The sounds' custom emoji come once the soundboard shows.
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_soundboard_opened(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let pictures: Vec<String> = state
+            .borrow()
+            .app
+            .state
+            .voice
+            .soundboard
+            .iter()
+            .flat_map(|groups| groups.iter())
+            .flat_map(|group| &group.sounds)
+            .filter_map(|sound| sound.picture.clone())
+            .collect();
+        if !pictures.is_empty() {
+            state
+                .borrow_mut()
+                .action(&window, Action::LoadPictures(pictures));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_toggle_camera(move || {
         let Some(window) = weak.upgrade() else { return };
         // A click while the camera starts cancels it.
@@ -2426,8 +2607,9 @@ fn start_camera_test(adapter: &mut Adapter, window: &YapfastWindow) {
 }
 
 /// Tells each camera in the call where its tile shows, or that it doesn't,
-/// so pictures are made only for tiles in sight, at their size. With the
-/// call off screen, the camera in the corner shows there.
+/// so pictures are made only for tiles in sight, at their size, and
+/// whether it's the tile in focus. With the call off screen, the camera in
+/// the corner shows there.
 fn place_videos(adapter: &Adapter, window: &YapfastWindow) {
     let voice = &adapter.app.state.voice;
     let shown = window.get_grid_shown() && voice.active();
@@ -2452,7 +2634,13 @@ fn place_videos(adapter: &Adapter, window: &YapfastWindow) {
                     .filter(|_| shown)
                     .and_then(|tiles| tiles.shown_at(index + before, scale))
             };
+            let large = corner != Some(index)
+                && shown
+                && adapter
+                    .tiles
+                    .is_some_and(|tiles| tiles.focused == Some(index + before));
             feed.show_at(at);
+            feed.show_large(large);
         }
     }
 }
@@ -2470,8 +2658,80 @@ pub(super) fn web_address(link: &str) -> Option<&str> {
     (links::openable(link) && mention::target(link).is_none()).then_some(link)
 }
 
+/// What opening one of Discord's own links does. A profile link anchors
+/// its card to the clicked words, or the pointer, as a mention does.
+#[cfg(feature = "discord")]
+fn discord_link_action(window: &YapfastWindow, route: discord::DiscordRoute) -> Action {
+    match route {
+        discord::DiscordRoute::Invite { code } => Action::OpenInviteLink(code),
+        discord::DiscordRoute::Authorize { query } => Action::OpenOAuthLink(query),
+        discord::DiscordRoute::Gift { code } => Action::OpenGiftLink(code),
+        discord::DiscordRoute::Event { guild, event } => Action::OpenEventLink { guild, event },
+        discord::DiscordRoute::DirectMessages => Action::Navigate(Navigation::DirectMessages),
+        discord::DiscordRoute::Server { guild } => {
+            Action::Navigate(Navigation::Server(discord::server_id(&guild)))
+        }
+        discord::DiscordRoute::Channel { guild, channel } => {
+            Action::Open(discord::room_id(&guild, &channel))
+        }
+        discord::DiscordRoute::Message {
+            guild,
+            channel,
+            message,
+        } => Action::JumpInRoom {
+            room: discord::room_id(&guild, &channel),
+            item: format!("d:{message}"),
+        },
+        discord::DiscordRoute::User { user } => {
+            if let Some(rect) = i_slint_core::yapfast_selection::clicked_link() {
+                window.invoke_anchor_link(
+                    rect.origin.x,
+                    rect.origin.y,
+                    rect.size.width,
+                    rect.size.height,
+                );
+            }
+            window.set_profile_at_pointer(true);
+            Action::ShowProfile { user, large: false }
+        }
+    }
+}
+
 fn open_web_page(link: &str) {
     if links::openable(link) {
         super::browser::open(link);
+    }
+}
+
+/// The least time between two reports of what's in view, or of the pictures
+/// asked for, so scrolling sends one report per this much.
+const REPORT_SPACING: Duration = Duration::from_millis(50);
+
+/// How long to wait before a report, noting it as made then: no time after
+/// a quiet spell, so a channel just shown asks for its previews and avatars
+/// at once, else until [`REPORT_SPACING`] after the last. Even no time
+/// gathers everything the current layout asks for.
+fn report_delay(last: &Cell<Option<std::time::Instant>>) -> Duration {
+    let now = std::time::Instant::now();
+    let delay = last.get().map_or(Duration::ZERO, |last| {
+        REPORT_SPACING.saturating_sub(now.saturating_duration_since(last))
+    });
+    last.set(Some(now + delay));
+    delay
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn reports_at_once_after_a_quiet_spell_and_spaced_while_busy() {
+        let last = Cell::new(None);
+        assert_eq!(report_delay(&last), Duration::ZERO);
+        let busy = report_delay(&last);
+        assert!(busy > Duration::from_millis(40) && busy <= REPORT_SPACING);
+        last.set(Some(Instant::now() - REPORT_SPACING));
+        assert_eq!(report_delay(&last), Duration::ZERO);
     }
 }

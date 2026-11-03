@@ -105,6 +105,27 @@ fn device(id: Option<&str>, flow: EDataFlow) -> Result<IMMDevice> {
     }
 }
 
+/// The endpoint a stream for `id` would open now, by its id: the device's
+/// own while it's connected, and otherwise the default's, which Windows
+/// changes as devices come and go while streams stay where they opened.
+/// Empty if there's none.
+#[cfg(feature = "discord")]
+pub fn endpoint(id: Option<&str>, output: bool) -> String {
+    let flow = if output { eRender } else { eCapture };
+    let Ok(device) = device(id, flow).or_else(|_| device(None, flow)) else {
+        return String::new();
+    };
+    // SAFETY: GetId lends a string the caller frees.
+    unsafe {
+        let Ok(name) = device.GetId() else {
+            return String::new();
+        };
+        let id = name.to_string().unwrap_or_default();
+        windows::Win32::System::Com::CoTaskMemFree(Some(name.0 as *const _));
+        id
+    }
+}
+
 fn wave_format(format: Format) -> WAVEFORMATEXTENSIBLE {
     let bits = if format.float { 32 } else { 16 };
     let block = format.frame_bytes() as u16;

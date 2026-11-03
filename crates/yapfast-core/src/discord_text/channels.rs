@@ -114,6 +114,19 @@ impl Channels {
         }
     }
 
+    /// Live events went by without them, so every channel loads its latest
+    /// page again when it next opens.
+    pub(super) fn missed(&mut self) {
+        for channel in self
+            .open
+            .iter_mut()
+            .chain(&mut self.aside)
+            .chain(&mut self.recent)
+        {
+            channel.missed();
+        }
+    }
+
     /// Puts the newest messages of the channels that changed on disk.
     pub(super) fn save(&mut self) {
         for channel in self

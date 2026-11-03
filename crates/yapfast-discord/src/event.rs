@@ -102,6 +102,14 @@ events! {
     StreamUpdate = "STREAM_UPDATE",
     StreamDelete = "STREAM_DELETE",
     StreamServerUpdate = "STREAM_SERVER_UPDATE",
+    /// Someone sent a soundboard sound or an emoji into this account's call.
+    VoiceChannelEffectSend = "VOICE_CHANNEL_EFFECT_SEND",
+    /// A server's soundboard sounds, asked for with op 31.
+    SoundboardSounds = "SOUNDBOARD_SOUNDS",
+    GuildSoundboardSoundCreate = "GUILD_SOUNDBOARD_SOUND_CREATE",
+    GuildSoundboardSoundUpdate = "GUILD_SOUNDBOARD_SOUND_UPDATE",
+    GuildSoundboardSoundDelete = "GUILD_SOUNDBOARD_SOUND_DELETE",
+    GuildSoundboardSoundsUpdate = "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
     RelationshipAdd = "RELATIONSHIP_ADD",
     RelationshipUpdate = "RELATIONSHIP_UPDATE",
     RelationshipRemove = "RELATIONSHIP_REMOVE",
@@ -190,6 +198,24 @@ mod tests {
             ("STREAM_UPDATE", Event::StreamUpdate),
             ("STREAM_DELETE", Event::StreamDelete),
             ("STREAM_SERVER_UPDATE", Event::StreamServerUpdate),
+            ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
+            ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
+            (
+                "GUILD_SOUNDBOARD_SOUND_CREATE",
+                Event::GuildSoundboardSoundCreate,
+            ),
+            (
+                "GUILD_SOUNDBOARD_SOUND_UPDATE",
+                Event::GuildSoundboardSoundUpdate,
+            ),
+            (
+                "GUILD_SOUNDBOARD_SOUND_DELETE",
+                Event::GuildSoundboardSoundDelete,
+            ),
+            (
+                "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
+                Event::GuildSoundboardSoundsUpdate,
+            ),
             ("RELATIONSHIP_ADD", Event::RelationshipAdd),
             ("RELATIONSHIP_UPDATE", Event::RelationshipUpdate),
             ("RELATIONSHIP_REMOVE", Event::RelationshipRemove),

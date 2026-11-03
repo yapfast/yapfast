@@ -33,6 +33,11 @@ mod unsupported;
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 use unsupported as platform;
 
+#[cfg(feature = "discord")]
+mod lasting;
+#[cfg(feature = "discord")]
+pub use lasting::{LastingInput, LastingOutput};
+
 /// Whether this system has sound here.
 pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
 

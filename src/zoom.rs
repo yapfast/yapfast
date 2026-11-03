@@ -40,6 +40,7 @@ pub enum Step {
 pub struct Keys {
     control: bool,
     alt: bool,
+    shift: bool,
     /// Scrolling not yet worth a step, in pixels; positive scrolls up.
     scrolled: f64,
     /// The keys whose press zoomed, so their release is kept from Slint too.
@@ -57,11 +58,17 @@ pub enum Outcome {
 }
 
 impl Keys {
+    /// Ctrl is held, without Alt or Shift.
+    pub fn control_only(&self) -> bool {
+        self.control && !self.alt && !self.shift
+    }
+
     pub fn event(&mut self, event: &WindowEvent) -> Outcome {
         match event {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.control = modifiers.state().control_key();
                 self.alt = modifiers.state().alt_key();
+                self.shift = modifiers.state().shift_key();
                 if !self.control {
                     self.scrolled = 0.;
                 }
@@ -118,6 +125,7 @@ impl Keys {
                 // Ctrl may be let go elsewhere.
                 self.control = false;
                 self.alt = false;
+                self.shift = false;
                 self.scrolled = 0.;
                 Outcome::Pass
             }
@@ -238,6 +246,21 @@ mod tests {
         assert_eq!(saved(Some(1.25)), 1.25);
         assert_eq!(saved(Some(1.33)), 1.);
         assert_eq!(saved(None), 1.);
+    }
+
+    #[test]
+    fn ctrl_counts_alone_without_alt_or_shift() {
+        use slint::winit_030::winit::keyboard::ModifiersState;
+        let mut keys = Keys::default();
+        let modifiers = |state: ModifiersState| WindowEvent::ModifiersChanged(state.into());
+        keys.event(&modifiers(ModifiersState::CONTROL));
+        assert!(keys.control_only());
+        keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
+        assert!(!keys.control_only());
+        keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::ALT));
+        assert!(!keys.control_only());
+        keys.event(&WindowEvent::Focused(false));
+        assert!(!keys.control_only());
     }
 
     #[test]

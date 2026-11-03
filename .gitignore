@@ -7,18 +7,11 @@ __pycache__/
 .direnv/
 
 # Private working material, kept on this machine but out of the repository:
-# dated records, measurement data, framework trials, the beta server's
+# old plans and records (docs/archive), measurement data, experiments, the beta server's
 # deployment, and the design and product notes. scripts/warm-worktree copies
 # them into new worktrees.
 /docs/archive/
 /docs/experiments/
-/docs/frameworks/
-/docs/framework-comparison-plan.md
-/docs/implementation-plan.md
-/docs/slint-client-plan.md
-/docs/native-call-experiment.md
-/docs/development-status.md
-/docs/compatibility.md
 /docs/measurements/*
 !/docs/measurements/README.md
 /experiments/

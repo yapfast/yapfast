@@ -143,14 +143,44 @@ fn device(id: Option<&str>, sink: bool) -> Result<Option<String>> {
     }
     list(sink)?
         .into_iter()
-        .find(|(_, found)| found == description)
-        .map(|(name, _)| Some(name))
+        .find(|found| found.description == description)
+        .map(|found| Some(found.name))
         .context("device not found")
 }
 
-/// Every sink, or every source that is not a monitor, as its name and
-/// description.
-fn list(sinks: bool) -> Result<Vec<(String, String)>> {
+/// The sink or source a stream for `id` would open now, by its name and
+/// index, which a device gets anew each time it comes back: the server moves
+/// a stream to another device when its own goes away, and leaves it there
+/// when that returns. Empty for the default, which streams follow anyway.
+#[cfg(feature = "discord")]
+pub fn endpoint(id: Option<&str>, sink: bool) -> String {
+    let Some(description) = id
+        .and_then(|id| id.strip_prefix(NAMED))
+        .filter(|description| !description.starts_with("default: "))
+    else {
+        return String::new();
+    };
+    list(sink)
+        .ok()
+        .and_then(|devices| {
+            devices
+                .into_iter()
+                .find(|found| found.description == description)
+        })
+        .map(|found| format!("{}#{}", found.name, found.index))
+        .unwrap_or_default()
+}
+
+/// A sink or source as the server lists it.
+struct Listed {
+    name: String,
+    description: String,
+    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    index: u32,
+}
+
+/// Every sink, or every source that is not a monitor.
+fn list(sinks: bool) -> Result<Vec<Listed>> {
     let mut mainloop = Mainloop::new().context("no PulseAudio main loop")?;
     let mut context = Context::new(&mainloop, "Yapfast").context("no PulseAudio context")?;
     context
@@ -177,9 +207,11 @@ fn list(sinks: bool) -> Result<Vec<(String, String)>> {
         introspect.get_sink_info_list(move |result| match result {
             ListResult::Item(info) => {
                 if let (Some(name), Some(description)) = (&info.name, &info.description) {
-                    found
-                        .borrow_mut()
-                        .push((name.to_string(), description.to_string()));
+                    found.borrow_mut().push(Listed {
+                        name: name.to_string(),
+                        description: description.to_string(),
+                        index: info.index,
+                    });
                 }
             }
             ListResult::End | ListResult::Error => *done.borrow_mut() = true,
@@ -191,9 +223,11 @@ fn list(sinks: bool) -> Result<Vec<(String, String)>> {
         introspect.get_source_info_list(move |result| match result {
             ListResult::Item(info) if info.monitor_of_sink.is_none() => {
                 if let (Some(name), Some(description)) = (&info.name, &info.description) {
-                    found
-                        .borrow_mut()
-                        .push((name.to_string(), description.to_string()));
+                    found.borrow_mut().push(Listed {
+                        name: name.to_string(),
+                        description: description.to_string(),
+                        index: info.index,
+                    });
                 }
             }
             ListResult::Item(_) => {}

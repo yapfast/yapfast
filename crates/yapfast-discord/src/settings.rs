@@ -152,7 +152,7 @@ pub fn read(encoded: &str) -> StatusSettings {
 }
 
 /// The last field `number` of `data` that holds a message.
-fn message(data: &[u8], number: u64) -> Option<&[u8]> {
+pub(crate) fn message(data: &[u8], number: u64) -> Option<&[u8]> {
     fields(data)
         .filter_map(|(field, value)| match value {
             Field::Bytes(bytes) if field == number => Some(bytes),
@@ -447,7 +447,7 @@ pub(crate) enum Field<'a> {
     Varint(u64),
     Fixed64(u64),
     Bytes(&'a [u8]),
-    Fixed32,
+    Fixed32(u32),
 }
 
 /// A protobuf message's fields, as far as they parse.
@@ -468,8 +468,9 @@ pub(crate) fn fields(mut data: &[u8]) -> impl Iterator<Item = (u64, Field<'_>)> 
                 Field::Bytes(bytes)
             }
             FIXED32 => {
-                data = data.get(4..)?;
-                Field::Fixed32
+                let (bytes, rest) = data.split_first_chunk::<4>()?;
+                data = rest;
+                Field::Fixed32(u32::from_le_bytes(*bytes))
             }
             _ => return None,
         };
@@ -508,9 +509,27 @@ pub(crate) fn put_bytes(out: &mut Vec<u8>, number: u64, bytes: &[u8]) {
     out.extend_from_slice(bytes);
 }
 
-fn put_fixed64(out: &mut Vec<u8>, number: u64, value: u64) {
+pub(crate) fn put_fixed64(out: &mut Vec<u8>, number: u64, value: u64) {
     put_varint(out, number << 3 | FIXED64);
     out.extend_from_slice(&value.to_le_bytes());
+}
+
+pub(crate) fn put_fixed32(out: &mut Vec<u8>, number: u64, value: u32) {
+    put_varint(out, number << 3 | FIXED32);
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Writes a field as [`fields`] read it, to keep it as it was.
+pub(crate) fn put_field(out: &mut Vec<u8>, number: u64, field: &Field<'_>) {
+    match *field {
+        Field::Varint(value) => {
+            put_varint(out, number << 3 | VARINT);
+            put_varint(out, value);
+        }
+        Field::Fixed64(value) => put_fixed64(out, number, value),
+        Field::Bytes(bytes) => put_bytes(out, number, bytes),
+        Field::Fixed32(value) => put_fixed32(out, number, value),
+    }
 }
 
 #[cfg(test)]

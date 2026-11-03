@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::{
     client,
-    forum::{self, Forum, GUILD_FORUM},
+    forum::{self, Forum, GUILD_FORUM, GUILD_MEDIA},
     notifications::{Level, Mute},
 };
 
@@ -49,6 +49,7 @@ pub mod permission {
     pub const MENTION_EVERYONE: u64 = 1 << 17;
     pub const VIEW_GUILD_ANALYTICS: u64 = 1 << 19;
     pub const CONNECT: u64 = 1 << 20;
+    pub const SPEAK: u64 = 1 << 21;
     /// Muting, deafening and moving members in voice channels; moving
     /// takes them out of voice too.
     pub const MUTE_MEMBERS: u64 = 1 << 22;
@@ -67,8 +68,12 @@ pub mod permission {
     pub const SEND_MESSAGES_IN_THREADS: u64 = 1 << 38;
     /// Timing members out.
     pub const MODERATE_MEMBERS: u64 = 1 << 40;
+    /// Playing the soundboard's sounds in voice channels, with `SPEAK`.
+    pub const USE_SOUNDBOARD: u64 = 1 << 42;
     /// Adding emoji, stickers and sounds, and changing one's own.
     pub const CREATE_GUILD_EXPRESSIONS: u64 = 1 << 43;
+    /// Playing other servers' sounds, for those with Nitro.
+    pub const USE_EXTERNAL_SOUNDS: u64 = 1 << 45;
     /// Posting polls, besides sending messages.
     pub const SEND_POLLS: u64 = 1 << 49;
     /// Pinning messages and unpinning them, which `MANAGE_MESSAGES` once gave.
@@ -247,6 +252,9 @@ pub struct Channel {
     /// `rate_limit_per_user` says; 0 without slowmode.
     #[serde(default)]
     pub slowmode: u32,
+    /// A stage channel, among the voice channels, where no join sound plays.
+    #[serde(default)]
+    pub stage: bool,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -696,8 +704,9 @@ impl Server {
             return;
         };
         match channel["type"].as_u64() {
-            // A forum lists among the text channels, as in Discord's client.
-            Some(GUILD_TEXT | GUILD_ANNOUNCEMENT | GUILD_FORUM) => {
+            // A forum or media channel lists among the text channels, as in
+            // Discord's client.
+            Some(GUILD_TEXT | GUILD_ANNOUNCEMENT | GUILD_FORUM | GUILD_MEDIA) => {
                 if let Some(channel) = parse_channel(channel) {
                     self.text_channels.push(channel);
                 }
@@ -1359,6 +1368,7 @@ fn parse_channel(channel: &Value) -> Option<Channel> {
             .map(Arc::from),
         overwrites: Arc::new(overwrites(channel)),
         announcement: channel["type"].as_u64() == Some(GUILD_ANNOUNCEMENT),
+        stage: channel["type"].as_u64() == Some(GUILD_STAGE_VOICE),
         archive_after: channel["default_auto_archive_duration"]
             .as_u64()
             .and_then(|minutes| u16::try_from(minutes).ok())
@@ -1438,6 +1448,14 @@ pub fn splash(guild: &str, hash: &str) -> String {
 /// A role's icon, as its settings show it.
 pub fn role_icon(role: &str, hash: &str) -> String {
     format!("{}/role-icons/{role}/{hash}.png?size=64", cdn())
+}
+
+/// An application's icon, as authorizing it shows it.
+pub fn application_icon(application: &str, hash: &str) -> String {
+    format!(
+        "{}/app-icons/{application}/{hash}.png?size={PICTURE_SIZE}",
+        cdn()
+    )
 }
 
 /// The banner a member set for one server.

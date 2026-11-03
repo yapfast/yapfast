@@ -6,7 +6,7 @@
 # Usage: scripts/compare-noise-suppression [LIMIT], LIMIT limiting how far
 # the suppressors turn noise down, in dB, as the setting does. It downloads
 # its recordings from Wikimedia Commons once, into .local/noise-suppression,
-# and prints tables; docs/discord.md records the results.
+# and prints tables.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 

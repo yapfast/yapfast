@@ -698,7 +698,7 @@ fn play_sound(mut output: Output<f32>, shared: &Shared) {
 
 /// Turns sound of any rate and channels into [`RATE`] stereo, by linear
 /// interpolation.
-struct Resampler {
+pub(crate) struct Resampler {
     channels: usize,
     /// Input frames for each output frame.
     step: f64,
@@ -709,7 +709,7 @@ struct Resampler {
 }
 
 impl Resampler {
-    fn new(rate: u32, channels: usize) -> Self {
+    pub(crate) fn new(rate: u32, channels: usize) -> Self {
         Self {
             channels,
             step: f64::from(rate) / f64::from(RATE),
@@ -725,7 +725,7 @@ impl Resampler {
 
     /// Takes sound at `rate` with `channels` from now on, as a file's
     /// decoder can change them partway.
-    fn follow(&mut self, rate: u32, channels: usize) {
+    pub(crate) fn follow(&mut self, rate: u32, channels: usize) {
         if rate > 0 {
             self.step = f64::from(rate) / f64::from(RATE);
         }
@@ -734,7 +734,7 @@ impl Resampler {
         }
     }
 
-    fn run(&mut self, input: &[f32]) -> Vec<f32> {
+    pub(crate) fn run(&mut self, input: &[f32]) -> Vec<f32> {
         let frames: Vec<[f32; 2]> = input
             .chunks_exact(self.channels.max(1))
             .map(stereo)

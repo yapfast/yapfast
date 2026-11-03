@@ -219,8 +219,14 @@ static void open_sound(struct yapfast_video *video) {
   video->channels = context->ch_layout.nb_channels;
 }
 
+/* What yapfast_video_open's `sound` asks for: the video alone, its sound
+ * too, or only the sound of a file that may have no pictures, such as an MP3
+ * or an Ogg file. */
+enum { PICTURES_ONLY = 0, WITH_SOUND = 1, SOUND_ONLY = 2 };
+
 /* Opens the first video in the file `source`, or returns NULL. With
- * `sound`, its sound comes too. What it is goes in `info`. */
+ * `sound`, its sound comes too, or with SOUND_ONLY, only its sound, which
+ * yapfast_video_next gives without pictures. What it is goes in `info`. */
 struct yapfast_video *yapfast_video_open(void *source, yapfast_read read, yapfast_seek seek_to,
                                    unsigned threads, int sound, struct yapfast_video_info *info) {
   /* FFmpeg writes to the standard error; Yapfast reports what fails itself. */
@@ -249,6 +255,29 @@ struct yapfast_video *yapfast_video_open(void *source, yapfast_read read, yapfas
     video->format = NULL;
     yapfast_video_free(video);
     return NULL;
+  }
+  if (sound == SOUND_ONLY) {
+    video->stream = -1;
+    /* An MP3's rate and channels are in its frames, not in a header. */
+    if (avformat_find_stream_info(video->format, NULL) < 0) {
+      yapfast_video_free(video);
+      return NULL;
+    }
+    open_sound(video);
+    if (video->sound_stream < 0) {
+      yapfast_video_free(video);
+      return NULL;
+    }
+    for (unsigned index = 0; index < video->format->nb_streams; index++) {
+      if ((int)index != video->sound_stream) video->format->streams[index]->discard = AVDISCARD_ALL;
+    }
+    video->start = video->format->start_time == AV_NOPTS_VALUE ? 0 : video->format->start_time;
+    info->duration_ms = video->format->duration != AV_NOPTS_VALUE
+                            ? video->format->duration / (AV_TIME_BASE / 1000)
+                            : -1;
+    info->sample_rate = video->sample_rate;
+    info->channels = video->channels;
+    return video;
   }
   video->stream = av_find_best_stream(video->format, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
   if (video->stream < 0) {

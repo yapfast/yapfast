@@ -664,6 +664,85 @@ fn says_how_long_a_game_has_run() {
 }
 
 #[test]
+fn a_chosen_device_that_went_away_shows_as_not_connected() {
+    let device = |id: &str, name: &str| voice::Device {
+        id: id.into(),
+        name: name.into(),
+    };
+    let mut names = HashMap::new();
+    let both = [
+        device("{speakers}", "Speakers"),
+        device("{headphones}", "Headphones"),
+    ];
+    let (rows, index) = device_rows(&both, Some("{headphones}"), &mut names);
+    assert_eq!(rows, ["Speakers", "Headphones"]);
+    assert_eq!(index, 1);
+    // They go away: still chosen, by the name they had, not another device.
+    let (rows, index) = device_rows(&both[..1], Some("{headphones}"), &mut names);
+    assert_eq!(rows, ["Speakers", "Headphones (not connected)"]);
+    assert_eq!(index, 1);
+    // A device known by its name, as on PulseAudio, has it in its id.
+    let (rows, index) = device_rows(&both[..1], Some("name:USB headset"), &mut HashMap::new());
+    assert_eq!(rows, ["Speakers", "USB headset (not connected)"]);
+    assert_eq!(index, 1);
+    // The default entry's id names the default it had; it stays the default.
+    let pulse = [
+        device("name:default: Headset", "default: Headset"),
+        device("name:Headset", "Headset"),
+        device("name:Built-in", "Built-in"),
+    ];
+    let (rows, index) = device_rows(&pulse, Some("name:default: Built-in"), &mut names);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(index, 0);
+    let (rows, index) = device_rows(&[], None, &mut names);
+    assert!(rows.is_empty());
+    assert_eq!(index, -1, "nothing to choose");
+    assert_eq!(
+        device_rows(&both, None, &mut names).1,
+        0,
+        "the default, listed first"
+    );
+}
+
+#[test]
+fn call_volumes_play_while_dragged_and_are_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    assert_eq!(window.get_microphone_volume(), 100, "as it comes");
+    assert_eq!(window.get_speaker_volume(), 100);
+    window.set_microphone_volume(200);
+    window.set_speaker_volume(50);
+    window.invoke_call_volumes_changed();
+    assert!((yapfast_core::volume::microphone() - 1.995).abs() < 1e-3);
+    assert!((yapfast_core::volume::speakers() - 0.143).abs() < 1e-3);
+    assert_eq!(
+        Layout::read(directory.path()).microphone_volume,
+        None,
+        "a drag's steps aren't saved"
+    );
+    window.invoke_preferences_changed();
+    let read = Layout::read(directory.path());
+    assert_eq!(read.microphone_volume, Some(200));
+    assert_eq!(read.speaker_volume, Some(50));
+    let defaults: Layout = serde_json::from_str("{}").unwrap();
+    defaults.apply(&window);
+    assert_eq!(yapfast_core::volume::microphone(), 1.0);
+    assert_eq!(yapfast_core::volume::speakers(), 1.0);
+    read.apply(&window);
+    assert_eq!(window.get_microphone_volume(), 200);
+    assert_eq!(window.get_speaker_volume(), 50);
+    defaults.apply(&window);
+}
+
+#[test]
 fn sound_settings_are_remembered() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -1421,6 +1500,58 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
 }
 
 #[test]
+fn an_event_shows_when_it_runs_and_where() {
+    use yapfast_core::{application::EventDialog, chat::EventPreview, clock};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    // A fortnight away, past the week its weekday would name, for two hours.
+    let starts = clock::now_ms() / 1000 + 14 * 86_400;
+    adapter.borrow_mut().app.state.scheduled_event = Some(EventDialog {
+        event: Some("11".into()),
+        preview: Some(EventPreview {
+            event: "11".into(),
+            guild: "10".into(),
+            name: "Alien meetup".into(),
+            description: None,
+            starts_at: starts,
+            ends_at: Some(starts + 7_200),
+            room: None,
+            location: Some("Somewhere in the ocean".into()),
+            creator: Some("Dziurwa".into()),
+            interested_count: Some(7),
+            active: false,
+            over: false,
+            interested: false,
+        }),
+        ..EventDialog::default()
+    });
+    adapter.borrow_mut().refresh(&window);
+    assert!(window.get_event_open());
+    let prompt = window.get_event_prompt();
+    let when = prompt.when.to_string();
+    assert!(
+        when.starts_with(&clock::day(starts)) && when.contains(&clock::time(starts)),
+        "the start's day and time: {when}"
+    );
+    assert!(
+        when.ends_with(&clock::time(starts + 7_200)),
+        "and its end: {when}"
+    );
+    assert_eq!(
+        prompt.detail,
+        "Somewhere in the ocean · by Dziurwa · 7 interested"
+    );
+    assert_eq!(prompt.confirm, "Interested");
+}
+
+#[test]
 fn menus_give_each_row_its_own_submenu_and_tick_checkboxes() {
     i_slint_backend_testing::init_no_event_loop();
     let window = YapfastWindow::new().unwrap();
@@ -1790,6 +1921,110 @@ fn forwarding_and_frequent_reactions_reach_the_window() {
 
     window.invoke_emoji_search("pizza".into());
     assert_eq!(window.get_emoji_rows().row_count(), 1);
+}
+
+#[test]
+fn the_quick_switcher_reaches_the_window() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    // Ctrl+K, which the native window's events carry.
+    adapter.borrow_mut().action(&window, Action::ToggleSwitcher);
+    assert!(window.get_switcher_open());
+    assert_eq!(window.get_switcher_query(), "");
+    window.invoke_switcher_search("gam".into());
+    let places = window.get_switcher_places();
+    let games = places.iter().find(|place| place.id == "games").unwrap();
+    assert!(!games.avatar, "a channel shows its own icon");
+    assert_eq!(games.place, "Friends");
+    window.invoke_switcher_search("*fri".into());
+    let places = window.get_switcher_places();
+    assert_eq!(places.row_count(), 1);
+    let server = places.row_data(0).unwrap();
+    assert_eq!((server.name.as_str(), server.avatar), ("Friends", true));
+    window.invoke_switch_to("games".into());
+    assert!(!window.get_switcher_open());
+    assert_eq!(
+        adapter.borrow().app.state.selected.as_deref(),
+        Some("games")
+    );
+    // Opened again, it starts afresh.
+    adapter.borrow_mut().action(&window, Action::ToggleSwitcher);
+    assert_eq!(window.get_switcher_query(), "");
+    window.invoke_close_switcher();
+    assert!(!window.get_switcher_open());
+}
+
+#[test]
+fn a_room_asks_for_earlier_messages_only_once_near_their_start() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    let asked = Rc::new(Cell::new(0));
+    window.on_earlier({
+        let asked = asked.clone();
+        move || asked.set(asked.get() + 1)
+    });
+    window.set_workspace(true);
+    window.set_room_selected(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // A frame or so: the list lays its rows out as time moves on.
+    let settle = || {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+            slint::platform::update_timers_and_animations();
+            let _ = window.invoke_timeline_extent();
+        }
+    };
+    let rows = |count: usize| -> ModelRc<MessageRow> {
+        let rows: Vec<MessageRow> = (0..count)
+            .map(|index| MessageRow {
+                id: format!("m{index}").into(),
+                item: format!("i{index}").into(),
+                author: "Bob".into(),
+                body: format!("Message {index}").into(),
+                first: true,
+                ..Default::default()
+            })
+            .collect();
+        ModelRc::new(VecModel::from(rows))
+    };
+    let wait = || {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(100));
+        settle();
+    };
+    // A room opens with its list at the top, then moves it to the newest
+    // message: that moment at the top isn't near its first loaded message.
+    window.set_room_ready(true);
+    for _ in 0..2 {
+        window.set_messages(rows(200));
+        settle();
+        window.invoke_scroll_to_latest();
+        settle();
+        wait();
+        assert_eq!(
+            asked.get(),
+            0,
+            "not at the newest message, far from the first"
+        );
+    }
+    // A room too short to fill the view wants more.
+    window.set_messages(rows(3));
+    settle();
+    window.invoke_scroll_to_latest();
+    wait();
+    assert_eq!(asked.get(), 1, "a short history asks for more");
+    window.hide().unwrap();
 }
 
 #[test]
@@ -5994,6 +6229,181 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn a_handed_link_waits_for_the_open_dialog() {
+    let (window, adapter, _directory) = discord_server_window();
+    adapter.borrow_mut().refresh(&window);
+    let query = |adapter: &Rc<RefCell<Adapter>>| {
+        let adapter = adapter.borrow();
+        let dialog = adapter.app.state.oauth.as_ref();
+        dialog.and_then(|dialog| dialog.query.clone())
+    };
+    window.invoke_open_link(
+        "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=bot".into(),
+    );
+    let shown = query(&adapter);
+    assert!(shown.is_some());
+    // Another app hands Yapfast a link to a different application while
+    // the dialog is open: an Authorize click is still for the first.
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.pending_link =
+            Some("discord://-/oauth2/authorize?client_id=157730590492196865&scope=bot".into());
+        adapter.open_pending_link(&window);
+    }
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+    assert_eq!(query(&adapter), shown, "the dialog keeps what it showed");
+    assert!(adapter.borrow().pending_link.is_some());
+    // Closing it opens the link that waited.
+    window.invoke_close_oauth();
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+    assert!(query(&adapter).is_some_and(|query| query.contains("157730590492196865")));
+    assert!(adapter.borrow().pending_link.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
+    use yapfast_core::application::OAuthDialog;
+    use yapfast_core::chat::{OAuthGuild, OAuthPreview};
+    let (window, adapter, _directory) = discord_server_window();
+    adapter.borrow_mut().refresh(&window);
+    // A plain bot link is the dialog's, not the browser's.
+    window.invoke_open_link(
+        "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=bot".into(),
+    );
+    assert!(adapter.borrow().app.state.oauth.is_some());
+    assert!(window.get_oauth_open());
+
+    let guild = |id: &str, name: &str, can_add| OAuthGuild {
+        id: id.into(),
+        name: name.into(),
+        icon: None,
+        can_add,
+    };
+    let preview = OAuthPreview {
+        query: "q".into(),
+        name: "Alien App".into(),
+        about: None,
+        icon: None,
+        bot: Some("Alien App".into()),
+        wants: vec![
+            "Add a bot to a server",
+            "Interface with your Discord client",
+        ],
+        // Administrator, View Channels, and bit 60, which no switch shows.
+        permissions: Some((1 << 3) | (1 << 10) | (1 << 60)),
+        controls_client: true,
+        authorized: false,
+        redirect: None,
+        guild_install: true,
+        guild_locked: true,
+        wanted_guild: Some("20".into()),
+        guilds: vec![guild("10", "Server", true), guild("20", "Builders", true)],
+    };
+    let mut adapter = adapter.borrow_mut();
+    adapter.app.state.oauth = Some(OAuthDialog {
+        query: Some("q".into()),
+        preview: Some(preview.clone()),
+        guild: Some("20".into()),
+        ..Default::default()
+    });
+    adapter.refresh(&window);
+    let prompt = window.get_oauth_prompt();
+    assert!(
+        prompt.warning.contains("control your Discord client"),
+        "{}",
+        prompt.warning
+    );
+    assert!(
+        prompt.warning.contains("Administrator"),
+        "{}",
+        prompt.warning
+    );
+    assert!(
+        prompt
+            .wants
+            .contains("- Interface with your Discord client")
+    );
+    assert!(
+        prompt.wants.contains("and 1 more permission"),
+        "{}",
+        prompt.wants
+    );
+    // The one server the link names shows, and no picker.
+    assert!(!prompt.guild_picker);
+    assert_eq!(prompt.guild_name, "Builders");
+    assert_eq!(prompt.confirm, "Authorize");
+
+    // A locked server she can't add apps to: no Authorize.
+    adapter.app.state.oauth = Some(OAuthDialog {
+        query: Some("q".into()),
+        preview: Some(preview),
+        guild: None,
+        error: Some("The link adds it only to a server you can't add apps to.".into()),
+        ..Default::default()
+    });
+    adapter.refresh(&window);
+    let prompt = window.get_oauth_prompt();
+    assert_eq!(prompt.confirm, "");
+    assert!(!prompt.error.is_empty());
+
+    // An address that isn't a web page waits to be copied.
+    adapter.app.state.oauth = Some(OAuthDialog {
+        query: Some("q".into()),
+        done: true,
+        next: Some("myapp://cb?code=x".into()),
+        ..Default::default()
+    });
+    adapter.refresh(&window);
+    let prompt = window.get_oauth_prompt();
+    assert_eq!(prompt.address, "myapp://cb?code=x");
+    assert_eq!(prompt.confirm, "");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn discord_links_open_channels_messages_and_profiles_here() {
+    let (window, adapter, _directory) = discord_server_window();
+    adapter.borrow_mut().refresh(&window);
+
+    window.invoke_open_link("https://discord.com/channels/10/11".into());
+    {
+        let adapter = adapter.borrow();
+        assert_eq!(
+            adapter.app.state.navigation,
+            Navigation::Server("discord:10".into())
+        );
+        assert_eq!(adapter.app.state.selected.as_deref(), Some("discord:10:11"));
+    }
+
+    adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
+        item: "d:42".into(),
+        body: "Linked".into(),
+        ..Default::default()
+    })]);
+    window.invoke_open_link("https://discord.com/channels/10/11/42".into());
+    assert_eq!(
+        adapter
+            .borrow()
+            .app
+            .state
+            .jump
+            .as_ref()
+            .map(|(item, _)| item.as_str()),
+        Some("d:42")
+    );
+
+    window.invoke_open_link("https://discord.com/users/4242".into());
+    {
+        let adapter = adapter.borrow();
+        let view = adapter.app.state.profile.as_ref().unwrap();
+        assert_eq!(view.profile.id, "4242");
+    }
+    assert!(window.get_profile_open());
+}
+
+#[test]
 fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
     use yapfast_core::chat::{
         Attachment, ButtonStyle, Card, CardButton as Button, CardRow as Row, Placement,
@@ -6255,4 +6665,180 @@ fn a_found_message_shows_its_blocks_with_spoilers_hidden() {
         .map(|block| i_slint_core::yapfast_selection::plain(&block.text))
         .collect();
     assert_eq!(plain, ["Plans", "meet at (spoiler)"]);
+}
+
+#[test]
+fn the_gif_picker_keeps_the_width_it_was_dragged_to() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_gif_picker_width_chosen(648.);
+    assert_eq!(Layout::read(directory.path()).gif_picker_width, Some(648.));
+    // A new window starts at the stored width.
+    let next = YapfastWindow::new().unwrap();
+    adapter.borrow_mut().attach(&next);
+    assert_eq!(next.get_gif_picker_width(), 648.);
+}
+
+#[test]
+fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list() {
+    let window = showing(vec![]);
+    window.set_can_pick_gifs(true);
+    // The widths letting go of the edge keeps.
+    let chosen = Rc::new(RefCell::new(vec![]));
+    let kept = chosen.clone();
+    window.on_gif_picker_width_chosen(move |width| kept.borrow_mut().push(width));
+    settle(&window);
+    let button = slint::platform::PointerEventButton::Left;
+    let at = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
+    let click = |x: f32, y: f32| {
+        let native = window.window();
+        native.dispatch_event(slint::platform::WindowEvent::PointerMoved { position: at(x, y) });
+        native.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: at(x, y),
+            button,
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: at(x, y),
+            button,
+        });
+        settle(&window);
+    };
+    // The GIF button in the composer opens the picker, 498px wide, its right
+    // edge on the emoji button's.
+    click(992., 710.);
+    assert_eq!(window.get_gif_picker_shown(), 498.);
+    assert_eq!(window.get_gif_grid_width(), 474.);
+    // Room for it up to 8px right of the server list, which is 80px from the
+    // window's left edge.
+    let room = window.get_gif_picker_room();
+    assert_eq!(room, 978.);
+    // Where the picker shows on screen: its right edge, which is the emoji
+    // button's, must stay there however far its left edge is dragged.
+    // The panel inside the popup, which spans all the room it could take:
+    // its left edge on the window and its width; and its top.
+    let found = || {
+        use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+        use std::ops::ControlFlow;
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let popups = inner.active_popups();
+        let popup = popups.last().expect("the picker is open");
+        let i_slint_core::window::PopupWindowLocation::ChildWindow(place) = popup.location else {
+            panic!("not a child window");
+        };
+        let panel = ItemRc::new_root(popup.component.clone())
+            .visit_descendants(|item| {
+                let label = item.accessible_string_property(AccessibleStringProperty::Label);
+                if label.as_deref() == Some("Expression Picker") {
+                    ControlFlow::Break(item.clone())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .expect("the picker's panel");
+        let geometry = panel.geometry();
+        let at = panel.map_to_item_tree(geometry.origin, &popup.component);
+        (place.x + at.x, geometry.width(), place.y + at.y)
+    };
+    let panel = || {
+        let (x, width, _) = found();
+        (x, width)
+    };
+    let right_edge = || {
+        let (x, width) = panel();
+        x + width
+    };
+    assert_eq!(panel(), (560., 498.));
+    // Its left edge is the right edge less its width, 1058 - 498 = 560, and
+    // the handle starts there: press 4px into it, then move the pointer, as a
+    // mouse reports it, several times. Each move must widen the picker by the
+    // distance the pointer travelled: Slint measures the pointer against the
+    // popup's place when it was pressed for the whole drag, so a width taken
+    // from the width so far would count that travel again on every move.
+    let press = |x: f32| {
+        let native = window.window();
+        native.dispatch_event(slint::platform::WindowEvent::PointerMoved {
+            position: at(x, 400.),
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: at(x, 400.),
+            button,
+        });
+    };
+    let moved = |x: f32| {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerMoved {
+                position: at(x, 400.),
+            });
+    };
+    let release = |x: f32| {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                position: at(x, 400.),
+                button,
+            });
+        settle(&window);
+    };
+    // A press and a release that don't move it keep no width.
+    press(564.);
+    release(564.);
+    assert!(chosen.borrow().is_empty());
+    press(564.);
+    moved(514.);
+    assert_eq!(window.get_gif_picker_shown(), 548.);
+    assert_eq!(panel(), (510., 548.));
+    moved(464.);
+    assert_eq!(window.get_gif_picker_shown(), 598.);
+    assert_eq!(right_edge(), 1058.);
+    moved(414.);
+    assert_eq!(window.get_gif_picker_shown(), 648.);
+    assert_eq!(right_edge(), 1058.);
+    // The grid takes the width it got: three columns of 200px.
+    assert_eq!(window.get_gif_grid_width(), 624.);
+    release(414.);
+    assert_eq!(window.get_gif_picker_width(), 648.);
+    assert_eq!(right_edge(), 1058.);
+    assert_eq!(*chosen.borrow(), [648.]);
+    // The emoji keep the width the picker opens at; the GIFs come back at
+    // the width dragged.
+    let tabs = found().2 + 30.;
+    click(410. + 110., tabs);
+    assert_eq!(panel(), (560., 498.));
+    // A click on the panel's empty places keeps it open; one beside it, in
+    // the room it could take, closes it.
+    click(560. + 300., tabs);
+    assert_eq!(panel(), (560., 498.));
+    click(300., tabs);
+    let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+    assert!(inner.active_popups().is_empty());
+    // It opens again on the GIFs, at the width dragged.
+    click(992., 710.);
+    assert_eq!(panel(), (410., 648.));
+    // Back to the right, the edge follows the pointer to the width it opens
+    // at, and no further.
+    press(414.);
+    moved(514.);
+    assert_eq!(window.get_gif_picker_shown(), 548.);
+    moved(700.);
+    assert_eq!(window.get_gif_picker_shown(), 498.);
+    release(700.);
+    assert_eq!(window.get_gif_picker_width(), 498.);
+    // Left again, the edge stops just past the server list.
+    press(564.);
+    moved(0.);
+    assert_eq!(window.get_gif_picker_shown(), room);
+    assert_eq!(right_edge(), 1058.);
+    release(0.);
+    assert_eq!(window.get_gif_picker_width(), room);
+    assert_eq!(right_edge(), 1058.);
+    window.hide().unwrap();
 }

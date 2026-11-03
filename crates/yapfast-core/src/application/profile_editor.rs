@@ -4,7 +4,7 @@
 //! banner that takes Nitro; and the profile in one server, from a server's
 //! "Edit server profile", with a nickname and pronouns anyone may set and
 //! an avatar, banner and bio that take Nitro. See "Editing one's profile"
-//! in docs/discord.md.
+//! in docs/discord/people.md.
 
 use super::*;
 use crate::chat::{OwnProfile, Permission, PickedPicture, ProfileChange, ProfilePicture};

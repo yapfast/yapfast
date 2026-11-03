@@ -596,6 +596,112 @@ fn discord_forwards_list_places_as_discords_dialog_does() {
 }
 
 #[test]
+fn the_quick_switcher_finds_places_as_discords_does() {
+    // Matrix rooms, with a Space as the server.
+    let mut app = connected();
+    app.state.rooms.extend(
+        [
+            ChatRoom {
+                locked: true,
+                ..preview_room("staff", "staff", false, 3)
+            },
+            ChatRoom {
+                category: crate::discord::REQUESTS.into(),
+                request: true,
+                ..preview_room("request", "Ronja", true, 2)
+            },
+        ]
+        .map(Arc::new),
+    );
+    app.dispatch(Action::Open("dm".into()));
+    app.dispatch(Action::Open("games".into()));
+    app.dispatch(Action::Open("general".into()));
+    let listed = |app: &Application| -> Vec<String> {
+        app.state
+            .switcher_places()
+            .iter()
+            .map(|place| place.name().to_owned())
+            .collect()
+    };
+    assert!(listed(&app).is_empty(), "closed");
+    app.dispatch(Action::ToggleSwitcher);
+    // Those opened lately, but not the one open.
+    assert_eq!(listed(&app), ["games", "DM"]);
+    // A search finds servers too, those as good by name, but not what this
+    // account can't read, nor message requests.
+    app.dispatch(Action::SearchSwitcher("s".into()));
+    assert_eq!(listed(&app), ["Friends", "games"]);
+    app.dispatch(Action::SearchSwitcher("g".into()));
+    assert_eq!(listed(&app), ["games", "general", "Lounge"]);
+    app.dispatch(Action::SearchSwitcher("ronja".into()));
+    assert!(listed(&app).is_empty());
+    app.dispatch(Action::SearchSwitcher("#g".into()));
+    assert_eq!(listed(&app), ["games", "general"]);
+    app.dispatch(Action::SearchSwitcher("!".into()));
+    assert_eq!(listed(&app), ["Lounge", "Party"]);
+    app.dispatch(Action::SearchSwitcher("*f".into()));
+    assert_eq!(listed(&app), ["Friends"]);
+    // Going to a place closes it; a server shows its channel shown last.
+    app.dispatch(Action::SwitchTo("dm".into()));
+    assert!(app.state.switcher.is_none());
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+    app.dispatch(Action::ToggleSwitcher);
+    app.dispatch(Action::SwitchTo("friends".into()));
+    assert_eq!(app.state.navigation, Navigation::Server("friends".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    app.dispatch(Action::ToggleSwitcher);
+    app.dispatch(Action::ToggleSwitcher);
+    assert!(app.state.switcher.is_none());
+    // A dialog keeps the keyboard.
+    app.dispatch(Action::OpenNewDm);
+    assert!(app.state.new_dm.is_some());
+    app.dispatch(Action::ToggleSwitcher);
+    assert!(app.state.switcher.is_none());
+}
+
+#[test]
+fn discord_forwards_list_eight_places_opened_lately_that_can_take_them() {
+    let mut app = connected();
+    let channel = |id: u32| ChatRoom {
+        id: crate::discord::room_id("10", &id.to_string()),
+        name: format!("c{id}"),
+        network: Network::Discord,
+        capabilities: Network::Discord.capabilities(),
+        ..preview_room("x", "x", false, 3)
+    };
+    app.state.rooms = (11..=20).map(channel).map(Arc::new).collect();
+    app.state.discord_online = true;
+    // Matrix rooms opened in between take room among those kept, but not
+    // among those listed.
+    for id in 11..=20 {
+        let room = crate::discord::room_id("10", &id.to_string());
+        app.state.places_used.visit(&room, crate::clock::now_ms());
+        app.state
+            .places_used
+            .visit(&format!("!m{id}:test"), crate::clock::now_ms());
+    }
+    app.state.selected = Some(crate::discord::room_id("10", "20"));
+    let mut sent = message("d:5", false);
+    sent.can_forward = true;
+    app.state.messages = Arc::new(timeline(vec![sent]));
+    app.dispatch(Action::StartForward("d:5".into()));
+    let listed: Vec<String> = app
+        .state
+        .forward_places()
+        .iter()
+        .map(|room| room.name.clone())
+        .collect();
+    // Those opened lately but the message's own, then the others used.
+    assert_eq!(
+        listed,
+        [
+            "c19", "c18", "c17", "c16", "c15", "c14", "c13", "c11", "c12"
+        ]
+    );
+}
+
+#[test]
 fn room_membership_loss_moves_selection_and_server_loss_returns_to_dms() {
     let mut app = connected();
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
@@ -3635,6 +3741,93 @@ fn discord_dms_list_with_their_pictures_and_read_once_read() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn a_linked_discord_profile_loads_for_someone_not_listed() {
+    let mut app = discord_server();
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::Open("discord:10:11".into()));
+
+    let effects = app.dispatch(Action::ShowProfile {
+        user: "4242".into(),
+        large: true,
+    });
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user }))
+                if room == "discord:10:11" && user == "4242"
+        )),
+        "Discord's profile is fetched"
+    );
+    let view = app.state.profile.as_ref().unwrap();
+    assert!(view.large && view.loading);
+    assert_eq!(view.profile.id, "4242");
+    assert_eq!(view.profile.name, "4242", "the id stands in while it loads");
+
+    app.apply(Event::Profile {
+        user: "4242".into(),
+        result: Ok(Profile {
+            id: "4242".into(),
+            name: "Nia".into(),
+            handle: "nia".into(),
+            ..Default::default()
+        }),
+    });
+    let view = app.state.profile.as_ref().unwrap();
+    assert!(!view.loading);
+    assert_eq!(view.profile.name, "Nia");
+    assert_eq!(view.profile.handle, "nia");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn discord_links_yapfast_cant_show_are_left_to_the_browser() {
+    use discord::DiscordRoute;
+    let channel = |guild: &str, channel: &str| DiscordRoute::Channel {
+        guild: guild.into(),
+        channel: channel.into(),
+    };
+    let user = DiscordRoute::User {
+        user: "4242".into(),
+    };
+    let event = |guild: &str| DiscordRoute::Event {
+        guild: guild.into(),
+        event: "12".into(),
+    };
+    let mut app = discord_server();
+    let state = &app.state;
+    assert!(state.opens_discord_route(&DiscordRoute::Server { guild: "10".into() }));
+    assert!(state.opens_discord_route(&channel("10", "11")));
+    assert!(
+        state.opens_discord_route(&channel("10", "77")),
+        "a thread, which opening asks for"
+    );
+    assert!(state.opens_discord_route(&user));
+    assert!(state.opens_discord_route(&event("10")));
+    assert!(
+        !state.opens_discord_route(&DiscordRoute::Server { guild: "50".into() }),
+        "a server the account isn't in"
+    );
+    assert!(!state.opens_discord_route(&event("50")));
+    assert!(!state.opens_discord_route(&channel("50", "51")));
+    assert!(
+        !state.opens_discord_route(&channel("@me", "77")),
+        "an unknown DM"
+    );
+
+    app.state.discord_online = false;
+    let state = &app.state;
+    assert!(state.opens_discord_route(&channel("10", "11")), "listed");
+    assert!(!state.opens_discord_route(&channel("10", "77")));
+    assert!(!state.opens_discord_route(&user));
+    assert!(!state.opens_discord_route(&DiscordRoute::Invite { code: "abc".into() }));
+    assert!(
+        !state.opens_discord_route(&event("10")),
+        "the server is listed, but the event can't be looked up"
+    );
+}
+
+#[test]
 fn matrix_profiles_show_what_the_member_list_knows() {
     let mut app = connected();
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
@@ -4998,6 +5191,9 @@ fn the_new_divider_marks_the_first_unread_message_until_the_channel_is_left() {
     app.apply(unread_channel(true, 103));
     app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
     app.dispatch(Action::SelectRoom(general.into()));
+    // The backend answers the messages around the last read one from
+    // what it kept, which reaches it.
+    app.apply(window(general, chat::Direction::Around, true));
     assert_eq!(app.state.first_unread, None);
     // The view still at the end of what showed before reads nothing: the
     // divider isn't placed yet.
@@ -5048,6 +5244,9 @@ fn the_new_divider_marks_the_first_unread_message_until_the_channel_is_left() {
     assert_eq!(app.state.first_unread, None);
     assert!(!app.state.caught_up);
     app.dispatch(Action::SelectRoom(general.into()));
+    // The backend answers the messages around the last read one from
+    // what it kept, which reaches it.
+    app.apply(window(general, chat::Direction::Around, true));
     app.apply(Event::Timeline {
         room: general.into(),
         messages: timeline(discord_messages(95..=111, &[104])),
@@ -5055,6 +5254,74 @@ fn the_new_divider_marks_the_first_unread_message_until_the_channel_is_left() {
     assert_eq!(app.state.first_unread, None);
     assert!(app.dispatch(Action::JumpToUnread).is_empty());
     assert_eq!(app.state.unread_jump, 2);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_channel_whose_new_messages_dont_show_reads_once_its_newest_came() {
+    let general = "discord:10:21";
+    let latest = |history| Event::HistoryLoaded {
+        room: general.into(),
+        direction: chat::Direction::Latest,
+        history,
+    };
+    let reads = |effects: &[Effect]| {
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Backend(Command::MarkRead { room, .. }) if room == general))
+    };
+    let mut app = connected();
+    // Discord's newest message is 104, deleted, of a kind Yapfast doesn't
+    // show or hidden as blocked.
+    app.apply(unread_channel(true, 103));
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom(general.into()));
+    // The backend answers the messages around the last read one from
+    // what it kept, which reaches it.
+    app.apply(window(general, chat::Direction::Around, true));
+    app.dispatch(Action::Reading(true));
+    // What was kept on disk shows first; newer messages may come with the
+    // newest page.
+    let effects = app.apply(Event::Timeline {
+        room: general.into(),
+        messages: timeline(discord_messages(95..=103, &[])),
+    });
+    assert!(!reads(&effects));
+    assert!(!reads(&app.apply(latest(chat::History::Failed))));
+    assert!(!reads(&app.dispatch(Action::Reading(true))));
+
+    // The newest page came with nothing new: no divider, and the channel reads.
+    app.apply(Event::Timeline {
+        room: general.into(),
+        messages: timeline(discord_messages(95..=103, &[])),
+    });
+    let effects = app.apply(latest(chat::History::Loaded {
+        start: false,
+        present: true,
+    }));
+    assert!(reads(&effects));
+    assert_eq!(app.state.first_unread, None);
+    assert!(app.state.caught_up);
+
+    // When it brings new messages, the divider goes above them as before,
+    // and the view goes there first.
+    app.dispatch(Action::SelectRoom("discord:10:22".into()));
+    app.apply(unread_channel(true, 103));
+    app.dispatch(Action::SelectRoom(general.into()));
+    // The backend answers the messages around the last read one from
+    // what it kept, which reaches it.
+    app.apply(window(general, chat::Direction::Around, true));
+    app.dispatch(Action::Reading(true));
+    app.apply(Event::Timeline {
+        room: general.into(),
+        messages: timeline(discord_messages(95..=106, &[])),
+    });
+    let effects = app.apply(latest(chat::History::Loaded {
+        start: false,
+        present: true,
+    }));
+    assert!(!reads(&effects));
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
 }
 
 #[test]
@@ -5078,13 +5345,18 @@ fn opening_a_channel_shows_the_messages_around_its_last_read_one() {
     let mut app = connected();
     app.apply(unread_channel(true, 50));
     app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
-    app.dispatch(Action::SelectRoom(general.into()));
-    let effects = show(&mut app, (100..110).collect());
+    let effects = app.dispatch(Action::SelectRoom(general.into()));
+    let open = effects.iter().position(
+        |effect| matches!(effect, Effect::Backend(Command::Open(room)) if room == general),
+    );
+    assert!(open.is_some(), "it opens");
     assert_eq!(
         around(&effects).as_deref(),
         Some("d:50"),
-        "every loaded message is unread, so one page around the last read one loads"
+        "nothing shows yet, so the messages around the last read one load with the newest"
     );
+    let effects = show(&mut app, (100..110).collect());
+    assert!(around(&effects).is_none(), "asked once");
     assert_eq!(app.state.first_unread, None);
     // Until the window comes, timelines are of what showed before.
     assert!(around(&show(&mut app, (100..111).collect())).is_none());
@@ -5121,8 +5393,8 @@ fn opening_a_channel_shows_the_messages_around_its_last_read_one() {
     // divider goes above the oldest loaded.
     app.dispatch(Action::SelectRoom("discord:10:22".into()));
     app.apply(unread_channel(true, 1));
-    app.dispatch(Action::SelectRoom(general.into()));
-    assert!(around(&show(&mut app, (1000..1010).collect())).is_some());
+    assert!(around(&app.dispatch(Action::SelectRoom(general.into()))).is_some());
+    show(&mut app, (1000..1010).collect());
     app.apply(window(general, chat::Direction::Around, false));
     assert!(around(&show(&mut app, (1000..1010).collect())).is_none());
     assert_eq!(app.state.first_unread.as_deref(), Some("d:1000"));
@@ -5224,6 +5496,9 @@ fn replies_to_this_account_are_highlighted_while_new_and_mentions_always() {
     app.apply(unread_channel(true, 103));
     app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
     app.dispatch(Action::SelectRoom(general.into()));
+    // The backend answers the messages around the last read one from
+    // what it kept, which reaches it.
+    app.apply(window(general, chat::Direction::Around, true));
     show(&mut app, "110");
     assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
     // A reply from the "New" divider down is highlighted, an older one
@@ -5238,6 +5513,9 @@ fn replies_to_this_account_are_highlighted_while_new_and_mentions_always() {
     app.dispatch(Action::SelectRoom("discord:10:22".into()));
     app.apply(unread_channel(false, 111));
     app.dispatch(Action::SelectRoom(general.into()));
+    // The backend answers the messages around the last read one from
+    // what it kept, which reaches it.
+    app.apply(window(general, chat::Direction::Around, true));
     show(&mut app, "111");
     assert_eq!(app.state.first_unread, None);
     assert_eq!(highlighted(&app, false), ["d:99"]);
@@ -8395,6 +8673,58 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
     );
     assert_eq!(app.state.gifs.pictures.len(), 1, "cat's picture goes");
 
+    // A picture whose tile grows past a tenth, as the picker widens, is
+    // fetched again larger, once; the smaller one shows until it comes.
+    let src = gif("dog").src;
+    let came = |app: &mut Application, width: u32, picture: bool| {
+        app.apply(Event::GifPicture {
+            url: src.clone(),
+            picture: picture.then(|| {
+                Arc::new(Picture {
+                    width,
+                    height: width / 2,
+                    ..Default::default()
+                })
+            }),
+        });
+    };
+    let shown_width = |app: &Application| match &app.state.gifs.pictures[&src].picture {
+        GifPicture::Shown(picture) => picture.width,
+        other => panic!("{other:?}"),
+    };
+    let sized = |app: &mut Application, width: u32, height: u32| {
+        backend(app.dispatch(Action::GifsShown {
+            shown: vec![(src.clone(), width, height)],
+            near_end: true,
+        }))
+    };
+    came(&mut app, 231, true);
+    assert!(
+        sized(&mut app, 250, 124).is_empty(),
+        "a tenth larger isn't worth it"
+    );
+    assert!(matches!(
+        sized(&mut app, 293, 146).as_slice(),
+        [Command::Discord(DiscordCommand::GifPicture {
+            width: 293,
+            height: 146,
+            ..
+        })]
+    ));
+    assert!(sized(&mut app, 293, 146).is_empty());
+    assert_eq!(shown_width(&app), 231);
+    // One that doesn't come, or comes no larger, leaves the one shown.
+    came(&mut app, 0, false);
+    came(&mut app, 231, true);
+    assert_eq!(shown_width(&app), 231);
+    came(&mut app, 293, true);
+    assert_eq!(shown_width(&app), 293);
+    // A picture smaller than its tile keeps its own size, so a still larger
+    // tile asks for none.
+    assert_eq!(sized(&mut app, 400, 200).len(), 1);
+    came(&mut app, 300, true);
+    assert!(sized(&mut app, 600, 300).is_empty());
+
     // Starring keeps the GIF among the favourites on Discord, the newest
     // first.
     let saved = backend(app.dispatch(Action::FavoriteGif(gif("dog").url)));
@@ -8956,6 +9286,480 @@ fn an_unknown_invite_says_so() {
         join.error.as_deref(),
         Some("This invite is invalid or has expired.")
     );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_event_link_shows_the_event_and_marks_interest_on_the_click() {
+    let event = |interested: bool, over: bool| chat::EventPreview {
+        event: "11".into(),
+        guild: "10".into(),
+        name: "Alien meetup".into(),
+        description: Some("Aliens only!".into()),
+        starts_at: 1_800_000_000,
+        ends_at: None,
+        room: Some("discord:10:13".into()),
+        location: None,
+        creator: Some("Dziurwa".into()),
+        interested_count: Some(7),
+        active: false,
+        over,
+        interested,
+    };
+    let mut app = discord_server();
+    let effects = app.dispatch(Action::OpenEventLink {
+        guild: "10".into(),
+        event: "11".into(),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ResolveEvent { guild, event }))]
+            if guild == "10" && event == "11"
+    ));
+    assert!(app.state.scheduled_event.as_ref().unwrap().resolving);
+    // Interest changes only from the click, once the event shows.
+    assert!(app.dispatch(Action::ToggleEventInterest).is_empty());
+    app.apply(Event::EventResolved {
+        event: "other".into(),
+        result: Ok(event(false, false)),
+    });
+    assert!(
+        app.state
+            .scheduled_event
+            .as_ref()
+            .unwrap()
+            .preview
+            .is_none()
+    );
+    app.apply(Event::EventResolved {
+        event: "11".into(),
+        result: Ok(event(false, false)),
+    });
+    let shown = app.state.scheduled_event.clone().unwrap();
+    assert!(!shown.resolving);
+    assert_eq!(shown.preview.unwrap().name, "Alien meetup");
+
+    let effects = app.dispatch(Action::ToggleEventInterest);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::SetEventInterest { preview, interested: true }))]
+            if preview.event == "11"
+    ));
+    assert!(
+        app.dispatch(Action::ToggleEventInterest).is_empty(),
+        "one change at a time"
+    );
+    app.apply(Event::EventInterestSet {
+        event: "11".into(),
+        interested: true,
+        result: Ok(()),
+    });
+    let shown = app.state.scheduled_event.clone().unwrap();
+    let preview = shown.preview.unwrap();
+    assert!(preview.interested && !shown.marking);
+    assert_eq!(preview.interested_count, Some(8));
+
+    // And back again, on the next click.
+    let effects = app.dispatch(Action::ToggleEventInterest);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::SetEventInterest {
+                interested: false,
+                ..
+            }
+        ))]
+    ));
+    app.apply(Event::EventInterestSet {
+        event: "11".into(),
+        interested: false,
+        result: Ok(()),
+    });
+    let preview = app.state.scheduled_event.clone().unwrap().preview.unwrap();
+    assert!(!preview.interested);
+    assert_eq!(preview.interested_count, Some(7));
+
+    // An event that's over offers no change, and Discord's refusal to
+    // show one stays in the dialog.
+    app.dispatch(Action::OpenEventLink {
+        guild: "10".into(),
+        event: "11".into(),
+    });
+    app.apply(Event::EventResolved {
+        event: "11".into(),
+        result: Ok(event(false, true)),
+    });
+    assert!(app.dispatch(Action::ToggleEventInterest).is_empty());
+    app.dispatch(Action::OpenEventLink {
+        guild: "10".into(),
+        event: "gone".into(),
+    });
+    app.apply(Event::EventResolved {
+        event: "gone".into(),
+        result: Err("Unknown Guild Scheduled Event".into()),
+    });
+    let shown = app.state.scheduled_event.clone().unwrap();
+    assert!(shown.preview.is_none() && !shown.resolving);
+    assert_eq!(
+        shown.error.as_deref(),
+        Some("Unknown Guild Scheduled Event")
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
+    let gift = |redeemed: bool, spent: bool| chat::GiftPreview {
+        name: "Nitro".into(),
+        plan: Some("Nitro Monthly".into()),
+        gifter: Some("Gift Giver".into()),
+        redeemed,
+        spent,
+        in_discord: false,
+    };
+    let code = "2CG6SV9QtRxerJTgCYNDnU7M";
+    let mut app = discord_server();
+    let effects = app.dispatch(Action::OpenGiftLink(code.into()));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ResolveGift { code: asked }))]
+            if asked == code
+    ));
+    assert!(app.state.gift.as_ref().unwrap().resolving);
+    // Redeeming before the gift shows, or from looking it up, never
+    // happens; only the click does it.
+    assert!(app.dispatch(Action::RedeemGift).is_empty());
+    app.apply(Event::GiftResolved {
+        code: "other".into(),
+        result: Ok(gift(false, false)),
+    });
+    assert!(app.state.gift.as_ref().unwrap().preview.is_none());
+    app.apply(Event::GiftResolved {
+        code: code.into(),
+        result: Ok(gift(false, false)),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(!shown.resolving && !shown.redeemed);
+    assert_eq!(shown.preview.unwrap().name, "Nitro");
+
+    let effects = app.dispatch(Action::RedeemGift);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::RedeemGift { code: redeemed, .. }))]
+            if redeemed == code
+    ));
+    assert!(
+        app.dispatch(Action::RedeemGift).is_empty(),
+        "one redemption at a time"
+    );
+    app.apply(Event::GiftRedeemed {
+        code: code.into(),
+        result: Ok(()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(shown.redeemed && app.state.redeeming_gifts.is_empty());
+    assert!(shown.preview.unwrap().redeemed);
+    assert!(app.dispatch(Action::RedeemGift).is_empty(), "and not twice");
+
+    // A gift this account redeemed, or anyone used up, shows but offers
+    // nothing to redeem.
+    for preview in [gift(true, false), gift(false, true)] {
+        app.dispatch(Action::OpenGiftLink(code.into()));
+        app.apply(Event::GiftResolved {
+            code: code.into(),
+            result: Ok(preview),
+        });
+        assert!(app.dispatch(Action::RedeemGift).is_empty());
+    }
+
+    // Discord's refusal stays in the dialog.
+    app.dispatch(Action::OpenGiftLink("gone".into()));
+    app.apply(Event::GiftResolved {
+        code: "gone".into(),
+        result: Err("Unknown Gift Code".into()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(shown.preview.is_none() && !shown.resolving);
+    assert_eq!(shown.error.as_deref(), Some("Unknown Gift Code"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_gift_only_discord_can_redeem_opens_in_the_browser() {
+    let mut app = discord_server();
+    app.dispatch(Action::OpenGiftLink("AbCdEfGhIjKlMnOp".into()));
+    app.apply(Event::GiftResolved {
+        code: "AbCdEfGhIjKlMnOp".into(),
+        result: Ok(chat::GiftPreview {
+            name: "Nitro".into(),
+            plan: None,
+            gifter: None,
+            redeemed: false,
+            spent: false,
+            in_discord: true,
+        }),
+    });
+    assert!(app.dispatch(Action::RedeemGift).is_empty());
+    assert!(matches!(
+        app.dispatch(Action::OpenGiftInBrowser).as_slice(),
+        [Effect::OpenPage(page)] if page == "https://discord.com/gifts/AbCdEfGhIjKlMnOp"
+    ));
+    assert!(app.state.gift.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_gift_closed_while_redeeming_shows_the_answer_when_opened_again() {
+    let gift = || chat::GiftPreview {
+        name: "Nitro".into(),
+        plan: None,
+        gifter: None,
+        redeemed: false,
+        spent: false,
+        in_discord: false,
+    };
+    let code = "2CG6SV9QtRxerJTgCYNDnU7M";
+    let mut app = discord_server();
+    let open = |app: &mut Application| {
+        app.dispatch(Action::OpenGiftLink(code.into()));
+        app.apply(Event::GiftResolved {
+            code: code.into(),
+            result: Ok(gift()),
+        });
+    };
+    open(&mut app);
+    assert_eq!(app.dispatch(Action::RedeemGift).len(), 1);
+    app.dispatch(Action::CloseGift);
+
+    // Opened again before Discord answers, and looked up before it does:
+    // the gift is still redeeming, so it isn't redeemed a second time.
+    open(&mut app);
+    assert_eq!(app.state.redeeming_gifts, [code]);
+    assert!(app.dispatch(Action::RedeemGift).is_empty());
+    app.apply(Event::GiftRedeemed {
+        code: code.into(),
+        result: Ok(()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert!(shown.redeemed && shown.preview.unwrap().redeemed);
+    assert!(app.state.redeeming_gifts.is_empty());
+
+    // A refusal reaches the reopened dialog too, and the gift can be
+    // tried again.
+    open(&mut app);
+    app.dispatch(Action::RedeemGift);
+    app.dispatch(Action::CloseGift);
+    app.dispatch(Action::OpenGiftLink(code.into()));
+    app.apply(Event::GiftRedeemed {
+        code: code.into(),
+        result: Err("Couldn't redeem the gift".into()),
+    });
+    let shown = app.state.gift.clone().unwrap();
+    assert_eq!(shown.error.as_deref(), Some("Couldn't redeem the gift"));
+    app.apply(Event::GiftResolved {
+        code: code.into(),
+        result: Ok(gift()),
+    });
+    assert_eq!(app.dispatch(Action::RedeemGift).len(), 1);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_authorization_link_shows_the_app_and_authorizes_on_the_click() {
+    let bot_preview = |locked: bool| chat::OAuthPreview {
+        query: "client_id=157730590492196864&scope=bot&permissions=2048&guild_id=10".into(),
+        name: "Alien App".into(),
+        about: Some("Beams messages up.".into()),
+        icon: None,
+        bot: Some("Alien App".into()),
+        wants: vec!["Add a bot to a server"],
+        permissions: Some(2048),
+        controls_client: false,
+        authorized: false,
+        redirect: None,
+        guild_install: true,
+        guild_locked: locked,
+        wanted_guild: Some("10".into()),
+        guilds: vec![
+            chat::OAuthGuild {
+                id: "10".into(),
+                name: "Server".into(),
+                icon: None,
+                can_add: true,
+            },
+            chat::OAuthGuild {
+                id: "20".into(),
+                name: "Builders".into(),
+                icon: None,
+                can_add: true,
+            },
+            chat::OAuthGuild {
+                id: "30".into(),
+                name: "Elsewhere".into(),
+                icon: None,
+                can_add: false,
+            },
+        ],
+    };
+    let query = "client_id=157730590492196864&scope=bot&permissions=2048&guild_id=10";
+    let mut app = discord_server();
+    let effects = app.dispatch(Action::OpenOAuthLink(query.into()));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ResolveOAuth { query: sent }))]
+            if sent == query
+    ));
+    // Authorizing before the app shows, or from looking it up, never
+    // happens; only the click does it.
+    assert!(app.dispatch(Action::AuthorizeOAuth).is_empty());
+    app.apply(Event::OAuthResolved {
+        query: query.into(),
+        result: Ok(bot_preview(false)),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert!(!shown.resolving);
+    assert_eq!(
+        shown.guild.as_deref(),
+        Some("10"),
+        "the link's server first"
+    );
+    // Another managed server can be picked; one she doesn't manage can't.
+    app.dispatch(Action::ChooseOAuthGuild("30".into()));
+    assert_eq!(
+        app.state.oauth.as_ref().unwrap().guild.as_deref(),
+        Some("10")
+    );
+    app.dispatch(Action::ChooseOAuthGuild("20".into()));
+    assert_eq!(
+        app.state.oauth.as_ref().unwrap().guild.as_deref(),
+        Some("20")
+    );
+
+    let effects = app.dispatch(Action::AuthorizeOAuth);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::AuthorizeOAuth { guild: Some(guild), .. }))]
+            if guild == "20"
+    ));
+    assert!(
+        app.dispatch(Action::AuthorizeOAuth).is_empty(),
+        "once at a time"
+    );
+    app.apply(Event::OAuthAuthorized {
+        query: query.into(),
+        result: Ok("https://discord.com/channels/@me".into()),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert!(shown.done && !shown.authorizing);
+
+    // A link that locks its server keeps it, whatever is picked.
+    app.dispatch(Action::OpenOAuthLink(query.into()));
+    app.apply(Event::OAuthResolved {
+        query: query.into(),
+        result: Ok(bot_preview(true)),
+    });
+    app.dispatch(Action::ChooseOAuthGuild("20".into()));
+    assert_eq!(
+        app.state.oauth.as_ref().unwrap().guild.as_deref(),
+        Some("10")
+    );
+
+    // A sign-in flow sends her on to the app's own address, with its code.
+    let sign_in = "response_type=code&client_id=157730590492196864&scope=identify";
+    app.dispatch(Action::OpenOAuthLink(sign_in.into()));
+    app.apply(Event::OAuthResolved {
+        query: sign_in.into(),
+        result: Ok(chat::OAuthPreview {
+            query: sign_in.into(),
+            guild_install: false,
+            guilds: vec![],
+            wanted_guild: None,
+            ..bot_preview(false)
+        }),
+    });
+    app.dispatch(Action::AuthorizeOAuth);
+    let effects = app.apply(Event::OAuthAuthorized {
+        query: sign_in.into(),
+        result: Ok("https://nicememe.website/?code=fake".into()),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::OpenPage(page)] if page == "https://nicememe.website/?code=fake"
+    ));
+    assert!(app.state.oauth.is_none());
+
+    // Discord's refusal stays in the dialog.
+    app.dispatch(Action::OpenOAuthLink(query.into()));
+    app.apply(Event::OAuthResolved {
+        query: query.into(),
+        result: Err("Unknown Application".into()),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert!(shown.preview.is_none() && !shown.resolving);
+    assert_eq!(shown.error.as_deref(), Some("Unknown Application"));
+
+    // A link locked to a server she can't add apps to is refused, never
+    // moved to another server.
+    let locked_elsewhere =
+        "client_id=157730590492196864&scope=bot&guild_id=30&disable_guild_select=true";
+    app.dispatch(Action::OpenOAuthLink(locked_elsewhere.into()));
+    app.apply(Event::OAuthResolved {
+        query: locked_elsewhere.into(),
+        result: Ok(chat::OAuthPreview {
+            query: locked_elsewhere.into(),
+            wanted_guild: Some("30".into()),
+            ..bot_preview(true)
+        }),
+    });
+    let shown = app.state.oauth.clone().unwrap();
+    assert_eq!(shown.guild, None);
+    assert!(shown.error.is_some());
+    app.dispatch(Action::ChooseOAuthGuild("10".into()));
+    assert_eq!(app.state.oauth.as_ref().unwrap().guild, None);
+    assert!(app.dispatch(Action::AuthorizeOAuth).is_empty());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_authorization_never_opens_an_address_that_isnt_a_web_page() {
+    let sign_in = "response_type=code&client_id=157730590492196864&scope=identify";
+    for next in [
+        "myapp://cb?code=x",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://discord.com@evil.example/?code=x",
+    ] {
+        let mut app = discord_server();
+        app.dispatch(Action::OpenOAuthLink(sign_in.into()));
+        app.apply(Event::OAuthResolved {
+            query: sign_in.into(),
+            result: Ok(chat::OAuthPreview {
+                query: sign_in.into(),
+                name: "Alien App".into(),
+                about: None,
+                icon: None,
+                bot: None,
+                wants: vec!["Access your username, avatar, and banner"],
+                permissions: None,
+                controls_client: false,
+                authorized: false,
+                redirect: Some("myapp://cb".into()),
+                guild_install: false,
+                guild_locked: false,
+                wanted_guild: None,
+                guilds: vec![],
+            }),
+        });
+        app.dispatch(Action::AuthorizeOAuth);
+        let effects = app.apply(Event::OAuthAuthorized {
+            query: sign_in.into(),
+            result: Ok(next.into()),
+        });
+        assert!(effects.is_empty(), "{next}");
+        let shown = app.state.oauth.clone().unwrap();
+        assert!(shown.done, "{next}");
+        assert_eq!(shown.next.as_deref(), Some(next), "shown to copy");
+    }
 }
 
 #[test]

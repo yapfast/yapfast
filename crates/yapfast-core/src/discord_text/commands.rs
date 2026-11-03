@@ -164,12 +164,22 @@ pub fn command(
             tokio::time::sleep(MEMBERS_WAIT).await;
             let _ = waiting.send(Done::MembersLate { room: late });
         });
-        // Shown at once as it was kept, while the latest page loads.
+        // Shown at once as it was kept. Its latest page loads again only
+        // when it may have missed live events since it closed.
         if let Some(mut channel) = channels.reopen(&room) {
             discord.view(&channel.guild, Some(&channel.channel));
-            channel.refresh(discord, done);
+            if !channel.synced {
+                channel.refresh(discord, done);
+            }
             if channel.loaded {
                 publish(&mut channel, discord, done, events);
+            }
+            if channel.synced {
+                let _ = events.send(Event::HistoryLoaded {
+                    room: room.clone(),
+                    direction: Direction::Latest,
+                    history: channel.history(),
+                });
             }
             send_topic(&mut channel, discord, events, true);
             channels.open = Some(channel);
@@ -308,7 +318,16 @@ pub fn command(
             });
         }
         Command::Around { room, item } => match discord::item_order(&item) {
-            Some(order) => channel.around(discord, done, order),
+            Some(order) => {
+                if !channel.around(discord, done, order) {
+                    let _ = events.send(Event::HistoryLoaded {
+                        room,
+                        direction: Direction::Around,
+                        history: channel.history(),
+                    });
+                    publish(channel, discord, done, events);
+                }
+            }
             None => {
                 let _ = events.send(Event::RoomError {
                     room: room.clone(),
@@ -352,11 +371,14 @@ fn aside(
     let (Some(room), Ok(discord)) = (room, discord) else {
         return;
     };
-    // Shown at once as it was kept, while the latest page loads.
+    // Shown at once as it was kept, while the latest page loads, unless
+    // it kept up with live events since it closed.
     let channel = match channels.reopen(&room) {
         Some(mut channel) => {
             discord.beside(&channel.guild, Some(&channel.channel));
-            channel.refresh(discord, done);
+            if !channel.synced {
+                channel.refresh(discord, done);
+            }
             Some(channel)
         }
         None => OpenChannel::open(discord, &room, true, done, channels.previews.clone()),
@@ -470,10 +492,10 @@ pub fn finished(
             channel,
         ) => {
             let mut direction = match load {
-                Load::Latest => None,
-                Load::Earlier => Some(Direction::Earlier),
-                Load::Later => Some(Direction::Later),
-                Load::Around(_) => Some(Direction::Around),
+                Load::Latest => Direction::Latest,
+                Load::Earlier => Direction::Earlier,
+                Load::Later => Direction::Later,
+                Load::Around(_) => Direction::Around,
             };
             let history = match (result, channel) {
                 // Asked for before what shows was replaced; it's dropped.
@@ -487,7 +509,7 @@ pub fn finished(
                     // The latest page reached the window, which shows with
                     // the newest messages now, as when a later page does.
                     if detached && !channel.detached() && load == Load::Latest {
-                        direction = Some(Direction::Later);
+                        direction = Direction::Later;
                     }
                     Some(channel.history())
                 }
@@ -512,9 +534,7 @@ pub fn finished(
                     Some(History::Failed)
                 }
             };
-            history_loaded = direction
-                .zip(history)
-                .map(|(direction, history)| (room, direction, history));
+            history_loaded = history.map(|history| (room, direction, history));
         }
         (_, None) => {}
         (Done::Sent { nonce, result, .. }, Some(channel)) => {
@@ -589,7 +609,7 @@ pub fn finished(
 }
 
 /// Applies a gateway event to the open channel and those kept. Missed
-/// events reload the open one; the others load again when opened.
+/// events reload the open one; the others load again when next opened.
 pub fn live(
     event: Result<Live, RecvError>,
     discord: &Discord,
@@ -711,8 +731,10 @@ pub fn live(
             channels.typing_changed(&room, events);
         }
     }
-    if let Ok(event) = &event {
-        channels.follow(event);
+    match &event {
+        Ok(event) => channels.follow(event),
+        // Behind on live events, the kept channels load again when opened.
+        Err(_) => channels.missed(),
     }
     // The thread beside the open channel follows as it does.
     if let Some(aside) = channels.aside.as_mut() {

@@ -4,7 +4,7 @@
 use std::{
     sync::{
         Mutex, OnceLock, PoisonError,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -54,8 +54,11 @@ pub fn user_agent() -> &'static str {
 /// The web client's build number when Yapfast last checked, for when its page
 /// can't be read.
 const CLIENT_BUILD_NUMBER: u64 = 637268;
-/// The build number read from the web client's page this run, or 0.
+/// The build number read from the web client's page, this run or the last
+/// time it was read, or 0.
 static BUILD_NUMBER: AtomicU64 = AtomicU64::new(0);
+/// [`BUILD_NUMBER`] was read from the page this run.
+static LEARNED: AtomicBool = AtomicBool::new(false);
 
 /// The build number Yapfast sends: the web client's current one once it's
 /// known.
@@ -68,7 +71,19 @@ fn build_number() -> u64 {
 
 /// Whether the current build number was read this run.
 pub(crate) fn knows_build_number() -> bool {
+    LEARNED.load(Ordering::Relaxed)
+}
+
+/// Whether a build number read from the page is known: this run, or kept
+/// from the last time it was read.
+pub(crate) fn has_build_number() -> bool {
     BUILD_NUMBER.load(Ordering::Relaxed) != 0
+}
+
+/// Takes the build number kept from the last time the page was read,
+/// unless one was read this run.
+pub(crate) fn recall_build_number(number: u64) {
+    let _ = BUILD_NUMBER.compare_exchange(0, number, Ordering::Relaxed, Ordering::Relaxed);
 }
 
 /// Takes the build number from the start of the web client's page, which
@@ -91,7 +106,13 @@ pub(crate) fn learn_build_number(page: &[u8]) -> bool {
         return false;
     };
     BUILD_NUMBER.store(number, Ordering::Relaxed);
+    LEARNED.store(true, Ordering::Relaxed);
     true
+}
+
+/// The build number known now: the one read from the page, or 0.
+pub(crate) fn known_build_number() -> u64 {
+    BUILD_NUMBER.load(Ordering::Relaxed)
 }
 
 /// A random UUID, as the web client makes them, with `cleared` bits unset.
@@ -179,6 +200,10 @@ mod tests {
 
     #[test]
     fn reads_the_build_number_from_the_web_page() {
+        // One kept from the last start is sent until the page is read.
+        recall_build_number(600000);
+        assert!(has_build_number() && !knows_build_number());
+        assert_eq!(build_number(), 600000);
         assert!(!learn_build_number(
             b"<script>window.GLOBAL_ENV = {}</script>"
         ));
@@ -187,6 +212,9 @@ mod tests {
             br#"GLOBAL_ENV = {"NODE_ENV":"production","BUILD_NUMBER":"637268","PROJECT_ENV":"production"}"#
         ));
         assert_eq!(build_number(), 637268);
+        assert!(knows_build_number());
+        recall_build_number(600000);
+        assert_eq!(build_number(), 637268, "the one read this run stays");
     }
 
     #[test]

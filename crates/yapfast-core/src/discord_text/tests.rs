@@ -137,6 +137,7 @@ fn shown(messages: Vec<Message>) -> Page {
     Page {
         oldest: messages.first().map(Message::order),
         full: messages.len() >= yapfast_discord::api::PAGE,
+        newest: false,
         messages,
     }
 }
@@ -192,6 +193,7 @@ fn messages_yapfast_does_not_show_still_fill_a_page() {
         messages,
         oldest: Some(1050),
         full: true,
+        newest: false,
     };
     open.loaded(Load::Latest, boosted(page(1051..1100)));
     assert!(
@@ -211,6 +213,7 @@ fn messages_yapfast_does_not_show_still_fill_a_page() {
             messages: vec![],
             oldest: Some(1000),
             full: true,
+            newest: false,
         },
     );
     assert!(!open.shown.complete);
@@ -601,9 +604,17 @@ fn a_window_of_older_messages_shows_in_place_of_the_newest_until_it_reaches_them
             .map(|latest| latest.messages.keys().copied().collect())
             .unwrap_or_default()
     };
+    assert!(!open.synced);
     open.loaded(Load::Latest, shown(page(1000..1050)));
+    assert!(open.synced, "the latest page came");
+    // Around a message among the newest shown, they're what shows around
+    // it, without asking.
+    assert!(open.reaches(1020) && open.reaches(1000));
+    assert!(!open.reaches(999));
     open.loaded(Load::Around(900), shown(page(875..925)));
+    assert!(!open.reaches(900), "not while a window shows");
     assert!(open.detached());
+    assert!(!open.shown.complete, "a whole half before the snowflake");
     assert_eq!(ids(&open), (875..925).collect::<Vec<_>>());
     assert_eq!(newest(&open), (1000..1050).collect::<Vec<_>>(), "kept");
 
@@ -656,9 +667,27 @@ fn a_window_of_older_messages_shows_in_place_of_the_newest_until_it_reaches_them
     let mut fresh = OpenChannel::new("discord:10:11").unwrap();
     fresh.loaded(Load::Around(10), shown(page(5..15)));
     assert!(fresh.detached());
+    assert!(
+        fresh.shown.complete,
+        "too few before the snowflake: the start"
+    );
     fresh.loaded(Load::Later, shown(page(15..20)));
     assert!(!fresh.detached());
     assert_eq!(ids(&fresh), (5..20).collect::<Vec<_>>());
+
+    // Less than half a page from the snowflake on reaches the newest
+    // message, so it isn't a window, and the newest kept join it.
+    let mut opened = OpenChannel::new("discord:10:11").unwrap();
+    opened.loaded(Load::Latest, shown(page(100..150)));
+    opened.loaded(
+        Load::Around(130),
+        Page {
+            newest: true,
+            ..shown(page(105..140))
+        },
+    );
+    assert!(!opened.detached());
+    assert_eq!(ids(&opened), (100..150).collect::<Vec<_>>());
 
     // Closing lets the window go.
     fresh.loaded(Load::Latest, shown(page(100..150)));
@@ -812,7 +841,11 @@ async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
             &mut finished,
             &mut received,
             |event| match event {
-                Event::HistoryLoaded { history, .. } => Some(*history),
+                Event::HistoryLoaded {
+                    direction: Direction::Earlier,
+                    history,
+                    ..
+                } => Some(*history),
                 _ => None,
             },
         )
@@ -869,6 +902,81 @@ async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
     assert!(matches!(
         received.try_recv(),
         Ok(Event::HistoryLoaded { history, .. }) if history == start
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_channel_reopened_in_step_with_live_events_asks_for_nothing() {
+    let discord = fake_discord().await;
+    let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let room = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
+    let run = |command: Command, channels: &mut Channels| {
+        super::command(command, Ok(&discord), channels, &done, &events);
+    };
+    run(Command::Open(room.clone()), &mut channels);
+    until(
+        &discord,
+        &mut channels,
+        &done,
+        &mut finished,
+        &mut received,
+        |event| match event {
+            Event::HistoryLoaded {
+                direction: Direction::Latest,
+                ..
+            } => Some(()),
+            _ => None,
+        },
+    )
+    .await;
+    // Closed and opened again, it shows what it kept and says its newest
+    // messages are in, without asking Discord.
+    let reopen = |channels: &mut Channels, received: &mut UnboundedReceiver<Event>| {
+        run(Command::CloseRoom, channels);
+        while received.try_recv().is_ok() {}
+        run(Command::Open(room.clone()), channels);
+        std::iter::from_fn(|| received.try_recv().ok()).any(|event| {
+            matches!(
+                event,
+                Event::HistoryLoaded {
+                    direction: Direction::Latest,
+                    history: History::Loaded { present: true, .. },
+                    ..
+                }
+            )
+        })
+    };
+    assert!(reopen(&mut channels, &mut received), "said at once");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    while let Ok(work) = finished.try_recv() {
+        assert!(
+            !matches!(
+                work,
+                Done::History {
+                    load: Load::Latest,
+                    ..
+                }
+            ),
+            "the latest page wasn't asked for again"
+        );
+    }
+    // Once live events may have gone by without it, it asks again.
+    run(Command::CloseRoom, &mut channels);
+    channels.missed();
+    assert!(!reopen(&mut channels, &mut received), "not until it came");
+    let work = tokio::time::timeout(Duration::from_secs(5), finished.recv())
+        .await
+        .expect("the latest page loads")
+        .unwrap();
+    assert!(matches!(
+        work,
+        Done::History {
+            load: Load::Latest,
+            ..
+        }
     ));
 }
 
@@ -980,10 +1088,12 @@ async fn a_jump_shows_the_messages_around_one_then_newer_pages_to_the_present() 
                 history,
                 ..
             } => {
+                // The window starts at the first message, which Discord
+                // tells by sending less than half a page from before it.
                 assert_eq!(
                     *history,
                     History::Loaded {
-                        start: false,
+                        start: true,
                         present: false
                     }
                 );
@@ -1027,7 +1137,7 @@ async fn a_jump_shows_the_messages_around_one_then_newer_pages_to_the_present() 
         pages += 1;
         if history
             != (History::Loaded {
-                start: false,
+                start: true,
                 present: false,
             })
             || pages > 5

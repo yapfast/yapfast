@@ -13,7 +13,7 @@ use crate::{
     discord,
     mention::{self, Candidate, Target},
     network::Network,
-    voice::{self, Phase},
+    voice::{self, JoinSound, Phase},
 };
 
 mod arrange;
@@ -24,14 +24,16 @@ mod channel_settings;
 mod compose;
 mod discord_account;
 mod forum;
-mod forward_places;
 mod gifs;
+mod gift;
 mod header;
 mod join;
 mod members;
 mod messages;
 mod mfa;
 mod new_post;
+mod oauth;
+mod place_search;
 mod places;
 mod polls;
 mod preview;
@@ -39,6 +41,7 @@ mod profile_editor;
 mod profiles;
 mod reactions;
 mod rooms;
+mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
@@ -51,13 +54,16 @@ pub use channel_settings::{
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
-pub use gifs::{GifPicker, GifPicture, GifView};
+pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
+pub use gift::GiftDialog;
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
 pub use members::{member_server, with_clubs};
 pub use mfa::MfaPrompt;
 pub use new_post::{NewPost, POST_TAGS, POST_TITLE_LIMIT};
+pub use oauth::OAuthDialog;
+pub use place_search::Place;
 pub use places::{
     ChannelAsk, ChannelDialog, INVITE_AGES, INVITE_USES, InviteDialog, LeaveDialog, ListedCategory,
     SLOWMODES,
@@ -70,6 +76,7 @@ pub use profile_editor::{
 };
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
+pub use scheduled_event::EventDialog;
 pub use server_settings::{
     ADD_MEMBERS_LIMIT, AFK_TIMEOUTS, AUDIT_ACTIONS, AUDIT_PAGE, AddMembers, AuditInput, AuditKind,
     AuditLine, AuditLogPage, AuditRow, AuditSpan, AuditWords, BANS_BATCH, BANS_PER_PAGE, BOOSTED,
@@ -301,8 +308,9 @@ pub struct Forwarding {
     pub pinned: Vec<String>,
 }
 
-/// The Discord conversations this account used, which rank where a message
-/// is forwarded; see [`AppState::forward_places`].
+/// The conversations this account used, which rank where a message is
+/// forwarded and where the quick switcher goes; see
+/// [`AppState::forward_places`] and [`AppState::switcher_places`].
 #[derive(Default)]
 pub struct PlacesUsed {
     /// By Discord server or channel id, as Discord's clients counted them,
@@ -311,12 +319,14 @@ pub struct PlacesUsed {
     /// This session's uses, by channel id, added again to each count that
     /// comes.
     pending: Vec<(String, u64)>,
-    /// The Discord conversations opened this session, the latest first, up
-    /// to eight.
+    /// The conversations opened this session, of every network, the latest
+    /// first, up to sixteen.
     visited: Vec<String>,
     /// Discord's counts came, or were asked for.
     fresh: bool,
     asked: bool,
+    /// Counts changes to the counts and to those opened lately.
+    changes: u64,
 }
 
 /// A forward sent, until each conversation it went to answers.
@@ -409,6 +419,17 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// The application a clicked authorization link opened, while its
+    /// dialog is open.
+    pub oauth: Option<OAuthDialog>,
+    /// The scheduled event a clicked event link opened, while its
+    /// dialog is open.
+    pub scheduled_event: Option<EventDialog>,
+    /// The gift a clicked gift link opened, while its dialog is open.
+    pub gift: Option<GiftDialog>,
+    /// The codes of the gifts being redeemed, until Discord answers, so a
+    /// dialog closed and opened again meanwhile shows the answer.
+    pub redeeming_gifts: Vec<String>,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -437,6 +458,15 @@ pub struct AppState {
     /// it shows.
     pub discord_show_game: bool,
     pub discord_playing: Option<chat::Playing>,
+    /// How loud the Discord account's soundboard plays, as Discord keeps
+    /// it: from 0 to 100, on its slider's curve.
+    pub soundboard_volume: f32,
+    /// The Discord account's join sounds: each one's server, none for
+    /// every server without its own, then its sound's id and its sound's
+    /// own server.
+    pub join_sounds: Vec<JoinSound>,
+    /// Every sound a join sound may be, once Settings asked for them.
+    pub sound_catalog: Option<Arc<[voice::SoundGroup]>>,
     /// A Discord account is linked on this device, whether or not it's
     /// connected, and linking one, while that's under way.
     pub discord_linked: bool,
@@ -567,6 +597,8 @@ pub struct AppState {
     /// A message being forwarded, while its dialog is open.
     pub forwarding: Option<Forwarding>,
     pub places_used: PlacesUsed,
+    /// What the quick switcher searches for, while it's open.
+    pub switcher: Option<String>,
     pub new_dm: Option<NewDm>,
     /// The selected DM's pinned messages, a search of it, and adding friends
     /// to it, each while it's open.
@@ -622,6 +654,44 @@ impl AppState {
             .iter()
             .map(Arc::as_ref)
             .find(|room| Some(&room.id) == self.selected.as_ref())
+    }
+
+    /// Whether Yapfast can show the place one of Discord's links names, as
+    /// the action it maps to would; the browser opens the rest, such as a
+    /// server the account isn't in, or any link while Discord is offline.
+    #[cfg(feature = "discord")]
+    pub fn opens_discord_route(&self, route: &discord::DiscordRoute) -> bool {
+        use discord::DiscordRoute;
+        let server = |guild: &str| {
+            let id = discord::server_id(guild);
+            self.servers.iter().any(|server| server.id == id)
+        };
+        match route {
+            DiscordRoute::Invite { .. } => self.discord_online || self.preview,
+            DiscordRoute::Authorize { .. } => self.discord_online || self.preview,
+            // The event is looked up before it shows.
+            DiscordRoute::Event { guild, .. } => {
+                (self.discord_online || self.preview) && server(guild)
+            }
+            DiscordRoute::Gift { .. } => self.discord_online || self.preview,
+            DiscordRoute::DirectMessages => self.discord_linked,
+            DiscordRoute::Server { guild } => server(guild),
+            DiscordRoute::Channel { guild, channel }
+            | DiscordRoute::Message { guild, channel, .. } => {
+                let room = discord::room_id(guild, channel);
+                self.rooms.iter().any(|known| known.id == room)
+                    // One not listed may be a thread, which opening asks for.
+                    || (self.discord_online
+                        && !self.preview
+                        && guild != discord::DM_GUILD
+                        && server(guild))
+            }
+            DiscordRoute::User { user } => {
+                self.discord_online
+                    || self.friends.iter().any(|friend| &friend.id == user)
+                    || (self.selected_room().is_some() && self.person(user).is_some())
+            }
+        }
     }
 
     pub fn draft(&self) -> &str {
@@ -688,6 +758,35 @@ impl AppState {
     pub fn one_to_one(&self) -> Option<&ChatRoom> {
         self.selected_room()
             .filter(|room| room.direct && room.members <= 2 && room.person.is_some())
+    }
+
+    /// A dialog that takes the keyboard is open, over which the quick
+    /// switcher doesn't open and a link handed from outside waits.
+    pub fn dialog_open(&self) -> bool {
+        !self.mfa.is_empty()
+            || self.forwarding.is_some()
+            || self.new_dm.is_some()
+            || self.add_friend.is_some()
+            || self.status_editor.is_some()
+            || self.person_dialog.is_some()
+            || self.invite.is_some()
+            || self.join.is_some()
+            || self.oauth.is_some()
+            || self.scheduled_event.is_some()
+            || self.gift.is_some()
+            || self.channel_dialog.is_some()
+            || self.leave.is_some()
+            || self.move_sync.is_some()
+            || self.profile_editor.is_some()
+            || self.server_settings.is_some()
+            || self.channel_settings.is_some()
+            || self.poll_draft.is_some()
+            || self.confirm_delete.is_some()
+            || self.confirm_end_poll.is_some()
+            || self.reactions.is_some()
+            || self.add_people.is_some()
+            || self.switch_voice.is_some()
+            || self.viewer.is_some()
     }
 
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
@@ -1233,6 +1332,13 @@ pub enum Action {
     /// Forward it to those chosen, with this message added.
     Forward(String),
     CloseForward,
+    /// Open the quick switcher, or close it if it's open.
+    ToggleSwitcher,
+    /// Search the places it goes to.
+    SearchSwitcher(String),
+    /// Go to a conversation or server it found, and close it.
+    SwitchTo(String),
+    CloseSwitcher,
     ConfirmDelete,
     CancelDelete,
     Retry(String),
@@ -1542,6 +1648,29 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// Open a clicked authorization link, by its query; pick the
+    /// server it installs to, by its Discord id; authorize it; or
+    /// close its dialog.
+    OpenOAuthLink(String),
+    ChooseOAuthGuild(String),
+    AuthorizeOAuth,
+    CloseOAuth,
+    /// Open a clicked scheduled-event link, by its server and event
+    /// ids; mark this account interested in the event it shows, or no
+    /// longer interested; or close its dialog.
+    OpenEventLink {
+        guild: String,
+        event: String,
+    },
+    ToggleEventInterest,
+    CloseEvent,
+    /// Open a clicked gift link, by its code; redeem the gift it
+    /// shows, when asked; open it in the browser, for a gift only Discord
+    /// can redeem; or close its dialog.
+    OpenGiftLink(String),
+    RedeemGift,
+    OpenGiftInBrowser,
+    CloseGift,
     /// Open the dialog that makes a channel of this kind, from a Discord
     /// server's menu, by its server id, or one like a channel in its
     /// category, from the channel's menu, by its room id.
@@ -1703,6 +1832,17 @@ pub enum Action {
     SetStatus(String),
     /// Share the game the Discord account plays, or stop.
     ShowGame(bool),
+    /// Set how loud the Discord account's soundboard plays, on its slider
+    /// from 0 to 100.
+    SoundboardVolume(f32),
+    /// List the sounds the Discord account may join calls with.
+    LoadSoundCatalog,
+    /// Set the Discord account's join sound for `server`, or for every
+    /// server, to the sound with this id, or take it away.
+    SetJoinSound {
+        server: Option<String>,
+        sound: Option<String>,
+    },
     /// Nobody has used Yapfast since then, in Unix milliseconds, or someone is
     /// using it again; and whether that may show Discord idle.
     Inactive {
@@ -2433,6 +2573,18 @@ impl Application {
                 self.state.forwarding = None;
                 vec![]
             }
+            Action::ToggleSwitcher => self.toggle_switcher(),
+            Action::SearchSwitcher(query) => {
+                if let Some(switcher) = &mut self.state.switcher {
+                    *switcher = query;
+                }
+                vec![]
+            }
+            Action::SwitchTo(id) => self.switch_to(id),
+            Action::CloseSwitcher => {
+                self.state.switcher = None;
+                vec![]
+            }
             Action::CancelDelete => {
                 self.state.confirm_delete = None;
                 vec![]
@@ -2665,6 +2817,26 @@ impl Application {
                 self.state.join = None;
                 vec![]
             }
+            Action::OpenEventLink { guild, event } => self.open_event_link(guild, event),
+            Action::ToggleEventInterest => self.toggle_event_interest(),
+            Action::CloseEvent => {
+                self.state.scheduled_event = None;
+                vec![]
+            }
+            Action::OpenGiftLink(code) => self.open_gift_link(code),
+            Action::RedeemGift => self.redeem_gift(),
+            Action::OpenGiftInBrowser => self.open_gift_in_browser(),
+            Action::CloseGift => {
+                self.state.gift = None;
+                vec![]
+            }
+            Action::OpenOAuthLink(query) => self.open_oauth_link(query),
+            Action::ChooseOAuthGuild(guild) => self.choose_oauth_guild(guild),
+            Action::AuthorizeOAuth => self.authorize_oauth(),
+            Action::CloseOAuth => {
+                self.state.oauth = None;
+                vec![]
+            }
             Action::NewChannel { place, kind } => self.new_channel(place, kind),
             Action::AskChannel(ask) => self.ask_channel(ask),
             Action::OpenChannelSettings(room) => self.open_channel_settings(room),
@@ -2857,6 +3029,60 @@ impl Application {
                 vec![Effect::Backend(Command::Discord(DiscordCommand::ShowGame(
                     shown,
                 )))]
+            }
+            Action::SoundboardVolume(slider) => {
+                // Discord keeps the volume on its slider's curve.
+                let volume = crate::volume::from_slider(slider.clamp(0.0, 100.0)) * 100.0;
+                if self.state.preview
+                    || self.state.discord_user.is_none()
+                    || (self.state.soundboard_volume - volume).abs() < 0.01
+                {
+                    return vec![];
+                }
+                self.state.soundboard_volume = volume;
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::SoundboardVolume(volume),
+                ))]
+            }
+            Action::LoadSoundCatalog => {
+                if self.state.preview || self.state.discord_user.is_none() {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::SoundCatalog,
+                ))]
+            }
+            Action::SetJoinSound { server, sound } => {
+                if self.state.preview || self.state.discord_user.is_none() {
+                    return vec![];
+                }
+                // The sound's own server, from the sounds Settings offered.
+                let sound = match sound {
+                    None => None,
+                    Some(id) => {
+                        let found = self
+                            .state
+                            .sound_catalog
+                            .iter()
+                            .flat_map(|groups| groups.iter())
+                            .flat_map(|group| &group.sounds)
+                            .find(|sound| sound.id == id);
+                        let Some(found) = found else { return vec![] };
+                        Some((id, found.guild.clone()))
+                    }
+                };
+                // Shown at once; the settings Discord sends back confirm it.
+                self.state.join_sounds.retain(|join| join.server != server);
+                if let Some((id, guild)) = &sound {
+                    self.state.join_sounds.push(JoinSound {
+                        server: server.clone(),
+                        sound: id.clone(),
+                        guild: guild.clone(),
+                    });
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::SetJoinSound { server, sound },
+                ))]
             }
             Action::Inactive { since, show_idle } => {
                 // Discord keeps it through reconnecting, so it goes even
@@ -3197,6 +3423,18 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),
+            Event::OAuthAuthorized { query, result } => {
+                return self.oauth_authorized(query, result);
+            }
+            Event::EventResolved { event, result } => return self.event_resolved(event, result),
+            Event::EventInterestSet {
+                event,
+                interested,
+                result,
+            } => return self.event_interest_set(event, interested, result),
+            Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
+            Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),
             Event::ChannelSaved(result) => {
                 if !self.channel_settings_saved(&result) {
@@ -3344,6 +3582,29 @@ impl Application {
                     self.state.notice = Some(format!("Couldn't change your status: {error}"));
                 }
             }
+            Event::SoundboardVolumeSet(Err(error)) => {
+                self.state.notice = Some(format!("Couldn't change the soundboard volume: {error}"));
+            }
+            Event::JoinSoundSet(Err(error)) => {
+                self.state.notice = Some(format!("Couldn't change your entrance sound: {error}"));
+            }
+            Event::SoundboardVolumeSet(Ok(())) | Event::JoinSoundSet(Ok(())) => {}
+            Event::SoundCatalog(result) => match result {
+                Ok(groups) => {
+                    // The sounds' custom emoji, for the chooser.
+                    let pictures = groups
+                        .iter()
+                        .flat_map(|group| &group.sounds)
+                        .filter_map(|sound| sound.picture.clone())
+                        .collect();
+                    self.state.sound_catalog = Some(groups);
+                    return self.load_pictures(pictures);
+                }
+                Err(error) => {
+                    self.state.notice =
+                        Some(format!("Couldn't list the soundboard's sounds: {error}"));
+                }
+            },
             Event::ShowGameSet(result) => {
                 if let Err(error) = result {
                     self.state.discord_show_game = !self.state.discord_show_game;
@@ -3503,6 +3764,18 @@ impl Application {
             "Connecting to Discord...".into()
         });
         vec![Effect::Start(start)]
+    }
+
+    /// Whether the Discord account has Nitro, which join sounds need.
+    pub fn discord_nitro(&self) -> bool {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            return snapshot
+                .account
+                .as_ref()
+                .is_some_and(|account| account.premium_type > 0);
+        }
+        false
     }
 
     /// The custom emoji this account may use in the selected room, by server, the

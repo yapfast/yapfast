@@ -1,6 +1,7 @@
-import { ScrollView } from "scrollview.slint";
+import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
 import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
+import { EmojiCell, EmojiFace } from "messages.slint";
 
 export struct PersonRow {
     id: string, name: string, status: string, muted: bool, deafened: bool, speaking: bool, connected: bool, initial: string, tint: color, picture: image,
@@ -327,8 +328,9 @@ component DockButton inherits Rectangle {
 }
 
 // What the voice connection is doing, above the account panel, with a way to
-// leave the call or to dismiss what went wrong; during a call, the camera and
-// sharing the screen, and while sharing, that it's live, wherever the window is.
+// leave the call or to dismiss what went wrong; during a call, the soundboard,
+// the camera and sharing the screen, and while sharing, that it's live,
+// wherever the window is.
 export component VoiceDock inherits Rectangle {
     in property <string> voice-status;
     /// How long the call has lasted, as 12:05.
@@ -351,6 +353,8 @@ export component VoiceDock inherits Rectangle {
     in property <bool> camera-on;
     /// The camera is on its way, until its first picture.
     in property <bool> camera-starting;
+    /// The call has Discord's soundboard.
+    in property <bool> can-soundboard;
     callback leave-voice;
     callback dismiss-voice-error;
     callback toggle-camera;
@@ -358,6 +362,8 @@ export component VoiceDock inherits Rectangle {
     /// Sharing starts from a menu, opened at this point in the window, and
     /// while sharing, the same menu switches what's shared.
     callback open-share-menu(length, length);
+    /// The soundboard, opened above this point in the window.
+    callback open-soundboard(length, length);
     /// The call's connection in detail, from where its status is.
     callback open-call-link(length, length, length, length);
     background: Theme.panel;
@@ -425,8 +431,13 @@ export component VoiceDock inherits Rectangle {
                 clicked => { root.toggle-share(); }
             }
         }
-        if root.voice-active && (root.can-film || root.can-share || root.sharing): HorizontalLayout {
+        if root.voice-active && (root.can-film || root.can-share || root.sharing || root.can-soundboard): HorizontalLayout {
             padding-left: 8px; spacing: 8px;
+            if root.can-soundboard: DockButton {
+                horizontal-stretch: 1; enabled: root.voice-ready;
+                icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";
+                clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
+            }
             if root.can-film: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready; on: root.camera-on;
                 icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
@@ -927,8 +938,8 @@ export component ParticipantGrid inherits Flickable {
     }
 }
 
-// The call's controls under the stage: mute, deafen, the camera, share the
-// screen, and leave.
+// The call's controls under the stage: mute, deafen, the soundboard, the
+// camera, share the screen, and leave.
 export component CallControls inherits HorizontalLayout {
     in property <bool> muted;
     in property <bool> deafened;
@@ -945,8 +956,12 @@ export component CallControls inherits HorizontalLayout {
     callback toggle-deafen;
     callback toggle-camera;
     callback toggle-share;
+    /// The call has Discord's soundboard.
+    in property <bool> can-soundboard;
     /// Sharing starts from a menu, opened at this point in the window.
     callback open-share-menu(length, length);
+    /// The soundboard, opened above this point in the window.
+    callback open-soundboard(length, length);
     callback leave-voice;
     alignment: center; spacing: 12px; padding: 16px; padding-top: 8px;
     IconButton {
@@ -964,6 +979,12 @@ export component CallControls inherits HorizontalLayout {
         enabled: root.voice-ready;
         fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
         clicked => { root.toggle-deafen(); }
+    }
+    if root.can-soundboard: IconButton {
+        size: 52px; glyph: 22px; radius: 26px;
+        icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard"; tint: Theme.text;
+        enabled: root.voice-ready; fill: Theme.raised;
+        clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
     }
     if root.can-film: IconButton {
         size: 52px; glyph: 22px; radius: 26px;
@@ -1193,12 +1214,20 @@ component ScreenCard inherits Rectangle {
 // Going live: what to share, where Yapfast lists it, and the resolution, frame
 // rate and quality to share it at; or while sharing, what to share instead.
 export component ShareMenu inherits Rectangle {
-    /// The screens, then the windows, to share; a pick counts the screens
-    /// first.
+    /// The screens, then the windows, then the cameras, to share; a pick
+    /// counts the screens first.
     in property <[ShareScreen]> screens;
     in property <[string]> windows;
+    in property <[string]> cameras;
+    /// The system's dialog picks a screen or window: with cameras listed, a
+    /// choice of it comes before them.
+    in property <bool> dialog;
     /// Switching what's shared, at the stream's quality.
     in property <bool> switching;
+    property <int> dialog-index: root.screens.length + root.windows.length;
+    property <int> first-camera: root.dialog-index + (root.dialog ? 1 : 0);
+    property <bool> asks-dialog: root.dialog && root.cameras.length > 0;
+    property <bool> lists: root.screens.length + root.windows.length + root.cameras.length > 0;
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
@@ -1241,8 +1270,31 @@ export component ShareMenu inherits Rectangle {
                 }
             }
         }
+        if root.asks-dialog: HorizontalLayout {
+            padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
+            Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+        }
+        if root.asks-dialog: MenuItem {
+            text: "Screen or window"; subtitle: "Picked in the system's dialog";
+            checked: root.dialog-index == root.pick-source;
+            clicked => { root.pick-source = root.dialog-index; }
+        }
+        if root.cameras.length > 0: HorizontalLayout {
+            padding-left: 8px; padding-top: root.dialog-index > 0 || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
+            Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+        }
+        if root.cameras.length > 0: ScrollView {
+            // Five before the list scrolls.
+            height: min(5, root.cameras.length) * 32px;
+            VerticalLayout {
+                for camera[index] in root.cameras: MenuItem {
+                    text: camera; checked: root.first-camera + index == root.pick-source;
+                    clicked => { root.pick-source = root.first-camera + index; }
+                }
+            }
+        }
         if !root.switching: HorizontalLayout {
-            padding-left: 8px; padding-top: root.screens.length + root.windows.length > 0 ? 8px : 4px; padding-bottom: 4px;
+            padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
             Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
         }
         if !root.switching: VerticalLayout {
@@ -1311,6 +1363,127 @@ export component VolumeMenu inherits Rectangle {
             value <=> root.stream-volume;
             changed(volume) => { root.volume-changed(root.volume-person, true, volume, false); }
             committed(volume) => { root.volume-changed(root.volume-person, true, volume, true); }
+        }
+    }
+}
+
+/// A soundboard sound: its id, name and emoji, if it has one.
+export struct SoundCell { id: string, name: string, emoji: EmojiCell, favorite: bool }
+/// A heading, or a row of up to three sounds, in the soundboard.
+export struct SoundRow { heading: string, sounds: [SoundCell] }
+
+// A sound to play. With extras, hovering offers hearing it first and
+// starring it as a favourite; a favourite's star stays.
+component SoundButton inherits Rectangle {
+    in property <SoundCell> sound;
+    in property <string> emoji-font;
+    in property <bool> enabled;
+    in property <bool> extras;
+    in property <string> verb: "Play";
+    callback clicked;
+    callback preview;
+    callback favorite(bool);
+    property <bool> hovered: touch.has-hover || hear.hovered || star.hovered;
+    height: 36px; border-radius: 8px;
+    background: root.hovered && root.enabled ? Theme.button-default-hover : Theme.button-default;
+    animate background { duration: Theme.quick; }
+    accessible-role: button; accessible-label: root.verb + " " + root.sound.name; accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 10px; spacing: 8px;
+        opacity: root.enabled ? 1 : 0.5;
+        if root.sound.emoji.glyph != "": EmojiFace {
+            emoji: root.sound.emoji; font: root.emoji-font; side: 18px; width: 18px;
+        }
+        Text {
+            text: root.sound.name; color: Theme.text; font-size: 14px; overflow: elide;
+            vertical-alignment: center; horizontal-stretch: 1;
+        }
+    }
+    // Still hovered while it can't be played, so a favourite can change.
+    touch := TouchArea {
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { if root.enabled { root.clicked(); } }
+    }
+    hear := IconButton {
+        x: parent.width - 2 * (self.width + 4px); y: (parent.height - self.height) / 2;
+        size: 26px; glyph: 15px; radius: 6px; fill: Theme.button-default-hover;
+        visible: root.extras && root.hovered;
+        icon: @image-url("icons/volume-2.svg"); label: "Preview " + root.sound.name;
+        clicked => { root.preview(); }
+    }
+    star := IconButton {
+        x: parent.width - self.width - 4px; y: (parent.height - self.height) / 2;
+        size: 26px; glyph: 15px; radius: 6px; fill: root.hovered ? Theme.button-default-hover : Theme.button-default;
+        visible: root.extras && (root.hovered || root.sound.favorite);
+        icon: root.sound.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
+        tint: root.sound.favorite ? #f0b232 : Theme.secondary;
+        label: root.sound.favorite ? "Remove from Favorites" : "Add to Favorites";
+        clicked => { root.favorite(!root.sound.favorite); }
+    }
+}
+
+// Discord's soundboard in a call: the favourites, the call's server's
+// sounds, others' with Nitro, then Discord's own, three to a row. A click
+// plays one for everyone in the call; while that can't be, the note says
+// why. With extras, each offers hearing it first and starring it. Settings
+// uses it to choose an entrance sound, with its own title and no extras.
+export component Soundboard inherits Rectangle {
+    in property <[SoundRow]> rows;
+    in property <string> emoji-font;
+    in property <string> title: "Soundboard";
+    in property <bool> extras: true;
+    /// What a click does to a sound, as its accessible label says.
+    in property <string> verb: "Play";
+    /// Why no sound can be played now, such as being deafened; empty when
+    /// they can.
+    in property <string> note;
+    callback play(string);
+    callback preview(string);
+    callback favorite(string, bool);
+    callback close;
+    property <length> row-height: 42px;
+    property <length> gap: 6px;
+    width: 372px;
+    height: min(440px, top.preferred-height + max(1, root.rows.length) * root.row-height + 10px);
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    clip: true;
+    accessible-role: groupbox; accessible-label: root.title;
+    keys := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.close(); return accept; }
+            return reject;
+        }
+    }
+    VerticalLayout {
+        top := VerticalLayout {
+            padding: 14px; padding-bottom: 4px; spacing: 4px;
+            Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 700; }
+            if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+            if root.rows.length == 0: Text { text: "Loading sounds..."; color: Theme.muted; font-size: 13px; }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for row in root.rows: VerticalLayout {
+                height: root.row-height; padding-left: 10px; padding-right: 10px;
+                if row.heading != "": Text {
+                    text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+                    vertical-alignment: bottom; overflow: elide; height: root.row-height - 8px;
+                }
+                if row.heading == "": HorizontalLayout {
+                    spacing: root.gap; padding-top: 3px; padding-bottom: 3px; alignment: start;
+                    for sound in row.sounds: SoundButton {
+                        width: (root.width - 20px - 2 * root.gap) / 3;
+                        sound: sound; emoji-font: root.emoji-font; enabled: root.note == "";
+                        extras: root.extras; verb: root.verb;
+                        clicked => { root.play(sound.id); }
+                        preview => { root.preview(sound.id); }
+                        favorite(on) => { root.favorite(sound.id, on); }
+                    }
+                }
+            }
         }
     }
 }

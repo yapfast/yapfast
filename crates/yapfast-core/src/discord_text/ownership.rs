@@ -1,7 +1,7 @@
 //! Deleting a Discord server and giving it away, as its owner, as Discord's
 //! client does: two-factor authentication confirms either when Discord asks;
 //! without it, a code Discord emails confirms a transfer. See "Delete
-//! Server and Transfer Ownership" in docs/discord.md.
+//! Server and Transfer Ownership" in docs/discord/server-settings.md.
 
 use yapfast_discord::api;
 

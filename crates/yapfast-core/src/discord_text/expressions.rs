@@ -1,7 +1,7 @@
 //! Emoji and Stickers in a Discord server's settings: listing them,
 //! uploading, renaming and deleting them as Discord's client does, and
 //! reading a picture chosen for a new one. See "Emoji" and "Stickers" in
-//! docs/discord.md.
+//! docs/discord/server-settings.md.
 
 use std::path::Path;
 

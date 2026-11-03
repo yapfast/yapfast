@@ -1,6 +1,6 @@
 # A nightly release of main, made on demand: Actions > Nightly > Run workflow.
 # It builds the Linux AppImage and the Windows ZIP as the releases are built, and publishes them as a prerelease of the next minor
-# version, such as v0.2.0-nightly.20261020.5. See docs/building.md.
+# version, such as v0.2.0-nightly.20261020.5. See docs/packaging.md.
 name: Nightly
 
 on:

@@ -1,6 +1,6 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has four packages, all in one process. The root `yapfast`
+Yapfast's Cargo workspace has five packages, all in one process. The root `yapfast`
 package is the executable: the Slint adapter and the command-line entry point.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
@@ -9,16 +9,54 @@ login, the gateway, the HTTP API and voice. [`crates/yapfast-ui`](../crates/yapf
 compiles `ui/yapfast.slint` and the files it imports in its `build.rs`, so editing
 any `.slint` file rebuilds only that crate, and in a
 [live-preview build](building.md#seeing-the-app) nothing at all.
+[`crates/feature-union`](../crates/feature-union) holds no code; `scripts/check`
+uses it (see [building](building.md#checks)).
 
 ```mermaid
 flowchart LR
     UI[Slint widgets and Skia rendering] -->|Actions| App[Application model]
     App -->|State| UI
     App -->|Effects| Adapter[Client event loop]
-    Adapter -->|Commands| Backend[Native Matrix and voice backend]
+    Adapter -->|Commands| Backend[Discord, Matrix and voice backends]
     Backend -->|Events| Adapter
     Adapter -->|Apply events| App
 ```
+
+## Where things live
+
+`crates/yapfast-ui` holds only the Slint build: `build.rs` compiles
+`ui/yapfast.slint` and `src/lib.rs` includes the generated code. It is a
+path dependency outside the Cargo workspace, so Clippy doesn't lint that
+code. The Slint files themselves are `ui/*.slint`, and the Rust that fills
+them is `src/ui.rs` and `src/ui/`. The menus a right click opens are in
+`src/ui/menus.rs`.
+
+The Discord connection is `crates/yapfast-discord/src/service.rs`, with its
+parts in `service/`: `tracker.rs` keeps the account's servers, voice, DMs,
+friends and settings current from gateway events, `publisher.rs` sends out
+snapshots of it, and `member_lists.rs` keeps the member lists beside
+channels. The service publishes an `Arc<Snapshot>` on a watch channel;
+`crates/yapfast-core/src/discord_text.rs` receives it and passes it on as
+`Event::Discord`, which `show_snapshot` in `application/discord_account.rs`
+applies. `discord.rs` turns a snapshot into rooms and servers, making again
+only those that changed.
+
+Media in `crates/yapfast-core/src/`: `playback.rs` is the video playing in
+the conversation view, which `video_player.rs` plays in the stream worker.
+`stream_worker.rs` runs Go Live and video playback in a child process,
+`yapfast --stream-worker`, so their memory goes when they stop. `video.rs`
+reads video files, `encode.rs` encodes Go Live and the camera, and
+`decode.rs` decodes a watched stream, each through C in `native/*.c`.
+`audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
+
+`vendor/` holds patched Slint, webrtc-sys, matrix-rtc-livekit, davey and
+tungstenite, plus x264's and FFmpeg's C source; see
+[dependency sources](building.md#dependency-sources). LiveKit itself comes
+from crates.io, not `vendor/`.
+
+Two experiments stay in the tree: `experiment.rs` behind `--call-experiment`
+and `voice_demo.rs` behind `--voice-demo`, both in yapfast-core and
+dispatched from `src/main.rs`.
 
 ## Shared application behavior
 
@@ -37,31 +75,19 @@ rows a backend sends again unchanged when they didn't change. Its rooms and
 servers are `Arc`s shared with each network's own lists, which keep a room
 or server while it stays the same. `dispatch`
 routes each action to a method in the module for its area, under
-[`application/`](../crates/yapfast-core/src/application): `compose`, `messages`,
-`rooms`, `aside`, which shows a Discord thread beside the open channel,
-`profiles`, `polls`, which makes Discord polls, votes in them and closes them,
-`calls`, `session`, `preview`, `discord_account`,
-`header`, which holds what a conversation's header opens: its pins, a search
-of a DM or a whole server, and adding friends to a DM, `threads`, a Discord
-channel's list of its threads, `server`, which
-answers what the account may do in a Discord server and how the server
-notifies it, `members`, which builds a server member's menu and carries
-out its choices, and `places`, which builds the menus of Discord servers,
-categories and channels from those answers, and `arrange`, which moves
-channels and categories dragged in a server's channel list, as Discord's
-client does.
+[`application/`](../crates/yapfast-core/src/application); the `mod` lines at
+the top of `application.rs` list them. For example, `compose` holds the
+composer, `aside` shows a Discord thread beside the open channel, and
+`places` builds the menus of Discord servers, categories and channels.
 
 The Slint adapter in [`src/ui.rs`](../src/ui.rs) and [`src/ui/`](../src/ui), with
 the interface in [`ui/*.slint`](../ui), owns input widgets, password masking,
 focus, filtering, scroll position, list virtualization, device selectors, window
 state, theme and icons. `Adapter::refresh`, in
 [`src/ui/refresh.rs`](../src/ui/refresh.rs), shows the application's state one
-area at a time: the image viewer, profile, workspace, sidebar, account, header,
-member lists, dialogs, composer, messages, the thread beside them and call. `ui/yapfast.slint` holds the
-window and imports its parts from the files beside it: the theme, controls, rail,
-composer, messages, thread, people, friends, header, voice, dialogs, settings, sign-in and
-Discord pieces. The adapter updates widgets after model changes. A programmatic
-composer update uses the new room's draft, so it cannot overwrite that draft with
+area at a time. `ui/yapfast.slint` holds the window and imports its parts
+from the files beside it. The adapter updates widgets after model changes. A
+programmatic composer update uses the new room's draft, so it cannot overwrite that draft with
 the previous room's text.
 
 Timeline rows retain text, attachment dimensions and message actions for all
@@ -78,7 +104,8 @@ keeps them beside the window, following live events, and Matrix rebuilds
 its live timeline from the SDK's event cache. Neither loads them again. The UI reports visible item ids, with six rows of margin on
 each side, through `Action::VisibleMessages` and `Command::VisibleMessages`.
 Discord and Matrix download and decode previews for those items and release
-distant decoded handles. Reports are coalesced over 50 ms, reject old rooms,
+distant decoded handles. A report goes out at once after a quiet spell and at most every 50 ms
+while the view moves; reports reject old rooms,
 and refresh when temporary message ids become server event ids even if the
 row count stays the same. Discord's recent channels share an 8 MiB LRU cache
 of decoded preview pixels; closing a channel clears its own preview handles
@@ -104,15 +131,12 @@ A visible change usually touches each of these steps:
    Rust sees only `YapfastWindow` in `ui/yapfast.slint` and the structs and globals
    it exports, so `YapfastWindow` declares a matching property or callback and
    binds it to the component. Colours are the exception: components read the
-   `Theme` global, which `src/ui/theme.rs` sets whole. The areas are `theme`, `controls`, `rail`, `composer`, `messages`,
-   `people`, `friends`, `header`, `voice`, `dialogs`, `settings`, `sign-in` and
-   `discord`.
+   `Theme` global, which `src/ui/theme.rs` sets whole. The areas are the files
+   in `ui/*.slint`, such as `composer`, `messages` and `server_settings`.
 2. **State to window.** `Adapter::refresh` calls one `show_<area>` method in
-   `src/ui/refresh.rs` per area (`show_viewer`, `show_profile`,
-   `show_workspace`, `show_sidebar`, `show_account`, `show_header`,
-   `show_dm_tools`, `show_members`, `show_dialogs`, `show_composer`, `show_messages`,
-   `show_voice`), which sets the window's properties from `AppState`. Message
-   rows are built in `src/ui/messages.rs`, profile rows in `src/ui/profile.rs`
+   `src/ui/refresh.rs` per area (grep `fn show_` there), such as
+   `show_composer` or `show_messages`, which sets the window's properties from
+   `AppState`. Message rows are built in `src/ui/messages.rs`, profile rows in `src/ui/profile.rs`
    and pictures in `src/ui/pictures.rs`.
 3. **Input.** `bind_callbacks` in `src/ui/callbacks.rs` registers an `on_*`
    handler for each window callback. Most turn the input into an `Action` and
@@ -125,10 +149,7 @@ A visible change usually touches each of these steps:
    `src/ui/refresh.rs`). The sidebar is built again only once what it shows
    changed. `Action` and
    `dispatch` are in `crates/yapfast-core/src/application.rs`, which routes each
-   action to the module for its area in `crates/yapfast-core/src/application/`:
-   `compose.rs`, `messages.rs`, `rooms.rs`, `profiles.rs`, `polls.rs`, `calls.rs`,
-   `session.rs`, `preview.rs`, `discord_account.rs`, `header.rs`,
-   `threads.rs`, `server.rs`, `members.rs`, `places.rs` or `arrange.rs`.
+   action to the module for its area in `crates/yapfast-core/src/application/`.
 5. **Backend.** An `Effect::Backend(Command)` goes through `Backend::send` to
    the chat actor in `crates/yapfast-core/src/chat.rs`, which routes it to the
    network its room id names, or to voice. Matrix lives
@@ -136,10 +157,8 @@ A visible change usually touches each of these steps:
    `discord_text.rs` with its modules in `discord_text/`, `discord_voice.rs`,
    `discord_audio.rs` and `discord_link.rs`, all under
    `crates/yapfast-core/src/`. The Discord protocol itself is in
-   `crates/yapfast-discord`: Yapfast holds the handle in `src/service.rs`, the
-   gateway session and its state machines are in `src/service/`, and
-   `src/event.rs` names the gateway's events. Backend events come back
-   through `Application::apply`.
+   `crates/yapfast-discord`, and `src/event.rs` there names the gateway's
+   events. Backend events come back through `Application::apply`.
 
 Yapfast's own sound outside LiveKit's calls goes through
 [`audio_io.rs`](../crates/yapfast-core/src/audio_io.rs): Discord voice, the input
@@ -177,7 +196,7 @@ remain authoritative in the backend. Explicit logout stops voice and sync before
 revoking the session; failed logout retains the account. Dropping the backend on
 the client thread cancels its work without revoking saved credentials.
 
-The core has no GPUI or other UI-framework dependency. Its native services still
+The core has no UI-framework dependency. Its native services still
 depend on Tokio, SQLite, OS credential storage and libwebrtc. A browser client
 will need platform implementations for those services. This split shares app
 behavior without claiming the native backend already runs on the web or Android.
@@ -199,34 +218,11 @@ implement their own drafts, send handling or voice lifecycle.
 
 ## Checks and packaging
 
-`cargo run --locked` and `--preview` keep their existing behavior. The headless
-variant uses `--no-default-features --features matrix,discord`. `scripts/check`
-checks the whole workspace; see [building](building.md#checks). Ignored chat and
-voice tests now belong to `yapfast-core`, so select them with
-`cargo test -p yapfast-core`.
+`scripts/check` checks the whole workspace, including the headless build
+(`--no-default-features --features matrix,discord`); see
+[building](building.md#checks). Ignored chat and voice tests belong to
+`yapfast-core`, so select them with `cargo test -p yapfast-core`.
 
-The Windows source archive includes `crates/` and `ui/`. Existing session storage paths and
-formats are unchanged. Library tests keep disposable fixtures under the workspace's
+Library tests keep disposable fixtures under the workspace's
 ignored `.local` directory even though Cargo runs them from the crate directory.
-
-Validation on 2026-10-02 passed formatting, workspace Clippy with warnings denied,
-15 unit tests, a desktop build, and desktop/headless smoke checks. The local
-Matrix integration test passed encrypted delivery, session restoration, safe
-retries, trust restrictions and channel updates. `scripts/test-voice --fast`
-passed native encrypted audio, mute/deafen, late joining, departure and stalled
-join cancellation through isolated virtual audio devices. A dependency-tree
-check found no UI-framework dependencies in `yapfast-core`.
-
-The Windows x64 MSVC compilation check passed for both workspace packages and
-all targets using `cargo xwin check` with `--locked --workspace --all-targets`
-and target `x86_64-pc-windows-msvc`. This checks compilation; the refactored
-executable has not yet had a Windows runtime test.
-
-The GPUI preview opened and sent a local message with Enter. Future GUI trials
-must use an isolated display as described in the comparison plan.
-
-The 2026-10-03 [Slint validation](slint-client.md) passed the complete Linux check
-script, 3 desktop tests in addition to the 15 core tests, and a separate encrypted
-chat integration test. Private GPU/software UI fixtures passed real encrypted
-sending, close, session restoration and logout. Current Windows evidence and
-remaining manual checks are recorded in the [Windows guide](windows-beta.md).
+Windows runtime checks are in the [Windows guide](windows-beta.md).

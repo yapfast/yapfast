@@ -25,15 +25,15 @@ import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.sli
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText } from "controls.slint";
-import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu } from "voice.slint";
+import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
-import { ContactRow, ForwardRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
-import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
+import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
+import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
 import { BoostPicture, BoostPrompt, EngagementPrompt, ServerProfilePrompt, ServerSettingsPrompt, ServerSettingsScreen } from "server_settings.slint";
 import { PermissionRow, RoleMemberRow, RoleRow, RoleSwatch, RolesPrompt } from "roles.slint";
@@ -55,7 +55,7 @@ export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
-export { ContactRow, ForwardRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
+export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 
@@ -173,6 +173,25 @@ export component YapfastWindow inherits Window {
     callback open-join-captcha;
     callback open-join-form;
     callback close-join;
+    // An application a clicked authorization link opened; see OAuthDialog.
+    in property <bool> oauth-open;
+    in property <OAuthPrompt> oauth-prompt;
+    in property <[string]> oauth-guilds;
+    in property <int> oauth-guild-chosen;
+    callback choose-oauth-guild(int);
+    callback authorize-oauth;
+    callback close-oauth;
+    // A gift a clicked gift link opened; see GiftDialog.
+    in property <bool> gift-open;
+    in property <GiftPrompt> gift-prompt;
+    callback redeem-gift;
+    callback open-gift-in-browser;
+    callback close-gift;
+    // A scheduled event a clicked event link opened; see EventDialog.
+    in property <bool> event-open;
+    in property <EventPrompt> event-prompt;
+    callback toggle-event-interest;
+    callback close-event;
     // A dialog that makes, copies or deletes a Discord channel or category,
     // with what's written in it; see ChannelDialog.
     in property <bool> channel-open;
@@ -627,7 +646,7 @@ export component YapfastWindow inherits Window {
     in property <string> viewer-item;
     in property <int> viewer-index;
     in property <string> forward-preview;
-    in property <[ForwardRow]> forward-targets;
+    in property <[PlaceRow]> forward-targets;
     in-out property <string> forward-query;
     in-out property <string> forward-note;
     in property <int> forward-chosen;
@@ -635,6 +654,15 @@ export component YapfastWindow inherits Window {
     in property <string> forward-empty;
     in property <string> forward-slowmode;
     in property <string> forward-error;
+    /// The quick switcher, open from Ctrl+K until it goes somewhere, and
+    /// where it may go.
+    in property <bool> switcher-open;
+    // However it closes, the composer has the focus again, as in Discord.
+    changed switcher-open => {
+        if !self.switcher-open { root.focus-composer(); }
+    }
+    in property <[PlaceRow]> switcher-places;
+    in-out property <string> switcher-query;
     /// The platform's color emoji font, so reactions do not fall back to outline glyphs.
     in property <string> emoji-font;
     in-out property <string> homeserver: "https://matrix.org";
@@ -673,6 +701,31 @@ export component YapfastWindow inherits Window {
     /// This account's camera is on its way, until its first picture.
     in property <bool> camera-starting;
     in property <bool> call-video;
+    /// The call has Discord's soundboard: its sounds, and why none can be
+    /// played now, when that's so.
+    in property <bool> can-soundboard;
+    in property <[SoundRow]> soundboard-rows;
+    in property <string> soundboard-note;
+    /// The soundboard opened, so its emoji's pictures are wanted.
+    callback soundboard-opened;
+    /// Play the soundboard sound with this id for everyone in the call.
+    callback play-soundboard(string);
+    /// Hear the soundboard sound with this id here only.
+    callback preview-soundboard(string);
+    /// Add the soundboard sound with this id to the favourites, or take it out.
+    callback favorite-soundboard(string, bool);
+    /// The Discord soundboard's volume and entrance sounds, as Voice &
+    /// video in Settings shows them; see VoiceSettings.
+    in-out property <int> soundboard-volume: 100;
+    in property <[string]> entrance-servers;
+    in-out property <int> entrance-server;
+    in property <string> entrance-sound;
+    in property <[SoundRow]> entrance-rows;
+    in property <bool> discord-nitro;
+    callback soundboard-volume-committed(int);
+    callback entrance-sounds-wanted;
+    callback entrance-server-chosen(int);
+    callback choose-entrance-sound(string);
     /// The call's grid of tiles is on screen, in its conversation or over
     /// the whole window.
     out property <bool> grid-shown: root.stage-full || (root.voice-here && (root.voice-panel || root.call-shown));
@@ -989,6 +1042,10 @@ export component YapfastWindow inherits Window {
     in-out property <int> talk-delay: 20;
     in-out property <string> talk-note;
     callback record-talk-key(bool);
+    /// Calls' microphone and speakers volume: see VoiceSettings.
+    in-out property <int> microphone-volume: 100;
+    in-out property <int> speaker-volume: 100;
+    callback call-volumes-changed();
     in-out property <bool> share-typing: true;
     in-out property <bool> notifications: true;
     in-out property <bool> notification-text: true;
@@ -1021,6 +1078,10 @@ export component YapfastWindow inherits Window {
     /// where the platform can, outside the preview.
     in-out property <bool> start-on-sign-in;
     in property <bool> autostart-available;
+    /// Discord protocol links open in Yapfast, where the platform can
+    /// claim them, outside the preview.
+    in-out property <bool> discord-links;
+    in property <bool> discord-links-available;
     callback restart();
     callback preferences-changed();
     /// The built-in themes, and the one shown by its id; choose-theme shows
@@ -1054,14 +1115,14 @@ export component YapfastWindow inherits Window {
     in property <[string]> microphones;
     in property <[string]> speakers;
     in property <[string]> cameras;
-    in property <int> camera-index;
+    in-out property <int> camera-index;
     /// Trying the camera in settings: what it films, refreshed by
     /// stream-tick, or why it can't.
     in-out property <bool> camera-testing;
     in-out property <image> camera-preview;
     in property <string> camera-note;
-    in property <int> microphone-index;
-    in property <int> speaker-index;
+    in-out property <int> microphone-index;
+    in-out property <int> speaker-index;
     /// The microphone level from 0 to 1, refreshed by meter-tick while the input menu is open.
     in-out property <float> input-level;
     /// Why the level can't be shown, if it can't.
@@ -1108,22 +1169,32 @@ export component YapfastWindow inherits Window {
     callback join-deafened;
     callback toggle-deafen;
     callback toggle-share;
-    /// Share what share-screens, then share-windows, list at this index, or
-    /// the screen when they list none, at this resolution, as in
-    /// share-resolution, frame rate, and quality, as in share-high-quality.
+    /// Share what share-screens, share-windows, then share-cameras, list at
+    /// this index, or the screen when they list none, at this resolution, as
+    /// in share-resolution, frame rate, and quality, as in share-high-quality.
+    /// Where the system's dialog picks a screen or window (!share-lists), a
+    /// choice of it comes before the cameras.
     callback go-live(int, int, int, bool);
-    /// While sharing, share what share-screens, then share-windows, list at
-    /// this index in place of what's shared, or what the system's dialog
-    /// picks when they list none.
+    /// While sharing, share what the share menu lists at this index in place
+    /// of what's shared, as go-live counts them.
     callback switch-live(int);
-    /// The screens and windows to share, where Yapfast lists them (share-lists):
-    /// asked for as the share menu opens, which shows once they're in, with
-    /// the first picked. The screens' pictures come after.
+    /// The screens and windows to share, where Yapfast lists them (share-lists),
+    /// and the cameras: asked for as the share menu opens, which shows once
+    /// they're in, with the first picked. The screens' pictures come after.
     in property <bool> share-lists;
     in property <[ShareScreen]> share-screens;
     in property <[string]> share-windows;
+    in property <[string]> share-cameras;
     callback list-share-sources();
-    public function show-share-menu() { share-menu.show(); }
+    /// Opens the share menu once its lists are in. Switching where the
+    /// system's dialog picks and there's no camera goes straight to the dialog.
+    public function show-share-menu() {
+        if root.pick-switch && !root.share-lists && root.share-cameras.length == 0 {
+            root.switch-live(0);
+        } else {
+            share-menu.show();
+        }
+    }
     callback stream-tick;
     callback toggle-camera;
     /// Where the call's tiles are; see ParticipantGrid.
@@ -1212,6 +1283,9 @@ export component YapfastWindow inherits Window {
     callback forward-send(string);
     callback forward-search;
     callback close-forward;
+    callback switcher-search(string);
+    callback switch-to(string);
+    callback close-switcher;
     callback visit-leaving-link;
     callback close-leaving-link;
     callback confirm-delete-message;
@@ -1364,13 +1438,19 @@ export component YapfastWindow inherits Window {
     // until the first message. After a failure they wait for Retry.
     property <bool> wants-earlier: root.room-ready && !root.preview && !root.busy && !root.voice-panel
         && root.messages.length > 0 && !root.loading-history && !root.history-start && !root.history-failed
-        && -timeline.content-y < timeline.height;
-    changed wants-earlier => { if self.wants-earlier { root.earlier(); } }
+        && (root.jump-item == "" || root.jump-placed) && -timeline.content-y < timeline.height;
+    // Only once that holds for a moment, and not while a jump's row is still
+    // to be placed: a room opens with its list at the top until it moves to
+    // the newest message or the "New" divider.
+    Timer { interval: 50ms; running: root.wants-earlier; triggered => { root.earlier(); } }
     // And newer ones as a window of older messages nears its end.
     property <bool> wants-later: root.detached && root.room-ready && !root.preview && !root.busy
         && root.messages.length > 0 && !root.loading-later && !root.later-failed
+        && (root.jump-item == "" || root.jump-placed)
         && timeline.content-y - min(0px, timeline.height - timeline.content-height) < timeline.height;
-    changed wants-later => { if self.wants-later { root.later(); } }
+    // As for earlier ones: a window shows its list at the top until its jump
+    // places it, near its end when it's short.
+    Timer { interval: 50ms; running: root.wants-later; triggered => { root.later(); } }
     // Formatted messages are not selectable, so Copy goes through a hidden text field.
     public function copy-text(text: string) { clipboard.text = text; clipboard.select-all(); clipboard.copy(); clipboard.text = ""; }
     clipboard := TextInput { visible: false; width: 0px; height: 0px; }
@@ -1477,14 +1557,25 @@ export component YapfastWindow inherits Window {
         root.pick-fps = root.share-fps;
         root.pick-high-quality = root.share-high-quality;
         root.pick-switch = root.sharing;
-        // Shown once the list is in, so it opens at its full height. Where
-        // the system's dialog picks what to share, a switch goes straight to it.
-        if root.sharing && !root.share-lists {
-            root.switch-live(-1);
-        } else if root.share-lists {
-            root.list-share-sources();
-        } else {
-            share-menu.show();
+        // Shown once the list is in, so it opens at its full height.
+        root.list-share-sources();
+    }
+    function open-soundboard(x: length, y: length) {
+        root.menu-x = x; root.menu-y = y;
+        root.soundboard-opened();
+        soundboard-menu.show();
+    }
+    soundboard-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
+        y: max(8px, root.menu-y - self.height - 6px);
+        width: board.width; height: board.height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        board := Soundboard {
+            rows: root.soundboard-rows; note: root.soundboard-note; emoji-font: root.emoji-font;
+            play(id) => { root.play-soundboard(id); }
+            preview(id) => { root.preview-soundboard(id); }
+            favorite(id, on) => { root.favorite-soundboard(id, on); }
+            close => { soundboard-menu.close(); }
         }
     }
     share-menu := PopupWindow {
@@ -1494,7 +1585,8 @@ export component YapfastWindow inherits Window {
         width: root.share-screens.length > 0 ? 336px : 240px;
         close-policy: PopupClosePolicy.close-on-click-outside;
         ShareMenu {
-            screens: root.share-screens; windows: root.share-windows; switching: root.pick-switch;
+            screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
+            dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
             pick-high-quality <=> root.pick-high-quality;
             go-live(source, resolution, fps, high-quality) => {
@@ -1518,6 +1610,24 @@ export component YapfastWindow inherits Window {
     function anchor(x: length, y: length, width: length, height: length, pointer: bool) {
         root.anchor-x = x; root.anchor-y = y; root.anchor-width = width; root.anchor-height = height;
         root.anchor-pointer = pointer;
+    }
+    // The GIF picker's width, which its left edge drags wider: 498px unless
+    // dragged. Its right edge stays on the control it opened from, and its
+    // height stays, as Discord's. It grows only, and stops 8px right of the
+    // 72px server rail, or 8px from the window's own edge if that comes first.
+    // The grid takes its columns from the width it shows at.
+    in-out property <length> gif-picker-width: 498px;
+    out property <length> gif-picker-room: max(498px, min(root.width - 88px, root.anchor-x + root.anchor-width - 80px));
+    out property <length> gif-picker-shown: min(max(498px, root.gif-picker-width), root.gif-picker-room);
+    out property <length> gif-grid-width: root.gif-picker-shown - 24px;
+    callback gif-picker-resized;
+    /// The drag let go at this width, which the next start shows again.
+    callback gif-picker-width-chosen(length);
+    // The width the GIF picker's left edge is dragged to: it moves the edge
+    // with the pointer, so the width it shows at now less the distance the
+    // pointer travelled since it pressed leaves the edge where the pointer is.
+    pure function drag-width(mouse-x: length, pressed-x: length) -> length {
+        return max(498px, min(root.gif-picker-room, root.gif-picker-shown - (mouse-x - pressed-x)));
     }
     // A card opened from a mention sits right of what was clicked, or left of it
     // when there isn't room.
@@ -1706,12 +1816,29 @@ export component YapfastWindow inherits Window {
             root.react-item = "";
         }
     }
+    // The popup spans all the room the picker could take, so that dragging its
+    // left edge never moves or resizes the popup itself: Slint moves a popup a
+    // moment after its width changes, and in between it draws the picker the
+    // wider width from the place it had, which walked it right. The panel
+    // inside it is what shows, its right edge against the popup's.
     expressions := PopupWindow {
-        width: 498px; height: 486px;
+        width: root.gif-picker-room; height: 486px;
         x: max(8px, min(root.width - self.width - 8px, root.anchor-x + root.anchor-width - self.width));
         y: max(8px, root.anchor-y - self.height - 8px);
         close-policy: PopupClosePolicy.close-on-click-outside;
-        Rectangle {
+        // A click beside the picker, in the room it could have taken, closes
+        // it as one outside the popup does. It covers only that room: under
+        // the panel it would take the clicks that fall through the panel's
+        // own empty places.
+        TouchArea {
+            width: parent.width - panel.width; x: 0px;
+            clicked => { expressions.close(); }
+        }
+        // The emoji keep the width the picker opens at: only the GIFs' grid
+        // takes more columns as it widens.
+        panel := Rectangle {
+            width: root.expression-tab == 0 ? root.gif-picker-shown : 498px;
+            x: parent.width - self.width;
             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             clip: true;
@@ -1733,6 +1860,7 @@ export component YapfastWindow inherits Window {
                     pick(url, insert) => { root.gif-pick(url, insert); expressions.close(); }
                     favorite(url) => { root.gif-favorite(url); }
                     scrolled-to(top, height) => { root.gifs-scrolled(top, height); }
+                    resized => { root.gif-picker-resized(); }
                     close => { expressions.close(); }
                 }
                 if root.expression-tab == 1: EmojiPicker {
@@ -1742,6 +1870,36 @@ export component YapfastWindow inherits Window {
                     emoji-search(text) => { root.emoji-search(text); }
                     pick(cell) => { root.pick(cell); }
                     close-picker => { expressions.close(); }
+                }
+            }
+            // The picker's left edge drags it wider, as Discord's: the right
+            // edge and the height stay, and it stops just past the server
+            // list. Letting go keeps the width for the next start, if the
+            // drag changed it.
+            if root.expression-tab == 0: edge := TouchArea {
+                // The width the drag started from.
+                property <length> from;
+                x: 0px; y: 0px; width: 8px; height: parent.height;
+                mouse-cursor: ew-resize;
+                moved => {
+                    if self.pressed {
+                        root.gif-picker-width = root.drag-width(self.mouse-x, self.pressed-x);
+                    }
+                }
+                pointer-event(event) => {
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                        self.from = root.gif-picker-shown;
+                    }
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.up
+                        && root.gif-picker-shown != self.from {
+                        root.gif-picker-width-chosen(root.gif-picker-shown);
+                    }
+                }
+                Rectangle {
+                    x: 3px; width: 2px; height: parent.height;
+                    background: edge.pressed ? Theme.faint : Theme.line;
+                    opacity: edge.has-hover || edge.pressed ? 1 : 0;
+                    animate opacity { duration: 120ms; }
                 }
             }
         }
@@ -1968,11 +2126,13 @@ export component YapfastWindow inherits Window {
                     can-share: root.can-share; sharing: root.sharing; share-live: root.share-live; share-status: root.share-status;
                     share-watchers: root.share-viewers.length;
                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
+                    can-soundboard: root.can-soundboard;
                     leave-voice => { root.leave-voice(); }
                     dismiss-voice-error => { root.dismiss-voice-error(); }
                     toggle-camera => { root.toggle-camera(); }
                     toggle-share => { root.toggle-share(); }
                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
+                    open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
                 }
                 // Account panel.
@@ -2365,11 +2525,13 @@ export component YapfastWindow inherits Window {
                                     muted: root.muted; deafened: root.deafened; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
                                     can-share: root.can-share; sharing: root.sharing;
                                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
+                                    can-soundboard: root.can-soundboard;
                                     toggle-camera => { root.toggle-camera(); }
                                     toggle-mute => { root.toggle-mute(); }
                                     toggle-deafen => { root.toggle-deafen(); }
                                     toggle-share => { root.toggle-share(); }
                                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
+                                    open-soundboard(x, y) => { root.open-soundboard(x, y); }
                                     leave-voice => { root.leave-voice(); }
                                 }
                             }
@@ -3204,15 +3366,24 @@ export component YapfastWindow inherits Window {
             delete-theme => { root.delete-theme(); }
         }
         if root.settings-section == 1: VoiceSettings {
-            microphones: root.microphones; microphone-index: root.microphone-index;
-            speakers: root.speakers; speaker-index: root.speaker-index;
-            cameras: root.cameras; camera-index: root.camera-index;
+            microphones: root.microphones; microphone-index <=> root.microphone-index;
+            speakers: root.speakers; speaker-index <=> root.speaker-index;
+            cameras: root.cameras; camera-index <=> root.camera-index;
             camera-testing <=> root.camera-testing; camera-preview: root.camera-preview; camera-note: root.camera-note;
             unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
+            microphone-volume <=> root.microphone-volume; speaker-volume <=> root.speaker-volume;
+            soundboard-volume <=> root.soundboard-volume; entrance-servers: root.entrance-servers;
+            entrance-server <=> root.entrance-server; entrance-sound: root.entrance-sound;
+            entrance-rows: root.entrance-rows; nitro: root.discord-nitro; emoji-font: root.emoji-font;
+            soundboard-volume-committed(value) => { root.soundboard-volume-committed(value); }
+            entrance-sounds-wanted => { root.entrance-sounds-wanted(); }
+            entrance-server-chosen(index) => { root.entrance-server-chosen(index); }
+            choose-entrance-sound(id) => { root.choose-entrance-sound(id); }
+            call-volumes-changed => { root.call-volumes-changed(); }
             record-talk-key(on) => { root.record-talk-key(on); }
             select-microphone(index) => { root.select-microphone(index); }
             select-speaker(index) => { root.select-speaker(index); }
@@ -3248,6 +3419,7 @@ export component YapfastWindow inherits Window {
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
             start-on-sign-in <=> root.start-on-sign-in; autostart-available: root.autostart-available;
+            discord-links <=> root.discord-links; discord-links-available: root.discord-links-available;
             preferences-changed => { root.preferences-changed(); }
             restart => { root.restart(); }
         }
@@ -3557,6 +3729,30 @@ export component YapfastWindow inherits Window {
         open-form => { root.open-join-form(); }
         close => { root.close-join(); }
     }
+    event-motion := PopupMotion { open: root.event-open; }
+    if event-motion.shown: EventDialog {
+        motion: event-motion.amount;
+        prompt: root.event-prompt;
+        toggle-interest => { root.toggle-event-interest(); }
+        close => { root.close-event(); }
+    }
+    gift-motion := PopupMotion { open: root.gift-open; }
+    if gift-motion.shown: GiftDialog {
+        motion: gift-motion.amount;
+        prompt: root.gift-prompt;
+        redeem => { root.redeem-gift(); }
+        open-in-browser => { root.open-gift-in-browser(); }
+        close => { root.close-gift(); }
+    }
+    oauth-motion := PopupMotion { open: root.oauth-open; }
+    if oauth-motion.shown: OAuthDialog {
+        motion: oauth-motion.amount;
+        prompt: root.oauth-prompt; guilds: root.oauth-guilds; guild-chosen: root.oauth-guild-chosen;
+        choose-guild(index) => { root.choose-oauth-guild(index); }
+        authorize => { root.authorize-oauth(); }
+        copy(address) => { root.copy-text(address); }
+        close => { root.close-oauth(); }
+    }
     channel-motion := PopupMotion { open: root.channel-open; }
     if channel-motion.shown: ChannelDialog {
         motion: channel-motion.amount;
@@ -3789,6 +3985,15 @@ export component YapfastWindow inherits Window {
                 }
             }
         }
+    }
+    // Discord's quick switcher; see QuickSwitcher.
+    switcher-motion := PopupMotion { open: root.switcher-open; }
+    if switcher-motion.shown: QuickSwitcher {
+        motion: switcher-motion.amount;
+        switcher-places: root.switcher-places; switcher-query <=> root.switcher-query;
+        switcher-search(query) => { root.switcher-search(query); }
+        switch-to(id) => { root.switch-to(id); }
+        close-switcher => { root.close-switcher(); }
     }
     // Over everything, as the request it confirms may come from anywhere.
     mfa-motion := PopupMotion { open: root.mfa-open; }

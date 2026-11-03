@@ -16,16 +16,18 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use crate::{
     activity,
     api::{self, Api, PAGE, Span},
-    cache, forum, invite, limits,
+    cache, forum, gift, invite, limits,
     marked::MarkedServer,
     member_list::{ListedMember, Presence},
     message::{self, Message, Names, Page},
     mfa,
     notifications::Change,
+    oauth,
     profile::{self, Profile},
     ready::{self, PRIVATE, Server},
-    search, server_settings,
+    scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
+    soundboard,
     stream::StreamServer,
 };
 
@@ -302,6 +304,14 @@ pub struct Snapshot {
     /// The game this account shows it plays now.
     #[serde(skip)]
     pub playing: Option<Arc<crate::own_activity::Playing>>,
+    /// The soundboard's volume, from 0 to 100 on the power curve of the
+    /// other volumes, and the sounds that play as this account joins
+    /// voice, as its settings keep them; the volume is none until they say,
+    /// which is [`soundboard::DEFAULT_VOLUME`].
+    #[serde(skip)]
+    pub soundboard_volume: Option<f32>,
+    #[serde(skip)]
+    pub join_sounds: Arc<[soundboard::JoinSound]>,
     /// Friend requests waiting for an answer: those sent to this account
     /// first, then those it sent, the newest first in each.
     pub friend_requests: Arc<[FriendRequest]>,
@@ -473,6 +483,25 @@ pub enum Live {
         guild: String,
         stickers: Vec<server_settings::GuildSticker>,
     },
+    /// A server's soundboard sounds, all of them: Discord's answer to
+    /// [`Discord::request_soundboard`], or GUILD_SOUNDBOARD_SOUNDS_UPDATE.
+    SoundboardSounds {
+        guild: String,
+        sounds: Vec<soundboard::Sound>,
+    },
+    /// A server's sound was added or changed.
+    SoundboardSound(soundboard::Sound),
+    /// A server's sound was deleted, by id.
+    SoundboardSoundDeleted {
+        guild: String,
+        sound: String,
+    },
+    /// Someone played a sound in a call this account is in, this account
+    /// among them.
+    SoundPlayed(soundboard::Played),
+    /// The account's favourite sounds, all of them in order, as another
+    /// client or this one changed them.
+    FavoriteSounds(Vec<String>),
 }
 
 /// What a call needs to open the voice connection Discord assigned.
@@ -573,6 +602,10 @@ enum Request {
     Inactive(Option<u64>, bool),
     /// This gateway session's id, from READY.
     Session(oneshot::Sender<Option<String>>),
+    /// Asks for these servers' soundboard sounds.
+    Soundboard {
+        guilds: Vec<String>,
+    },
     /// Channels and categories moved, shown before Discord confirms it;
     /// `reply` gives where they were.
     Place {
@@ -626,6 +659,9 @@ pub struct Discord {
     /// Requests held back for two-factor authentication, waiting for the
     /// person; see [`Self::stepping_up`].
     mfa: Arc<mfa::Prompts>,
+    /// Discord's own soundboard sounds, once a call asked for them: Discord's
+    /// client asks once a session too.
+    default_sounds: Arc<tokio::sync::Mutex<Option<Arc<[soundboard::Sound]>>>>,
 }
 
 /// Discord allows starting 10 new DMs with people in 10 minutes, and treats
@@ -717,6 +753,7 @@ impl Discord {
             new_dms: Arc::new(Mutex::new(limits::Window::new(NEW_DMS, NEW_DM_SPAN))),
             application_icons: Arc::default(),
             mfa: Arc::default(),
+            default_sounds: Arc::default(),
         })
     }
 
@@ -751,17 +788,37 @@ impl Discord {
 
     /// A page of a channel's messages.
     pub async fn history(&self, guild: &str, channel: &str, span: Span<'_>) -> Result<Page> {
+        let around = match span {
+            Span::Around(id) => id.parse::<u64>().ok(),
+            _ => None,
+        };
         let values = self.api.messages(channel, span).await?;
         // The open channel shows them again once their authors arrive.
         let (mut messages, _) = self.learn(guild, &values, false);
         messages.sort_by_key(Message::order);
+        let ids = || {
+            values
+                .iter()
+                .filter_map(|value| value["id"].as_str()?.parse::<u64>().ok())
+        };
+        // Discord sends up to half a page from before the snowflake and
+        // half from it on. Its client takes fewer than that before it, less
+        // one, as the channel's start, and fewer from it on as its newest.
+        let (full, newest) = match around {
+            Some(around) => {
+                let before = ids().filter(|&id| id < around).count();
+                (
+                    before + 1 >= PAGE.div_ceil(2),
+                    values.len() - before < PAGE / 2,
+                )
+            }
+            None => (values.len() >= PAGE, false),
+        };
         Ok(Page {
             messages,
-            oldest: values
-                .iter()
-                .filter_map(|value| value["id"].as_str()?.parse().ok())
-                .min(),
-            full: values.len() >= PAGE,
+            oldest: ids().min(),
+            full,
+            newest,
         })
     }
 
@@ -1053,30 +1110,39 @@ impl Discord {
     }
 
     /// Uploads files for a message in `channel`, given as their names and
-    /// contents; if one fails, the others are thrown away.
+    /// contents, all at once as Discord's client does; if one fails, the
+    /// others are thrown away.
     async fn upload(
         &self,
         channel: &str,
         files: Vec<(String, Vec<u8>)>,
     ) -> Result<Vec<crate::api::Upload>> {
-        let mut uploads = Vec::with_capacity(files.len());
-        for (name, data) in files {
-            match self.api.upload(channel, &name, data).await {
+        let results = futures_util::future::join_all(
+            files
+                .into_iter()
+                .map(|(name, data)| async move { self.api.upload(channel, &name, data).await }),
+        )
+        .await;
+        let mut uploads = Vec::with_capacity(results.len());
+        let mut failed = None;
+        for result in results {
+            match result {
                 Ok(upload) => uploads.push(upload),
-                Err(error) => {
-                    self.discard(&uploads).await;
-                    return Err(error);
-                }
+                Err(error) => failed = failed.or(Some(error)),
             }
         }
-        Ok(uploads)
+        match failed {
+            Some(error) => {
+                self.discard(&uploads).await;
+                Err(error)
+            }
+            None => Ok(uploads),
+        }
     }
 
     /// Throws away uploads no message took.
     async fn discard(&self, uploads: &[crate::api::Upload]) {
-        for upload in uploads {
-            let _ = self.api.discard(upload).await;
-        }
+        futures_util::future::join_all(uploads.iter().map(|upload| self.api.discard(upload))).await;
     }
 
     /// Posts in a server's forum, as Discord's client does: a post named
@@ -2098,6 +2164,81 @@ impl Discord {
         Ok(invite::Joined::of(&answer, preview))
     }
 
+    /// What a server's scheduled event shows from its link, and
+    /// whether this account is interested in it; see
+    /// [`Api::scheduled_event`].
+    pub async fn scheduled_event(
+        &self,
+        guild: &str,
+        event: &str,
+    ) -> Result<scheduled_event::Preview> {
+        let found = self.api.scheduled_event(guild, event).await?;
+        let own = self.api.own_scheduled_events(guild).await?;
+        let interested = scheduled_event::interested_in(&own, event);
+        scheduled_event::Preview::of(&found, interested)
+            .context("This event is not in that server.")
+    }
+
+    /// Marks this account interested in a server's scheduled event, or
+    /// no longer interested in it.
+    pub async fn set_event_interest(
+        &self,
+        guild: &str,
+        event: &str,
+        interested: bool,
+    ) -> Result<()> {
+        self.api
+            .set_scheduled_event_interest(guild, event, interested)
+            .await
+    }
+
+    /// What a gift shows before it is redeemed, by its code; see
+    /// [`Api::gift_code`]. An answer without a gift code is refused.
+    pub async fn gift(&self, code: &str) -> Result<gift::Preview> {
+        let gift = self.api.gift_code(code).await?;
+        gift::Preview::of(&gift).context("Discord didn't answer with a gift.")
+    }
+
+    /// Redeems the gift with this code for this account; `channel` is
+    /// where its link was opened, when it was a channel. Discord sends
+    /// the entitlement it grants over the gateway.
+    pub async fn redeem_gift(&self, code: &str, channel: Option<&str>) -> Result<()> {
+        self.api.redeem_gift_code(code, channel).await.map(drop)
+    }
+
+    /// What authorizing the application `request` names would do; see
+    /// [`Api::oauth_preview`].
+    pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {
+        let answer = self.api.oauth_preview(&request.preview_query()).await?;
+        oauth::Preview::of(&answer, request).context("Discord doesn't know that application.")
+    }
+
+    /// Authorizes the application `request` names, in the server
+    /// `guild` when it installs to one; the address Discord sends the
+    /// person to next.
+    pub async fn authorize_oauth(
+        &self,
+        request: &oauth::Request,
+        guild: Option<&str>,
+    ) -> Result<String> {
+        let answer = self
+            .api
+            .authorize_oauth(
+                &request.authorize_query(),
+                request.user_install,
+                guild,
+                request.permissions,
+            )
+            .await?;
+        // Discord's client reads `location`; docs.discord.food names it
+        // `url`.
+        answer["location"]
+            .as_str()
+            .or_else(|| answer["url"].as_str())
+            .map(str::to_owned)
+            .context("Discord authorized it without saying where to go next.")
+    }
+
     /// A channel's name, topic, slowmode in seconds and whether it's
     /// age-restricted, as its dialog edits them.
     pub async fn channel_settings(&self, channel: &str) -> Result<ChannelSettings> {
@@ -2591,9 +2732,16 @@ impl Discord {
     }
 
     /// Downloads a file as [`Self::download`] does, without waiting behind
-    /// the pictures downloading: one someone opened, saved or copied.
+    /// the pictures downloading: one someone opened, saved or copied, or
+    /// one whose caller keeps turns of its own, as avatars and icons do.
     pub async fn download_now(&self, url: &str, limit: usize) -> Result<Vec<u8>> {
         self.fetch(url, limit, false).await
+    }
+
+    /// The picture at `url` as it was kept on disk, if it was and it's
+    /// within `limit`: what [`Self::download`] finds without downloading.
+    pub async fn kept_picture(&self, url: &str, limit: usize) -> Option<Vec<u8>> {
+        cache::picture(url).await.filter(|kept| kept.len() <= limit)
     }
 
     async fn fetch(&self, url: &str, limit: usize, queued: bool) -> Result<Vec<u8>> {
@@ -2890,7 +3038,87 @@ impl Discord {
             paused,
         });
     }
+
+    /// Asks for these servers' soundboard sounds, which come as
+    /// [`Live::SoundboardSounds`], one for each.
+    pub fn request_soundboard(&self, guilds: Vec<String>) {
+        if !guilds.is_empty() {
+            let _ = self.requests.send(Request::Soundboard { guilds });
+        }
+    }
+
+    /// Discord's own soundboard sounds, asked for the first time only.
+    pub async fn default_sounds(&self) -> Result<Arc<[soundboard::Sound]>> {
+        let mut kept = self.default_sounds.lock().await;
+        if let Some(sounds) = kept.as_ref() {
+            return Ok(sounds.clone());
+        }
+        let sounds: Arc<[soundboard::Sound]> = self.api.default_soundboard_sounds().await?.into();
+        *kept = Some(sounds.clone());
+        Ok(sounds)
+    }
+
+    /// Plays `sound` for everyone in the call `channel`; see
+    /// [`Api::send_soundboard_sound`].
+    pub async fn send_sound(&self, channel: &str, sound: &soundboard::Sound) -> Result<()> {
+        self.api.send_soundboard_sound(channel, sound).await
+    }
+
+    /// The account's favourite sounds, in the order the picker shows them.
+    pub async fn favorite_sounds(&self) -> Result<Vec<String>> {
+        let settings = self.api.frecency_settings().await?;
+        Ok(soundboard::read_favorites(&settings).unwrap_or_default())
+    }
+
+    /// Keeps `favorites` as the account's favourite sounds, in place of
+    /// the old.
+    pub async fn set_favorite_sounds(&self, favorites: &[String]) -> Result<()> {
+        self.api
+            .set_frecency_settings(&soundboard::write_favorites(favorites))
+            .await
+    }
+
+    /// Sets how loud the soundboard plays, from 0 to 100, for every client
+    /// of the account. The settings come back in USER_SETTINGS_PROTO_UPDATE.
+    pub async fn set_soundboard_volume(&self, volume: f32) -> Result<()> {
+        let current = self.api.user_settings().await?;
+        self.api
+            .set_user_settings(&soundboard::write_volume(&current, volume))
+            .await
+    }
+
+    /// Sets the sound that plays as this account joins a voice channel of
+    /// `server`, or of any server without one of its own, or takes it away.
+    /// `sound` is its id and its own server's, none for Discord's own.
+    pub async fn set_join_sound(
+        &self,
+        server: Option<&str>,
+        sound: Option<(&str, Option<&str>)>,
+    ) -> Result<()> {
+        let current = self.api.user_settings().await?;
+        self.api
+            .set_user_settings(&soundboard::write_join_sound(&current, server, sound))
+            .await
+    }
+
+    /// Has Discord play this account's join sound for the others in the
+    /// call `channel`; see [`Api::custom_call_sound`].
+    pub async fn play_join_sound(&self, channel: &str) -> Result<()> {
+        let animation = rand::random_range(10..=15);
+        self.api.custom_call_sound(channel, animation).await
+    }
+
+    /// A sound's file, MP3 or Ogg, at once rather than behind the pictures
+    /// queued: it plays as soon as it's here.
+    pub async fn sound_file(&self, id: &str) -> Result<Vec<u8>> {
+        self.api
+            .download_now(&soundboard::file(id), SOUND_FILE_LIMIT)
+            .await
+    }
 }
+
+/// Discord takes sounds up to 512 KiB.
+const SOUND_FILE_LIMIT: usize = 1 << 20;
 
 /// The server a channel is in, or none for DMs.
 fn server(guild: &str) -> Option<&str> {

@@ -16,8 +16,8 @@ use yapfast_core::{
     application::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
         ClearAfter, Compose, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
-        MenuChoice, Navigation, NewDm, PersonAsk, ProfileText, ProfileView, Relation, RoleInput,
-        Search, TIMEOUT_TIMES,
+        MenuChoice, Navigation, NewDm, PersonAsk, Place, ProfileText, ProfileView, Relation,
+        RoleInput, Search, TIMEOUT_TIMES,
     },
     backend::Backend,
     chat::{
@@ -65,7 +65,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{Reach, SidebarShown};
+use refresh::{Reach, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -91,13 +91,19 @@ pub fn run(
     renderer: Option<graphics::Renderer>,
     gpu_failure: Option<String>,
     background: bool,
+    open_link: Option<String>,
 ) -> Result<Exit> {
     let (plan, placement, system_title_bar, mut instance) = {
         let mut layout = Layout::read(&root);
         let instance = if preview {
             crate::instance::Instance::default()
         } else {
-            match crate::instance::claim(&root, !layout.multiple_windows, background) {
+            match crate::instance::claim(
+                &root,
+                !layout.multiple_windows,
+                background,
+                open_link.clone(),
+            ) {
                 crate::instance::Start::Run(instance) => instance,
                 crate::instance::Start::Handed => return Ok(Exit::Closed),
             }
@@ -146,7 +152,8 @@ pub fn run(
     };
     // Started at sign-in, Yapfast goes to the tray with the saved session.
     // Without one there's nothing to do there but sign in, which needs the window.
-    let hidden = background && !preview && yapfast_core::chat::can_restore(&root);
+    let hidden =
+        background && open_link.is_none() && !preview && yapfast_core::chat::can_restore(&root);
     // Before the window maps, as the desktop looks up its icon then.
     #[cfg(target_os = "linux")]
     if !preview {
@@ -165,6 +172,10 @@ pub fn run(
     }
     if !preview {
         AUTOSTART.set(autostart::SUPPORTED);
+        PROTOCOL.set(cfg!(feature = "discord") && crate::protocol::SUPPORTED);
+        if PROTOCOL.get() {
+            crate::protocol::refresh(&root);
+        }
         autostart::refresh();
     }
     prepare(&window);
@@ -173,6 +184,10 @@ pub fn run(
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
+    adapter.borrow().show_protocol(&window);
+    if !preview {
+        adapter.borrow_mut().pending_link = open_link;
+    }
     adapter.borrow_mut().refresh(&window);
     if preview {
         adapter.borrow_mut().action(&window, Action::Preview);
@@ -206,8 +221,8 @@ pub fn run(
     if hidden {
         shell.start_in_tray();
     }
-    instance.listen(|token| {
-        let _ = slint::invoke_from_event_loop(move || shell::launched(token));
+    instance.listen(|launch| {
+        let _ = slint::invoke_from_event_loop(move || shell::launched(launch));
     });
     tracing::info!(renderer, hidden, "starting the Slint desktop window");
     let _control = test_control().map(|path| control(path, shell.clone()));
@@ -278,15 +293,26 @@ const ZOOM_NOTE: Duration = Duration::from_millis(1200);
 
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
-/// layout, and takes files dropped on it.
+/// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
+/// it.
 fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
         winit::{
-            event::{ElementState, WindowEvent},
-            keyboard::{Key, NamedKey},
+            event::{ElementState, KeyEvent, WindowEvent},
+            keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
         },
     };
+    /// The K key: the letter K in the keyboard's layout, or in a layout
+    /// without Latin letters, the key in its place.
+    fn is_k(key: &KeyEvent) -> bool {
+        match &key.logical_key {
+            Key::Character(text) if text.chars().all(|letter| letter.is_ascii_alphabetic()) => {
+                text.eq_ignore_ascii_case("k")
+            }
+            _ => key.physical_key == PhysicalKey::Code(KeyCode::KeyK),
+        }
+    }
     let saved = zoom::saved(adapter.borrow().layout.zoom);
     let adapter = Rc::downgrade(adapter);
     let (to, weak) = (adapter.clone(), window.as_weak());
@@ -476,6 +502,31 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
+                // Ctrl+K opens the quick switcher, or closes it, wherever the
+                // focus is, as in Discord; not over the settings or a link
+                // that asks before it opens, which the window keeps. Those
+                // the application keeps, it checks itself.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.control_only()
+                    && is_k(key)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                    && window.get_leaving_link().is_empty()
+                {
+                    if !key.repeat {
+                        let (adapter, weak) = (adapter.clone(), weak.clone());
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let (Some(adapter), Some(window)) =
+                                (adapter.upgrade(), weak.upgrade())
+                            {
+                                adapter.borrow_mut().action(&window, Action::ToggleSwitcher);
+                            }
+                        });
+                    }
+                    return EventResult::PreventDefault;
+                }
                 let step = match keys.event(event) {
                     zoom::Outcome::Pass => return EventResult::Propagate,
                     zoom::Outcome::Taken => return EventResult::PreventDefault,
@@ -553,6 +604,9 @@ thread_local! {
     static FOCUSED: Cell<bool> = const { Cell::new(false) };
     /// Settings offer starting at sign-in: the platform can, and this isn't the preview.
     static AUTOSTART: Cell<bool> = const { Cell::new(false) };
+    /// Settings offer claiming Discord's protocol links: the platform
+    /// can, this build speaks Discord, and this isn't the preview.
+    static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
     /// Opens a conversation from a clicked notification, in the current window.
@@ -867,6 +921,8 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// The GIF picker's width, as its left edge last dragged it wider.
+    gif_picker_width: Option<f32>,
     /// The member list shows until someone closes it.
     members_hidden: bool,
     /// So does the profile beside a one-to-one DM.
@@ -934,6 +990,10 @@ struct Layout {
     input_mode: InputMode,
     push_to_talk_key: Option<crate::push_to_talk::Keybind>,
     push_to_talk_release_delay: Option<u32>,
+    /// How loud every call sends the microphone and plays, as sliders'
+    /// percentages from 0% to 200%; 100% unless changed.
+    microphone_volume: Option<u8>,
+    speaker_volume: Option<u8>,
     /// How loud people sound in calls, and their streams, by Discord or
     /// Matrix user id; see [`yapfast_core::volume`]. Unlisted people are as they
     /// come.
@@ -941,6 +1001,9 @@ struct Layout {
     stream_volumes: std::collections::BTreeMap<String, f32>,
     /// Those muted for this account alone, from their menu in a call.
     muted_people: std::collections::BTreeSet<String>,
+    /// Those whose soundboard sounds this account doesn't hear, from the
+    /// same menu.
+    soundboard_muted_people: std::collections::BTreeSet<String>,
     /// Others see when this account is typing; on unless turned off.
     share_typing: Option<bool>,
     /// Desktop notifications, and whether they say what messages say; on unless
@@ -1050,6 +1113,13 @@ fn choice<T: PartialEq>(choices: &[T], value: T) -> i32 {
         .unwrap_or(0) as i32
 }
 
+/// Calls send the microphone and play at the volume sliders' values.
+fn play_call_volumes(window: &YapfastWindow) {
+    let gain = |value: i32| yapfast_core::volume::from_slider(value.clamp(0, 200) as f32);
+    yapfast_core::volume::set_microphone(gain(window.get_microphone_volume()));
+    yapfast_core::volume::set_speakers(gain(window.get_speaker_volume()));
+}
+
 /// The choice a setting shows at an index; the first if there's none.
 fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
     choices
@@ -1133,6 +1203,9 @@ impl Layout {
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
+        if let Some(width) = self.gif_picker_width {
+            window.set_gif_picker_width(width);
+        }
         window.set_member_list(!self.members_hidden);
         window.set_profile_panel(!self.profile_panel_hidden);
         window.set_twelve_hour_clock(self.twelve_hour_clock);
@@ -1168,6 +1241,9 @@ impl Layout {
         );
         window.set_talk_delay(self.release_delay() as i32);
         yapfast_core::push_to_talk::set_release_delay(self.release_delay());
+        window.set_microphone_volume(self.microphone_volume.unwrap_or(100).into());
+        window.set_speaker_volume(self.speaker_volume.unwrap_or(100).into());
+        play_call_volumes(window);
         for (person, volume) in &self.volumes {
             yapfast_core::volume::set(yapfast_core::volume::Kind::Voice, person, *volume);
         }
@@ -1176,6 +1252,9 @@ impl Layout {
         }
         for person in &self.muted_people {
             yapfast_core::volume::mute(person, true);
+        }
+        for person in &self.soundboard_muted_people {
+            yapfast_core::volume::mute_soundboard(person, true);
         }
         window.set_share_typing(self.share_typing.unwrap_or(true));
         window.set_notifications(self.notifications.unwrap_or(true));
@@ -1294,7 +1373,8 @@ struct Models {
     /// The picker's sidebar, built with the grid it jumps through.
     emoji_sections: Rc<VecModel<EmojiSection>>,
     emoji_suggestions: Rc<VecModel<EmojiCell>>,
-    forward_targets: Rc<VecModel<ForwardRow>>,
+    forward_targets: Rc<VecModel<PlaceRow>>,
+    switcher_places: Rc<VecModel<PlaceRow>>,
     participants: Rc<VecModel<PersonRow>>,
     /// The GIF picker's tiles.
     gif_tiles: Rc<VecModel<GifTile>>,
@@ -1308,6 +1388,12 @@ struct Models {
     stream_tiles: Rc<VecModel<i32>>,
     /// Who is in the open DM's call, shown above its messages.
     call_people: Rc<VecModel<PersonRow>>,
+    /// The call's soundboard: headings and rows of sounds.
+    soundboard_rows: Rc<VecModel<SoundRow>>,
+    /// The sounds Settings offers as an entrance sound, likewise, and the
+    /// servers to choose one for.
+    entrance_rows: Rc<VecModel<SoundRow>>,
+    entrance_servers: Rc<VecModel<SharedString>>,
     /// Discord friends: all of them, and those around.
     friends: Rc<VecModel<FriendRow>>,
     friends_online: Rc<VecModel<FriendRow>>,
@@ -1318,6 +1404,9 @@ struct Models {
     microphones: Rc<VecModel<SharedString>>,
     speakers: Rc<VecModel<SharedString>>,
     cameras: Rc<VecModel<SharedString>>,
+    /// Each device's name as last listed, by id, for a chosen device that
+    /// isn't connected; see [`device_rows`].
+    device_names: HashMap<String, SharedString>,
     staged: Rc<VecModel<StagedFile>>,
     aside_staged: Rc<VecModel<StagedFile>>,
 }
@@ -1351,6 +1440,7 @@ impl Models {
         window.set_emoji_sections(ModelRc::from(self.emoji_sections.clone()));
         window.set_emoji_suggestions(ModelRc::from(self.emoji_suggestions.clone()));
         window.set_forward_targets(ModelRc::from(self.forward_targets.clone()));
+        window.set_switcher_places(ModelRc::from(self.switcher_places.clone()));
         window.set_participants(ModelRc::from(self.participants.clone()));
         window.set_gif_tiles(ModelRc::from(self.gif_tiles.clone()));
         window.set_share_viewers(ModelRc::from(self.share_viewers.clone()));
@@ -1358,6 +1448,9 @@ impl Models {
         window.set_participant_frames(ModelRc::from(self.participant_frames.clone()));
         window.set_stream_tiles(ModelRc::from(self.stream_tiles.clone()));
         window.set_call_people(ModelRc::from(self.call_people.clone()));
+        window.set_soundboard_rows(ModelRc::from(self.soundboard_rows.clone()));
+        window.set_entrance_rows(ModelRc::from(self.entrance_rows.clone()));
+        window.set_entrance_servers(ModelRc::from(self.entrance_servers.clone()));
         window.set_friends(ModelRc::from(self.friends.clone()));
         window.set_friends_online(ModelRc::from(self.friends_online.clone()));
         window.set_blocked_people(ModelRc::from(self.blocked.clone()));
@@ -1419,6 +1512,7 @@ struct Icons {
     leave: slint::Image,
     // Someone's menu in a voice channel.
     mic_off: slint::Image,
+    soundboard: slint::Image,
     deafen: slint::Image,
     move_to: slint::Image,
     disconnect: slint::Image,
@@ -1460,6 +1554,8 @@ struct Adapter {
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
+    /// What the quick switcher listed last, while it's open.
+    switcher: Option<SwitcherShown>,
     /// The room ids of the rows a Discord server's channel list drags and
     /// drops, by their places; see RoomRow.
     places: Vec<String>,
@@ -1545,6 +1641,15 @@ struct Adapter {
     preview_camera: Option<yapfast_core::camera::Camera>,
     /// Whose camera picture each place in the call's grid holds.
     frame_ids: Vec<String>,
+    /// The soundboard's sounds as its rows show them, and the pictures'
+    /// revision then, so the rows are made again only when either changes.
+    soundboard_shown: Option<(Arc<[voice::SoundGroup]>, u64)>,
+    /// The same for the entrance sounds Settings offers; the servers it
+    /// offers them for, "All servers" first as none; and the soundboard
+    /// volume shown, so the slider moves only when Discord's does.
+    entrance_shown: Option<(Arc<[voice::SoundGroup]>, u64)>,
+    entrance_servers: Vec<Option<String>>,
+    soundboard_volume_shown: Option<f32>,
     /// Where the call's tiles are, as the grid last said.
     tiles: Option<Tiles>,
     /// The call's tile shown large, and whose stream was watched when the
@@ -1581,6 +1686,8 @@ struct Adapter {
     link_code: Option<(String, slint::Image)>,
     /// What the GIF picker's grid shows.
     gifs: gifs::Shown,
+    /// A Discord link handed to this start before Discord is online.
+    pending_link: Option<String>,
 }
 
 impl Adapter {
@@ -1646,6 +1753,9 @@ impl Adapter {
             delete: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/trash-2.svg"))?,
             leave: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/log-out.svg"))?,
             mic_off: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/mic-off.svg"))?,
+            soundboard: slint::Image::load_from_svg_data(include_bytes!(
+                "../ui/icons/soundboard.svg"
+            ))?,
             deafen: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/headphone-off.svg"
             ))?,
@@ -1692,6 +1802,7 @@ impl Adapter {
                 messages: Arc::new(Vec::new()),
                 rows: Vec::new(),
                 sidebar: None,
+                switcher: None,
                 places: Vec::new(),
                 arranging: None,
                 rail_call: None,
@@ -1731,6 +1842,10 @@ impl Adapter {
                 camera_test: None,
                 preview_camera: None,
                 frame_ids: vec![],
+                soundboard_shown: None,
+                entrance_shown: None,
+                entrance_servers: vec![],
+                soundboard_volume_shown: None,
                 tiles: None,
                 call_focus: None,
                 watched: None,
@@ -1750,6 +1865,7 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 link_code: None,
                 gifs: gifs::Shown::default(),
+                pending_link: None,
             })
         }))
     }
@@ -1792,11 +1908,20 @@ impl Adapter {
         self.watch_talk_key(window);
     }
 
+    /// Shows whether Discord protocol links open here, as the desktop
+    /// has it rather than as a setting remembers it.
+    fn show_protocol(&self, window: &YapfastWindow) {
+        let offered = PROTOCOL.get();
+        window.set_discord_links_available(offered);
+        window.set_discord_links(offered && crate::protocol::discord_enabled(&self.root));
+    }
+
     /// Present the existing models and state in a new window.
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
         self.watch_talk_key(window);
+        self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds
         // them again.
@@ -1999,7 +2124,10 @@ impl Adapter {
                             // Without a window, a call still rings, and the tray shows
                             // what's unread and offers Disconnect in a call.
                             match window {
-                                Some(window) => adapter.show(&window, reach),
+                                Some(window) => {
+                                    adapter.show(&window, reach);
+                                    adapter.open_pending_link(&window);
+                                }
                                 None => adapter.ring(),
                             }
                             adapter.show_tray();
@@ -2194,6 +2322,27 @@ impl Adapter {
         );
     }
 
+    /// Opens a Discord link handed to this start once Discord is online
+    /// and no dialog is open. Any app or web page can hand Yapfast a
+    /// link, so one never takes an open dialog's place: an Authorize or
+    /// Join click meant for what the dialog showed would otherwise land
+    /// on what the link opened instead. The opening is scheduled, as its
+    /// callback borrows this adapter.
+    fn open_pending_link(&mut self, window: &YapfastWindow) {
+        if !self.app.state.discord_online || self.app.state.dialog_open() {
+            return;
+        }
+        let Some(link) = self.pending_link.take() else {
+            return;
+        };
+        let window = window.as_weak();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            if let Some(window) = window.upgrade() {
+                window.invoke_open_link(link.into());
+            }
+        });
+    }
+
     fn action(&mut self, window: &YapfastWindow, action: Action) {
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
@@ -2234,6 +2383,8 @@ impl Adapter {
         } else {
             self.refresh(window);
         }
+        // A handed link may have waited for the dialog this closed.
+        self.open_pending_link(window);
     }
 
     /// Applies a backend event; the caller shows what it can have changed after.
@@ -2442,6 +2593,10 @@ fn initial(text: &str) -> SharedString {
 }
 
 /// WebRTC names its default entry "default: Device"; show it as "Default (Device)".
+/// How a PulseAudio device list's default entry's id starts: the default
+/// device's name, as WebRTC lists it, after `default: `.
+const DEFAULT_DEVICE: &str = "name:default: ";
+
 fn device_label(name: &str) -> SharedString {
     match name.strip_prefix("default: ") {
         Some(device) => format!("Default ({device})").into(),
@@ -2449,15 +2604,91 @@ fn device_label(name: &str) -> SharedString {
     }
 }
 
-/// Without a choice, voice uses WebRTC's default device, which it lists first.
-fn device_index(devices: &[voice::Device], selected: Option<&str>) -> i32 {
-    let index = match selected {
-        Some(selected) => devices.iter().position(|device| device.id == selected),
+/// A device picker's rows, and the chosen one's index. Without a choice,
+/// voice uses WebRTC's default device, which it lists first. A chosen device
+/// that isn't connected, such as Bluetooth headphones that went away, shows
+/// last as not connected, by the name it was last listed with, rather than
+/// as no device or as another one. `names` keeps those names. The default
+/// entry's id names the device that was the default, and the default it
+/// plays on may have changed since, so it stays the default entry.
+fn device_rows(
+    devices: &[voice::Device],
+    chosen: Option<&str>,
+    names: &mut HashMap<String, SharedString>,
+) -> (Vec<SharedString>, i32) {
+    let mut rows: Vec<SharedString> = devices
+        .iter()
+        .map(|device| device_label(&device.name))
+        .collect();
+    for (device, row) in devices.iter().zip(&rows) {
+        if names.get(&device.id) != Some(row) {
+            names.insert(device.id.clone(), row.clone());
+        }
+    }
+    let index = match chosen {
         None => (!devices.is_empty()).then_some(0),
+        Some(chosen) => Some(
+            devices
+                .iter()
+                .position(|device| device.id == chosen)
+                .or_else(|| {
+                    let default = |id: &str| id.starts_with(DEFAULT_DEVICE);
+                    default(chosen)
+                        .then(|| devices.iter().position(|device| default(&device.id)))
+                        .flatten()
+                })
+                .unwrap_or_else(|| {
+                    let name = names
+                        .get(chosen)
+                        .cloned()
+                        .or_else(|| chosen.strip_prefix(voice::NAMED).map(device_label))
+                        .unwrap_or_else(|| "Chosen device".into());
+                    rows.push(format!("{name} (not connected)").into());
+                    rows.len() - 1
+                }),
+        ),
     };
-    index
+    let index = index
         .and_then(|index| i32::try_from(index).ok())
-        .unwrap_or(-1)
+        .unwrap_or(-1);
+    (rows, index)
+}
+
+/// Repaints the popup on top and the shadow around it, telling Slint they're
+/// dirty: it repaints the regions it is told of otherwise, which a popup's
+/// contents moving or resizing leaves short of the shadow they draw outside
+/// it. A popup in a window of its own repaints the window whole.
+fn repaint_popup(window: &YapfastWindow) {
+    use i_slint_core::lengths::{LogicalPoint, LogicalRect, LogicalSize};
+    use i_slint_core::window::{PopupWindowLocation, WindowInner};
+    /// How far a popup's shadow reaches past it: its 24px blur and 8px drop.
+    const SHADOW: f32 = 32.;
+    let native = window.window();
+    let inner = WindowInner::from_pub(native);
+    let size = native.size().to_logical(native.scale_factor());
+    let whole = LogicalRect::new(
+        LogicalPoint::new(0., 0.),
+        LogicalSize::new(size.width, size.height),
+    );
+    let dirty = inner
+        .active_popups()
+        .last()
+        .and_then(|popup| match &popup.location {
+            PopupWindowLocation::ChildWindow(place) => {
+                let geometry = i_slint_core::item_tree::ItemTreeRc::borrow_pin(&popup.component)
+                    .as_ref()
+                    .item_geometry(0);
+                Some(LogicalRect::new(*place, geometry.size).inflate(SHADOW, SHADOW))
+            }
+            PopupWindowLocation::TopLevel(_) => None,
+        })
+        .and_then(|popup| popup.intersection(&whole))
+        .unwrap_or(whole);
+    inner
+        .window_adapter()
+        .renderer()
+        .mark_dirty_region(i_slint_core::partial_renderer::DirtyRegion::from(dirty));
+    native.request_redraw();
 }
 
 fn update_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {

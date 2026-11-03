@@ -11,14 +11,16 @@ export struct ContactRow {
     name: string, detail: string, initial: string, tint: color, picture: image, discord: bool,
 }
 
-/// A conversation a message can be forwarded to.
-export struct ForwardRow {
+/// A place to forward a message to, or for the quick switcher to go to.
+export struct PlaceRow {
     id: string, name: string, place: string, icon: image, initial: string, tint: color,
-    /// Shown as an avatar: a DM's person or group icon, or a channel's
-    /// server icon; otherwise as the channel icon.
+    /// Shown as an avatar: a DM's person or group icon, or a channel's or
+    /// server's server icon; otherwise as the channel icon.
     avatar: bool, picture-url: string,
     /// Chosen to forward the message to.
     chosen: bool,
+    /// Unread, and its mentions of this account as a count; empty for none.
+    unread: bool, badge: string,
 }
 
 // The custom status: an emoji from the picker, words, and when it clears.
@@ -214,7 +216,7 @@ export component NewDmDialog inherits Rectangle {
 // Escape closes it.
 export component ForwardDialog inherits Rectangle {
     in property <string> forward-preview;
-    in property <[ForwardRow]> forward-targets;
+    in property <[PlaceRow]> forward-targets;
     in-out property <string> forward-query;
     in-out property <string> forward-note;
     /// How many conversations are chosen, and the most there may be.
@@ -334,6 +336,131 @@ export component ForwardDialog inherits Rectangle {
                         primary: true; enabled: root.forward-chosen > 0;
                         clicked => { root.forward-send(root.forward-note); }
                     }
+                }
+            }
+        }
+    }
+}
+
+// Discord's quick switcher, which Ctrl+K opens: a search of the
+// conversations and servers to go to, those opened lately before a search.
+// The arrow keys choose, Enter goes, and clicking outside or Escape closes.
+export component QuickSwitcher inherits Rectangle {
+    in property <[PlaceRow]> switcher-places;
+    in-out property <string> switcher-query;
+    callback switcher-search(string);
+    callback switch-to(string);
+    callback close-switcher;
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    /// The place Enter goes to.
+    property <int> chosen: 0;
+    property <int> current: min(root.chosen, root.switcher-places.length - 1);
+    property <length> pitch: 40px;
+    /// Scrolls the chosen place into view.
+    function reveal() {
+        if root.current * root.pitch + list.content-y < 0 {
+            list.content-y = -root.current * root.pitch;
+        } else if (root.current + 1) * root.pitch + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - (root.current + 1) * root.pitch;
+        }
+    }
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close-switcher(); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(570px, root.width - 48px); height: min(440px, root.height - 48px);
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: "Quick switcher";
+        TouchArea { }
+        FocusScope {
+            capture-key-pressed(event) => {
+                if event.text == Key.Escape { root.close-switcher(); return accept; }
+                if root.switcher-places.length == 0 && (event.text == Key.DownArrow || event.text == Key.UpArrow
+                    || event.text == Key.Tab || event.text == Key.Backtab) {
+                    return accept;
+                }
+                if event.text == Key.DownArrow || (event.text == Key.Tab && !event.modifiers.shift) {
+                    root.chosen = root.current + 1 < root.switcher-places.length ? root.current + 1 : 0;
+                    root.reveal();
+                    return accept;
+                }
+                if event.text == Key.UpArrow || event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) {
+                    root.chosen = root.current > 0 ? root.current - 1 : root.switcher-places.length - 1;
+                    root.reveal();
+                    return accept;
+                }
+                if event.text == Key.Return {
+                    if root.current >= 0 { root.switch-to(root.switcher-places[root.current].id); }
+                    return accept;
+                }
+                return reject;
+            }
+            VerticalLayout {
+                padding: 16px; spacing: 12px;
+                TextField {
+                    init => { self.focus-input(); }
+                    min-height: 52px; text-size: 20px; pad: 14px; fill: Theme.sunken;
+                    placeholder: "Where would you like to go?"; label: "Where would you like to go?";
+                    text <=> root.switcher-query;
+                    edited(text) => {
+                        root.chosen = 0;
+                        list.content-y = 0;
+                        root.switcher-search(text);
+                    }
+                }
+                if root.switcher-query == "" && root.switcher-places.length > 0: Text {
+                    text: "PREVIOUS CHANNELS"; color: Theme.muted; font-size: 12px; font-weight: 700;
+                }
+                list := ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        alignment: start;
+                        for place[index] in root.switcher-places: Rectangle {
+                            height: root.pitch; border-radius: 6px;
+                            background: index == root.current ? Theme.active : place-touch.has-hover ? Theme.hover : transparent;
+                            accessible-role: button;
+                            accessible-label: place.name + ", " + place.place
+                                + (place.badge != "" ? ", " + place.badge + " mentions" : place.unread ? ", unread" : "");
+                            accessible-action-default => { root.switch-to(place.id); }
+                            place-touch := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => { root.switch-to(place.id); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 8px; spacing: 10px;
+                                if place.avatar: Middle { Avatar { size: 24px; initial: place.initial; tint: place.tint; picture-url: place.picture-url; } }
+                                if !place.avatar: Middle {
+                                    Image { source: place.icon; width: 20px; height: 20px; colorize: Theme.faint; }
+                                }
+                                Text {
+                                    text: place.name; vertical-alignment: center; overflow: elide;
+                                    color: place.unread || index == root.current ? Theme.text : Theme.secondary;
+                                    font-size: 16px; font-weight: place.unread ? 700 : 500;
+                                }
+                                Text {
+                                    text: place.place; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                                    color: Theme.muted; font-size: 13px;
+                                }
+                                if place.badge != "": Middle {
+                                    Rectangle {
+                                        width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
+                                        badge-text := Text { text: place.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
+                                    }
+                                }
+                            }
+                        }
+                        if root.switcher-places.length == 0 && root.switcher-query != "": HorizontalLayout {
+                            padding: 8px;
+                            Label { text: "Nothing goes by that name."; }
+                        }
+                    }
+                }
+                Text {
+                    text: "Start a search with @ for people, # for text channels, ! for voice channels or * for servers.";
+                    color: Theme.muted; font-size: 12px; wrap: word-wrap;
                 }
             }
         }

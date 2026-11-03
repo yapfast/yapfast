@@ -9,7 +9,7 @@ Three Nix shells cover the work:
   `bun` for the fake Discord.
 - `nix-shell --impure testing/display/shell.nix` adds Weston,
   PulseAudio, the ALSA plugins and FFmpeg to it, for the private display that
-  `scripts/run-framework-isolated` starts.
+  `scripts/ui-session` starts.
 - `nix develop path:./nix#windows` cross-builds for Windows; see the
   [Windows beta guide](windows-beta.md).
 
@@ -18,38 +18,36 @@ The repository's own `flake.nix` builds no shell, only the package that
 release build, from `nix/package.nix`. It shares libwebrtc, Skia and the
 system libraries with the development shell through `nix/native.nix`, and pins
 the same nixpkgs in its own `flake.lock`. `nix build` puts it in `result`.
-It also builds the AppDir that the [AppImage](#linux-appimage) is packed from.
+It also builds the AppDir that the [AppImage](packaging.md#linux-appimage) is packed from.
 `nix/package.nix` holds one hash per Git dependency's repository and commit,
 in `outputHashes`. Moving a Git dependency to another commit needs a new
 hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1, Slint 1.18.1 and Skia 0.153.3. Cargo.lock pins
-the complete Rust graph. `vendor/i-slint-renderer-skia` is Slint's Skia
-renderer 1.18.1 with these changes. Glyphs use Skia's slight (vertical-only)
-hinting, because the default hinting spaced Satoshi's letters unevenly.
-Smooth pictures up to 512×512 pixels sample mipmaps, because plain bilinear
-sampling made pictures drawn smaller than their pixels, such as avatars, look
-jagged. Larger ones, such as video frames, go without: each frame would build
-its mipmaps anew, 4 ms more for a 1080p frame. So do pictures drawn no
-smaller than their pixels, such as a call's camera, made at its tile's size.
-Skia reads fonts where fontique keeps them rather than copying each file to
-the heap, which took 10 MiB for the colour emoji font. It reads a picture made
-in code, such as a camera's frame or an avatar, where Slint keeps it too,
-rather than copying it for each new frame: a table on the UI thread keeps the
-Slint buffer beside Skia's image until nothing else holds that image, and
-Slint copies a buffer it shares before anything writes to it. On Linux it
-takes rust-skia's prebuilt Skia with Skia's own FreeType: the one built for
-the system's FreeType lacks FreeType's COLRv1 calls, so it drew nothing for the
-COLRv1 build of Noto Color Emoji, the only one Fedora installs. Rust-skia
-builds that Skia only with its text layout, which the linker leaves out, and
-without Vulkan, so the renderer goes without wgpu, whose Vulkan surface needs
-it. On Linux Yapfast asks for Skia OpenGL or Skia Software by name; the wgpu
-renderers the winit backend still names make surfaces that fail to start.
-Without wgpu the Discord-only binary is 4.2 MB smaller. Windows turns wgpu back
-on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on
-Direct3D 12 (see `src/graphics.rs`). Each change is marked `Yapfast:` in
+Yapfast pins Rust 1.97.1, Slint 1.18.1 and Skia 0.153.3. Cargo.lock pins the
+complete Rust graph. `vendor/i-slint-renderer-skia` is Slint's Skia renderer
+1.18.1 with these changes. Glyphs use Skia's slight (vertical-only) hinting,
+because the default hinting spaced Satoshi's letters unevenly. Smooth pictures
+up to 512×512 pixels sample mipmaps, because plain bilinear sampling made
+pictures drawn smaller than their pixels, such as avatars, look jagged. Larger
+ones, such as video frames, go without: each frame would build its mipmaps
+anew. So do pictures drawn no smaller than their pixels, such as a call's
+camera, made at its tile's size. Skia reads fonts where fontique keeps them
+rather than copying each file to the heap. It reads a picture made in code,
+such as a camera's frame or an avatar, where Slint keeps it too, rather than
+copying it for each new frame: a table on the UI thread keeps the Slint buffer
+beside Skia's image until nothing else holds that image, and Slint copies a
+buffer it shares before anything writes to it. On Linux it takes rust-skia's
+prebuilt Skia with Skia's own FreeType: the one built for the system's FreeType
+lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build of Noto
+Color Emoji, the only one Fedora installs. Rust-skia builds that Skia only with
+its text layout, which the linker leaves out, and without Vulkan, so the
+renderer goes without wgpu, whose Vulkan surface needs it. On Linux Yapfast
+asks for Skia OpenGL or Skia Software by name; the wgpu renderers the winit
+backend still names make surfaces that fail to start. Windows turns wgpu back
+on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on Direct3D
+12 (see `src/graphics.rs`). Each change is marked `Yapfast:` in
 `itemrenderer.rs`, `cached_image.rs`, `lib.rs`, `font_cache.rs` or
 `Cargo.toml`. Copy the matching release over it, and reapply them, when
 upgrading Slint.
@@ -105,6 +103,16 @@ row is no longer shown or goes. A wheel scroll animates
 animation when rows go in above inside `hold`. This is `yapfast_anchor.rs` and the
 changes marked `Yapfast:` in `model/repeater.rs`.
 
+When `content-y` moves to the end of a `ListView` or past it, as when the
+timeline follows its newest message or a scroll reaches the end, the list lays
+its rows out up from the last, which ends at the bottom of the view, measuring
+each as drawn. Upstream lays them out down from the row the average row height
+puts there, which lands short of the end or past it, so `content-height`
+changes again and whatever follows the end moves `content-y` again, one round
+of change handlers each time. Slint allows ten such rounds in a row before it
+warns of a long callback chain. This is `yapfast_layout_end` in
+`model/repeater.rs`.
+
 A `TextInput` draws parts of its text as a `StyledText` draws a mention, in
 a colour on a pill of it, so the composer shows whom its message will
 mention. Yapfast marks a text's byte ranges with
@@ -156,19 +164,21 @@ repository at `d375b2d`, since crates.io has only its 0.2.5. It asks for
 tract `^0.21.4`, but tract 0.21.10 changed an API it uses, so Cargo.lock keeps
 tract at 0.21.4, the version DeepFilterNet's own lockfile has.
 
-LiveKit's Rust crates must stay on the mutually compatible versions in Cargo.lock.
-Do not run an unrestricted `cargo update`. Upgrade against the MatrixRTC lockfile
-and rebuild the native media stack. On Linux, the Nix shell supplies libwebrtc
-`webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating that crate requires
-updating the archive URL and checksum in nix/flake.nix too.
+LiveKit's Rust crates must stay on the mutually compatible versions in
+Cargo.lock. Do not run an unrestricted `cargo update`. Upgrade against the
+MatrixRTC lockfile and rebuild the native media stack. On Linux, the Nix shell
+supplies libwebrtc `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating
+that crate requires updating the archive URL and checksum in `nix/native.nix`
+(Linux) and `nix/flake.nix` (Windows) too.
 
-The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib, Wayland, X11,
-Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config, Protobuf and NASM. It uses the
-host's graphics driver under `/run/opengl-driver/lib`. A real display session
-are required to open the window. Skia Software is the default; `--renderer gpu` uses Skia GPU and falls back to
-Skia Software if the GPU fails. The Nix shell provides a checksum-pinned,
-prepared Skia archive whose JPEG table is privately named to avoid a WebRTC
-symbol collision. See [the Slint client](slint-client.md).
+The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib,
+Wayland, X11, Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config, Protobuf
+and NASM. It uses the host's graphics driver under `/run/opengl-driver/lib`. A
+real display session is required to open the window. Skia Software is the
+default; `--renderer gpu` uses Skia GPU and falls back to Skia Software if the
+GPU fails. The Nix shell provides a checksum-pinned, prepared Skia archive
+whose JPEG table is privately named to avoid a WebRTC symbol collision. See
+[the Slint client](slint-client.md).
 
 The first build downloads dependencies and compiles native C++. Cargo uses every
 core. On a machine with 8 GB of memory, set `CARGO_BUILD_JOBS=2` so the Matrix
@@ -238,25 +248,67 @@ the short form of the revision pinned in Cargo.toml. libDF's is
 `~/.cargo/git/checkouts/deepfilternet-*/d375b2d/libDF/`. libwebrtc's headers are in
 `$LK_CUSTOM_WEBRTC/include` inside the development shell.
 
+### Media libraries
+
+Three libraries decode and encode media, each for its own formats. The C
+files named here are in `crates/yapfast-core/native/`.
+
+- LiveKit's libwebrtc archive, `$LK_CUSTOM_WEBRTC` in the development shell,
+  holds libvpx, dav1d, libyuv and Chromium's FFmpeg, which has H264 and
+  common audio codecs but no HEVC decoder. `decode.c` decodes watched VP8
+  and H264 streams with it, and `av1.c` watched AV1 with its dav1d.
+  `video.c` plays video files: libavformat demuxes, libavcodec decodes
+  H264 and the sound, libvpx VP8 and VP9, dav1d AV1, and libyuv converts to
+  RGBA. It also decodes the soundboard's MP3
+  and Ogg sounds, which have no pictures. `vp8.c` and `clip.c` encode VP8 and VP9
+  with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
+  through libwebrtc's capture module.
+- `vendor/ffmpeg-src` holds only the GPU encoders, which `hwenc.c` drives,
+  and the HEVC decoder for watched H265 streams, in `hevc.c`.
+- `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
+  the camera.
+
+Playing a file never touches `vendor/ffmpeg-src`, so what plays is what
+libwebrtc's FFmpeg was built with. Check a symbol in the archive:
+
+```sh
+nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'
+```
+
+On NixOS, a binary run outside `nix develop` opens NVENC only with
+`LD_LIBRARY_PATH=/run/opengl-driver/lib`, which the dev shell and the Nix
+package's wrapper add. Yapfast names the libva driver for each render node
+itself, but `vainfo` or FFmpeg's command line on a host that sets
+`LIBVA_DRIVER_NAME=nvidia` needs `env -u LIBVA_DRIVER_NAME` to reach AMD's
+or Intel's driver.
+
 ## Checks
 
 `scripts/check` enters the development shell itself. `scripts/check --fast`
 builds with the `fast` profile, as local work does. It runs, in order:
 formatting; `scripts/check-doc-links`, which fails on a Markdown link to a
 missing file or heading; Clippy with warnings denied and the tests for the whole workspace
-(Clippy leaves out the UI crate's own targets, which hold no code to lint, but
-still checks it as a dependency); a build; and the desktop smoke test, which
-runs `target/<profile>/yapfast`, the desktop build, from that build. After
-those, one at a time, as each compile of the UI crate takes several GiB of
-memory, it runs Clippy for the Discord-only and Matrix-only builds, then the
-headless build's Clippy and smoke test in `target/check-combinations/`, so the
-headless binary doesn't replace the desktop one. The Discord-only and
-Matrix-only steps also select `crates/feature-union`, a crate without code
-that turns on the features the full build turns on in the crates below Slint.
-Slint and the UI crate then resolve as in the first Clippy step, and those
-steps reuse its check of the UI crate, taking seconds instead of several
-minutes each. When they compile `yapfast-ui` again, a dependency has drifted
-and `feature-union` needs its features. Each step prints `=== step` and `rc=N` when it ends,
+(the UI crate is outside the workspace, so Clippy checks it only as a
+dependency, with plain rustc, and doesn't lint its generated code); a
+build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
+the desktop build, from that build. These build the default features, the
+release's: Discord on the desktop (see [Networks](#networks)).
+
+`scripts/check --matrix` adds the builds with Matrix, after those and one at
+a time, as each compile of the UI crate takes several GiB of memory: Clippy
+and the tests with Matrix beside Discord, Clippy for the Matrix-only build,
+then the headless build's Clippy and smoke test in
+`target/check-combinations/`, so the headless binary doesn't replace the
+desktop one. Run it before a release and after a change to code that Matrix
+shares, such as `#[cfg(feature = "matrix")]` branches in `yapfast-core` and
+the app. The Matrix-only step also selects `crates/feature-union`, a crate
+without code that turns on the features the full build turns on in the
+crates below Slint. Slint and the UI crate then resolve as in the Clippy step
+with Matrix, and the Matrix-only step reuses its check of the UI crate,
+taking seconds instead of several minutes. When it compiles `yapfast-ui`
+again, a dependency has drifted and `feature-union` needs its features. The
+default steps leave `feature-union` out, so they resolve as a plain
+`cargo build`. Each step prints `=== step` and `rc=N` when it ends,
 with Rust's errors when it fails, and keeps its full log under `target/check/`.
 The script runs every step and exits non-zero if any failed.
 
@@ -267,6 +319,11 @@ before the first build, copies the main checkout's `target/fast/` and
 originals, and cleans the crates whose sources are in the repository, so those
 build from the worktree's own files. The first check then takes about 3.5
 minutes. Reflinks need a filesystem such as btrfs.
+
+After a change under `vendor/ffmpeg-src` or `vendor/x264-src`, each check
+step compiles it again; Clippy alone takes about 4 minutes. Run Clippy on the
+changed crate first, `cargo clippy --profile fast -p <crate> --all-targets --
+-D warnings`, to catch lints in seconds before `scripts/check`.
 
 `git config core.hooksPath .githooks` turns on the pre-commit hook, which
 checks formatting only, so commits stay quick.
@@ -283,6 +340,12 @@ scripts/ui-session relaunch   # rebuild and restart Yapfast on the same display
 scripts/ui-session stop
 ```
 
+`start --discord` builds with the release's features (see
+[Networks](#networks)) into the same `target/fast/yapfast` as a default build
+(`build()` in `scripts/ui-session`). Slint and the UI crate resolve the same
+for both, so switching between the two rebuilds only `yapfast-core`, the
+Discord crate and the app, about 5 to 15 seconds; `--live` changes Slint's
+features and recompiles it.
 Screenshots go to `.local/ui-session/shots/`, and `scripts/ui-session --help`
 lists every option and command. `start --tray` adds a stand-in tray on the
 session's bus; see [the tray](tray.md#testing). The scripted probes are in
@@ -317,13 +380,21 @@ before.
 
 ## Networks
 
-Matrix and Discord are Cargo features, `matrix` and `discord`, and the default
-build has both. A build can leave either one out:
+Matrix and Discord are Cargo features, `matrix` and `discord`. The default
+build is the release's, Discord on the desktop; a build can add Matrix, or
+carry Matrix alone:
 
 ```sh
-cargo build --release --no-default-features --features desktop,discord  # Discord only
-cargo build --release --no-default-features --features desktop,matrix   # Matrix only
+cargo build --release                                                  # Discord only
+cargo build --release --features matrix                                # Discord and Matrix
+cargo build --release --no-default-features --features desktop,matrix  # Matrix only
 ```
+
+Releases are the Discord-only build: `nix/package.nix` (`buildFeatures`) and
+`scripts/package-linux.py` (`FEATURES`) name its features, `desktop,discord`,
+rather than rely on the defaults. The Matrix tools, such as `--voice-demo`,
+`--call-experiment`, the session commands and `scripts/test-voice`, need
+`--features matrix`. Measure with the release's features.
 
 A Discord-only build signs in by linking Discord by QR code, and connects with
 the account linked on the device from then on. Voice calls
@@ -332,13 +403,18 @@ device list for both networks. The `--no-default-features` build without either
 network only opens `--preview`.
 
 `YAPFAST_DISCORD_TEST_SERVER=http://127.0.0.1:18400` points Discord at
-`testing/fake_discord.ts` (`bun testing/fake_discord.ts --port 18400`). It uses a
-test token instead of the linked account, so the real token never reaches it.
-`scripts/test-fake-discord [FILTER]` starts the fake on a free port, waits until
-it answers, runs the ignored tests in `crates/yapfast-discord/tests/fake_server.rs`
-with the `fast` profile, and stops it. It then runs
-`crates/yapfast-discord/tests/fake_env.rs` against a second fake that runs the
-example environment.
+`testing/fake_discord.ts` (`bun testing/fake_discord.ts --port 18400`). It uses
+a test token instead of the linked account, so the real token never reaches it.
+`scripts/test-fake-discord [FILTER]` runs the ignored tests in
+`crates/yapfast-discord/tests/fake_server.rs` with the `fast` profile, one area
+each, such as `forum` or `calls_in_dms`, a second or so apiece. Each starts a
+fake of its own, so none depends on another and a filter runs any alone. `cargo
+nextest`, in the development shell, runs them side by side, eight at a time
+(`.config/nextest.toml`), and the whole file takes about 15 seconds; without
+it, `cargo test` runs them one after another in about a minute. The script then
+runs yapfast-core's Discord tests against one fake, and
+`crates/yapfast-discord/tests/fake_env.rs` against a fake that runs the example
+environment.
 
 `--env PATH` replaces the fake's built-in content with an environment, for
 demos, promo recordings and screenshots. An environment is a JSON file, or a
@@ -396,10 +472,10 @@ environment and adds the C flags to it, since `cargo xwin build` sets the
 `scripts/package-windows.py` refuses an executable holding the home folder's
 path in UTF-8 or UTF-16. A Linux build from the dev shell needs the same, and
 its linker also writes a RUNPATH of `$PWD/outputs/out/lib` and Nix store
-folders into the binary; the [AppImage](#linux-appimage) avoids both by
+folders into the binary; the [AppImage](packaging.md#linux-appimage) avoids both by
 building in the Nix sandbox.
 
-The supported build route for this migration is the Linux MSVC cross-build.
+The supported build route is the Linux MSVC cross-build.
 Native Windows development needs Rustup, Visual Studio C++ tools and SDK, CMake,
 LLVM, Protobuf and NASM, plus the same prepared Skia archive through
 `SKIA_BINARIES_URL`. Opus comes from the libopus in libwebrtc's archive.
@@ -409,152 +485,6 @@ The downloadable package needs none of these tools to run.
 Before accepting the Windows build, check text entry, selection, copy/paste,
 keyboard focus, navigation, both renderers, resizing, normal close, and reopen
 on the tester's actual GPU.
-Windows execution has not been demonstrated by a Linux build.
-
-## Linux AppImage
-
-`scripts/build-appimage` makes the Linux release in `target/dist/linux`:
-`Yapfast-VERSION-x86_64.AppImage`, its `.zsync` file, the source snapshot and
-`SHA256SUMS.txt`. All four go on the release page. AppImageUpdate, and AppImage
-managers such as Gear Lever, find a newer release through the `.zsync` file,
-named by the update information in the runtime:
-`gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync`.
-The first build compiles every dependency in the Nix sandbox; packing takes
-about 10 seconds after that.
-
-Nix builds the binary, `nix/package.nix`'s Discord-only release build, and
-`nix/appimage.nix` puts it in an AppDir with the desktop file, the icons and
-the AppStream metainfo, `packaging/linux/io.github.yapfast.Yapfast.metainfo.xml`.
-It sets the binary's interpreter to `/lib64/ld-linux-x86-64.so.2` and removes
-Nix's RUNPATH, so the binary runs on the host's loader, glibc and libstdc++, as
-one built on a distribution would. That's what lets the host's GPU driver,
-Mesa or NVIDIA's, load into it: a driver needs the glibc it was built for, and
-NVIDIA's must match the kernel module, so neither can come in the AppImage.
-Nothing else is bundled either. Besides the C and C++ runtimes, the binary
-links only GLib, PulseAudio's client, fontconfig and FreeType, which every
-desktop has, and it loads EGL, Vulkan, Wayland, X11 and PipeWire at runtime.
-
-The derivation fails if the binary links anything else, or asks for a glibc
-newer than 2.39 or a libstdc++ newer than GCC 14's. That covers Ubuntu 24.04,
-Fedora 40, Debian 13 and anything newer. nixpkgs' glibc is newer than that, so
-a nixpkgs update can raise what the binary asks for. Raise the floors in
-`nix/appimage.nix` only knowing which distributions that drops. Older ones,
-such as Ubuntu 22.04, would need a build against their own glibc.
-
-`scripts/package-linux.py`, which runs in the development shell, with
-squashfs-tools and zsync added from the shell's nixpkgs, adds the
-licenses and notices, `THIRD-PARTY.json`, `SOURCE.txt` and `BUILD.json` to
-`usr/share/doc/yapfast`, as the Windows package has them, through the helpers
-in `scripts/release_package.py` that both packaging scripts use. Skia's
-prebuilt Linux archive carries only Skia's own license, so the notices of its
-third-party code come from the pinned Skia source,
-`nix build path:./nix#skia-source`. Then it packs the AppDir with mksquashfs
-(zstd level 19, 1 MiB blocks, fixed owners and times, so the same AppDir packs
-to the same file) behind AppImage's official type-2 runtime, pinned by hash.
-The runtime is static: it mounts the image with FUSE 3's `fusermount3` and
-needs no libfuse, and `--appimage-extract-and-run` runs it without FUSE at all.
-The flake sees only the files Git tracks, so add a new file under `nix/` or
-`packaging/` before building.
-
-It was checked in containers, on `scripts/ui-session`'s private display with
-the fake Discord:
-
-- Ubuntu 24.04 with Mesa, on Wayland and on X11 (a rootful Xwayland), with
-  both renderers.
-- Ubuntu 24.04 with NVIDIA's 580.119.02 driver, on an RTX 3090, on Wayland and
-  X11 with the GPU renderer.
-- Fedora 42 with Mesa, on Wayland with the GPU renderer, without FUSE.
-
-Each run loaded that distribution's loader, glibc, libstdc++, EGL and display
-libraries, and drew the window. Mesa had no driver for the NVIDIA card, so in
-the Mesa containers the GPU renderer drew on llvmpipe. In Ubuntu, voice
-played Bob's tone and sent speech played into the microphone, through the
-distribution's libpulse; Bob's stream played; text typed on X11 went out; and
-the tray icon, its menu and reopening from it worked on the session's bus.
-Screen sharing hasn't been tried from the AppImage.
-
-## Arch Linux packages
-
-`packaging/arch/PKGBUILD` builds the Discord-only release from source with
-Arch's toolchain, as `nix/package.nix` builds it: `cd packaging/arch && makepkg
--si`. It clones the tag of its `pkgver`, which `scripts/set-version` sets to a
-stable version, so run `scripts/set-version 0.2.0` before committing and
-tagging `v0.2.0`. The tag's commit holds the PKGBUILD, which can't hold its own
-checksum, so that source has none; the libwebrtc and Skia archives keep theirs.
-Arch's `llvm21` is a later 21.x than Nix's, which is why
-`nix/prepare-skia-native.py` takes any LLVM 21. Nothing builds this PKGBUILD
-automatically: build it in a clean `archlinux:base-devel` container before a
-release, about 6 minutes from cold.
-
-The releases carry a package of their own binary instead. `scripts/package-arch`,
-run after `scripts/build-appimage`, packs the AppImage's binary, desktop file,
-icon, metainfo and notices into `yapfast-VERSION-1-x86_64.pkg.tar.zst` beside
-it, through `packaging/arch/release.PKGBUILD`, and adds it to
-`SHA256SUMS.txt`. It's the AppImage's binary, which runs on the host's loader
-and libraries, so the two packages can't differ. The script runs makepkg in an
-`archlinux:base-devel` container with Docker, then installs the package there
-and runs `yapfast --smoke-test`, in about 20 seconds. A nightly's version
-becomes `0.2.0nightly.20261020.5`, which pacman sorts after 0.1.0 and before
-0.2.0, as SemVer sorts the nightly; with a dot before `nightly`, pacman would
-sort it after 0.2.0. `sudo pacman -U` installs the file or its link; there's no
-repository, so `pacman -Syu` doesn't update it.
-
-It was checked in an Arch container, on `scripts/ui-session`'s private display
-with the fake Discord: both renderers drew the window, the GPU one through
-Arch's EGL and Mesa (llvmpipe).
-
-## Nightly releases
-
-Releases are built locally, but a nightly of `main` builds on GitHub: Actions,
-Nightly, Run workflow. `.github/workflows/nightly.yml` names it after the next
-minor version, the day (UTC) and the workflow's run number, such as
-`v0.2.0-nightly.20261020.5`, and titles it as the stable releases are, with the
-commit: `Yapfast 0.2.0-nightly.20261020.5 (396abe2)`. The run number puts two
-nightlies of one day in order, as a commit hash wouldn't, and gives a second
-run on one commit a tag of its own. `scripts/set-version` writes that version
-into `Cargo.toml` and `Cargo.lock` before building, so the app reports it and
-the packages and `SOURCE.txt` name it. One job runs `scripts/build-appimage`
-and `scripts/package-arch`, and another `scripts/build-windows` in the Windows shell, with the Windows Skia
-build, cargo-xwin's MSVC files and the compiled Rust dependencies
-(`Swatinem/rust-cache`) cached between runs. The Linux build has no cache: it
-compiles in the Nix sandbox, which can't reach one. The last job publishes the
-AppImage, its `.zsync` file, the Arch package, the Windows ZIP, the source snapshot and
-`SHA256SUMS.txt` as a prerelease on that commit. Wine doesn't start on the
-runner, so there's no installer. The release's notes list the commits since the
-previous nightly, or the latest release, each with its author's GitHub account:
-features and fixes by their Conventional Commit type, the rest folded away
-(`.github/nightly-notes.jq`). Every nightly stays on the releases page. Both
-builds zip the source snapshot with the commit's time on every file, so they
-make the same file, and the release carries one. A prerelease is never
-`latest`, so the AppImage's update information leaves stable installs on stable
-releases, and takes a nightly AppImage to the latest stable release, not the
-next nightly.
-
-## The app icon
-
-`packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in
-on-accent ink, so it reads on a light taskbar as well as a dark one. The UI
-keeps drawing `ui/icons/logo.svg`.
-
-On Linux the window's app ID is `io.github.yapfast.Yapfast` (`src/icon.rs`).
-Wayland desktops show a window's icon only through the desktop entry of that
-name, `packaging/linux/io.github.yapfast.Yapfast.desktop`;
-`scripts/install-desktop-entry [EXECUTABLE]` installs it and the icon for
-this user, running `target/release/yapfast` unless told otherwise. The
-AppImage installs nothing, so Yapfast run from one writes the entry and the
-icon to `~/.local/share` itself before it opens its window
-(`src/desktop_entry.rs`), with Exec and TryExec naming the AppImage. It
-rewrites them when the AppImage has moved, and leaves them alone when a package
-has its own entry in `XDG_DATA_DIRS`, or an AppImage manager such as Gear Lever
-made one that runs the same file. On X11 the window also carries the icon
-itself. Notifications name the entry, so the notification server shows the
-same name and icon.
-
-On Windows, `build.rs` compiles `packaging/windows/yapfast.rc` with `llvm-rc`
-and links the icon into `yapfast.exe`, for Explorer and shortcuts; the window
-loads it from there for its title bar and the taskbar, each at the size
-Windows draws it. After changing `icon.svg`, run `scripts/make-windows-icon`
-to draw `yapfast.ico` again.
 
 ## Logs
 
@@ -568,10 +498,12 @@ output.
 
 ## Initial resource measurement
 
-After a `measure` build, open `target/measure/yapfast` inside the Nix shell; measure
-`release` only for the shipped build's absolute numbers. Leave it inactive for
-at least 15 seconds, then sample its PID on Linux. `scripts/ui-session` writes
-the PID of the Yapfast it runs to `.local/ui-session/yapfast.pid`.
+After a `measure` build with the release's features (see
+[Networks](#networks)), open `target/measure/yapfast` inside the Nix shell;
+measure `release` only for the shipped build's absolute numbers. Leave it
+inactive for at least 15 seconds, then sample its PID on Linux.
+`scripts/ui-session` writes the PID of the Yapfast it runs to
+`.local/ui-session/yapfast.pid`.
 
 ```sh
 scripts/measure-process PID --seconds 30
@@ -581,8 +513,7 @@ The JSON reports mean and peak RSS, mean PSS, CPU use relative to one core,
 and GPU engine counters when the driver exposes them through `/proc/PID/fdinfo`.
 An unavailable GPU metric is reported explicitly. Record hardware, account and
 room counts, renderer, build mode, warm-up, window size and activity alongside
-the output. The earlier empty GPUI build-check baseline had no account or sync;
-it does not measure the current connected Slint client.
+the output.
 
 ## Local backend
 

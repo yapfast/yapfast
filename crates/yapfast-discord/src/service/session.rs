@@ -59,10 +59,23 @@ pub(super) async fn run(
 ) {
     let snapshots = shared.snapshots.clone();
     let mut reconnects = Reconnects::default();
+    // With the build number kept from the last start, the web client's page
+    // loads beside connecting, rather than before it.
+    if let Ok(Some(kept)) = tokio::task::spawn_blocking(crate::cache::build_number).await {
+        crate::client::recall_build_number(kept);
+    }
+    if crate::client::has_build_number() {
+        let api = shared.api.clone();
+        tokio::spawn(async move { api.learn_build_number().await });
+    }
     loop {
         snapshots.send_modify(|snapshot| Arc::make_mut(snapshot).status = Status::Connecting);
         let connect = async {
-            shared.api.learn_build_number().await;
+            // Without one kept, the page goes first, so the first identify
+            // says the current build.
+            if !crate::client::has_build_number() {
+                shared.api.learn_build_number().await;
+            }
             let playing = *shared.show_game.borrow();
             crate::own_activity::merge(
                 &mut shared.presence,
@@ -504,6 +517,7 @@ impl Session<'_> {
                 let _ = reply.send(self.tracker.session.clone());
                 Ok(())
             }
+            Request::Soundboard { guilds } => gateway.request_soundboard_sounds(&guilds).await,
             Request::Search {
                 guild,
                 query,

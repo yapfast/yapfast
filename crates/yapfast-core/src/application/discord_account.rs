@@ -470,6 +470,20 @@ impl Application {
                     expires_at_ms: custom.expires_at_ms,
                 });
         self.state.discord_show_game = snapshot.show_game;
+        self.state.soundboard_volume = snapshot
+            .soundboard_volume
+            .unwrap_or(yapfast_discord::soundboard::DEFAULT_VOLUME);
+        if changed(|a, b| Arc::ptr_eq(&a.join_sounds, &b.join_sounds)) {
+            self.state.join_sounds = snapshot
+                .join_sounds
+                .iter()
+                .map(|join| JoinSound {
+                    server: join.server.clone(),
+                    sound: join.sound.clone(),
+                    guild: join.guild.clone(),
+                })
+                .collect();
+        }
         let playing = snapshot.playing.as_deref();
         // Snapshots come often; the game rarely changes.
         let shown = self.state.discord_playing.as_ref();
@@ -546,6 +560,8 @@ impl Application {
         self.state.custom_status = None;
         self.state.discord_show_game = false;
         self.state.discord_playing = None;
+        self.state.join_sounds.clear();
+        self.state.sound_catalog = None;
         self.show_lists()
     }
 }

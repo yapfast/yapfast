@@ -64,6 +64,9 @@ pub enum MenuChoice {
     // A member's in a voice channel, as its menu there offers them.
     /// Mute someone for this account alone, as a box to tick.
     LocalMute,
+    /// Mute the soundboard sounds someone plays, for this account alone,
+    /// as a box to tick.
+    SoundboardMute,
     /// This account's own mute and deafen in the call it's in here.
     SelfMute,
     SelfDeafen,
@@ -464,6 +467,32 @@ impl Application {
         effects
     }
 
+    /// Opens the quick switcher with nothing searched for, unless a dialog
+    /// has the keyboard, or closes it.
+    pub(super) fn toggle_switcher(&mut self) -> Vec<Effect> {
+        if self.state.switcher.take().is_some() || self.state.dialog_open() {
+            return vec![];
+        }
+        self.state.switcher = Some(String::new());
+        // It ranks places by how much they're used, which Discord's
+        // settings count.
+        if self.state.discord_linked {
+            return self.ask_places_used();
+        }
+        vec![]
+    }
+
+    /// Goes where the quick switcher found: to a server's channel shown
+    /// last, or to a conversation.
+    pub(super) fn switch_to(&mut self, id: String) -> Vec<Effect> {
+        self.state.switcher = None;
+        if self.state.servers.iter().any(|server| server.id == id) {
+            self.navigate(Navigation::Server(id))
+        } else {
+            self.open(id, false)
+        }
+    }
+
     /// Switches the selected voice channel between its chat and its call.
     pub(super) fn show_voice_chat(&mut self, chat: bool) -> Vec<Effect> {
         match self.state.selected.clone() {
@@ -853,6 +882,17 @@ impl Application {
             effects.push(Effect::Backend(Command::CloseRoom));
         } else {
             effects.push(Effect::Backend(Command::Open(id)));
+            // An unread Discord channel that shows nothing yet opens at its
+            // last read message: the messages around it load beside the
+            // newest, rather than once those showed they don't reach it.
+            // The backend answers from what it kept when that reaches it.
+            if self.state.messages.is_empty()
+                && let Some((marker, false)) = self.read_marker.clone()
+                && discord::item_order(&marker).is_some()
+            {
+                self.read_marker = Some((marker.clone(), true));
+                effects.extend(self.focus(marker));
+            }
         }
         effects
     }

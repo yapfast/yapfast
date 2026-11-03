@@ -1,5 +1,5 @@
 //! Yapfast's Discord connection: account login, the gateway, messages and voice.
-//! See docs/discord.md. Everything Discord-specific stays in this crate.
+//! See docs/discord/README.md. Everything Discord-specific stays in this crate.
 
 pub mod activity;
 pub mod api;
@@ -19,13 +19,16 @@ pub mod frecency;
 pub mod game_detection;
 pub mod gateway;
 pub mod gifs;
+pub mod gift;
 pub mod invite;
 pub mod limits;
+pub mod link;
 pub mod marked;
 pub mod member_list;
 pub mod message;
 pub mod mfa;
 pub mod notifications;
+pub mod oauth;
 pub mod opus;
 pub mod own_activity;
 pub mod profile;
@@ -34,10 +37,12 @@ pub mod remote_auth;
 #[cfg(target_os = "linux")]
 mod rpc;
 pub mod rtp;
+pub mod scheduled_event;
 pub mod search;
 pub mod server_settings;
 pub mod service;
 pub mod settings;
+pub mod soundboard;
 pub mod stream;
 pub mod stream_connection;
 pub mod token;

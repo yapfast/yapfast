@@ -1,7 +1,7 @@
 //! This account's own profile, in a Discord server or its main one:
 //! fetching it for its editor, reading a picture chosen for it as Discord's
 //! client sends one, and saving it. See "Editing one's profile" in
-//! docs/discord.md.
+//! docs/discord/people.md.
 
 use std::path::Path;
 

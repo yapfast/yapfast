@@ -80,14 +80,14 @@ colours, not their names for UI parts, so each mapping is Yapfast's:
 
 Bonfire maps Discord's Dark theme from the CSS variables of its web client
 (`.theme-dark` with `.theme-darker`, which is what its settings call Dark;
-`.theme-dark` alone is Ash, `.theme-midnight` Onyx), read from the public bundle
-on 2026-10-14: the rail and sidebar are `--background-base-lowest` (#121214),
-the chat `--background-base-lower` (#1a1a1e), the account panel and composer
+`.theme-dark` alone is Ash, `.theme-midnight` Onyx), read from the public
+bundle: the rail and sidebar are `--background-base-lowest` (#121214), the chat
+`--background-base-lower` (#1a1a1e), the account panel and composer
 `--background-base-low` (#202024), raised surfaces and the tooltip
 `--background-surface-high` (#242429), text `--text-default`, muted
-`--text-muted`, links `--text-link`, the accent `--control-primary-background-default`
-(blurple, #5865f2, hover #4452bb, white on it), red
-`--control-critical-primary-background-default` (#d22d39), live
+`--text-muted`, links `--text-link`, the accent
+`--control-primary-background-default` (blurple, #5865f2, hover #4452bb, white
+on it), red `--control-critical-primary-background-default` (#d22d39), live
 `--status-positive`, and hovers, selections, lines and secondary buttons the
 `--interactive-background-*`, `--border-subtle` and
 `--control-secondary-background-*` washes laid over their grounds. It carries

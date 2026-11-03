@@ -66,8 +66,13 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
+/// Pictures downloading at once. They have turns of their own, apart from
+/// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
 const PARALLEL_DOWNLOADS: usize = 8;
+/// Pictures decoding at once, from disk or the network.
+#[cfg(feature = "discord")]
+const PARALLEL_DECODES: usize = 4;
 /// Tries per picture whose download may work later, before its initial
 /// shows for good.
 #[cfg(feature = "discord")]
@@ -121,11 +126,21 @@ pub fn parse_room(id: &str) -> Option<(&str, &str)> {
     id.strip_prefix(PREFIX)?.split_once(':')
 }
 
-/// The code of an invite link to a Discord server, as Discord's client
-/// finds them in messages.
+/// A place in Discord named by one of Discord's own links.
 #[cfg(feature = "discord")]
-pub fn invite_code(link: &str) -> Option<&str> {
-    yapfast_discord::invite::link_code(link)
+pub use yapfast_discord::link::Route as DiscordRoute;
+
+/// The Discord route a link names, when Yapfast can open it itself.
+#[cfg(feature = "discord")]
+pub fn discord_route(link: &str) -> Option<DiscordRoute> {
+    yapfast_discord::link::parse(link)
+}
+
+/// A link Yapfast can open itself, written as one word, as
+/// [`yapfast_discord::link::parse_written`] writes it.
+#[cfg(feature = "discord")]
+pub fn discord_link(link: &str) -> Option<String> {
+    yapfast_discord::link::parse_written(link).map(|(_, link)| link)
 }
 
 /// The Discord server a server id names, as [`server_id`] makes it.
@@ -922,9 +937,87 @@ fn thread_room(
 /// Dropping it cancels the downloads.
 #[cfg(feature = "discord")]
 pub(crate) struct Pictures {
-    slots: Arc<Semaphore>,
+    turns: Arc<Turns>,
+    /// Counts the batches asked for, which take turns newest first.
+    batches: u64,
+    decodes: Arc<Semaphore>,
     backoff: Arc<Mutex<Backoff>>,
     tasks: JoinSet<()>,
+}
+
+/// Turns to download, the newest batch asked for going first, in its own
+/// order: rows scrolled past wait behind those on screen now, which go top
+/// to bottom.
+#[cfg(feature = "discord")]
+struct Turns {
+    state: Mutex<TurnState>,
+}
+
+#[cfg(feature = "discord")]
+struct TurnState {
+    free: usize,
+    /// With their batch, in the order they came.
+    waiting: Vec<(u64, tokio::sync::oneshot::Sender<Turn>)>,
+}
+
+/// A turn to download, passed on to the newest waiting when dropped.
+#[cfg(feature = "discord")]
+struct Turn(Arc<Turns>);
+
+#[cfg(feature = "discord")]
+impl Turns {
+    fn new(turns: usize) -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(TurnState {
+                free: turns,
+                waiting: Vec::new(),
+            }),
+        })
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, TurnState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    async fn take(self: &Arc<Self>, batch: u64) -> Option<Turn> {
+        let waiting = {
+            let mut state = self.state();
+            if state.free > 0 {
+                state.free -= 1;
+                return Some(Turn(self.clone()));
+            }
+            let (sender, waiting) = tokio::sync::oneshot::channel();
+            state.waiting.push((batch, sender));
+            waiting
+        };
+        // A turn passed to a wait that was dropped meanwhile drops with it,
+        // and so passes on.
+        waiting.await.ok()
+    }
+}
+
+#[cfg(feature = "discord")]
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let turns = &self.0;
+        let mut state = turns.state();
+        while let Some(newest) = state.waiting.iter().map(|(batch, _)| *batch).max() {
+            let next = state
+                .waiting
+                .iter()
+                .position(|(batch, _)| *batch == newest)
+                .expect("the newest batch waits");
+            let (_, waiting) = state.waiting.remove(next);
+            match waiting.send(Turn(turns.clone())) {
+                Ok(()) => return,
+                // That wait was dropped; this turn is still in hand.
+                Err(turn) => std::mem::forget(turn),
+            }
+        }
+        state.free += 1;
+    }
 }
 
 /// When pictures may next be downloaded, shared by every download. Each
@@ -966,16 +1059,19 @@ impl Backoff {
 impl Pictures {
     pub(crate) fn new() -> Self {
         Self {
-            slots: Arc::new(Semaphore::new(PARALLEL_DOWNLOADS)),
+            turns: Turns::new(PARALLEL_DOWNLOADS),
+            batches: 0,
+            decodes: Arc::new(Semaphore::new(PARALLEL_DECODES)),
             backoff: Arc::default(),
             tasks: JoinSet::new(),
         }
     }
 
-    /// Starts downloading `urls`, a few at a time. A picture whose download
-    /// may work later is tried again, after a wait every download keeps to;
-    /// one that fails for good is logged and left out, and its initial shows
-    /// instead.
+    /// Shows `urls`: those kept on disk at once, the rest as they download,
+    /// a few at a time, the newest batch asked for first. A picture whose
+    /// download may work later is tried again, after a wait every download
+    /// keeps to; one that fails for good is logged and left out, and its
+    /// initial shows instead.
     pub(crate) fn fetch(
         &mut self,
         discord: &Discord,
@@ -983,50 +1079,31 @@ impl Pictures {
         events: &UnboundedSender<Event>,
     ) {
         while self.tasks.try_join_next().is_some() {}
+        self.batches += 1;
+        let batch = self.batches;
         for url in urls {
-            let (discord, events, slots, backoff) = (
+            let (discord, events, turns, decodes, backoff) = (
                 discord.clone(),
                 events.clone(),
-                self.slots.clone(),
+                self.turns.clone(),
+                self.decodes.clone(),
                 self.backoff.clone(),
             );
             self.tasks.spawn(async move {
-                let Ok(_slot) = slots.acquire().await else {
-                    return;
-                };
-                let lock = || backoff.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                let mut tries = 0;
-                let data = loop {
-                    // Another download may push the wait further meanwhile.
-                    loop {
-                        let until = lock().until(Instant::now());
-                        let Some(until) = until else { break };
-                        tokio::time::sleep_until(until.into()).await;
-                    }
-                    tries += 1;
-                    let started = Instant::now();
-                    match discord.download(&url, MAX_PICTURE_BYTES).await {
-                        Ok(data) => {
-                            lock().succeeded();
-                            break data;
-                        }
-                        Err(error)
-                            if tries < PICTURE_TRIES
-                                && yapfast_discord::api::may_work_later(&error) =>
-                        {
-                            tracing::debug!(%error, %url, tries, "will download a Discord picture again");
-                            lock().failed(started, Instant::now());
-                        }
-                        Err(error) => {
-                            tracing::debug!(%error, %url, "could not download a Discord picture");
-                            return;
-                        }
-                    }
+                let data = match discord.kept_picture(&url, MAX_PICTURE_BYTES).await {
+                    Some(kept) => kept,
+                    None => match download(&discord, &url, &turns, batch, &backoff).await {
+                        Some(data) => data,
+                        None => return,
+                    },
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
                 } else {
                     (PICTURE_SIZE, PICTURE_SIZE)
+                };
+                let Ok(_decoding) = decodes.acquire().await else {
+                    return;
                 };
                 let address = url.clone();
                 let decoded = tokio::task::spawn_blocking(move || {
@@ -1048,6 +1125,52 @@ impl Pictures {
     }
 }
 
+/// Downloads a picture in its turn, trying again after the wait every
+/// download keeps to while it may work later. The turn is held only while
+/// downloading.
+#[cfg(feature = "discord")]
+async fn download(
+    discord: &Discord,
+    url: &str,
+    turns: &Arc<Turns>,
+    batch: u64,
+    backoff: &Mutex<Backoff>,
+) -> Option<Vec<u8>> {
+    let lock = || {
+        backoff
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    };
+    let mut tries = 0;
+    loop {
+        // Another download may push the wait further meanwhile.
+        loop {
+            let until = lock().until(Instant::now());
+            let Some(until) = until else { break };
+            tokio::time::sleep_until(until.into()).await;
+        }
+        let turn = turns.take(batch).await?;
+        tries += 1;
+        let started = Instant::now();
+        let result = discord.download_now(url, MAX_PICTURE_BYTES).await;
+        drop(turn);
+        match result {
+            Ok(data) => {
+                lock().succeeded();
+                return Some(data);
+            }
+            Err(error) if tries < PICTURE_TRIES && yapfast_discord::api::may_work_later(&error) => {
+                tracing::debug!(%error, %url, tries, "will download a Discord picture again");
+                lock().failed(started, Instant::now());
+            }
+            Err(error) => {
+                tracing::debug!(%error, %url, "could not download a Discord picture");
+                return None;
+            }
+        }
+    }
+}
+
 #[cfg(all(test, feature = "discord"))]
 mod tests {
     use yapfast_discord::{
@@ -1056,6 +1179,41 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn download_turns_go_to_the_newest_batch_in_its_order() {
+        let turns = Turns::new(1);
+        let held = turns.take(0).await.expect("one is free");
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut waits = Vec::new();
+        // Two batches: the first of two pictures, the second of three.
+        for (n, batch) in [(0, 1), (1, 1), (2, 2), (3, 2), (4, 2)] {
+            let (taking, order) = (turns.clone(), order.clone());
+            waits.push(tokio::spawn(async move {
+                let turn = taking.take(batch).await;
+                order.lock().unwrap().push(n);
+                drop(turn);
+            }));
+            while turns.state().waiting.len() <= n {
+                tokio::task::yield_now().await;
+            }
+        }
+        // One of the newer batch gives up waiting, as a download cancelled does.
+        waits[3].abort();
+        let _ = (&mut waits[3]).await;
+        drop(held);
+        for (n, wait) in waits.into_iter().enumerate() {
+            if n != 3 {
+                wait.await.unwrap();
+            }
+        }
+        assert_eq!(
+            *order.lock().unwrap(),
+            [2, 4, 0, 1],
+            "the newer batch first, each in its order, past the one gone"
+        );
+        assert_eq!(turns.state().free, 1, "the turn is back");
+    }
 
     /// `server` with the marks `marks` names for its channels by id, and
     /// the defaults for the rest.

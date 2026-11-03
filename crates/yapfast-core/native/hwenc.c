@@ -5,7 +5,8 @@
  * Annex B access units out, each NAL unit after a start code. Opening tries
  * each encoder in turn and says which one opened, or why none did.
  *
- * Settings, as measured on screen recordings and games (docs/discord.md):
+ * Settings, as measured on screen recordings and games
+ * (docs/discord/go-live.md):
  * low-latency tuning, no B-frames, a frame out for each frame in, the
  * bitrate capped over half a second without padding a calm screen, H264's
  * Main profile, and parameter sets before each IDR. */

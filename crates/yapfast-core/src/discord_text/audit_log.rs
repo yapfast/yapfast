@@ -1,6 +1,6 @@
 //! A Discord server's audit log, as Audit Log in its settings fetches it:
 //! `GET /guilds/{id}/audit-logs`, a page of entries and the names they
-//! refer to, read into [`AuditLog`]. See "Audit Log" in docs/discord.md.
+//! refer to, read into [`AuditLog`]. See "Audit Log" in docs/discord/server-settings.md.
 
 use serde_json::Value;
 use yapfast_discord::ready;

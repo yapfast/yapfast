@@ -59,6 +59,7 @@ const STREAM_CREATE: u64 = 18;
 const STREAM_DELETE: u64 = 19;
 const STREAM_WATCH: u64 = 20;
 const STREAM_SET_PAUSED: u64 = 22;
+const REQUEST_SOUNDBOARD_SOUNDS: u64 = 31;
 const GUILD_SUBSCRIPTIONS_BULK: u64 = 37;
 
 /// Discord closed the gateway, with its close code.
@@ -116,10 +117,17 @@ const SEND_WINDOW: Duration = Duration::from_secs(60);
 /// Discord allows 5 presence updates in 20 seconds, which the web client
 /// keeps to.
 const PRESENCE_LIMIT: usize = 5;
-#[cfg(not(test))]
-const PRESENCE_WINDOW: Duration = Duration::from_secs(20);
-#[cfg(test)]
-const PRESENCE_WINDOW: Duration = Duration::from_millis(300);
+
+/// How long [`PRESENCE_LIMIT`] updates take: Discord's 20 seconds, or 300 ms
+/// in unit tests and against the test server, which has no such limit, so
+/// that tests changing the status don't wait out Discord's.
+fn presence_window() -> Duration {
+    if cfg!(test) || client::test_server().is_some() {
+        Duration::from_millis(300)
+    } else {
+        Duration::from_secs(20)
+    }
+}
 /// The longest Yapfast holds back member requests for a server when Discord
 /// asks it to wait.
 const MEMBERS_HELD: Duration = Duration::from_secs(5 * 60);
@@ -311,7 +319,7 @@ impl Gateway {
             session_id: None,
             resume_url: None,
             limiter,
-            presences: Limiter::new(PRESENCE_LIMIT, PRESENCE_WINDOW),
+            presences: Limiter::new(PRESENCE_LIMIT, presence_window()),
             presence: None,
             resumes: 0,
         };
@@ -446,6 +454,13 @@ impl Gateway {
             json!({"stream_key": stream_key, "paused": paused}),
         )
         .await
+    }
+
+    /// Asks for these servers' soundboard sounds, which Discord sends as one
+    /// SOUNDBOARD_SOUNDS for each.
+    pub async fn request_soundboard_sounds(&mut self, guild_ids: &[String]) -> Result<()> {
+        self.send(REQUEST_SOUNDBOARD_SOUNDS, json!({"guild_ids": guild_ids}))
+            .await
     }
 
     /// Whether Discord asked Yapfast to wait before asking about `guild_id`'s
@@ -1005,7 +1020,7 @@ mod tests {
             session_id: None,
             resume_url: None,
             limiter: limiter(),
-            presences: Limiter::new(PRESENCE_LIMIT, PRESENCE_WINDOW),
+            presences: Limiter::new(PRESENCE_LIMIT, presence_window()),
             presence: None,
             resumes: 0,
         };
@@ -1285,12 +1300,12 @@ mod tests {
         assert_eq!(next(&mut gateway).await.unwrap().event, Event::TypingStart);
 
         // An event Yapfast doesn't know passes through by name, with its data.
-        peer.dispatch("GUILD_SOUNDBOARD_SOUND_CREATE", json!({"id": "7"}))
+        peer.dispatch("GUILD_SCHEDULED_EVENT_CREATE", json!({"id": "7"}))
             .await;
         let other = next(&mut gateway).await.unwrap();
         assert_eq!(
             other.event,
-            Event::Other("GUILD_SOUNDBOARD_SOUND_CREATE".into())
+            Event::Other("GUILD_SCHEDULED_EVENT_CREATE".into())
         );
         assert_eq!(other.data["id"], "7");
     }
@@ -1442,7 +1457,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(peer.command().await["d"]["n"], "latest");
-        assert!(held.elapsed() >= PRESENCE_WINDOW / 2);
+        assert!(held.elapsed() >= presence_window() / 2);
     }
 
     /// Compresses payloads as Discord's gateway does, sharing one stream.

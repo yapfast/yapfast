@@ -166,6 +166,15 @@ def stop(process):
         process.wait(5)
 
 
+def capture_filters():
+    """The ffmpeg filters that stand Weston's GL capture upright: it comes upside
+    down with NVIDIA's driver, and upright with Mesa's software llvmpipe, which
+    a machine without a GPU uses. Other drivers keep the flip."""
+    log = state / 'weston.log'
+    software = log.exists() and 'GL renderer: llvmpipe' in log.read_text(errors='replace')
+    return [] if software else ['vflip']
+
+
 def shot(name, *crop):
     shots = state / 'shots'
     shots.mkdir(exist_ok=True)
@@ -175,13 +184,12 @@ def shot(name, *crop):
         subprocess.run(['weston-screenshooter'], env=dict(os.environ, XDG_PICTURES_DIR=folder),
                        check=True, timeout=10, capture_output=True)
         picture = next(Path(folder).glob('*.png'))
-        # The GL renderer's capture is upside down.
-        flip = 'vflip'
+        filters = capture_filters()
         if crop:
             x, y, width, height = map(int, crop)
-            flip += f',crop={width}:{height}:{x}:{y}'
+            filters.append(f'crop={width}:{height}:{x}:{y}')
         subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(picture),
-                        '-vf', flip, str(path)], check=True, timeout=10)
+                        *(['-vf', ','.join(filters)] if filters else []), str(path)], check=True, timeout=10)
     return str(path)
 
 
@@ -255,11 +263,12 @@ def record(rest):
     width, height, pixel_format = header
     # libx264 at its veryfast preset encodes 1080p60 several times faster than
     # real time here; crf 16 keeps text sharp.
+    filters = capture_filters()
     encoder = subprocess.Popen(
         ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'rawvideo', '-pixel_format', pixel_format,
          '-video_size', f'{width}x{height}', '-framerate', '60', '-i', 'pipe:0',
-         # The GL renderer's capture is upside down.
-         '-vf', 'vflip', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p',
+         *(['-vf', ','.join(filters)] if filters else []),
+         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p',
          '-movflags', '+faststart', str(path)],
         stdin=host.stdout, stdout=subprocess.DEVNULL, stderr=log, start_new_session=True)
     host.stdout.close()

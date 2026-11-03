@@ -140,7 +140,10 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::RemoveFromChannelList
                 | MenuChoice::UnfollowCategory => 3,
                 MenuChoice::Roles | MenuChoice::MoveTo => 4,
-                MenuChoice::LocalMute | MenuChoice::SelfMute | MenuChoice::SelfDeafen => 8,
+                MenuChoice::LocalMute
+                | MenuChoice::SoundboardMute
+                | MenuChoice::SelfMute
+                | MenuChoice::SelfDeafen => 8,
                 MenuChoice::ServerMute
                 | MenuChoice::ServerDeafen
                 | MenuChoice::Disconnect
@@ -179,6 +182,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 MenuChoice::ShowAllChannels
                     | MenuChoice::HideMuted
                     | MenuChoice::LocalMute
+                    | MenuChoice::SoundboardMute
                     | MenuChoice::SelfMute
                     | MenuChoice::SelfDeafen
                     | MenuChoice::ServerMute
@@ -190,6 +194,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 }
                 MenuChoice::HideMuted => notifications().is_some_and(|known| known.hide_muted),
                 MenuChoice::LocalMute => yapfast_core::volume::muted(id),
+                MenuChoice::SoundboardMute => yapfast_core::volume::soundboard_muted(id),
                 MenuChoice::SelfMute => state.voice.muted,
                 MenuChoice::SelfDeafen => state.voice.deafened,
                 MenuChoice::ServerMute => voice_person.is_some_and(|person| person.server_muted),
@@ -296,6 +301,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::Ban => ("Ban", &icons.ban),
         MenuChoice::TransferOwnership => ("Transfer Ownership", &icons.crown),
         MenuChoice::LocalMute | MenuChoice::SelfMute => ("Mute", &icons.mic_off),
+        MenuChoice::SoundboardMute => ("Mute Soundboard", &icons.soundboard),
         MenuChoice::SelfDeafen => ("Deafen", &icons.deafen),
         MenuChoice::MoveTo => ("Move to", &icons.move_to),
         MenuChoice::ServerMute => ("Server mute", &icons.mic_off),
@@ -868,6 +874,19 @@ pub(super) fn choose(
             }
             None
         }
+        MenuChoice::SoundboardMute => {
+            if let Some(muted) = ticked {
+                yapfast_core::volume::mute_soundboard(&target, muted);
+                let people = &mut adapter.layout.soundboard_muted_people;
+                if muted {
+                    people.insert(target.clone());
+                } else {
+                    people.remove(&target);
+                }
+                adapter.layout.write(&adapter.root);
+            }
+            None
+        }
         MenuChoice::SelfMute => ticked.map(|muted| Action::Voice(voice::Command::Mute(muted))),
         MenuChoice::SelfDeafen => {
             ticked.map(|deafened| Action::Voice(voice::Command::Deafen(deafened)))
@@ -975,7 +994,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 64] = [
+const CHOICES: [MenuChoice; 65] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1034,6 +1053,7 @@ const CHOICES: [MenuChoice; 64] = [
     MenuChoice::EditServerProfile,
     MenuChoice::ServerSettings,
     MenuChoice::LocalMute,
+    MenuChoice::SoundboardMute,
     MenuChoice::SelfMute,
     MenuChoice::SelfDeafen,
     MenuChoice::MoveTo,
@@ -1102,6 +1122,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::EditServerProfile => "edit-server-profile",
         MenuChoice::ServerSettings => "server-settings",
         MenuChoice::LocalMute => "local-mute",
+        MenuChoice::SoundboardMute => "soundboard-mute",
         MenuChoice::SelfMute => "self-mute",
         MenuChoice::SelfDeafen => "self-deafen",
         MenuChoice::MoveTo => "move-to",

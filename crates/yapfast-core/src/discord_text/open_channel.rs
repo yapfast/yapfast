@@ -171,6 +171,10 @@ pub struct OpenChannel {
     /// A page of messages arrived, or was kept on disk, so there's something
     /// to show.
     pub(super) loaded: bool,
+    /// Its newest messages are as Discord has them: the latest page came,
+    /// and every live event since went in. Reopened while it is, it shows
+    /// what it kept without asking again.
+    pub(super) synced: bool,
     /// Its messages changed since they last went to disk.
     dirty: bool,
     pub(super) pictures: HashMap<String, Option<Arc<Picture>>>,
@@ -246,6 +250,7 @@ impl OpenChannel {
             focusing: false,
             generation: 0,
             loaded: false,
+            synced: false,
             dirty: false,
             pictures: HashMap::new(),
             requested: HashSet::new(),
@@ -277,6 +282,12 @@ impl OpenChannel {
         self.load(discord, done, Load::Latest);
     }
 
+    /// Live events may have gone by without it: offline, or behind on
+    /// them. It loads its latest page again when it next opens.
+    pub(super) fn missed(&mut self) {
+        self.synced = false;
+    }
+
     /// Loads the page before the oldest shown message, unless one is on
     /// its way already; `false` when the first message is loaded, so there
     /// is none.
@@ -306,10 +317,25 @@ impl OpenChannel {
 
     /// Asks for the messages around the snowflake `order`, which show in
     /// place of the rest once they come. Pages on their way are dropped.
-    pub fn around(&mut self, discord: &Discord, done: &UnboundedSender<Done>, order: u64) {
+    /// Returns `false` without asking when the newest messages showing
+    /// reach back to it, as those kept on disk may when a channel opens
+    /// with few unread: they're what shows around it.
+    pub fn around(&mut self, discord: &Discord, done: &UnboundedSender<Done>, order: u64) -> bool {
+        if self.reaches(order) {
+            return false;
+        }
         self.replaced();
         self.focusing = true;
         self.load(discord, done, Load::Around(order));
+        true
+    }
+
+    /// Whether the newest messages show, from before `order` on.
+    pub(super) fn reaches(&self, order: u64) -> bool {
+        self.loaded
+            && !self.detached()
+            && !self.focusing
+            && (self.shown.complete || self.earliest().is_some_and(|earliest| earliest <= order))
     }
 
     /// Shows the channel's newest messages again in place of a window, as
@@ -382,6 +408,7 @@ impl OpenChannel {
         self.dirty = true;
         match load {
             Load::Latest => {
+                self.synced = true;
                 let run = self.latest.as_mut().unwrap_or(&mut self.shown);
                 run.fit(&page);
                 // Only a page that's the whole channel says where it starts:
@@ -440,11 +467,15 @@ impl OpenChannel {
                 }
                 self.shown.started(&Page {
                     messages: vec![],
-                    full: true,
                     ..page
                 });
                 for message in page.messages {
                     self.insert(message);
+                }
+                // It reaches the newest message, so it isn't a window: the
+                // newest kept, and the latest page when it comes, join it.
+                if page.newest {
+                    self.attach();
                 }
             }
         }

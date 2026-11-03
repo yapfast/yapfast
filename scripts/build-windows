@@ -7,7 +7,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 flavour=${1:-discord}
 case $flavour in
   discord) features=(--no-default-features --features desktop,discord) ;;
-  full) features=() ;;
+  full) features=(--features matrix) ;;
   *) echo "usage: scripts/build-windows [discord|full] [package-windows.py options]" >&2; exit 2 ;;
 esac
 shift $(($# > 0 ? 1 : 0))

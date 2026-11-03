@@ -1,7 +1,7 @@
 //! A Discord text channel in Yapfast's conversation view. Yapfast keeps the open
 //! channel's loaded messages in memory, and those of channels open lately,
 //! so going back to one shows it at once; history loads from Discord and
-//! live changes arrive through the gateway. See docs/discord.md.
+//! live changes arrive through the gateway. See docs/discord/README.md.
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
@@ -343,7 +343,12 @@ impl Chat {
         match wake {
             Wake::Snapshot(Some(snapshot)) => {
                 let online = snapshot.status == Status::Online;
-                // Messages sent while disconnected arrive with the latest page.
+                // Live events stop with the connection: kept channels load
+                // their latest page again when opened, and messages sent
+                // while disconnected arrive with the open one's.
+                if !online && self.online {
+                    self.channels.missed();
+                }
                 if online
                     && !self.online
                     && let Some(channel) = &mut self.channels.open

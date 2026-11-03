@@ -1,0 +1,9 @@
+# cargo nextest runs each test in a process of its own. The fake-server
+# tests each start a fake Discord of their own, about 100 MB with the test,
+# so no more than eight run at once.
+[test-groups]
+fake-discord = { max-threads = 8 }
+
+[[profile.default.overrides]]
+filter = 'package(yapfast-discord) and binary(fake_server)'
+test-group = 'fake-discord'

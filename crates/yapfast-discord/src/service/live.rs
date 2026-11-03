@@ -87,6 +87,33 @@ pub(super) fn live_events(
             })
             .into_iter()
             .collect(),
+        Event::SoundboardSounds | Event::GuildSoundboardSoundsUpdate => data["guild_id"]
+            .as_str()
+            .map(|guild| Live::SoundboardSounds {
+                guild: guild.to_owned(),
+                sounds: crate::soundboard::parse_all(&data["soundboard_sounds"]),
+            })
+            .into_iter()
+            .collect(),
+        Event::GuildSoundboardSoundCreate | Event::GuildSoundboardSoundUpdate => {
+            crate::soundboard::parse(data)
+                .map(Live::SoundboardSound)
+                .into_iter()
+                .collect()
+        }
+        Event::GuildSoundboardSoundDelete => data["guild_id"]
+            .as_str()
+            .zip(data["sound_id"].as_str())
+            .map(|(guild, sound)| Live::SoundboardSoundDeleted {
+                guild: guild.to_owned(),
+                sound: sound.to_owned(),
+            })
+            .into_iter()
+            .collect(),
+        Event::VoiceChannelEffectSend => crate::soundboard::played(data)
+            .map(Live::SoundPlayed)
+            .into_iter()
+            .collect(),
         Event::GuildBanAdd | Event::GuildBanRemove => data["guild_id"]
             .as_str()
             .zip(crate::server_settings::parse_banned_user(&data["user"]))
@@ -227,13 +254,14 @@ pub(super) fn live_events(
         }
         // Answers to the member requests history makes.
         Event::GuildMembersChunk => vec![Live::Names],
-        // The favourite GIFs and the places used, changed here or by
-        // another client.
+        // The favourite GIFs and sounds and the places used, changed here
+        // or by another client.
         Event::UserSettingsProtoUpdate if data["settings"]["type"] == 2 => {
             let proto = data["settings"]["proto"].as_str().unwrap_or_default();
             let favorites = crate::gifs::read_favorites(proto).map(Live::FavoriteGifs);
             let places = crate::frecency::read_places(proto).map(Live::PlacesUsed);
-            favorites.into_iter().chain(places).collect()
+            let sounds = crate::soundboard::read_favorites(proto).map(Live::FavoriteSounds);
+            favorites.into_iter().chain(places).chain(sounds).collect()
         }
         Event::StreamCreate | Event::StreamUpdate => data["stream_key"]
             .as_str()

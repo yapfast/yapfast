@@ -22,9 +22,9 @@ static void set_rate(x264_param_t *param, unsigned kbps) {
 }
 
 /* A realtime encoder, as measured on screen recordings and games (see
- * docs/discord.md): x264's superfast preset, or faster at `effort` 1, with
- * zero latency: a frame out for each frame in, no B-frames or lookahead,
- * and a slice for each thread. Main profile, which Discord's own client
+ * docs/discord/go-live.md): x264's superfast preset, or faster at `effort`
+ * 1, with zero latency: a frame out for each frame in, no B-frames or
+ * lookahead, and a slice for each thread. Main profile, which Discord's own client
  * sends; adaptive quantization off, which kept text sharper and games no
  * worse; parameter sets before each IDR. */
 struct yapfast_h264 *yapfast_h264_new(unsigned width, unsigned height, unsigned fps,

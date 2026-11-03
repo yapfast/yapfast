@@ -60,6 +60,9 @@ unsafe extern "C" {
 /// FFmpeg's `AVSEEK_SIZE`: asks for the file's size rather than moving.
 const SEEK_SIZE: c_int = 0x10000;
 
+/// video.c's `SOUND_ONLY`: a file's sound, without pictures.
+const SOUND_ONLY: c_int = 2;
+
 /// How much of a video becomes an animation; the rest is left out.
 const ANIMATION_MS: u64 = 60_000;
 /// The most pictures such an animation keeps: a minute at 60 a second.
@@ -171,8 +174,19 @@ impl<'a> Video<'a> {
         Self::open_with(source, sound, threads)
     }
 
+    /// Opens only the sound of a file, which needn't have pictures, such as
+    /// an MP3 or an Ogg file; [`Self::decode_sound`] decodes it.
+    pub fn open_sound(source: impl Source + 'a) -> Option<Self> {
+        Self::open_as(source, SOUND_ONLY, 1)
+    }
+
     /// As [`Self::open`], decoding on up to `threads` threads.
     fn open_with(source: impl Source + 'a, sound: bool, threads: usize) -> Option<Self> {
+        Self::open_as(source, c_int::from(sound), threads)
+    }
+
+    /// Opens what `sound` asks for, as video.c's `yapfast_video_open` takes it.
+    fn open_as(source: impl Source + 'a, sound: c_int, threads: usize) -> Option<Self> {
         let mut source: Box<Box<dyn Source + 'a>> = Box::new(Box::new(source));
         let mut info = Info::default();
         // SAFETY: the source stays boxed in the video for as long as FFmpeg reads it.
@@ -182,7 +196,7 @@ impl<'a> Video<'a> {
                 read_source,
                 seek_source,
                 threads as c_uint,
-                c_int::from(sound),
+                sound,
                 &mut info,
             )
         };

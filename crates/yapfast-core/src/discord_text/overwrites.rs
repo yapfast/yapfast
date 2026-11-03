@@ -1,6 +1,6 @@
 //! A channel's overwrites, as its settings' Permissions page changes them,
 //! and the names of the members they're for. See "Channel settings" in
-//! docs/discord.md.
+//! docs/discord/server-settings.md.
 
 use yapfast_discord::ready::Overwrite;
 

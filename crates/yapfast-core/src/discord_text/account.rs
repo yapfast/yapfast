@@ -11,8 +11,8 @@ use super::{
     *,
 };
 use crate::chat::{
-    InvitePreview, JoinedServer, MemberChange, Muting, NotificationChange, NotifyLevel,
-    RelationshipChange,
+    EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
+    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -288,6 +288,81 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::Inactive { since, show_idle }) = command {
         if let Ok(discord) = discord {
             discord.set_inactive(since, show_idle);
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::SoundboardVolume(volume)) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .set_soundboard_volume(volume)
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not change the soundboard volume"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::SoundboardVolumeSet(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::SoundboardVolumeSet(Err(why.into())));
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::SoundCatalog) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = match crate::soundboard::Catalog::load(&discord).await {
+                        Ok(catalog) => Ok(catalog.groups(&discord.snapshots().borrow()).into()),
+                        Err(error) => {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not list the soundboard's sounds"
+                            );
+                            Err(error.to_string())
+                        }
+                    };
+                    let _ = events.send(Event::SoundCatalog(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::SoundCatalog(Err(why.into())));
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::SetJoinSound { server, sound }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let sound = sound
+                        .as_ref()
+                        .map(|(id, guild)| (id.as_str(), guild.as_deref()));
+                    let result = discord
+                        .set_join_sound(server.as_deref(), sound)
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not change the join sound"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::JoinSoundSet(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::JoinSoundSet(Err(why.into())));
+            }
         }
         return None;
     }
@@ -866,6 +941,191 @@ pub(super) fn command(
                 let _ = events.send(Event::ServerJoined {
                     code,
                     result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ResolveEvent { guild, event }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .scheduled_event(&guild, &event)
+                        .await
+                        .map(|preview| event_preview(&preview))
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not look up a scheduled event"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::EventResolved { event, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::EventResolved {
+                    event,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::SetEventInterest {
+        preview,
+        interested,
+    }) = command
+    {
+        let event = preview.event.clone();
+        let guild = preview.guild.clone();
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .set_event_interest(&guild, &event, interested)
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not change event interest"
+                            );
+                            format!("Couldn't change your interest: {error}")
+                        });
+                    let _ = events.send(Event::EventInterestSet {
+                        event,
+                        interested,
+                        result,
+                    });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::EventInterestSet {
+                    event,
+                    interested,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ResolveGift { code }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .gift(&code)
+                        .await
+                        .map(gift_preview)
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not look up a gift"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::GiftResolved { code, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::GiftResolved {
+                    code,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::RedeemGift { code, room }) = command {
+        let channel = room
+            .as_deref()
+            .and_then(discord::parse_room)
+            .map(|(_, channel)| channel.to_owned());
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .redeem_gift(&code, channel.as_deref())
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(error = format!("{error:#}"), "could not redeem a gift");
+                            format!("Couldn't redeem the gift: {error}")
+                        });
+                    let _ = events.send(Event::GiftRedeemed { code, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::GiftRedeemed {
+                    code,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ResolveOAuth { query }) = command {
+        let request = yapfast_discord::oauth::Request::parse(&query);
+        match (discord, request) {
+            (Ok(discord), Some(request)) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .oauth_preview(&request)
+                        .await
+                        .map(|preview| oauth_preview(&query, &preview, &request))
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not look up an authorization"
+                            );
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::OAuthResolved { query, result });
+                });
+            }
+            (discord, _) => {
+                let _ = events.send(Event::OAuthResolved {
+                    query,
+                    result: Err(discord
+                        .err()
+                        .unwrap_or("That isn't an authorization link.")
+                        .into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::AuthorizeOAuth { query, guild }) = command {
+        let request = yapfast_discord::oauth::Request::parse(&query);
+        match (discord, request) {
+            (Ok(discord), Some(request)) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .authorize_oauth(&request, guild.as_deref())
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not authorize an application"
+                            );
+                            format!("Couldn't authorize it: {error}")
+                        });
+                    let _ = events.send(Event::OAuthAuthorized { query, result });
+                });
+            }
+            (discord, _) => {
+                let _ = events.send(Event::OAuthAuthorized {
+                    query,
+                    result: Err(discord
+                        .err()
+                        .unwrap_or("That isn't an authorization link.")
+                        .into()),
                 });
             }
         }
@@ -1473,5 +1733,80 @@ fn invite_preview(preview: &yapfast_discord::invite::Preview) -> InvitePreview {
         voice: preview.voice(),
         members: preview.members,
         online: preview.online,
+    }
+}
+
+fn event_preview(preview: &yapfast_discord::scheduled_event::Preview) -> EventPreview {
+    EventPreview {
+        event: preview.id.clone(),
+        guild: preview.guild.clone(),
+        name: preview.name.clone(),
+        description: preview.description.clone(),
+        starts_at: unix_seconds(&preview.starts_at),
+        ends_at: preview.ends_at.as_deref().map(unix_seconds),
+        room: preview
+            .channel
+            .as_deref()
+            .map(|channel| discord::room_id(&preview.guild, channel)),
+        location: preview.location.clone(),
+        creator: preview.creator.clone(),
+        interested_count: preview.interested_count,
+        active: preview.active,
+        over: preview.over,
+        interested: preview.interested,
+    }
+}
+
+/// A Discord timestamp in Unix seconds; 0 for one Discord wrote oddly.
+fn unix_seconds(timestamp: &str) -> u64 {
+    chrono::DateTime::parse_from_rfc3339(timestamp)
+        .map(|time| u64::try_from(time.timestamp()).unwrap_or_default())
+        .unwrap_or_default()
+}
+
+fn gift_preview(preview: yapfast_discord::gift::Preview) -> GiftPreview {
+    GiftPreview {
+        name: preview.name,
+        plan: preview.plan,
+        gifter: preview.gifter,
+        redeemed: preview.redeemed,
+        spent: preview.spent,
+        in_discord: preview.in_discord,
+    }
+}
+
+fn oauth_preview(
+    query: &str,
+    preview: &yapfast_discord::oauth::Preview,
+    request: &yapfast_discord::oauth::Request,
+) -> OAuthPreview {
+    OAuthPreview {
+        query: query.to_owned(),
+        name: preview.name.clone(),
+        about: preview.about.clone(),
+        icon: preview.icon.clone(),
+        bot: preview.bot.clone(),
+        wants: request
+            .scopes
+            .iter()
+            .filter_map(|scope| yapfast_discord::oauth::scope_wants(scope))
+            .collect(),
+        permissions: request.permissions,
+        controls_client: request.controls_client(),
+        authorized: preview.authorized,
+        redirect: preview.redirect_uri.clone(),
+        guild_install: request.guild_install(),
+        guild_locked: request.guild_locked,
+        wanted_guild: request.guild.clone(),
+        guilds: preview
+            .guilds
+            .iter()
+            .map(|guild| OAuthGuild {
+                id: guild.id.clone(),
+                name: guild.name.clone(),
+                icon: guild.icon.clone(),
+                can_add: guild.can_add,
+            })
+            .collect(),
     }
 }

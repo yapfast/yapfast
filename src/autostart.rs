@@ -53,7 +53,7 @@ fn command() -> std::io::Result<Vec<String>> {
     Ok(command)
 }
 
-fn path_text(path: PathBuf) -> std::io::Result<String> {
+pub(crate) fn path_text(path: PathBuf) -> std::io::Result<String> {
     path.into_os_string()
         .into_string()
         .map_err(|path| std::io::Error::other(format!("{} isn't valid Unicode", path.display())))
@@ -62,7 +62,7 @@ fn path_text(path: PathBuf) -> std::io::Result<String> {
 /// One argument of the command line, quoted when it holds a space, as
 /// Windows splits a command line into arguments.
 #[cfg(any(windows, test))]
-fn windows_argument(argument: &str) -> String {
+pub(crate) fn windows_argument(argument: &str) -> String {
     if !argument.is_empty() && !argument.contains([' ', '\t', '"']) {
         return argument.to_owned();
     }

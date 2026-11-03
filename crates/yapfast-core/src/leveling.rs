@@ -1,7 +1,9 @@
 //! Evens out how loud your voice is in a call. Leaning towards the microphone
 //! or away from it moves your level a few decibels; the leveler slowly undoes
 //! that around your usual speaking level. Whispers and shouts sit much further
-//! from it, so they pass through as they are, and so do short bursts.
+//! from it, so they pass through as they are, and so do short bursts. The
+//! microphone's volume ([`crate::volume::microphone`]) applies with it, as one
+//! gain that never lifts a peak into clipping.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -16,7 +18,8 @@ pub fn enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
 
-/// Levels the microphone in LiveKit's calls too, which WebRTC captures itself.
+/// Levels the microphone in LiveKit's calls too, which WebRTC captures itself,
+/// and sets its volume.
 pub fn install() {
     static INSTALL: std::sync::Once = std::sync::Once::new();
     INSTALL.call_once(|| {
@@ -28,7 +31,8 @@ struct Capture(Leveler);
 
 impl webrtc_sys::capture::CaptureProcessor for Capture {
     fn ramp(&mut self, samples: &[f32], sample_rate: u32) -> (f32, f32) {
-        self.0.ramp(samples, sample_rate, enabled())
+        self.0
+            .ramp(samples, sample_rate, enabled(), crate::volume::microphone())
     }
 }
 
@@ -64,7 +68,7 @@ const GAIN: f32 = 0.3;
 /// any correction this quickly, so it isn't held down.
 const SUDDEN: f32 = 12.0;
 const LET_GO: f32 = 0.05;
-/// Raising never pushes a peak past this.
+/// Raising, by leveling or the volume, never pushes a peak past this.
 const CEILING: f32 = 0.9 * FULL_SCALE;
 
 /// The leveler for one microphone.
@@ -92,10 +96,10 @@ impl Default for Leveler {
 }
 
 impl Leveler {
-    /// Levels a block of about 10 ms in place. Turned off, it eases back to
-    /// leaving the voice as it is.
-    pub fn process(&mut self, samples: &mut [f32], sample_rate: u32, on: bool) {
-        let (from, to) = self.ramp(samples, sample_rate, on);
+    /// Levels a block of about 10 ms in place and sets it to `volume`, a
+    /// linear gain. Turned off, it eases back to leaving the voice as it is.
+    pub fn process(&mut self, samples: &mut [f32], sample_rate: u32, on: bool, volume: f32) {
+        let (from, to) = self.ramp(samples, sample_rate, on, volume);
         let count = samples.len() as f32;
         for (index, sample) in samples.iter_mut().enumerate() {
             *sample *= from + (to - from) * (index + 1) as f32 / count;
@@ -103,8 +107,9 @@ impl Leveler {
     }
 
     /// The linear gains the block should start and end at, which it ramps
-    /// between, after noting its level.
-    pub fn ramp(&mut self, samples: &[f32], sample_rate: u32, on: bool) -> (f32, f32) {
+    /// between, after noting its level. The level is heard before `volume`,
+    /// so changing it doesn't move your usual level.
+    pub fn ramp(&mut self, samples: &[f32], sample_rate: u32, on: bool, volume: f32) -> (f32, f32) {
         if samples.is_empty() || sample_rate == 0 {
             return (self.applied, self.applied);
         }
@@ -149,7 +154,7 @@ impl Leveler {
             f32::MAX
         };
         let from = self.applied.min(room);
-        let to = 10f32.powf(self.gain / 20.0).min(room);
+        let to = (10f32.powf(self.gain / 20.0) * volume).min(room);
         self.applied = to;
         (from, to)
     }
@@ -196,7 +201,7 @@ mod tests {
         let mut out = level;
         for _ in 0..(seconds * 100.0) as usize {
             let mut block = tone.block(level);
-            leveler.process(&mut block, RATE, on);
+            leveler.process(&mut block, RATE, on, 1.0);
             out = decibels(&block);
         }
         out
@@ -227,7 +232,7 @@ mod tests {
         let mut shout = 0.0;
         for _ in 0..50 {
             let mut block = tone.block(-8.0);
-            leveler.process(&mut block, RATE, true);
+            leveler.process(&mut block, RATE, true, 1.0);
             loudest = block
                 .iter()
                 .fold(loudest, |peak, sample| peak.max(sample.abs()));
@@ -244,7 +249,35 @@ mod tests {
         let away = speak(&mut leveler, &mut tone, -32.0, 3.0, false);
         assert!((away + 32.0).abs() < 0.1, "off: {away}");
         let mut quiet = vec![0.0; BLOCK];
-        leveler.process(&mut quiet, RATE, true);
+        leveler.process(&mut quiet, RATE, true, 1.0);
         assert!(quiet.iter().all(|sample| *sample == 0.0));
+    }
+
+    #[test]
+    fn the_volume_sets_the_voice_without_clipping_it() {
+        let (mut leveler, mut tone) = (Leveler::default(), Tone { phase: 0.0 });
+        let level = |leveler: &mut Leveler, tone: &mut Tone, level: f32, volume: f32| {
+            let (mut out, mut loudest) = (level, 0.0f32);
+            for _ in 0..100 {
+                let mut block = tone.block(level);
+                leveler.process(&mut block, RATE, false, volume);
+                loudest = block
+                    .iter()
+                    .fold(loudest, |peak, sample| peak.max(sample.abs()));
+                out = decibels(&block);
+            }
+            (out, loudest)
+        };
+        let (half, _) = level(&mut leveler, &mut tone, -26.0, 0.5);
+        assert!((half + 32.0).abs() < 0.5, "-6 dB: {half}");
+        let (twice, _) = level(&mut leveler, &mut tone, -26.0, 2.0);
+        assert!((twice + 20.0).abs() < 0.5, "+6 dB: {twice}");
+        let (shout, loudest) = level(&mut leveler, &mut tone, -4.0, 2.0);
+        assert!(
+            shout < -2.0 && loudest <= FULL_SCALE,
+            "a loud voice doesn't clip: {shout}, {loudest}"
+        );
+        let (silent, _) = level(&mut leveler, &mut tone, -26.0, 0.0);
+        assert!(silent < -100.0, "0% sends nothing: {silent}");
     }
 }

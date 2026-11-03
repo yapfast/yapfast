@@ -11,7 +11,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa,
+    mfa, scheduled_event,
     settings::{self, CustomStatus},
 };
 
@@ -289,9 +289,9 @@ impl Api {
     }
 
     /// Reads the web client's current build number from its page, as a
-    /// browser loads that page before the client connects. Once a run is
-    /// enough; until then, and if the page can't be read, Yapfast sends the
-    /// last one it knew.
+    /// browser loads that page before the client connects, and keeps it on
+    /// disk for the next start. Once a run is enough; until then, and if the
+    /// page can't be read, Yapfast sends the last one it knew.
     pub async fn learn_build_number(&self) {
         /// The page sets it near the top; the whole page is about 75 KiB.
         const READ: usize = 256 << 10;
@@ -316,7 +316,12 @@ impl Api {
             anyhow::Ok(())
         };
         match tokio::time::timeout(std::time::Duration::from_secs(10), read).await {
-            Ok(Ok(())) if client::knows_build_number() => {}
+            Ok(Ok(())) if client::knows_build_number() => {
+                let number = client::known_build_number();
+                let _ =
+                    tokio::task::spawn_blocking(move || crate::cache::keep_build_number(number))
+                        .await;
+            }
             Ok(Ok(())) => tracing::warn!("Discord's web page gave no build number"),
             Ok(Err(error)) => tracing::warn!(%error, "could not read Discord's web page"),
             Err(_) => tracing::warn!("Discord's web page didn't load"),
@@ -1068,6 +1073,26 @@ impl Api {
             .await
     }
 
+    /// The account's settings, `PreloadedUserSettings`, in base64.
+    pub async fn user_settings(&self) -> Result<String> {
+        let answer = self
+            .json(self.request(Method::GET, "/users/@me/settings-proto/1"))
+            .await?;
+        Ok(answer["settings"].as_str().unwrap_or_default().to_owned())
+    }
+
+    /// Replaces the top-level fields `settings`, base64
+    /// `PreloadedUserSettings`, holds, each whole.
+    pub async fn set_user_settings(&self, settings: &str) -> Result<()> {
+        let body = json!({"settings": settings});
+        self.json(with_json(
+            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
+            &body,
+        ))
+        .await
+        .map(drop)
+    }
+
     /// The account's second settings, `FrecencyUserSettings`, in base64.
     pub async fn frecency_settings(&self) -> Result<String> {
         let answer = self
@@ -1709,6 +1734,89 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// A server's scheduled event, with how many people are interested
+    /// in it, as Discord's client asks before showing it.
+    pub async fn scheduled_event(&self, guild: &str, event: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/scheduled-events/{event}?with_user_count=true");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// This account's scheduled-event subscriptions in a server.
+    pub async fn own_scheduled_events(&self, guild: &str) -> Result<Value> {
+        let path = format!("/users/@me/scheduled-events?guild_ids={guild}");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Marks this account interested in a server's scheduled event, or
+    /// no longer interested in it.
+    pub async fn set_scheduled_event_interest(
+        &self,
+        guild: &str,
+        event: &str,
+        interested: bool,
+    ) -> Result<()> {
+        let path = format!("/guilds/{guild}/scheduled-events/{event}/users/@me");
+        let request = if interested {
+            with_json(
+                self.request(Method::PUT, &path),
+                &json!({ "response": scheduled_event::INTERESTED }),
+            )
+        } else {
+            self.request(Method::DELETE, &path)
+        };
+        self.empty(request).await
+    }
+
+    /// A gift code, with the subscription plan it grants, as Discord's
+    /// client asks for a gift link in a message: without the SKU's
+    /// application, which Yapfast doesn't show.
+    pub async fn gift_code(&self, code: &str) -> Result<Value> {
+        let path = format!(
+            "/entitlements/gift-codes/{}?with_application=false&with_subscription_plan=true",
+            encode(code)
+        );
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Redeems a gift code for this account, in the channel its link was
+    /// opened in when it was one, as Discord's client sends it without a
+    /// payment source; the entitlement it grants.
+    pub async fn redeem_gift_code(&self, code: &str, channel: Option<&str>) -> Result<Value> {
+        let path = format!("/entitlements/gift-codes/{}/redeem", encode(code));
+        let body = json!({"channel_id": channel, "gateway_checkout_context": null});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// What authorizing an application would do, as Discord's client asks
+    /// before showing it; `query` is [`crate::oauth::Request::preview_query`].
+    pub async fn oauth_preview(&self, query: &str) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Authorizes an application, with the query
+    /// [`crate::oauth::Request::authorize_query`] makes, in the server
+    /// `guild` when it installs to one, with a bot's `permissions`; the
+    /// answer says where Discord sends the person next.
+    pub async fn authorize_oauth(
+        &self,
+        query: &str,
+        user_install: bool,
+        guild: Option<&str>,
+        permissions: Option<u64>,
+    ) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        let body = json!({
+            "authorize": true,
+            "integration_type": u64::from(user_install),
+            "guild_id": guild,
+            "permissions": permissions.map(|bits| bits.to_string()),
+        });
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
     /// Joins a server by an invite, from this gateway `session`, as
     /// Discord's client does; `context` says where, as
     /// [`crate::invite::Preview::context`] makes it. Discord may ask for a
@@ -1826,6 +1934,46 @@ impl Api {
     pub async fn stream_preview(&self, stream_key: &str, thumbnail: &str) -> Result<()> {
         let path = format!("/streams/{stream_key}/preview");
         let body = json!({"thumbnail": thumbnail});
+        self.empty(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Discord's own soundboard sounds, which every account may play.
+    pub async fn default_soundboard_sounds(&self) -> Result<Vec<crate::soundboard::Sound>> {
+        let sounds = self
+            .json(self.request(Method::GET, "/soundboard-default-sounds"))
+            .await?;
+        Ok(crate::soundboard::parse_all(&sounds))
+    }
+
+    /// Plays `sound` in the call `channel`, as Discord's client does: with
+    /// its emoji, and its server unless it's one of Discord's own. Discord
+    /// sends everyone there VOICE_CHANNEL_EFFECT_SEND, and plays nothing
+    /// itself.
+    pub async fn send_soundboard_sound(
+        &self,
+        channel: &str,
+        sound: &crate::soundboard::Sound,
+    ) -> Result<()> {
+        let path = format!("/channels/{channel}/send-soundboard-sound");
+        let mut body = json!({
+            "sound_id": sound.id,
+            "emoji_id": sound.emoji_id,
+            "emoji_name": sound.emoji_name,
+        });
+        if let Some(guild) = &sound.guild {
+            body["source_guild_id"] = json!(guild);
+        }
+        self.empty(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Plays this account's join sound, which its settings name, for the
+    /// call `channel` it just joined, with one of Discord's emoji
+    /// animations, as Discord's client does: premium animations 10 to 15.
+    pub async fn custom_call_sound(&self, channel: &str, animation: u32) -> Result<()> {
+        let path = format!("/channels/{channel}/custom-call-sounds");
+        let body = json!({"animation_type": 0, "animation_id": animation});
         self.empty(with_json(self.request(Method::POST, &path), &body))
             .await
     }
@@ -2033,6 +2181,7 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
             anyhow!("They don't take friend requests from people they don't know.")
         }
         (_, Some(ALREADY_FRIENDS)) => anyhow!("You're already friends."),
+        (_, Some(UNKNOWN_APPLICATION)) => anyhow!("Discord doesn't know that application."),
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
             anyhow!("This invite is invalid or has expired.")
         }
@@ -2042,6 +2191,21 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         }
         (_, Some(SERVER_FULL)) => anyhow!("This server is full."),
         (_, Some(INVITES_PAUSED)) => anyhow!("This server has paused invites."),
+        (_, Some(UNKNOWN_GIFT)) => anyhow!("This gift code is invalid or has expired."),
+        (_, Some(GIFT_EXHAUSTED)) => anyhow!("This gift has already been redeemed."),
+        (_, Some(GIFT_OWNED)) => anyhow!("You already have what this gift grants."),
+        (_, Some(GIFT_SELF)) => anyhow!("You can't redeem a gift you made."),
+        (_, Some(GIFT_SUBSCRIPTION_MANAGED)) => anyhow!(
+            "You subscribe to Nitro through another provider, such as an app store, so you can't redeem Nitro gifts."
+        ),
+        (_, Some(GIFT_SUBSCRIPTION_INCOMPATIBLE)) => {
+            anyhow!("You can't redeem this gift while you're subscribed to Nitro.")
+        }
+        (_, Some(GIFT_INVOICE_OPEN)) => {
+            anyhow!("You can't redeem this gift while your subscription has an open invoice.")
+        }
+        (_, Some(GIFT_FRAUD_REJECTED)) => anyhow!("Discord won't let this account use this gift."),
+        (_, Some(UNKNOWN_EVENT)) => anyhow!("This event doesn't exist."),
         (_, Some(mfa::INVALID_MFA)) => anyhow!("That didn't work. Check it and try again."),
         (_, Some(mfa::MFA_REQUIRED)) => {
             anyhow!("Discord asks for two-factor authentication, which Yapfast can't do here.")
@@ -2128,12 +2292,22 @@ fn form_errors(body: &Value) -> Option<String> {
 const REQUESTS_CLOSED: u64 = 80000;
 const UNKNOWN_USERNAME: u64 = 80004;
 const ALREADY_FRIENDS: u64 = 80007;
+const UNKNOWN_APPLICATION: u64 = 10002;
 const UNKNOWN_INVITE: u64 = 10006;
 const INVALID_INVITE: u64 = 50020;
 const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
+const UNKNOWN_GIFT: u64 = 10038;
+const GIFT_EXHAUSTED: u64 = 50050;
+const GIFT_OWNED: u64 = 50051;
+const GIFT_SELF: u64 = 50054;
+const GIFT_FRAUD_REJECTED: u64 = 50097;
+const GIFT_SUBSCRIPTION_MANAGED: u64 = 100021;
+const GIFT_SUBSCRIPTION_INCOMPATIBLE: u64 = 100023;
+const GIFT_INVOICE_OPEN: u64 = 100024;
 const INVITES_PAUSED: u64 = 40069;
+const UNKNOWN_EVENT: u64 = 10070;
 const MISSING_PERMISSIONS: u64 = 50013;
 const INVALID_FORM_BODY: u64 = 50035;
 

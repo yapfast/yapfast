@@ -71,8 +71,8 @@
             protobuf curl jq docker-compose python3 llvmPackages_21.llvm
             # pasta, nftables and iproute2 isolate one voice test participant's network.
             passt nftables iproute2
-            # Runs testing/fake_discord.ts.
-            bun
+            # Runs testing/fake_discord.ts, and its tests side by side.
+            bun cargo-nextest
             # Assembles x264's x86-64 code (vendor/x264-src).
             nasm
           ];

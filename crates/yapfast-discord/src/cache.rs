@@ -18,6 +18,9 @@
 //! - `discord-previews/`: the media proxy's previews of attachments and
 //!   links. The least lately shown go past [`PREVIEWS_SIZE`].
 //! - `discord-videos/`: the video playing, while it does; see [`videos`].
+//! - `discord-build-number`: the web client's build number as its page last
+//!   gave it, so a start connects with it at once; see
+//!   [`crate::api::Api::learn_build_number`].
 //! - `discord-favorite-gifs.json`: the favourite GIFs, as Discord's settings
 //!   last gave them, so the picker shows them before Discord answers.
 //! - `discord-gifs/`: a thumbnail of each favourite GIF shown, by its
@@ -202,6 +205,32 @@ fn file() -> Option<PathBuf> {
 /// Public, account-independent game catalogue, stored beside the account cache.
 pub(crate) fn games_file() -> Option<PathBuf> {
     Some(file()?.with_file_name("discord-games.json"))
+}
+
+/// The web client's build number as its page last gave it, public and the
+/// same for every account, kept beside the account cache. It reads the
+/// disk, so the async side calls it off its threads.
+pub(crate) fn build_number() -> Option<u64> {
+    std::fs::read_to_string(build_number_file()?)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+        .filter(|&number| number > 0)
+}
+
+/// Keeps the build number for [`build_number`].
+pub(crate) fn keep_build_number(number: u64) {
+    let Some(file) = build_number_file() else {
+        return;
+    };
+    if let Err(error) = std::fs::write(&file, format!("{number}\n")) {
+        tracing::warn!(%error, "could not keep Discord's build number");
+    }
+}
+
+fn build_number_file() -> Option<PathBuf> {
+    Some(file()?.with_file_name("discord-build-number"))
 }
 
 fn pictures() -> Option<PathBuf> {

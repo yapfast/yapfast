@@ -1572,6 +1572,9 @@ pub enum Direction {
     Later,
     /// [`Command::Around`].
     Around,
+    /// The newest page of a Discord channel, as it opens or loads again:
+    /// what shows of it by then is all there is.
+    Latest,
 }
 
 pub enum Start {
@@ -1897,6 +1900,100 @@ pub struct JoinedServer {
     pub form: bool,
 }
 
+/// What a Discord server's scheduled event shows from its link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EventPreview {
+    /// The event and its server, by their Discord ids.
+    pub event: String,
+    pub guild: String,
+    pub name: String,
+    /// What the event says about itself, when it says anything.
+    pub description: Option<String>,
+    /// When it starts and ends, in Unix seconds.
+    pub starts_at: u64,
+    pub ends_at: Option<u64>,
+    /// The channel it happens in, by its room id, or where it happens
+    /// when it happens somewhere else.
+    pub room: Option<String>,
+    pub location: Option<String>,
+    /// Who made the event, when Discord says, and how many people are
+    /// interested, when it counts them.
+    pub creator: Option<String>,
+    pub interested_count: Option<u64>,
+    /// The event is going on now, or has ended or was canceled.
+    pub active: bool,
+    pub over: bool,
+    /// This account is interested in the event.
+    pub interested: bool,
+}
+
+/// What a Discord gift, such as Nitro, shows before it is redeemed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GiftPreview {
+    /// What the gift grants, such as "Nitro", and the name of the
+    /// subscription plan it grants, when it is one.
+    pub name: String,
+    pub plan: Option<String>,
+    /// Who made the gift, by the name Discord shows for them, when it
+    /// says.
+    pub gifter: Option<String>,
+    /// This account has redeemed the gift already.
+    pub redeemed: bool,
+    /// Every use of the gift has been redeemed, by anyone.
+    pub spent: bool,
+    /// Only Discord can redeem the gift: it needs a payment source, or
+    /// it's from a promotion. Yapfast offers its link in the browser.
+    pub in_discord: bool,
+}
+
+impl GiftPreview {
+    /// Whether this account may still redeem the gift here.
+    pub fn redeemable(&self) -> bool {
+        !self.redeemed && !self.spent && !self.in_discord
+    }
+}
+
+/// A server an application could be added to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OAuthGuild {
+    /// The server, by its Discord id, its name and its icon's address.
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    /// This account may add applications to the server.
+    pub can_add: bool,
+}
+
+/// What authorizing a Discord application from its link shows first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OAuthPreview {
+    /// The link's query, which names the dialog the preview is for.
+    /// Authorizing reads the link again, so it sends what this shows.
+    pub query: String,
+    /// The application, what it says about itself, and its icon.
+    pub name: String,
+    pub about: Option<String>,
+    pub icon: Option<String>,
+    /// The bot the link would add, when it adds one.
+    pub bot: Option<String>,
+    /// What each scope it asks for lets it do, in the words of Discord's
+    /// authorization page, and a bot's permissions in the server.
+    pub wants: Vec<&'static str>,
+    pub permissions: Option<u64>,
+    /// It asks to control the person's Discord client (the `rpc` scope).
+    pub controls_client: bool,
+    /// This account authorized it for these scopes before.
+    pub authorized: bool,
+    /// Where Discord sends the person afterwards, for a sign-in flow.
+    pub redirect: Option<String>,
+    /// It installs to a server, whose picking the link may lock to
+    /// `wanted_guild`; the servers it could go to.
+    pub guild_install: bool,
+    pub guild_locked: bool,
+    pub wanted_guild: Option<String>,
+    pub guilds: Vec<OAuthGuild>,
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
@@ -2143,6 +2240,44 @@ pub enum DiscordCommand {
         preview: Box<InvitePreview>,
         from_link: bool,
     },
+    /// Look up a Discord server's scheduled event by its server and
+    /// event ids, with whether this account is interested in it.
+    /// [`Event::EventResolved`] follows.
+    ResolveEvent {
+        guild: String,
+        event: String,
+    },
+    /// Mark this account interested in the scheduled event `preview`
+    /// shows, or no longer interested in it.
+    /// [`Event::EventInterestSet`] follows.
+    SetEventInterest {
+        preview: Box<EventPreview>,
+        interested: bool,
+    },
+    /// Look up a Discord gift by its code, before offering to redeem
+    /// it. [`Event::GiftResolved`] follows.
+    ResolveGift {
+        code: String,
+    },
+    /// Redeem the Discord gift with this code for this account, in the
+    /// room `room` names when its link was opened in one.
+    /// [`Event::GiftRedeemed`] follows.
+    RedeemGift {
+        code: String,
+        room: Option<String>,
+    },
+    /// Look up what authorizing a Discord application from the link
+    /// whose query this is would do. [`Event::OAuthResolved`] follows.
+    ResolveOAuth {
+        query: String,
+    },
+    /// Authorize the application the link whose query this is names,
+    /// in the server by its Discord id when it installs to one.
+    /// [`Event::OAuthAuthorized`] follows.
+    AuthorizeOAuth {
+        query: String,
+        guild: Option<String>,
+    },
     /// Make a channel or category in a Discord server, by its server id,
     /// inside the category `parent` names by its room id, or a copy of
     /// `copy_of`'s channel, by its room id, with these settings;
@@ -2221,6 +2356,20 @@ pub enum DiscordCommand {
     /// Share the game the Discord account plays, or stop;
     /// [`Event::ShowGameSet`] follows.
     ShowGame(bool),
+    /// Set how loud the soundboard plays, as Discord keeps it, from 0 to
+    /// 100; [`Event::SoundboardVolumeSet`] follows.
+    SoundboardVolume(f32),
+    /// List every sound the account may join calls with;
+    /// [`Event::SoundCatalog`] follows.
+    SoundCatalog,
+    /// Set the sound that plays as the account joins a voice channel of
+    /// `server`, or of every server without one of its own, or take it
+    /// away; `sound` is its id and its own server's, none for Discord's
+    /// own. [`Event::JoinSoundSet`] follows.
+    SetJoinSound {
+        server: Option<String>,
+        sound: Option<(String, Option<String>)>,
+    },
     /// Nobody has used Yapfast since then, in Unix milliseconds, or someone is
     /// using it again; Discord goes AFK, and idle if `show_idle`, as its web
     /// client does.
@@ -3140,6 +3289,13 @@ pub enum Event {
     StatusSet(Result<(), String>),
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
+    /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.
+    SoundboardVolumeSet(Result<(), String>),
+    /// [`DiscordCommand::SoundCatalog`]'s sounds, in groups as the
+    /// soundboard shows them, or why they didn't come.
+    SoundCatalog(Result<Arc<[crate::voice::SoundGroup]>, String>),
+    /// Whether [`DiscordCommand::SetJoinSound`] changed it, or why not.
+    JoinSoundSet(Result<(), String>),
     /// [`DiscordCommand::Unlink`] forgot the account.
     DiscordUnlinked,
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
@@ -3434,6 +3590,43 @@ pub enum Event {
         code: String,
         result: Result<JoinedServer, String>,
     },
+    /// What the scheduled event [`DiscordCommand::ResolveEvent`] looked
+    /// up by its id shows, or why Discord showed nothing.
+    EventResolved {
+        event: String,
+        result: Result<EventPreview, String>,
+    },
+    /// Whether [`DiscordCommand::SetEventInterest`] marked this account
+    /// `interested` in the event with this id, or why it didn't.
+    EventInterestSet {
+        event: String,
+        interested: bool,
+        result: Result<(), String>,
+    },
+    /// What the gift [`DiscordCommand::ResolveGift`] looked up by its
+    /// code shows, or why Discord showed nothing.
+    GiftResolved {
+        code: String,
+        result: Result<GiftPreview, String>,
+    },
+    /// Whether [`DiscordCommand::RedeemGift`] redeemed the gift with
+    /// this code, or why it didn't.
+    GiftRedeemed {
+        code: String,
+        result: Result<(), String>,
+    },
+    /// What the authorization [`DiscordCommand::ResolveOAuth`] looked
+    /// up by its link's query shows, or why Discord showed nothing.
+    OAuthResolved {
+        query: String,
+        result: Result<OAuthPreview, String>,
+    },
+    /// The address [`DiscordCommand::AuthorizeOAuth`] sends the person
+    /// to next, for the link with this query, or why it didn't.
+    OAuthAuthorized {
+        query: String,
+        result: Result<String, String>,
+    },
     /// The roles and groups a message in a room may mention.
     MentionGroups {
         room: String,
@@ -3472,8 +3665,8 @@ pub enum Event {
         message: String,
     },
     /// A page of history [`Command::Earlier`], [`Command::Later`] or
-    /// [`Command::Around`] asked for is in the room's timeline, or why
-    /// there's none.
+    /// [`Command::Around`] asked for, or a Discord channel's newest, is in
+    /// the room's timeline, or why there's none.
     HistoryLoaded {
         room: String,
         direction: Direction,
@@ -3960,7 +4153,7 @@ pub async fn run(
             return;
         }
     };
-    // Discord connects when this device has a linked account; see docs/discord.md.
+    // Discord connects when this device has a linked account; see docs/discord/README.md.
     // Why a linked account isn't running answers the commands that need it.
     #[cfg(feature = "discord")]
     let (mut discord, mut discord_error) = match crate::discord_text::Chat::start() {

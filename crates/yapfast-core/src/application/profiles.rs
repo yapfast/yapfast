@@ -7,7 +7,16 @@ impl Application {
     pub(super) fn show_profile(&mut self, user: String, large: bool) -> Vec<Effect> {
         let (Some(room), Some(member)) = (self.state.selected_room(), self.state.person(&user))
         else {
-            return self.show_friend_profile(user, large);
+            let effects = self.show_friend_profile(user.clone(), large);
+            if self
+                .state
+                .profile
+                .as_ref()
+                .is_some_and(|view| view.profile.id == user)
+            {
+                return effects;
+            }
+            return self.show_linked_discord_profile(user, large);
         };
         let member = &member;
         let discord = room.network == Network::Discord;
@@ -42,6 +51,51 @@ impl Application {
         };
         let room = room.id.clone();
         self.open_profile(room, profile, large)
+    }
+
+    /// Opens a Discord profile named only by its user id, as behind a
+    /// `/users/{id}` link. The id stands in as the name until the fetch
+    /// fills the card; the open room when it is Discord's is the context
+    /// for a server profile, and a DM makes Discord answer with their
+    /// main profile when there is no such room.
+    fn show_linked_discord_profile(&mut self, user: String, large: bool) -> Vec<Effect> {
+        if !self.state.discord_online
+            || user.is_empty()
+            || !user.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return vec![];
+        }
+        let room = self
+            .state
+            .selected_room()
+            .filter(|room| room.network == Network::Discord)
+            .map(|room| room.id.clone())
+            .or_else(|| {
+                self.state
+                    .rooms
+                    .iter()
+                    .find(|room| room.network == Network::Discord && room.direct)
+                    .map(|room| room.id.clone())
+            })
+            .or_else(|| {
+                self.state
+                    .rooms
+                    .iter()
+                    .find(|room| room.network == Network::Discord)
+                    .map(|room| room.id.clone())
+            });
+        let Some(room) = room else {
+            return vec![];
+        };
+        self.open_profile(
+            room,
+            Profile {
+                id: user.clone(),
+                name: user,
+                ..Default::default()
+            },
+            large,
+        )
     }
 
     pub(super) fn show_dm_profile(&mut self, id: String) -> Vec<Effect> {

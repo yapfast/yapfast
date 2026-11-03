@@ -196,6 +196,53 @@ impl SidebarShown {
     }
 }
 
+impl Icons {
+    /// A conversation's icon, as the sidebar shows it.
+    fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
+        if room.locked {
+            self.lock.clone()
+        } else if room.voice {
+            self.voice.clone()
+        } else if room.forum {
+            self.forum.clone()
+        } else if room.direct {
+            self.dm.clone()
+        } else if room.parent.is_some() {
+            self.thread.clone()
+        } else {
+            self.text.clone()
+        }
+    }
+}
+
+/// What the quick switcher listed last, so its places are found again only
+/// once that changes.
+pub(super) struct SwitcherShown {
+    query: String,
+    list_changes: u64,
+    places_used: u64,
+    selected: Option<String>,
+}
+
+impl SwitcherShown {
+    fn of(state: &AppState) -> Self {
+        Self {
+            query: state.switcher.clone().unwrap_or_default(),
+            list_changes: state.list_changes,
+            places_used: state.places_used.changes(),
+            selected: state.selected.clone(),
+        }
+    }
+
+    /// Whether the switcher would list the same.
+    fn shows(&self, state: &AppState) -> bool {
+        state.switcher.as_ref() == Some(&self.query)
+            && self.list_changes == state.list_changes
+            && self.places_used == state.places_used.changes()
+            && self.selected == state.selected
+    }
+}
+
 impl Adapter {
     /// Shows what a burst of backend events can have changed.
     pub(super) fn show(&mut self, window: &YapfastWindow, reach: Reach) {
@@ -258,6 +305,9 @@ impl Adapter {
         self.show_members(window);
         self.show_invite(window);
         self.show_join(window);
+        self.show_oauth(window);
+        self.show_gift(window);
+        self.show_event(window);
         self.show_channel_dialog(window);
         self.show_leave(window);
         self.show_move_sync(window);
@@ -639,17 +689,7 @@ impl Adapter {
                     name: room.name.clone().into(),
                     category: folds_by.unwrap_or(&heading).into(),
                     heading: heading.into(),
-                    icon: if room.locked {
-                        self.icons.lock.clone()
-                    } else if room.voice {
-                        self.icons.voice.clone()
-                    } else if room.forum {
-                        self.icons.forum.clone()
-                    } else if room.direct {
-                        self.icons.dm.clone()
-                    } else {
-                        self.icons.text.clone()
-                    },
+                    icon: self.icons.room(room),
                     selected: Some(&room.id) == state.selected.as_ref(),
                     unread: room.unread > 0,
                     badge: mention_badge(room),
@@ -1680,6 +1720,286 @@ impl Adapter {
         });
     }
 
+    /// The scheduled event a clicked event link opened.
+    fn show_event(&self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let dialog = state.scheduled_event.as_ref();
+        window.set_event_open(dialog.is_some());
+        let Some(dialog) = dialog else {
+            return;
+        };
+        let preview = dialog.preview.as_ref();
+        let when = preview
+            .filter(|preview| preview.starts_at > 0)
+            .map(|preview| {
+                yapfast_core::clock::event(
+                    preview.starts_at,
+                    preview.ends_at,
+                    yapfast_core::clock::now_ms() / 1000,
+                    self.layout.twelve_hour_clock,
+                )
+            });
+        let detail = preview.map(|preview| {
+            let mut parts = Vec::new();
+            if let Some(location) = &preview.location {
+                parts.push(location.clone());
+            } else if let Some(room) = &preview.room
+                && let Some(found) = state.rooms.iter().find(|known| &known.id == room)
+            {
+                parts.push(format!("#{}", found.name));
+            }
+            if let Some(creator) = &preview.creator {
+                parts.push(format!("by {creator}"));
+            }
+            if let Some(count) = preview.interested_count {
+                parts.push(format!("{count} interested"));
+            }
+            parts.join(" · ")
+        });
+        let confirm = match preview {
+            Some(preview) if !preview.over && preview.interested => "Remove interest",
+            Some(preview) if !preview.over => "Interested",
+            _ => "",
+        };
+        let status = if dialog.resolving {
+            "Looking up the event..."
+        } else if dialog.marking {
+            "Saving..."
+        } else if preview.is_some_and(|preview| preview.over) {
+            "This event has ended."
+        } else if preview.is_some_and(|preview| preview.active) {
+            "This event is going on now."
+        } else if preview.is_some_and(|preview| preview.interested) {
+            "You're interested in this event."
+        } else {
+            ""
+        };
+        window.set_event_prompt(EventPrompt {
+            title: "Event".into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            when: when.unwrap_or_default().into(),
+            detail: detail.unwrap_or_default().into(),
+            description: preview
+                .and_then(|preview| preview.description.as_deref())
+                .unwrap_or_default()
+                .into(),
+            confirm: confirm.into(),
+            busy: dialog.resolving || dialog.marking,
+            status: status.into(),
+            error: dialog.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
+    /// The gift a clicked gift link opened.
+    fn show_gift(&self, window: &YapfastWindow) {
+        let gift = self.app.state.gift.as_ref();
+        window.set_gift_open(gift.is_some());
+        let Some(gift) = gift else {
+            return;
+        };
+        let preview = gift.preview.as_ref();
+        let detail = preview.map(|preview| {
+            let mut parts = Vec::new();
+            if let Some(plan) = &preview.plan {
+                parts.push(plan.clone());
+            }
+            if let Some(gifter) = &preview.gifter {
+                parts.push(format!("from {gifter}"));
+            }
+            parts.join(" · ")
+        });
+        let redeeming = self.app.state.redeeming_gifts.contains(&gift.code);
+        let redeemable =
+            !gift.redeemed && preview.is_some_and(yapfast_core::chat::GiftPreview::redeemable);
+        let in_discord = !gift.redeemed && preview.is_some_and(|preview| preview.in_discord);
+        let status = if gift.redeemed {
+            "Redeemed. Enjoy!"
+        } else if redeeming {
+            "Redeeming..."
+        } else if gift.resolving {
+            "Looking up the gift..."
+        } else if preview.is_some_and(|preview| preview.redeemed) {
+            "You've already redeemed this gift."
+        } else if preview.is_some_and(|preview| preview.spent) {
+            "This gift has already been redeemed."
+        } else if in_discord {
+            "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
+        } else {
+            ""
+        };
+        window.set_gift_prompt(GiftPrompt {
+            title: "You've been sent a gift".into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            detail: detail.unwrap_or_default().into(),
+            confirm: if redeemable {
+                "Redeem Gift"
+            } else if in_discord {
+                "Open in Browser"
+            } else {
+                ""
+            }
+            .into(),
+            browser: in_discord,
+            busy: gift.resolving || redeeming,
+            status: status.into(),
+            error: gift.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
+    /// The application a clicked authorization link opened.
+    fn show_oauth(&self, window: &YapfastWindow) {
+        let dialog = self.app.state.oauth.as_ref();
+        window.set_oauth_open(dialog.is_some());
+        let Some(dialog) = dialog else {
+            return;
+        };
+        let preview = dialog.preview.as_ref();
+        let addable: Vec<&yapfast_core::chat::OAuthGuild> = preview
+            .map(|preview| {
+                preview
+                    .guilds
+                    .iter()
+                    .filter(|guild| guild.can_add)
+                    .collect()
+            })
+            .unwrap_or_default();
+        window.set_oauth_guilds(
+            Rc::new(VecModel::from(
+                addable
+                    .iter()
+                    .map(|guild| SharedString::from(guild.name.as_str()))
+                    .collect::<Vec<_>>(),
+            ))
+            .into(),
+        );
+        window.set_oauth_guild_chosen(
+            addable
+                .iter()
+                .position(|guild| Some(&guild.id) == dialog.guild.as_ref())
+                .map(|index| i32::try_from(index).unwrap_or_default())
+                .unwrap_or_default(),
+        );
+        let detail = preview.and_then(|preview| {
+            preview
+                .about
+                .clone()
+                .filter(|about| !about.is_empty())
+                .or_else(|| preview.bot.clone())
+        });
+        let wants = preview.map(|preview| {
+            let mut lines: Vec<String> = preview
+                .wants
+                .iter()
+                .map(|wants| format!("- {wants}"))
+                .collect();
+            if let Some(bits) = preview.permissions.filter(|bits| *bits != 0) {
+                lines.push(format!("- Bot permissions: {}", permission_names(bits)));
+            }
+            match preview.redirect.as_deref() {
+                Some(url) if links::openable(url) => {
+                    let host = url
+                        .split_once("://")
+                        .map(|(_, rest)| rest)
+                        .and_then(|rest| rest.split(['/', '?', '#']).next())
+                        .unwrap_or_default();
+                    lines.push(format!("Afterward, Discord sends you to {host}."));
+                }
+                Some(url) => lines.push(format!(
+                    "Afterward, Discord hands its answer to {url}, which Yapfast won't open."
+                )),
+                None => {}
+            }
+            lines.join("\n")
+        });
+        let mut warnings = Vec::new();
+        if preview.is_some_and(|preview| preview.controls_client) {
+            warnings.push(
+                "It asks to control your Discord client, which can do nearly anything \
+                 your account can. Authorize it only if you trust it with your account.",
+            );
+        }
+        if preview
+            .and_then(|preview| preview.permissions)
+            .is_some_and(|bits| bits & ADMINISTRATOR != 0)
+        {
+            warnings.push(
+                "Its bot asks for Administrator: every permission in the server, \
+                 in every channel, whatever its roles allow.",
+            );
+        }
+        let locked = preview.is_some_and(|preview| preview.guild_install && preview.guild_locked);
+        let picker =
+            preview.is_some_and(|preview| preview.guild_install && !locked && !addable.is_empty());
+        // A link that names its one server shows it, as it can't be changed.
+        let locked_to = preview
+            .filter(|_| locked)
+            .zip(dialog.guild.as_ref())
+            .and_then(|(preview, chosen)| preview.guilds.iter().find(|guild| &guild.id == chosen))
+            .map(|guild| guild.name.as_str());
+        let blocked =
+            preview.is_some_and(|preview| preview.guild_install && dialog.guild.is_none());
+        let status = if dialog.resolving {
+            "Looking up the application..."
+        } else if dialog.authorizing {
+            "Authorizing..."
+        } else if dialog.done && dialog.next.is_some() {
+            "Authorized. Discord sends you on to this address, which isn't a web page, \
+             so Yapfast doesn't open it. Copy it if the app asks for it."
+        } else if dialog.done {
+            "Authorized."
+        } else if !locked
+            && preview.is_some_and(|preview| preview.guild_install && addable.is_empty())
+        {
+            "You don't manage any server it can be added to."
+        } else if preview.is_some_and(|preview| preview.authorized) {
+            "You've authorized this before. Authorizing again is fine."
+        } else {
+            ""
+        };
+        window.set_oauth_prompt(OAuthPrompt {
+            title: match preview {
+                Some(preview) => format!("Authorize {}", preview.name),
+                None => "Authorize".to_owned(),
+            }
+            .into(),
+            found: preview.is_some(),
+            name: preview
+                .map(|preview| preview.name.as_str())
+                .unwrap_or_default()
+                .into(),
+            picture_url: preview
+                .and_then(|preview| preview.icon.as_deref())
+                .unwrap_or_default()
+                .into(),
+            initial: preview
+                .map(|preview| initial(&preview.name))
+                .unwrap_or_default(),
+            detail: detail.unwrap_or_default().into(),
+            wants: wants.unwrap_or_default().into(),
+            warning: warnings.join("\n").into(),
+            guild_picker: picker,
+            guild_name: locked_to.unwrap_or_default().into(),
+            address: dialog.next.as_deref().unwrap_or_default().into(),
+            confirm: if preview.is_some() && !dialog.done && !blocked {
+                "Authorize"
+            } else {
+                ""
+            }
+            .into(),
+            busy: dialog.resolving || dialog.authorizing,
+            status: status.into(),
+            error: dialog.error.as_deref().unwrap_or_default().into(),
+        });
+    }
+
     /// The dialog that makes, copies or deletes a Discord channel or
     /// category.
     fn show_channel_dialog(&self, window: &YapfastWindow) {
@@ -2111,7 +2431,8 @@ impl Adapter {
         });
     }
 
-    /// The dialogs for adding a friend, the custom status, a new DM and forwarding.
+    /// The dialogs for adding a friend, the custom status, a new DM and
+    /// forwarding, and the quick switcher.
     fn show_dialogs(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
         let add_friend = state.add_friend.as_ref();
@@ -2268,38 +2589,81 @@ impl Adapter {
                 state
                     .forward_places()
                     .into_iter()
-                    .map(|room| {
-                        // A channel shows its server's icon, as Discord's dialog does.
-                        let server = state
-                            .servers
-                            .iter()
-                            .find(|server| !room.direct && server.channels.contains(&room.id));
-                        ForwardRow {
-                            id: room.id.clone().into(),
-                            name: room.name.clone().into(),
-                            place: match server {
-                                _ if room.direct => "Direct message".into(),
-                                Some(server) => server.name.clone().into(),
-                                None => "Channel".into(),
-                            },
-                            icon: if room.direct {
-                                self.icons.dm.clone()
-                            } else {
-                                self.icons.text.clone()
-                            },
-                            avatar: room.direct || server.is_some(),
-                            initial: initial(server.map_or(&room.name, |server| &server.name)),
-                            tint: tint(server.map_or(&room.id, |server| &server.id)),
-                            picture_url: server
-                                .map_or(room.avatar.as_deref(), |server| server.icon.as_deref())
-                                .unwrap_or_default()
-                                .into(),
-                            chosen: forwarding.chosen.contains(&room.id),
-                        }
+                    .map(|room| PlaceRow {
+                        chosen: forwarding.chosen.contains(&room.id),
+                        ..self.place_row(room, true)
                     })
                     .collect()
             }),
         );
+        window.set_switcher_open(state.switcher.is_some());
+        if self
+            .switcher
+            .as_ref()
+            .is_some_and(|shown| shown.shows(state))
+        {
+            return;
+        }
+        self.switcher = state.switcher.as_ref().map(|_| SwitcherShown::of(state));
+        if let Some(query) = &state.switcher
+            && window.get_switcher_query() != query.as_str()
+        {
+            window.set_switcher_query(query.as_str().into());
+        }
+        update_model(
+            &self.models.switcher_places,
+            state
+                .switcher_places()
+                .into_iter()
+                .map(|place| match place {
+                    Place::Room(room) => PlaceRow {
+                        unread: room.unread > 0 && !room.muted,
+                        badge: mention_badge(room),
+                        ..self.place_row(room, false)
+                    },
+                    Place::Server(server) => PlaceRow {
+                        id: server.id.clone().into(),
+                        name: server.name.clone().into(),
+                        place: "Server".into(),
+                        avatar: true,
+                        initial: initial(&server.name),
+                        tint: tint(&server.id),
+                        picture_url: server.icon.clone().unwrap_or_default().into(),
+                        ..PlaceRow::default()
+                    },
+                })
+                .collect(),
+        );
+    }
+
+    /// A conversation as Forward To and the quick switcher list it: a DM by
+    /// its picture, and a channel by its server's icon in Forward To, as
+    /// Discord's dialog shows it, or else by its own.
+    fn place_row(&self, room: &yapfast_core::chat::ChatRoom, server_icon: bool) -> PlaceRow {
+        let state = &self.app.state;
+        let server = state
+            .servers
+            .iter()
+            .find(|server| !room.direct && server.channels.contains(&room.id));
+        let icon = server.filter(|_| server_icon);
+        PlaceRow {
+            id: room.id.clone().into(),
+            name: room.name.clone().into(),
+            place: match server {
+                _ if room.direct => "Direct message".into(),
+                Some(server) => server.name.clone().into(),
+                None => "Channel".into(),
+            },
+            icon: self.icons.room(room),
+            avatar: room.direct || icon.is_some(),
+            initial: initial(icon.map_or(&room.name, |server| &server.name)),
+            tint: tint(icon.map_or(&room.id, |server| &server.id)),
+            picture_url: icon
+                .map_or(room.avatar.as_deref(), |server| server.icon.as_deref())
+                .unwrap_or_default()
+                .into(),
+            ..PlaceRow::default()
+        }
     }
 
     /// The composer: what it may do, its files, its reply or edit, mentions and
@@ -3113,6 +3477,8 @@ impl Adapter {
             frames.push(slint::Image::default());
         }
         self.show_stage(window);
+        self.show_soundboard(window);
+        self.show_soundboard_settings(window);
         let state = &self.app.state;
         let voice = &state.voice;
         window.set_can_film(voice.can_film);
@@ -3161,36 +3527,132 @@ impl Adapter {
             }
         });
         window.set_switch_prompt(prompt.unwrap_or_default().into());
-        update_model(
-            &self.models.microphones,
-            voice
-                .microphones
-                .iter()
-                .map(|device| device_label(&device.name))
-                .collect(),
+        let names = &mut self.models.device_names;
+        let (rows, index) = device_rows(&voice.microphones, voice.microphone.as_deref(), names);
+        update_model(&self.models.microphones, rows);
+        window.set_microphone_index(index);
+        let (rows, index) = device_rows(&voice.speakers, voice.speaker.as_deref(), names);
+        update_model(&self.models.speakers, rows);
+        window.set_speaker_index(index);
+        let (rows, index) = device_rows(&voice.cameras, voice.camera.as_deref(), names);
+        update_model(&self.models.cameras, rows);
+        window.set_camera_index(index);
+    }
+
+    /// The call's soundboard, its rows made again only when its sounds
+    /// change or pictures arrive, and why it can't play, as Discord says.
+    fn show_soundboard(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let voice = &state.voice;
+        let groups = voice.soundboard.as_ref().filter(|_| voice.active());
+        window.set_can_soundboard(groups.is_some());
+        let server_muted = voice
+            .participants
+            .iter()
+            .any(|person| person.local && person.server_muted);
+        window.set_soundboard_note(
+            if voice.deafened {
+                "Soundboard disabled when deafened"
+            } else if server_muted {
+                "Soundboard disabled when server muted"
+            } else {
+                ""
+            }
+            .into(),
         );
-        update_model(
-            &self.models.speakers,
-            voice
-                .speakers
+        let Some(groups) = groups else {
+            self.soundboard_shown = None;
+            if self.models.soundboard_rows.row_count() > 0 {
+                self.models.soundboard_rows.set_vec(vec![]);
+            }
+            return;
+        };
+        let shown = self.soundboard_shown.as_ref();
+        if shown.is_some_and(|(kept, revision)| {
+            Arc::ptr_eq(kept, groups) && *revision == state.picture_changes
+        }) {
+            return;
+        }
+        self.soundboard_shown = Some((groups.clone(), state.picture_changes));
+        let rows = sound_rows(groups, &mut self.pictures, state);
+        self.models.soundboard_rows.set_vec(rows);
+    }
+
+    /// Settings' soundboard volume and entrance sounds, while Voice & video
+    /// shows them.
+    fn show_soundboard_settings(&mut self, window: &YapfastWindow) {
+        if !window.get_settings_open() || window.get_settings_section() != 1 {
+            return;
+        }
+        let state = &self.app.state;
+        window.set_discord_nitro(self.app.discord_nitro());
+        if self.soundboard_volume_shown != Some(state.soundboard_volume) {
+            self.soundboard_volume_shown = Some(state.soundboard_volume);
+            let slider = yapfast_core::volume::to_slider(state.soundboard_volume / 100.0);
+            window.set_soundboard_volume(slider.round() as i32);
+        }
+        // Discord's servers by their own ids, which the app's carry after
+        // a prefix.
+        let discord_servers = || {
+            state.servers.iter().filter_map(|server| {
+                Some((yapfast_core::discord::parse_server(&server.id)?, server))
+            })
+        };
+        let same = self.entrance_servers.len() == discord_servers().count() + 1
+            && discord_servers()
+                .zip(self.entrance_servers.iter().skip(1))
+                .all(|((guild, _), kept)| kept.as_deref() == Some(guild));
+        if !same {
+            let servers: Vec<Option<String>> = std::iter::once(None)
+                .chain(discord_servers().map(|(guild, _)| Some(guild.to_owned())))
+                .collect();
+            let names: Vec<SharedString> = std::iter::once("All servers".into())
+                .chain(discord_servers().map(|(_, server)| server.name.as_str().into()))
+                .collect();
+            self.models.entrance_servers.set_vec(names);
+            let chosen = usize::try_from(window.get_entrance_server())
+                .ok()
+                .and_then(|index| self.entrance_servers.get(index).cloned())
+                .flatten();
+            let index = servers
                 .iter()
-                .map(|device| device_label(&device.name))
-                .collect(),
-        );
-        window.set_microphone_index(device_index(
-            &voice.microphones,
-            voice.microphone.as_deref(),
-        ));
-        window.set_speaker_index(device_index(&voice.speakers, voice.speaker.as_deref()));
-        update_model(
-            &self.models.cameras,
-            voice
-                .cameras
-                .iter()
-                .map(|device| device_label(&device.name))
-                .collect(),
-        );
-        window.set_camera_index(device_index(&voice.cameras, voice.camera.as_deref()));
+                .position(|server| *server == chosen)
+                .unwrap_or(0);
+            window.set_entrance_server(index as i32);
+            self.entrance_servers = servers;
+        }
+        let server = usize::try_from(window.get_entrance_server())
+            .ok()
+            .and_then(|index| self.entrance_servers.get(index).cloned())
+            .flatten();
+        let catalog = state.sound_catalog.as_ref();
+        let sound = state
+            .join_sounds
+            .iter()
+            .find(|join| join.server == server)
+            .map(|join| {
+                let named = catalog
+                    .iter()
+                    .flat_map(|groups| groups.iter())
+                    .flat_map(|group| &group.sounds)
+                    .find(|sound| sound.id == join.sound && sound.guild == join.guild);
+                match (named, catalog) {
+                    (Some(sound), _) => sound.name.as_str(),
+                    (None, None) => "Loading...",
+                    (None, Some(_)) => "A sound that's gone",
+                }
+            });
+        window.set_entrance_sound(sound.unwrap_or_default().into());
+        let Some(groups) = catalog else { return };
+        let shown = self.entrance_shown.as_ref();
+        if shown.is_some_and(|(kept, revision)| {
+            Arc::ptr_eq(kept, groups) && *revision == state.picture_changes
+        }) {
+            return;
+        }
+        self.entrance_shown = Some((groups.clone(), state.picture_changes));
+        let rows = sound_rows(groups, &mut self.pictures, state);
+        self.models.entrance_rows.set_vec(rows);
     }
 
     /// The open profile card, and the profile beside a one-to-one DM, with
@@ -3761,6 +4223,43 @@ fn arrived<'a>(
     ))
 }
 
+/// Discord's Administrator permission, which grants every other.
+const ADMINISTRATOR: u64 = 1 << 3;
+
+/// A bot's asked-for permissions, by the titles of a role's switches,
+/// and how many more it asks for that no switch shows.
+fn permission_names(bits: u64) -> String {
+    let mut named = 0u64;
+    let mut names: Vec<&str> = Vec::new();
+    for permission in yapfast_core::application::ROLE_PERMISSIONS
+        .iter()
+        .flat_map(|group| group.permissions.iter())
+    {
+        let bit = 1u64 << permission.bit;
+        if bits & bit != 0 && named & bit == 0 {
+            named |= bit;
+            names.push(permission.title);
+        }
+    }
+    let more = (bits & !named).count_ones();
+    let more = match (more, names.is_empty()) {
+        (0, _) => None,
+        (1, true) => Some("1 permission Yapfast can't name".to_owned()),
+        (count, true) => Some(format!("{count} permissions Yapfast can't name")),
+        (1, false) => Some("1 more permission".to_owned()),
+        (count, false) => Some(format!("{count} more permissions")),
+    };
+    match (names.pop(), more) {
+        (Some(last), Some(more)) => {
+            names.push(last);
+            format!("{} and {more}", names.join(", "))
+        }
+        (Some(last), None) if names.is_empty() => last.to_owned(),
+        (Some(last), None) => format!("{} and {last}", names.join(", ")),
+        (None, more) => more.unwrap_or_default(),
+    }
+}
+
 /// Shows found messages, building rows only for those not shown already:
 /// a search's next page adds to the end of the results.
 fn show_found(model: &VecModel<FoundRow>, messages: &[ChatMessage], twelve_hour: bool) {
@@ -4123,4 +4622,47 @@ struct MentionSources {
     found: usize,
     groups: usize,
     color: u32,
+}
+
+/// A soundboard's groups as its rows show them: each group's heading, then
+/// its sounds three to a row.
+fn sound_rows(
+    groups: &[voice::SoundGroup],
+    pictures: &mut HashMap<String, slint::Image>,
+    state: &AppState,
+) -> Vec<SoundRow> {
+    let mut rows = Vec::new();
+    for group in groups {
+        rows.push(SoundRow {
+            heading: group.name.to_uppercase().into(),
+            sounds: ModelRc::default(),
+        });
+        for chunk in group.sounds.chunks(3) {
+            let cells: Vec<SoundCell> = chunk
+                .iter()
+                .map(|sound| SoundCell {
+                    id: sound.id.as_str().into(),
+                    name: sound.name.as_str().into(),
+                    emoji: EmojiCell {
+                        // A custom emoji waits as a quiet square until its
+                        // picture comes.
+                        glyph: if sound.picture.is_some() {
+                            sound.name.as_str().into()
+                        } else {
+                            sound.emoji.as_str().into()
+                        },
+                        name: sound.name.as_str().into(),
+                        key: SharedString::new(),
+                        picture: cached_picture(pictures, state, sound.picture.as_deref()),
+                    },
+                    favorite: sound.favorite,
+                })
+                .collect();
+            rows.push(SoundRow {
+                heading: SharedString::new(),
+                sounds: ModelRc::new(VecModel::from(cells)),
+            });
+        }
+    }
+    rows
 }

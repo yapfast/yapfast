@@ -235,6 +235,7 @@ impl Shell {
                     }
                 }
             });
+            self.adapter.borrow_mut().open_pending_link(&window);
             return Some(window);
         }
         match self.make() {
@@ -244,6 +245,19 @@ impl Shell {
                 None
             }
         }
+    }
+
+    /// Keeps a Discord link a later start handed this one until Discord
+    /// is online and a window can open it.
+    fn queue_link(self: &Rc<Self>, link: String) {
+        #[cfg(feature = "discord")]
+        if yapfast_core::discord::discord_route(&link).is_some() {
+            self.adapter.borrow_mut().pending_link = Some(link);
+            return;
+        }
+        #[cfg(not(feature = "discord"))]
+        let _ = link;
+        tracing::warn!("a later start handed Yapfast a link it can't open");
     }
 
     /// Opens the window on a conversation, as a clicked notification does.
@@ -278,6 +292,7 @@ impl Shell {
         watch_window(&window, &self.adapter);
         self.watch(&window);
         self.adapter.borrow_mut().refresh(&window);
+        self.adapter.borrow_mut().open_pending_link(&window);
         let adapter = self.adapter.borrow();
         let state = &adapter.app.state;
         if let Some(top) = view.and_then(|view| view.top)
@@ -327,11 +342,15 @@ pub(super) fn remake_window() {
 /// Yapfast started again on this folder, and the new start asked for the
 /// window: shows it, taking the focus with the token the desktop gave that
 /// start.
-pub(super) fn launched(token: Option<String>) {
+pub(super) fn launched(launch: crate::instance::Launch) {
+    let crate::instance::Launch { token, link } = launch;
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
         return;
     };
     tracing::info!("Yapfast started again; showing the window");
+    if let Some(link) = link {
+        shell.queue_link(link);
+    }
     let Some(window) = shell.window() else {
         crate::instance::give_next_window(token);
         shell.open();

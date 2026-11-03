@@ -2,7 +2,8 @@
 //! its own calls, so Discord voice opens the chosen microphone and speakers
 //! itself, through [`crate::audio_io`]. The microphone goes through WebRTC's
 //! echo cancellation, DeepFilterNet's noise suppression (or RNNoise's), WebRTC's
-//! gain control and Yapfast's leveling, and a gate that speech opens.
+//! gain control, Yapfast's leveling and the microphone's volume, and a gate
+//! that speech opens.
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
@@ -20,8 +21,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use yapfast_discord::voice::{CHANNELS, FRAME, Listener, Microphone, SAMPLE_RATE, Surplus, Track};
 
 use crate::{
-    audio_io::{Input, Output},
-    noise::Denoiser,
+    audio_io::{LastingInput, LastingOutput},
+    noise::{Denoiser, Sent},
 };
 
 /// Whether Discord voice has audio on this platform yet.
@@ -32,13 +33,26 @@ const SPEAKING_HOLD: Duration = Duration::from_millis(300);
 /// Frames quieter than this, in RMS dBFS, don't count as speech.
 const SPEAKING_FLOOR: f32 = -50.0;
 
-/// Hears a Discord call: mixes everyone into the speakers and notes who spoke.
+/// Hears a Discord call: mixes everyone into the speakers, with the
+/// soundboard's sounds, and notes who spoke.
 pub struct Hearing {
     output: Mutex<Option<SyncSender<Vec<i16>>>>,
     deafened: AtomicBool,
     heard: Mutex<HashMap<u64, Instant>>,
+    sounds: Mutex<Vec<Playing>>,
     ended: UnboundedSender<String>,
 }
+
+/// A soundboard sound playing: 48 kHz interleaved stereo, how far it has
+/// played, and its own volume.
+struct Playing {
+    samples: Vec<i16>,
+    at: usize,
+    volume: f32,
+}
+
+/// Sounds playing at once at most; another stops the oldest.
+const SOUNDS_AT_ONCE: usize = 8;
 
 impl Hearing {
     pub fn new(ended: UnboundedSender<String>) -> Self {
@@ -46,6 +60,7 @@ impl Hearing {
             output: Mutex::default(),
             deafened: AtomicBool::new(false),
             heard: Mutex::default(),
+            sounds: Mutex::default(),
             ended,
         }
     }
@@ -54,8 +69,29 @@ impl Hearing {
         *self.output.lock().unwrap() = output;
     }
 
+    /// Deafening stops the sounds playing, as in Discord.
     pub fn set_deafened(&self, deafened: bool) {
         self.deafened.store(deafened, Ordering::Relaxed);
+        if deafened {
+            self.sounds.lock().unwrap().clear();
+        }
+    }
+
+    /// Plays a soundboard sound, 48 kHz interleaved stereo, at its own
+    /// `volume` times the speakers'; not while deafened.
+    pub fn play(&self, samples: Vec<i16>, volume: f32) {
+        if self.deafened.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut sounds = self.sounds.lock().unwrap();
+        if sounds.len() == SOUNDS_AT_ONCE {
+            sounds.remove(0);
+        }
+        sounds.push(Playing {
+            samples,
+            at: 0,
+            volume,
+        });
     }
 
     /// The Discord users heard speaking just now.
@@ -88,7 +124,15 @@ impl Listener for Hearing {
         let volume =
             |user: u64| crate::volume::heard(crate::volume::Kind::Voice, &user.to_string());
         let mut frame = spare_frame();
-        mix(voices, volume, &mut frame);
+        let mut sounds = self.sounds.lock().unwrap();
+        mix(
+            voices,
+            volume,
+            &mut sounds,
+            crate::volume::speakers(),
+            &mut frame,
+        );
+        drop(sounds);
         // A full queue means the speakers are behind; dropping a frame keeps
         // the delay from growing.
         match output.try_send(frame) {
@@ -129,8 +173,15 @@ fn recycle(frame: Vec<i16>) {
 }
 
 /// Sums everyone's 20 ms of interleaved stereo into `out`, each at the volume
-/// chosen for them, clipping at full scale.
-fn mix(voices: &[(u64, &[i16])], volume: impl Fn(u64) -> f32, out: &mut [i16]) {
+/// chosen for them, and the next 20 ms of each sound at its own volume times
+/// the `speakers'`, clipping at full scale. Sounds that ended go.
+fn mix(
+    voices: &[(u64, &[i16])],
+    volume: impl Fn(u64) -> f32,
+    sounds: &mut Vec<Playing>,
+    speakers: f32,
+    out: &mut [i16],
+) {
     let mut sum = [0f32; FRAME_SAMPLES];
     for (user, samples) in voices {
         let gain = volume(*user);
@@ -141,6 +192,15 @@ fn mix(voices: &[(u64, &[i16])], volume: impl Fn(u64) -> f32, out: &mut [i16]) {
             *total += f32::from(*sample) * gain;
         }
     }
+    for sound in sounds.iter_mut() {
+        let gain = sound.volume * speakers;
+        let next = &sound.samples[sound.at.min(sound.samples.len())..];
+        for (total, sample) in sum.iter_mut().zip(next) {
+            *total += f32::from(*sample) * gain;
+        }
+        sound.at += FRAME_SAMPLES;
+    }
+    sounds.retain(|sound| sound.at < sound.samples.len());
     for (sample, total) in out.iter_mut().zip(sum) {
         *sample = total
             .round()
@@ -279,6 +339,53 @@ impl Drop for Speakers {
     }
 }
 
+/// The thread that runs a call's microphone, one [`capture`] after another.
+/// Between them, while muted, it waits with the noise suppressor, which
+/// isn't Send, so that unmuting or switching microphones doesn't load
+/// DeepFilterNet again, 0.2 s of a core. It keeps the suppressor's 39 MiB
+/// until the call drops it, which ends the thread.
+#[derive(Default)]
+pub struct MicrophoneThread(Mutex<Option<mpsc::Sender<CaptureRequest>>>);
+
+/// What a capture needs, sent to the microphone thread.
+struct CaptureRequest {
+    microphone: Option<String>,
+    reverse: Reverse,
+    out: Microphone,
+    track: Track,
+    stop: Arc<AtomicBool>,
+    talking: Arc<AtomicBool>,
+    opened: mpsc::SyncSender<Result<()>>,
+}
+
+impl MicrophoneThread {
+    /// Hands `request` to the thread, starting it if it isn't running.
+    fn start(&self, request: CaptureRequest) -> Result<()> {
+        let mut running = self.0.lock().unwrap();
+        let request = match &*running {
+            Some(requests) => match requests.send(request) {
+                Ok(()) => return Ok(()),
+                // A capture panicked and ended the thread.
+                Err(mpsc::SendError(request)) => request,
+            },
+            None => request,
+        };
+        let (requests, waiting) = mpsc::channel::<CaptureRequest>();
+        thread::Builder::new()
+            .name("yapfast-discord-in".into())
+            .spawn(move || {
+                let mut denoiser = None;
+                for request in waiting {
+                    denoiser = request.run(denoiser);
+                }
+            })
+            .context("could not start the Discord microphone")?;
+        let _ = requests.send(request);
+        *running = Some(requests);
+        Ok(())
+    }
+}
+
 /// Sends the processed microphone to the call until dropped.
 pub struct Capture {
     stop: Arc<AtomicBool>,
@@ -389,7 +496,9 @@ pub fn speakers(
     thread::Builder::new()
         .name("yapfast-discord-out".into())
         .spawn(move || {
-            let stream = Output::<i16>::open(
+            // Speakers that go away, such as Bluetooth headphones, open
+            // again when they come back.
+            let stream = LastingOutput::<i16>::open(
                 speaker.as_deref(),
                 "Discord voice",
                 SAMPLE_RATE,
@@ -435,20 +544,14 @@ pub fn speakers(
                     recycle(frame);
                     continue;
                 }
-                if let Err(error) = stream.write(&frame) {
-                    tracing::warn!(
-                        error = format!("{error:#}"),
-                        "Discord speakers stopped playing"
-                    );
-                    break;
-                }
+                stream.write(&frame);
                 if let Err(TrySendError::Full(frame) | TrySendError::Disconnected(frame)) =
                     reverse.try_send(frame)
                 {
                     recycle(frame);
                 }
             }
-            let _ = stream.drain();
+            stream.drain();
         })
         .context("could not start Discord speakers")?;
     result
@@ -460,8 +563,8 @@ pub fn speakers(
 
 /// The microphone's processing, block by block: WebRTC cancels echo and
 /// filters out rumble, the chosen suppressor takes out noise and hears
-/// speech, WebRTC controls the gain of what's left, and Yapfast levels it. The
-/// gate decides what's sent.
+/// speech, WebRTC controls the gain of what's left, and Yapfast levels it and
+/// sets its volume. The gate decides what's sent.
 struct Processing {
     echo: AudioProcessingModule,
     /// Takes out the room's reverb while asked to.
@@ -478,13 +581,17 @@ struct Processing {
 }
 
 impl Processing {
-    fn new() -> Self {
+    /// Takes up `denoiser` if it's the suppressor chosen.
+    fn new(denoiser: Option<Denoiser>) -> Self {
         let mut echo = AudioProcessingModule::new(true, false, true, false);
         let _ = echo.set_stream_delay_ms(ECHO_DELAY_MS);
+        let chosen = crate::noise::chosen();
         Self {
             echo,
             dereverb: None,
-            denoiser: Denoiser::new(crate::noise::chosen(), crate::noise::limit()),
+            denoiser: denoiser
+                .filter(|denoiser| denoiser.suppressor() == chosen)
+                .unwrap_or_else(|| Denoiser::new(chosen, crate::noise::limit())),
             gain: AudioProcessingModule::new(false, true, false, false),
             leveler: crate::leveling::Leveler::default(),
             gate: Gate::default(),
@@ -522,31 +629,43 @@ impl Processing {
         } else {
             self.dereverb = None;
         }
-        let speech = self.denoiser.block(&mut self.samples);
+        let talking = crate::push_to_talk::on().then(|| {
+            self.talk.block(
+                crate::push_to_talk::held(),
+                crate::push_to_talk::release_delay_ms(),
+            )
+        });
+        let sent = match talking {
+            None => Sent::Gated,
+            Some(true) => Sent::Always,
+            Some(false) => Sent::Never,
+        };
+        let speech = self.denoiser.block(&mut self.samples, sent);
         for (sample, value) in block.iter_mut().zip(&self.samples) {
             *sample = value.clamp(-32768.0, 32767.0) as i16;
         }
         let _ = self.gain.process_stream(block, SAMPLE_RATE as i32, 1);
-        // The gate hears the voice before leveling, which could lift
-        // noise past it.
-        let level = decibels(block);
+        // The gate hears the voice at its volume, as it's sent, but before
+        // leveling, which could lift noise past it.
+        let volume = crate::volume::microphone();
+        let level = decibels(block) + 20.0 * volume.log10();
         self.level = level;
         for (value, sample) in self.samples.iter_mut().zip(block.iter()) {
             *value = f32::from(*sample);
         }
-        self.leveler
-            .process(&mut self.samples, SAMPLE_RATE, crate::leveling::enabled());
+        self.leveler.process(
+            &mut self.samples,
+            SAMPLE_RATE,
+            crate::leveling::enabled(),
+            volume,
+        );
         for (sample, value) in block.iter_mut().zip(&self.samples) {
             *sample = value.clamp(-32768.0, 32767.0) as i16;
         }
         for value in &mut self.samples {
             *value /= 32768.0;
         }
-        if crate::push_to_talk::on() {
-            let sending = self.talk.block(
-                crate::push_to_talk::held(),
-                crate::push_to_talk::release_delay_ms(),
-            );
+        if let Some(sending) = talking {
             return self.gate.pass(&self.samples, sending);
         }
         self.gate.sensitivity = crate::noise::sensitivity();
@@ -559,11 +678,11 @@ impl Processing {
 /// does, and rises at once.
 fn measure(microphone: Option<&str>, shared: &MeterShared) -> Result<()> {
     let mut stream = open_microphone(microphone)?;
-    let mut processing = Processing::new();
+    let mut processing = Processing::new(None);
     let mut block = [0i16; BLOCK];
     let mut shown = f32::NEG_INFINITY;
     while !shared.stop.load(Ordering::Relaxed) {
-        stream.read(&mut block).context("the microphone stopped")?;
+        stream.read(&mut block);
         processing.block(&mut block);
         shown = processing.level.max(shown - 0.9);
         shared.level.store(shown.to_bits(), Ordering::Relaxed);
@@ -574,72 +693,28 @@ fn measure(microphone: Option<&str>, shared: &MeterShared) -> Result<()> {
     Ok(())
 }
 
-/// Opens the microphone and sends its processed audio while someone talks:
-/// the track plays while the gate is open and pauses otherwise, so Discord
-/// shows speaking only during speech.
+/// Opens the microphone on `thread` and sends its processed audio while
+/// someone talks: the track plays while the gate is open and pauses
+/// otherwise, so Discord shows speaking only during speech.
 pub fn capture(
+    thread: &MicrophoneThread,
     microphone: Option<&str>,
     reverse: Reverse,
     out: Microphone,
     track: Track,
 ) -> Result<Capture> {
-    let microphone = microphone.map(str::to_owned);
     let (opened, result) = mpsc::sync_channel(1);
     let stop = Arc::new(AtomicBool::new(false));
     let talking = Arc::new(AtomicBool::new(false));
-    let (stopped, gated_track) = (stop.clone(), track.clone());
-    let speaking = talking.clone();
-    thread::Builder::new()
-        .name("yapfast-discord-in".into())
-        .spawn(move || {
-            let mut stream = match open_microphone(microphone.as_deref()) {
-                Ok(stream) => {
-                    let _ = opened.send(Ok(()));
-                    stream
-                }
-                Err(error) => {
-                    let _ = opened.send(Err(error));
-                    return;
-                }
-            };
-            // The modules aren't Send, so they live on this thread.
-            let mut processing = Processing::new();
-            let reverse = reverse.lock().unwrap();
-            // Drop what played before the microphone opened.
-            while let Ok(played) = reverse.try_recv() {
-                recycle(played);
-            }
-            let mut block = [0i16; BLOCK];
-            while !stopped.load(Ordering::Relaxed) {
-                if let Err(error) = stream.read(&mut block) {
-                    tracing::warn!(error = format!("{error:#}"), "Discord microphone stopped");
-                    break;
-                }
-                while let Ok(mut played) = reverse.try_recv() {
-                    processing.played(&mut played);
-                    recycle(played);
-                }
-                let was_open = processing.gate.is_open();
-                let sent = processing.block(&mut block);
-                // The gate sends while it's open.
-                let open = !sent.is_empty();
-                if open != was_open {
-                    speaking.store(open, Ordering::Relaxed);
-                    let _ = if open {
-                        out.clear();
-                        gated_track.play()
-                    } else {
-                        gated_track.pause()
-                    };
-                }
-                for samples in sent {
-                    out.push(samples);
-                }
-            }
-            speaking.store(false, Ordering::Relaxed);
-            let _ = gated_track.pause();
-        })
-        .context("could not start the Discord microphone")?;
+    thread.start(CaptureRequest {
+        microphone: microphone.map(str::to_owned),
+        reverse,
+        out,
+        track: track.clone(),
+        stop: stop.clone(),
+        talking: talking.clone(),
+        opened,
+    })?;
     result
         .recv_timeout(Duration::from_secs(5))
         .map_err(|_| anyhow!("The microphone didn't open in time."))?
@@ -651,6 +726,58 @@ pub fn capture(
     })
 }
 
+impl CaptureRequest {
+    /// Captures until stopped, with `denoiser` if it's the suppressor
+    /// chosen, and returns the one it used, or `denoiser` if the microphone
+    /// didn't open.
+    fn run(self, denoiser: Option<Denoiser>) -> Option<Denoiser> {
+        let mut stream = match open_microphone(self.microphone.as_deref()) {
+            Ok(stream) => {
+                let _ = self.opened.send(Ok(()));
+                stream
+            }
+            Err(error) => {
+                let _ = self.opened.send(Err(error));
+                return denoiser;
+            }
+        };
+        // The modules aren't Send, so they live on this thread.
+        let mut processing = Processing::new(denoiser);
+        let reverse = self.reverse.lock().unwrap();
+        // Drop what played before the microphone opened.
+        while let Ok(played) = reverse.try_recv() {
+            recycle(played);
+        }
+        let mut block = [0i16; BLOCK];
+        while !self.stop.load(Ordering::Relaxed) {
+            stream.read(&mut block);
+            while let Ok(mut played) = reverse.try_recv() {
+                processing.played(&mut played);
+                recycle(played);
+            }
+            let was_open = processing.gate.is_open();
+            let sent = processing.block(&mut block);
+            // The gate sends while it's open.
+            let open = !sent.is_empty();
+            if open != was_open {
+                self.talking.store(open, Ordering::Relaxed);
+                let _ = if open {
+                    self.out.clear();
+                    self.track.play()
+                } else {
+                    self.track.pause()
+                };
+            }
+            for samples in sent {
+                self.out.push(samples);
+            }
+        }
+        self.talking.store(false, Ordering::Relaxed);
+        let _ = self.track.pause();
+        Some(processing.denoiser)
+    }
+}
+
 /// Runs a recording through the microphone's processing: raw mono 16-bit
 /// 48 kHz from `YAPFAST_AUDIO_IN`, written processed to `YAPFAST_AUDIO_OUT`, and
 /// what was sent to `YAPFAST_AUDIO_SENT`, with silence where the gate was
@@ -660,6 +787,8 @@ pub fn capture(
 /// for echo cancellation, given a 20 ms stereo frame at a time as a call
 /// gives it; then `YAPFAST_AUDIO_ECHOED` gets the microphone with only echo
 /// cancelled. `YAPFAST_LEVELING=off` turns off evening out the voice.
+/// `YAPFAST_PUSH_TO_TALK`, a byte for each block, not 0 while the key is
+/// down, puts the microphone in push-to-talk.
 #[test]
 #[ignore = "needs YAPFAST_AUDIO_IN and YAPFAST_AUDIO_OUT"]
 fn processes_a_recording() {
@@ -689,10 +818,14 @@ fn processes_a_recording() {
     let far = std::env::var("YAPFAST_AUDIO_FAR")
         .is_ok()
         .then(|| read("YAPFAST_AUDIO_FAR"));
+    let keys = std::env::var("YAPFAST_PUSH_TO_TALK")
+        .ok()
+        .map(|path| std::fs::read(path).unwrap());
+    crate::push_to_talk::set_on(keys.is_some());
     // The same echo cancellation alone, to hear what it leaves.
     let mut echo = AudioProcessingModule::new(true, false, true, false);
     let mut echoed = Vec::new();
-    let mut processing = Processing::new();
+    let mut processing = Processing::new(None);
     let (mut processed, mut sent) = (Vec::new(), Vec::new());
     let (mut opened, mut blocks) = (0, 0);
     let mut took = std::time::Duration::ZERO;
@@ -719,6 +852,9 @@ fn processes_a_recording() {
             let mut alone = block.clone();
             let _ = echo.process_stream(&mut alone, SAMPLE_RATE as i32, 1);
             echoed.extend(alone);
+        }
+        if let Some(keys) = &keys {
+            crate::push_to_talk::hold(keys.get(blocks as usize).is_some_and(|key| *key != 0));
         }
         let was_open = processing.gate.is_open();
         let started = std::time::Instant::now();
@@ -763,9 +899,10 @@ fn processes_a_recording() {
     }
 }
 
-/// Opens the microphone, mono in 10 ms blocks.
-fn open_microphone(microphone: Option<&str>) -> Result<Input<i16>> {
-    Input::open(
+/// Opens the microphone, mono in 10 ms blocks, to open again if it goes
+/// away and comes back.
+fn open_microphone(microphone: Option<&str>) -> Result<LastingInput<i16>> {
+    LastingInput::open(
         microphone,
         "Discord microphone",
         SAMPLE_RATE,
@@ -785,7 +922,7 @@ mod tests {
         let as_they_come = |_| 1.0;
         let mixed = |voices: &[(u64, &[i16])], volume: &dyn Fn(u64) -> f32| {
             let mut out = vec![1i16; FRAME * 2];
-            mix(voices, volume, &mut out);
+            mix(voices, volume, &mut Vec::new(), 1.0, &mut out);
             out
         };
         assert_eq!(
@@ -797,6 +934,25 @@ mod tests {
         // Each voice at its own volume.
         let chosen = |user| if user == 3 { 1.5 } else { 0.0 };
         assert_eq!(mixed(&[(1, &loud), (3, &quiet)], &chosen)[0], 150);
+    }
+
+    #[test]
+    fn sounds_play_into_the_mix_until_they_end() {
+        // A sound a frame and a half long, at half its volume and the
+        // speakers' half.
+        let mut sounds = vec![Playing {
+            samples: vec![4000; FRAME_SAMPLES * 3 / 2],
+            at: 0,
+            volume: 0.5,
+        }];
+        let quiet = vec![100i16; FRAME_SAMPLES];
+        let mut out = vec![0i16; FRAME_SAMPLES];
+        mix(&[(3, &quiet)], |_| 1.0, &mut sounds, 0.5, &mut out);
+        assert!(out.iter().all(|sample| *sample == 1100));
+        mix(&[], |_| 1.0, &mut sounds, 0.5, &mut out);
+        assert_eq!(out[FRAME_SAMPLES / 2 - 1], 1000);
+        assert_eq!(out[FRAME_SAMPLES / 2], 0);
+        assert!(sounds.is_empty(), "the sound ended");
     }
 
     #[test]
@@ -1038,7 +1194,7 @@ mod tests {
 
     /// Two seconds of beeps on the default speakers.
     fn beep() {
-        let mut output = Output::<i16>::open(
+        let mut output = crate::audio_io::Output::<i16>::open(
             None,
             "Test beeps",
             SAMPLE_RATE,

@@ -1,11 +1,11 @@
 # Matrix sessions
 
-Yapfast currently supports password sign-in, restoration, recovery-key import and
-logout through the CLI and native desktop. Launch `cargo run --locked` to sign in
-or restore an account, or add `-- --preview` to try the layout locally first.
-The desktop exposes masked password and recovery-key fields and a device-trust
-check. Real text sending requires a verified device and an encrypted joined room.
-SSO, OAuth/MAS and emoji verification are not implemented yet. A homeserver
+Yapfast supports password sign-in, restoration, recovery-key import and logout
+through the CLI and native desktop. Launch `cargo run --locked` to sign in or
+restore an account, or add `-- --preview` to try the layout locally first. The
+desktop exposes masked password and recovery-key fields and a device-trust
+check. Real text sending requires a verified device and an encrypted joined
+room. SSO, OAuth/MAS and emoji verification are not implemented. A homeserver
 without password sign-in receives an actionable error.
 
 Run these commands inside the development shell. This example uses fish's hidden
@@ -30,14 +30,16 @@ printf '%s\n' "$yapfast_recovery_key" | cargo run --locked --no-default-features
 set --erase yapfast_recovery_key
 ```
 
-The CLI reads one secret line from stdin and refuses an echoing terminal input.
+The CLI reads one secret line from stdin and refuses a terminal as input.
 It does not print passwords, tokens, store passwords or recovery keys. Status
 prints the account ID, device ID and current cross-signing trust result.
 
 ## Storage and lifecycle
 
 Without `--data-dir`, Yapfast uses the platform's local application data directory.
-Each directory has one active session and an exclusive process lock. Corrupt
+Each directory has one active session and an exclusive process lock. Since
+that lock keeps the stores to one process, the SDK's own cross-process store
+lock is off; it would rewrite a lease in the crypto store every 50 ms. Corrupt
 metadata, missing credentials and a missing crypto store stop restoration. They
 never silently create a replacement device or reset its identity.
 
@@ -70,23 +72,21 @@ Writes use a private temporary file, flush its contents and replace the prior
 file. Store passwords are preserved separately from active login credentials.
 Logout revokes the server session before clearing its local credentials; failed
 revocation leaves them available for retry. It retains encrypted SDK stores and
-their passwords, including unsent local data. This is the initial deliberate
-retention policy; a user-facing removal flow is later work.
+their passwords, including unsent local data. This retention is deliberate;
+there is no user-facing removal flow yet.
 
 ```sh
 cargo run --locked --no-default-features --features matrix,discord -- session logout --data-dir .local/manual-session
 ```
 
-The password flow does not request refresh tokens. Refresh-token persistence and
-OAuth sessions belong to the existing-account sign-in work. New accounts may
-bootstrap cross-signing through the SDK, which leaves an existing identity intact.
+The password flow does not request refresh tokens. Refresh-token persistence
+and OAuth sessions are not implemented. New accounts may bootstrap
+cross-signing through the SDK, which leaves an existing identity intact.
 Recovery-key setup is exercised only on disposable experiment accounts; the CLI
 imports an existing key. Room keys use the SDK's identity-based sharing policy.
 
-The call experiment (`--call-experiment`) checks actual OS-store
-restoration, message-key persistence and recovery against the local server.
-Unit tests separately cover the Linux fallback's permissions, missing credentials,
-metadata damage, retained store passwords and exclusive locking. Windows storage
-and execution remain untested.
-The release CLI also passed password sign-in, same-device restoration and logout
-against the local server with Secret Service storage.
+The call experiment (`--call-experiment`) checks actual OS-store restoration,
+message-key persistence and recovery against the local server. Unit tests
+separately cover the Linux fallback's permissions, missing credentials,
+metadata damage, retained store passwords and exclusive locking. Matrix storage
+on Windows remains untested.

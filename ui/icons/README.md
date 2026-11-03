@@ -27,7 +27,8 @@ glyphs such as check, x and chevrons.
   that monitor with the slash; reply is forward mirrored; search is the
   Linear magnifier with a 2-unit stroke.
 - Drawn for Yapfast in Solar's manner: gif, hash, mic and mic-off, the
-  signal-high, signal-medium and signal-low bars, thread (a spool of thread,
+  signal-high, signal-medium and signal-low bars, soundboard (the speaker of
+  volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
   the speaker of volume-2, volume-2-bold and volume-x.
 

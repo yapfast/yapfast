@@ -1,7 +1,7 @@
 //! Members and Invites in a Discord server's settings: searching its
 //! members as Discord's client does, a chunk at a time, and listing,
 //! revoking and pausing its invites. See "Members" and "Invites" in
-//! docs/discord.md.
+//! docs/discord/server-settings.md.
 
 use std::time::Duration;
 
