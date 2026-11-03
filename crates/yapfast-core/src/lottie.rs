@@ -3,7 +3,7 @@
 use std::{marker::PhantomData, ptr, sync::OnceLock};
 use thorvg_sys as tvg;
 
-const MAX_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_FRAMES: usize = 3600;
 
 #[derive(serde::Deserialize)]
@@ -180,13 +180,13 @@ impl Drop for Frames {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::{decode_picture, decode_picture_at};
+    use crate::chat::{decode_lottie, decode_lottie_at, decode_picture, decode_preview};
 
     const STICKER: &[u8] = include_bytes!("../../../testing/fixtures/sticker.json");
 
     #[test]
     fn lottie_renders_transparency_motion_and_frame_timings() {
-        let picture = decode_picture(STICKER, 400, 400).unwrap();
+        let picture = decode_lottie(STICKER, 400, 400).unwrap();
         assert_eq!((picture.width, picture.height), (160, 160));
         assert_eq!(picture.animation.as_ref().unwrap().delays, [33, 34, 33]);
         let frames: Vec<_> = picture.frames().collect();
@@ -205,10 +205,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("sticker.json");
         std::fs::write(&file, STICKER).unwrap();
-        let picture = decode_picture_at(&file, 80, 80).unwrap();
+        let picture = decode_lottie_at(&file, 80, 80).unwrap();
         assert_eq!((picture.width, picture.height), (80, 80));
         assert_eq!(picture.frames().count(), 3);
         assert_eq!(picture.frames().count(), 3, "playback can loop");
+    }
+
+    #[test]
+    fn only_stickers_decode_as_lottie() {
+        assert!(decode_picture(STICKER, 400, 400).is_none());
+        assert!(decode_preview(STICKER).is_none());
     }
 
     #[test]

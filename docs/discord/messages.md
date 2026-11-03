@@ -340,7 +340,9 @@ an error.
 - Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
   GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation
-  playback setting as GIF stickers.
+  playback setting as GIF stickers. Only a Lottie sticker's address
+  (`ready::lottie_sticker`) decodes as Lottie; other pictures never reach
+  ThorVG's parser, whatever their bytes.
 - Messages from people this account blocked show collapsed as "Blocked
   message", which "Show it" opens, and they don't notify or show typing.
   Yapfast learns the blocked from READY's relationships (type 2) and keeps them

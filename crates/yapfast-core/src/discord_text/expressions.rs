@@ -193,11 +193,9 @@ fn server_emoji(emoji: GuildEmoji) -> ServerEmoji {
     }
 }
 
-/// Discord's sticker format that isn't a picture.
-const LOTTIE: u8 = 3;
-
 pub(super) fn server_sticker(sticker: GuildSticker) -> ServerSticker {
-    let picture = (sticker.format != LOTTIE)
+    // Lottie stickers draw only in messages.
+    let picture = (u64::from(sticker.format) != yapfast_discord::ready::STICKER_LOTTIE)
         .then(|| yapfast_discord::ready::sticker(&sticker.id, sticker.format.into()));
     ServerSticker {
         picture,

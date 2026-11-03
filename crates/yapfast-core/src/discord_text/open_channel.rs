@@ -1308,7 +1308,11 @@ impl OpenChannel {
                 Ok(data) => tokio::task::spawn_blocking({
                     let url = url.clone();
                     move || {
-                        decode_view(&data).map(|picture| crate::discord::read_kept(&url, picture))
+                        super::render::decode(
+                            &url,
+                            &data,
+                            (crate::chat::VIEW_WIDTH, crate::chat::VIEW_HEIGHT),
+                        )
                     }
                 })
                 .await
