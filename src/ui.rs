@@ -59,6 +59,7 @@ mod shell;
 mod theme;
 mod tiles;
 mod title_bar;
+mod yapfast;
 
 use callbacks::bind_callbacks;
 use messages::*;
@@ -159,7 +160,7 @@ pub fn run(
     if !preview {
         crate::desktop_entry::install();
     }
-    let window = match YapfastWindow::new() {
+    let window = match yapfast::window() {
         Ok(window) => window,
         Err(error) => return failed(error, "could not create the Yapfast window"),
     };
@@ -1186,20 +1187,30 @@ impl Layout {
             * sounds::gain(self.each_sound(sound))
     }
 
-    fn apply(&self, window: &YapfastWindow) {
-        self.apply_custom_games(window);
-        window.set_show_idle(self.show_idle.unwrap_or(true));
-        window.set_hide_blocked(self.hide_blocked);
-        window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+    // Appearance checks can apply these preferences without changing global audio gains.
+    fn apply_appearance(&self, window: &YapfastWindow) {
         // Before the first frame, which the event loop draws. A window made
         // again, after closing to the tray, keeps the theme this way too.
-        let (id, chosen) = theme::chosen(self.theme.as_deref(), &self.custom_themes);
+        let default_theme = window
+            .global::<ClientStyle>()
+            .get_enabled()
+            .then_some("bonfire");
+        let (id, chosen) =
+            theme::chosen(self.theme.as_deref().or(default_theme), &self.custom_themes);
         chosen.apply(window);
         window.set_theme_id(id.into());
         window.set_themes(theme::cards(&self.custom_themes));
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }
+    }
+
+    fn apply(&self, window: &YapfastWindow) {
+        self.apply_custom_games(window);
+        window.set_show_idle(self.show_idle.unwrap_or(true));
+        window.set_hide_blocked(self.hide_blocked);
+        window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+        self.apply_appearance(window);
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }

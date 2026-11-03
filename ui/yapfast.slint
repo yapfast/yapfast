@@ -1,6 +1,11 @@
+import { AccountPopover } from "yapfast/account-popover.slint";
+import { ClientStyle } from "yapfast/style.slint";
+import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
 import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
 // The UI's typeface, Atkinson Hyperlegible Next; ExtraBold serves weight 900.
+import "fonts/DMSans[opsz,wght].ttf";
+import "fonts/DMSans-Italic[opsz,wght].ttf";
 import "fonts/AtkinsonHyperlegibleNext-Regular.ttf";
 import "fonts/AtkinsonHyperlegibleNext-Italic.ttf";
 import "fonts/AtkinsonHyperlegibleNext-Medium.ttf";
@@ -46,6 +51,7 @@ import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
+export { ClientStyle } from "yapfast/style.slint";
 export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
@@ -80,11 +86,11 @@ export component YapfastWindow inherits Window {
     callback maximize-window();
     callback close-window();
     background: Theme.chat;
-    default-font-family: "Atkinson Hyperlegible Next";
+    default-font-family: ClientStyle.font-family;
     // default-font-family: "Satoshi";
     // Both faces' x-heights are about half their size, small, so text
     // defaults to 16px.
-    default-font-size: 16px;
+    default-font-size: ClientStyle.text-size;
     // The std-widgets (ComboBoxes) follow only the colour scheme,
     // so it follows the theme.
     property <bool> dark-theme: Theme.dark;
@@ -281,6 +287,7 @@ export component YapfastWindow inherits Window {
     in property <[MessageRow]> messages;
     in property <string> account;
     in property <string> account-name;
+    in property <string> account-user-id;
     in property <string> account-initial;
     /// The Discord-only build's own status for the account's dot, as
     /// StatusDot takes it; empty to show the connection instead.
@@ -1108,7 +1115,7 @@ export component YapfastWindow inherits Window {
     callback cancel-theme();
     callback delete-theme();
     changed settings-section => { if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); } }
-    out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : 16px;
+    out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
     out property <length> sidebar-shown: max(180px, min(380px, root.sidebar-width));
@@ -1309,7 +1316,7 @@ export component YapfastWindow inherits Window {
     callback cancel-compose;
     callback dismiss-notice;
     // The sidebar's width, chosen by dragging its edge; Yapfast stores it on release.
-    in-out property <length> sidebar-width: 240px;
+    in-out property <length> sidebar-width: ClientStyle.sidebar-width;
     callback sidebar-resized(length);
     // The width of the thread beside the channel, chosen by dragging its
     // edge, which Yapfast stores on release. It keeps 320 to 800px; dragging
@@ -1469,7 +1476,7 @@ export component YapfastWindow inherits Window {
     changed browse-open => { Tip.text = ""; }
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
-    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? 240px : 0px) + (root.profile-docked ? 300px : 0px);
+    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? 240px : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
     // The pin and add buttons open their popovers under themselves.
     property <length> popover-x;
     property <length> popover-y;
@@ -1702,8 +1709,10 @@ export component YapfastWindow inherits Window {
         }
     }
     // The status menu opens above the account panel, along its left edge.
+    property <bool> account-status-expanded;
     function open-status-menu() {
-        root.menu-x = account-panel.absolute-position.x + 8px;
+        root.account-status-expanded = false;
+        root.menu-x = account-panel.absolute-position.x + (ClientStyle.enabled ? 0px : 8px);
         root.menu-y = account-panel.absolute-position.y;
         root.game-duration-due();
         status-menu.show();
@@ -1736,19 +1745,37 @@ export component YapfastWindow inherits Window {
         }
     }
     status-menu := PopupWindow {
-        width: 248px; height: status-menu-content.preferred-height;
+        width: ClientStyle.enabled ? 300px : 248px; height: status-menu-content.preferred-height;
         x: max(8px, min(root.width - self.width - 8px, root.menu-x));
         y: max(8px, root.menu-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
-        status-menu-content := StatusMenu {
-            status: root.discord-status; has-custom-status: root.has-custom-status;
-            game-name: root.game-activity-name; game-duration: root.game-activity-duration;
-            game-duration-due => { root.game-duration-due(); }
-            choose(status) => { root.set-status(status); status-menu.close(); }
-            custom-status => { root.open-status(); status-menu.close(); }
-            edit-profile => { root.edit-profile(); status-menu.close(); }
+        status-menu-content := VerticalLayout {
+            if ClientStyle.enabled: AccountPopover {
+                available-height: max(120px, root.menu-y - 12px);
+                name: root.account-name; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture;
+                user-id: root.account-user-id;
+                status: root.discord-status; has-custom-status: root.has-custom-status;
+                custom-text: root.account-status; custom-emoji: root.account-status-emoji;
+                game-name: root.game-activity-name; game-duration: root.game-activity-duration;
+                expanded <=> root.account-status-expanded;
+                game-duration-due => { root.game-duration-due(); }
+                choose(status) => { root.set-status(status); status-menu.close(); }
+                custom-status => { root.open-status(); status-menu.close(); }
+                edit-profile => { root.edit-profile(); status-menu.close(); }
+                copy-id => { root.copy-text(root.account-user-id); status-menu.close(); }
+                settings => { root.settings-section = 0; root.settings-open = true; status-menu.close(); }
+            }
+            if !ClientStyle.enabled: StatusMenu {
+                status: root.discord-status; has-custom-status: root.has-custom-status;
+                game-name: root.game-activity-name; game-duration: root.game-activity-duration;
+                game-duration-due => { root.game-duration-due(); }
+                choose(status) => { root.set-status(status); status-menu.close(); }
+                custom-status => { root.open-status(); status-menu.close(); }
+                edit-profile => { root.edit-profile(); status-menu.close(); }
+            }
         }
     }
+
     function open-menu(message: MessageRow) {
         root.open-message-menu(message, -1, false);
     }
@@ -2046,13 +2073,13 @@ export component YapfastWindow inherits Window {
                     // Channel sidebar: a lighter sheet held by the rail and the dock.
                     Rectangle {
                         width: root.sidebar-shown; background: Theme.sidebar;
-                        border-top-left-radius: 10px; border-bottom-left-radius: 10px;
+                        border-top-left-radius: ClientStyle.enabled ? 0px : 10px; border-bottom-left-radius: ClientStyle.enabled ? 0px : 10px;
                         clip: true;
                         VerticalLayout {
                             spacing: 0px;
                             Rectangle {
                                 height: 48px;
-                                if root.header-server == "": Text { x: 16px; width: parent.width - (root.dms-selected && !root.preview ? (root.discord-linked ? 88px : 56px) : 32px); text: root.sidebar-title; font-size: 16px; font-weight: 700; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                                if root.header-server == "" && !(ClientStyle.enabled && root.dms-selected): Text { x: 16px; width: parent.width - (root.dms-selected && !root.preview ? (root.discord-linked ? 88px : 56px) : 32px); text: root.sidebar-title; font-size: 16px; font-weight: 700; color: Theme.text; vertical-alignment: center; overflow: elide; }
                                 if root.header-server != "": server-header := ServerHeader {
                                     x: 8px; y: 8px; width: parent.width - 16px - (root.header-invite ? 32px : 0px); height: 32px;
                                     name: root.sidebar-title; open: root.header-menu-open;
@@ -2063,19 +2090,25 @@ export component YapfastWindow inherits Window {
                                     icon: @image-url("icons/user-plus.svg"); label: "Invite to server"; size: 28px; glyph: 18px; tip-side: 2;
                                     clicked => { root.open-invite(root.header-server); }
                                 }
-                                if root.dms-selected && !root.preview && root.discord-linked: IconButton {
+                                if !ClientStyle.enabled && root.dms-selected && !root.preview && root.discord-linked: IconButton {
                                     x: parent.width - 2 * self.width - 14px;
                                     icon: @image-url("icons/user-plus.svg"); label: "Add a friend"; size: 28px; glyph: 18px; tip-side: 2;
                                     clicked => { root.open-add-friend(); }
                                 }
-                                if root.dms-selected && !root.preview: IconButton {
+                                if !ClientStyle.enabled && root.dms-selected && !root.preview: IconButton {
                                     x: parent.width - self.width - 10px;
                                     icon: @image-url("icons/square-pen.svg"); label: "New message"; size: 28px; glyph: 18px; tip-side: 2;
                                     clicked => { root.open-new-dm(); }
                                 }
+                                if ClientStyle.enabled && root.dms-selected: TextField {
+                                    x: 8px; y: 8px; width: parent.width - 16px; height: 32px;
+                                    text-size: 13px; pad: 10px; fill: Theme.field; ring: false;
+                                    placeholder: "Find a conversation"; text <=> root.filter; label: "Find a conversation";
+                                    edited => { root.filter-edited(); }
+                                }
                                 Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
                             }
-                            HorizontalLayout {
+                            if !(ClientStyle.enabled && root.dms-selected): HorizontalLayout {
                                 padding: 10px; padding-bottom: 6px;
                                 TextField {
                                     min-height: 30px; text-size: 14px; pad: 8px; fill: Theme.sunken; ring: false;
@@ -2084,6 +2117,8 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             RoomList {
+                                open-add-friend => { root.open-add-friend(); }
+                                open-new-dm => { root.open-new-dm(); }
                                 rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
                                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                                 browse-offered: root.browse-offered; browsing: root.browse-open;
@@ -2135,79 +2170,83 @@ export component YapfastWindow inherits Window {
                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
                 }
-                // Account panel.
-                account-panel := Rectangle {
-                    height: 56px; background: Theme.panel;
-                    if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
-                    HorizontalLayout {
-                        padding-right: 8px; spacing: 2px;
-                        Rectangle {
-                            width: 58px;
-                            Avatar { x: 19px; y: (parent.height - self.height) / 2; size: 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
-                            if root.account-presence != "": StatusDot {
-                                x: 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
-                            }
-                            if root.account-presence == "": Rectangle {
-                                x: 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
-                                Rectangle {
-                                    width: 8px; height: 8px; border-radius: 4px;
-                                    background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
+                // Inset the account card while preserving the inherited controls.
+                VerticalLayout {
+                    padding: ClientStyle.account-inset; padding-top: 0px;
+                    account-panel := Rectangle {
+                        height: ClientStyle.account-height; background: Theme.panel;
+                        border-radius: ClientStyle.enabled ? 8px : 0px;
+                        if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
+                        HorizontalLayout {
+                            padding-right: 8px; spacing: 2px;
+                            Rectangle {
+                                width: ClientStyle.enabled ? 50px : 58px;
+                                Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
+                                if root.account-presence != "": StatusDot {
+                                    x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
+                                }
+                                if root.account-presence == "": Rectangle {
+                                    x: ClientStyle.enabled ? 35px : 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
+                                    Rectangle {
+                                        width: 8px; height: 8px; border-radius: 4px;
+                                        background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
+                                    }
+                                }
+                                if root.discord-linked: TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.open-status-menu(); }
                                 }
                             }
-                            if root.discord-linked: TouchArea {
-                                mouse-cursor: MouseCursor.pointer;
-                                clicked => { root.open-status-menu(); }
+                            // With Discord linked, the avatar and name open the status menu.
+                            Rectangle {
+                                horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
+                                background: account-touch.has-hover ? Theme.hover : transparent;
+                                accessible-role: button;
+                                accessible-enabled: root.discord-linked;
+                                accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
+                                accessible-action-default => { if root.discord-linked { root.open-status-menu(); } }
+                                VerticalLayout {
+                                    alignment: center; padding-left: 6px; padding-right: 6px;
+                                    Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                                    StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
+                                }
+                                account-touch := TouchArea {
+                                    enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.open-status-menu(); }
+                                }
                             }
-                        }
-                        // With Discord linked, the avatar and name open the status menu.
-                        Rectangle {
-                            horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
-                            background: account-touch.has-hover ? Theme.hover : transparent;
-                            accessible-role: button;
-                            accessible-enabled: root.discord-linked;
-                            accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
-                            accessible-action-default => { if root.discord-linked { root.open-status-menu(); } }
-                            VerticalLayout {
-                                alignment: center; padding-left: 6px; padding-right: 6px;
-                                Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
-                                StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
+                            DeviceToggle {
+                                icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+                                label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
+                                alert: root.shown-muted;
+                                menu-label: "Input options"; open: root.input-open;
+                                enabled: root.voice-ready || !root.voice-active;
+                                clicked => { root.toggle-mute(); }
+                                menu => {
+                                    root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                    root.refresh-devices(); input-menu.show();
+                                }
                             }
-                            account-touch := TouchArea {
-                                enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
-                                clicked => { root.open-status-menu(); }
+                            DeviceToggle {
+                                icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+                                label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
+                                alert: root.shown-deafened;
+                                menu-label: "Output options"; open: root.output-open;
+                                enabled: root.voice-ready || !root.voice-active;
+                                clicked => { root.toggle-deafen(); }
+                                menu => {
+                                    root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                    root.refresh-devices(); output-menu.show();
+                                }
                             }
-                        }
-                        DeviceToggle {
-                            icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
-                            label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
-                            alert: root.shown-muted;
-                            menu-label: "Input options"; open: root.input-open;
-                            enabled: root.voice-ready || !root.voice-active;
-                            clicked => { root.toggle-mute(); }
-                            menu => {
-                                root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
-                                root.refresh-devices(); input-menu.show();
+                            if !root.preview && !root.online: IconButton {
+                                icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
+                                clicked => { root.retry-sync(); }
                             }
-                        }
-                        DeviceToggle {
-                            icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
-                            label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
-                            alert: root.shown-deafened;
-                            menu-label: "Output options"; open: root.output-open;
-                            enabled: root.voice-ready || !root.voice-active;
-                            clicked => { root.toggle-deafen(); }
-                            menu => {
-                                root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
-                                root.refresh-devices(); output-menu.show();
+                            IconButton {
+                                icon: @image-url("icons/settings.svg"); label: "Settings";
+                                clicked => { root.settings-open = true; root.refresh-devices(); }
                             }
-                        }
-                        if !root.preview && !root.online: IconButton {
-                            icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
-                            clicked => { root.retry-sync(); }
-                        }
-                        IconButton {
-                            icon: @image-url("icons/settings.svg"); label: "Settings";
-                            clicked => { root.settings-open = true; root.refresh-devices(); }
                         }
                     }
                 }
@@ -2722,7 +2761,7 @@ export component YapfastWindow inherits Window {
                                                     }
                                                 }
                                                 col := VerticalLayout {
-                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? 14px : 1px;
+                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? ClientStyle.message-group-gap : 1px;
                                                     // The last row leaves room for the bar over a window's end.
                                                     padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : 1px;
                                                     spacing: 0px;
@@ -2933,7 +2972,7 @@ export component YapfastWindow inherits Window {
                             visible: !root.voice-panel && !root.room-forum && root.room-selected;
                             min-height: 0px;
                             max-height: root.voice-panel || root.room-forum || !root.room-selected ? 0px : 100000px;
-                            padding-left: 16px; padding-right: 16px; padding-top: 0px; padding-bottom: 0px;
+                            padding-left: ClientStyle.composer-gutter; padding-right: ClientStyle.composer-gutter; padding-top: 0px; padding-bottom: 0px;
                             spacing: 0px; vertical-stretch: 0;
                             if root.room-request: RequestBar {
                                 request-title: root.request-title;
@@ -2953,7 +2992,7 @@ export component YapfastWindow inherits Window {
                             }
                             composer-box := Rectangle {
                                 visible: !root.room-request;
-                                min-height: root.room-request ? 0px : 48px; max-height: root.room-request ? 0px : 100000px;
+                                min-height: root.room-request ? 0px : ClientStyle.composer-height; max-height: root.room-request ? 0px : 100000px;
                                 background: Theme.field;
                                 border-radius: 10px;
                                 border-top-left-radius: root.compose-label != "" ? 0px : 10px;
@@ -2977,7 +3016,7 @@ export component YapfastWindow inherits Window {
                                         padding-left: 10px; padding-right: 8px; spacing: 6px;
                                         // The buttons stay on the last line as the composer grows.
                                         VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             // Where threads can start, it opens Discord's menu
                                             // of uploading a file or starting a thread.
                                             IconButton {
@@ -2997,6 +3036,7 @@ export component YapfastWindow inherits Window {
                                             }
                                         }
                                         composer := Composer {
+                                            pad: ClientStyle.composer-padding; min-height: ClientStyle.composer-height;
                                             text <=> root.draft; enabled: root.composer-enabled; label: "Message";
                                             placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected && !root.room-direct && root.room-parent == "" ? "Message #" + root.room-name : root.room-selected ? "Message " + root.room-name : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
@@ -3032,7 +3072,7 @@ export component YapfastWindow inherits Window {
                                         }
                                         // As Discord's: the GIFs, then the emoji, in one picker.
                                         if root.can-pick-gifs: VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             gif-button := IconButton {
                                                 icon: @image-url("icons/gif.svg"); label: "Open GIF picker";
                                                 glyph: 22px; enabled: root.composer-enabled;
@@ -3044,7 +3084,7 @@ export component YapfastWindow inherits Window {
                                             }
                                         }
                                         VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             emoji-button := IconButton {
                                                 icon: @image-url("icons/smile.svg"); label: "Add an emoji";
                                                 glyph: 22px; enabled: root.composer-enabled;
@@ -3059,8 +3099,8 @@ export component YapfastWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                        if !ClientStyle.enabled: VerticalLayout {
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             IconButton {
                                                 icon: @image-url("icons/send-horizontal.svg");
                                                 label: root.sending ? "Sending..." : root.is-editing ? "Save" : "Send";
@@ -3078,7 +3118,7 @@ export component YapfastWindow inherits Window {
                                 if root.room-encrypted || root.preview: Image { source: @image-url("icons/lock.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
                                 Text { text: root.composer-hint; color: Theme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             }
-                            if root.composer-hint == "": Rectangle { height: 16px; }
+                            if root.composer-hint == "": Rectangle { height: ClientStyle.composer-gutter; }
                         }
                     }
                     if root.search-open: SearchPanel {
@@ -3159,9 +3199,10 @@ export component YapfastWindow inherits Window {
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
                     }
                     if root.profile-docked: Rectangle {
-                        width: 300px;
+                        width: ClientStyle.profile-width;
                         ProfileCard {
-                            docked: true; width: parent.width; height: parent.height;
+                            x: ClientStyle.profile-inset; y: ClientStyle.profile-inset;
+                            docked: true; width: parent.width - 2 * ClientStyle.profile-inset; height: parent.height - 2 * ClientStyle.profile-inset;
                             data: root.panel-profile;
                             enlarge => { root.enlarge-panel-profile(); }
                             befriend => { root.befriend(root.panel-profile.id); }
@@ -3196,7 +3237,7 @@ export component YapfastWindow inherits Window {
         pointer-event(event) => {
             if event.kind == PointerEventKind.up { root.sidebar-resized(root.sidebar-shown); }
         }
-        double-clicked => { root.sidebar-width = 240px; root.sidebar-resized(240px); }
+        double-clicked => { root.sidebar-width = ClientStyle.sidebar-width; root.sidebar-resized(root.sidebar-width); }
         Rectangle {
             x: 3px; width: 2px;
             background: parent.pressed ? Theme.faint : Theme.line;
@@ -3331,8 +3372,12 @@ export component YapfastWindow inherits Window {
     // Settings over the window, showing one section.
     settings-motion := PopupMotion { open: root.settings-open; }
     if settings-motion.shown: SettingsScreen {
-        y: root.title-height; height: root.height - root.title-height;
+        y: ClientStyle.enabled ? 0px : root.title-height; height: root.height - self.y;
         motion: settings-motion.amount;
+        account-name: root.account-name; account-initial: root.account-initial;
+        account-tint: root.account-tint; account-picture: root.account-picture;
+        may-edit-profile: root.discord-linked;
+        edit-profile => { root.settings-open = false; root.edit-profile(); }
         settings-section <=> root.settings-section;
         discord-build: root.discord-build; preview: root.preview;
         close => { root.settings-open = false; }
@@ -4008,9 +4053,18 @@ export component YapfastWindow inherits Window {
     }
     // The title bar and the edges that resize the window, above all but the
     // tooltips, while Yapfast draws them.
-    if root.title-height > 0: TitleBar {
+    if root.title-height > 0 && !ClientStyle.enabled: TitleBar {
         x: 0px; y: 0px; width: root.width;
         place: root.workspace ? root.sidebar-title : "Yapfast";
+        focused: root.window-focused; maximized: root.window-maximized;
+        move-window => { root.move-window(); }
+        minimize-window => { root.minimize-window(); }
+        maximize-window => { root.maximize-window(); }
+        close-window => { root.close-window(); }
+    }
+    if root.title-height > 0 && ClientStyle.enabled: WindowBar {
+        x: 0px; y: 0px; width: root.width;
+        place: root.workspace ? (root.dms-selected ? "Direct Messages" : root.sidebar-title) : "Yapfast";
         focused: root.window-focused; maximized: root.window-maximized;
         move-window => { root.move-window(); }
         minimize-window => { root.minimize-window(); }

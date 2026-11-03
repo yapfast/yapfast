@@ -83,7 +83,7 @@ export component Composer inherits Rectangle {
     public function paste-text() { input.paste(); }
     public function focus-input() { input.focus(); }
     public function place-caret(offset: int) { input.set-selection-offsets(offset, offset); }
-    property <length> pad: 12px;
+    in property <length> pad: 12px;
     property <length> line: root.text-size * 1.5;
     // Where the menu opens: the pointer, from the composer's corner.
     property <length> menu-x;

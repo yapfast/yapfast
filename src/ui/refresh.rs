@@ -872,6 +872,7 @@ impl Adapter {
             .unwrap_or_else(|| display_part(account));
         window.set_account(account.into());
         window.set_account_name(account_name.into());
+        window.set_account_user_id(state.discord_user.as_deref().unwrap_or_default().into());
         window.set_account_initial(initial(account_name));
         window.set_account_tint(tint(account_name));
         window.set_account_picture(cached_picture(
@@ -2890,7 +2891,7 @@ impl Adapter {
             if room.is_none() {
                 "Choose a DM or server channel to write a message."
             } else if state.preview {
-                "Enter to send locally, Shift+Enter for a new line."
+                ""
             } else if room.is_some_and(|room| room.request) {
                 if discord_only {
                     ""

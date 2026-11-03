@@ -1,3 +1,5 @@
+import { DmHeading } from "yapfast/dm-heading.slint";
+import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
 import { Avatar, PictureStore, StatusText, VoiceSpot } from "controls.slint";
@@ -133,7 +135,9 @@ export component RailItem inherits Rectangle {
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
-    width: 72px; height: 48px;
+    property <length> tile-size: ClientStyle.rail-tile;
+    property <length> tile-left: (root.width - root.tile-size) / 2;
+    width: 72px; height: root.tile-size;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -141,20 +145,20 @@ export component RailItem inherits Rectangle {
     property <bool> lit: root.selected || pointer.has-hover;
     Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
-        height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
+        height: root.selected ? (ClientStyle.enabled ? 32px : 40px) : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
         background: Theme.text;
         animate height { duration: 160ms; easing: ease-out; }
     }
     // A picture only changes shape when lit, as in Discord.
     tile := Rectangle {
-        x: 12px; width: 48px; height: 48px;
-        border-radius: root.lit ? 16px : 24px;
+        x: root.tile-left; width: root.tile-size; height: root.tile-size;
+        border-radius: ClientStyle.enabled ? 12px : root.lit ? 16px : 24px;
         background: root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
         animate border-radius, background { duration: 160ms; easing: ease-out; }
         clip: true;
         if root.shown-picture.width > 0: Image {
-            source: root.shown-picture; width: 48px; height: 48px; image-fit: cover;
+            source: root.shown-picture; width: root.tile-size; height: root.tile-size; image-fit: cover;
         }
         if root.icon.width > 0: Image {
             source: root.icon; width: root.icon-size; height: root.icon-size;
@@ -166,7 +170,7 @@ export component RailItem inherits Rectangle {
         }
         // The focus ring, drawn over the picture.
         Rectangle {
-            width: 48px; height: 48px; border-radius: tile.border-radius;
+            width: root.tile-size; height: root.tile-size; border-radius: tile.border-radius;
             border-width: focus.has-focus ? 2px : 0px;
             border-color: Theme.text;
         }
@@ -174,13 +178,13 @@ export component RailItem inherits Rectangle {
     // Discord's logo on its blurple, at the top left on a ring of the rail's
     // colour so it reads as a tag.
     if root.discord: DiscordBadge {
-        x: 12px - 2px; y: (parent.height - 48px) / 2 - 2px;
+        x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call: CallBubble { x: 12px + 48px + 3px - self.width; y: (parent.height - 48px) / 2 - 3px; }
+    if root.call: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     // The mention count, on a ring of the rail's colour.
     if root.badge != "": Rectangle {
-        x: 12px + 48px + 4px - self.width; y: (parent.height + 48px) / 2 + 4px - self.height;
+        x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
         background: Theme.rail;
         Rectangle {
@@ -241,7 +245,9 @@ component FolderItem inherits Rectangle {
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
-    width: 72px; height: 48px;
+    property <length> tile-size: ClientStyle.rail-tile;
+    property <length> tile-left: (root.width - root.tile-size) / 2;
+    width: 72px; height: root.tile-size;
     accessible-role: button;
     accessible-label: root.label;
     accessible-expandable: true;
@@ -251,13 +257,13 @@ component FolderItem inherits Rectangle {
     forward-focus: focus;
     Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
-        height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
+        height: root.open ? 0px : root.selected ? (ClientStyle.enabled ? 32px : 40px) : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
         background: Theme.text;
         animate height { duration: 160ms; easing: ease-out; }
     }
     tile := Rectangle {
-        x: 12px; width: 48px; height: 48px; border-radius: 16px;
+        x: root.tile-left; width: root.tile-size; height: root.tile-size; border-radius: ClientStyle.enabled ? 12px : 16px;
         background: root.open ? transparent : root.tint.with-alpha(pointer.has-hover ? 0.55 : 0.4);
         animate background { duration: 160ms; easing: ease-out; }
         if root.open: Image {
@@ -265,24 +271,24 @@ component FolderItem inherits Rectangle {
         }
         if !root.open: Rectangle {
             for server[index] in root.servers: Avatar {
-                x: 6px + Math.mod(index, 2) * 20px; y: 6px + floor(index / 2) * 20px;
+                x: (ClientStyle.enabled ? 4px : 6px) + Math.mod(index, 2) * (ClientStyle.enabled ? 18px : 20px); y: (ClientStyle.enabled ? 4px : 6px) + floor(index / 2) * (ClientStyle.enabled ? 18px : 20px);
                 size: 16px; initial: server.initial; picture-url: server.picture-url; tint: Theme.raised;
             }
         }
         Rectangle {
-            width: 48px; height: 48px; border-radius: 16px;
+            width: root.tile-size; height: root.tile-size; border-radius: ClientStyle.enabled ? 12px : 16px;
             border-width: focus.has-focus ? 2px : 0px;
             border-color: Theme.text;
         }
     }
     // Its servers are Discord's, so it carries Discord's mark as they do.
     if !root.open: DiscordBadge {
-        x: 12px - 2px; y: (parent.height - 48px) / 2 - 2px;
+        x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call && !root.open: CallBubble { x: 12px + 48px + 3px - self.width; y: (parent.height - 48px) / 2 - 3px; }
+    if root.call && !root.open: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     if root.badge != "" && !root.open: Rectangle {
-        x: 12px + 48px + 4px - self.width; y: (parent.height + 48px) / 2 + 4px - self.height;
+        x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
         background: Theme.rail;
         Rectangle {
@@ -423,7 +429,7 @@ export component ChannelRow inherits Rectangle {
     callback context-menu(length, length);
     property <bool> in-voice: root.voice-channel != "";
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
-    height: root.person ? 42px : 34px;
+    height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: 6px;
     background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
@@ -502,7 +508,7 @@ export component ChannelRow inherits Rectangle {
                 VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     Text {
-                        text: root.text; color: root.ink; font-size: 16px; font-weight: root.unread || root.selected ? 700 : 500;
+                        text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: root.unread ? 700 : root.selected && !ClientStyle.enabled ? 700 : 500;
                         vertical-alignment: center; overflow: elide;
                     }
                     // Their voice channel in full when nothing else is said here,
@@ -682,7 +688,7 @@ export component ServerHeader inherits Rectangle {
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: start;
         Text {
-            text: root.name; font-size: 16px; font-weight: 700; color: Theme.text;
+            text: root.name; font-size: ClientStyle.text-size; font-weight: 700; color: Theme.text;
             vertical-alignment: center; overflow: elide;
         }
         Image {
@@ -722,31 +728,37 @@ export component ServerRail inherits Rectangle {
     callback join-server;
     width: 72px; background: Theme.rail;
     VerticalLayout {
-        padding-top: 12px; padding-bottom: 12px; spacing: 8px;
+        padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
-            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: 32px;
+            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: ClientStyle.enabled ? 24px : 32px;
             label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
             tip: "Direct messages";
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
             clicked => { root.navigate-dms(); }
         }
+        if ClientStyle.enabled: Rectangle {
+            height: 2px;
+            Rectangle { width: 32px; height: 2px; border-radius: 1px; background: Theme.line; }
+        }
         // A list view makes only the servers in sight, which
         // matters on accounts in many servers. Unread DMs scroll with them.
         ListView {
             vertical-stretch: 1;
-            for server in root.servers: Rectangle {
-                height: server.divider ? 2px + 8px : 48px + 8px;
-                if server.divider: Rectangle {
+            for server[index] in root.servers: Rectangle {
+                // Home already has a pinned separator. Keep the model's line
+                // only when it separates unread DMs from servers below them.
+                height: server.divider ? (ClientStyle.enabled && index == 0 ? 0px : 2px + 8px) : ClientStyle.rail-tile + 8px;
+                if server.divider && (!ClientStyle.enabled || index > 0): Rectangle {
                     x: (72px - self.width) / 2; y: 0px; width: 32px; height: 2px; border-radius: 1px; background: Theme.line;
                 }
                 // An open folder's servers sit on a strip of its colour,
                 // from its folder down to its last server.
                 if server.open || server.nested: Rectangle {
-                    x: 12px; y: 0px; width: 48px; height: server.last ? 48px : parent.height;
-                    border-top-left-radius: server.open ? 16px : 0px;
+                    x: (72px - ClientStyle.rail-tile) / 2; y: 0px; width: ClientStyle.rail-tile; height: server.last ? ClientStyle.rail-tile : parent.height;
+                    border-top-left-radius: server.open ? (ClientStyle.enabled ? 12px : 16px) : 0px;
                     border-top-right-radius: self.border-top-left-radius;
-                    border-bottom-left-radius: server.last ? 16px : 0px;
+                    border-bottom-left-radius: server.last ? (ClientStyle.enabled ? 12px : 16px) : 0px;
                     border-bottom-right-radius: self.border-bottom-left-radius;
                     background: server.tint.with-alpha(0.16);
                 }
@@ -853,6 +865,8 @@ export component RoomList inherits Rectangle {
     callback open-voice(string);
     /// A voice channel's chat button was clicked: its room id.
     callback open-chat(string);
+    callback open-add-friend;
+    callback open-new-dm;
     callback open-friends;
     callback open-requests;
     /// A Community server's list opens Browse Channels, which is on screen
@@ -948,6 +962,11 @@ export component RoomList inherits Rectangle {
                 open-friends => { root.open-friends(); }
                 open-requests => { root.open-requests(); }
             }
+            if ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
+                discord-linked: root.discord-linked;
+                add-friend => { root.open-add-friend(); }
+                new-message => { root.open-new-dm(); }
+            }
             if root.browse-offered: BrowseLink {
                 browsing: root.browsing;
                 open-browse => { root.open-browse(); }
@@ -965,6 +984,11 @@ export component RoomList inherits Rectangle {
                     friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                     open-friends => { root.open-friends(); }
                     open-requests => { root.open-requests(); }
+                }
+                if index == 0 && ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
+                    discord-linked: root.discord-linked;
+                    add-friend => { root.open-add-friend(); }
+                    new-message => { root.open-new-dm(); }
                 }
                 if index == 0 && root.browse-offered: BrowseLink {
                     browsing: root.browsing;
@@ -1201,7 +1225,7 @@ export component RoomList inherits Rectangle {
     // What's dragged follows the pointer, faint, as a browser draws it.
     if root.arranging > 0: Rectangle {
         x: 8px; y: root.drag-y - root.absolute-position.y - root.grab-y;
-        width: root.width - 16px; height: root.dragged-category ? 36px : 34px;
+        width: root.width - 16px; height: root.dragged-category ? 36px : (root.dragged-row.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height);
         border-radius: root.dragged-category ? 4px : 6px;
         background: Theme.active; opacity: 0.6;
         if root.dragged-category: HorizontalLayout {

@@ -1,3 +1,4 @@
+import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover, MenuItem, TextField } from "controls.slint";
@@ -1722,7 +1723,7 @@ export component MessageContent inherits VerticalLayout {
             }
         }
         VerticalLayout {
-            spacing: 3px; horizontal-stretch: 1;
+            spacing: ClientStyle.message-gap; horizontal-stretch: 1;
             // Clicking the quote jumps to the message it quotes.
             if message.has-reply: Rectangle {
                 height: 22px;
@@ -1771,7 +1772,7 @@ export component MessageContent inherits VerticalLayout {
                     }
                 }
                 if message.bot: Middle { BotTag { } }
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - 3px; max-lines: 1; vertical-alignment: center; }
+                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.

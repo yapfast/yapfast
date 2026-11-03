@@ -1,3 +1,4 @@
+import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label } from "theme.slint";
 import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField } from "controls.slint";
@@ -414,22 +415,23 @@ export component ProfileCard inherits Rectangle {
     callback open-friend(string, length, length, length, length);
     /// Enter in the card's message box, with what it held.
     callback send-message(string);
-    property <length> banner-height: root.large ? 210px : root.docked ? 120px : 105px;
+    property <length> banner-height: root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
     property <length> avatar-size: root.large ? 120px : 80px;
     property <length> pad: root.large ? 24px : 16px;
     height: min(body.preferred-height, root.limit);
-    background: Theme.sidebar;
-    border-radius: root.docked ? 0px : 12px; border-width: root.docked ? 0px : 1px; border-color: Theme.edge;
+    background: root.docked && ClientStyle.enabled ? Theme.panel : Theme.sidebar;
+    border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; border-width: root.docked ? 0px : 1px; border-color: Theme.edge;
     drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s profile";
     // Clicks on the card stay on it, instead of closing it.
     TouchArea { }
     Rectangle {
-        border-radius: root.docked ? 0px : 12px; clip: true;
+        border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; clip: true;
         // Sized by what the card wants rather than the least it can take, so a
         // long one scrolls to its end.
         ScrollView {
+            y: 0px; height: parent.height - (root.docked && ClientStyle.enabled ? 52px : 0px);
             content-height: body.preferred-height;
             body := VerticalLayout {
                 padding-bottom: root.pad; spacing: 0px;
@@ -446,11 +448,11 @@ export component ProfileCard inherits Rectangle {
                     Rectangle {
                         x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
                         width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
-                        background: Theme.sidebar;
+                        background: root.docked && ClientStyle.enabled ? Theme.panel : Theme.sidebar;
                         Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; }
                         if root.data.presence != "" && root.data.presence != "offline": StatusDot {
                             x: parent.width - self.width - (root.large ? 14px : 10px); y: parent.height - self.height - (root.large ? 14px : 10px);
-                            presence: root.data.presence; ring: Theme.sidebar;
+                            presence: root.data.presence; ring: root.docked && ClientStyle.enabled ? Theme.panel : Theme.sidebar;
                         }
                         // The picture opens the full profile.
                         if !root.large && !root.preview: TouchArea {
@@ -591,6 +593,10 @@ export component ProfileCard inherits Rectangle {
     if root.large: Rectangle {
         x: parent.width - 44px; y: 10px; width: 34px; height: 34px; border-radius: 17px; background: #00000080;
         IconButton { icon: @image-url("icons/x.svg"); label: "Close profile"; tint: #ffffff; clicked => { root.close(); } }
+    }
+    if root.docked && ClientStyle.enabled: Rectangle {
+        x: 16px; y: parent.height - 48px; width: parent.width - 32px; height: 36px;
+        ActionButton { width: parent.width; text: "View Full Profile"; clicked => { root.enlarge(); } }
     }
 }
 
