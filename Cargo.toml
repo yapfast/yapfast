@@ -48,12 +48,11 @@ yapfast-core = { path = "crates/yapfast-core", default-features = false }
 yapfast-ui = { path = "crates/yapfast-ui", optional = true }
 # Opens links clicked in messages in the default browser.
 webbrowser = { version = "1", optional = true }
-# Files and pictures pasted into the composer, and pictures copied from
-# messages. Slint already carries arboard for text.
+# Pictures copied from messages. Slint already carries arboard for text.
 arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"], optional = true }
-# Saves pictures pasted as pixels to PNG files to attach, and reads pictures
-# copied from messages.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"], optional = true }
+# Saves pictures pasted as pixels to PNG files to attach, after decoding the
+# bitmaps Windows pastes, and reads pictures copied from messages.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }
 tempfile = { workspace = true, optional = true }
 tracing.workspace = true
 # The code the Discord phone app scans to link an account.
@@ -76,15 +75,17 @@ wayland-protocols = { version = "0.32.13", features = ["client", "staging"], opt
 ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"], optional = true }
 # The push-to-talk key in any app: the GlobalShortcuts portal's signals as a
 # stream, XInput 2's raw key events on X11, and keysym names for the portal's
-# trigger. All three are already in the tree, through zbus and winit.
+# trigger. All three are already in the tree, through zbus and winit. x11rb
+# also reads the X11 clipboard for a paste.
 futures-util = { workspace = true, optional = true }
 x11rb = { version = "0.13.2", default-features = false, features = ["xinput"], optional = true }
 xkeysym = { version = "0.2.1", optional = true }
 
-# The tray icon, giving memory back while the window is closed, and the event a
-# later start sets to show the window. Already in the tree through winit.
+# The tray icon, giving memory back while the window is closed, the event a
+# later start sets to show the window, and the clipboard's files and pictures
+# for a paste. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
 # The GPU setting draws through Direct3D 12 on Windows: NVIDIA's OpenGL driver
 # spins a core while it waits for the screen. See src/graphics.rs.
 i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional = true }

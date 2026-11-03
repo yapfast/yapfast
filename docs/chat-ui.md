@@ -186,11 +186,20 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   X to take each out, until the message is sent; text can be typed beside
   them, and the message may be the files alone. A message carries up to ten
   files. Each must fit the conversation's limit, and a file that doesn't is
-  refused with its size and the limit. On Wayland the clipboard is read
-  through the data-control protocol, so a picture keeps its copied bytes and a
-  GIF stays animated; elsewhere arboard reads it, and pixels are saved as PNG.
-  Pasted pictures are saved as `image.png` in a temporary folder removed when
-  Yapfast closes. Text on the clipboard pastes as text. A right click in the
+  refused with its size and the limit. A pasted picture keeps the bytes it
+  was copied as, PNG, GIF, WebP or JPEG in that order of preference, so a GIF
+  stays animated. Wayland's clipboard is read through the data-control
+  protocol, and X11's by asking the CLIPBOARD selection's owner, taking large
+  pictures in parts (INCR). Windows apps offer a picture under a name they
+  register, "PNG", "GIF", "JFIF" or the MIME type, which Yapfast takes when
+  the bytes are of that type; one copied only as a bitmap (`CF_DIB` or
+  `CF_DIBV5`, whichever the app put) is decoded by Yapfast and saved as PNG,
+  keeping alpha in a 32-bit bitmap's fourth byte as Chromium writes it, and
+  opaque when that byte is zero throughout. On X11 and Windows, text on the
+  clipboard wins over a picture beside it, since office suites put a picture
+  of the cells or text they copy there too. Pasted pictures are saved as
+  `image.<extension>` in a temporary folder removed when Yapfast closes. Text
+  on the clipboard pastes as text. A right click in the
   composer opens Discord's menu for the field, without its spelling
   suggestions: Cut and Copy while text is selected, Paste, which pastes as
   Ctrl+V does, and Select All, which Discord's lacks. A thread's composer
