@@ -638,9 +638,11 @@ impl Assembler {
             Codec::H265 => self.h265(packet.payload),
             Codec::Av1 => self.av1(packet.payload),
         }
-        // Packets that never end their frame would grow it without end.
-        if self.frame.len() > MAX_FRAME {
+        // Packets that never end their frame would grow it without end, as
+        // would AV1 packets whose element always carries on.
+        if self.frame.len() + self.obu.len() > MAX_FRAME {
             self.frame = Vec::new();
+            self.obu = Vec::new();
             self.damaged = true;
         }
         if !packet.marker {
@@ -1774,6 +1776,29 @@ mod tests {
             .last()
             .unwrap();
         assert_eq!(last.frame.map(|frame| frame.data), Some(keyframe));
+    }
+
+    /// An AV1 element that carries on in every packet, never reaching the
+    /// frame, is held to the same limit.
+    #[test]
+    fn drops_an_av1_element_that_never_ends() {
+        let mut assembler = Assembler::new(Codec::Av1);
+        let mut payload = vec![0x50, 0x32];
+        payload.resize(CHUNK, 7);
+        for sequence in 0..(2 * MAX_FRAME / CHUNK) as u16 {
+            assembler.push(&Packet {
+                payload_type: AV1,
+                marker: false,
+                sequence,
+                timestamp: 3000,
+                ssrc: 5,
+                payload: &payload,
+            });
+            // W=1, Z and Y: the one element continues the last packet's
+            // and carries on in the next.
+            payload[..2].copy_from_slice(&[0xd0, 7]);
+        }
+        assert!(assembler.obu.len() <= MAX_FRAME);
     }
 
     #[test]
