@@ -54,7 +54,8 @@ pub fn max_bitrate(height: u32) -> u32 {
 const SOUNDSHARE: u8 = 2;
 
 /// The codec every Yapfast sender can stream in, as every other Go Live
-/// sender known to work does. A GPU that encodes H265 offers that first.
+/// sender known to work does. A GPU that encodes AV1 or H265 offers those
+/// first.
 pub const SEND_CODEC: Codec = Codec::H264;
 
 /// One encoded frame to send, in `codec`, with its time in the 90 kHz clock.
@@ -396,7 +397,7 @@ fn send_codecs(offers: &[Codec], withdrawn: &[Codec]) -> Value {
         .iter()
         .map(|&codec| (codec, true))
         .chain(withdrawn.iter().map(|&codec| (codec, false)));
-    codecs(video.map(|(codec, encode)| (codec, encode, codec != Codec::H265)))
+    codecs(video.map(|(codec, encode)| (codec, encode, matches!(codec, Codec::Vp8 | Codec::H264))))
 }
 
 /// Select protocol's codecs for a viewer: Opus, then each of `decodes` by
@@ -547,7 +548,7 @@ async fn send(
                 };
                 sent.frames += 1;
                 sent.keyframes += u32::from(frame.keyframe);
-                for (index, mut packet) in packetizer.packets(&payload, frame.timestamp).into_iter().enumerate() {
+                for (index, mut packet) in packetizer.packets(&payload, frame.timestamp, frame.keyframe).into_iter().enumerate() {
                     if index >= BURST && index % PACE == 0 {
                         tokio::time::sleep(Duration::from_millis(1)).await;
                     }

@@ -255,6 +255,50 @@ fn recording(codec: Codec) -> Vec<Vec<u8>> {
             }
             frames
         }
+        // OBUs, split into temporal units at their delimiters, as Yapfast
+        // reassembles them: without the delimiter, each OBU giving its size
+        // but the last, as DAVE leaves it.
+        Codec::Av1 => {
+            let file = std::fs::read(fixtures.join("stream-av1.obu")).unwrap();
+            let mut frames: Vec<Vec<u8>> = vec![];
+            let mut at = 0;
+            while at < file.len() {
+                // Each OBU gives its size, which fits in one LEB128 byte or two.
+                let (size, used) = match file[at + 1] {
+                    low if low & 0x80 == 0 => (usize::from(low), 1),
+                    low => (usize::from(low & 0x7f) | usize::from(file[at + 2]) << 7, 2),
+                };
+                let end = at + 1 + used + size;
+                if file[at] >> 3 & 0x0f == 2 {
+                    frames.push(vec![]);
+                }
+                frames.last_mut().unwrap().extend_from_slice(&file[at..end]);
+                at = end;
+            }
+            frames
+                .iter()
+                .map(|unit| {
+                    let elements = yapfast_discord::rtp::obu_elements(unit).unwrap();
+                    let mut frame = vec![];
+                    for (index, element) in elements.iter().enumerate() {
+                        if index + 1 == elements.len() {
+                            frame.extend_from_slice(element);
+                            break;
+                        }
+                        // libaom's OBUs have no extension byte, and sizes
+                        // up to 16383 take two LEB128 bytes at most.
+                        let size = element.len() - 1;
+                        frame.push(element[0] | 0x02);
+                        match size {
+                            ..128 => frame.push(size as u8),
+                            _ => frame.extend_from_slice(&[size as u8 | 0x80, (size >> 7) as u8]),
+                        }
+                        frame.extend_from_slice(&element[1..]);
+                    }
+                    frame
+                })
+                .collect()
+        }
         // Annex B, split at access unit delimiters, which aren't sent; each
         // unit gets a four-byte start code.
         Codec::H264 | Codec::H265 => {
@@ -318,17 +362,17 @@ fn watch_frames(
     frames
 }
 
-/// Offers H265 first, as a GPU encoder lets Yapfast: Discord chooses it,
-/// and when a viewer whose client decodes only H264 and VP8 starts
-/// watching, it switches the stream to H264 with op 14, and Yapfast asks
-/// for a keyframe to send in it.
-async fn streams_h265_until_a_viewer_cant_decode_it(
+/// Offers `gpu`, AV1 or H265, first, as a GPU encoder lets Yapfast:
+/// Discord chooses it, and when a viewer whose client decodes only H264 and
+/// VP8 starts watching, it switches the stream to H264 with op 14, and
+/// Yapfast asks for a keyframe to send in it.
+async fn streams_gpu_codec_until_a_viewer_cant_decode_it(
     discord: &Discord,
     server: &str,
     mine: &yapfast_discord::stream::StreamServer,
+    gpu: Codec,
 ) {
-    let sender =
-        StreamSender::start(mine.clone(), 320, 180, 30, vec![Codec::H265, SEND_CODEC]).unwrap();
+    let sender = StreamSender::start(mine.clone(), 320, 180, 30, vec![gpu, SEND_CODEC]).unwrap();
     let chosen = |codec| {
         let sender = &sender;
         timeout(WAIT, async move {
@@ -337,7 +381,7 @@ async fn streams_h265_until_a_viewer_cant_decode_it(
             }
         })
     };
-    chosen(Codec::H265).await.expect("Discord chose H265");
+    chosen(gpu).await.expect("Discord chose the GPU's codec");
     assert!(sender.take_keyframe_request());
     let send = |codec, from: usize| {
         for (index, data) in recording(codec).into_iter().take(3).enumerate() {
@@ -372,7 +416,7 @@ async fn streams_h265_until_a_viewer_cant_decode_it(
         .await
         .unwrap_or_else(|_| panic!("the fake didn't get {frames} frames"))
     };
-    send(Codec::H265, 0);
+    send(gpu, 0);
     let video = received(3).await;
     assert_eq!(
         (
@@ -382,12 +426,12 @@ async fn streams_h265_until_a_viewer_cant_decode_it(
             &video["height"]
         ),
         (
-            &serde_json::json!("H265"),
+            &serde_json::json!(gpu.name()),
             &serde_json::json!(1),
             &serde_json::json!(320),
             &serde_json::json!(180)
         ),
-        "the conformance window crops the coded 184 lines"
+        "H265's conformance window crops the coded 184 lines"
     );
 
     post_control(
@@ -397,8 +441,8 @@ async fn streams_h265_until_a_viewer_cant_decode_it(
     );
     chosen(Codec::H264).await.expect("Discord switched to H264");
     assert!(sender.take_keyframe_request(), "the new codec starts whole");
-    // Frames still in H265 are dropped rather than sent as H264.
-    send(Codec::H265, 3);
+    // Frames still in the GPU's codec are dropped rather than sent as H264.
+    send(gpu, 3);
     send(Codec::H264, 6);
     let video = received(6).await;
     assert_eq!(
@@ -414,7 +458,246 @@ async fn streams_h265_until_a_viewer_cant_decode_it(
         )
     );
     post_control(server, "/_control/stream-viewer?user=bob&stop", "");
-    chosen(Codec::H265).await.expect("back to H265 without him");
+    chosen(gpu)
+        .await
+        .expect("back to the GPU's codec without him");
+}
+
+async fn wait_for_stream_video(
+    discord: &Discord,
+    server: &str,
+    stream_key: &str,
+    mut ready: impl FnMut(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+    timeout(WAIT, async {
+        loop {
+            let body = discord
+                .download(&format!("{server}/_control/video"), 1 << 16)
+                .await
+                .unwrap();
+            let streams: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let last = streams["received"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .rfind(|found| found["stream"] == stream_key)
+                .cloned();
+            if let Some(found) = last
+                && ready(&found)
+            {
+                return found;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the fake didn't receive the expected frames for {stream_key}"))
+}
+
+async fn send_recording(sender: &StreamSender, codec: Codec, from: usize, count: usize) {
+    let frames = recording(codec);
+    assert!(
+        frames.len() >= count,
+        "not enough {codec:?} recording frames"
+    );
+    for (index, data) in frames.into_iter().take(count).enumerate() {
+        sender.send(Frame {
+            data,
+            codec,
+            timestamp: (from + index) as u32 * 3000,
+            keyframe: index == 0,
+        });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+}
+
+/// Offers the AV1, H265 and H264 encoders in priority order. The fake picks
+/// AV1, then H265 for an AV1-incompatible viewer, then AV1 again. Withdrawing
+/// AV1 and H265 in turn leaves H264 sending usable frames.
+async fn streams_av1_with_viewer_fallback_and_encoder_withdrawal(
+    discord: &Discord,
+    server: &str,
+    mine: &yapfast_discord::stream::StreamServer,
+) {
+    let sender = StreamSender::start(
+        mine.clone(),
+        320,
+        180,
+        30,
+        vec![Codec::Av1, Codec::H265, Codec::H264],
+    )
+    .unwrap();
+    let chosen = |codec| {
+        let sender = &sender;
+        timeout(WAIT, async move {
+            while sender.codec() != Some(codec) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+    };
+    chosen(Codec::Av1).await.expect("Discord chose AV1");
+    assert!(sender.take_keyframe_request());
+    let initial = wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["codec"] == "AV1"
+    })
+    .await;
+    let offers = initial["offers"].as_array().unwrap();
+    assert_eq!(
+        offers
+            .iter()
+            .map(|offer| offer["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["AV1", "H265", "H264"]
+    );
+    assert_eq!(
+        offers
+            .iter()
+            .map(|offer| offer["payloadType"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![107, 103, 101]
+    );
+    assert!(offers.iter().all(|offer| offer["encode"] == true));
+    assert_eq!(initial["payloadType"], 107);
+
+    send_recording(&sender, Codec::Av1, 0, 3).await;
+    let first_av1 = wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["av1Frames"] == 3 && video["retransmitted"].as_u64().unwrap_or(0) >= 1
+    })
+    .await;
+    assert_eq!(first_av1["codec"], "AV1");
+    assert_eq!(first_av1["payloadType"], 107);
+    assert_eq!(first_av1["frames"], 3);
+    assert_eq!(first_av1["av1Frames"], 3);
+    assert_eq!(first_av1["av1Markers"], 3);
+    assert_eq!(first_av1["av1MalformedPackets"], 0);
+    assert_eq!(
+        first_av1["av1Packets"], first_av1["av1ValidPackets"],
+        "every AV1 RTP payload passed the fake's aggregation/OBU checks"
+    );
+    assert!(first_av1["av1FragmentedPackets"].as_u64().unwrap() > 0);
+    assert!(first_av1["av1Obus"].as_u64().unwrap() > 0);
+    assert_eq!(first_av1["lastRtxPayloadType"], 108);
+    assert_eq!(first_av1["badRetransmissions"], 0);
+    assert_eq!(first_av1["undecryptable"], 0);
+    assert_eq!(first_av1["unattached"], 0);
+    let av1_packets = first_av1["av1Packets"].as_u64().unwrap();
+
+    post_control(
+        server,
+        "/_control/stream-viewer?user=bob&decodes=h265,h264",
+        "",
+    );
+    chosen(Codec::H265)
+        .await
+        .expect("Discord switched to H265 for the incompatible viewer");
+    assert!(
+        sender.take_keyframe_request(),
+        "the fallback codec starts with a keyframe"
+    );
+    send_recording(&sender, Codec::Av1, 3, 1).await;
+    send_recording(&sender, Codec::H265, 3, 3).await;
+    let h265 = wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["codec"] == "H265" && video["frames"] == 6
+    })
+    .await;
+    assert_eq!(h265["payloadType"], 103);
+    assert_eq!(h265["av1Packets"].as_u64().unwrap(), av1_packets);
+    assert_eq!(h265["av1MalformedPackets"], 0);
+    assert_eq!(
+        h265["undecryptable"], 0,
+        "the AV1 frame was dropped while H265 was chosen"
+    );
+
+    post_control(server, "/_control/stream-viewer?user=bob&stop", "");
+    chosen(Codec::Av1)
+        .await
+        .expect("Discord returned to AV1 after the viewer left");
+    assert!(
+        sender.take_keyframe_request(),
+        "AV1 resumes with a keyframe"
+    );
+    send_recording(&sender, Codec::Av1, 6, 3).await;
+    let av1_again = wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["codec"] == "AV1" && video["av1Frames"] == 6
+    })
+    .await;
+    assert_eq!(av1_again["payloadType"], 107);
+    assert_eq!(av1_again["frames"], 9);
+    assert_eq!(av1_again["av1Markers"], 6);
+    assert_eq!(av1_again["av1MalformedPackets"], 0);
+    assert_eq!(
+        av1_again["av1Packets"], av1_again["av1ValidPackets"],
+        "both AV1 bursts passed RTP/OBU validation"
+    );
+    assert_eq!(av1_again["av1Packets"].as_u64().unwrap(), av1_packets * 2);
+    assert!(av1_again["av1FragmentedPackets"].as_u64().unwrap() > 0);
+    assert_eq!(av1_again["badRetransmissions"], 0);
+
+    sender.withdraw(Codec::Av1);
+    // The next frame carries the offer update and is dropped until Discord
+    // acknowledges the new codec.
+    send_recording(&sender, Codec::H265, 9, 1).await;
+    wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["codec"] == "H265"
+    })
+    .await;
+    timeout(WAIT, async {
+        while !sender.take_keyframe_request() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the renegotiated H265 stream requests a keyframe");
+    send_recording(&sender, Codec::H265, 9, 3).await;
+    let h265_after_withdrawal = wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["codec"] == "H265" && video["frames"] == 12
+    })
+    .await;
+    assert_eq!(h265_after_withdrawal["payloadType"], 103);
+    assert_eq!(
+        h265_after_withdrawal["offers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|offer| offer["encode"] == true)
+            .map(|offer| offer["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["H265", "H264"]
+    );
+
+    sender.withdraw(Codec::H265);
+    send_recording(&sender, Codec::H264, 12, 1).await;
+    wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["codec"] == "H264"
+    })
+    .await;
+    timeout(WAIT, async {
+        while !sender.take_keyframe_request() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the renegotiated H264 stream requests a keyframe");
+    send_recording(&sender, Codec::H264, 12, 3).await;
+    let h264 = wait_for_stream_video(discord, server, &mine.stream_key, |video| {
+        video["codec"] == "H264" && video["frames"] == 15
+    })
+    .await;
+    assert_eq!(h264["payloadType"], 101);
+    let encodable: Vec<_> = h264["offers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|offer| offer["encode"] == true)
+        .map(|offer| offer["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(encodable, vec!["H264"]);
+    assert_eq!(
+        h264["keyframes"].as_u64().unwrap(),
+        h265_after_withdrawal["keyframes"].as_u64().unwrap() + 1
+    );
+    assert_eq!(h264["undecryptable"], 0);
+    assert_eq!(h264["unattached"], 0);
 }
 
 /// Tells the fake which codec Bob streams in.
@@ -2349,16 +2632,18 @@ async fn calls_and_goes_live() {
     assert!(!watched.session_id.is_empty() && !watched.endpoint.is_empty());
 
     // Bob's video arrives whole: the recording's frames, in order, from the
-    // first keyframe, in VP8, in H264, and in H265 to a viewer that decodes
-    // it, while one that doesn't gets H264, though the fake loses one packet
-    // on the way and delivers another late each time.
+    // first keyframe, in VP8, in H264, and in H265 or AV1 to a viewer that
+    // decodes it, while one that doesn't gets H264, though the fake loses
+    // one packet on the way and delivers another late each time.
     let older = vec![Codec::H264, Codec::Vp8];
-    let all = vec![Codec::H265, Codec::H264, Codec::Vp8];
+    let all = vec![Codec::Av1, Codec::H265, Codec::H264, Codec::Vp8];
     for (codec, name, decodes) in [
         (Codec::Vp8, "vp8", older.clone()),
         (Codec::H264, "h264", older.clone()),
-        (Codec::H265, "h265", all),
-        (Codec::H264, "h265", older),
+        (Codec::H265, "h265", all.clone()),
+        (Codec::H264, "h265", older.clone()),
+        (Codec::Av1, "av1", all),
+        (Codec::H264, "av1", older),
     ] {
         stream_codec(server, name);
         let watched = watched.clone();
@@ -2379,7 +2664,7 @@ async fn calls_and_goes_live() {
     let repairs = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["repairs"].clone();
     assert_eq!(
         (repairs["dropped"].as_u64(), repairs["reordered"].as_u64()),
-        (Some(4), Some(4))
+        (Some(6), Some(6))
     );
     assert!(
         repairs["nacks"].as_u64() >= Some(2) && repairs["resent"].as_u64() >= Some(2),
@@ -2558,8 +2843,11 @@ async fn calls_and_goes_live() {
     assert!(sent.video_bytes > 1000, "{sent:?}");
     assert_eq!(sent.resent, 1);
     drop(sender);
-    streams_h265_until_a_viewer_cant_decode_it(&discord, server, &mine).await;
+    for codec in [Codec::Av1, Codec::H265] {
+        streams_gpu_codec_until_a_viewer_cant_decode_it(&discord, server, &mine, codec).await;
+    }
 
+    streams_av1_with_viewer_fallback_and_encoder_withdrawal(&discord, server, &mine).await;
     discord.pause_stream(&mine.stream_key, true);
     live_where(&mut live, |event| match event {
         Live::StreamUpdated {

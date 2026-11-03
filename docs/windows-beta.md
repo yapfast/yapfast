@@ -121,15 +121,18 @@ logs why, as it does on Linux without a PulseAudio server.
 The stream's H264 goes to NVIDIA's NVENC, then AMD's AMF, through FFmpeg in
 `crates/yapfast-core/native/hwenc.c`, while "Encode streams with the GPU" is
 on, and to x264 when neither opens or the setting is off. Intel graphics
-encode with x264 on Windows. The camera always uses x264. AMF has never run
-on AMD hardware. [Encoding on the GPU](discord/go-live.md#encoding-on-the-gpu) has
+encode with x264 on Windows. Where the card encodes AV1 or H265, the stream
+offers those first, in the same way. The camera always uses x264. AMF has
+run on AMD hardware only in a test of `native/hwenc.c` on its own, on an
+RX 7900 XTX. [Encoding on the GPU](discord/go-live.md#encoding-on-the-gpu) has
 the rest.
 
 Real Windows needs checking for: the window list's contents and titles,
 sharing a window that's minimized, moved to another screen or closed while
 shared, screens on mixed-DPI setups, Windows Graphics Capture's yellow
 border, process loopback hearing other applications and leaving out Yapfast's
-own voices, AMF on an AMD card, and the worker's start-up time from a
+own voices, AMF on an AMD card in a whole Yapfast (AV1 on an RX 7000 or
+newer), and the worker's start-up time from a
 packaged build.
 
 ## Cameras on Windows
