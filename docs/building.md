@@ -469,6 +469,9 @@ the repository to `/home`, `/cargo` and `/yapfast` with `--remap-path-prefix`
 and Clang's `-ffile-prefix-map`. On Windows it takes `cargo xwin env`'s
 environment and adds the C flags to it, since `cargo xwin build` sets the
 `CFLAGS_<target>` the `cc` crate reads first; `scripts/build-windows` uses it.
+It also gives bindgen the real target: thorvg-sys's build script passes
+`--target=x86_64-none-elf` on every cross build, which can't read the MSVC
+headers.
 `scripts/package-windows.py` refuses an executable holding the home folder's
 path in UTF-8 or UTF-16. A Linux build from the dev shell needs the same, and
 its linker also writes a RUNPATH of `$PWD/outputs/out/lib` and Nix store
