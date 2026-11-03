@@ -5,13 +5,15 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
+from pathlib import Path
+
 native_target = os.environ.get('YAPFAST_SKIA_TARGET', 'linux')
 pins = {
     'linux': ('x86_64-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout',
@@ -33,11 +35,17 @@ stamp_path = target / 'yapfast-skia-native.json'
 script_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 objcopy = os.environ.get('YAPFAST_SKIA_OBJCOPY') or shutil.which('llvm-objcopy')
 if not objcopy:
-    raise SystemExit('Needs LLVM 21 objcopy, from the development shell or YAPFAST_SKIA_OBJCOPY')
+    raise SystemExit('Needs LLVM 21 or later objcopy, from the development shell or YAPFAST_SKIA_OBJCOPY')
 objcopy_version = subprocess.check_output([objcopy, '--version'], text=True).strip()
-# Nix pins 21.1.7; a distribution's package may be a later 21.x, which the
-# checks below hold to the same result: only the one symbol renamed.
-if 'LLVM version 21.' not in objcopy_version:
+# Nix pins 21.1.7, but a native host's LLVM is often newer; the checks for the
+# symbols and sections below, not the version string, are what keep the
+# rename to Skia's one JPEG table.
+version = re.search(r'LLVM version ([0-9]+)', objcopy_version)
+try:
+    objcopy_major = int(version.group(1)) if version else 0
+except ValueError:
+    objcopy_major = 0
+if objcopy_major < 21:
     raise SystemExit('Unexpected objcopy version: ' + objcopy_version)
 stamp = {
     'tag': '0.153.3', 'key': key, 'upstream_sha256': source_sha256,
@@ -45,7 +53,11 @@ stamp = {
     'rename': {old_symbol: new_symbol},
 }
 if stamp_path.is_file() and archive_path.is_file() and upstream_path.is_file():
-    previous = json.loads(stamp_path.read_text())
+    # A stamp an interrupted run left is no stamp: build it again.
+    try:
+        previous = json.loads(stamp_path.read_text())
+    except (OSError, ValueError):
+        previous = {}
     if (all(previous.get(k) == v for k, v in stamp.items())
         and hashlib.sha256(archive_path.read_bytes()).hexdigest() == previous.get('private_archive_sha256')
         and hashlib.sha256(upstream_path.read_bytes()).hexdigest() == source_sha256):
@@ -177,18 +189,20 @@ with tempfile.TemporaryDirectory(prefix='skia-native-prepare-', dir=target.paren
         hashes[library.name]['private_sha256'] = hashlib.sha256(library.read_bytes()).hexdigest()
     prepared = temporary / package
     # Deterministic tar/gzip metadata keeps the private archive reproducible.
-    with prepared.open('wb') as output:
-        with gzip.GzipFile(filename='', mode='wb', fileobj=output, mtime=0) as compressed:
-            with tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive:
-                for path in [native_root] + sorted(native_root.rglob('*')):
-                    info = archive.gettarinfo(str(path), str(path.relative_to(temporary)))
-                    info.uid = info.gid = info.mtime = 0
-                    info.uname = info.gname = ''
-                    if path.is_file():
-                        with path.open('rb') as content:
-                            archive.addfile(info, content)
-                    else:
-                        archive.addfile(info)
+    with (
+        prepared.open('wb') as output,
+        gzip.GzipFile(filename='', mode='wb', fileobj=output, mtime=0) as compressed,
+        tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive,
+    ):
+        for path in [native_root] + sorted(native_root.rglob('*')):
+            info = archive.gettarinfo(str(path), str(path.relative_to(temporary)))
+            info.uid = info.gid = info.mtime = 0
+            info.uname = info.gname = ''
+            if path.is_file():
+                with path.open('rb') as content:
+                    archive.addfile(info, content)
+            else:
+                archive.addfile(info)
     stamp.update({'libraries': hashes, 'renamed_references': len(references), 'private_archive_sha256': hashlib.sha256(prepared.read_bytes()).hexdigest()})
     target.mkdir(parents=True, exist_ok=True)
     upstream_path.parent.mkdir(parents=True, exist_ok=True)

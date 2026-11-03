@@ -8,6 +8,7 @@ use yapfast_core::chat::Alert;
 #[derive(Clone, Copy)]
 pub struct Style {
     /// Say what the message says, rather than only who wrote.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub text: bool,
 }
 
@@ -50,6 +51,7 @@ impl Notifier {
 
 /// The body of a notification: the message, or for privacy only that there is one.
 /// A call's says only that it's ringing.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn body(alert: &Alert, style: Style) -> String {
     if style.text || alert.call {
         alert.body.clone()

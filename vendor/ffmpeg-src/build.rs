@@ -48,6 +48,7 @@ fn main() {
     println!("cargo:encoders=1");
 
     let mut build = cc::Build::new();
+    use_clang_cl(&mut build);
     build
         .includes(&folders)
         .files(sources.lines().map(|file| root.join(file)))
@@ -100,6 +101,78 @@ fn main() {
         println!("cargo:rustc-link-lib={library}");
     }
     cc::Build::new().objects(objects).compile("yapfast_ffmpeg");
+}
+
+// FFmpeg's configured MSVC build uses GNU inline assembly in x86 code, which
+// cl.exe cannot compile. Switch only cc's own MSVC default; a person's
+// choice wins.
+fn use_clang_cl(build: &mut cc::Build) {
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") || has_explicit_compiler() {
+        return;
+    }
+    if build.get_compiler().is_like_clang() {
+        return;
+    }
+    let clang_cl = find_clang_cl().unwrap_or_else(|| {
+        panic!(
+            "this MSVC FFmpeg build needs clang-cl; install LLVM for Windows and add its bin directory to PATH, or install Visual Studio's C++ Clang tools for Windows component"
+        )
+    });
+    build.compiler(clang_cl);
+}
+
+fn has_explicit_compiler() -> bool {
+    if env::var_os("CC").is_some() || env::var_os("CXX").is_some() {
+        return true;
+    }
+    let Ok(target) = env::var("TARGET") else {
+        return false;
+    };
+    let underscored_target = target.replace('-', "_");
+    ["CC", "CXX"].iter().any(|variable| {
+        env::var_os(format!("{variable}_{target}")).is_some()
+            || env::var_os(format!("{variable}_{underscored_target}")).is_some()
+    })
+}
+
+fn find_clang_cl() -> Option<PathBuf> {
+    env::var_os("PATH")
+        .and_then(|path| {
+            env::split_paths(&path)
+                .map(|folder| folder.join("clang-cl.exe"))
+                .find(|path| path.is_file())
+        })
+        .or_else(|| {
+            env::var_os("VCINSTALLDIR")
+                .map(|vc| PathBuf::from(vc).join("Tools/Llvm/x64/bin/clang-cl.exe"))
+                .filter(|path| path.is_file())
+        })
+        .or_else(|| {
+            let vswhere = PathBuf::from(env::var_os("ProgramFiles(x86)")?)
+                .join("Microsoft Visual Studio/Installer/vswhere.exe");
+            let output = Command::new(vswhere)
+                .args([
+                    "-latest",
+                    "-products",
+                    "*",
+                    "-find",
+                    r"**\Llvm\**\clang-cl.exe",
+                ])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|line| PathBuf::from(line.trim()))
+                .find(|path| path.is_file())
+        })
+        .or_else(|| {
+            env::var_os("ProgramFiles")
+                .map(|folder| PathBuf::from(folder).join("LLVM/bin/clang-cl.exe"))
+                .filter(|path| path.is_file())
+        })
 }
 
 /// Assembles FFmpeg's assembly as configure's makefiles would, with
