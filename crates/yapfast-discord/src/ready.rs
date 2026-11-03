@@ -1401,14 +1401,28 @@ pub(crate) fn media() -> &'static str {
     client::test_server().unwrap_or("https://media.discordapp.net")
 }
 
+/// Discord's sticker formats besides PNG and APNG: a Lottie animation, which
+/// is JSON, and a GIF.
+pub const STICKER_LOTTIE: u64 = 3;
+pub const STICKER_GIF: u64 = 4;
+
 /// A sticker's picture at the size Discord shows it. Animated GIF stickers come
-/// from the media proxy, the rest from the CDN.
-pub fn sticker(id: &str, gif: bool) -> String {
-    if gif {
-        format!("{}/stickers/{id}.gif?size=160", media())
-    } else {
-        format!("{}/stickers/{id}.png?size=160", cdn())
+/// from the media proxy; Lottie stickers are JSON from the CDN.
+pub fn sticker(id: &str, format: u64) -> String {
+    match format {
+        STICKER_GIF => format!("{}/stickers/{id}.gif?size=160", media()),
+        STICKER_LOTTIE => format!("{}/stickers/{id}.json", cdn()),
+        _ => format!("{}/stickers/{id}.png?size=160", cdn()),
     }
+}
+
+/// Whether `url` is a Lottie sticker's, as [`sticker`] makes them: the only
+/// pictures that decode as Lottie.
+pub fn lottie_sticker(url: &str) -> bool {
+    url.strip_prefix(cdn())
+        .and_then(|path| path.strip_prefix("/stickers/"))
+        .and_then(|file| file.strip_suffix(".json"))
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// A custom emoji's picture, at `size` pixels at most.
@@ -1508,6 +1522,21 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn only_lottie_sticker_addresses_are_lottie() {
+        assert!(lottie_sticker(&sticker("9", STICKER_LOTTIE)));
+        for url in [
+            sticker("9", 1),
+            sticker("9", STICKER_GIF),
+            format!("{}/stickers/.json", cdn()),
+            format!("{}/stickers/9.json?x=1", cdn()),
+            format!("{}/attachments/1/2/9.json", cdn()),
+            "https://example.com/stickers/9.json".into(),
+        ] {
+            assert!(!lottie_sticker(&url), "{url}");
+        }
+    }
 
     #[test]
     fn reads_user_ready_guilds() {

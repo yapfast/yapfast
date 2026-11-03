@@ -256,12 +256,27 @@ pub(super) async fn preview(discord: &Discord, url: &str) -> Option<Arc<Picture>
         .ok()?;
     let url = url.to_owned();
     tokio::task::spawn_blocking(move || {
-        decode_preview(&data).map(|picture| crate::discord::read_kept(&url, picture))
+        decode(
+            &url,
+            &data,
+            (crate::chat::PREVIEW_WIDTH, crate::chat::PREVIEW_HEIGHT),
+        )
     })
     .await
     .ok()
     .flatten()
     .map(Arc::new)
+}
+
+/// A picture downloaded from `url`, decoded to fit `width` by `height`: as
+/// Lottie when `url` is a Lottie sticker's, which nothing else is.
+pub(super) fn decode(url: &str, data: &[u8], (width, height): (u32, u32)) -> Option<Picture> {
+    let picture = if yapfast_discord::ready::lottie_sticker(url) {
+        crate::chat::decode_lottie(data, width, height)
+    } else {
+        crate::chat::decode_picture(data, width, height)
+    };
+    picture.map(|picture| crate::discord::read_kept(url, picture))
 }
 
 /// Messages found in a room, as [`found`] shows them, with the room's server.

@@ -31,9 +31,14 @@ export CARGO_ENCODED_RUSTFLAGS
 yapfast_target_flags=${yapfast_release_target//-/_}
 if [[ "$yapfast_release_target" == *-windows-msvc ]]; then
   eval "$(cargo xwin env --target "$yapfast_release_target")"
+  # thorvg-sys tells bindgen's libclang `--target=x86_64-none-elf` on every
+  # cross build, which can't read the MSVC headers. bindgen adds these
+  # arguments after a build script's, and Clang takes the last target.
+  yapfast_bindgen="BINDGEN_EXTRA_CLANG_ARGS_$yapfast_target_flags"
+  export "$yapfast_bindgen=${!yapfast_bindgen:-} --target=$yapfast_release_target"
 fi
 yapfast_cflags="CFLAGS_$yapfast_target_flags" yapfast_cxxflags="CXXFLAGS_$yapfast_target_flags"
 export "$yapfast_cflags=${!yapfast_cflags:-} ${yapfast_c[*]}"
 export "$yapfast_cxxflags=${!yapfast_cxxflags:-} ${yapfast_c[*]}"
 unset yapfast_release_target yapfast_root yapfast_maps yapfast_rust yapfast_c map \
-  yapfast_target_flags yapfast_cflags yapfast_cxxflags
+  yapfast_target_flags yapfast_cflags yapfast_cxxflags yapfast_bindgen

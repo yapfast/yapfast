@@ -1134,6 +1134,8 @@ enum AnimationFormat {
     WebP,
     #[cfg(feature = "discord")]
     Video,
+    #[cfg(feature = "discord")]
+    Lottie,
 }
 
 impl Picture {
@@ -1148,6 +1150,27 @@ impl Picture {
             return Box::new(std::iter::empty());
         };
         let frames: Box<dyn Iterator<Item = Vec<u8>>> = match animation.format {
+            #[cfg(feature = "discord")]
+            AnimationFormat::Lottie => {
+                let frames = match file {
+                    // The JSON held already, rather than a copy of it.
+                    AnimationReader::Memory(data) => {
+                        crate::lottie::Frames::new(data.get_ref(), width, height)
+                    }
+                    file => {
+                        use std::io::Read;
+                        let mut data = Vec::new();
+                        file.take(crate::lottie::MAX_BYTES as u64 + 1)
+                            .read_to_end(&mut data)
+                            .ok()
+                            .and_then(|_| crate::lottie::Frames::new(&data, width, height))
+                    }
+                };
+                match frames {
+                    Some(frames) => Box::new(frames),
+                    None => Box::new(std::iter::empty()),
+                }
+            }
             #[cfg(feature = "discord")]
             AnimationFormat::Video => crate::video::frames(file, width, height),
             format => match image_frames(file, format) {
@@ -3723,11 +3746,13 @@ pub fn sort_members(members: &mut [ChatMember]) {
 }
 
 /// Decode an image with dimension and allocation limits, then shrink it for the timeline.
+#[cfg(any(feature = "matrix", test))]
 pub(crate) fn decode_preview(data: &[u8]) -> Option<Picture> {
     decode_picture(data, PREVIEW_WIDTH, PREVIEW_HEIGHT)
 }
 
 /// Decode an image for the viewer, shrunk to fit a large window.
+#[cfg(any(feature = "matrix", test))]
 pub(crate) fn decode_view(data: &[u8]) -> Option<Picture> {
     decode_picture(data, VIEW_WIDTH, VIEW_HEIGHT)
 }
@@ -3747,6 +3772,40 @@ pub fn decode_picture_at(file: &std::path::Path, width: u32, height: u32) -> Opt
     // SAFETY: Yapfast's own files, which nothing changes while they're read.
     let data = unsafe { memmap2::Mmap::map(&opened) }.ok()?;
     decode_kept_picture(&data, width, height, Some(file))
+}
+
+/// A Lottie sticker's JSON, decoded as [`decode_picture`] decodes a picture.
+/// Only what [`yapfast_discord::ready::lottie_sticker`] names comes here:
+/// ThorVG's parser never sees pictures from anyone else.
+#[cfg(feature = "discord")]
+pub(crate) fn decode_lottie(data: &[u8], width: u32, height: u32) -> Option<Picture> {
+    decode_kept_lottie(data, width, height, None)
+}
+
+/// [`decode_lottie`] for the JSON in `file`.
+#[cfg(all(test, feature = "discord"))]
+pub(crate) fn decode_lottie_at(file: &std::path::Path, width: u32, height: u32) -> Option<Picture> {
+    decode_kept_lottie(&std::fs::read(file).ok()?, width, height, Some(file))
+}
+
+#[cfg(feature = "discord")]
+fn decode_kept_lottie(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    kept: Option<&std::path::Path>,
+) -> Option<Picture> {
+    let mut frames = crate::lottie::Frames::new(data, width, height)?;
+    Some(Picture {
+        width: frames.width,
+        height: frames.height,
+        rgba: Pixels::new(frames.width, frames.height, frames.next()?),
+        animation: Some(Animation {
+            delays: std::mem::take(&mut frames.delays),
+            file: AnimationFile::of(data, kept),
+            format: AnimationFormat::Lottie,
+        }),
+    })
 }
 
 /// [`decode_picture`], with an animation reading its frames from `kept`
@@ -3834,7 +3893,7 @@ fn frame_delays(data: &[u8], format: AnimationFormat) -> Option<Vec<u32>> {
         AnimationFormat::Png => apng_delays(data)?,
         AnimationFormat::WebP => webp_delays(data)?,
         #[cfg(feature = "discord")]
-        AnimationFormat::Video => return None,
+        AnimationFormat::Video | AnimationFormat::Lottie => return None,
     };
     // Browsers show frames meant for under 20 ms for 100 ms.
     Some(
@@ -3958,7 +4017,7 @@ fn image_frames<'a>(
             Some((size, decoder.into_frames()))
         }
         #[cfg(feature = "discord")]
-        AnimationFormat::Video => None,
+        AnimationFormat::Video | AnimationFormat::Lottie => None,
     }
 }
 
