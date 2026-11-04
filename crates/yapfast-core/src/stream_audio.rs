@@ -61,10 +61,16 @@ struct Input {
 }
 
 impl Input {
+    /// Adds sound to the backlog, keeping only the newest [`BACKLOG`]
+    /// samples: the oldest go first, so a long callback's chunk needs no more
+    /// room than its last [`BACKLOG`] samples ever take.
     fn push(&mut self, samples: impl IntoIterator<Item = f32>) {
-        self.samples.extend(samples);
-        let excess = self.samples.len().saturating_sub(BACKLOG);
-        self.samples.drain(..excess);
+        for sample in samples {
+            if self.samples.len() >= BACKLOG {
+                self.samples.pop_front();
+            }
+            self.samples.push_back(sample);
+        }
     }
 }
 
@@ -498,10 +504,92 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 
+    /// Samples numbered in the order they were played, so what a backlog
+    /// keeps says which ones did.
+    fn counted(count: usize) -> impl Iterator<Item = f32> {
+        (0..count).map(|sample| sample as f32)
+    }
+
     #[test]
     fn keeps_a_bounded_backlog() {
         let mut input = Input::default();
         input.push(std::iter::repeat_n(0.1, BACKLOG * 3));
         assert_eq!(input.samples.len(), BACKLOG);
+    }
+
+    #[test]
+    fn keeps_the_newest_samples_of_a_huge_callback() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG * 3));
+        assert_eq!(input.samples.len(), BACKLOG);
+        assert_eq!(
+            input.samples[0],
+            (BACKLOG * 2) as f32,
+            "the oldest go first"
+        );
+        assert_eq!(input.samples[BACKLOG - 1], (BACKLOG * 3 - 1) as f32);
+        for (older, newer) in input.samples.iter().zip(input.samples.iter().skip(1)) {
+            assert_eq!(newer - older, 1.0, "kept samples stay in the order played");
+        }
+    }
+
+    #[test]
+    fn a_huge_callback_needs_no_more_room_than_the_backlog() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG * 3));
+        let room = input.samples.capacity();
+        assert!(room >= BACKLOG, "room for the backlog it keeps");
+        for scale in [10, 100] {
+            input.push(std::iter::repeat_n(0.0, BACKLOG * scale));
+            assert_eq!(input.samples.len(), BACKLOG);
+            assert_eq!(
+                input.samples.capacity(),
+                room,
+                "a bigger callback reuses the room instead of growing it"
+            );
+        }
+    }
+
+    #[test]
+    fn pushes_that_cross_the_bound_keep_the_newest() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG - 2));
+        assert_eq!(input.samples.len(), BACKLOG - 2);
+        input.push(std::iter::repeat_n(-1.0, 2));
+        assert_eq!(
+            input.samples.len(),
+            BACKLOG,
+            "exactly full, nothing dropped yet"
+        );
+        assert_eq!(input.samples[0], 0.0);
+        input.push(std::iter::repeat_n(-2.0, 3));
+        assert_eq!(input.samples.len(), BACKLOG);
+        assert_eq!(input.samples[0], 3.0, "the three oldest went");
+        assert_eq!(input.samples[BACKLOG - 1], -2.0, "the newest is still last");
+    }
+
+    #[test]
+    fn an_empty_push_changes_nothing() {
+        let mut input = Input::default();
+        input.push(std::iter::empty());
+        assert!(input.samples.is_empty());
+        input.push(counted(PRIMED));
+        input.push(std::iter::empty());
+        assert_eq!(
+            input.samples.len(),
+            PRIMED,
+            "waiting sound is not disturbed"
+        );
+        assert_eq!(input.samples[0], 0.0);
+        assert_eq!(input.samples[PRIMED - 1], (PRIMED - 1) as f32);
+    }
+
+    #[test]
+    fn an_exact_bound_push_keeps_all_of_it() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG));
+        assert_eq!(input.samples.len(), BACKLOG);
+        assert_eq!(input.samples[0], 0.0);
+        assert_eq!(input.samples[BACKLOG - 1], (BACKLOG - 1) as f32);
     }
 }
