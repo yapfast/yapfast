@@ -147,6 +147,7 @@ pub fn member_server(alice: &[&str]) -> Application {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        tag: None,
         group_icon: None,
         role_icon: None,
     };

@@ -1732,6 +1732,7 @@ impl OpenChannel {
             avatar: Some(discord.avatar(Some(&self.guild), &message.author_id)),
             color: server.and_then(|server| discord.color(server, &message.author_id)),
             bot: message.bot,
+            tag: discord::server_tag(discord.server_tag(&message.author_id)),
             forwarded: message.forwarded,
             body,
             formatted: ordinary,

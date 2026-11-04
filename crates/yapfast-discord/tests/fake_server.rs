@@ -2430,6 +2430,18 @@ async fn shows_profiles() {
     assert_eq!(in_server.mutual_servers[0].id, guild);
     assert_eq!(in_server.mutual_friends.len(), 1);
     assert_eq!(in_server.mutual_friends[0].name, "Carol");
+    // Bob wears the server's tag; Carol has none.
+    let tag = in_server.tag.as_ref().expect("Bob has a server tag");
+    assert_eq!(tag.text, "BOB");
+    assert_eq!(tag.guild, guild);
+    assert!(
+        tag.badge_url()
+            .is_some_and(|url| url.contains("/clan-badges/"))
+    );
+    assert_eq!(
+        discord.server_tag(&bob).map(|tag| tag.text),
+        Some("BOB".into())
+    );
     let badges: Vec<_> = in_server
         .badges
         .iter()

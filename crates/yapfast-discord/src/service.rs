@@ -108,6 +108,9 @@ pub struct Conversation {
     /// The other person's avatar in a DM, or a group DM's icon.
     pub avatar: Option<String>,
     pub group: bool,
+    /// The server tag the other person in a DM wears by their name.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
     /// The other person is Discord's own account, which is marked as official.
     #[serde(default)]
     pub official: bool,
@@ -2922,6 +2925,11 @@ impl Discord {
     /// The address of a user's avatar, in a server or in DMs.
     pub fn avatar(&self, guild: Option<&str>, user: &str) -> String {
         self.read_names().avatar(guild.and_then(server), user)
+    }
+
+    /// The server tag a user wears beside their name, if they do.
+    pub fn server_tag(&self, user: &str) -> Option<crate::message::Tag> {
+        self.read_names().server_tag(user).cloned()
     }
 
     /// A member's roles in a server by id, as far as they're known, shared

@@ -126,6 +126,9 @@ pub struct ChatRoom {
     /// Which icon the channel list draws for it, one of [`symbol`], by its
     /// kind: a rules channel, an announcement channel, a stage and so on.
     pub symbol: u8,
+    /// The server tag the other person in a one-to-one DM wears by their
+    /// name, as the DM list shows it.
+    pub tag: Option<ServerTag>,
     /// The other person is Discord's official account, which the DM list marks.
     pub official: bool,
     /// A one-to-one DM with no messages yet, where the DM list offers to wave.
@@ -643,6 +646,15 @@ pub enum Role {
     Member,
 }
 
+/// The server tag a Discord user wears beside their name: a few letters
+/// from a server they represent, with that server's badge.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ServerTag {
+    pub text: String,
+    /// The address of the badge's picture; see [`DiscordCommand::Pictures`].
+    pub badge: Option<String>,
+}
+
 /// A person's profile, as their profile card shows it. Matrix gives what the
 /// member list knows; Discord adds the rest.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -675,6 +687,8 @@ pub struct Profile {
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
+    /// The server tag they wear by their name, on Discord.
+    pub tag: Option<ServerTag>,
     /// The badges their Discord profile shows, in Discord's order.
     pub badges: Vec<ProfileBadge>,
     /// The custom emoji in their bio, which show as their pictures once
@@ -790,6 +804,8 @@ pub struct ChatMember {
     /// When their Discord timeout ends, in Unix milliseconds, while they're
     /// timed out as far as Yapfast knows.
     pub timed_out_until: Option<u64>,
+    /// The server tag they wear by their name, on Discord.
+    pub tag: Option<ServerTag>,
 }
 
 /// Someone to start a DM with.
@@ -1510,6 +1526,8 @@ pub struct ChatMessage {
     pub color: Option<u32>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
+    /// The server tag the author wears by their name, on Discord.
+    pub tag: Option<ServerTag>,
     /// Forwarded on Discord: its body, files and embeds are the original's.
     pub forwarded: bool,
     pub body: String,

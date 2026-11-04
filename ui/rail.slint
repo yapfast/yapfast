@@ -2,7 +2,7 @@ import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label, Strings } from "theme.slint";
-import { Avatar, PictureStore, StatusText, VoiceSpot } from "controls.slint";
+import { Avatar, PictureStore, StatusText, VoiceSpot, ServerTagChip } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
 
@@ -50,6 +50,8 @@ export struct RoomRow {
     people: [PersonRow],
     /// A DM with a call going on.
     call: bool,
+    /// The server tag a one-to-one DM's person wears, and its badge's address.
+    tag: string, tag-badge: string,
     /// Discord's own account, marked OFFICIAL.
     official: bool,
     /// The person's id when no one has written in this one-to-one DM yet, so a
@@ -398,8 +400,10 @@ export component ChannelRow inherits Rectangle {
     in property <bool> locked;
     /// A DM with a call going on.
     in property <bool> call;
-    /// Whether their person is Discord's own account, and a Wave button for
-    /// an empty DM (the person's id).
+    /// Their person's server tag, as RoomRow has it, whether they are Discord's
+    /// own account, and a Wave button for an empty DM (the person's id).
+    in property <string> tag;
+    in property <string> tag-badge;
     in property <bool> official;
     in property <string> wave;
     callback waved;
@@ -528,6 +532,7 @@ export component ChannelRow inherits Rectangle {
                             text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
                         }
+                        if root.tag != "": Middle { ServerTagChip { text: root.tag; badge: root.tag-badge; } }
                         if root.official: Middle {
                             Rectangle {
                                 // Discord's verified-style badge: blurple, 16px, a check and OFFICIAL.
@@ -1172,7 +1177,7 @@ export component RoomList inherits Rectangle {
                     chat: room.chat;
                     open-chat => { root.open-chat(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
-                    official: room.official; wave: room.wave;
+                    tag: room.tag; tag-badge: room.tag-badge; official: room.official; wave: room.wave;
                     waved => { root.wave(room.wave); }
                     selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;
                     call: room.call; presence: room.presence; detail: room.detail; detail-emoji: room.detail-emoji;

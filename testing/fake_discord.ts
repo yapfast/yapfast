@@ -592,6 +592,12 @@ function wireUser(user: User) {
     discriminator: "0",
     public_flags: 0,
     avatar_decoration_data: null,
+    // Bob wears the server's tag, as Discord sends the server a user
+    // chose to represent them; everyone else has none.
+    primary_guild:
+      user.id === users.bob.id
+        ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
+        : null,
   };
 }
 

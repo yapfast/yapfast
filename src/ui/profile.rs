@@ -256,6 +256,16 @@ pub(super) fn profile_data(
         picture: avatar.clone(),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
+        tag: profile
+            .tag
+            .as_ref()
+            .map_or_else(Default::default, |tag| tag.text.as_str().into()),
+        tag_badge: profile
+            .tag
+            .as_ref()
+            .and_then(|tag| tag.badge.as_deref())
+            .unwrap_or_default()
+            .into(),
         banner: banner.clone(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
