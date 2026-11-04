@@ -1156,10 +1156,23 @@ impl Default for History {
 }
 
 impl History {
+    /// Keeps `packet` as the slot its sequence names holds, overwriting what
+    /// that slot held in the vector it already has, so a steady stream copies
+    /// bytes instead of allocating a packet-sized vector each time.
     pub fn remember(&mut self, packet: &[u8]) {
-        if let Some(sent) = parse(packet) {
-            let slot = usize::from(sent.sequence) % self.packets.len();
-            self.packets[slot] = Some((sent.sequence, packet.to_vec()));
+        let Some(sent) = parse(packet) else {
+            return;
+        };
+        let at = usize::from(sent.sequence) % self.packets.len();
+        match &mut self.packets[at] {
+            Some((kept, kept_packet)) => {
+                // The index alone decides which sequence a slot may hold, so
+                // the one it names has to follow the packet it keeps now.
+                *kept = sent.sequence;
+                kept_packet.clear();
+                kept_packet.extend_from_slice(packet);
+            }
+            empty => *empty = Some((sent.sequence, packet.to_vec())),
         }
     }
 
@@ -2259,6 +2272,127 @@ mod tests {
         assert_eq!(again[21], 0xc2, "the repaired stream id, not the stream id");
         assert!(history.get(first.wrapping_sub(1)).is_none(), "never sent");
         assert!(packetizer.retransmit(&again, 79).is_none(), "not video");
+    }
+
+    /// Two sequences a history apart: they land on the same slot.
+    fn same_slot(sequence: u16, slots: usize) -> u16 {
+        sequence + slots as u16
+    }
+
+    #[test]
+    fn reuses_the_vector_in_an_rtx_history_slot() {
+        let mut history = History::default();
+        let slots = history.packets.len();
+        let first = 1000u16;
+        let second = same_slot(first, slots);
+        assert_eq!(
+            usize::from(first) % slots,
+            usize::from(second) % slots,
+            "the same slot"
+        );
+        let before = packet(first, 500, false, &[1; 400]);
+        let after = packet(second, 900, true, &[2; 300]);
+
+        history.remember(&before);
+        let (kept, stored) = history.packets[usize::from(first) % slots]
+            .as_ref()
+            .expect("a slot filled");
+        assert_eq!((*kept, stored.as_slice()), (first, before.as_slice()));
+        let storage = (stored.as_ptr(), stored.capacity());
+
+        history.remember(&after);
+        let (kept, stored) = history.packets[usize::from(second) % slots]
+            .as_ref()
+            .expect("the slot holds a packet still");
+        assert_eq!(
+            (stored.as_ptr(), stored.capacity()),
+            storage,
+            "the slot's own vector, not a new one"
+        );
+        assert_eq!(
+            (*kept, stored.as_slice()),
+            (second, after.as_slice()),
+            "the packet just kept, with no bytes left over from the last"
+        );
+        assert_eq!(history.get(first), None, "replaced in that slot");
+        assert_eq!(history.get(second), Some(after.as_slice()));
+    }
+
+    #[test]
+    fn an_rtx_history_slot_holds_packets_of_changing_length() {
+        let mut history = History::default();
+        let slots = history.packets.len();
+        let sequence = 7u16;
+        let long_sequence = same_slot(sequence, slots);
+        let shortest_sequence = sequence + 2 * (slots as u16);
+        let short = packet(sequence, 1, false, &[3; 100]);
+        let long = packet(long_sequence, 2, false, &[4; 2000]);
+        let shortest = packet(shortest_sequence, 3, true, &[5; 20]);
+        for other in [long_sequence, shortest_sequence] {
+            assert_eq!(
+                usize::from(other) % slots,
+                usize::from(sequence) % slots,
+                "the same slot"
+            );
+        }
+        let slot = usize::from(sequence) % slots;
+
+        history.remember(&short);
+        history.remember(&long);
+        let stored = &history.packets[slot].as_ref().expect("a slot filled").1;
+        assert_eq!(stored.as_slice(), long.as_slice(), "grown to fit");
+        assert!(stored.capacity() >= long.len(), "room for the whole packet");
+        let grown = stored.capacity();
+
+        history.remember(&shortest);
+        let stored = &history.packets[slot].as_ref().expect("a slot filled").1;
+        assert_eq!(
+            stored.as_slice(),
+            shortest.as_slice(),
+            "cut to the shorter packet"
+        );
+        assert_eq!(stored.capacity(), grown, "the larger vector kept");
+        assert_eq!(history.get(long_sequence), None, "replaced");
+        assert_eq!(history.get(shortest_sequence), Some(shortest.as_slice()));
+    }
+
+    #[test]
+    fn an_rtx_history_slot_validates_its_sequence_across_wraparound() {
+        let mut history = History::default();
+        let slots = history.packets.len();
+        let before_wrap = 65_500u16;
+        let after_wrap = before_wrap.wrapping_add(slots as u16);
+        assert!(
+            after_wrap < before_wrap,
+            "across the end of the sequence numbers"
+        );
+        assert_eq!(
+            usize::from(after_wrap) % slots,
+            usize::from(before_wrap) % slots,
+            "the same slot"
+        );
+        let tail = packet(before_wrap, 1, false, &[6; 200]);
+        let head = packet(after_wrap, 2, true, &[7; 200]);
+
+        history.remember(&tail);
+        assert_eq!(history.get(before_wrap), Some(tail.as_slice()));
+
+        history.remember(&head);
+        assert_eq!(history.get(after_wrap), Some(head.as_slice()));
+        assert_eq!(history.get(before_wrap), None, "replaced in that slot");
+        assert!(history.get(1234).is_none(), "a slot nothing has filled");
+    }
+
+    #[test]
+    fn rtx_history_remembers_only_parsable_packets() {
+        let mut history = History::default();
+        history.remember(&[]);
+        history.remember(&[0x80, H264]);
+        history.remember(&[0x40; 20]);
+        assert!(
+            history.packets.iter().all(|slot| slot.is_none()),
+            "no slot filled, nor partly"
+        );
     }
 
     #[test]
