@@ -8496,9 +8496,9 @@ fn the_home_gifs_are_fetched_ahead() {
         srcs,
         [
             "https://static.klipy.com/happy.webp",
-            "https://static.klipy.com/sad.webp",
-            "https://static.klipy.com/trend.webp"
-        ]
+            "https://static.klipy.com/sad.webp"
+        ],
+        "each term's first GIF, and nothing else of the home"
     );
 }
 
@@ -8590,13 +8590,10 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             .collect()
     };
 
-    // Pointing at the star asks for the favourites, once, and those kept
-    // on disk show until Discord's come.
+    // The start asked for the favourites already, so pointing at the star asks
+    // for nothing more; those kept on disk show until Discord's come.
     let asked = backend(app.dispatch(Action::LoadFavoriteGifs));
-    assert!(matches!(
-        asked.as_slice(),
-        [Command::Discord(DiscordCommand::FavoriteGifs)]
-    ));
+    assert!(asked.is_empty(), "the start asked for the favourites");
     let other = |name: &str| Gif {
         url: format!("https://klipy.com/gifs/{name}"),
         src: format!("https://static.klipy.com/{name}.webp"),
@@ -8693,15 +8690,13 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
             .collect()
     };
 
-    // Opening asks for the home and the favourites, once.
+    // The start asked for the home and the favourites so their pictures could
+    // be fetched ahead; opening asks for nothing more.
     let asked = backend(app.dispatch(Action::OpenGifs));
-    assert!(matches!(
-        asked.as_slice(),
-        [
-            Command::Discord(DiscordCommand::GifCategories),
-            Command::Discord(DiscordCommand::FavoriteGifs)
-        ]
-    ));
+    assert!(
+        asked.is_empty(),
+        "the start asked for the home and the favourites"
+    );
     app.apply(Event::GifCategories(Ok((
         vec![GifCategory {
             name: "happy".into(),

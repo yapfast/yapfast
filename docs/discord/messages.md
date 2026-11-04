@@ -419,11 +419,16 @@ finds GIFs through Klipy, and Yapfast asks Discord as its desktop client does:
   thumbnails that are missing in the background, on the worker, four at a time,
   at the width the grid's tiles ask for, so the Favourites view is complete when
   it opens.
-- The home's own pictures are kept in `discord-gif-home/`, the trending terms'
-  and the Trending GIFs tile's, fetched when the home's answer comes and pruned
-  to what it then offers, so the home shows at once the next time it opens and
-  its tiles animate from the disk. Nothing else of the home is kept: the terms
-  and the trending GIF are Discord's answer, asked for each start.
+- The first GIF of each of the home's trending terms is kept in
+  `discord-gif-home/`, fetched when the home's answer comes and pruned to what it
+  then offers, so those tiles animate from the disk. Nothing else of the home is
+  kept: the Favorites tile shows a favourite, which `discord-gifs/` holds, and
+  the Trending GIFs tile loads as it shows. The favourites and the home are asked
+  for at a start, before the picker is opened, so their pictures are fetched
+  ahead of the first look.
+- Discord's GIF endpoints take no page cursor — `/gifs/search` gives "as many as
+  Discord gives at once" — so trending and search show one page, as Discord's own
+  picker does, and there is nothing further to scroll for.
 - Only the GIFs in sight, and a screen either side, load and play; they come
   from Klipy's or Tenor's media hosts, at the size they show, and go when the
   picker closes. Dragging the picker wider moves and stretches the tiles

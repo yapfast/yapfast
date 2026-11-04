@@ -160,6 +160,24 @@ impl Application {
         effects
     }
 
+    /// Asks for the favourite GIFs and the picker's home once, at a start, so
+    /// their pictures are fetched ahead before the picker is ever opened: the
+    /// favourites' GIFs are kept, and the home's first GIFs are kept for its
+    /// terms. Opening the picker finds both answered.
+    pub(super) fn prefetch_gifs(&mut self) -> Vec<Effect> {
+        if self.state.preview {
+            return vec![];
+        }
+        let mut effects = self.load_favorite_gifs();
+        if self.state.gifs.categories.is_empty() && !self.state.gifs.home_loading {
+            self.state.gifs.home_loading = true;
+            effects.push(Effect::Backend(Command::Discord(
+                DiscordCommand::GifCategories,
+            )));
+        }
+        effects
+    }
+
     /// Asks for the favourites once, as opening the picker or pointing at a
     /// GIF's star does first.
     pub(super) fn load_favorite_gifs(&mut self) -> Vec<Effect> {
@@ -422,21 +440,18 @@ impl Application {
             Ok((categories, preview)) => {
                 picker.categories = categories;
                 picker.trending_preview = preview;
-                // The home is a handful of pictures: the trending terms' and the
-                // Trending GIFs tile's. They are fetched ahead, to the disk only,
-                // so the home shows at once the next time and its tiles animate
+                // The home's first GIF in each of its terms, and nothing else of
+                // the home: the Favorites tile shows a favourite, which the
+                // favourites' own prefetch keeps, and the Trending GIFs tile is
+                // left to load as it shows. These are fetched to the disk only, so
+                // the home paints at once the next time and its tiles animate
                 // from what is kept.
-                let mut pictures: Vec<(String, u32, u32)> = picker
+                let pictures: Vec<(String, u32, u32)> = picker
                     .categories
                     .iter()
                     .filter(|category| !category.src.is_empty())
                     .map(|category| (category.src.clone(), THUMBNAIL_WIDTH, THUMBNAIL_WIDTH))
                     .collect();
-                if let Some(preview) = &picker.trending_preview
-                    && !preview.src.is_empty()
-                {
-                    pictures.push((preview.src.clone(), THUMBNAIL_WIDTH, THUMBNAIL_WIDTH));
-                }
                 (!pictures.is_empty())
                     .then_some(Effect::Backend(Command::Discord(
                         DiscordCommand::PrefetchGifHome(pictures),

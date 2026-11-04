@@ -534,6 +534,7 @@ impl Application {
         effects.extend(self.mark_aside_read());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
+        effects.extend(self.prefetch_gifs());
         effects
     }
 
