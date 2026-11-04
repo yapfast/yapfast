@@ -865,13 +865,47 @@ fn watch(
     Ok(())
 }
 
-/// Sleeps until the next frame is due, or returns false once told to stop.
-fn next_frame(started: Instant, frame: u64, fps: u32, stop: &AtomicBool) -> bool {
-    let due = started + Duration::from_secs(frame) / fps;
-    if let Some(wait) = due.checked_duration_since(Instant::now()) {
+/// When frame `frame` of a loop begun at `started` is due at `fps`.
+fn due_at(started: Instant, frame: u64, fps: u32) -> Option<Instant> {
+    started.checked_add(Duration::from_secs(frame).checked_div(fps)?)
+}
+
+/// The frame a loop begun at `started` makes at `now`, and how long to wait for
+/// it first.
+///
+/// On time that's the frame next in line; behind, it's the latest frame whose
+/// deadline has passed, so a stall skips the frames it swallowed instead of
+/// making all of them in a burst. Deadlines stay counted from `started`, so
+/// elapsed time, and the timestamps made from it, run on through the stall.
+fn pace(started: Instant, frame: u64, fps: u32, now: Instant) -> (u64, Option<Duration>) {
+    let Some(due) = due_at(started, frame, fps) else {
+        // No cadence to keep: a job's frame rate is clamped to 1–60, and zero
+        // would divide by it. Make the frame asked for, at once.
+        return (frame, None);
+    };
+    if let Some(wait) = due.checked_duration_since(now) {
+        return (frame, Some(wait));
+    }
+    // The latest frame whose deadline is at or before `now`, counted in the
+    // same whole nanoseconds `due_at` divides by.
+    let elapsed = now.saturating_duration_since(started);
+    let expired = elapsed.as_nanos() * u128::from(fps) / 1_000_000_000;
+    (frame.max(u64::try_from(expired).unwrap_or(u64::MAX)), None)
+}
+
+/// Sleeps until the next frame is due and gives it, or returns `None` once told
+/// to stop; the frame after it waits its turn, so a stall costs one late frame
+/// rather than a burst of the frames it swallowed.
+fn next_frame(started: Instant, frame: &mut u64, fps: u32, stop: &AtomicBool) -> Option<u64> {
+    let (due, wait) = pace(started, *frame, fps, Instant::now());
+    if let Some(wait) = wait {
         std::thread::sleep(wait);
     }
-    !stop.load(Ordering::Relaxed)
+    if stop.load(Ordering::Relaxed) {
+        return None;
+    }
+    *frame = due.saturating_add(1);
+    Some(due)
 }
 
 fn test_pattern(
@@ -884,10 +918,10 @@ fn test_pattern(
     let (width, height) = (width.min(640), height.min(360));
     report(Report::Sharing { width, height });
     let started = Instant::now();
-    let mut frame = 0u64;
+    let mut slot = 0u64;
     let mut rgba = vec![0; (width * height * 4) as usize];
     let mut picture = I420Buffer::new(width, height);
-    while next_frame(started, frame, sink.fps, stop) {
+    while let Some(frame) = next_frame(started, &mut slot, sink.fps, stop) {
         let shift = (frame * 4) as u32;
         for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
             let (x, y) = (index as u32 % width, index as u32 / width);
@@ -915,7 +949,6 @@ fn test_pattern(
         sink.frame(&mut picture)?;
         // Colour bars are all it shares.
         let _switch = sink.check(report)?;
-        frame += 1;
     }
     Ok(())
 }
@@ -1010,15 +1043,16 @@ fn capture_screen(
     // picture.
     let mut switching: Option<Capture> = None;
     let started = Instant::now();
-    let mut frame = 0u64;
+    // Only the pace of the loop matters here: frames a stall swallowed are
+    // skipped, not captured in a burst.
+    let mut slot = 0u64;
     let mut reported = None;
-    while next_frame(started, frame, fps, stop) {
+    while next_frame(started, &mut slot, fps, stop).is_some() {
         run_glib();
         capture.capture_frame();
         if let Some(next) = &mut switching {
             next.capture_frame();
         }
-        frame += 1;
         let seen = capture.seen();
         if let Some(failure) = &seen.failed {
             bail!(if reported.is_none() {
@@ -1612,6 +1646,106 @@ mod tests {
         assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
         assert_eq!(fit(3440, 1440, 1280, 720), (1280, 534));
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
+    }
+
+    /// Frames at 30 fps are due every 33⅓ ms: on time, a loop waits for the
+    /// frame in line; behind, it makes the latest frame due and skips the rest.
+    #[test]
+    fn skips_the_frames_a_stall_swallowed() {
+        let started = Instant::now();
+        let millis = Duration::from_millis;
+        // The first frame goes at once, so a stream shows without the wait.
+        assert_eq!(pace(started, 0, 30, started), (0, Some(Duration::ZERO)));
+        // On time, it waits out the rest of the frame's interval.
+        assert_eq!(
+            pace(started, 2, 30, started + millis(40)),
+            (2, Some(Duration::from_secs(2) / 30 - millis(40)))
+        );
+        // A little late still makes the frame that was due.
+        assert_eq!(pace(started, 2, 30, started + millis(70)), (2, None));
+        // A quarter of a second late makes frame 7, not frames 1 to 7.
+        assert_eq!(pace(started, 1, 30, started + millis(250)), (7, None));
+        // After a skipped burst the cadence carries on from the clock.
+        assert_eq!(
+            pace(started, 8, 30, started + millis(250)),
+            (8, Some(Duration::from_secs(8) / 30 - millis(250)))
+        );
+    }
+
+    /// 60 fps is a frame every 16⅔ ms, which no whole millisecond marks.
+    #[test]
+    fn paces_a_frame_rate_that_no_millisecond_marks() {
+        let started = Instant::now();
+        let millis = Duration::from_millis;
+        assert_eq!(pace(started, 0, 60, started + millis(16)), (0, None));
+        assert_eq!(
+            pace(started, 1, 60, started + millis(16)),
+            (1, Some(Duration::from_secs(1) / 60 - millis(16)))
+        );
+        // Frame 4 came due at 66⅔ ms; frames 1 to 3 were missed.
+        assert_eq!(pace(started, 1, 60, started + millis(67)), (4, None));
+    }
+
+    /// Whatever the clock says, a paced loop never makes a frame early, never
+    /// goes back to one it skipped, and hands out the whole cadence in order.
+    #[test]
+    fn frames_follow_the_clock() {
+        let started = Instant::now();
+        for fps in [1u32, 30, 60] {
+            let mut slot = 0u64;
+            for millis in (0..1_100u64).step_by(7) {
+                let now = started + Duration::from_millis(millis);
+                let (due, wait) = pace(started, slot, fps, now);
+                let deadline = started + Duration::from_secs(due) / fps;
+                assert!(due >= slot, "{fps} fps went back to {due} at {millis} ms");
+                match wait {
+                    // On time, it waits for the frame in line to be due.
+                    Some(wait) => {
+                        assert_eq!(due, slot);
+                        assert_eq!(now + wait, deadline, "{fps} fps at {millis} ms");
+                    }
+                    // Behind, it makes the latest frame due, and not before.
+                    None => {
+                        assert!(deadline <= now, "{fps} fps early at {millis} ms");
+                        // Deadlines are whole nanoseconds, so rounding can leave
+                        // a frame due at this very instant for the next call.
+                        assert!(
+                            started + Duration::from_secs(due + 2) / fps > now,
+                            "{fps} fps left two frames due at {millis} ms"
+                        );
+                    }
+                }
+                slot = due + 1;
+            }
+        }
+    }
+
+    #[test]
+    fn keeps_the_edges_of_a_frame_rate() {
+        let started = Instant::now();
+        // A job's rate is clamped to 1–60; without one there's no cadence.
+        assert_eq!(pace(started, 3, 0, started), (3, None));
+        // One frame a second starts at once and waits its second after.
+        assert_eq!(pace(started, 0, 1, started), (0, Some(Duration::ZERO)));
+        assert_eq!(
+            pace(started, 1, 1, started + Duration::from_millis(200)),
+            (1, Some(Duration::from_millis(800)))
+        );
+    }
+
+    #[test]
+    fn stops_a_paced_loop() {
+        // Begun two seconds ago, so every frame it should have made is due and
+        // the loop has no waiting to do.
+        let started = Instant::now() - Duration::from_secs(2);
+        let stop = AtomicBool::new(true);
+        let mut slot = 0u64;
+        assert_eq!(next_frame(started, &mut slot, 30, &stop), None);
+        assert_eq!(slot, 0, "a stopped loop keeps its place");
+        stop.store(false, Ordering::Relaxed);
+        let frame = next_frame(started, &mut slot, 30, &stop).expect("not stopped");
+        assert!(frame >= 60, "the 2 seconds it missed are skipped");
+        assert_eq!(slot, frame + 1, "and the loop goes on from there");
     }
 
     #[test]
