@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 from typing import NoReturn
 from urllib.parse import urljoin, urlsplit
@@ -79,6 +80,36 @@ def move_path(source, destination):
         shutil.move(str(source), destination)
     except OSError as error:
         fail(f'could not move {source} to {destination}: {error}')
+
+
+# A rename can lose a race on Windows and win it a moment later, so these
+# waits start short and then hold, long enough to outlast a scan.
+LOCK_RETRY_DELAYS: tuple[float, ...] = (0.5, 1, 2, 4, 8, 8, 8)
+
+
+def replace_path(source: Path, destination: Path, *, tree: bool = False) -> None:
+    """Rename source onto destination, outlasting a Windows lock on either.
+
+    Windows renames a path only while no other process holds a handle in it,
+    and the search indexer and antiviruses open the files of a tree just
+    written without the sharing a rename needs: they refuse the move with
+    access denied or a sharing violation, and let it through once they have
+    read what they wanted. Try again rather than fail on the first refusal.
+    A directory cannot be renamed over an existing one, so remove that first.
+    """
+    delays: tuple[float | None, ...] = (*LOCK_RETRY_DELAYS, None)
+    for delay in delays:
+        try:
+            if tree:
+                remove_tree(destination, ignore_errors=True)
+            os.replace(source, destination)
+            return
+        except OSError as error:
+            if delay is None:
+                cause = error.strerror or str(error)
+                fail(f'could not move {source} to {destination} after {len(delays)} attempts: {cause}')
+            say(f'{destination.name} is locked ({error.strerror or error}); trying again in {delay:g}s')
+            time.sleep(delay)
 
 
 def digest(path):
@@ -173,11 +204,7 @@ def download(url, destination, expected_hash, label):
     if actual != expected_hash:
         temporary.unlink(missing_ok=True)
         fail(f'{label} SHA-256 mismatch: expected {expected_hash}, got {actual}')
-    try:
-        os.replace(temporary, destination)
-    except OSError as error:
-        temporary.unlink(missing_ok=True)
-        fail(f'could not store verified {label} at {destination}: {error}')
+    replace_path(temporary, destination)
     say('Verified SHA-256 for ' + label)
     return actual
 
@@ -345,7 +372,7 @@ def download_nix_archive(url, destination, expected_hash, label, *, hash_strip_r
     if actual != expected:
         temporary.unlink(missing_ok=True)
         fail(f'{label} unpacked SHA-256 mismatch: expected {expected}, got {actual}')
-    os.replace(temporary, destination)
+    replace_path(temporary, destination)
     say('Verified pinned unpacked SHA-256 for ' + label)
     return {'archive_sha256': archive_hash, 'nix_unpacked_sha256': actual}
 
@@ -430,9 +457,7 @@ def ensure_source():
     if not (staging / 'DEPS').is_file() or not (staging / 'include/core/SkCanvas.h').is_file():
         remove_tree(staging, ignore_errors=True)
         fail('the pinned Skia source archive did not extract to the expected source layout')
-    if SOURCE_TREE.exists():
-        remove_tree(SOURCE_TREE)
-    os.replace(staging, SOURCE_TREE)
+    replace_path(staging, SOURCE_TREE, tree=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     write_json(manifest_path, expected)
     say('Skia source is ready at ' + str(SOURCE_TREE))
@@ -689,6 +714,10 @@ def prepare_toolchain(jobs):
     old_path = next((value for name, value in environment.items() if name.upper() == 'PATH'), '')
     set_env(environment, 'PATH', str(llvm['bin']) + os.pathsep + old_path)
     set_env(environment, 'LIBCLANG_PATH', llvm['bin'])
+    # skia-bindings reads LLVM_HOME before C:\Program Files\LLVM, C:\LLVM and
+    # %USERPROFILE%\scoop\apps\llvm\current, and an LLVM that is only on PATH
+    # is none of those.
+    set_env(environment, 'LLVM_HOME', str(llvm['root']))
     set_env(environment, 'CC', llvm['clang'])
     set_env(environment, 'CXX', llvm['clang'])
     set_env(environment, 'SKIA_SOURCE_DIR', SOURCE_TREE)
@@ -783,7 +812,7 @@ def create_raw_archive(native_output, source_tree):
           gzip.GzipFile(filename='', mode='wb', fileobj=output, mtime=0) as compressed,
           tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive):
         archive.add(native, arcname='skia-binaries', recursive=True, filter=normalized_tar_info)
-    os.replace(temporary, raw)
+    replace_path(temporary, raw)
     return raw
 
 

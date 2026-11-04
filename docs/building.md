@@ -482,9 +482,14 @@ The supported and packaged build route remains the Linux MSVC cross-build.
 A native Windows build is for development only: it names this machine's folders
 and must not be shipped. It needs Rust 1.97.1, Visual Studio C++ tools and the
 Windows 10/11 SDK, LLVM with `clang-cl`, `llvm-rc` and `libclang` on `PATH`
-(the SDK's `rc.exe` can replace `llvm-rc`; set `LIBCLANG_PATH` if bindgen needs
-it), and NASM on `PATH`. Skia preparation also needs Python 3 and Ninja; Ninja
-comes with Visual Studio, and the script fetches its pinned GN. A network
+(the SDK's `rc.exe` can replace `llvm-rc`), and NASM on `PATH`. bindgen, which
+`thorvg-sys` runs, finds `libclang` only through `LIBCLANG_PATH`, `llvm-config
+--prefix` or `LIBRARY_PATH`, never `PATH`, so set `LIBCLANG_PATH` to LLVM's
+`bin` where `llvm-config` is not on `PATH`. `skia-bindings` reads the LLVM
+Skia's build needs from `LLVM_HOME`, then `C:\Program Files\LLVM`, `C:\LLVM`
+and `%USERPROFILE%\scoop\apps\llvm\current`; the preparation script passes it
+the LLVM it found on `PATH`. Skia preparation also needs Python 3 and Ninja;
+Ninja comes with Visual Studio, and the script fetches its pinned GN. A network
 connection is needed once for the pinned Skia source and libwebrtc archive.
 `vendor/ffmpeg-src/build.rs` and `crates/yapfast-core/build.rs` select
 `clang-cl` for MSVC targets only when `CC`/`CXX` are unset, because FFmpeg's x86
@@ -508,7 +513,9 @@ cargo build --release
 
 Or prepare Skia and build in one step with
 `python scripts/prepare-windows-skia.py --build`, which sets the archive URL
-for that build. The downloadable package
+and nothing else: the build that follows sees the environment the script ran
+in, so `clang-cl`, `llvm-rc` and `LIBCLANG_PATH` have to be set here too, as
+for a plain `cargo build --release`. The downloadable package
 needs none of these tools to run.
 
 Before accepting the Windows build, check text entry, selection, copy/paste,
