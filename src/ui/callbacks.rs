@@ -26,6 +26,42 @@ fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: us
     adapter.action(window, Action::LoadPictures(pictures));
 }
 
+/// Gives the picker's grid the emoji it shows between `first` and `last` rows a
+/// picture each, drawn once, so scrolling draws a bitmap instead of walking the
+/// colour font's paint graph for every emoji on screen; see [`crate::emoji_glyphs`].
+fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize, last: usize) {
+    let scale = window.window().scale_factor();
+    let rows = &adapter.models.emoji_rows;
+    let count = rows.row_count();
+    if count == 0 || first >= count {
+        return;
+    }
+    for index in first..=last.min(count - 1) {
+        let Some(row) = rows.row_data(index) else {
+            continue;
+        };
+        for cell_index in 0..row.cells.row_count() {
+            let Some(cell) = row.cells.row_data(cell_index) else {
+                continue;
+            };
+            // A custom emoji draws its own picture, and a cell whose glyph is a
+            // name rather than an emoji has nothing to draw.
+            if cell.picture.size().width > 0 || cell.key.contains(':') || cell.glyph != cell.key {
+                continue;
+            }
+            if let Some(image) = crate::emoji_glyphs::picture(&cell.glyph, emoji::GLYPH, scale) {
+                row.cells.set_row_data(
+                    cell_index,
+                    EmojiCell {
+                        picture: image,
+                        ..cell
+                    },
+                );
+            }
+        }
+    }
+}
+
 /// The reaction keys of the custom emoji in `rows` from `first` to `last` that
 /// have no picture yet, which the picker asks for when it shows them.
 pub(super) fn custom_keys_without_pictures(
@@ -79,6 +115,7 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
         update_model(&adapter.models.emoji_sections, sections);
     }
     fetch_shown_pictures(&mut adapter, window, 0, GRID_ROWS);
+    fill_shown_glyphs(window, &mut adapter, 0, GRID_ROWS);
 }
 
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
@@ -977,7 +1014,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             return;
         }
         shown_rows.set((first, last));
-        fetch_shown_pictures(&mut state.borrow_mut(), &window, first, last);
+        let mut adapter = state.borrow_mut();
+        fetch_shown_pictures(&mut adapter, &window, first, last);
+        fill_shown_glyphs(&window, &mut adapter, first, last);
     });
     bind_item!(on_select_reaction, Action::ShowReactors);
     bind!(on_more_reactors, Action::MoreReactors);

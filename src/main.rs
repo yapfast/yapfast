@@ -19,6 +19,8 @@ mod emoji;
 #[cfg(feature = "desktop")]
 mod emoji_font;
 #[cfg(feature = "desktop")]
+mod emoji_glyphs;
+#[cfg(feature = "desktop")]
 mod graphics;
 #[cfg(feature = "desktop")]
 mod icon;

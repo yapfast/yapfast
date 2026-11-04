@@ -6725,6 +6725,46 @@ fn resizing_the_window_carries_the_pickers_room_with_the_composer() {
 }
 
 #[test]
+fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    // What the picker shows, drawn once each, at the size the grid draws its
+    // glyphs: the colour font's paint graph would otherwise be walked again for
+    // every emoji on screen, every frame.
+    let rows = window.get_emoji_rows();
+    let shown = 0..8.min(rows.row_count());
+    let mut drawn = 0;
+    for index in shown {
+        let row = rows.row_data(index).unwrap();
+        for cell in row.cells.iter() {
+            // A custom emoji has its own picture, and a sequence keeps its
+            // glyphs for the font to join.
+            if cell.key.contains(':') || cell.glyph != cell.key || cell.glyph.chars().count() != 1 {
+                continue;
+            }
+            assert_eq!(
+                cell.picture.size().width,
+                emoji::GLYPH as u32,
+                "{} is drawn as a picture of the grid's size",
+                cell.name
+            );
+            drawn += 1;
+        }
+    }
+    assert!(drawn > 20, "the picker drew {drawn} emoji");
+}
+
+#[test]
 fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
     let row = |cells: Vec<EmojiCell>| EmojiRow {
         heading: "".into(),

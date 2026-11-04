@@ -138,7 +138,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   that window and its width: the GIFs' grid fits another column for every
   212px, and the emoji's another of Discord's 56px buttons a row. The buttons
   keep their size and their spacing as it widens, so what the width has over
-  stays at the row's end. A drag that changed
+  stays at the row's end. Each emoji is drawn once into a picture and the grid
+  shows that: the system emoji font is a colour font, whose layers Skia
+  otherwise paints again for every emoji on screen, every frame, which made a
+  stretched picker scroll slowly. The sequences the font joins by shaping, such
+  as a family or a flag, keep their glyphs. A drag that changed
   the width keeps it in `layout.json` (`picker_width`), and it comes back at
   the next start. See [Discord](discord/messages.md#gifs).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
