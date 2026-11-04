@@ -423,9 +423,11 @@ finds GIFs through Klipy, and Yapfast asks Discord as its desktop client does:
   `discord-gif-home/`, fetched when the home's answer comes and pruned to what it
   then offers, so those tiles animate from the disk. Nothing else of the home is
   kept: the Favorites tile shows a favourite, which `discord-gifs/` holds, and
-  the Trending GIFs tile loads as it shows. The favourites and the home are asked
-  for at a start, before the picker is opened, so their pictures are fetched
-  ahead of the first look.
+  the Trending GIFs tile loads as it shows. The answer itself is kept beside
+  those pictures in `discord-gif-home.json` with the time it came, and a start
+  within a day shows it without asking Discord at all, whose trending terms move
+  daily. The favourites and the home are asked for at a start, before the picker
+  is opened, so their pictures are fetched ahead of the first look.
 - Discord's GIF endpoints take no page cursor — `/gifs/search` gives "as many as
   Discord gives at once" — so trending and search show one page, as Discord's own
   picker does, and there is nothing further to scroll for.

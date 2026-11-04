@@ -26,9 +26,11 @@
 //! - `discord-gifs/`: the GIF itself of each favourite, by its picture's
 //!   address, kept for as long as the GIF is favourited and no longer: see
 //!   [`retain_gif_thumbnails`].
-//! - `discord-gif-home/`: the home's pictures, the trending terms' and the
-//!   Trending GIFs tile's, fetched ahead so the home shows at once; see
-//!   [`retain_gif_home`].
+//! - `discord-gif-home/`: the home's pictures, each trending term's first GIF,
+//!   fetched ahead so the home shows at once; see [`retain_gif_home`].
+//! - `discord-gif-home.json`: the home as Discord last answered it, with when,
+//!   so a start within [`GIF_HOME_FRESH`] shows it without asking Discord. It
+//!   is public — nobody's data — so it is not sealed.
 //!
 //! The files name the login they belong to by a hash of the token, so another
 //! account linked meanwhile starts empty, and unlinking deletes them all.
@@ -270,6 +272,78 @@ fn gifs() -> Option<PathBuf> {
 
 fn gif_home() -> Option<PathBuf> {
     Some(file()?.with_file_name("discord-gif-home"))
+}
+
+fn gif_home_answer_file() -> Option<PathBuf> {
+    Some(file()?.with_file_name("discord-gif-home.json"))
+}
+
+/// How long the home Discord answered is shown before it is asked for again:
+/// its terms are trending ones, which move daily.
+pub const GIF_HOME_FRESH: u64 = 24 * 60 * 60 * 1000;
+
+/// The GIF picker's home as Discord last answered it: its terms with their first
+/// GIF, the Trending GIFs tile's GIF, and when the answer came.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KeptHome {
+    /// When Discord's answer came, in Unix milliseconds.
+    pub fetched: u64,
+    pub terms: Vec<KeptTerm>,
+    pub preview: Option<KeptHomeGif>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KeptTerm {
+    pub name: String,
+    pub src: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KeptHomeGif {
+    pub id: Option<String>,
+    pub url: String,
+    pub src: String,
+    pub gif_src: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The home Discord last answered, read from the disk.
+pub fn gif_home_answer() -> Option<KeptHome> {
+    read_home(&gif_home_answer_file()?)
+}
+
+/// [`gif_home_answer`] in the file given, which a test can give it.
+fn read_home(file: &std::path::Path) -> Option<KeptHome> {
+    serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
+}
+
+/// Keeps the home Discord just answered, stamped with the time, so a start
+/// within [`GIF_HOME_FRESH`] shows it without asking again.
+pub fn keep_gif_home_answer(home: &KeptHome) {
+    let Some(file) = gif_home_answer_file() else {
+        return;
+    };
+    write_home(&file, home);
+}
+
+/// [`keep_gif_home_answer`] into the file given, which a test can give it.
+fn write_home(file: &std::path::Path, home: &KeptHome) {
+    let Ok(text) = serde_json::to_vec(home) else {
+        return;
+    };
+    if let Err(error) = write_bytes(file, &text) {
+        tracing::warn!(%error, "could not keep the GIF picker's home");
+    }
+}
+
+/// Whether an answer that came at `fetched` is still worth showing.
+pub fn gif_home_is_fresh(fetched: u64) -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or_default();
+    now.saturating_sub(fetched) < GIF_HOME_FRESH
 }
 
 /// Where the thumbnail of the favourite GIF whose picture is at `url` is
@@ -1132,6 +1206,39 @@ mod tests {
         assert!(!profiles_directory().unwrap().exists());
         assert_eq!(kept_gif(gif), None);
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn keeps_the_home_and_shows_it_for_a_day() {
+        let file = std::env::temp_dir().join(format!(
+            "yapfast-discord-gif-home-{}.json",
+            std::process::id()
+        ));
+        let home = KeptHome {
+            fetched: 1_700_000_000_000,
+            terms: vec![KeptTerm {
+                name: "happy".into(),
+                src: "https://static.klipy.com/happy.webp".into(),
+            }],
+            preview: Some(KeptHomeGif {
+                url: "https://klipy.com/gifs/trend".into(),
+                src: "https://static.klipy.com/trend.webp".into(),
+                ..Default::default()
+            }),
+        };
+        write_home(&file, &home);
+        assert_eq!(read_home(&file), Some(home.clone()));
+        // A day makes it stale; a moment ago does not.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(gif_home_is_fresh(now), "an answer from now is fresh");
+        assert!(
+            !gif_home_is_fresh(now.saturating_sub(GIF_HOME_FRESH)),
+            "one from a day ago is not"
+        );
+        std::fs::remove_file(&file).ok();
     }
 
     #[test]
