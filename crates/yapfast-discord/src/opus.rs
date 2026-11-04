@@ -71,6 +71,18 @@ pub struct Encoder {
 // SAFETY: an encoder is used from one thread at a time, through `&mut`.
 unsafe impl Send for Encoder {}
 
+/// Sets one int-valued encoder control. libopus answers `OPUS_OK` or a
+/// negative code, so a refused setting isn't left looking as if it took.
+fn set(encoder: &Encoder, request: c_int, value: c_int, setting: &str) -> Result<()> {
+    // SAFETY: these requests take one int, as libopus's macros pass it, and
+    // `encoder` owns the pointer it was created with.
+    let outcome = unsafe { opus_encoder_ctl(encoder.raw.as_ptr(), request, value) };
+    if outcome < 0 {
+        bail!("Opus couldn't set {setting} ({outcome})");
+    }
+    Ok(())
+}
+
 impl Encoder {
     pub fn new(channels: u16, application: Application, bitrate: i32) -> Result<Self> {
         let mut error = 0;
@@ -88,15 +100,15 @@ impl Encoder {
             raw,
             channels: usize::from(channels),
         };
-        // SAFETY: requests that take one int, as libopus's macros pass it.
-        unsafe { opus_encoder_ctl(encoder.raw.as_ptr(), SET_BITRATE, bitrate as c_int) };
+        // A control libopus refuses leaves the encoder at defaults that don't
+        // match what the caller asked for, so report it; returning early drops
+        // `encoder`, which frees the encoder just created.
+        set(&encoder, SET_BITRATE, bitrate, "the bitrate")?;
         if application == APPLICATION_VOIP {
             // Forward error correction lets a receiver rebuild a lost packet
             // from the next one; it costs bits only when loss is expected.
-            unsafe {
-                opus_encoder_ctl(encoder.raw.as_ptr(), SET_INBAND_FEC, 1 as c_int);
-                opus_encoder_ctl(encoder.raw.as_ptr(), SET_PACKET_LOSS_PERC, 5 as c_int);
-            }
+            set(&encoder, SET_INBAND_FEC, 1, "inband FEC")?;
+            set(&encoder, SET_PACKET_LOSS_PERC, 5, "the packet loss")?;
         }
         Ok(encoder)
     }
@@ -198,6 +210,78 @@ impl Drop for Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// libopus's own special bitrates: `OPUS_AUTO`, and the highest rate the
+    /// encoder can spend.
+    const OPUS_AUTO: i32 = -1000;
+    const OPUS_BITRATE_MAX: i32 = -1;
+
+    /// A quiet 20 ms stereo frame, for checks that only need a real packet.
+    fn tone() -> Vec<f32> {
+        (0..960)
+            .flat_map(|at| {
+                let sample = (at as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin() * 0.5;
+                [sample, sample]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_application_takes_every_legal_kind_of_bitrate() {
+        // Only libopus decides which bitrates its rate control takes, from
+        // the encoder's own configuration, so the wrapper must not vet them:
+        // its sentinels and the rates it accepts are legal here.
+        for (application, name) in [(Application::Voice, "voice"), (Application::Audio, "audio")] {
+            for bitrate in [OPUS_AUTO, OPUS_BITRATE_MAX, 500, 32_000, 64_000, 128_000] {
+                if let Err(error) = Encoder::new(2, application, bitrate) {
+                    panic!("{name} at {bitrate} bit/s: {error}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_application_still_encodes_after_configuring() {
+        // Voice sets FEC and a loss estimate; Audio sets neither. Both must
+        // come out of `new` working, with those controls accepted.
+        let mut packet = [0u8; 1500];
+        for (application, name) in [(Application::Voice, "voice"), (Application::Audio, "audio")] {
+            let mut encoder = Encoder::new(2, application, 64_000)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let length = encoder
+                .encode_float(&tone(), &mut packet)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(length > 3, "{name}: a real packet, not {length} bytes");
+        }
+    }
+
+    #[test]
+    fn a_bitrate_libopus_refuses_names_the_setting() {
+        // The bitrate control runs after the encoder exists, so this also
+        // covers the post-creation failure path: the `?` returns, and the
+        // `Encoder` built above it frees the native encoder on the way out.
+        let error = match Encoder::new(2, Application::Audio, -1_500) {
+            Ok(_) => panic!("libopus took a bitrate it has no such value for"),
+            Err(error) => error,
+        };
+        let message = error.to_string();
+        assert!(message.contains("bitrate"), "{message}");
+        assert!(message.contains("Opus"), "{message}");
+    }
+
+    #[test]
+    fn a_refused_control_names_itself_and_spares_the_encoder() {
+        // libopus takes a loss estimate of 0 to 100. A refusal is reported
+        // with the setting that failed, and the encoder is still usable: the
+        // helper borrows it rather than consuming or freeing it.
+        let mut encoder = Encoder::new(1, Application::Audio, 64_000).unwrap();
+        let error = set(&encoder, SET_PACKET_LOSS_PERC, 101, "the packet loss")
+            .expect_err("libopus refuses a loss estimate over 100");
+        assert!(error.to_string().contains("packet loss"), "{error}");
+        let mut packet = [0u8; 1500];
+        let mono: Vec<f32> = tone().chunks_exact(2).map(|pair| pair[0]).collect();
+        assert!(encoder.encode_float(&mono, &mut packet).unwrap() > 3);
+    }
 
     #[test]
     fn a_tone_survives_encoding_and_loss() {
