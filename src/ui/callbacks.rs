@@ -988,15 +988,22 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // The emoji per row the grid last took, so a width that leaves the columns
     // alone does not build it again.
     let columns_shown: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+    // The rows the grid last said it shows, so a scroll within them asks for
+    // nothing again, and a grid laid out again fills the rows it is scrolled to.
+    let shown_rows: Rc<Cell<(usize, usize)>> = Rc::new(Cell::new((usize::MAX, usize::MAX)));
     let shown = columns_shown.clone();
+    let rows_before = shown_rows.clone();
     window.on_emoji_search(move |query| {
         let Some(window) = weak.upgrade() else { return };
         let columns = emoji::columns(window.get_emoji_panel_width());
         shown.set(columns);
+        // A grid built again starts at its top, and says where it shows from.
+        rows_before.set((usize::MAX, usize::MAX));
         show_emoji(&state, &window, &query, columns);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    let rows_shown = shown_rows.clone();
     window.on_emoji_reflow(move || {
         let Some(window) = weak.upgrade() else { return };
         let columns = emoji::columns(window.get_emoji_panel_width());
@@ -1006,6 +1013,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         columns_shown.set(columns);
         // The grid keeps what is being searched for, laid out again.
         show_emoji(&state, &window, &window.get_emoji_query(), columns);
+        // Its cells are new ones, so the rows it is scrolled to take their
+        // pictures again: a wider grid puts emoji in them that were a row below
+        // the last time, which would otherwise wait for a scroll to show.
+        // The range stays: a drag changes the columns several times, and each
+        // change lays every cell out again, so each one fills the same rows.
+        let (first, last) = rows_shown.get();
+        if first != usize::MAX {
+            let mut adapter = state.borrow_mut();
+            fetch_shown_pictures(&mut adapter, &window, first, last);
+            fill_shown_glyphs(&window, &mut adapter, first, last);
+        }
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -1021,17 +1039,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    // The rows the grid last said it shows, so a scroll within them asks for
-    // nothing again.
-    let shown_rows: Rc<Cell<(usize, usize)>> = Rc::new(Cell::new((usize::MAX, usize::MAX)));
+    let rows_reported = shown_rows.clone();
     window.on_emoji_scrolled_to(move |scrolled, height| {
         let Some(window) = weak.upgrade() else { return };
         let first = (scrolled / emoji::CELL).floor().max(0.) as usize;
         let last = ((scrolled + height) / emoji::CELL).ceil() as usize;
-        if shown_rows.get() == (first, last) {
+        if rows_reported.get() == (first, last) {
             return;
         }
-        shown_rows.set((first, last));
+        rows_reported.set((first, last));
         let mut adapter = state.borrow_mut();
         fetch_shown_pictures(&mut adapter, &window, first, last);
         fill_shown_glyphs(&window, &mut adapter, first, last);

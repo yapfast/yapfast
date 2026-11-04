@@ -6765,6 +6765,49 @@ fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
 }
 
 #[test]
+fn resizing_the_grid_fills_the_rows_it_is_scrolled_to() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    // Scrolled a long way down, the rows in view are the ones drawn.
+    let top = 40.0 * emoji::CELL;
+    window.invoke_emoji_scrolled_to(top, 6.0 * emoji::CELL);
+    // A wider grid is laid out again, and its cells are new ones: the rows it is
+    // scrolled to must take their pictures again, or every emoji there would be
+    // a placeholder until the grid was scrolled.
+    // A drag changes the columns more than once, and each change lays the grid
+    // out again: every one of them must fill the rows in view, not only the
+    // first.
+    window.set_emoji_panel_width(648.);
+    window.invoke_emoji_reflow();
+    window.set_emoji_panel_width(978.);
+    window.invoke_emoji_reflow();
+    let rows = window.get_emoji_rows();
+    let drawn: usize = (40..46.min(rows.row_count()))
+        .map(|index| {
+            rows.row_data(index)
+                .map(|row| {
+                    row.cells
+                        .iter()
+                        .filter(|cell| cell.picture.size().width > 0)
+                        .count()
+                })
+                .unwrap_or(0)
+        })
+        .sum();
+    assert!(drawn > 20, "the rows in view are drawn again: {drawn}");
+}
+
+#[test]
 fn only_the_rows_the_picker_shows_are_drawn() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
