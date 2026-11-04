@@ -6668,7 +6668,7 @@ fn a_found_message_shows_its_blocks_with_spoilers_hidden() {
 }
 
 #[test]
-fn the_gif_picker_keeps_the_width_it_was_dragged_to() {
+fn the_picker_keeps_the_width_it_was_dragged_to() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
     let window = YapfastWindow::new().unwrap();
@@ -6679,22 +6679,136 @@ fn the_gif_picker_keeps_the_width_it_was_dragged_to() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    window.invoke_gif_picker_width_chosen(648.);
-    assert_eq!(Layout::read(directory.path()).gif_picker_width, Some(648.));
+    window.invoke_picker_width_chosen(648.);
+    assert_eq!(Layout::read(directory.path()).picker_width, Some(648.));
     // A new window starts at the stored width.
     let next = YapfastWindow::new().unwrap();
     adapter.borrow_mut().attach(&next);
-    assert_eq!(next.get_gif_picker_width(), 648.);
+    assert_eq!(next.get_picker_width(), 648.);
 }
 
 #[test]
-fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list() {
+fn resizing_the_window_carries_the_pickers_room_with_the_composer() {
+    let window = showing(vec![]);
+    window.set_can_pick_gifs(true);
+    settle(&window);
+    let button = slint::platform::PointerEventButton::Left;
+    let click = |x: f32, y: f32| {
+        let native = window.window();
+        native.dispatch_event(slint::platform::WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, y),
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: slint::LogicalPosition::new(x, y),
+            button,
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: slint::LogicalPosition::new(x, y),
+            button,
+        });
+        settle(&window);
+    };
+    // The GIF button opens the picker with 978px of room: up to 8px right of
+    // the server list, which is 80px from the window's left edge.
+    click(992., 710.);
+    let room = window.get_picker_room();
+    assert_eq!(room, 978.);
+    // A window 200px wider carries the composer's buttons with it, and the
+    // room the picker may take, so the picker stays over its button instead of
+    // where the window used to end.
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1320., 760.));
+    settle(&window);
+    assert_eq!(window.get_picker_room(), room + 200.);
+    assert_eq!(window.get_picker_shown(), 498.);
+}
+
+#[test]
+fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
+    let row = |cells: Vec<EmojiCell>| EmojiRow {
+        heading: "".into(),
+        cells: ModelRc::new(VecModel::from(cells)),
+    };
+    let rows = VecModel::from(vec![
+        row(vec![emoji::cell("🍕")]),
+        row(vec![emoji::cell("cate:5"), emoji::cell("dog:6")]),
+    ]);
+    // A Unicode glyph needs no picture, so the first row asks for none.
+    assert!(
+        callbacks::custom_keys_without_pictures(&rows, 0, 0).is_empty(),
+        "the Unicode row asks for nothing"
+    );
+    let keys = callbacks::custom_keys_without_pictures(&rows, 0, 1);
+    assert_eq!(keys.len(), 2);
+    assert!(keys.contains("cate:5") && keys.contains("dog:6"));
+    // Rows past the end are left alone rather than read.
+    assert_eq!(
+        callbacks::custom_keys_without_pictures(&rows, 1, 9).len(),
+        2
+    );
+    assert!(callbacks::custom_keys_without_pictures(&rows, 5, 9).is_empty());
+    // A picture that arrived, or a name the server kept without one, is not
+    // asked for again.
+    let shown = rows.row_data(1).unwrap();
+    let filled = emoji::cell("cate:5");
+    shown.cells.set_row_data(
+        0,
+        EmojiCell {
+            picture: slint::Image::from_rgba8(slint::SharedPixelBuffer::new(2, 2)),
+            ..filled
+        },
+    );
+    let keys = callbacks::custom_keys_without_pictures(&rows, 1, 1);
+    assert_eq!(keys.iter().collect::<Vec<_>>(), ["dog:6"]);
+}
+
+#[test]
+fn the_emoji_grid_fits_the_width_the_picker_shows_at() {
+    // The widest row of the grid, which is the emoji a row fit.
+    fn widest(window: &YapfastWindow) -> usize {
+        let rows = window.get_emoji_rows();
+        (0..rows.row_count())
+            .map(|index| rows.row_data(index).unwrap().cells.row_count())
+            .max()
+            .unwrap_or(0)
+    }
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // The emoji popup opens 408px wide: six 56px buttons a row.
+    window.set_emoji_panel_width(408.);
+    window.invoke_emoji_search("".into());
+    assert_eq!(widest(&window), 6);
+    // The picker above the composer opens at 498, and its left edge drags it
+    // wider: the grid fits more emoji a row, as the GIFs' grid does.
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_reflow();
+    assert_eq!(widest(&window), 7);
+    window.set_emoji_panel_width(648.);
+    window.invoke_emoji_reflow();
+    assert_eq!(widest(&window), 10);
+    // Narrower than the default, the grid fits fewer.
+    window.set_emoji_panel_width(560.);
+    window.invoke_emoji_reflow();
+    assert_eq!(widest(&window), 8);
+}
+
+#[test]
+fn dragging_the_pickers_left_edge_widens_it_no_further_than_the_server_list() {
     let window = showing(vec![]);
     window.set_can_pick_gifs(true);
     // The widths letting go of the edge keeps.
     let chosen = Rc::new(RefCell::new(vec![]));
     let kept = chosen.clone();
-    window.on_gif_picker_width_chosen(move |width| kept.borrow_mut().push(width));
+    window.on_picker_width_chosen(move |width| kept.borrow_mut().push(width));
     settle(&window);
     let button = slint::platform::PointerEventButton::Left;
     let at = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
@@ -6714,11 +6828,11 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     // The GIF button in the composer opens the picker, 498px wide, its right
     // edge on the emoji button's.
     click(992., 710.);
-    assert_eq!(window.get_gif_picker_shown(), 498.);
+    assert_eq!(window.get_picker_shown(), 498.);
     assert_eq!(window.get_gif_grid_width(), 474.);
     // Room for it up to 8px right of the server list, which is 80px from the
     // window's left edge.
-    let room = window.get_gif_picker_room();
+    let room = window.get_picker_room();
     assert_eq!(room, 978.);
     // Where the picker shows on screen: its right edge, which is the emoji
     // button's, must stay there however far its left edge is dragged.
@@ -6794,29 +6908,29 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     assert!(chosen.borrow().is_empty());
     press(564.);
     moved(514.);
-    assert_eq!(window.get_gif_picker_shown(), 548.);
+    assert_eq!(window.get_picker_shown(), 548.);
     assert_eq!(panel(), (510., 548.));
     moved(464.);
-    assert_eq!(window.get_gif_picker_shown(), 598.);
+    assert_eq!(window.get_picker_shown(), 598.);
     assert_eq!(right_edge(), 1058.);
     moved(414.);
-    assert_eq!(window.get_gif_picker_shown(), 648.);
+    assert_eq!(window.get_picker_shown(), 648.);
     assert_eq!(right_edge(), 1058.);
     // The grid takes the width it got: three columns of 200px.
     assert_eq!(window.get_gif_grid_width(), 624.);
     release(414.);
-    assert_eq!(window.get_gif_picker_width(), 648.);
+    assert_eq!(window.get_picker_width(), 648.);
     assert_eq!(right_edge(), 1058.);
     assert_eq!(*chosen.borrow(), [648.]);
-    // The emoji keep the width the picker opens at; the GIFs come back at
-    // the width dragged.
+    // The emoji show at the width dragged too: the two tabs share the window.
     let tabs = found().2 + 30.;
     click(410. + 110., tabs);
-    assert_eq!(panel(), (560., 498.));
+    assert_eq!(panel(), (410., 648.));
+    assert_eq!(window.get_emoji_panel_width(), 648.);
     // A click on the panel's empty places keeps it open; one beside it, in
     // the room it could take, closes it.
-    click(560. + 300., tabs);
-    assert_eq!(panel(), (560., 498.));
+    click(410. + 300., tabs);
+    assert_eq!(panel(), (410., 648.));
     click(300., tabs);
     let inner = i_slint_core::window::WindowInner::from_pub(window.window());
     assert!(inner.active_popups().is_empty());
@@ -6827,18 +6941,18 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     // at, and no further.
     press(414.);
     moved(514.);
-    assert_eq!(window.get_gif_picker_shown(), 548.);
+    assert_eq!(window.get_picker_shown(), 548.);
     moved(700.);
-    assert_eq!(window.get_gif_picker_shown(), 498.);
+    assert_eq!(window.get_picker_shown(), 498.);
     release(700.);
-    assert_eq!(window.get_gif_picker_width(), 498.);
+    assert_eq!(window.get_picker_width(), 498.);
     // Left again, the edge stops just past the server list.
     press(564.);
     moved(0.);
-    assert_eq!(window.get_gif_picker_shown(), room);
+    assert_eq!(window.get_picker_shown(), room);
     assert_eq!(right_edge(), 1058.);
     release(0.);
-    assert_eq!(window.get_gif_picker_width(), room);
+    assert_eq!(window.get_picker_width(), room);
     assert_eq!(right_edge(), 1058.);
     window.hide().unwrap();
 }

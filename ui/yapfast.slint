@@ -554,6 +554,12 @@ export component YapfastWindow inherits Window {
     in property <[EmojiRow]> emoji-rows;
     /// The picker's sidebar: the grid's headings with no query.
     in property <[EmojiSection]> emoji-sections;
+    /// The emoji a row of that grid was built for, which each of its cells then
+    /// shares the width it shows at between.
+    in property <int> emoji-columns: 8;
+    /// How far the grid is scrolled and how tall it shows: the adapter fetches
+    /// the pictures of the custom emoji in sight as they come in.
+    callback emoji-scrolled-to(length, length);
     in-out property <string> emoji-query;
     /// The forward dialog, open while Yapfast forwards a message.
     in property <bool> forward-open;
@@ -1611,23 +1617,44 @@ export component YapfastWindow inherits Window {
         root.anchor-x = x; root.anchor-y = y; root.anchor-width = width; root.anchor-height = height;
         root.anchor-pointer = pointer;
     }
-    // The GIF picker's width, which its left edge drags wider: 498px unless
-    // dragged. Its right edge stays on the control it opened from, and its
-    // height stays, as Discord's. It grows only, and stops 8px right of the
-    // 72px server rail, or 8px from the window's own edge if that comes first.
-    // The grid takes its columns from the width it shows at.
-    in-out property <length> gif-picker-width: 498px;
-    out property <length> gif-picker-room: max(498px, min(root.width - 88px, root.anchor-x + root.anchor-width - 80px));
-    out property <length> gif-picker-shown: min(max(498px, root.gif-picker-width), root.gif-picker-room);
-    out property <length> gif-grid-width: root.gif-picker-shown - 24px;
+    // The picker's width, which its left edge drags wider: 498px unless
+    // dragged. The GIFs and the emoji share it, as they share the window: its
+    // right edge stays on the control it opened from, and its height stays, as
+    // Discord's. It grows only, and stops 8px right of the 72px server rail, or
+    // 8px from the window's own edge if that comes first. Both grids take
+    // their columns from the width they show at.
+    in-out property <length> picker-width: 498px;
+    // The width the picker may take, from the emoji button above the composer to
+    // the window's edge: it grows only, and stops 8px right of the 72px server
+    // rail, or 8px from the window's own edge if that comes first. The button is
+    // read where it is, so resizing the window moves the picker and its room with
+    // it, as it does the composer.
+    out property <length> picker-room: max(498px, min(root.width - 88px, emoji-button.absolute-position.x + emoji-button.width - 80px));
+    out property <length> picker-shown: min(max(498px, root.picker-width), root.picker-room);
+    // The emoji's columns follow the width it shows at, as the GIFs' do, so a
+    // drag or a window resize re-places its grid.
+    changed picker-shown => {
+        if !root.picker-open && root.expression-tab == 1 {
+            root.emoji-panel-width = root.picker-shown;
+            root.emoji-reflow();
+        }
+    }
+    out property <length> gif-grid-width: root.picker-shown - 24px;
     callback gif-picker-resized;
     /// The drag let go at this width, which the next start shows again.
-    callback gif-picker-width-chosen(length);
-    // The width the GIF picker's left edge is dragged to: it moves the edge
-    // with the pointer, so the width it shows at now less the distance the
-    // pointer travelled since it pressed leaves the edge where the pointer is.
+    callback picker-width-chosen(length);
+    /// The width the emoji grid shows at: the picker above the composer's,
+    /// which both tabs share, or the width the emoji popup opens at. The grid
+    /// fits its columns to it.
+    in-out property <length> emoji-panel-width: 408px;
+    /// The emoji grid's columns no longer fit the width it shows at; whoever
+    /// moves that width while a grid shows asks for the grid again.
+    callback emoji-reflow;
+    // The width the picker's left edge is dragged to: it moves the edge with
+    // the pointer, so the width it shows at now less the distance the pointer
+    // travelled since it pressed leaves the edge where the pointer is.
     pure function drag-width(mouse-x: length, pressed-x: length) -> length {
-        return max(498px, min(root.gif-picker-room, root.gif-picker-shown - (mouse-x - pressed-x)));
+        return max(498px, min(root.picker-room, root.picker-shown - (mouse-x - pressed-x)));
     }
     // A card opened from a mention sits right of what was clicked, or left of it
     // when there isn't room.
@@ -1635,10 +1662,15 @@ export component YapfastWindow inherits Window {
         return x + width + 8px + card <= root.width - 8px ? x + width + 8px : max(8px, x - card - 8px);
     }
     // Closing a popup ends the handler that closed it, so callers close last.
+    // The emoji grid fits the popup it opens in, so its width is set before the
+    // grid is built: the 408px popup here, the picker's shared width in
+    // open-expressions below.
+    property <length> emoji-popup-width: 408px;
     function open-picker(item: string) {
         root.react-item = item;
         root.emoji-query = "";
         root.emoji-hover = { glyph: "", name: "" };
+        root.emoji-panel-width = root.emoji-popup-width;
         root.emoji-search("");
         emoji-picker.show();
     }
@@ -1798,15 +1830,22 @@ export component YapfastWindow inherits Window {
         root.react-item = "yapfast:composer";
         root.emoji-query = "";
         root.emoji-hover = { glyph: "", name: "" };
-        root.emoji-search("");
         root.expression-tab = tab;
+        root.emoji-panel-width = root.picker-shown;
+        root.emoji-search("");
         if tab == 0 { root.open-gifs(); }
         expressions.show();
     }
     function show-expression-tab(tab: int) {
         if tab == root.expression-tab { return; }
         root.expression-tab = tab;
-        if tab == 0 { root.open-gifs(); } else { root.close-gifs(); }
+        // The emoji's columns follow the width the picker was dragged to while
+        // the GIFs showed.
+        if tab == 0 { root.open-gifs(); } else {
+            root.close-gifs();
+            root.emoji-panel-width = root.picker-shown;
+            root.emoji-reflow();
+        }
     }
     property <bool> expressions-open: expressions.is-open;
     changed expressions-open => {
@@ -1822,9 +1861,9 @@ export component YapfastWindow inherits Window {
     // wider width from the place it had, which walked it right. The panel
     // inside it is what shows, its right edge against the popup's.
     expressions := PopupWindow {
-        width: root.gif-picker-room; height: 486px;
-        x: max(8px, min(root.width - self.width - 8px, root.anchor-x + root.anchor-width - self.width));
-        y: max(8px, root.anchor-y - self.height - 8px);
+        width: root.picker-room; height: 486px;
+        x: max(8px, min(root.width - self.width - 8px, emoji-button.absolute-position.x + emoji-button.width - self.width));
+        y: max(8px, emoji-button.absolute-position.y - self.height - 8px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         // A click beside the picker, in the room it could have taken, closes
         // it as one outside the popup does. It covers only that room: under
@@ -1834,10 +1873,10 @@ export component YapfastWindow inherits Window {
             width: parent.width - panel.width; x: 0px;
             clicked => { expressions.close(); }
         }
-        // The emoji keep the width the picker opens at: only the GIFs' grid
-        // takes more columns as it widens.
+        // The GIFs and the emoji share the window, so both show at the width
+        // its left edge was dragged to, and each grid fits its columns to that.
         panel := Rectangle {
-            width: root.expression-tab == 0 ? root.gif-picker-shown : 498px;
+            width: root.picker-shown;
             x: parent.width - self.width;
             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
@@ -1866,33 +1905,34 @@ export component YapfastWindow inherits Window {
                 if root.expression-tab == 1: EmojiPicker {
                     bare: true;
                     emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
-                    emoji-font: root.emoji-font; react-item: root.react-item;
+                    emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
                     emoji-search(text) => { root.emoji-search(text); }
                     pick(cell) => { root.pick(cell); }
                     close-picker => { expressions.close(); }
+                    scrolled-to(top, height) => { root.emoji-scrolled-to(top, height); }
                 }
             }
             // The picker's left edge drags it wider, as Discord's: the right
             // edge and the height stay, and it stops just past the server
-            // list. Letting go keeps the width for the next start, if the
-            // drag changed it.
-            if root.expression-tab == 0: edge := TouchArea {
+            // list. Both tabs drag it, as they share the width. Letting go
+            // keeps the width for the next start, if the drag changed it.
+            edge := TouchArea {
                 // The width the drag started from.
                 property <length> from;
                 x: 0px; y: 0px; width: 8px; height: parent.height;
                 mouse-cursor: ew-resize;
                 moved => {
                     if self.pressed {
-                        root.gif-picker-width = root.drag-width(self.mouse-x, self.pressed-x);
+                        root.picker-width = root.drag-width(self.mouse-x, self.pressed-x);
                     }
                 }
                 pointer-event(event) => {
                     if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                        self.from = root.gif-picker-shown;
+                        self.from = root.picker-shown;
                     }
                     if event.button == PointerEventButton.left && event.kind == PointerEventKind.up
-                        && root.gif-picker-shown != self.from {
-                        root.gif-picker-width-chosen(root.gif-picker-shown);
+                        && root.picker-shown != self.from {
+                        root.picker-width-chosen(root.picker-shown);
                     }
                 }
                 Rectangle {
@@ -1905,17 +1945,18 @@ export component YapfastWindow inherits Window {
         }
     }
     emoji-picker := PopupWindow {
-        width: 408px; height: 432px;
+        width: root.emoji-popup-width; height: 432px;
         x: max(8px, min(root.width - self.width - 8px, root.anchor-pointer ? root.anchor-x : root.anchor-x + root.anchor-width - self.width));
         y: root.anchor-y + root.anchor-height + 4px + self.height <= root.height - 8px
             ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         EmojiPicker {
             emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
-            emoji-font: root.emoji-font; react-item: root.react-item;
+            emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
             emoji-search(text) => { root.emoji-search(text); }
             pick(cell) => { root.pick(cell); }
             close-picker => { emoji-picker.close(); }
+            scrolled-to(top, height) => { root.emoji-scrolled-to(top, height); }
         }
     }
     // A message's actions, from its hover bar's "More" button or a right click.

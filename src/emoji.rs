@@ -42,8 +42,18 @@ pub fn family() -> &'static str {
     })
 }
 
-/// Emoji per row of the picker's grid.
-const COLUMNS: usize = 8;
+/// Emoji per row of the picker's grid: a button is 56px, as Discord's, and the
+/// sidebar beside the grid and the grid's own padding take 64px of the width it
+/// shows at, as `EmojiPicker` in ui/messages.slint lays them out.
+pub const CELL: f32 = 56.0;
+const BESIDE: f32 = 64.0;
+
+/// The emoji per row of a grid showing at `width`, which follows the picker's
+/// width as the GIFs' columns do: as many as it holds, with a column kept even
+/// when it is narrower than one emoji.
+pub fn columns(width: f32) -> usize {
+    (((width - BESIDE) / CELL).floor() as usize).max(1)
+}
 
 /// Windows 11 and the Noto Color Emoji builds Yapfast is tested with draw Unicode
 /// 15.0; newer emoji would show as empty boxes.
@@ -215,6 +225,7 @@ pub fn rows(
     query: &str,
     frequent: &[String],
     custom: &[EmojiSet],
+    columns: usize,
     server_icon: impl Fn(&EmojiSet) -> Option<slint::Image>,
 ) -> (Vec<EmojiRow>, Vec<EmojiSection>) {
     let query = query.trim().trim_matches(':').to_lowercase();
@@ -244,11 +255,11 @@ pub fn rows(
             });
             sections.push(EmojiSection {
                 row: row as i32,
-                end: (row + 1 + glyphs.len().div_ceil(COLUMNS)) as i32,
+                end: (row + 1 + glyphs.len().div_ceil(columns)) as i32,
                 icon,
             });
         }
-        for chunk in glyphs.chunks(COLUMNS) {
+        for chunk in glyphs.chunks(columns) {
             rows.push(EmojiRow {
                 heading: SharedString::default(),
                 cells: ModelRc::new(VecModel::from(
@@ -511,7 +522,7 @@ mod tests {
                 picture: String::new(),
             }],
         }];
-        let (rows, sections) = rows("", &[], &custom, |_| None);
+        let (rows, sections) = rows("", &[], &custom, columns(408.), |_| None);
         let model = VecModel::from(rows);
         let sections = VecModel::from(sections);
         let cells = model.row_data(1).unwrap().cells;
@@ -537,12 +548,26 @@ mod tests {
     }
 
     #[test]
+    fn the_grid_fits_its_columns_to_the_width_it_shows_at() {
+        // A button is 56px, as Discord's, and the sidebar beside the grid and its
+        // padding take 64px: the emoji popup opens 408px wide, the picker above
+        // the composer 498px at least, and its left edge drags it wider.
+        assert_eq!(columns(408.), 6);
+        assert_eq!(columns(498.), 7);
+        assert_eq!(columns(648.), 10);
+        // A width too narrow for one still has one, and a wide window takes as
+        // many as it holds, with no cap of its own.
+        assert_eq!(columns(0.), 1);
+        assert_eq!(columns(4000.), 70);
+    }
+
+    #[test]
     fn the_picker_lists_categories_or_matches_and_names_emoji() {
-        let (all, sections) = rows("", &["🔥".into()], &[], |_| None);
+        let (all, sections) = rows("", &["🔥".into()], &[], columns(408.), |_| None);
         assert_eq!(all[0].heading, "FREQUENTLY USED");
         assert_eq!(all[1].cells.row_count(), 1);
         assert_eq!(all[2].heading, "SMILEYS & EMOTION");
-        assert!(all.iter().all(|row| row.cells.row_count() <= COLUMNS));
+        assert!(all.iter().all(|row| row.cells.row_count() <= columns(408.)));
         // The sidebar jumps to each heading; a section ends where the next begins.
         assert_eq!(sections.len(), 1 + emojis::Group::iter().count());
         assert_eq!((sections[0].row, sections[0].end), (0, 2));
@@ -552,12 +577,16 @@ mod tests {
             assert_eq!(section.end, next.row);
         }
         assert_eq!(sections.last().unwrap().end as usize, all.len());
-        let (found, sections) = rows(":pizza", &[], &[], |_| None);
+        let (found, sections) = rows(":pizza", &[], &[], columns(408.), |_| None);
         assert_eq!(found.len(), 1);
         assert!(sections.is_empty(), "matches have no sections");
         assert!(found[0].heading.is_empty());
         assert_eq!(found[0].cells.row_data(0).unwrap().glyph, "🍕");
-        assert!(rows("no such emoji", &[], &[], |_| None).0.is_empty());
+        assert!(
+            rows("no such emoji", &[], &[], columns(408.), |_| None)
+                .0
+                .is_empty()
+        );
         assert_eq!(cell("👍").name, "Thumbs up");
         // The composer gets the emoji, or a custom emoji's name.
         assert_eq!(composer_text("👍"), "👍");
@@ -575,7 +604,7 @@ mod tests {
             }],
         }];
         let icon = slint::Image::from_rgba8(slint::SharedPixelBuffer::new(3, 3));
-        let (all, sections) = rows("", &[], &custom, |_| Some(icon.clone()));
+        let (all, sections) = rows("", &[], &custom, columns(408.), |_| Some(icon.clone()));
         assert_eq!(all[0].heading, "GAMES");
         let pog = all[1].cells.row_data(0).unwrap();
         assert_eq!((pog.glyph.as_str(), pog.key.as_str()), (":pog:", "pog:5"));
@@ -586,7 +615,7 @@ mod tests {
             "the server's icon"
         );
         assert_eq!(
-            rows("po", &[], &custom, |_| None).0[0]
+            rows("po", &[], &custom, columns(408.), |_| None).0[0]
                 .cells
                 .row_data(0)
                 .unwrap()
