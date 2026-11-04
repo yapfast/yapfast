@@ -144,6 +144,10 @@ pub struct Server {
     pub role_names: Arc<HashMap<String, String>>,
     /// The position and RGB colour of each coloured role, by id.
     pub role_colors: Arc<HashMap<String, (i64, u32)>>,
+    /// The address of the picture of each role that has one, which a member
+    /// list draws by the role's name.
+    #[serde(default)]
+    pub role_icons: Arc<HashMap<String, String>>,
     /// Each role's position, by id: higher roles list first.
     pub role_positions: Arc<HashMap<String, i64>>,
     /// Roles anyone may mention, by id.
@@ -168,6 +172,10 @@ pub struct Server {
     /// [`crate::marked::MarkedServer::follows_only`].
     #[serde(default)]
     pub community: bool,
+    /// The channel Discord asks new members to read first, which wears the
+    /// rules icon in the channel list.
+    #[serde(default)]
+    pub rules_channel: Option<String>,
     /// This account's timeout here while it lasts, set on a copy of the
     /// server when the service publishes it; see [`crate::marked`] for the
     /// rest of what's this account's.
@@ -182,6 +190,10 @@ pub struct Server {
     pub mfa_level: u8,
     /// Its custom emoji, by name.
     pub emojis: Arc<Vec<Emoji>>,
+    /// Its scheduled events that haven't ended, soonest first, which its
+    /// header counts; see [`ScheduledEvent`].
+    #[serde(default)]
+    pub events: Arc<Vec<ScheduledEvent>>,
     /// When this account joined it, as Discord's ISO 8601 time.
     pub joined_at: Option<String>,
     /// Out of reach in a Discord outage: still listed, with what was last
@@ -200,6 +212,66 @@ pub struct Emoji {
     /// Usable: a server that loses boosts keeps emoji it no longer has room for,
     /// unavailable.
     pub available: bool,
+}
+
+/// A server's scheduled event, which the header's "N Events" row counts and
+/// lists; see <https://docs.discord.food/resources/guild-scheduled-event>.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ScheduledEvent {
+    pub id: String,
+    pub name: String,
+    /// When it starts, as Discord's ISO 8601 time.
+    pub start: String,
+    /// When it ends, for one with an end.
+    pub end: Option<String>,
+    /// 1 scheduled, 2 active, 3 completed, 4 canceled.
+    pub status: u8,
+    /// Where it is, for one outside Discord, or the name of its channel.
+    pub location: Option<String>,
+    /// The channel of one in a voice or stage channel.
+    pub channel: Option<String>,
+    /// How many are interested.
+    pub interested: u64,
+}
+
+impl ScheduledEvent {
+    /// A guild scheduled event object, from a guild object, the REST API or
+    /// a GUILD_SCHEDULED_EVENT_* dispatch.
+    pub fn parse(value: &Value) -> Option<Self> {
+        Some(Self {
+            id: value["id"].as_str()?.to_owned(),
+            name: value["name"].as_str()?.to_owned(),
+            start: value["scheduled_start_time"].as_str()?.to_owned(),
+            end: value["scheduled_end_time"].as_str().map(str::to_owned),
+            status: value["status"]
+                .as_u64()
+                .map_or(1, |status| u8::try_from(status).unwrap_or(1)),
+            location: value["entity_metadata"]["location"]
+                .as_str()
+                .map(str::to_owned),
+            channel: value["channel_id"].as_str().map(str::to_owned),
+            interested: value["user_count"].as_u64().unwrap_or(0),
+        })
+    }
+
+    /// Scheduled or under way: the events Discord counts.
+    pub fn counts(&self) -> bool {
+        matches!(self.status, 1 | 2)
+    }
+}
+
+/// A server's scheduled events that count, soonest first, from a guild
+/// object's `guild_scheduled_events`.
+pub fn scheduled_events(list: &Value) -> Vec<ScheduledEvent> {
+    let mut events: Vec<ScheduledEvent> = list
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(ScheduledEvent::parse)
+        .filter(ScheduledEvent::counts)
+        .collect();
+    events.sort_by(|a, b| a.start.cmp(&b.start));
+    events
 }
 
 /// A server's emoji list, from a guild object or GUILD_EMOJIS_UPDATE.
@@ -255,6 +327,12 @@ pub struct Channel {
     /// A stage channel, among the voice channels, where no join sound plays.
     #[serde(default)]
     pub stage: bool,
+    /// A media channel, which is a forum of pictures and videos.
+    #[serde(default)]
+    pub media: bool,
+    /// Age-restricted, which Discord marks with a warning on its icon.
+    #[serde(default)]
+    pub nsfw: bool,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -556,6 +634,48 @@ pub struct Overwrite {
 }
 
 impl Server {
+    /// Keeps `event` as a GUILD_SCHEDULED_EVENT_CREATE or _UPDATE gives it, or
+    /// forgets it for a delete or one that no longer counts.
+    pub fn put_event(&mut self, event: ScheduledEvent, deleted: bool) {
+        let events = Arc::make_mut(&mut self.events);
+        events.retain(|known| known.id != event.id);
+        if !deleted && event.counts() {
+            events.push(event);
+            events.sort_by(|a, b| a.start.cmp(&b.start));
+        }
+    }
+
+    /// Whether @everyone may not see `channel`: the server's @everyone
+    /// permissions with the channel's overwrite for @everyone applied, as
+    /// Discord's client works it out to put a padlock on the channel's icon.
+    /// A thread has its channel's readers and no padlock of its own.
+    pub fn private(&self, channel: &Channel) -> bool {
+        if channel.thread.is_some() {
+            return false;
+        }
+        // Without the server's roles @everyone is taken to see channels.
+        let Some(&everyone) = self.roles.get(&self.id) else {
+            return false;
+        };
+        if everyone & permission::ADMINISTRATOR != 0 {
+            return false;
+        }
+        let mut seen = everyone & permission::VIEW_CHANNEL != 0;
+        if let Some(overwrite) = channel
+            .overwrites
+            .iter()
+            .find(|overwrite| !overwrite.member && overwrite.id == self.id)
+        {
+            if overwrite.deny & permission::VIEW_CHANNEL != 0 {
+                seen = false;
+            }
+            if overwrite.allow & permission::VIEW_CHANNEL != 0 {
+                seen = true;
+            }
+        }
+        !seen
+    }
+
     /// Who can read `channel`, as Discord's id for its member list, which
     /// channels with the same readers share: `everyone` when @everyone sees
     /// it and no overwrite hides it, else a hash of the overwrites that allow
@@ -1080,6 +1200,14 @@ impl Server {
             } else {
                 Arc::make_mut(&mut self.mentionable_roles).remove(&id);
             }
+            match value["icon"].as_str().filter(|hash| !hash.is_empty()) {
+                Some(hash) => {
+                    Arc::make_mut(&mut self.role_icons).insert(id.clone(), role_icon(&id, hash));
+                }
+                None => {
+                    Arc::make_mut(&mut self.role_icons).remove(&id);
+                }
+            }
             Arc::make_mut(&mut self.role_positions)
                 .insert(id.clone(), value["position"].as_i64().unwrap_or_default());
             match value["color"].as_u64().filter(|color| *color != 0) {
@@ -1101,6 +1229,7 @@ impl Server {
         Arc::make_mut(&mut self.roles).remove(id);
         Arc::make_mut(&mut self.role_names).remove(id);
         Arc::make_mut(&mut self.role_colors).remove(id);
+        Arc::make_mut(&mut self.role_icons).remove(id);
         Arc::make_mut(&mut self.role_positions).remove(id);
         Arc::make_mut(&mut self.mentionable_roles).remove(id);
         Arc::make_mut(&mut self.managed_roles).remove(id);
@@ -1150,6 +1279,16 @@ impl Server {
             .into_iter()
             .map(|(_, name, color)| (name, color))
             .collect()
+    }
+
+    /// The picture of a member's highest role that has one, as Discord draws
+    /// it by their name.
+    pub fn role_icon(&self, roles: &[String]) -> Option<String> {
+        roles
+            .iter()
+            .filter(|role| self.role_icons.contains_key(*role))
+            .max_by_key(|role| self.role_positions.get(*role).copied().unwrap_or_default())
+            .and_then(|role| self.role_icons.get(role).cloned())
     }
 
     /// The colour Discord gives a member's name: their highest coloured role's.
@@ -1232,6 +1371,7 @@ pub fn server(guild: &Value) -> Option<Server> {
             .or_else(|| guild["properties"]["mfa_level"].as_u64())
             .map_or(0, |level| u8::try_from(level).unwrap_or(1)),
         emojis: Arc::new(emojis(&guild["emojis"])),
+        events: Arc::new(scheduled_events(&guild["guild_scheduled_events"])),
         joined_at: guild["joined_at"].as_str().map(str::to_owned),
         default_level: Level::from(&guild["properties"]["default_message_notifications"])
             .or_else(|| Level::from(&guild["default_message_notifications"]))
@@ -1240,6 +1380,10 @@ pub fn server(guild: &Value) -> Option<Server> {
         forwarding_disabled: has("FORWARDING_DISABLED"),
         verified: has("VERIFIED") || has("PARTNERED"),
         community: has("COMMUNITY"),
+        rules_channel: guild["rules_channel_id"]
+            .as_str()
+            .or_else(|| guild["properties"]["rules_channel_id"].as_str())
+            .map(str::to_owned),
         ..Default::default()
     };
     for role in guild["roles"].as_array().into_iter().flatten() {
@@ -1369,6 +1513,8 @@ fn parse_channel(channel: &Value) -> Option<Channel> {
         overwrites: Arc::new(overwrites(channel)),
         announcement: channel["type"].as_u64() == Some(GUILD_ANNOUNCEMENT),
         stage: channel["type"].as_u64() == Some(GUILD_STAGE_VOICE),
+        media: channel["type"].as_u64() == Some(GUILD_MEDIA),
+        nsfw: channel["nsfw"].as_bool().unwrap_or(false),
         archive_after: channel["default_auto_archive_duration"]
             .as_u64()
             .and_then(|minutes| u16::try_from(minutes).ok())
@@ -1447,6 +1593,11 @@ pub fn avatar(user: &str, hash: Option<&str>) -> String {
     }
 }
 
+/// A role's picture, at twice the size a member list draws it.
+pub fn role_icon(role: &str, hash: &str) -> String {
+    format!("{}/role-icons/{role}/{hash}.png?size=64", cdn())
+}
+
 /// A profile or server banner, at the profile card's widest.
 pub fn banner(user: &str, hash: &str) -> String {
     format!("{}/banners/{user}/{hash}.png?size=600", cdn())
@@ -1455,11 +1606,6 @@ pub fn banner(user: &str, hash: &str) -> String {
 /// A server's invite background, at the width its settings show it.
 pub fn splash(guild: &str, hash: &str) -> String {
     format!("{}/splashes/{guild}/{hash}.png?size=600", cdn())
-}
-
-/// A role's icon, as its settings show it.
-pub fn role_icon(role: &str, hash: &str) -> String {
-    format!("{}/role-icons/{role}/{hash}.png?size=64", cdn())
 }
 
 /// An application's icon, as authorizing it shows it.
@@ -1636,6 +1782,76 @@ mod tests {
         ] {
             assert_eq!(murmur3(text.as_bytes()), hash, "{text:?}");
         }
+    }
+
+    #[test]
+    fn a_server_counts_its_events_that_have_not_ended() {
+        let event = |id: &str, start: &str, status: u64| {
+            json!({"id": id, "name": id, "scheduled_start_time": start, "status": status,
+                "entity_metadata": {"location": "Here"}, "user_count": 3})
+        };
+        let mut server = Server {
+            events: Arc::new(scheduled_events(&json!([
+                event("b", "2026-11-02T10:00:00+00:00", 1),
+                event("a", "2026-11-01T10:00:00+00:00", 2),
+                event("done", "2026-10-01T10:00:00+00:00", 3),
+                event("off", "2026-10-02T10:00:00+00:00", 4),
+            ]))),
+            ..Default::default()
+        };
+        let ids = |server: &Server| {
+            server
+                .events
+                .iter()
+                .map(|e| e.id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&server), ["a", "b"], "soonest first, only live ones");
+        assert_eq!(server.events[0].location.as_deref(), Some("Here"));
+        assert_eq!(server.events[0].interested, 3);
+        let new = ScheduledEvent::parse(&event("c", "2026-11-01T12:00:00+00:00", 1)).unwrap();
+        server.put_event(new, false);
+        assert_eq!(ids(&server), ["a", "c", "b"]);
+        let gone = ScheduledEvent::parse(&event("a", "2026-11-01T10:00:00+00:00", 2)).unwrap();
+        server.put_event(gone, true);
+        assert_eq!(ids(&server), ["c", "b"]);
+        let ended = ScheduledEvent::parse(&event("c", "2026-11-01T12:00:00+00:00", 3)).unwrap();
+        server.put_event(ended, false);
+        assert_eq!(ids(&server), ["b"], "one that ended no longer counts");
+    }
+
+    #[test]
+    fn a_channel_is_private_when_everyone_may_not_see_it() {
+        let server = Server {
+            id: "10".into(),
+            roles: HashMap::from([("10".into(), VIEW_CHANNEL)]).into(),
+            ..Default::default()
+        };
+        let hidden = |allow, deny| Channel {
+            overwrites: vec![Overwrite {
+                id: "10".into(),
+                member: false,
+                allow,
+                deny,
+            }]
+            .into(),
+            ..Default::default()
+        };
+        assert!(!server.private(&Channel::default()));
+        assert!(server.private(&hidden(0, VIEW_CHANNEL)));
+        assert!(!server.private(&hidden(VIEW_CHANNEL, 0)));
+        // A role's overwrite is not @everyone's.
+        let role = Channel {
+            overwrites: vec![Overwrite {
+                id: "20".into(),
+                member: false,
+                allow: 0,
+                deny: VIEW_CHANNEL,
+            }]
+            .into(),
+            ..Default::default()
+        };
+        assert!(!server.private(&role));
     }
 
     #[test]

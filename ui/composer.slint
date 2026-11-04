@@ -64,6 +64,8 @@ export component Composer inherits Rectangle {
     // Mention or emoji suggestions show, so the arrow keys, Tab, Enter and Escape
     // go to them.
     in property <bool> suggesting;
+    /// The field has the keys, which the box around it shows.
+    out property <bool> focused: input.has-focus;
     callback edited(string);
     callback accepted;
     // The text and the cursor's byte offset in it, after an edit or a move.
@@ -83,7 +85,7 @@ export component Composer inherits Rectangle {
     public function paste-text() { input.paste(); }
     public function focus-input() { input.focus(); }
     public function place-caret(offset: int) { input.set-selection-offsets(offset, offset); }
-    property <length> pad: 12px;
+    in property <length> pad: 12px;
     // Room above and below the text inside the part that scrolls and clips it, as an
     // emoji is taller than its line.
     property <length> overhang: 4px;
@@ -106,7 +108,7 @@ export component Composer inherits Rectangle {
     Text {
         x: 6px; y: root.pad; width: root.width - 12px; height: root.line;
         visible: root.text == "";
-        text: root.placeholder; color: root.enabled ? Theme.muted : Theme.faint; font-size: root.text-size;
+        text: root.placeholder; color: root.enabled ? Theme.placeholder : Theme.faint; font-size: root.text-size;
         vertical-alignment: center; overflow: elide;
     }
     FocusScope {

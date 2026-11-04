@@ -15,8 +15,8 @@ use crate::{
 pub const MAX_MESSAGE_BYTES: usize = 16_000;
 /// Larger downloads only get a file card, never an inline preview.
 pub(crate) const MAX_PREVIEW_DOWNLOAD_BYTES: usize = 20 * 1024 * 1024;
-pub const PREVIEW_WIDTH: u32 = 360;
-pub const PREVIEW_HEIGHT: u32 = 270;
+pub const PREVIEW_WIDTH: u32 = 550;
+pub const PREVIEW_HEIGHT: u32 = 400;
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
@@ -36,6 +36,20 @@ pub use yapfast_discord::activity::{Activities, Activity, Kind as ActivityKind};
 pub enum Activity {}
 #[cfg(not(feature = "discord"))]
 pub type Activities = Arc<[Activity]>;
+
+/// The icons of [`ChatRoom::symbol`].
+pub mod symbol {
+    pub const TEXT: u8 = 0;
+    pub const RULES: u8 = 1;
+    pub const ANNOUNCEMENT: u8 = 2;
+    pub const STAGE: u8 = 3;
+    pub const MEDIA: u8 = 4;
+    /// A text channel that is age-restricted.
+    pub const AGE_RESTRICTED: u8 = 5;
+    /// Set on any of the above for a channel @everyone may not see, which
+    /// Discord marks with a padlock on the icon.
+    pub const PRIVATE: u8 = 0x80;
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
@@ -109,6 +123,13 @@ pub struct ChatRoom {
     /// Show All Channels off for one this account doesn't follow; or a
     /// thread of one.
     pub unlisted: bool,
+    /// Which icon the channel list draws for it, one of [`symbol`], by its
+    /// kind: a rules channel, an announcement channel, a stage and so on.
+    pub symbol: u8,
+    /// The other person is Discord's official account, which the DM list marks.
+    pub official: bool,
+    /// A one-to-one DM with no messages yet, where the DM list offers to wave.
+    pub empty: bool,
     /// A Discord message request's latest message, when it's known.
     pub preview: Option<Box<RequestPreview>>,
 }
@@ -412,7 +433,7 @@ pub struct VoicePerson {
     pub elsewhere: bool,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Default, PartialEq, Eq, Hash)]
 pub struct ChatServer {
     pub id: String,
     pub name: String,
@@ -437,6 +458,27 @@ pub struct ChatServer {
     /// The room ids of the channels this account pinned to the top of its
     /// channel list, a Discord server's, in the order they show there.
     pub pinned: Vec<String>,
+    /// The address of its banner, which tops its channel list.
+    pub banner: Option<String>,
+    /// Verified or partnered, which its name carries a tick for.
+    pub verified: bool,
+    /// Its scheduled events that haven't ended, soonest first, which its
+    /// channel list counts in an "N Events" row.
+    pub events: Vec<ServerEvent>,
+}
+
+/// A Discord server's scheduled event, as its events list shows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ServerEvent {
+    pub id: String,
+    pub name: String,
+    /// When it starts, in seconds since the epoch.
+    pub start: i64,
+    /// Where it is, if it says.
+    pub location: Option<String>,
+    /// Under way now.
+    pub active: bool,
+    pub interested: u64,
 }
 
 /// Where a Discord channel or category goes in its server's channel list.
@@ -612,6 +654,8 @@ pub struct Profile {
     pub handle: String,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The two colours of their profile's theme, when they set one.
+    pub theme: Option<[u32; 2]>,
     /// The address of their banner, and its colour when there's no picture.
     pub banner: Option<String>,
     pub accent: Option<u32>,
@@ -631,6 +675,26 @@ pub struct Profile {
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
+    /// The custom emoji in their bio, which show as their pictures once
+    /// those arrive; the bio names each as `:name:`.
+    pub bio_emoji: Vec<CustomEmoji>,
+    /// The note this account keeps on them, as the full profile edits it.
+    pub note: String,
+    /// The accounts on other services their profile shows.
+    pub connections: Vec<ProfileConnection>,
+}
+
+/// An account on another service on a profile, such as Steam.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileConnection {
+    /// The service: `steam`, `twitch`, `github`.
+    pub kind: String,
+    pub name: String,
+    pub verified: bool,
+    /// Where the account is, when it can be opened.
+    pub url: Option<String>,
+    /// When the account was made, as a date, when the service says.
+    pub since: Option<String>,
 }
 
 /// A server a profile's person shares with this account.
@@ -679,6 +743,11 @@ pub struct ChatMember {
     /// The heading Discord lists them under, with its size, such as
     /// `Online — 12`. Matrix members are grouped by `role` instead.
     pub group: Option<String>,
+    /// The address of the picture of the role their group is, and of the
+    /// highest of their roles that has one, which a member list draws by
+    /// the group's heading and by their name.
+    pub group_icon: Option<String>,
+    pub role_icon: Option<String>,
     /// Whether they're around; Matrix members have no presence here.
     pub presence: Option<Presence>,
     /// The RGB colour of their name, from their highest coloured Discord role.
@@ -759,6 +828,8 @@ pub struct Reply {
     pub body: String,
     /// The original message's item, to jump to it; none when it's gone.
     pub item: Option<String>,
+    /// The author's role colour, where the network gives one.
+    pub color: Option<u32>,
 }
 
 /// A Discord thread a message leads to: the one started from it, or that
@@ -4703,7 +4774,8 @@ mod tests {
         let large = decode_view(&png(3840, 1200)).unwrap();
         assert_eq!((large.width, large.height), (1920, 600));
         let preview = decode_preview(&png(800, 500)).unwrap();
-        assert_eq!((preview.width, preview.height), (360, 225));
+        // Discord's previews go up to 550 by 400.
+        assert_eq!((preview.width, preview.height), (550, 344));
     }
 
     #[test]

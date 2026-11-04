@@ -80,6 +80,10 @@ pub struct VoiceMember {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
     pub name: String,
+    /// Its username, such as `derfayberr`, which the account card shows
+    /// under the pointer; empty while unknown.
+    #[serde(default)]
+    pub username: String,
     /// The address of its avatar.
     pub avatar: String,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
@@ -104,6 +108,13 @@ pub struct Conversation {
     /// The other person's avatar in a DM, or a group DM's icon.
     pub avatar: Option<String>,
     pub group: bool,
+    /// The other person is Discord's own account, which is marked as official.
+    #[serde(default)]
+    pub official: bool,
+    /// A one-to-one DM nobody has written in yet, where the DM list offers to
+    /// wave.
+    #[serde(default)]
+    pub empty: bool,
     /// Everyone in it, this account included.
     pub people: usize,
     /// A message request, waiting to be accepted or ignored. Requests count
@@ -1298,6 +1309,10 @@ impl Discord {
         self.write_names().learn_user(&value["user"]);
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
+        tracing::info!(
+            theme = ?profile.theme,
+            "the theme colours a profile arrived with"
+        );
         {
             let mut profiles = self.lock_profiles();
             profiles.retain(|old| !same(&old));

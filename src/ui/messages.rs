@@ -703,6 +703,11 @@ pub(super) fn message_row_within(
         reply_author: reply_author.into(),
         reply_initial: initial(reply_author),
         reply_tint: tint(reply_author),
+        reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
+        reply_has_color: message
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.color.is_some()),
         // Virtualized avatars resolve their URLs when their components are built.
         reply_picture: slint::Image::default(),
         reply_body: message

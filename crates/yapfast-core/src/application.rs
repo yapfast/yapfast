@@ -505,6 +505,9 @@ pub struct AppState {
     /// The account's name, avatar address and connection status, where the
     /// network gives them; a Discord-only build shows Discord's.
     pub account_name: Option<String>,
+    /// The account's Discord username, shown in place of its status while
+    /// the pointer is on the account card.
+    pub account_username: Option<String>,
     pub account_avatar: Option<String>,
     pub account_status: Option<String>,
     pub preview: bool,
@@ -919,6 +922,8 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                group_icon: None,
+                role_icon: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -943,6 +948,8 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                group_icon: None,
+                role_icon: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -967,6 +974,8 @@ impl AppState {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            group_icon: None,
+            role_icon: None,
         })
     }
 
@@ -1824,6 +1833,12 @@ pub enum Action {
         ask: PersonAsk,
     },
     AnswerPerson(String),
+    /// Save this account's note on a Discord user, as the full profile's
+    /// note field does; empty removes it.
+    SaveNote {
+        user: String,
+        note: String,
+    },
     ClosePersonDialog,
     // A server member's menu; see `members.rs`.
     /// Put a mention of someone in the open channel's composer.
@@ -2297,6 +2312,7 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
+                        .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                 }),
         )
         .chain(
@@ -3014,6 +3030,7 @@ impl Application {
             }
             Action::MentionPerson(user) => self.mention_person(user),
             Action::CallPerson(user) => self.call_person(user),
+            Action::SaveNote { user, note } => self.save_note(user, note),
             Action::AskMember { place, user, ask } => self.ask_member(place, user, ask),
             Action::ChoosePersonOption(choice) => {
                 if let Some(dialog) = &mut self.state.person_dialog {
@@ -3631,6 +3648,15 @@ impl Application {
             }
             Event::DiscordUnlinked => return self.forget_discord(),
             Event::Note { user, result } => {
+                if let Ok(note) = &result {
+                    for view in [&mut self.state.profile, &mut self.state.panel_profile]
+                        .into_iter()
+                        .flatten()
+                        .filter(|view| view.profile.id == user)
+                    {
+                        view.profile.note.clone_from(note);
+                    }
+                }
                 if let Some(dialog) = self
                     .state
                     .person_dialog

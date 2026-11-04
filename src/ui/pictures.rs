@@ -637,7 +637,7 @@ pub(super) fn gallery_within(
 type Cells = Vec<(ImageCell, Option<Arc<Picture>>)>;
 
 fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (Cells, i32, i32) {
-    const TILE: i32 = 178;
+    const TILE: i32 = 273;
     const GAP: i32 = 4;
     let cell = |index: usize,
                 attachment: &yapfast_core::chat::Attachment,

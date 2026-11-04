@@ -543,9 +543,11 @@ pub(super) fn chat_profile(
         .iter()
         .find(|server| server.id == guild)
         .map(|server| &*server.server);
+    let bio_emoji = profile.bio.as_deref().map(emoji_in).unwrap_or_default();
     Profile {
         name: profile.name,
         avatar: Some(profile.avatar),
+        theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
         pronouns: profile.pronouns.unwrap_or_default(),
@@ -559,8 +561,8 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(yapfast_discord::message::date(profile.created)),
-        joined: profile.joined.map(yapfast_discord::message::date),
+        created: Some(crate::clock::day(profile.created / 1000)),
+        joined: profile.joined.map(|ms| crate::clock::day(ms / 1000)),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -587,6 +589,20 @@ pub(super) fn chat_profile(
                 id: friend.id,
                 name: friend.name,
                 avatar: Some(friend.avatar),
+            })
+            .collect(),
+        bio_emoji,
+        // The note comes with its own request; see `fill_profile`.
+        note: String::new(),
+        connections: profile
+            .connections
+            .into_iter()
+            .map(|connection| ProfileConnection {
+                kind: connection.kind,
+                name: connection.name,
+                verified: connection.verified,
+                url: connection.url,
+                since: connection.since.map(|ms| crate::clock::day(ms / 1000)),
             })
             .collect(),
         handle: profile.username,
@@ -710,6 +726,8 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         role: Role::Member,
         avatar: Some(member.avatar),
         group: Some(member.group),
+        group_icon: member.group_icon,
+        role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
         activity: member.activity,

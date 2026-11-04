@@ -1,6 +1,6 @@
 //! The title bar Yapfast draws in place of the desktop's on Linux: whether it
 //! does, and moving, sizing, minimizing, maximizing and closing the window
-//! from it through winit.
+//! from it through winit. Yapfast also uses these actions for its Windows bar.
 //!
 //! A desktop that gives its windows title bars, as KDE and GNOME do, draws
 //! one on Yapfast's too unless Yapfast draws its own. A tiling compositor such
@@ -54,14 +54,21 @@ const DIRECTIONS: [ResizeDirection; 8] = [
     ResizeDirection::West,
 ];
 
-/// Yapfast offers its own title bar on Linux; elsewhere the system's stays.
-pub(super) const OFFERED: bool = cfg!(target_os = "linux");
+/// Yapfast also offers the existing window actions on Windows. Upstream
+/// presentation and other platforms keep their inherited frame policy.
+fn offered() -> bool {
+    cfg!(target_os = "linux") || (cfg!(windows) && yapfast::enabled())
+}
 
 /// Whether the desktop draws the title bar unless the person chose: on a
 /// desktop not known to give windows one, it's the desktop's, which may be
 /// none at all.
 pub(super) fn system_by_default() -> bool {
-    cfg!(test) || !std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| framed(&desktops))
+    if cfg!(windows) && yapfast::enabled() && !cfg!(test) {
+        false
+    } else {
+        cfg!(test) || !std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| framed(&desktops))
+    }
 }
 
 /// Whether any of the desktops in a colon-separated `XDG_CURRENT_DESKTOP`,
@@ -77,7 +84,7 @@ fn framed(desktops: &str) -> bool {
 /// Makes the windows from now on with Yapfast's title bar or the desktop's,
 /// as the layout has it, and returns whether Yapfast's.
 pub(super) fn choose(system: Option<bool>) -> bool {
-    let own = OFFERED && !system.unwrap_or_else(system_by_default);
+    let own = offered() && !system.unwrap_or_else(system_by_default);
     OWN.set(own);
     own
 }
@@ -92,7 +99,7 @@ pub(super) fn attributes(attributes: WindowAttributes) -> WindowAttributes {
 /// window made since the choice changed shows it from before it's shown.
 pub(super) fn show(window: &YapfastWindow, system: Option<bool>) {
     let own = choose(system);
-    window.set_title_bar_choice(OFFERED);
+    window.set_title_bar_choice(offered());
     window.set_system_title_bar(!own);
     window.set_own_title_bar(own);
 }

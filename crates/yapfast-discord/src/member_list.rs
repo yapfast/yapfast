@@ -27,6 +27,10 @@ pub struct ListedMember {
     pub avatar: String,
     /// The heading they're listed under, with its size, such as `Mods — 2`.
     pub group: String,
+    /// The address of the picture of the role their group is, and of the
+    /// highest of their roles that has one.
+    pub group_icon: Option<String>,
+    pub role_icon: Option<String>,
     pub presence: Presence,
     /// The RGB colour of their highest coloured role.
     pub color: Option<u32>,
@@ -312,6 +316,10 @@ impl MemberList {
                             .as_ref()
                             .map(|(_, heading)| heading.clone())
                             .unwrap_or_default(),
+                        group_icon: group
+                            .as_ref()
+                            .and_then(|(id, _)| server?.role_icons.get(*id).cloned()),
+                        role_icon: server.and_then(|server| server.role_icon(&person.roles)),
                         presence: person.presence,
                         color: server.and_then(|server| server.color(&person.roles)),
                         activity: person.activity,

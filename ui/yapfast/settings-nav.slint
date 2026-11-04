@@ -1,0 +1,87 @@
+import { Theme, Middle } from "../theme.slint";
+import { Avatar, TextField } from "../controls.slint";
+import { ChannelRow } from "../rail.slint";
+import { ScrollView } from "../scrollview.slint";
+
+// Section IDs are the existing SettingsScreen contract. Only implemented pages
+// belong here; Discord's billing and subscription destinations have no adapter.
+export component SettingsNavigation inherits Rectangle {
+    in property <int> selected;
+    in property <bool> with-discord;
+    in property <bool> may-edit-profile;
+    in property <string> account-name;
+    in property <string> account-initial;
+    in property <color> account-tint;
+    in property <image> account-picture;
+    callback chose(int);
+    callback edit-profile;
+    property <string> query;
+    function matches(text: string) -> bool {
+        return root.query == "" || text.to-lowercase().replace-all(root.query.to-lowercase(), "") != text.to-lowercase();
+    }
+    width: 266px; horizontal-stretch: 0; background: Theme.chat;
+    VerticalLayout {
+        padding-top: 16px; spacing: 16px;
+        HorizontalLayout {
+            padding-left: 24px; padding-right: 16px; height: 56px; spacing: 12px;
+            Middle { Avatar { size: 48px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; } }
+            VerticalLayout {
+                alignment: center; spacing: 4px;
+                Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                if root.may-edit-profile: Rectangle {
+                    height: 20px; accessible-role: button; accessible-label: "Edit Profile";
+                    accessible-action-default => { root.edit-profile(); }
+                    forward-focus: edit-focus;
+                    border-width: edit-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+                    HorizontalLayout {
+                        alignment: start; spacing: 4px;
+                        Text { text: "Edit Profile"; color: edit-touch.has-hover ? Theme.text : Theme.muted; font-size: 13px; vertical-alignment: center; }
+                        Image { source: @image-url("../icons/pencil.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
+                    }
+                    edit-focus := FocusScope {
+                        key-pressed(event) => {
+                            if event.text == " " || event.text == "\n" { root.edit-profile(); return accept; }
+                            return reject;
+                        }
+                        edit-touch := TouchArea { mouse-cursor: pointer; clicked => { root.edit-profile(); } }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            padding-left: 16px; padding-right: 16px; height: 40px;
+            TextField { text <=> root.query; placeholder: "Search settings"; label: "Search settings"; text-size: 14px; fill: Theme.sidebar; }
+        }
+        ScrollView {
+            content-height: entries.preferred-height;
+            entries := VerticalLayout {
+                padding-left: 16px; padding-right: 16px; padding-bottom: 16px; spacing: 0px; alignment: start;
+                for entry in [
+                    { heading: true, text: "Account", id: -1 },
+                    { text: "My Account", icon: @image-url("../icons/user.svg"), id: 0 },
+                    { heading: true, text: "Experience", id: -1 },
+                    { text: "Voice & Video", icon: @image-url("../icons/mic.svg"), id: 1 },
+                    { text: "Messages", icon: @image-url("../icons/message-circle.svg"), id: 2 },
+                    { text: "Notifications", icon: @image-url("../icons/bell.svg"), id: 3 },
+                    { text: "Sounds", icon: @image-url("../icons/volume-2.svg"), id: 5 },
+                    { text: "Appearance", icon: @image-url("../icons/palette.svg"), id: 7 },
+                    { heading: true, text: "App Settings", id: -1 },
+                    { text: "Discord", icon: @image-url("../icons/discord.svg"), id: 4 },
+                    { text: "Game Activity", icon: @image-url("../icons/play.svg"), id: 8 },
+                    { text: "Advanced", icon: @image-url("../icons/settings.svg"), id: 6 },
+                ]: VerticalLayout {
+                    if entry.heading && root.query == "": VerticalLayout {
+                        padding-top: entry.text == "Account" ? 0px : 16px;
+                        height: entry.text == "Account" ? 24px : 40px;
+                        Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                    }
+                    if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)): ChannelRow {
+                        height: 40px; text: entry.text; icon: entry.icon;
+                        selected: root.selected == entry.id;
+                        clicked => { root.chose(entry.id); }
+                    }
+                }
+            }
+        }
+    }
+}

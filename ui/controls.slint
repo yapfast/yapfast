@@ -1,5 +1,6 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
+import { ClientStyle } from "yapfast/style.slint";
 
 // A labelled action. Primary is marigold, danger red, ghost transparent until hovered.
 export component ActionButton inherits Rectangle {
@@ -160,19 +161,24 @@ export component DeviceToggle inherits Rectangle {
     in property <bool> alert;
     in property <bool> enabled: true;
     in property <bool> open;
+    in property <length> glyph: 20px;
+    in property <color> tint: Theme.secondary;
+    out property <bool> hovered: toggle.hovered || caret.has-hover;
     callback clicked;
     callback menu;
     width: 52px; min-height: 32px;
     // The ground is the visible pair only, centred in the row like IconButton's face.
     Rectangle {
         y: (parent.height - self.height) / 2; height: 32px;
-        border-radius: 6px;
-        background: root.open || toggle.hovered || caret.has-hover ? Theme.hover : transparent;
+        border-radius: 4px;
+        // Only the open pair keeps a fill; each half lights itself when hovered.
+        background: root.open ? Theme.overlay.with-alpha(0.12) : transparent;
         animate background { duration: Theme.quick; }
     }
     HorizontalLayout {
         toggle := IconButton {
-            icon: root.icon; label: root.label; alert: root.alert; enabled: root.enabled;
+            icon: root.icon; label: root.label; alert: root.alert; enabled: root.enabled; radius: 4px;
+            glyph: root.glyph; tint: root.tint;
             clicked => { root.clicked(); }
         }
         Rectangle {
@@ -181,14 +187,14 @@ export component DeviceToggle inherits Rectangle {
             accessible-label: root.menu-label;
             accessible-action-default => { root.menu(); }
             Rectangle {
-                y: (parent.height - self.height) / 2; width: 20px; height: 32px; border-radius: 6px;
-                background: caret.has-hover ? Theme.overlay.with-alpha(0.08) : transparent;
+                y: (parent.height - self.height) / 2; width: 20px; height: 32px; border-radius: 4px;
+                background: caret.has-hover ? Theme.overlay.with-alpha(0.1) : transparent;
                 animate background { duration: Theme.quick; }
                 border-width: caret-focus.has-focus ? 2px : 0px;
                 border-color: Theme.accent;
                 Image {
-                    source: @image-url("icons/chevron-down.svg"); width: 14px; height: 14px;
-                    colorize: caret.has-hover || root.open ? Theme.text : Theme.muted;
+                    source: @image-url("icons/chevron-down.svg"); width: 16px; height: 16px;
+                    colorize: caret.has-hover || root.open ? Theme.text : Theme.secondary;
                     transform-rotation: root.open ? 180deg : 0deg;
                     animate transform-rotation { duration: Theme.quick; }
                 }
@@ -251,9 +257,21 @@ export component Avatar inherits Rectangle {
     changed picture-url => { root.request-picture(); }
     changed shown-picture => { root.request-picture(); }
     in property <length> size: 40px;
+    /// A corner radius for a rounded square; negative is a circle.
+    in property <length> corner: -1px;
+    property <length> shape: root.corner >= 0px ? root.corner : root.size / 2;
+    /// Corners that differ from `corner`, as Discord's folder previews have a
+    /// large outer corner and small others; negative follows `corner`.
+    in property <length> corner-tl: -1px;
+    in property <length> corner-tr: -1px;
+    in property <length> corner-bl: -1px;
+    in property <length> corner-br: -1px;
     in property <bool> speaking;
     width: root.size; height: root.size;
-    border-radius: root.size / 2;
+    border-top-left-radius: root.corner-tl >= 0px ? root.corner-tl : root.shape;
+    border-top-right-radius: root.corner-tr >= 0px ? root.corner-tr : root.shape;
+    border-bottom-left-radius: root.corner-bl >= 0px ? root.corner-bl : root.shape;
+    border-bottom-right-radius: root.corner-br >= 0px ? root.corner-br : root.shape;
     background: root.shown-picture.width > 0 ? transparent : root.tint;
     if root.shown-picture.width == 0: Text {
         text: root.initial; color: #ffffff; font-size: root.size * 0.42; font-weight: 700;
@@ -261,7 +279,11 @@ export component Avatar inherits Rectangle {
     }
     if root.shown-picture.width > 0: Rectangle {
         width: root.size; height: root.size;
-        border-radius: root.size / 2; clip: true;
+        border-top-left-radius: root.corner-tl >= 0px ? root.corner-tl : root.shape;
+        border-top-right-radius: root.corner-tr >= 0px ? root.corner-tr : root.shape;
+        border-bottom-left-radius: root.corner-bl >= 0px ? root.corner-bl : root.shape;
+        border-bottom-right-radius: root.corner-br >= 0px ? root.corner-br : root.shape;
+        clip: true;
         Image { source: root.shown-picture; width: root.size; height: root.size; image-fit: cover; }
     }
     if root.speaking: Rectangle {
@@ -279,6 +301,11 @@ export component StatusText inherits HorizontalLayout {
     in property <length> font-size: 13px;
     in property <int> font-weight: 400;
     in property <TextWrap> wrap: no-wrap;
+    /// What they're doing, as a small icon before the words: 1 a controller,
+    /// 2 a music note, 3 a screen, 4 a camera, 5 a trophy; 0 for none.
+    in property <int> icon;
+    /// A bullet follows the icon, before a custom status.
+    in property <bool> bullet;
     property <image> emoji: root.emoji-url != "" ? PictureStore.picture(root.emoji-url, PictureStore.revision) : @image-url("");
     function request-emoji() {
         if root.emoji-url != "" && root.emoji.width == 0 {
@@ -289,6 +316,20 @@ export component StatusText inherits HorizontalLayout {
     changed emoji-url => { root.request-emoji(); }
     changed emoji => { root.request-emoji(); }
     alignment: start; spacing: 4px;
+    if root.icon > 0: VerticalLayout {
+        alignment: center;
+        Image {
+            source: root.icon == 1 ? @image-url("icons/gamepad.svg") : root.icon == 2 ? @image-url("icons/music.svg") : root.icon == 3 ? @image-url("icons/tv.svg") : root.icon == 4 ? @image-url("icons/video.svg") : @image-url("icons/trophy.svg");
+            width: root.font-size * 1.25; height: root.font-size * 1.25;
+            image-fit: contain; accessible-role: none;
+            // Discord draws the game controller in its online green.
+            colorize: root.icon == 1 && ClientStyle.enabled ? Theme.live : root.color;
+        }
+    }
+    if root.icon > 0 && root.bullet: VerticalLayout {
+        alignment: center;
+        Text { text: "\u{2022}"; color: root.color; font-size: root.font-size; font-weight: root.font-weight; }
+    }
     // The emoji keeps its place while its picture is on the way.
     if root.emoji-url != "": VerticalLayout {
         alignment: start;
@@ -355,6 +396,13 @@ export component TextField inherits Rectangle {
     in property <length> pad: 12px;
     in property <color> fill: Theme.sunken;
     in property <bool> ring: true;
+    /// What the placeholder is drawn in.
+    in property <color> placeholder-color: Theme.muted;
+    /// A picture at the field's right end, such as a smiley, which the text
+    /// stays clear of.
+    in property <image> trailing-icon;
+    in property <color> trailing-tint: Theme.secondary;
+    property <length> trailing: root.trailing-icon.width > 0 ? 28px : 0px;
     /// The field has the keys.
     out property <bool> focused: input.has-focus;
     callback edited(string);
@@ -366,13 +414,13 @@ export component TextField inherits Rectangle {
     border-width: root.ring && input.has-focus ? 1px : 0px;
     border-color: Theme.accent.with-alpha(0.8);
     Text {
-        x: root.pad; width: root.width - 2 * root.pad; height: root.height;
+        x: root.pad; width: root.width - 2 * root.pad - root.trailing; height: root.height;
         visible: root.text == "";
-        text: root.placeholder; color: root.enabled ? Theme.muted : Theme.faint; font-size: root.text-size;
+        text: root.placeholder; color: root.enabled ? root.placeholder-color : Theme.faint; font-size: root.text-size;
         vertical-alignment: center; overflow: elide;
     }
     Rectangle {
-        x: root.pad; width: root.width - 2 * root.pad; height: root.height; clip: true;
+        x: root.pad; width: root.width - 2 * root.pad - root.trailing; height: root.height; clip: true;
         input := TextInput {
             property <length> scroll: 0px;
             x: min(0px, max(parent.width - self.width, self.scroll));
@@ -398,6 +446,10 @@ export component TextField inherits Rectangle {
                 }
             }
         }
+    }
+    if root.trailing-icon.width > 0: Image {
+        x: root.width - root.pad - 20px + 4px; y: (root.height - 20px) / 2; width: 20px; height: 20px;
+        source: root.trailing-icon; colorize: root.trailing-tint;
     }
 }
 
@@ -513,6 +565,8 @@ export component MenuItem inherits Rectangle {
     in property <bool> danger;
     /// Shown, greyed, but not to be chosen; a ContextMenu doesn't report it.
     in property <bool> disabled;
+    /// No room for an icon when it has none, so the text starts at the edge.
+    in property <bool> plain;
     /// Drawn as the pointer's choice; a ContextMenu moves it with the keys too.
     in property <bool> highlighted: pointer.has-hover;
     callback clicked;
@@ -520,7 +574,9 @@ export component MenuItem inherits Rectangle {
     property <bool> current: root.checked && !root.checkbox;
     height: root.subtitle != "" ? 44px : 32px;
     border-radius: 4px;
-    background: root.highlighted ? (root.danger ? Theme.danger.with-alpha(0.16) : Theme.active) : transparent;
+    // Discord's focused row is filled with its accent, or with the danger
+    // colour for a destructive choice, whose text and icon turn white.
+    background: root.highlighted ? (root.danger ? Theme.danger : Theme.overlay.with-alpha(0.09)) : transparent;
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -534,16 +590,16 @@ export component MenuItem inherits Rectangle {
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 8px;
         opacity: root.disabled ? 0.45 : 1;
-        Image {
+        if !root.plain || root.current || root.icon.width > 0: Image {
             source: root.current ? @image-url("icons/check.svg") : root.icon;
             width: 16px; image-fit: contain;
-            colorize: root.current ? Theme.accent : root.danger ? Theme.danger : root.highlighted ? Theme.text : Theme.muted;
+            colorize: root.current ? Theme.accent : root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary;
         }
         VerticalLayout {
             alignment: center; horizontal-stretch: 1;
             Text {
-                text: root.text; color: root.danger ? Theme.danger : root.current || root.highlighted ? Theme.text : Theme.secondary;
-                font-size: 15px; font-weight: root.current ? 700 : 400;
+                text: root.text; color: root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : Theme.text;
+                font-size: 14px; font-weight: root.current ? 700 : 500;
                 overflow: elide;
             }
             if root.subtitle != "": Text {
@@ -563,8 +619,8 @@ export component MenuItem inherits Rectangle {
             }
         }
         if root.submenu: Image {
-            width: 16px; image-fit: contain;
-            source: @image-url("icons/chevron-right.svg"); colorize: Theme.muted;
+            width: 24px; image-fit: contain;
+            source: @image-url("icons/chevron-right.svg"); colorize: root.danger && root.highlighted ? Theme.on-danger : Theme.text;
         }
     }
     focus := FocusScope {
@@ -607,6 +663,9 @@ export struct MenuRow {
     /// Greyed, and not to be chosen, such as a role this account may not
     /// give.
     disabled: bool,
+    /// Without room for an icon, unless the row has one, as Discord's person
+    /// menu has none on most rows.
+    plain: bool,
 }
 
 // The rows of a ContextMenu or of a submenu.
@@ -631,7 +690,7 @@ component MenuRows inherits VerticalLayout {
         }
         MenuItem {
             text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
-            checkbox: row.checkbox; checked: row.checked; disabled: row.disabled;
+            checkbox: row.checkbox; checked: row.checked; disabled: row.disabled; plain: row.plain;
             submenu: root.submenus[index].length > 0;
             highlighted: root.current == index || root.holding == index;
             hovered => { root.hovered(index); }
@@ -667,7 +726,7 @@ export component ContextMenu inherits Rectangle {
     /// The room below the menu's top; the rest of `tallest` is above it.
     in property <length> room-below: 100000px;
     // A menu and a submenu are as wide as their rows, within these.
-    in property <length> narrowest: 188px;
+    in property <length> narrowest: 255px;
     property <length> widest: 320px;
     out property <length> menu-width: max(root.narrowest, min(root.widest, main.preferred-width));
     property <length> submenu-width: max(root.narrowest, min(root.widest, sub.preferred-width));
@@ -766,7 +825,7 @@ export component ContextMenu inherits Rectangle {
         main-panel := Rectangle {
             x: root.flip ? root.content-width - root.menu-width : 0px; y: root.lift;
             width: root.menu-width; height: root.main-height;
-            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+            background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             clip: true;
             TouchArea { }
@@ -808,7 +867,7 @@ export component ContextMenu inherits Rectangle {
             x: root.flip ? root.widest - root.submenu-width : root.menu-width + 4px;
             y: root.lift + root.sub-top;
             width: root.submenu-width; height: root.sub-height;
-            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+            background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             clip: true;
             TouchArea { }

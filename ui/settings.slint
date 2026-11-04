@@ -1,6 +1,9 @@
+import { SettingsToggle } from "yapfast/settings-toggle.slint";
+import { SettingsNavigation } from "yapfast/settings-nav.slint";
+import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
+import { Theme, Middle, Label, Tip, Popup, Strings } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
@@ -9,7 +12,7 @@ import { Soundboard, SoundRow } from "voice.slint";
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
 export component SettingsTitle inherits Text {
-    color: Theme.text; font-size: 20px; font-weight: 700;
+    color: Theme.text; font-size: ClientStyle.enabled ? 24px : 20px; font-weight: 700;
 }
 
 export component SettingsHeading inherits Text {
@@ -44,20 +47,8 @@ export component SettingsSwitch inherits Rectangle {
         spacing: 4px;
         row := HorizontalLayout {
             spacing: 12px;
-            Middle {
-                Rectangle {
-                    width: 40px; height: 22px; border-radius: 11px;
-                    background: !root.enabled ? Theme.field : root.checked ? (pointer.has-hover ? Theme.accent-hover : Theme.accent) : (pointer.has-hover ? Theme.active : Theme.field);
-                    border-width: focus.has-focus ? 2px : 1px;
-                    border-color: focus.has-focus ? Theme.text : root.checked && root.enabled ? transparent : Theme.line;
-                    animate background { duration: Theme.quick; }
-                    Rectangle {
-                        x: root.checked ? parent.width - self.width - 3px : 3px;
-                        width: 16px; height: 16px; border-radius: 8px;
-                        background: !root.enabled ? Theme.faint : root.checked ? Theme.on-accent : Theme.secondary;
-                        animate x, background { duration: Theme.quick; easing: ease-out; }
-                    }
-                }
+            if !ClientStyle.enabled: Middle {
+                SettingsToggle { checked: root.checked; enabled: root.enabled; hovered: pointer.has-hover; focused: focus.has-focus; }
             }
             HorizontalLayout {
                 spacing: 6px; alignment: start; horizontal-stretch: 1;
@@ -85,6 +76,9 @@ export component SettingsSwitch inherits Rectangle {
                     }
                 }
             }
+            if ClientStyle.enabled: Middle {
+                SettingsToggle { checked: root.checked; enabled: root.enabled; hovered: pointer.has-hover; focused: focus.has-focus; }
+            }
         }
         if root.description != "": Label { text: root.description; }
     }
@@ -109,7 +103,7 @@ export component SettingsSwitch inherits Rectangle {
     }
     // Outside the focus scope, which disabled takes no pointer.
     if !root.enabled && root.locked-tip != "": TouchArea {
-        x: 0px; y: (row.height - 22px) / 2; width: 40px; height: 22px;
+        x: ClientStyle.enabled ? root.width - 48px : 0px; y: (row.height - self.height) / 2; width: ClientStyle.enabled ? 48px : 40px; height: ClientStyle.enabled ? 24px : 22px;
         changed has-hover => {
             if self.has-hover {
                 Tip.text = root.locked-tip;
@@ -223,6 +217,17 @@ export component SettingsFrame inherits Rectangle {
     in property <[SettingsRow]> rows;
     in property <int> selected;
     in property <string> label: "Settings";
+    /// Only the user-settings shell opts in. Server and channel editors keep
+    /// their inherited layout and content-bar coordinates.
+    in property <bool> discord-layout;
+    in property <string> page-title;
+    in property <string> account-name;
+    in property <string> account-initial;
+    in property <color> account-tint;
+    in property <image> account-picture;
+    in property <bool> with-discord;
+    in property <bool> may-edit-profile;
+    callback edit-profile;
     /// Room below the section, for a bar over its bottom.
     in property <length> bottom: 56px;
     /// The page fills the frame's height instead of scrolling in it, for
@@ -236,7 +241,7 @@ export component SettingsFrame inherits Rectangle {
     callback close;
     /// Takes the keys back, for Escape, once what had them is gone.
     public function focus-keys() { keys.focus(); }
-    background: Theme.chat;
+    background: root.discord-layout ? Theme.panel : Theme.chat;
     accessible-role: groupbox;
     accessible-label: root.label;
     TouchArea { }
@@ -247,7 +252,15 @@ export component SettingsFrame inherits Rectangle {
             return reject;
         }
         HorizontalLayout {
-            Rectangle {
+            if root.discord-layout: SettingsNavigation {
+                selected: root.selected; with-discord: root.with-discord;
+                account-name: root.account-name; account-initial: root.account-initial;
+                account-tint: root.account-tint; account-picture: root.account-picture;
+                may-edit-profile: root.may-edit-profile;
+                chose(id) => { root.chose(id); }
+                edit-profile => { root.edit-profile(); }
+            }
+            if !root.discord-layout: Rectangle {
                 background: Theme.sidebar; horizontal-stretch: 0; min-width: 232px;
                 HorizontalLayout {
                     alignment: end;
@@ -271,20 +284,33 @@ export component SettingsFrame inherits Rectangle {
                 }
             }
             content := Rectangle {
-                horizontal-stretch: 2; min-width: 440px;
+                horizontal-stretch: 2; min-width: root.discord-layout ? 320px : 440px;
+                if root.discord-layout: Rectangle {
+                    y: 0px; height: 48px; background: Theme.panel;
+                    HorizontalLayout {
+                        padding-left: 16px; padding-right: 8px;
+                        Text { text: root.page-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                        Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
+                    }
+                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+                }
                 scroll := ScrollView {
+                    y: root.discord-layout ? 48px : 0px;
+                    height: parent.height - self.y;
                     content-height: root.fill ? self.visible-height : page.preferred-height;
                     page := HorizontalLayout {
                         height: root.fill ? scroll.visible-height : self.preferred-height;
-                        padding-left: 40px; padding-right: 96px; padding-top: 56px; padding-bottom: root.bottom;
+                        padding-left: root.discord-layout ? max(24px, (scroll.visible-width - 696px) / 2) : 40px;
+                        padding-right: root.discord-layout ? self.padding-left : 96px;
+                        padding-top: root.discord-layout ? 64px : 56px; padding-bottom: root.bottom;
                         VerticalLayout {
-                            max-width: 660px; horizontal-stretch: 1; spacing: 16px;
+                            max-width: root.discord-layout ? 696px : 660px; horizontal-stretch: 1; spacing: 16px;
                             alignment: root.fill ? LayoutAlignment.stretch : LayoutAlignment.start;
                             @children
                         }
                     }
                 }
-                VerticalLayout {
+                if !root.discord-layout: VerticalLayout {
                     x: parent.width - 80px; y: 48px; width: 56px; height: self.preferred-height; spacing: 6px;
                     HorizontalLayout {
                         alignment: center;
@@ -305,11 +331,13 @@ export component SettingsFrame inherits Rectangle {
 export component SettingsCard inherits Rectangle {
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
+    in property <length> margin: ClientStyle.settings-margin;
     callback close;
     Rectangle { background: #000000b3; opacity: root.motion; }
     TouchArea { clicked => { root.close(); } }
     Rectangle {
-        width: min(1080px, root.width - 80px); height: min(800px, root.height - 80px);
+        width: min(ClientStyle.settings-width, root.width - root.margin);
+        height: min(ClientStyle.settings-height, root.height - root.margin);
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         border-radius: 12px; border-width: 1px; border-color: Theme.edge;
         // The shadow shows once the card is open: a card this large costs
@@ -332,7 +360,13 @@ export component SettingsScreen inherits Rectangle {
     in property <bool> preview;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
+    in property <string> account-name;
+    in property <string> account-initial;
+    in property <color> account-tint;
+    in property <image> account-picture;
+    in property <bool> may-edit-profile;
     callback close;
+    callback edit-profile;
     callback refresh-devices;
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
@@ -358,8 +392,19 @@ export component SettingsScreen inherits Rectangle {
     ];
     SettingsCard {
         motion: root.motion;
+        margin: ClientStyle.enabled ? 144px : ClientStyle.settings-margin;
         close => { root.close(); }
         SettingsFrame {
+            discord-layout: ClientStyle.enabled;
+            page-title: root.settings-section == 0 ? "My Account" : root.settings-section == 1 ? "Voice & Video"
+                : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
+                : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
+                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance" : "Game Activity";
+            account-name: root.account-name; account-initial: root.account-initial;
+            account-tint: root.account-tint; account-picture: root.account-picture;
+            with-discord: root.discord-build && !root.preview;
+            may-edit-profile: root.may-edit-profile;
+            edit-profile => { root.edit-profile(); }
             rows: root.discord-build && !root.preview ? root.with-discord : root.without-discord;
             selected: root.settings-section;
             chose(id) => {
@@ -993,6 +1038,12 @@ export component MessageSettings inherits VerticalLayout {
     in property <length> message-font-size;
     in-out property <bool> twelve-hour-clock;
     in-out property <bool> clock-seconds;
+    /// The date format: 0 day first, 1 month first, 2 year first; -1 follows the clock.
+    in-out property <int> date-format: -1;
+    /// The time zone: 0 the system's, then those of `clock::ZONES`.
+    in-out property <int> time-zone;
+    /// The language: 0 English, 1 German.
+    in-out property <int> language;
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size;
     in-out property <bool> link-previews;
@@ -1048,6 +1099,23 @@ export component MessageSettings inherits VerticalLayout {
             description: "Message times show them, as 21:41:05.";
             checked <=> root.clock-seconds;
             toggled => { root.preferences-changed(); }
+        }
+        SettingsHeading { text: Strings.setting-date-format; }
+        Choices {
+            label: Strings.setting-date-format; options: Strings.date-formats;
+            current: root.date-format >= 0 ? root.date-format : root.twelve-hour-clock ? 1 : 0;
+            chosen(index) => { root.date-format = index; root.preferences-changed(); }
+        }
+        SettingsHeading { text: Strings.setting-time-zone; }
+        ComboBox {
+            model: Strings.time-zones; current-index: root.time-zone; accessible-label: Strings.setting-time-zone;
+            selected => { root.time-zone = self.current-index; root.preferences-changed(); }
+        }
+        SettingsHeading { text: Strings.setting-language; }
+        Choices {
+            label: Strings.setting-language; options: Strings.languages;
+            current <=> root.language;
+            chosen => { root.preferences-changed(); }
         }
     }
     VerticalLayout {
