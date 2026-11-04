@@ -823,10 +823,24 @@ fn messages(lines: &[(&str, &str)]) -> YapfastWindow {
     )
 }
 
+/// Starts the testing backend on this test's thread, once: a test that sets
+/// anything up before it builds a window calls it first, as a font of emoji
+/// would otherwise start the platform's own.
+fn init_backend() {
+    thread_local! {
+        static STARTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    STARTED.with(|started| {
+        if !started.replace(true) {
+            i_slint_backend_testing::init_no_event_loop();
+        }
+    });
+}
+
 /// A window showing these messages, each starting a group and sent at 19:2 and its
 /// index, with the composer.
 fn showing(chat: Vec<ChatMessage>) -> YapfastWindow {
-    i_slint_backend_testing::init_no_event_loop();
+    init_backend();
     let window = YapfastWindow::new().unwrap();
     copy_whole_messages(&window);
     // Without the adapter's clipboard reading, Ctrl+V pastes text, as it
@@ -1085,6 +1099,68 @@ fn a_link_showing_other_text_asks_before_it_opens() {
             .all(|link| link == "yapfast:leave/https://evil.example/yapfast"),
         "{opened:?}"
     );
+}
+
+#[test]
+fn a_click_on_an_emoji_in_a_message_reaches_its_card() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    // Twemoji's picture of the emoji becomes a glyph before the rows are
+    // built, as a refresh gives one to the emoji the messages show.
+    init_backend();
+    emoji_text::prepare(["😭"]);
+    let window = one_message("😭 that hurt");
+    let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+    let record = opened.clone();
+    window.on_open_link(move |link| record.borrow_mut().push(link.into()));
+    let button = PointerEventButton::Left;
+    // The emoji starts the message, which sits at the end of the list.
+    for y in (620..700).step_by(4) {
+        for x in (370..430).step_by(4) {
+            let position = slint::LogicalPosition::new(x as f32, y as f32);
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerPressed { position, button });
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerReleased { position, button });
+        }
+    }
+    let opened = opened.borrow();
+    assert!(
+        opened.iter().any(|link| link == "yapfast:emoji/1f62d"),
+        "{opened:?}"
+    );
+}
+
+#[test]
+fn an_emoji_card_says_what_the_emoji_is() {
+    let mut pictures = HashMap::new();
+    let state = yapfast_core::application::AppState::default();
+    let default = emoji_card(
+        &emoji_text::Target::Unicode("😭".to_owned()),
+        None,
+        &state,
+        &mut pictures,
+        1.0,
+    );
+    assert_eq!(default.name, ":sob:");
+    assert_eq!(
+        default.description,
+        "This is a default emoji. It can be used anywhere."
+    );
+    assert_eq!(default.server, "", "no server to show");
+    assert_eq!(default.glyph, "😭", "shown when Twemoji has no picture");
+    // A server's emoji, whose server this account doesn't know, still says it
+    // is one.
+    let custom = emoji_card(
+        &emoji_text::Target::Custom("42".to_owned()),
+        None,
+        &state,
+        &mut pictures,
+        1.0,
+    );
+    assert_eq!(custom.description, "This is a server's emoji.");
+    assert_eq!(custom.server, "");
 }
 
 #[test]

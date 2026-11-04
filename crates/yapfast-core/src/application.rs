@@ -3808,6 +3808,20 @@ impl Application {
         false
     }
 
+    /// The server whose emoji this is, by its server id, when it is one's this
+    /// account is in; an emoji's card names it.
+    pub fn emoji_server(&self, id: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            return snapshot
+                .servers
+                .iter()
+                .find(|server| server.emojis.iter().any(|emoji| emoji.id == id))
+                .map(|server| server.id.clone());
+        }
+        None
+    }
+
     /// Every custom emoji of every server the account is in, by server, the
     /// room's own server first, each saying whether this account may use it in
     /// the room it is looking at. The picker shows all of them, the ones it may
@@ -3833,6 +3847,7 @@ impl Application {
                 .map(|server| {
                     let ours = Some(server.id.as_str()) == here;
                     chat::EmojiSet {
+                        id: server.id.clone(),
                         server: server.name.clone(),
                         icon: server.icon.clone(),
                         emoji: server

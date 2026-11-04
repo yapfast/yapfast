@@ -895,6 +895,8 @@ pub const EMOJI_PICTURE_SIZE: u32 = 64;
 /// A server's custom emoji that this account may use where it's writing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmojiSet {
+    /// The server, by its server id.
+    pub id: String,
     pub server: String,
     /// The address of the server's icon; see [`ChatServer::icon`].
     pub icon: Option<String>,

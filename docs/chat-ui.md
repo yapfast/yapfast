@@ -107,6 +107,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
   Escape returns to the composer.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
+- Emoji in message text are drawn by Twemoji's picture of them, as the picker's
+  are, in a colour bitmap font made on the fly for the ones a pass of the
+  messages shows (`src/emoji_text.rs`); see [Discord](discord/messages.md) for
+  how that font is made. Clicking one opens its card, 288px wide and opening
+  below it: its name such as `:sob:`, a line saying what it is, and, for a
+  server's emoji, the server it is from, whose icon and name open that server.
 - Mention someone by typing `@` and picking from the room's members. The
   message links to them (`[Name](https://matrix.to/#/@user:server)`) and lists
   them in `m.mentions`, so their client notifies them. Who else is typing
@@ -143,8 +149,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   (`vendor/twemoji`, CC-BY 4.0), decoded once at the size the grid draws and
   kept; drawing the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
-  slowly. A code point Twemoji has no picture for, and emoji in message text,
-  are still drawn by the system font. Every server's emoji show, as Discord's
+  slowly. A code point Twemoji has no picture for is still drawn by the
+  system font. Every server's emoji show, as Discord's
   picker shows them: the ones this account may not use where it is looking —
   another server's, or an animated one without Nitro — are greyed with a lock
   in their corner, and pressing one opens Discord's Nitro page. A start whose

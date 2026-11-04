@@ -49,6 +49,9 @@ pub const CELL: f32 = 56.0;
 /// The size a glyph is drawn at in that grid, as `EmojiPicker` in
 /// ui/messages.slint passes it.
 pub const GLYPH: f32 = 36.0;
+/// The size an emoji's card draws its picture at, as `EmojiCardView` in
+/// ui/messages.slint lays it out.
+pub const CARD: f32 = 48.0;
 const BESIDE: f32 = 64.0;
 
 /// The emoji per row of a grid showing at `width`, which follows the picker's
@@ -558,6 +561,7 @@ mod tests {
     #[test]
     fn pictures_fill_the_picker_in_place() {
         let custom = [EmojiSet {
+            id: "90".into(),
             server: "Games".into(),
             icon: None,
             emoji: vec![yapfast_core::chat::CustomEmoji {
@@ -596,6 +600,7 @@ mod tests {
     #[test]
     fn the_grid_carries_whether_an_emoji_may_be_used() {
         let custom = [EmojiSet {
+            id: "90".into(),
             server: "Games".into(),
             icon: None,
             emoji: vec![
@@ -678,6 +683,7 @@ mod tests {
 
         // A server's custom emoji follow those used often, and match by name.
         let custom = [EmojiSet {
+            id: "90".into(),
             server: "Games".into(),
             icon: None,
             emoji: vec![yapfast_core::chat::CustomEmoji {
@@ -720,6 +726,7 @@ mod tests {
         assert_eq!(query(":pog:", 5), None, "a closed name");
 
         let custom = [EmojiSet {
+            id: "90".into(),
             server: "Games".into(),
             icon: None,
             emoji: vec![yapfast_core::chat::CustomEmoji {

@@ -8,9 +8,7 @@
 //! reaction buttons show an emoji's picture as an image, so the hundreds a
 //! picker lists don't each add a font for text to fall back through.
 
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
-
-use slint::fontique_011::{fontique, shared_collection};
+use std::{cell::RefCell, collections::HashMap};
 use yapfast_core::chat::{CustomEmoji, Picture};
 
 use crate::emoji_font;
@@ -92,27 +90,9 @@ pub fn add<'a>(arrived: impl IntoIterator<Item = (&'a str, &'a Picture)>) -> boo
             return false;
         }
         let family = format!("Yapfast Custom Emoji {}", registry.fonts);
-        let font = emoji_font::build(&family, &glyphs);
-        let mut collection = shared_collection();
-        let registered = collection.register_fonts(
-            fontique::Blob::new(Arc::new(font)),
-            Some(fontique::FontInfoOverride {
-                family_name: Some(&family),
-                ..Default::default()
-            }),
-        );
-        let Some(&(family_id, _)) = registered.first() else {
+        if !emoji_font::register(&family, &glyphs) {
             tracing::warn!("could not register a font of custom emoji");
             return false;
-        };
-        // Text falls back from the UI typeface to these families first; see
-        // `emoji::prefer_for_text`.
-        for generic in [
-            fontique::GenericFamily::SansSerif,
-            fontique::GenericFamily::SystemUi,
-        ] {
-            let families: Vec<_> = collection.generic_families(generic).collect();
-            collection.set_generic_families(generic, std::iter::once(family_id).chain(families));
         }
         registry.fonts += 1;
         registry.glyphs.extend(ids);
@@ -123,12 +103,31 @@ pub fn add<'a>(arrived: impl IntoIterator<Item = (&'a str, &'a Picture)>) -> boo
 /// `markdown` with the name of each of `emoji` that has a glyph, such as
 /// `:pog:`, replaced by it.
 pub fn text(markdown: &str, emoji: &[CustomEmoji]) -> String {
+    replace(markdown, emoji, false)
+}
+
+/// [`text`], each glyph in a link that opens the emoji's card: what a message's
+/// body shows.
+pub fn linked(markdown: &str, emoji: &[CustomEmoji]) -> String {
+    replace(markdown, emoji, true)
+}
+
+fn replace(markdown: &str, emoji: &[CustomEmoji], link: bool) -> String {
     let mut out = markdown.to_owned();
     for each in emoji {
         if let Some(glyph) = glyph(&each.id)
             && out.contains(&each.text)
         {
-            out = out.replace(&each.text, glyph.encode_utf8(&mut [0; 4]));
+            let shown = if link {
+                format!(
+                    "[{}](<{}>)",
+                    glyph,
+                    crate::emoji_text::custom_link(&each.id)
+                )
+            } else {
+                glyph.to_string()
+            };
+            out = out.replace(&each.text, &shown);
         }
     }
     out
@@ -193,6 +192,8 @@ fn square_png(picture: &Picture) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slint::fontique_011::fontique;
+    use std::sync::Arc;
 
     #[test]
     fn makes_fonts_that_load_with_their_glyphs() {

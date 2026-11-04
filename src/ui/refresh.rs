@@ -2970,6 +2970,22 @@ impl Adapter {
             self.pictures
                 .retain(|url, _| state.pictures.contains_key(url));
         }
+        // Twemoji's pictures of the emoji the messages show become glyphs, a
+        // font of each batch, so the rows built below draw them as pictures.
+        if reset || messages_changed {
+            let state = &self.app.state;
+            let aside = state.aside.iter().flat_map(|aside| aside.messages.iter());
+            let bodies = || {
+                state
+                    .messages
+                    .iter()
+                    .chain(aside)
+                    .map(|message| message.body.as_str())
+            };
+            if emoji_text::prepare(bodies()) {
+                self.restyle = true;
+            }
+        }
         // Custom emoji in messages whose pictures arrived get glyphs, and the
         // rows that showed them by name are built again. Those shown on their
         // own, in the picker, suggestions and reaction buttons, show pictures.

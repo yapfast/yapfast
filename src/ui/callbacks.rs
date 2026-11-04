@@ -1187,6 +1187,34 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
             return;
         }
+        // An emoji in a message's text opens its card, below it.
+        if let Some(target) = emoji_text::target(&link) {
+            let Some(window) = weak.upgrade() else { return };
+            if let Some(rect) = i_slint_core::yapfast_selection::clicked_link() {
+                window.invoke_anchor_link(
+                    rect.origin.x,
+                    rect.origin.y,
+                    rect.size.width,
+                    rect.size.height,
+                );
+            }
+            let mut adapter = state.borrow_mut();
+            let Adapter { app, pictures, .. } = &mut *adapter;
+            let server = target
+                .custom()
+                .and_then(|id| app.emoji_server(id))
+                .and_then(|server| app.state.servers.iter().find(|known| known.id == server));
+            let card = messages::emoji_card(
+                &target,
+                server.map(|server| &**server),
+                &app.state,
+                pictures,
+                window.window().scale_factor(),
+            );
+            window.set_emoji_card(card);
+            window.set_emoji_card_open(true);
+            return;
+        }
         // A mention opens the person's card, or the role's members, beside the
         // mention, or by the pointer when the link's place isn't known.
         let author = link

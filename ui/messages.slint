@@ -648,6 +648,120 @@ export struct MessageRow {
     poll: PollCard, has-poll: bool,
 }
 
+// The card a click on an emoji in a message's text opens, as Discord's shows
+// it: the emoji, its name, and what it is, and, for one of a server's, the
+// server it came from, which opens on a click.
+export struct EmojiCard {
+    /// Its name between colons: a Unicode emoji's first shortcode, such as
+    /// ":sob:", or a custom emoji's own, such as ":pog:".
+    name: string,
+    /// The emoji itself, for one Twemoji has no picture of.
+    glyph: string,
+    /// Its picture, at the 48px the card draws it.
+    picture: image,
+    /// What it is.
+    description: string,
+    /// The server it is from, when it is one's: its id, its name, its icon at
+    /// the 32px the card draws, the letter it shows without one, and a note
+    /// such as "Discoverable Server", or "" for none.
+    server: string,
+    server-name: string,
+    server-picture: image,
+    server-initial: string,
+    server-note: string,
+}
+
+// An emoji's card, 288px wide: the emoji, its name and what it is in 88px, and
+// the server it is from in 94px below.
+export component EmojiCardView inherits Rectangle {
+    in property <EmojiCard> card;
+    /// The id of the server clicked: it opens.
+    callback open-server(string);
+    width: 288px; height: body.preferred-height;
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    accessible-role: groupbox; accessible-label: root.card.name;
+    // Clicks on the card stay on it, instead of closing it.
+    TouchArea { }
+    body := VerticalLayout {
+        alignment: start; spacing: 0px;
+        Rectangle {
+            height: 88px;
+            HorizontalLayout {
+                padding: 16px; spacing: 10px;
+                VerticalLayout {
+                    padding-top: 4px;
+                    if root.card.picture.width > 0: Image {
+                        source: root.card.picture; width: 48px; height: 48px; image-fit: contain;
+                    }
+                    if root.card.picture.width == 0: Text {
+                        text: root.card.glyph; width: 48px; height: 48px;
+                        horizontal-alignment: center; vertical-alignment: center; font-size: 40px;
+                    }
+                }
+                VerticalLayout {
+                    width: 198px; spacing: 0px;
+                    Text {
+                        text: root.card.name; height: 20px; font-size: 16px; font-weight: 600;
+                        color: Theme.text; vertical-alignment: center; overflow: elide;
+                    }
+                    Text {
+                        text: root.card.description; height: 36px; font-size: 14px;
+                        color: Theme.secondary; wrap: word-wrap; overflow: elide;
+                    }
+                }
+            }
+        }
+        if root.card.server != "": Rectangle {
+            height: 94px; background: Theme.panel;
+            border-bottom-left-radius: 7px; border-bottom-right-radius: 7px;
+            VerticalLayout {
+                padding: 16px; spacing: 8px;
+                Text {
+                    text: "This emoji is from"; width: 256px; height: 18px; font-size: 14px;
+                    color: Theme.muted; horizontal-alignment: center; vertical-alignment: center;
+                }
+                Rectangle {
+                    height: 36px; border-radius: 6px;
+                    background: server-hover.has-hover ? Theme.hover : transparent;
+                    accessible-role: button;
+                    accessible-label: root.card.server-name;
+                    accessible-action-default => { root.open-server(root.card.server); }
+                    HorizontalLayout {
+                        spacing: 8px; alignment: start;
+                        Rectangle {
+                            width: 32px; height: 32px; border-radius: 8px; clip: true;
+                            background: root.card.server-picture.width > 0 ? transparent : Theme.field;
+                            if root.card.server-picture.width > 0: Image {
+                                source: root.card.server-picture; width: 32px; height: 32px; image-fit: cover;
+                            }
+                            if root.card.server-picture.width == 0: Text {
+                                text: root.card.server-initial; font-size: 14px; font-weight: 700;
+                                color: Theme.text; horizontal-alignment: center; vertical-alignment: center;
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 1px; alignment: center;
+                            Text {
+                                text: root.card.server-name; font-size: 16px; font-weight: 600;
+                                color: Theme.text; vertical-alignment: center; overflow: elide;
+                            }
+                            if root.card.server-note != "": Text {
+                                text: root.card.server-note; font-size: 12px; color: Theme.secondary;
+                                vertical-alignment: center; overflow: elide;
+                            }
+                        }
+                    }
+                    server-hover := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.open-server(root.card.server); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The emoji picker: a search, the emoji in rows under their headings, a
 // sidebar that jumps to each heading, and the hovered one with its name.
 // Escape closes it.

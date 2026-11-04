@@ -193,7 +193,7 @@ pub(super) fn show_timeline(
 /// in it shows as typed: Slint draws `<font>` and `<u>`, which would let a
 /// sender colour text, hide it, or dress it up as a mention.
 pub(super) fn markdown(body: &str) -> slint::StyledText {
-    styled_or(&links::escape_html(body), body)
+    styled_or(&links::escape_html(&emoji_text::text(body)), body)
 }
 
 /// Someone's Markdown with its mentions linked, ready for [`styled`]. Its
@@ -454,14 +454,15 @@ pub(super) fn show_message(window: &YapfastWindow, index: usize, item: &str, lit
 pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> MessageRow {
     // Plain text shows as typed, its web addresses linked.
     // Mentions link to who they mention, which opens their card.
-    // Custom emoji show as their glyphs once they have them.
-    let linked = if message.formatted {
-        let linked = with_mentions(&message.body, &message.mentions);
-        custom_emoji::text(&linked, &message.emoji)
+    // Custom emoji show as their glyphs once they have them, and clicking any
+    // emoji, custom or Unicode, opens its card.
+    let mentioned = if message.formatted {
+        with_mentions(&message.body, &message.mentions)
     } else {
         String::new()
     };
-    let jumbo = message.formatted && custom_emoji::only_emoji(&linked);
+    let glyphs = custom_emoji::text(&mentioned, &message.emoji);
+    let jumbo = message.formatted && custom_emoji::only_emoji(&glyphs);
     // Headings, quotes and code each show apart; text alone shows as one.
     let blocks = if message.formatted && message.notice.is_none() {
         body_blocks(message, Some(revealed))
@@ -473,12 +474,13 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
     } else if let Some(notice) = &message.notice {
         notice_text(message, notice, &message.time)
     } else if message.formatted {
+        let carded = emoji_text::linked(&custom_emoji::linked(&mentioned, &message.emoji));
         if message.spoilers {
-            styled(&spoiler::mark(&linked, &message.item, 0, |index| {
+            styled(&spoiler::mark(&carded, &message.item, 0, |index| {
                 revealed.contains(&format!("{}/{index}", message.item))
             }))
         } else {
-            styled(&linked)
+            styled(&carded)
         }
     } else {
         plain_with_links(&message.body)
@@ -940,19 +942,19 @@ fn body_blocks(
                 })
             })
             .collect();
-        let linked = custom_emoji::text(&with_mentions(text, &mentions), &message.emoji);
+        let linked = custom_emoji::linked(&with_mentions(text, &mentions), &message.emoji);
         let Some(revealed) = revealed else {
-            return spoiler::hide(&linked);
+            return emoji_text::text(&spoiler::hide(&linked));
         };
         if !message.spoilers {
-            return linked;
+            return emoji_text::linked(&linked);
         }
         // Spoilers count on through the message, as clicking one reveals it.
         let marked = spoiler::mark(&linked, &message.item, spoilers, |index| {
             revealed.contains(&format!("{}/{index}", message.item))
         });
         spoilers += spoiler::count(&linked);
-        marked
+        emoji_text::linked(&marked)
     })
 }
 
@@ -1089,7 +1091,10 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
         slint::StyledText::default()
     } else if message.formatted {
         let linked = with_mentions(&message.body, &message.mentions);
-        styled(&spoiler::hide(&custom_emoji::text(&linked, &message.emoji)))
+        styled(&emoji_text::text(&spoiler::hide(&custom_emoji::text(
+            &linked,
+            &message.emoji,
+        ))))
     } else {
         plain_with_links(&message.body)
             .unwrap_or_else(|| slint::StyledText::from_plain_text(&message.body))
@@ -1167,6 +1172,7 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
 pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> slint::StyledText {
     let linked = with_mentions(&topic.body, &topic.mentions);
     let body = custom_emoji::text(&linked, &topic.emoji);
+    let body = emoji_text::text(&body);
     let body = if one_line {
         body.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
@@ -1178,4 +1184,80 @@ pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> s
 /// Whether a message shows collapsed, being from someone blocked.
 pub(super) fn collapsed(message: &ChatMessage, revealed: &HashSet<String>) -> bool {
     message.blocked && !revealed.contains(&format!("{}/blocked", message.item))
+}
+
+/// A Unicode emoji's card says it can be used anywhere.
+const DEFAULT_EMOJI: &str = "This is a default emoji. It can be used anywhere.";
+/// A server's emoji, in the card of one whose server this account knows.
+const SERVER_EMOJI: &str = "This emoji is from one of your servers.";
+/// A server's emoji, in the card of one whose server it doesn't: another
+/// server's, shown in a message here.
+const OTHER_EMOJI: &str = "This is a server's emoji.";
+
+/// The card a click on an emoji in a message's text opens: what the emoji is,
+/// and, for one of a server's, the server it is from.
+pub(super) fn emoji_card(
+    target: &emoji_text::Target,
+    server: Option<&yapfast_core::chat::ChatServer>,
+    state: &AppState,
+    pictures: &mut HashMap<String, slint::Image>,
+    scale: f32,
+) -> EmojiCard {
+    let id = match target {
+        emoji_text::Target::Unicode(emoji) => {
+            return EmojiCard {
+                name: emoji::shortcode(emoji).into(),
+                glyph: emoji.as_str().into(),
+                picture: crate::twemoji::picture(emoji, emoji::CARD, scale).unwrap_or_default(),
+                description: DEFAULT_EMOJI.into(),
+                ..Default::default()
+            };
+        }
+        emoji_text::Target::Custom(id) => id,
+    };
+    // A custom emoji's name and picture come from the message that showed it:
+    // its server's list of emoji may not reach here, being another server's.
+    let listed = state
+        .messages
+        .iter()
+        .flat_map(|message| &message.emoji)
+        .find(|emoji| &emoji.id == id);
+    let icon = server.and_then(|server| server.icon.as_deref());
+    let (server_id, server_name, server_letter) = match server {
+        Some(server) => (
+            server.id.as_str().into(),
+            server.name.as_str().into(),
+            initial(&server.name),
+        ),
+        None => Default::default(),
+    };
+    EmojiCard {
+        name: listed
+            .map_or_else(String::new, |emoji| emoji.text.clone())
+            .into(),
+        picture: listed
+            .map(|emoji| cached_picture(pictures, state, Some(&emoji.picture)))
+            .unwrap_or_default(),
+        description: if server.is_some() {
+            SERVER_EMOJI
+        } else {
+            OTHER_EMOJI
+        }
+        .into(),
+        server: server_id,
+        server_name,
+        server_picture: if server.is_some() {
+            cached_picture(pictures, state, icon)
+        } else {
+            slint::Image::default()
+        },
+        server_initial: server_letter,
+        server_note: if server.is_some_and(|server| server.community) {
+            "Discoverable Server"
+        } else {
+            ""
+        }
+        .into(),
+        ..Default::default()
+    }
 }

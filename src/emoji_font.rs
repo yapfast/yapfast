@@ -5,6 +5,8 @@
 //! typeface's, Atkinson Hyperlegible Next's, so a line with an emoji keeps its
 //! baseline.
 
+use slint::fontique_011::{fontique, shared_collection};
+
 /// Font units per em, as in Atkinson Hyperlegible Next and Satoshi.
 const UNITS_PER_EM: u16 = 1000;
 /// Atkinson Hyperlegible Next's ascender, descender and line gap, in font
@@ -22,6 +24,32 @@ const BEARING_X: i8 = 2;
 /// descender it was 107.
 const BEARING_Y: i8 = 102;
 const ADVANCE: u8 = 140;
+
+/// Registers a font with each PNG of `glyphs`, which must be [`SIDE`] pixels
+/// square, at its code point, as `family`, and puts it first in text's fallback
+/// chain after the UI typeface. True when the font loaded.
+pub fn register(family: &str, glyphs: &[(char, Vec<u8>)]) -> bool {
+    let font = build(family, glyphs);
+    let mut collection = shared_collection();
+    let registered = collection.register_fonts(
+        fontique::Blob::new(std::sync::Arc::new(font)),
+        Some(fontique::FontInfoOverride {
+            family_name: Some(family),
+            ..Default::default()
+        }),
+    );
+    let Some(&(family_id, _)) = registered.first() else {
+        return false;
+    };
+    for generic in [
+        fontique::GenericFamily::SansSerif,
+        fontique::GenericFamily::SystemUi,
+    ] {
+        let families: Vec<_> = collection.generic_families(generic).collect();
+        collection.set_generic_families(generic, std::iter::once(family_id).chain(families));
+    }
+    true
+}
 
 /// A font with each PNG of `glyphs`, which must be [`SIDE`] pixels square, at
 /// its code point. Glyph 0 is the empty `.notdef`.

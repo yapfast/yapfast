@@ -330,6 +330,15 @@ an error.
   picture arrived gets a code point in the Supplementary Private Use Area B,
   and each batch of them a colour bitmap (CBDT) font made on the fly, which
   text falls back to after Satoshi, so they wrap and select like letters.
+  A message's Unicode emoji are drawn the same way, from Twemoji's picture of
+  them, in the top of that area, counting down so the two stay apart: a
+  refresh gives the text's emoji their glyphs before it builds the rows, one
+  font a batch, and an emoji whose glyph hasn't come yet stays the system
+  font's. A click on an emoji, custom or Unicode, opens its card: its name
+  between colons, a line saying what it is, and, for a server's, the server it
+  is from, which opens on a click. The card follows the emoji through a link
+  text falls back to (`yapfast:emoji/` and the emoji's code points, or `c/`
+  and a custom emoji's id), as a mention follows its own.
   The picker, suggestions and reaction buttons show the picture itself, so
   the hundreds a picker lists add no fonts; a quiet square holds each place
   until its picture arrives. A message of only

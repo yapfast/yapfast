@@ -35,7 +35,6 @@ pub fn picture(glyph: &str, px: f32, scale: f32) -> Option<slint::Image> {
 }
 
 /// Whether Twemoji has a picture for `glyph`, without decoding one.
-#[cfg(test)]
 pub fn has_picture(glyph: &str) -> bool {
     picture_bytes(glyph).is_some()
 }
@@ -72,7 +71,7 @@ fn names(glyph: &str) -> [String; 2] {
     [exact, dropped]
 }
 
-fn picture_bytes(glyph: &str) -> Option<&'static [u8]> {
+pub(crate) fn picture_bytes(glyph: &str) -> Option<&'static [u8]> {
     let pictures = index();
     for name in names(glyph) {
         if let Ok(found) = pictures.binary_search_by(|(candidate, _)| candidate.cmp(&name.as_str()))
