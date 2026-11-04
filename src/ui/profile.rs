@@ -16,6 +16,102 @@ fn bio_with_emoji(bio: &str, emoji: &[yapfast_core::chat::CustomEmoji]) -> Strin
     out
 }
 
+/// A running time as the activity panel words it: "for 12 min".
+pub(super) fn running_for(started_ms: u64, now_ms: u64) -> String {
+    let minutes = now_ms.saturating_sub(started_ms) / 60_000;
+    match minutes {
+        0 => "just started".to_owned(),
+        1..=59 => format!("for {minutes} min"),
+        60..=1439 => format!("for {} hr", minutes / 60),
+        _ => format!("for {} d", minutes / 1440),
+    }
+}
+
+/// What members are doing now, for the panel above the member list: one row
+/// per member, the longest-running last, and how many members there are in
+/// all. A custom status and a Hang status are not activities here.
+#[cfg(feature = "discord")]
+pub(super) fn activity_panel(
+    members: &[yapfast_core::chat::ChatMember],
+    now_ms: u64,
+) -> (Vec<MemberActivityRow>, i32) {
+    use yapfast_core::chat::ActivityKind;
+    let mut found: Vec<(u64, MemberActivityRow)> = members
+        .iter()
+        .filter_map(|member| {
+            let activity = member
+                .activities
+                .iter()
+                .find(|activity| activity.kind != ActivityKind::Hang)?;
+            let started = activity.start.unwrap_or(0);
+            Some((
+                started,
+                MemberActivityRow {
+                    id: member.id.clone().into(),
+                    name: member.name.clone().into(),
+                    initial: initial(&member.name),
+                    tint: tint(&member.name),
+                    picture_url: member.avatar.as_deref().unwrap_or_default().into(),
+                    icon: i32::from(
+                        yapfast_core::yapfast_discord::activity::subline(
+                            std::slice::from_ref(activity),
+                            None,
+                        )
+                        .icon,
+                    ),
+                    game: activity.name.to_string().into(),
+                    since: if started > 0 {
+                        running_for(started, now_ms)
+                    } else {
+                        activity.heading()
+                    }
+                    .into(),
+                    thumb_url: activity
+                        .large_image
+                        .as_deref()
+                        .or(activity.small_image.as_deref())
+                        .unwrap_or_default()
+                        .into(),
+                },
+            ))
+        })
+        .collect();
+    // The most recently started first, those without a start last.
+    found.sort_by_key(|(started, _)| std::cmp::Reverse(*started));
+    let total = i32::try_from(found.len()).unwrap_or(i32::MAX);
+    (
+        found.into_iter().map(|(_, row)| row).take(8).collect(),
+        total,
+    )
+}
+
+/// The icon, bullet and replacing words of the line under a name for what
+/// someone is doing; see `yapfast_discord::activity::subline`.
+#[cfg(feature = "discord")]
+pub(super) fn subline(
+    activities: &yapfast_core::chat::Activities,
+    line: Option<&str>,
+) -> (i32, bool, Option<String>) {
+    let subline = yapfast_core::yapfast_discord::activity::subline(activities, line);
+    (i32::from(subline.icon), subline.bullet, subline.name)
+}
+
+#[cfg(not(feature = "discord"))]
+pub(super) fn subline(
+    _activities: &yapfast_core::chat::Activities,
+    _line: Option<&str>,
+) -> (i32, bool, Option<String>) {
+    (0, false, None)
+}
+
+#[cfg(not(feature = "discord"))]
+pub(super) fn activity_panel(
+    _members: &[yapfast_core::chat::ChatMember],
+    _now_ms: u64,
+) -> (Vec<MemberActivityRow>, i32) {
+    (Vec::new(), 0)
+}
+
 /// Only mentions get a number; plain unread activity is a dot, because sync
 /// does not deliver every message of a room that isn't open.
 /// "Ann is", "Ann and Bob are", or "Ann, Bob and 3 others are".

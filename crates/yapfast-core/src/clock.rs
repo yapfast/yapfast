@@ -60,7 +60,8 @@ pub fn set_style(format: Option<DateFormat>, zone_minutes: Option<i32>) {
 
 fn format_for(twelve_hour: bool) -> DateFormat {
     match FORMAT.load(Ordering::Relaxed) {
-        AUTO_FORMAT if twelve_hour => DateFormat::MonthDayYear,
+        // Discord's German client writes the day first on any clock.
+        AUTO_FORMAT if twelve_hour && language() != Language::German => DateFormat::MonthDayYear,
         AUTO_FORMAT => DateFormat::DayMonthYear,
         chosen => DateFormat::ALL[usize::from(chosen - 1).min(2)],
     }

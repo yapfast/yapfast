@@ -135,6 +135,7 @@ pub fn member_server(alice: &[&str]) -> Application {
     app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
     app.dispatch(Action::SelectRoom("discord:10:11".into()));
     let listed = |id: &str, name: &str| ChatMember {
+        bot: false,
         id: id.into(),
         name: name.into(),
         username: None,

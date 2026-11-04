@@ -492,12 +492,13 @@ fn role_rows(adapter: &Adapter, user: &str) -> Vec<MenuRow> {
         .app
         .role_choices(place, user)
         .into_iter()
+        // Only the roles this account may give or take, as Discord's lists.
+        .filter(|choice| choice.grantable)
         .map(|choice| MenuRow {
             id: format!("{ROLE}{}", choice.role.id).into(),
             text: choice.role.name.into(),
             checkbox: true,
             checked: choice.held,
-            disabled: !choice.grantable,
             ..Default::default()
         })
         .collect()

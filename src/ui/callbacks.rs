@@ -490,6 +490,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_start_video_call(move || {
+        if let Some(window) = weak.upgrade() {
+            let id = state.borrow().app.state.selected.clone();
+            if let Some(id) = id {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::StartVideoCall(id));
+            }
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_answer_call(move |room, accept| {
         if let Some(window) = weak.upgrade() {
             let room = room.to_string();
@@ -656,6 +668,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         on_show_profile,
         (|user| Action::ShowProfile { user, large: false })
     );
+    bind_item!(on_prefetch_profile, Action::PrefetchProfile);
     bind_item!(on_edit, Action::Edit);
     {
         let adapter = adapter.clone();
@@ -680,6 +693,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_new_dm, Action::OpenNewDm);
     bind!(on_open_add_friend, Action::OpenAddFriend);
     bind!(on_open_requests, Action::OpenDmScreen(DmScreen::Requests));
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_inbox_opened(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().refresh(&window);
+            }
+        });
+    }
+    bind!(on_go_back, Action::NavigateBack);
+    bind!(on_go_forward, Action::NavigateForward);
     bind!(on_open_friends, Action::OpenDmScreen(DmScreen::Friends));
     bind!(on_open_browse, Action::BrowseChannels);
     bind_item!(on_message_friend, Action::MessagePerson);

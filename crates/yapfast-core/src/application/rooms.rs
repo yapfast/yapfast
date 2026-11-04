@@ -753,6 +753,38 @@ impl Application {
         }
     }
 
+    /// Steps back or forward through the conversations visited, to the next
+    /// one still there.
+    pub(super) fn walk_history(&mut self, back: bool) -> Vec<Effect> {
+        let state = &mut self.state;
+        let current = state.selected.clone();
+        let target = loop {
+            let stack = if back {
+                &mut state.nav_back
+            } else {
+                &mut state.nav_forward
+            };
+            let Some(id) = stack.pop() else {
+                return vec![];
+            };
+            if Some(&id) != current.as_ref() && state.rooms.iter().any(|room| room.id == id) {
+                break id;
+            }
+        };
+        if let Some(current) = current {
+            let other = if back {
+                &mut state.nav_forward
+            } else {
+                &mut state.nav_back
+            };
+            other.push(current);
+        }
+        state.nav_walking = true;
+        let effects = self.open(target, false);
+        self.state.nav_walking = false;
+        effects
+    }
+
     pub(super) fn select(&mut self, id: String) -> Vec<Effect> {
         self.select_showing(id, false)
     }
@@ -802,6 +834,9 @@ impl Application {
         // Discord's client counts each conversation opened.
         if self.state.selected.as_ref() != Some(&id) {
             self.state.places_used.visit(&id, crate::clock::now_ms());
+        }
+        if !self.state.nav_walking {
+            self.state.record_visit(&id);
         }
         self.state.selected = Some(id.clone());
         self.state.voice_chat = chat;

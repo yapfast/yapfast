@@ -741,6 +741,7 @@ pub(super) fn chat_embed(
 
 pub(super) fn chat_member(member: ListedMember) -> ChatMember {
     ChatMember {
+        bot: member.bot,
         id: member.user_id,
         name: member.name,
         username: member.username,

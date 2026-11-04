@@ -424,6 +424,7 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
                 decoration: None,
                 nameplate: None,
                 style: None,
+                bot: false,
             }]),
         });
         adapter.refresh(&window);
@@ -2097,6 +2098,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         color: Some(0x730bc8),
     };
     let member = |id: &str, name: &str| ChatMember {
+        bot: false,
         id: id.into(),
         name: name.into(),
         username: None,
@@ -2121,6 +2123,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         let state = &mut adapter.app.state;
         state.members = Some(Ok(vec![
             ChatMember {
+                bot: false,
                 decoration: Some("ring.png".into()),
                 nameplate: Some(plate("strip.png")),
                 style: yapfast_discord::collectibles::Style::parse(&serde_json::json!(

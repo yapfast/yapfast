@@ -3,6 +3,7 @@ import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip, Strings } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip } from "controls.slint";
 import { StatusDot } from "rail.slint";
+import { BotTag } from "messages.slint";
 
 /// A member of the open room. A heading starts each role's group.
 export struct MemberRow {
@@ -15,6 +16,9 @@ export struct MemberRow {
     /// A custom status or what they're doing, under the name, and the
     /// address of its custom emoji's picture.
     activity: string, activity-emoji: string,
+    /// The icon for what they're doing (see StatusText.icon), and whether a
+    /// bullet follows it.
+    activity-icon: int, activity-bullet: bool,
     picture-url: string,
     /// The address of the decoration around their avatar, and of their
     /// nameplate's picture with its palette's colour; empty for none.
@@ -23,6 +27,8 @@ export struct MemberRow {
     name-style: NameStyleRow,
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
+    /// An application's account, marked APP, and the server's owner, marked with a crown.
+    bot: bool, owner: bool,
     /// The server tag they wear by their name, and its badge's address.
     tag: string, tag-badge: string,
     /// The pictures of the role their group is and of their highest role that
@@ -70,15 +76,33 @@ component ActivityPicture inherits Rectangle {
     Image { source: root.picture; width: root.size; height: root.size; image-fit: cover; }
 }
 
+/// One member's current activity in the panel above the member list.
+export struct MemberActivityRow {
+    id: string, name: string, initial: string, tint: color, picture-url: string,
+    /// The game or app, how long it has run, and its picture's address.
+    game: string, since: string, thumb-url: string,
+    /// The icon for its kind, as in StatusText.icon.
+    icon: int,
+}
+
 // The open room's members, grouped by role under the conversation header.
 export component MemberPanel inherits Rectangle {
     in property <[MemberRow]> rows;
+    /// What members are doing right now, most recent first, and how many
+    /// there are in all; the panel above the list shows the first three until
+    /// its header is opened.
+    in property <[MemberActivityRow]> activity-rows;
+    in property <int> activity-total;
+    property <bool> activity-open;
     /// Shown instead of the list while it loads or when it can't.
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
     /// A member was clicked: their id, and where their row is in the window.
     callback open-profile(string, length);
+    /// The pointer rested on a member's row: their id, so their profile can be
+    /// fetched before it is asked for.
+    callback hover-profile(string);
     /// A member was right-clicked: their id, and where in the window.
     callback open-member-menu(string, length, length);
     // Discord's member list sits on the conversation's ground, a faint line on its left.
@@ -87,6 +111,79 @@ export component MemberPanel inherits Rectangle {
     accessible-label: "Members";
     if ClientStyle.enabled: Rectangle { x: 0px; width: 1px; background: Theme.outline-chat; }
     VerticalLayout {
+        if root.activity-rows.length > 0: VerticalLayout {
+            padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
+            Rectangle {
+                height: 32px; border-radius: 4px;
+                background: activity-head.has-hover ? #97979f1f : transparent;
+                accessible-role: button;
+                accessible-label: "Activity, " + root.activity-total + (root.activity-open ? ", collapse" : ", expand");
+                accessible-action-default => { root.activity-open = !root.activity-open; }
+                HorizontalLayout {
+                    padding-left: 8px; padding-right: 8px; spacing: 4px;
+                    Text { text: Strings.tab-activity + " \u{2014} " + root.activity-total; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                    Middle { Image { source: @image-url("icons/settings.svg"); width: 14px; height: 14px; colorize: #81828a; } }
+                    Rectangle { horizontal-stretch: 1; }
+                    if root.activity-total > 3: Middle {
+                        Image {
+                            source: @image-url("icons/chevron-right.svg"); width: 16px; height: 16px; colorize: #81828a;
+                            transform-rotation: root.activity-open ? 90deg : 0deg;
+                        }
+                    }
+                }
+                activity-head := TouchArea {
+                    enabled: root.activity-total > 3; mouse-cursor: root.activity-total > 3 ? MouseCursor.pointer : MouseCursor.default;
+                    clicked => { root.activity-open = !root.activity-open; }
+                }
+            }
+            // Discord's cards: 8px radius and padding, a 1px border, the name,
+            // the title in bold, the kind's icon with the time, and a 48px picture.
+            for row[index] in root.activity-rows: Rectangle {
+                // Each card keeps 8px beneath it; the rest stay folded away.
+                height: root.activity-open || index < 3 ? 76px : 0px; visible: root.activity-open || index < 3;
+                Rectangle {
+                y: 0px; height: 68px;
+                border-radius: 8px; border-width: 1px;
+                border-color: #29292d;
+                background: activity-touch.has-hover ? #2c2c32 : #242429;
+                accessible-role: button;
+                accessible-label: row.name + ", " + row.game + ", " + row.since + ", show profile";
+                accessible-action-default => { root.open-profile(row.id, self.absolute-position.y); }
+                HorizontalLayout {
+                    padding: 8px; spacing: 8px;
+                    VerticalLayout {
+                        alignment: center; horizontal-stretch: 1; spacing: 2px;
+                        HorizontalLayout {
+                            spacing: 6px; alignment: start;
+                            Middle { Avatar { size: 16px; initial: row.initial; tint: row.tint; picture-url: row.picture-url; } }
+                            Text { text: row.name; color: Theme.secondary; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
+                        }
+                        Text { text: row.game; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                        HorizontalLayout {
+                            spacing: 4px; alignment: start;
+                            Middle {
+                                Image {
+                                    source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : @image-url("icons/gamepad.svg");
+                                    width: 16px; height: 16px; image-fit: contain; colorize: #81828a;
+                                }
+                            }
+                            Text { text: row.since; color: #81828a; font-size: 12px; overflow: elide; vertical-alignment: center; }
+                        }
+                    }
+                    if row.thumb-url != "": Middle { ActivityPicture { size: 48px; url: row.thumb-url; label: row.game; } }
+                }
+                activity-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.open-profile(row.id, self.absolute-position.y); }
+                    pointer-event(event) => {
+                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                            root.open-member-menu(row.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                        }
+                    }
+                }
+                }
+            }
+        }
         if root.note != "": HorizontalLayout { padding: 16px; Label { text: root.note; } }
         // A list view makes only the rows in sight, which matters in large servers.
         ListView {
@@ -116,6 +213,12 @@ export component MemberPanel inherits Rectangle {
                   accessible-role: button;
                   accessible-label: member.name + ", " + member.id + ", show profile";
                   accessible-action-default => { root.open-profile(member.id, self.absolute-position.y); }
+                  // A short rest on a row warms their profile, which opens quicker for it.
+                  property <string> warmed;
+                  Timer {
+                      interval: 100ms; running: member-pointer.has-hover && parent.warmed != member.id;
+                      triggered => { parent.warmed = member.id; root.hover-profile(member.id); }
+                  }
                   member-pointer := TouchArea {
                     mouse-cursor: MouseCursor.pointer;
                     clicked => { root.open-profile(member.id, self.absolute-position.y); }
@@ -153,6 +256,14 @@ export component MemberPanel inherits Rectangle {
                             if member.tag != "": Middle {
                                 ServerTagChip { text: member.tag; badge: member.tag-badge; opacity: member.presence == "offline" ? 0.5 : 1; }
                             }
+                            if member.owner: Middle {
+                                Image {
+                                    source: @image-url("icons/crown.svg"); width: 14px; height: 14px; image-fit: contain;
+                                    colorize: #f0b232; opacity: member.presence == "offline" ? 0.5 : 1;
+                                    accessible-role: image; accessible-label: "Server owner";
+                                }
+                            }
+                            if member.bot: Middle { BotTag { app: true; opacity: member.presence == "offline" ? 0.5 : 1; } }
                             if member.timed-out: Image {
                                 source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
                                 colorize: Theme.danger;
@@ -161,6 +272,7 @@ export component MemberPanel inherits Rectangle {
                         }
                         if member.activity != "" || member.activity-emoji != "": StatusText {
                             text: member.activity; emoji-url: member.activity-emoji; font-size: 12px;
+                            icon: member.activity-icon; bullet: member.activity-bullet;
                             opacity: member.presence == "offline" ? 0.5 : 1;
                         }
                     }

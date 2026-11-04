@@ -271,6 +271,7 @@ fn members_belong_to_the_selected_text_room() {
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
     assert!(app.state.lists_members() && app.state.members.is_none());
     let member = ChatMember {
+        bot: false,
         id: "@bob:test".into(),
         name: "Bob".into(),
         username: None,
@@ -2958,6 +2959,7 @@ fn asks_once_for_the_pictures_on_screen() {
 
 fn member(id: &str, name: &str) -> ChatMember {
     ChatMember {
+        bot: false,
         id: id.into(),
         name: name.into(),
         username: None,
@@ -3197,6 +3199,7 @@ fn discord_mentions_search_the_server_and_name_roles() {
         room: room.clone(),
         members: Ok(vec![
             ChatMember {
+                bot: false,
                 username: Some("bob".into()),
                 ..member("2", "Bob")
             },
@@ -3888,6 +3891,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
     app.apply(Event::Members {
         room: "general".into(),
         members: Ok(vec![ChatMember {
+            bot: false,
             id: "@bob:test".into(),
             name: "Bob".into(),
             username: None,
@@ -5208,6 +5212,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
         }]),
     });
     app.state.members = Some(Ok(vec![ChatMember {
+        bot: false,
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
@@ -7476,6 +7481,10 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
         .is_empty()
     );
     assert!(app.state.channel_dialog.is_none());
+    assert!(
+        !app.may_create_channel("discord:10:4"),
+        "the \"+\" on a category heading needs Manage Channels"
+    );
     change_server(&mut app, |server| {
         let bits =
             permission::VIEW_CHANNEL | permission::SEND_MESSAGES | permission::MANAGE_CHANNELS;
@@ -7484,6 +7493,12 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
                                             "permissions": bits.to_string()}),
         );
     });
+    assert!(app.may_create_channel("discord:10:4"));
+    assert!(
+        !app.may_create_channel("discord:10:11"),
+        "a channel is no category"
+    );
+    assert!(!app.may_create_channel(""));
     assert_eq!(
         app.menu_choices("discord:10")[6..],
         [CreateChannel, CreateCategory, LeaveServer, CopyLink, CopyId]
@@ -10288,3 +10303,81 @@ mod ownership;
 mod people;
 #[cfg(feature = "discord")]
 mod server_settings;
+
+#[test]
+fn a_video_call_joins_then_turns_the_camera_on_once_connected_and_forgets_a_failed_join() {
+    let films = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Voice(voice::Command::Video(true)))
+                )
+            })
+            .count()
+    };
+    let mut app = bob_live_in_lounge();
+    let me = || in_call("@alice:test", true, false);
+    assert!(matches!(
+        app.dispatch(Action::StartVideoCall("lounge".into())).as_slice(),
+        [Effect::Backend(Command::Voice(voice::Command::Join(room)))] if room == "lounge"
+    ));
+    assert_eq!(app.state.pending_camera.as_deref(), Some("lounge"));
+    assert_eq!(
+        films(&app.apply(call(Phase::Joining, "lounge", vec![me()]))),
+        0
+    );
+    assert_eq!(
+        films(&app.apply(call(Phase::Connected, "lounge", vec![me()]))),
+        1
+    );
+    assert!(app.state.pending_camera.is_none());
+    // Filmed once.
+    assert_eq!(
+        films(&app.apply(call(Phase::Connected, "lounge", vec![me()]))),
+        0
+    );
+
+    // A join that fails forgets the camera.
+    let mut app = bob_live_in_lounge();
+    app.dispatch(Action::StartVideoCall("lounge".into()));
+    app.apply(call(Phase::Joining, "lounge", vec![]));
+    app.apply(Event::Voice(voice::State {
+        error: Some("Discord voice took too long to connect. Try again.".into()),
+        ..Default::default()
+    }));
+    assert!(app.state.pending_camera.is_none());
+}
+
+#[test]
+fn back_and_forward_walk_the_conversations_visited_without_recording_the_walk() {
+    let mut app = connected();
+    app.state.selected = None;
+    app.dispatch(Action::Open("general".into()));
+    app.state.nav_back.clear();
+    assert!(!app.state.can_go_back() && !app.state.can_go_forward());
+    app.dispatch(Action::Open("games".into()));
+    app.dispatch(Action::Open("dm".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+    assert!(app.state.can_go_back() && !app.state.can_go_forward());
+
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.selected.as_deref(), Some("games"));
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    assert!(!app.state.can_go_back() && app.state.can_go_forward());
+    // Nowhere further back.
+    assert!(app.dispatch(Action::NavigateBack).is_empty());
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(app.state.selected.as_deref(), Some("games"));
+    // Opening something new drops what was forward, as a browser does.
+    app.dispatch(Action::Open("lounge".into()));
+    assert!(!app.state.can_go_forward());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.selected.as_deref(), Some("games"));
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+}

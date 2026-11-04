@@ -907,6 +907,8 @@ pub struct ProfileRole {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatMember {
     pub id: String,
+    /// A Discord application's account, which the list marks APP.
+    pub bot: bool,
     /// The display name, or the user ID without one, as on the member's messages.
     pub name: String,
     /// Their Discord username, such as `ann`.

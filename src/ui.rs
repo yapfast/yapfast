@@ -543,6 +543,34 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
+                // Alt+Left and Alt+Right go back and forward through the
+                // conversations visited, as in Discord.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.alt_only()
+                    && let Key::Named(named @ (NamedKey::ArrowLeft | NamedKey::ArrowRight)) =
+                        key.logical_key
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                {
+                    if !key.repeat {
+                        let action = if named == NamedKey::ArrowLeft {
+                            Action::NavigateBack
+                        } else {
+                            Action::NavigateForward
+                        };
+                        let (adapter, weak) = (adapter.clone(), weak.clone());
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let (Some(adapter), Some(window)) =
+                                (adapter.upgrade(), weak.upgrade())
+                            {
+                                adapter.borrow_mut().action(&window, action);
+                            }
+                        });
+                    }
+                    return EventResult::PreventDefault;
+                }
                 let step = match keys.event(event) {
                     zoom::Outcome::Pass => return EventResult::Propagate,
                     zoom::Outcome::Taken => return EventResult::PreventDefault,
@@ -1118,6 +1146,20 @@ fn set_strings(window: &YapfastWindow) {
     strings.set_official_badge(tr("official_badge").into());
     strings.set_official_message(tr("official_message").into());
     strings.set_wave(tr("wave").into());
+    strings.set_inbox(tr("inbox").into());
+    strings.set_help(tr("help").into());
+    strings.set_download_apps(tr("download_apps").into());
+    strings.set_nav_back(tr("nav_back").into());
+    strings.set_nav_forward(tr("nav_forward").into());
+    strings.set_inbox_for_you(tr("inbox_for_you").into());
+    strings.set_inbox_unreads(tr("inbox_unreads").into());
+    strings.set_inbox_mentions(tr("inbox_mentions").into());
+    strings.set_inbox_empty(tr("inbox_empty").into());
+    strings.set_inbox_friend_request(tr("inbox_friend_request").into());
+    strings.set_inbox_mentioned(tr("inbox_mentioned").into());
+    strings.set_start_voice_call(tr("start_voice_call").into());
+    strings.set_start_video_call(tr("start_video_call").into());
+    strings.set_join_call(tr("join_call").into());
     strings.set_invite_people(tr("invite_people").into());
     strings.set_show_mutual(tr("show_mutual").into());
     strings.set_roles(tr("roles").into());
@@ -1466,6 +1508,10 @@ struct Models {
     /// The messages of the thread beside the open channel.
     aside_messages: Rc<VecModel<MessageRow>>,
     roster: Rc<VecModel<MemberRow>>,
+    /// What the members are doing, in the panel above the member list.
+    roster_activity: Rc<VecModel<MemberActivityRow>>,
+    /// What waits in the title bar's inbox, while it is open.
+    inbox: Rc<VecModel<InboxRow>>,
     mentions: Rc<VecModel<MentionRow>>,
     new_dm_people: Rc<VecModel<ContactRow>>,
     /// The open DM's pinned messages, what its search found, and the
@@ -1540,6 +1586,8 @@ impl Models {
         window.set_messages(ModelRc::from(self.messages.clone()));
         window.set_aside_messages(ModelRc::from(self.aside_messages.clone()));
         window.set_roster(ModelRc::from(self.roster.clone()));
+        window.set_roster_activity(ModelRc::from(self.roster_activity.clone()));
+        window.set_inbox_rows(ModelRc::from(self.inbox.clone()));
         window.set_mentions(ModelRc::from(self.mentions.clone()));
         window.set_new_dm_people(ModelRc::from(self.new_dm_people.clone()));
         window.set_pins(ModelRc::from(self.pins.clone()));
