@@ -78,6 +78,21 @@ export global Tip {
     in-out property <length> y;
     /// 0 above the anchor, 1 to its right, 2 below it.
     in-out property <int> side;
+    /// Whether it pops up with a fade, as a badge's does, not at once.
+    in-out property <bool> pop;
+}
+
+// The tooltip of a badge that levels up, as Discord's client shows it: a
+// large picture of the level, the kind of badge, the level and how far along
+// the person is. Empty `title` hides it. `x` and `y` are the badge's top
+// centre.
+export global BadgeTip {
+    in-out property <string> kind;
+    in-out property <string> title;
+    in-out property <string> progress;
+    in-out property <string> picture-url;
+    in-out property <length> x;
+    in-out property <length> y;
 }
 
 // The reaction whose tooltip shows, by message item and key, as Discord's

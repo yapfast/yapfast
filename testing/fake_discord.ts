@@ -122,8 +122,8 @@
 // Discord's do, with MESSAGE_POLL_VOTE_ADD and _REMOVE, and once a poll ends,
 // a MESSAGE_UPDATE and a "poll closed" notice (type 46).
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
-// banner, a server bio, Carol a banner colour, and the rest
-// nothing more.
+// banner, a server bio and three badges, Carol a banner colour, and the rest
+// nothing more. GET /users/{id}/badges gives Bob's playing time its level.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -789,6 +789,7 @@ function picture(path: string): Uint8Array {
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
+const IRONCLAD_ICON = "https://cdn.discordapp.com/assets/content/d705628490898f2cc22d669cf8b415bc03fed1ddaf98a2a8cbd97442a509293c.svg";
 // A person's profile as GET /users/{id}/profile gives it, with the server's
 // side when asked for with guild_id.
 function wireProfile(user: User, guild: string | null) {
@@ -814,6 +815,20 @@ function wireProfile(user: User, guild: string | null) {
       : {}),
     mutual_guilds: inServer ? [{ id: GUILD, nick: null }] : [],
     mutual_friends: bob ? [wireUser(users.carol)] : [],
+    badges: bob
+      ? [
+          {
+            id: "hypesquad_house_1",
+            description: "HypeSquad Bravery",
+            icon: "8a88d63823d8a71cd5e390baa45efa02",
+            link: "https://support.discord.com/hc/en-us/articles/360035962891",
+          },
+          { id: "active_developer", description: "Active Developer", icon: "6bdc42827a38498929a4920da12695d9" },
+          // A badge that levels up carries only its label and the picture
+          // of its level here; GET /users/{id}/badges has the rest.
+          { id: "game_time", description: "Spielzeit", icon: "208e1bb66e311286cae364bc6f19277a", simple_icon_url: IRONCLAD_ICON },
+        ]
+      : [],
     premium_type: null,
   };
 }
@@ -5287,6 +5302,32 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json(wireProfile(user, url.searchParams.get("guild_id")));
   }
 
+  // The levels of someone's badges, as the client asks for them to fill a
+  // badge's tooltip: Bob has played for 1,816 hours, "Eisern".
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/badges$/))) {
+    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    return json({
+      badges:
+        m[1] === users.bob.id
+          ? [
+              {
+                badge_id: 20,
+                name: "Spielzeit",
+                info_label: "1.816 Stunden gespielt",
+                owned: true,
+                simple_icon_url: IRONCLAD_ICON,
+                complex_icon_static_url: "https://cdn.discordapp.com/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg",
+                current_tier: "ironclad",
+                tiers: [
+                  { key: "casual", name: "Locker", owned: true, complex_icon_static_url: "https://cdn.discordapp.com/assets/content/1f9d42f34184814a137e40b0de83e2cac0ae44d83531777b9369d2e2a6ddfeb3.svg" },
+                  { key: "ironclad", name: "Eisern", owned: true, simple_icon_url: IRONCLAD_ICON, complex_icon_static_url: "https://cdn.discordapp.com/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg" },
+                ],
+              },
+            ]
+          : [],
+    });
+  }
+
   // Opening a DM finds the one Alice has with them, or starts one; with
   // several people, it makes a group.
   if (method === "POST" && path === "/users/@me/channels") {
@@ -7527,6 +7568,7 @@ function envProfile(world: World, user: User, guild: string | null) {
           .filter((server) => server.members.has(user.id))
           .map((server) => ({ id: server.id, nick: server.members.get(user.id)!.nick })),
     mutual_friends: [],
+    badges: [],
     premium_type: null,
   };
 }

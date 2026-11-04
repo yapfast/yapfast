@@ -33,6 +33,9 @@ pub struct Profile {
     pub mutual_servers: Vec<MutualServer>,
     /// The friends this account shares with them.
     pub mutual_friends: Vec<MutualFriend>,
+    /// The badges their profile shows, in Discord's order.
+    #[serde(default)]
+    pub badges: Vec<Badge>,
     /// The two colours of their profile's theme, a Nitro setting: the card's
     /// gradient runs from the first to the second.
     #[serde(default)]
@@ -71,6 +74,92 @@ fn connection_url(kind: &str, id: &str, name: &str) -> Option<String> {
         "bluesky" => format!("https://bsky.app/profile/{name}"),
         _ => return None,
     })
+}
+
+/// One of the badges a profile shows: HypeSquad, Active Developer, a
+/// subscriber's Nitro tier and the like.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Badge {
+    pub id: String,
+    /// What it says on hover, such as "HypeSquad Bravery".
+    pub description: String,
+    /// The address of its picture.
+    pub icon: String,
+    /// Where Discord's client sends a click on it, when it does.
+    pub link: Option<String>,
+    /// The address of the picture Discord's profile gives it for its level,
+    /// the key to its details in [`Profile::with_levels`].
+    #[serde(default)]
+    pub level_icon: Option<String>,
+    /// What its tooltip says beyond the description, once [`Profile::with_levels`]
+    /// has found it: only the badges that level up have any.
+    #[serde(default)]
+    pub level: Option<BadgeLevel>,
+}
+
+/// What Discord's tooltip shows for a badge that levels up, such as playing
+/// time: its kind above, its level in capitals, how far along the person is,
+/// and a large picture of the level.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BadgeLevel {
+    /// The kind of badge ("Spielzeit"), when the level has a name of its own.
+    pub kind: Option<String>,
+    /// The level's name ("Eisern"), or the badge's when it has no levels.
+    pub title: String,
+    /// How far along they are ("1.816 Stunden gespielt").
+    pub progress: String,
+    /// The address of the large picture, an SVG.
+    pub picture: String,
+}
+
+impl Profile {
+    /// Adds the levels from `GET /users/{id}/badges`, an answer of
+    /// `{"badges": [{name, info_label, current_tier, tiers, ...}]}`, to the
+    /// badges they belong to. Discord's client matches them by the picture of
+    /// the level, which both lists carry.
+    pub fn with_levels(&mut self, value: &Value) {
+        for entry in value["badges"].as_array().into_iter().flatten() {
+            if entry["owned"].as_bool() == Some(false) {
+                continue;
+            }
+            let (Some(name), Some(progress)) = (text(&entry["name"]), text(&entry["info_label"]))
+            else {
+                continue;
+            };
+            let tier = entry["tiers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|tier| tier["key"].as_str() == entry["current_tier"].as_str());
+            let picture = [
+                tier.map(|tier| &tier["complex_icon_static_url"]),
+                Some(&entry["complex_icon_static_url"]),
+                Some(&entry["simple_icon_url"]),
+            ]
+            .into_iter()
+            .flatten()
+            .find_map(text);
+            let Some(picture) = picture else { continue };
+            let level = BadgeLevel {
+                kind: tier.map(|_| name.to_owned()),
+                title: tier
+                    .and_then(|tier| text(&tier["name"]))
+                    .unwrap_or(name)
+                    .to_owned(),
+                progress: progress.to_owned(),
+                picture: picture.to_owned(),
+            };
+            let simple = text(&entry["simple_icon_url"]);
+            let raster = text(&entry["simple_icon_raster_url"]);
+            let badge = self.badges.iter_mut().find(|badge| {
+                simple.is_some() && badge.level_icon.as_deref() == simple
+                    || raster.is_some_and(|raster| raster == badge.icon)
+            });
+            if let Some(badge) = badge {
+                badge.level = Some(level);
+            }
+        }
+    }
 }
 
 /// A server this account shares with someone.
@@ -250,6 +339,21 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
             })
             .collect(),
         theme: theme_colors(&server["theme_colors"]).or_else(|| theme_colors(&own["theme_colors"])),
+        badges: value["badges"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|badge| {
+                Some(Badge {
+                    id: text(&badge["id"])?.to_owned(),
+                    description: text(&badge["description"])?.to_owned(),
+                    icon: ready::badge_icon(text(&badge["icon"])?),
+                    link: text(&badge["link"]).map(str::to_owned),
+                    level_icon: text(&badge["simple_icon_url"]).map(str::to_owned),
+                    level: None,
+                })
+            })
+            .collect(),
         connections: value["connected_accounts"]
             .as_array()
             .into_iter()
@@ -384,6 +488,89 @@ mod tests {
                 .ends_with("/banners/1400000000000000200/def.png?size=600")
         );
         assert_eq!(profile.accent, Some(16_711_680));
+    }
+
+    #[test]
+    fn a_profile_lists_its_badges_in_discords_order() {
+        let answer = json!({
+            "user": {"id": "1400000000000000200", "username": "ann"},
+            "badges": [
+                {"id": "hypesquad_house_1", "description": "HypeSquad Bravery",
+                 "icon": "8a88d63823d8a71cd5e390baa45efa02",
+                 "link": "https://support.discord.com/hc/en-us/articles/360035962891"},
+                {"id": "active_developer", "description": "Active Developer",
+                 "icon": "6bdc42827a38498929a4920da12695d9"},
+                {"id": "broken", "description": "", "icon": "abc"},
+                {"id": "no_icon", "description": "No icon"},
+            ],
+        });
+        let profile = parse(&answer, None).unwrap();
+        let ids: Vec<_> = profile
+            .badges
+            .iter()
+            .map(|badge| badge.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            ["hypesquad_house_1", "active_developer"],
+            "one without a description or a picture is left out"
+        );
+        assert_eq!(profile.badges[0].description, "HypeSquad Bravery");
+        assert!(
+            profile.badges[0]
+                .icon
+                .ends_with("/badge-icons/8a88d63823d8a71cd5e390baa45efa02.png")
+        );
+        assert!(profile.badges[0].link.is_some());
+        assert_eq!(profile.badges[1].link, None);
+
+        let none = json!({"user": {"id": "1", "username": "bob"}, "badges": null});
+        assert!(parse(&none, None).unwrap().badges.is_empty());
+    }
+
+    #[test]
+    fn a_levelling_badge_takes_its_level_from_the_badges_answer() {
+        let mut profile = parse(
+            &json!({
+                "user": {"id": "1", "username": "bob"},
+                "badges": [
+                    {"id": "game_time", "description": "Spielzeit", "icon": "aaa",
+                     "simple_icon_url": "https://cdn.example/ironclad.svg"},
+                    {"id": "quest_completed", "description": "Quest abgeschlossen", "icon": "7d9a"},
+                    {"id": "premium", "description": "Abonnent seit 06.05.26", "icon": "ccc"},
+                ],
+            }),
+            None,
+        )
+        .unwrap();
+        let quests_raster = ready::badge_icon("7d9a");
+        profile.with_levels(&json!({"badges": [
+            {"name": "Spielzeit", "info_label": "1.816 Stunden gespielt", "owned": true,
+             "simple_icon_url": "https://cdn.example/ironclad.svg",
+             "current_tier": "ironclad",
+             "tiers": [
+                 {"key": "casual", "name": "Locker", "complex_icon_static_url": "https://cdn.example/casual.svg"},
+                 {"key": "ironclad", "name": "Eisern", "complex_icon_static_url": "https://cdn.example/big.svg"},
+             ]},
+            {"name": "Quests", "info_label": "7 Quests Abgeschlossen", "owned": true,
+             "simple_icon_url": "https://cdn.example/quest.svg", "simple_icon_raster_url": quests_raster},
+            {"name": "Streaming", "info_label": "1 Stunde", "owned": false,
+             "simple_icon_url": "https://cdn.example/none.svg"},
+        ]}));
+        let time = profile.badges[0].level.as_ref().unwrap();
+        assert_eq!(time.kind.as_deref(), Some("Spielzeit"));
+        assert_eq!(time.title, "Eisern");
+        assert_eq!(time.progress, "1.816 Stunden gespielt");
+        assert_eq!(time.picture, "https://cdn.example/big.svg");
+        // One without levels is named for itself, with its small picture.
+        let quests = profile.badges[1].level.as_ref().unwrap();
+        assert_eq!(
+            (quests.kind.as_deref(), quests.title.as_str()),
+            (None, "Quests")
+        );
+        assert_eq!(quests.picture, "https://cdn.example/quest.svg");
+        // Nitro isn't in the answer, so it keeps its description alone.
+        assert_eq!(profile.badges[2].level, None);
     }
 
     #[test]

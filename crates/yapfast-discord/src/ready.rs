@@ -1595,6 +1595,12 @@ pub fn custom_emoji(id: &str, animated: bool, size: u32) -> String {
     format!("{}/emojis/{id}.{format}?size={size}", cdn())
 }
 
+/// The picture of a profile badge, such as HypeSquad Bravery, by the icon
+/// hash its profile gives.
+pub fn badge_icon(hash: &str) -> String {
+    format!("{}/badge-icons/{hash}.png", cdn())
+}
+
 pub fn server_icon(guild: &str, hash: &str) -> String {
     format!("{}/icons/{guild}/{hash}.png?size={PICTURE_SIZE}", cdn())
 }

@@ -675,6 +675,8 @@ pub struct Profile {
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
+    /// The badges their Discord profile shows, in Discord's order.
+    pub badges: Vec<ProfileBadge>,
     /// The custom emoji in their bio, which show as their pictures once
     /// those arrive; the bio names each as `:name:`.
     pub bio_emoji: Vec<CustomEmoji>,
@@ -695,6 +697,32 @@ pub struct ProfileConnection {
     pub url: Option<String>,
     /// When the account was made, as a date, when the service says.
     pub since: Option<String>,
+}
+
+/// A badge on a profile, such as HypeSquad Bravery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileBadge {
+    /// What it says on hover.
+    pub description: String,
+    /// The address of its picture; see [`DiscordCommand::Pictures`].
+    pub icon: String,
+    /// Where a click on it goes, when it goes anywhere.
+    pub link: Option<String>,
+    /// What its tooltip shows when it levels up.
+    pub level: Option<ProfileBadgeLevel>,
+}
+
+/// The level a badge has reached, as its tooltip shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileBadgeLevel {
+    /// The kind of badge, above the level's name.
+    pub kind: Option<String>,
+    /// The level's name.
+    pub title: String,
+    /// How far along they are.
+    pub progress: String,
+    /// The address of the large picture of the level.
+    pub picture: String,
 }
 
 /// A server a profile's person shares with this account.
@@ -3346,6 +3374,12 @@ pub enum Event {
         user: String,
         result: Result<Profile, String>,
     },
+    /// The badges of a profile [`Event::Profile`] brought, now with the levels
+    /// their tooltips show, which Discord answers after the profile.
+    BadgeLevels {
+        user: String,
+        badges: Vec<ProfileBadge>,
+    },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
     KeptProfile {
@@ -3937,6 +3971,9 @@ fn decode_kept_picture(
     if crate::video::is_video(data) {
         return crate::video::decode_kept_animation(data, width, height, kept);
     }
+    if is_svg(data) {
+        return svg_picture(data, width, height);
+    }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(data))
         .with_guessed_format()
         .ok()?;
@@ -3961,6 +3998,46 @@ fn decode_kept_picture(
         width: picture.width(),
         height: picture.height(),
         rgba: Pixels::new(picture.width(), picture.height(), picture.into_raw()),
+        animation: None,
+    })
+}
+
+/// Whether `data` is an SVG, as Discord's badge pictures are.
+fn is_svg(data: &[u8]) -> bool {
+    let start = &data[..data.len().min(256)];
+    let start = start.trim_ascii_start();
+    start.starts_with(b"<svg") || start.starts_with(b"<?xml")
+}
+
+/// An SVG drawn to fit `width` by `height`, keeping its shape.
+fn svg_picture(data: &[u8], width: u32, height: u32) -> Option<Picture> {
+    use resvg::{tiny_skia, usvg};
+    let tree = usvg::Tree::from_data(data, &usvg::Options::default()).ok()?;
+    let size = tree.size();
+    let scale = (width as f32 / size.width()).min(height as f32 / size.height());
+    let (w, h) = (
+        ((size.width() * scale).round() as u32).max(1),
+        ((size.height() * scale).round() as u32).max(1),
+    );
+    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    // tiny-skia keeps premultiplied colour; pictures hold straight alpha.
+    let rgba: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let pixel = pixel.demultiply();
+            [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
+        })
+        .collect();
+    Some(Picture {
+        width: w,
+        height: h,
+        rgba: Pixels::new(w, h, rgba),
         animation: None,
     })
 }
@@ -4776,6 +4853,16 @@ mod tests {
         let preview = decode_preview(&png(800, 500)).unwrap();
         // Discord's previews go up to 550 by 400.
         assert_eq!((preview.width, preview.height), (550, 344));
+    }
+
+    #[test]
+    fn an_svg_is_drawn_to_fit_keeping_its_shape() {
+        let svg = br##"<svg viewBox="0 0 156 100" xmlns="http://www.w3.org/2000/svg" width="156" height="100">
+            <rect width="156" height="100" fill="#ff0000"/></svg>"##;
+        let picture = decode_picture(svg, 128, 128).unwrap();
+        assert_eq!((picture.width, picture.height), (128, 82));
+        assert_eq!(&picture.rgba[..4], &[255, 0, 0, 255]);
+        assert!(decode_picture(b"<svg", 128, 128).is_none());
     }
 
     #[test]
