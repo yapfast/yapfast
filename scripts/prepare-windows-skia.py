@@ -858,11 +858,13 @@ def print_environment():
     print("$env:SKIA_BINARIES_URL = '" + archive_uri() + "'")
 
 
-def run_application_build(cargo, build_environment):
+def run_application_build(cargo):
     # SKIA_BINARIES_URL is this process's only addition: .cargo/config.toml
     # already asks for the static CRT, and the build scripts choose the
     # compiler, so the build sees the environment a plain `cargo build` does.
-    environment = dict(build_environment)
+    # Not the Skia builder's: skia-bindings would take its SKIA_SOURCE_DIR over
+    # the archive and compile Skia again, without the renamed JPEG table.
+    environment = dict(os.environ)
     environment['SKIA_BINARIES_URL'] = archive_uri()
     say('Building the application with the prepared archive (SKIA_BINARIES_URL is process-local)')
     subprocess.run([str(cargo), 'build', '--release'], cwd=ROOT, env=environment, check=True)
@@ -876,7 +878,7 @@ def main():
     modes.add_argument('--fetch-only', action='store_true',
                        help='download and lay out the pinned source and externals, then stop')
     modes.add_argument('--print-env', action='store_true',
-                       help='print the two PowerShell environment lines for the prepared archive')
+                       help='print the PowerShell line that sets SKIA_BINARIES_URL to the prepared archive')
     modes.add_argument('--build', action='store_true',
                        help='prepare Skia, then run cargo build --release with its archive')
     args = parser.parse_args()
@@ -924,7 +926,7 @@ def main():
         print(prepared)
 
     if args.build:
-        run_application_build(cargo, environment)
+        run_application_build(cargo)
 
 
 if __name__ == '__main__':
