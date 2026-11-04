@@ -634,6 +634,20 @@ impl Api {
             .await
     }
 
+    /// Every profile effect's config, with its layers, as the client fetches
+    /// them to play an effect: `{"profile_effect_configs": [...]}`.
+    pub async fn user_profile_effects(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/user-profile-effects"))
+            .await
+    }
+
+    /// A shop product, such as the profile effect of a SKU, as the client
+    /// fetches it to show the effect.
+    pub async fn collectibles_product(&self, sku: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, &format!("/collectibles-products/{sku}")))
+            .await
+    }
+
     /// Applications' public objects, with their names and icons, as the
     /// client fetches them for activities: `[{id, name, icon, ...}]`.
     pub async fn public_applications(&self, ids: &[&str]) -> Result<Value> {

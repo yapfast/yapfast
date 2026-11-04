@@ -52,6 +52,7 @@ mod menus;
 mod messages;
 #[cfg(windows)]
 mod move_loop;
+mod name_style;
 mod pictures;
 mod placement;
 mod polls;

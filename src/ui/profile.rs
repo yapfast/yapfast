@@ -207,11 +207,30 @@ pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Opt
     data.servers = same_list(&shown.servers, data.servers);
     data.friends = same_list(&shown.friends, data.friends);
     data.activities = same_list(&shown.activities, data.activities);
+    data.effect_layers = same_list(&shown.effect_layers, data.effect_layers);
     data.badges = same_list(&shown.badges, data.badges);
     data.connections = same_list(&shown.connections, data.connections);
     data.role_rows = same_role_rows(&shown.role_rows, data.role_rows);
     data.role_rows_large = same_role_rows(&shown.role_rows_large, data.role_rows_large);
     (*shown != data).then_some(data)
+}
+
+/// A profile effect's layers as the card plays them, in the order they lie.
+fn effect_layers(effect: &yapfast_core::chat::ProfileEffect) -> Vec<EffectLayer> {
+    let millis = |time: u32| i32::try_from(time).unwrap_or(i32::MAX);
+    effect
+        .layers
+        .iter()
+        .map(|layer| EffectLayer {
+            url: layer.src.as_str().into(),
+            x: layer.x,
+            y: layer.y,
+            start: millis(layer.start),
+            duration: millis(layer.duration),
+            looped: layer.looped,
+            loop_delay: millis(layer.loop_delay),
+        })
+        .collect()
 }
 
 /// A profile as a card, the full profile or the DM panel shows it.
@@ -236,6 +255,12 @@ pub(super) fn profile_data(
         .as_deref()
         .filter(|line| !names_an_activity(line, &profile.activities))
         .map_or((None, ""), yapfast_core::discord::status_parts);
+    let effect = profile.effect.as_deref().and_then(|sku| {
+        state
+            .profile_effects
+            .iter()
+            .find(|effect| effect.sku == sku)
+    });
     let avatar = cached_picture(pictures, state, profile.avatar.as_deref());
     let banner = cached_picture(pictures, state, profile.banner.as_deref());
     // With no banner, accent colour or theme, Discord tints the banner area
@@ -246,6 +271,23 @@ pub(super) fn profile_data(
             .flatten()
     });
     ProfileData {
+        effect_layers: ModelRc::new(VecModel::from(
+            effect.map_or_else(Vec::new, |effect| effect_layers(effect)),
+        )),
+        effect_still: effect
+            .and_then(|effect| effect.still.as_deref())
+            .unwrap_or_default()
+            .into(),
+        effect_persistent: effect.is_some_and(|effect| effect.persistent),
+        effect_end: effect.map_or(0, |effect| {
+            effect
+                .layers
+                .iter()
+                .map(|layer| layer.start + layer.duration)
+                .max()
+                .map_or(0, |end| i32::try_from(end).unwrap_or(i32::MAX))
+        }),
+        effect_loops: effect.is_some_and(|effect| effect.layers.iter().any(|layer| layer.looped)),
         theme_primary: role_color(profile.theme.map(|theme| theme[0])),
         theme_secondary: role_color(profile.theme.map(|theme| theme[1])),
         has_theme: profile.theme.is_some(),
@@ -255,6 +297,7 @@ pub(super) fn profile_data(
         tint: tint(&profile.name),
         picture: avatar.clone(),
         decoration_url: profile.decoration.as_deref().unwrap_or_default().into(),
+        name_style: super::name_style::row(profile.style, &profile.name),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
         tag: profile

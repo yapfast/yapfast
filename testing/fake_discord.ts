@@ -364,6 +364,8 @@ const STICKER_BOUNCE = "1400000000000000311";
 const STICKER_LOTTIE = "1400000000000000312";
 const ALICE = "1400000000000000001";
 
+/** The profile effect Bob equips: an intro layer and a looping one over the card. */
+const PROFILE_EFFECT = "1500000000000000010";
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
@@ -374,6 +376,9 @@ type User = {
   nameplate?: { sku: string; palette: string };
   /** `display_name_styles`: Discord's font and effect ids, and RGB colours. */
   style?: { font: number; effect: number; colors: number[] };
+  /** The SKU of the profile effect they equip, which GET
+   *  /collectibles-products/{sku} describes. */
+  effect?: string;
 };
 const users: Record<string, User> = {
   alice: {
@@ -384,6 +389,7 @@ const users: Record<string, User> = {
   // both, has both.
   bob: {
     id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1", decoration: "1500000000000000001",
+    effect: PROFILE_EFFECT,
   },
   carol: {
     id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1",
@@ -613,7 +619,7 @@ function timeOf(id: string): number {
 const COLLECTIBLES_PATH = /^\/media\/v1\/collectibles-shop\/(\d+)\/(static|animated|video)$/;
 
 function wireUser(user: User) {
-  const { decoration, nameplate, style, ...rest } = user;
+  const { decoration, nameplate, style, effect: _effect, ...rest } = user;
   return {
     ...rest,
     discriminator: "0",
@@ -653,14 +659,27 @@ const serverLooks: Record<string, Pick<User, "decoration" | "nameplate" | "style
 };
 for (const look of Object.values(serverLooks)) if (look.nameplate) nameplateSkus.add(look.nameplate.sku);
 
+const profileEffects = new Set<string>([PROFILE_EFFECT]);
+
+/** A layer of a profile effect: a 450 by 880 picture, clear but for a few
+ *  petals, which differ by layer. */
+function effectPicture(name: string): Uint8Array {
+  const shade = crc32(new TextEncoder().encode(name));
+  return png(450, 880, (x, y) => {
+    const petal = (x * 7 + y * 13 + (shade & 255)) % 97 < 2 && (x + y) % 5 < 3;
+    return petal ? [255, 150 + (shade & 63), 190, 220] : [0, 0, 0, 0];
+  });
+}
+
 /** A decoration is a ring around a transparent middle, a nameplate a strip
  *  that fades in from its left. */
-function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style">) {
+function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style" | "effect">) {
   if (spec.nameplate) nameplateSkus.add(spec.nameplate.sku);
   return {
     ...(spec.decoration ? { decoration: spec.decoration } : {}),
     ...(spec.nameplate ? { nameplate: spec.nameplate } : {}),
     ...(spec.style ? { style: spec.style } : {}),
+    ...(spec.effect ? { effect: spec.effect } : {}),
   };
 }
 
@@ -902,7 +921,7 @@ function wireProfile(user: User, guild: string | null) {
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -942,6 +961,7 @@ function guildMemberProfile(id: string, guild = GUILD) {
     theme_colors: null,
     popout_animation_particle_type: null,
     emoji: null,
+    profile_effect: null,
   };
 }
 
@@ -5392,6 +5412,28 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return new Response(null, { status: 204 });
   }
 
+  // The shop's product for a profile effect, whose layers Discord's client
+  // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
+    const sku = m[1]!;
+    if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
+    const layer = (name: string) => `${url.origin}/assets/profile_effects/${sku}/${name}.png`;
+    return json({
+      sku_id: sku, store_listing_id: "1", type: 1, name: "Petals", summary: "Falling petals", premium_type: 2,
+      items: [
+        { type: 1, sku_id: sku, title: "Petals", description: "Falling petals", accessibilityLabel: "Falling petals",
+          animationType: 1, thumbnailPreviewSrc: layer("thumbnail"), reducedMotionSrc: layer("reduced"),
+          staticFrameSrc: layer("still"),
+          effects: [
+            { src: layer("intro"), loop: false, height: 880, width: 450, duration: 2000, start: 0, loopDelay: 0,
+              position: { x: 0, y: 0 }, zIndex: 101, randomizedSources: [] },
+            { src: layer("loop"), loop: true, height: 880, width: 450, duration: 3000, start: 1500, loopDelay: 1000,
+              position: { x: 0, y: 20 }, zIndex: 102, randomizedSources: [] },
+          ] },
+      ],
+    });
+  }
+
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
     const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
     if (!user) return notFound("Unknown User", 10013);
@@ -7338,6 +7380,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     decoration: undefined,
     nameplate: undefined,
     style: undefined,
+    effect: undefined,
     ...collectiblesOf(me),
   });
   userById.set(ALICE, users.alice);
@@ -7659,7 +7702,7 @@ function envProfile(world: World, user: User, guild: string | null) {
   const server = guild ? world.byId.get(guild) : undefined;
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(server?.members.has(user.id)
       ? { guild_member_profile: guildMemberProfile(user.id, server.id), guild_member: { ...memberIn(server.id, user), bio: "" } }
       : {}),
@@ -7805,6 +7848,10 @@ const server = Bun.serve<SocketData>({
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
     // Activities' pictures: games' icons and assets, and Spotify's covers.
+    const effectLayer = req.method === "GET" ? path.match(/^\/assets\/profile_effects\/(\d+)\/(\w+)\.png$/) : null;
+    if (effectLayer && profileEffects.has(effectLayer[1]!)) {
+      return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
+    }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
       return new Response(collectiblePicture(collectible[1]!), { headers: { "content-type": "image/png" } });

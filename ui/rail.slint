@@ -2,7 +2,7 @@ import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label, Strings } from "theme.slint";
-import { Avatar, PictureStore, StatusText, VoiceSpot, ServerTagChip } from "controls.slint";
+import { Avatar, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
 
@@ -44,7 +44,7 @@ export struct RoomRow {
     picture-url: string,
     /// The address of the decoration around a one-to-one DM's avatar, and how
     /// its person's name is drawn.
-    decoration-url: string,
+    decoration-url: string, name-style: NameStyleRow,
     /// Listed but not open to join, such as a Discord channel the account's roles keep it out of.
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
@@ -393,6 +393,7 @@ export component ChannelRow inherits Rectangle {
     in property <image> picture;
     in property <string> picture-url;
     in property <string> decoration-url;
+    in property <NameStyleRow> name-style;
     /// Marks a Discord DM, as the rail marks Discord servers.
     in property <bool> discord;
     in property <bool> selected;
@@ -533,9 +534,12 @@ export component ChannelRow inherits Rectangle {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
                         spacing: 4px;
-                        Text {
+                        if root.name-style.effect == 0: Text {
                             text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
+                        }
+                        if root.name-style.effect > 0: StyledName {
+                            text: root.text; style: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                         }
                         if root.tag != "": Middle { ServerTagChip { text: root.tag; badge: root.tag-badge; } }
                         if root.official: Middle {
@@ -1182,7 +1186,7 @@ export component RoomList inherits Rectangle {
                     chat: room.chat;
                     open-chat => { root.open-chat(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
-                    decoration-url: room.decoration-url;
+                    decoration-url: room.decoration-url; name-style: room.name-style;
                     tag: room.tag; tag-badge: room.tag-badge; official: room.official; wave: room.wave;
                     waved => { root.wave(room.wave); }
                     selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;

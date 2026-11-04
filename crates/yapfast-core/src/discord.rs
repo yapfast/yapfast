@@ -71,6 +71,10 @@ const PICTURE_SIZE: u32 = 128;
 /// its size, the strip a row's height shows at twice the scale.
 #[cfg(feature = "discord")]
 const COLLECTIBLE_SIZE: (u32, u32) = (672, 192);
+/// A profile effect's layers, which cover a card: Discord draws them 450 by
+/// 880 pixels, scaled to the card.
+#[cfg(feature = "discord")]
+const EFFECT_SIZE: (u32, u32) = (450, 900);
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -1212,6 +1216,8 @@ impl Pictures {
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
+                } else if url.ends_with(chat::EFFECT_PICTURE) {
+                    EFFECT_SIZE
                 } else if url.contains("/collectibles-shop/") {
                     COLLECTIBLE_SIZE
                 } else {

@@ -837,6 +837,7 @@ impl Adapter {
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
                     decoration_url: room.decoration.as_deref().unwrap_or_default().into(),
+                    name_style: name_style::row(room.style, &room.name),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
@@ -1711,6 +1712,7 @@ impl Adapter {
                             .unwrap_or_default()
                             .into(),
                         decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
+                        name_style: name_style::row(member.style, &member.name),
                         nameplate_url: member
                             .nameplate
                             .as_ref()

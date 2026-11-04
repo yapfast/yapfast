@@ -551,6 +551,7 @@ pub(super) fn chat_profile(
         avatar: Some(profile.avatar),
         decoration: discord.decoration(Some(guild), &profile.user_id),
         style: discord.style(Some(guild), &profile.user_id).map(Into::into),
+        effect: profile.effect,
         theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,

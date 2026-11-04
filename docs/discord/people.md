@@ -389,13 +389,57 @@ client (`lw({userValue, guildValue})`); everywhere else their own show. A
 member object that leaves a key out says nothing, and `null` takes the
 server's off. `Names` keeps these beside the user's own, by server and user.
 
+## Profile effects
+
+A profile names the effect its person equips, `profile_effect: {id,
+expires_at}`, in `user_profile` (or `guild_member_profile`, which wins in its
+server). The effect itself is the shop's: Yapfast asks for it once the card
+shows, `GET /collectibles-products/{sku}` with the account's own login, as
+Discord's client does, and takes the first item with `effects`: its
+`animationType` (1 persistent, 2 intermittent), `staticFrameSrc`,
+`accessibilityLabel` and `effects`, each layer with `src`, `loop`, `start`,
+`duration` and `loopDelay` in milliseconds, `position` and `zIndex` (the
+fields are camelCase, as the client reads them). The layers are APNGs on the
+CDN, drawn 450 by 880 pixels and scaled to the card; they decode at that size
+(`EFFECT_SIZE`), and stay in the picture cache while their card shows. The
+backend keeps the last eight effects (`Event::ProfileEffect`); each card's
+profile points to one by SKU.
+
 ## Display name styles
 
 A name can carry a style, `display_name_styles: {font_id, effect_id, colors}`,
 on a user object or a member object (which wins in its server, as the
-decorations do): a font, an effect and up to five colours. Yapfast reads it
-into `NameStyle` (`chat.rs`) and keeps it with the person; drawing it is a
-separate step.
+decorations do): a font, an effect and up to five colours. Yapfast draws it
+where Discord's client does: a message's author, a member list's rows, a
+one-to-one DM's row and the profile card's name (`StyledName` in
+`ui/controls.slint`; `src/ui/name_style.rs` makes the colours).
+
+- **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
+  Modern 6, 8Bit 8, Tempo 12, Monkey Bars 13, Mainframe 14, Headbang 15 and
+  Journal 16, bundled in `ui/fonts` (see [its
+  README](../../ui/fonts/README.md) for where each came from and its
+  licence). Medieval 7 and Vampyre 10 aren't bundled, since their licence
+  isn't confirmed, so those names show in the usual font; so does a name
+  in a script the font lacks.
+- **Effects**, by `effect_id`: solid 1, gradient 2 (the colours across the
+  name from 10% to 90%), neon 3 (white letters edged in a lighter shade of
+  the colour, with a halo), toon 4 (light bands edged in the dark shade),
+  pop 5 (white letters edged in the darkest shade over a copy in the colour
+  a little lower), glow 6 (a gradient, as Discord's client falls back to),
+  prism 7 (the colours once round, back to the first) and gummy 8 (the
+  letters in the colours in turn, spaces not counted).
+- **Colours** are made to read against the dark ground as the client does:
+  lightened five percent of HSL lightness at a time, at most ten times,
+  until they have a contrast of 3 with `#121214` (2.5 for gradient, glow and
+  prism); the shades neon, toon and pop use are derived from the first with
+  the client's HSL steps (`$0`).
+
+What still differs: names are drawn at rest, Discord's `STATIC` display type
+and its default; the `ANIMATED` one (neon flicker, toon and pop bounce, prism
+scroll and gummy squish, in the client's `_dfb989` keyframes) isn't drawn. Neon's halo is a stroke of the colour at 28% opacity,
+where Discord blurs a `text-shadow`; Slint has no text shadow or blur.
+Toon's light bands are a guess at the gradient the client draws, whose
+stops its stylesheet doesn't show.
 
 ## Editing one's main profile
 

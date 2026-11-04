@@ -5260,6 +5260,75 @@ fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
 }
 
 #[test]
+fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_card() {
+    use crate::chat::{EffectLayer, ProfileEffect};
+    let effect = |sku: &str| {
+        Arc::new(ProfileEffect {
+            sku: sku.into(),
+            persistent: true,
+            still: Some(format!("{sku}-still.png#effect")),
+            layers: vec![EffectLayer {
+                src: format!("{sku}-layer.png#effect"),
+                x: 0,
+                y: 0,
+                start: 0,
+                duration: 1000,
+                looped: false,
+                loop_delay: 0,
+            }],
+        })
+    };
+    let mut app = connected();
+    for sku in 0..10 {
+        app.apply(Event::ProfileEffect(effect(&sku.to_string())));
+    }
+    let kept: Vec<_> = app
+        .state
+        .profile_effects
+        .iter()
+        .map(|e| e.sku.as_str())
+        .collect();
+    assert_eq!(
+        kept,
+        ["2", "3", "4", "5", "6", "7", "8", "9"],
+        "the last eight"
+    );
+    // The same one again replaces it rather than adding another.
+    app.apply(Event::ProfileEffect(effect("5")));
+    assert_eq!(app.state.profile_effects.len(), 8);
+    assert_eq!(app.state.profile_effects.last().unwrap().sku, "5");
+    // Open on a profile naming effect 9, its pictures stay as pictures
+    // arrive and the rest go.
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "1".into(),
+            effect: Some("9".into()),
+            theme: None,
+            ..Default::default()
+        },
+        large: false,
+        loading: false,
+        kept: false,
+        note: None,
+    });
+    for url in ["9-still.png#effect", "9-layer.png#effect"]
+        .into_iter()
+        .map(String::from)
+        .chain((0..=KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    for shown in ["9-still.png#effect", "9-layer.png#effect"] {
+        assert!(app.state.pictures.contains_key(shown), "{shown} stays");
+    }
+    assert!(!app.state.pictures.contains_key("0.png"));
+}
+
+#[test]
 fn avatars_stay_only_near_the_rows_on_screen() {
     let mut app = connected();
     // A busy channel followed for a while: each message someone else's.

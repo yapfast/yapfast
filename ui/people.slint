@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip, Strings } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Nameplate, StatusText, PictureStore, TextField, ServerTagChip } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip } from "controls.slint";
 import { StatusDot } from "rail.slint";
 
 /// A member of the open room. A heading starts each role's group.
@@ -20,6 +20,7 @@ export struct MemberRow {
     /// nameplate's picture with its palette's colour; empty for none.
     decoration-url: string, nameplate-url: string, nameplate-color: color,
     /// How their name is drawn.
+    name-style: NameStyleRow,
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
     /// The server tag they wear by their name, and its badge's address.
@@ -138,8 +139,12 @@ export component MemberPanel inherits Rectangle {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
                             alignment: start; spacing: 4px;
-                            Text {
+                            if member.name-style.effect == 0: Text {
                                 text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500; overflow: elide;
+                                opacity: member.presence == "offline" ? 0.5 : 1;
+                            }
+                            if member.name-style.effect > 0: StyledName {
+                                text: member.name; style: member.name-style; ink: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
                             if member.role-icon != "": Middle {
@@ -216,7 +221,11 @@ export struct ProfileData {
     id: string, name: string, initial: string, tint: color, picture: image,
     /// The address of the decoration around their avatar, and how their name
     /// is drawn.
-    decoration-url: string,
+    decoration-url: string, name-style: NameStyleRow,
+    /// The profile effect over the card: its layers, the picture a persistent
+    /// one holds, when its last layer that doesn't loop ends in milliseconds,
+    /// and whether one loops.
+    effect-layers: [EffectLayer], effect-still: string, effect-persistent: bool, effect-end: int, effect-loops: bool,
     /// The colours of the profile's theme, a Nitro setting, which tint the
     /// card's gradient and border; the card is plain without them.
     theme-primary: color, theme-secondary: color, has-theme: bool,
@@ -693,9 +702,13 @@ export component ProfileCard inherits Rectangle {
                     padding-left: root.pad; padding-right: root.pad; spacing: 12px;
                     VerticalLayout {
                         spacing: 2px;
-                        Text {
+                        if root.data.name-style.effect == 0: Text {
                             text: root.data.name; color: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 700;
                             overflow: elide;
+                            if !root.large && !root.preview: TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
+                        }
+                        if root.data.name-style.effect > 0: StyledName {
+                            text: root.data.name; style: root.data.name-style; ink: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 700;
                             if !root.large && !root.preview: TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                         }
                         if root.data.handle != "" || root.data.tag != "": HorizontalLayout {
@@ -1008,6 +1021,13 @@ export component ProfileCard inherits Rectangle {
                     clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
                 }
             }
+        }
+        // The profile effect plays over the card, in front of what it holds;
+        // clicks go through it.
+        if root.data.effect-layers.length > 0: ProfileEffect {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            layers: root.data.effect-layers; still-url: root.data.effect-still; persistent: root.data.effect-persistent;
+            end: root.data.effect-end; loops: root.data.effect-loops;
         }
     }
     if root.large && !root.side: Rectangle {

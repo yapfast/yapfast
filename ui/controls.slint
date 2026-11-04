@@ -470,6 +470,189 @@ export component Nameplate inherits Rectangle {
     }
 }
 
+// How a person's display name is drawn: Discord's display name styles, which
+// give it a font, an effect and up to five colours. `colors` are made to
+// read against the dark ground and the shades are derived from the first, as
+// the client does (src/ui/name_style.rs).
+/// One letter of a gummy name and its colour.
+export struct NameLetter { text: string, color: color }
+
+export struct NameStyleRow {
+    /// Discord's effect id: 0 for no style, then solid 1, gradient 2, neon 3,
+    /// toon 4, pop 5, glow 6, prism 7 and gummy 8.
+    effect: int,
+    /// The font family and weight; the family is empty for the usual font.
+    family: string, weight: int,
+    count: int, colors: [color],
+    main: color, light1: color, light2: color, dark1: color, dark2: color, toon: color, neon: color,
+    /// A gummy name's letters, each in the colours in turn.
+    letters: [NameLetter],
+}
+
+// A name drawn with its style, as wide as its text: a line the width of the
+// name, with a row's own colour when it has no style. A few effects stack
+// the text twice, as Discord's `::before` copies do.
+export component StyledName inherits Rectangle {
+    in property <string> text;
+    in property <NameStyleRow> style;
+    in property <length> font-size: 16px;
+    in property <int> font-weight: 500;
+    in property <color> ink: Theme.text;
+    in property <TextOverflow> overflow: TextOverflow.elide;
+    property <int> effect: root.style.effect;
+    property <string> family: root.effect > 0 ? root.style.family : "";
+    property <int> weight: root.effect > 0 && root.style.family != "" ? root.style.weight : root.font-weight;
+    // Discord's strokes and offsets scale with the text: 0.04em and so on.
+    property <length> em: root.font-size;
+    preferred-width: sizer.preferred-width;
+    preferred-height: sizer.preferred-height;
+    min-width: 0px;
+    sizer := Text {
+        text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+        overflow: root.overflow; color: transparent; width: 100%; height: 100%;
+        horizontal-alignment: left; vertical-alignment: center;
+    }
+    // Without a style, or with a solid one, the plain colour.
+    if root.effect == 0 || root.effect == 1 || root.style.count == 0: Text {
+        text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+        overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+        color: root.effect == 0 || root.style.count == 0 ? root.ink : root.style.colors[0];
+    }
+    // Gradient and glow: the colours across the name, from 10% to 90%.
+    if (root.effect == 2 || root.effect == 6) && root.style.count > 0: Text {
+        text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+        overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+        color: root.style.count == 1 ? root.style.colors[0]
+            : root.style.count == 2 ? @linear-gradient(90deg, root.style.colors[0] 10%, root.style.colors[1] 90%)
+            : root.style.count == 3 ? @linear-gradient(90deg, root.style.colors[0] 10%, root.style.colors[1] 50%, root.style.colors[2] 90%)
+            : root.style.count == 4 ? @linear-gradient(90deg, root.style.colors[0] 10%, root.style.colors[1] 36.67%, root.style.colors[2] 63.33%, root.style.colors[3] 90%)
+            : @linear-gradient(90deg, root.style.colors[0] 10%, root.style.colors[1] 30%, root.style.colors[2] 50%, root.style.colors[3] 70%, root.style.colors[4] 90%);
+    }
+    // Prism: the colours round once, back to the first.
+    if root.effect == 7 && root.style.count > 0: Text {
+        text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+        overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+        color: root.style.count == 1 ? root.style.colors[0]
+            : root.style.count == 2 ? @linear-gradient(90deg, root.style.colors[0] 0%, root.style.colors[1] 50%, root.style.colors[0] 100%)
+            : root.style.count == 3 ? @linear-gradient(90deg, root.style.colors[0] 0%, root.style.colors[1] 33.33%, root.style.colors[2] 66.67%, root.style.colors[0] 100%)
+            : root.style.count == 4 ? @linear-gradient(90deg, root.style.colors[0] 0%, root.style.colors[1] 25%, root.style.colors[2] 50%, root.style.colors[3] 75%, root.style.colors[0] 100%)
+            : @linear-gradient(90deg, root.style.colors[0] 0%, root.style.colors[1] 20%, root.style.colors[2] 40%, root.style.colors[3] 60%, root.style.colors[4] 80%, root.style.colors[0] 100%);
+    }
+    // Gummy: its letters take the colours in turn, with no kerning, as
+    // Discord's letters are boxes of their own.
+    if root.effect == 8 && root.style.count > 0: HorizontalLayout {
+        alignment: start;
+        for letter in root.style.letters: Text {
+            text: letter.text; color: letter.color; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+            vertical-alignment: center;
+        }
+    }
+    // Neon: a halo in the colour, then white text edged in a lighter one.
+    if root.effect == 3 && root.style.count > 0: Rectangle {
+        Text {
+            text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+            overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+            color: root.style.main.with-alpha(0.0); stroke: root.style.main.with-alpha(0.28); stroke-width: root.em * 0.24 + 6px; stroke-style: TextStrokeStyle.center;
+        }
+        Text {
+            text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+            overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+            color: #ffffff; stroke: root.style.neon; stroke-width: root.em * 0.04 + 1px; stroke-style: TextStrokeStyle.outside;
+        }
+    }
+    // Toon: the colour's light shades in bands, edged in its dark one.
+    if root.effect == 4 && root.style.count > 0: Text {
+        text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+        overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+        color: @linear-gradient(180deg, root.style.light2 0%, root.style.light1 45%, root.style.main 55%, root.style.dark1 100%);
+        stroke: root.style.toon; stroke-width: root.em * 0.04 + 1.6px; stroke-style: TextStrokeStyle.outside;
+    }
+    // Pop: white text edged in the darkest shade, over a copy in the colour a
+    // little lower, which looks like a shadow.
+    if root.effect == 5 && root.style.count > 0: Rectangle {
+        Text {
+            y: root.em * 0.08 + root.em * 0.04 + 1.2px;
+            text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+            overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+            color: root.style.main; stroke: root.style.dark2; stroke-width: root.em * 0.04 + 1.2px; stroke-style: TextStrokeStyle.outside;
+        }
+        Text {
+            text: root.text; font-size: root.font-size; font-family: root.family; font-weight: root.weight;
+            overflow: root.overflow; width: 100%; height: 100%; vertical-alignment: center;
+            color: #ffffff; stroke: root.style.dark2; stroke-width: root.em * 0.04 + 1.2px; stroke-style: TextStrokeStyle.outside;
+        }
+    }
+}
+
+/// One picture of a profile effect: where it lies on the card and when it
+/// plays, in milliseconds.
+export struct EffectLayer {
+    url: string, x: int, y: int, start: int, duration: int, looped: bool, loop-delay: int,
+}
+
+component EffectLayerView inherits Rectangle {
+    in property <EffectLayer> layer;
+    in property <int> time;
+    in property <bool> active;
+    property <int> since: root.time - root.layer.start;
+    property <int> cycle: root.layer.duration + root.layer.loop-delay;
+    property <bool> shown: root.since >= 0
+        && (root.layer.looped || root.since <= root.layer.duration)
+        && (!root.layer.looped || root.layer.loop-delay <= 0 || mod(root.since, root.cycle) <= root.layer.duration);
+    // Starts again from its first frame each time it shows.
+    if root.active && root.shown: Picture {
+        property <image> first: PictureStore.picture(root.layer.url, PictureStore.revision);
+        x: root.layer.x * 1px; y: root.layer.y * 1px;
+        width: root.width; height: self.width * self.first.height / max(1, self.first.width);
+        still: self.first; image-fit: fill; accessible-role: none;
+        frames: PictureStore.frames(PictureStore.animated(root.layer.url), PictureStore.revision);
+        delays: PictureStore.delays(PictureStore.animated(root.layer.url), PictureStore.revision);
+        init => { if self.first.width == 0 { PictureStore.request(root.layer.url); } }
+    }
+}
+
+// A profile effect over a card, as Discord's client plays it: its layers
+// are APNGs laid over the whole card, each shown from its start for its
+// duration, and again after its delay when it loops; a persistent effect
+// then holds its still picture. Each layer starts from its first frame every
+// time it shows. The clock starts half a second after the card opens, ticks
+// 24 times a second, and stops with the window's focus and once nothing
+// more will change, so a finished card repaints nothing.
+export component ProfileEffect inherits Rectangle {
+    in property <[EffectLayer]> layers;
+    /// The picture a persistent effect holds when it has played through.
+    in property <string> still-url;
+    in property <bool> persistent;
+    /// When the last layer that doesn't loop ends, and whether any loops.
+    in property <int> end;
+    in property <bool> loops;
+    property <int> time: -500;
+    property <bool> finished: root.persistent && root.still-url != "" && root.time > root.end;
+    property <image> still: root.still-url != "" ? PictureStore.picture(root.still-url, PictureStore.revision) : @image-url("");
+    function request-still() {
+        if root.still-url != "" && root.still.width == 0 {
+            PictureStore.request(root.still-url);
+        }
+    }
+    init => { root.request-still(); }
+    changed still => { root.request-still(); }
+    clip: true;
+    Timer {
+        running: Motion.playing && !root.finished && root.layers.length > 0 && (root.loops || root.time <= root.end);
+        interval: 1000ms / 24;
+        triggered => { root.time += 41; }
+    }
+    // Held in place of the layers once it has played through.
+    if root.finished && root.still.width > 0: Image {
+        x: 0px; y: 0px; width: root.width; height: self.width * root.still.height / root.still.width;
+        source: root.still; image-fit: fill; accessible-role: none;
+    }
+    for layer in root.layers: EffectLayerView {
+        layer: layer; time: root.time; width: root.width; active: !root.finished;
+    }
+}
+
+
 // A custom status or what someone is doing: the picture of its custom emoji,
 // asked for as it shows, then its words.
 export component StatusText inherits HorizontalLayout {
