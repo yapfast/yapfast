@@ -20,6 +20,11 @@ pub enum GifView {
     Search,
 }
 
+/// The width a favourite's thumbnail is made at when it is fetched ahead: the
+/// grid's tiles ask for the size they show, and one wider than this asks again
+/// when it is drawn, which replaces the file.
+const THUMBNAIL_WIDTH: u32 = 200;
+
 /// A picture the picker shows, by its address.
 #[derive(Clone, Debug)]
 pub enum GifPicture {
@@ -456,13 +461,14 @@ impl Application {
                 }
                 self.state.favorite_gifs = Some(favorites);
                 self.state.favorite_gifs_changed += 1;
-                if !starred {
-                    return vec![];
+                let mut effects: Vec<Effect> = self.prefetch_favorites().into_iter().collect();
+                if starred {
+                    let favorites = self.state.favorite_gifs.clone().unwrap_or_default();
+                    effects.push(Effect::Backend(Command::Discord(
+                        DiscordCommand::SetFavoriteGifs(favorites),
+                    )));
                 }
-                let favorites = self.state.favorite_gifs.clone().unwrap_or_default();
-                vec![Effect::Backend(Command::Discord(
-                    DiscordCommand::SetFavoriteGifs(favorites),
-                ))]
+                effects
             }
             // The stars used meanwhile wait for the next try.
             Err(error) => {
@@ -474,16 +480,42 @@ impl Application {
 
     /// Shows the favourites kept on disk, with the stars used since, until
     /// Discord's come.
-    pub(super) fn kept_favorite_gifs_came(&mut self, mut favorites: Vec<FavoriteGif>) {
+    pub(super) fn kept_favorite_gifs_came(
+        &mut self,
+        mut favorites: Vec<FavoriteGif>,
+    ) -> Vec<Effect> {
         let picker = &self.state.gifs;
         if picker.favorites_fresh {
-            return;
+            return vec![];
         }
         for (gif, add) in &picker.starred {
             star(&mut favorites, gif, *add);
         }
         self.state.favorite_gifs = Some(favorites);
         self.state.favorite_gifs_changed += 1;
+        self.prefetch_favorites().into_iter().collect()
+    }
+
+    /// Keeps a thumbnail of every favourite GIF, so the Favourites view is
+    /// complete when it opens: the tiles ask for the ones they show as they are
+    /// drawn, and this fetches the rest in the background, on Discord's worker,
+    /// keeping the cache to the list as it does. Nothing is held: the files are
+    /// made on the disk, and a tile decodes one when it shows it.
+    fn prefetch_favorites(&mut self) -> Option<Effect> {
+        let favorites = self.state.favorite_gifs.as_ref()?;
+        let thumbnails: Vec<(String, u32, u32)> = favorites
+            .iter()
+            .filter(|favorite| !favorite.src.is_empty())
+            .map(|favorite| {
+                let width = THUMBNAIL_WIDTH.min(favorite.width.max(1));
+                let height = (u64::from(width) * u64::from(favorite.height.max(1))
+                    / u64::from(favorite.width.max(1))) as u32;
+                (favorite.src.clone(), width, height.max(1))
+            })
+            .collect();
+        (!thumbnails.is_empty()).then_some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchFavorites(thumbnails),
+        )))
     }
 
     pub(super) fn gif_picture_came(&mut self, url: String, picture: Option<Arc<Picture>>) {

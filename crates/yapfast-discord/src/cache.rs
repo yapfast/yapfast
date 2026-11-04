@@ -23,8 +23,9 @@
 //!   [`crate::api::Api::learn_build_number`].
 //! - `discord-favorite-gifs.json`: the favourite GIFs, as Discord's settings
 //!   last gave them, so the picker shows them before Discord answers.
-//! - `discord-gifs/`: a thumbnail of each favourite GIF shown, by its
-//!   picture's address. The least lately shown go past [`GIFS_SIZE`].
+//! - `discord-gifs/`: a thumbnail of each favourite GIF, by its picture's
+//!   address, kept for as long as the GIF is favourited and no longer: see
+//!   [`retain_gif_thumbnails`].
 //!
 //! The files name the login they belong to by a hash of the token, so another
 //! account linked meanwhile starts empty, and unlinking deletes them all.
@@ -72,9 +73,6 @@ const PICTURE_PATHS: [&str; 9] = [
 const PICTURES_SIZE: u64 = 64 * 1024 * 1024;
 /// The most the kept previews take; the least lately shown go first.
 const PREVIEWS_SIZE: u64 = 192 * 1024 * 1024;
-/// The most the favourite GIFs' thumbnails take; the least lately shown go
-/// first. A thumbnail takes 14-300 KB, 40 KB at the median.
-const GIFS_SIZE: u64 = 50 * 1024 * 1024;
 /// Downloads larger than this aren't kept, such as a file being saved.
 const LARGEST_PICTURE: usize = 8 * 1024 * 1024;
 /// The most channels whose messages are kept; the least lately used go.
@@ -144,7 +142,8 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Keeps the account in `file` from now on, and the rest beside it.
 pub fn keep_in(file: PathBuf) {
     *lock(&FILE) = Some(file);
-    if let (Some(pictures), Some(gifs), Some(messages), Some(profiles), Some(videos)) = (
+    // The favourite GIFs' thumbnails keep themselves: see `retain_gif_thumbnails`.
+    if let (Some(pictures), Some(_gifs), Some(messages), Some(profiles), Some(videos)) = (
         pictures(),
         gifs(),
         messages_directory(),
@@ -169,7 +168,6 @@ pub fn keep_in(file: PathBuf) {
                 prune(previews, PREVIEWS_SIZE, usize::MAX);
             }
             prune(&pictures, PICTURES_SIZE, usize::MAX);
-            prune(&gifs, GIFS_SIZE, usize::MAX);
             prune(&messages, u64::MAX, CHANNELS);
             prune(&profiles, u64::MAX, PROFILES);
             // Videos played before Yapfast last closed.
@@ -275,10 +273,33 @@ fn gif_file(url: &str) -> Option<PathBuf> {
 
 /// The thumbnail kept of the favourite GIF whose picture is at `url`.
 pub fn kept_gif(url: &str) -> Option<PathBuf> {
-    let file = gif_file(url).filter(|file| file.is_file())?;
-    // Shown now, so pruning keeps it longer.
-    touch(&file);
-    Some(file)
+    gif_file(url).filter(|file| file.is_file())
+}
+
+/// Keeps a thumbnail of exactly these favourite GIFs, whose pictures are at
+/// these addresses: one of a GIF nobody favourites any more goes. Every
+/// favourite is kept, so there is no size to stay under; a thumbnail takes
+/// 14-300 KB, about 334 KB on the machine this was measured on, which is why
+/// the list, not a budget, decides.
+pub fn retain_gif_thumbnails(urls: impl IntoIterator<Item = String>) {
+    let Some(directory) = gifs() else { return };
+    retain_gif_thumbnails_in(&directory, urls);
+}
+
+/// [`retain_gif_thumbnails`] in a directory, which a test can give it.
+fn retain_gif_thumbnails_in(directory: &std::path::Path, urls: impl IntoIterator<Item = String>) {
+    let keep: std::collections::HashSet<PathBuf> = urls
+        .into_iter()
+        .map(|url| directory.join(hash(&url)))
+        .collect();
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        if !keep.contains(&entry.path()) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// A new file to download the picture at `url` into, before it becomes the
@@ -1059,6 +1080,24 @@ mod tests {
         assert!(!profiles_directory().unwrap().exists());
         assert_eq!(kept_gif(gif), None);
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn keeps_only_the_thumbnails_of_the_favourites_it_is_given() {
+        let one = "https://media.tenor.com/one.gif";
+        let two = "https://media.tenor.com/two.gif";
+        let directory =
+            std::env::temp_dir().join(format!("yapfast-discord-favourites-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let kept = |url: &str| directory.join(hash(url));
+        std::fs::write(kept(one), [1, 2, 3]).unwrap();
+        std::fs::write(kept(two), [4, 5, 6]).unwrap();
+        // Every favourite is kept; one nobody favourites any more goes, with no
+        // size to stay under.
+        retain_gif_thumbnails_in(&directory, [one.to_owned()]);
+        assert!(kept(one).is_file(), "a favourite's thumbnail stays");
+        assert!(!kept(two).exists(), "an unfavourited one goes");
+        std::fs::remove_dir_all(&directory).ok();
     }
 
     #[test]

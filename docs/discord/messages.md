@@ -412,6 +412,12 @@ finds GIFs through Klipy, and Yapfast asks Discord as its desktop client does:
   being written, and a search's pick is reported with `POST /gifs/select`
   `{id, q}`. Discord unfurls the URL into a gifv embed, whose picture Yapfast
   plays. Shift and a click puts the URL in the message instead.
+- Each favourite's thumbnail is kept in `discord-gifs/`, every favourite and
+  for as long as it is one: one whose GIF is no longer favourited goes at the
+  next start, and there is no size budget over them. A start fetches the
+  thumbnails that are missing in the background, on the worker, four at a time,
+  at the width the grid's tiles ask for, so the Favourites view is complete when
+  it opens.
 - Only the GIFs in sight, and a screen either side, load and play; they come
   from Klipy's or Tenor's media hosts, at the size they show, and go when the
   picker closes. Dragging the picker wider moves and stretches the tiles

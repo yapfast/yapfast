@@ -8466,6 +8466,36 @@ fn votes_go_to_discord_and_the_window_lists_who_voted() {
 
 #[cfg(feature = "discord")]
 #[test]
+fn every_favourite_gif_is_fetched_ahead() {
+    use crate::chat::{FavoriteGif, Gif};
+    let mut app = Application::default();
+    let gif = |name: &str| Gif {
+        url: format!("https://klipy.com/gifs/{name}"),
+        src: format!("https://static.klipy.com/{name}.webp"),
+        width: 400,
+        height: 300,
+        ..Default::default()
+    };
+    // The favourites kept on disk arrive first, and every one of them wants its
+    // thumbnail before the view is opened: at the grid's width, the pictures
+    // keeping their shape.
+    let effects = app.kept_favorite_gifs_came(vec![
+        FavoriteGif::of(&gif("one"), &[]),
+        FavoriteGif::of(&gif("two"), &[]),
+    ]);
+    let [Effect::Backend(Command::Discord(DiscordCommand::PrefetchFavorites(thumbnails)))] =
+        effects.as_slice()
+    else {
+        panic!(
+            "the favourites are fetched ahead, got {} effects",
+            effects.len()
+        );
+    };
+    assert_eq!(thumbnails.len(), 2);
+    assert_eq!(thumbnails[0], (gif("one").src, 200, 150));
+}
+
+#[test]
 fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
     use crate::chat::{FavoriteGif, Gif};
     let mut app = connected();
@@ -8550,11 +8580,23 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
     assert!(app.state.favorite_gifs_changed > changed);
     let elsewhere = FavoriteGif::of(&other("new"), &[]);
     let saved = backend(app.apply(Event::FavoriteGifs(Ok(vec![elsewhere.clone()]))));
-    assert!(matches!(
-        saved.as_slice(),
-        [Command::Discord(DiscordCommand::SetFavoriteGifs(favorites))]
-            if favorites == &[elsewhere.clone(), FavoriteGif::of(&gif, std::slice::from_ref(&elsewhere))]
-    ));
+    // Their thumbnails are fetched ahead as well, which
+    // `every_favourite_gif_is_fetched_ahead` covers; what Discord is told is
+    // the set of favourites.
+    let sent = saved
+        .iter()
+        .find_map(|command| match command {
+            Command::Discord(DiscordCommand::SetFavoriteGifs(favorites)) => Some(favorites),
+            _ => None,
+        })
+        .expect("the favourites are sent to Discord");
+    assert_eq!(
+        sent,
+        &[
+            elsewhere.clone(),
+            FavoriteGif::of(&gif, std::slice::from_ref(&elsewhere))
+        ]
+    );
     assert!(app.state.is_favorite_gif(&gif.url) && !app.state.is_favorite_gif(&old.url));
     // Those kept on disk don't replace Discord's.
     app.apply(Event::KeptFavoriteGifs(vec![old]));

@@ -25,7 +25,8 @@ pub(super) fn command(
             | DiscordCommand::GifPicked { .. }
             | DiscordCommand::FavoriteGifs
             | DiscordCommand::SetFavoriteGifs(_)
-            | DiscordCommand::GifPicture { .. },
+            | DiscordCommand::GifPicture { .. }
+            | DiscordCommand::PrefetchFavorites(_),
             Ok(discord),
         ) => discord.clone(),
         (DiscordCommand::GifCategories, Err(why)) => {
@@ -47,7 +48,8 @@ pub(super) fn command(
             DiscordCommand::GifSuggestions(_)
             | DiscordCommand::GifPicked { .. }
             | DiscordCommand::SetFavoriteGifs(_)
-            | DiscordCommand::GifPicture { .. },
+            | DiscordCommand::GifPicture { .. }
+            | DiscordCommand::PrefetchFavorites(_),
             Err(_),
         ) => return None,
         _ => return Some(Command::Discord(command)),
@@ -135,6 +137,43 @@ pub(super) fn command(
                     let _ = events.send(Event::Error(format!(
                         "Couldn't save your favourite GIFs: {error}"
                     )));
+                }
+            });
+        }
+        DiscordCommand::PrefetchFavorites(thumbnails) => {
+            tokio::spawn(async move {
+                // The favourites are exactly these, so the cache keeps theirs
+                // and lets the others go.
+                let urls: Vec<String> = thumbnails.iter().map(|(url, ..)| url.clone()).collect();
+                let _ = tokio::task::spawn_blocking(move || {
+                    yapfast_discord::cache::retain_gif_thumbnails(urls)
+                })
+                .await;
+                // Four at a time: a thumbnail is a few hundred KB, and nobody
+                // is waiting on it.
+                let turns = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+                for (url, width, _height) in thumbnails {
+                    let Ok(turn) = turns.clone().acquire_owned().await else {
+                        return;
+                    };
+                    let discord = discord.clone();
+                    tokio::spawn(async move {
+                        let _turn = turn;
+                        let known = url.clone();
+                        let kept = tokio::task::spawn_blocking(move || {
+                            yapfast_discord::cache::kept_gif(&known)
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some();
+                        if kept {
+                            return;
+                        }
+                        if make_thumbnail(&discord, &url, width).await.is_some() {
+                            tracing::debug!(%url, "prefetched a favourite GIF's thumbnail");
+                        }
+                    });
                 }
             });
         }
