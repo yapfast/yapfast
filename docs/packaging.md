@@ -58,10 +58,10 @@ Arch's toolchain, as `nix/package.nix` builds it: `cd packaging/arch && makepkg
 stable version, so run `scripts/set-version 0.2.0` before committing and
 tagging `v0.2.0`. The tag's commit holds the PKGBUILD, which can't hold its own
 checksum, so that source has none; the libwebrtc and Skia archives keep theirs.
-Arch's `llvm21` is a later 21.x than Nix's, which is why
-`nix/prepare-skia-native.py` takes any LLVM 21. Nothing builds this PKGBUILD
-automatically: build it in a clean `archlinux:base-devel` container before a
-release, about 6 minutes from cold.
+Arch's `llvm21` is a later 21.x than Nix's, and a native Windows host's LLVM
+is often newer still, which is why `nix/prepare-skia-native.py` takes LLVM 21
+or later. Nothing builds this PKGBUILD automatically: build it in a clean
+`archlinux:base-devel` container before a release, about 6 minutes from cold.
 
 The releases carry a package of their own binary instead. `scripts/package-arch`,
 run after `scripts/build-appimage`, packs the AppImage's binary, desktop file,
@@ -123,7 +123,8 @@ made one that runs the same file. On X11 the window also carries the icon
 itself. Notifications name the entry, so the notification server shows the
 same name and icon.
 
-On Windows, `build.rs` compiles `packaging/windows/yapfast.rc` with `llvm-rc`
+On Windows, `build.rs` compiles `packaging/windows/yapfast.rc` with `llvm-rc`,
+or the Windows SDK's `rc.exe` where there is none,
 and links the icon into `yapfast.exe`, for Explorer and shortcuts; the window
 loads it from there for its title bar and the taskbar, each at the size
 Windows draws it. After changing `icon.svg`, run `scripts/make-windows-icon`
