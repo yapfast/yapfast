@@ -364,12 +364,32 @@ const STICKER_BOUNCE = "1400000000000000311";
 const STICKER_LOTTIE = "1400000000000000312";
 const ALICE = "1400000000000000001";
 
+// The SKUs that are nameplates, whose pictures are strips.
+const nameplateSkus = new Set<string>();
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
-type User = { id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean };
+type User = {
+  id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean;
+  /** The SKU of the avatar decoration they wear, and their nameplate. */
+  decoration?: string;
+  nameplate?: { sku: string; palette: string };
+  /** `display_name_styles`: Discord's font and effect ids, and RGB colours. */
+  style?: { font: number; effect: number; colors: number[] };
+};
 const users: Record<string, User> = {
-  alice: { id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1" },
-  bob: { id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1" },
-  carol: { id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1" },
+  alice: {
+    id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1", decoration: "1500000000000000003",
+    nameplate: { sku: "1500000000000000004", palette: "bubble_gum" },
+  },
+  // Bob wears a decoration, and Carol a nameplate; Alice, whose card shows
+  // both, has both.
+  bob: {
+    id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1", decoration: "1500000000000000001",
+  },
+  carol: {
+    id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1",
+    nameplate: { sku: "1500000000000000002", palette: "violet" },
+    style: { font: 3, effect: 2, colors: [0xff7eb3, 0x7a5cff] },
+  },
   dave: { id: "1400000000000000004", username: "dave", global_name: "Dave", avatar: null },
 };
 // People Alice shares no server with, who wrote to her anyway.
@@ -377,6 +397,7 @@ const strangers: Record<string, User> = {
   erin: { id: "1400000000000000005", username: "erin", global_name: "Erin", avatar: "erin1" },
   frank: { id: "1400000000000000006", username: "frank_deals", global_name: "Free Nitro", avatar: null },
 };
+for (const user of Object.values(users)) if (user.nameplate) nameplateSkus.add(user.nameplate.sku);
 const userById = new Map([...Object.values(users), ...Object.values(strangers)].map((user) => [user.id, user]));
 
 // Alice's relationships by user id: Bob and Carol are friends (1), and Erin
@@ -586,19 +607,73 @@ function timeOf(id: string): number {
   return Number((BigInt(id) >> 22n) + DISCORD_EPOCH);
 }
 
+// What a person equips from the collectibles shop, as user objects carry it:
+// `avatar_decoration_data`, and `collectibles.nameplate`. Their pictures are
+// served under /media/v1/collectibles-shop/{sku}/static.
+const COLLECTIBLES_PATH = /^\/media\/v1\/collectibles-shop\/(\d+)\/(static|animated|video)$/;
+
 function wireUser(user: User) {
+  const { decoration, nameplate, style, ...rest } = user;
   return {
-    ...user,
+    ...rest,
     discriminator: "0",
     public_flags: 0,
-    avatar_decoration_data: null,
     // Bob wears the server's tag, as Discord sends the server a user
     // chose to represent them; everyone else has none.
     primary_guild:
       user.id === users.bob.id
         ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
         : null,
+    avatar_decoration_data: decoration
+      ? { asset: `a_${decoration}`, sku_id: decoration, expires_at: null }
+      : null,
+    collectibles: nameplate
+      ? {
+          nameplate: {
+            sku_id: nameplate.sku, asset: `nameplates/${nameplate.palette}/`,
+            label: `A ${nameplate.palette} nameplate`, palette: nameplate.palette, expires_at: null,
+          },
+        }
+      : null,
+    display_name_styles: style ? wireStyle(style) : null,
   };
+}
+
+function wireStyle(style: NonNullable<User["style"]>) {
+  return { font_id: style.font, effect_id: style.effect, colors: style.colors };
+}
+
+/** What a member equips for "Server" alone, which member objects carry as
+ *  `avatar_decoration_data`, `collectibles` and `display_name_styles`:
+ *  Dave wears a decoration and a teal nameplate there, and Bob a green neon
+ *  Mainframe name. */
+const serverLooks: Record<string, Pick<User, "decoration" | "nameplate" | "style">> = {
+  "1400000000000000004": { decoration: "1500000000000000005", nameplate: { sku: "1500000000000000007", palette: "teal" } },
+  "1400000000000000002": { style: { font: 14, effect: 3, colors: [0x00ff99] } },
+};
+for (const look of Object.values(serverLooks)) if (look.nameplate) nameplateSkus.add(look.nameplate.sku);
+
+/** A decoration is a ring around a transparent middle, a nameplate a strip
+ *  that fades in from its left. */
+function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style">) {
+  if (spec.nameplate) nameplateSkus.add(spec.nameplate.sku);
+  return {
+    ...(spec.decoration ? { decoration: spec.decoration } : {}),
+    ...(spec.nameplate ? { nameplate: spec.nameplate } : {}),
+    ...(spec.style ? { style: spec.style } : {}),
+  };
+}
+
+function collectiblePicture(sku: string): Uint8Array {
+  if (nameplateSkus.has(sku)) {
+    const [width, height] = [448, 84];
+    return png(width, height, (x) => [255, 255, 255, Math.round((255 * x) / width)]);
+  }
+  const size = 288;
+  return png(size, size, (x, y) => {
+    const radius = Math.hypot(x - size / 2, y - size / 2) / (size / 2);
+    return radius > 0.83 && radius < 1 ? [255, 120, 180, 255] : [0, 0, 0, 0];
+  });
 }
 
 // --- Server members ---------------------------------------------------------
@@ -734,6 +809,20 @@ function resetMembers() {
 resetMembers();
 seedAudit();
 
+function serverLook(user: User) {
+  const look = serverLooks[user.id];
+  if (!look) return {};
+  return {
+    avatar_decoration_data: look.decoration
+      ? { asset: `a_${look.decoration}`, sku_id: look.decoration, expires_at: null }
+      : null,
+    collectibles: look.nameplate
+      ? { nameplate: { sku_id: look.nameplate.sku, asset: "nameplates/x/", label: "A nameplate", palette: look.nameplate.palette } }
+      : null,
+    display_name_styles: look.style ? wireStyle(look.style) : null,
+  };
+}
+
 function member(user: User, roles: string[] = memberRoles.get(user.id) ?? []) {
   return {
     user: wireUser(user),
@@ -743,6 +832,7 @@ function member(user: User, roles: string[] = memberRoles.get(user.id) ?? []) {
     communication_disabled_until: timeouts.get(user.id) ?? null,
     avatar: serverProfiles.get(user.id)?.avatar ?? null,
     banner: serverProfiles.get(user.id)?.banner ?? null,
+    ...serverLook(user),
     joined_at: JOINED_AT,
     premium_since: null,
     deaf: voice.get(user.id)?.deaf ?? false,
@@ -7245,6 +7335,10 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     username: me.username ?? users.alice.username,
     global_name: me.name ?? me.username ?? users.alice.global_name,
     avatar: pictureHash(me.avatar, users.alice.avatar),
+    decoration: undefined,
+    nameplate: undefined,
+    style: undefined,
+    ...collectiblesOf(me),
   });
   userById.set(ALICE, users.alice);
   nitro = me.nitro ?? nitro;
@@ -7272,6 +7366,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     const user: User = {
       id: newId(), username, global_name: person.name ?? username, avatar: pictureHash(person.avatar, `${person.key}1`),
       ...(person.bot ? { bot: true } : {}),
+      ...collectiblesOf(person),
     };
     byKey.set(person.key, user);
     userById.set(user.id, user);
@@ -7710,6 +7805,10 @@ const server = Bun.serve<SocketData>({
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
     // Activities' pictures: games' icons and assets, and Spotify's covers.
+    const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
+    if (collectible) {
+      return new Response(collectiblePicture(collectible[1]!), { headers: { "content-type": "image/png" } });
+    }
     if (req.method === "GET" && /^\/(app-icons\/\d+\/[a-z0-9]+\.png|app-assets\/\d+\/[a-z0-9]+\.png|spotify\/[A-Za-z0-9]+)$/.test(path)) {
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
     }

@@ -421,6 +421,9 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
                 group_icon: None,
                 role_icon: None,
                 tag: None,
+                decoration: None,
+                nameplate: None,
+                style: None,
             }]),
         });
         adapter.refresh(&window);
@@ -2075,6 +2078,76 @@ fn dragging_the_thread_beside_resizes_it_within_limits_and_remembers_it() {
 }
 
 #[test]
+fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
+    use yapfast_core::chat::{ChatMember, Nameplate, Role};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    let plate = |picture: &str| Nameplate {
+        picture: picture.into(),
+        color: 0x730bc8,
+    };
+    let member = |id: &str, name: &str| ChatMember {
+        id: id.into(),
+        name: name.into(),
+        username: None,
+        role: Role::Member,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
+        tag: None,
+        group: Some("Online — 2".into()),
+        presence: None,
+        color: None,
+        activity: None,
+        activities: Default::default(),
+        roles: Default::default(),
+        timed_out_until: None,
+        group_icon: None,
+        role_icon: None,
+    };
+    {
+        let mut adapter = adapter.borrow_mut();
+        let state = &mut adapter.app.state;
+        state.members = Some(Ok(vec![
+            ChatMember {
+                decoration: Some("ring.png".into()),
+                nameplate: Some(plate("strip.png")),
+                ..member("1", "Bob")
+            },
+            member("2", "Dave"),
+        ]));
+        state.account_decoration = Some("mine.png".into());
+        state.account_nameplate = Some(plate("mine-strip.png"));
+        let window = window.clone_strong();
+        adapter.refresh(&window);
+    }
+    let roster = window.get_roster();
+    let (bob, dave) = (roster.row_data(0).unwrap(), roster.row_data(1).unwrap());
+    assert_eq!(bob.decoration_url, "ring.png");
+    assert_eq!(bob.nameplate_url, "strip.png");
+    assert_eq!(
+        bob.nameplate_color,
+        slint::Color::from_rgb_u8(0x73, 0x0b, 0xc8)
+    );
+    assert!(dave.decoration_url.is_empty() && dave.nameplate_url.is_empty());
+    let look = window.global::<AccountLook>();
+    assert_eq!(look.get_decoration_url(), "mine.png");
+    assert_eq!(look.get_nameplate_url(), "mine-strip.png");
+    window.hide().unwrap();
+}
+
+#[test]
 fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -3720,6 +3793,8 @@ fn friends_in_a_servers_voice_channel_show_where() {
         ringing: Vec::new(),
         incoming: false,
         avatar: None,
+        decoration: None,
+        style: None,
         upload_limit: 0,
         presence: None,
         activity: None,
@@ -6421,6 +6496,8 @@ fn requests_list_someone_once_with_their_message() {
         ringing: Vec::new(),
         incoming: false,
         avatar: None,
+        decoration: None,
+        style: None,
         upload_limit: 0,
         presence: None,
         activity: None,

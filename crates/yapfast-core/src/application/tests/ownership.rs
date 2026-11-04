@@ -20,6 +20,8 @@ fn account(app: &mut Application, mfa: bool, email: bool) {
         username: String::new(),
         name: "Alice".into(),
         avatar: String::new(),
+        decoration: None,
+        nameplate: None,
         premium_type: 0,
         mfa_enabled: mfa,
         has_email: email,

@@ -417,6 +417,8 @@ impl Application {
             if let Some(account) = &snapshot.account {
                 self.state.account_name = Some(account.name.clone());
                 self.state.account_avatar = Some(account.avatar.clone());
+                self.state.account_decoration = account.decoration.clone();
+                self.state.account_nameplate = account.nameplate.clone().map(Into::into);
             }
             self.state.account_status = Some(match &snapshot.status {
                 Status::Online => "Online".into(),

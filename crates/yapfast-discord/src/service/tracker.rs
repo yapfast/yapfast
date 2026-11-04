@@ -528,6 +528,8 @@ impl Tracker {
                     (
                         names.user_name(&tracker.me).map(str::to_owned),
                         names.avatar(None, &tracker.me),
+                        names.decoration(None, &tracker.me),
+                        names.nameplate(None, &tracker.me),
                     )
                 };
                 let before = shown(self);
@@ -1119,6 +1121,9 @@ impl Tracker {
                     name: names.user_name(user).unwrap_or("Discord user").to_owned(),
                     username: names.username(user).map(str::to_owned),
                     avatar: names.avatar(None, user),
+                    decoration: names.decoration(None, user),
+                    nameplate: names.nameplate(None, user),
+                    style: names.style(None, user),
                     group: heading.clone(),
                     tag: names.server_tag(user).cloned(),
                     presence: known.presence,
@@ -1591,6 +1596,14 @@ impl Tracker {
             id: private.id.clone(),
             name: title,
             avatar,
+            decoration: (!private.group)
+                .then(|| private.recipients.first())
+                .flatten()
+                .and_then(|user| names.decoration(None, user)),
+            style: (!private.group)
+                .then(|| private.recipients.first())
+                .flatten()
+                .and_then(|user| names.style(None, user)),
             tag: (!private.group)
                 .then(|| private.recipients.first())
                 .flatten()
@@ -1803,6 +1816,8 @@ impl Tracker {
                 name: name.to_owned(),
                 username: names.username(&self.me).unwrap_or_default().to_owned(),
                 avatar: names.avatar(None, &self.me),
+                decoration: names.decoration(None, &self.me),
+                nameplate: names.nameplate(None, &self.me),
                 premium_type: self.premium,
                 mfa_enabled: self.mfa,
                 has_email: self.email,

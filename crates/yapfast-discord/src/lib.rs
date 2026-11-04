@@ -9,6 +9,7 @@ pub mod call_stats;
 pub mod call_video;
 pub mod captcha;
 pub mod client;
+pub mod collectibles;
 pub mod components;
 pub mod cookies;
 mod dave;

@@ -604,6 +604,9 @@ export component PollView inherits HorizontalLayout {
 export struct MessageRow {
     id: string, item: string, author: string, initial: string, tint: color, picture: image, body: string, time: string, short-time: string, own: bool,
     picture-url: string, reply-picture-url: string,
+    /// The address of the decoration around the author's avatar.
+    decoration-url: string,
+    /// How the author's name is drawn.
     /// Who wrote it, for their menu: a Discord user id or Matrix ID; empty
     /// for a blocked user.
     sender: string,
@@ -2066,6 +2069,7 @@ export component MessageContent inherits VerticalLayout {
             if message.first && message.notice == "": Avatar {
                 x: 0px; y: message.has-reply ? 24px : 2px;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
+                decoration-url: message.decoration-url; animate: true;
             }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.

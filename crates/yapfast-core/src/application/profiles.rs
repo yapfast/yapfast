@@ -35,6 +35,8 @@ impl Application {
                 member.id.clone()
             },
             avatar: member.avatar.clone(),
+            decoration: member.decoration.clone(),
+            style: member.style,
             presence: member.presence,
             activity: member.activity.clone(),
             activities: member.activities.clone(),
@@ -303,6 +305,8 @@ pub(super) fn dm_profile(room: &ChatRoom, person: String) -> Profile {
             person.clone()
         },
         avatar: room.avatar.clone(),
+        decoration: room.decoration.clone(),
+        style: room.style,
         presence: room.presence,
         activity: room.activity.clone(),
         activities: room.activities.clone(),

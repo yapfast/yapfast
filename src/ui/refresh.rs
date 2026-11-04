@@ -836,6 +836,7 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
+                    decoration_url: room.decoration.as_deref().unwrap_or_default().into(),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
@@ -1032,6 +1033,25 @@ impl Adapter {
             &mut self.pictures,
             state,
             state.account_avatar.as_deref(),
+        ));
+        let look = window.global::<AccountLook>();
+        look.set_decoration_url(
+            state
+                .account_decoration
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
+        );
+        look.set_nameplate_url(
+            state
+                .account_nameplate
+                .as_ref()
+                .map(|plate| plate.picture.as_str())
+                .unwrap_or_default()
+                .into(),
+        );
+        look.set_nameplate_color(role_color(
+            state.account_nameplate.as_ref().map(|plate| plate.color),
         ));
         let (custom_status, status_emoji) = state
             .custom_status
@@ -1686,6 +1706,16 @@ impl Adapter {
                             .and_then(|tag| tag.badge.as_deref())
                             .unwrap_or_default()
                             .into(),
+                        decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
+                        nameplate_url: member
+                            .nameplate
+                            .as_ref()
+                            .map(|plate| plate.picture.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                        nameplate_color: role_color(
+                            member.nameplate.as_ref().map(|plate| plate.color),
+                        ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),

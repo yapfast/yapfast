@@ -219,6 +219,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         .on_frame(|key, _revision| {
             i_slint_core::yapfast_emoji::frame_of_key(key.as_str()).unwrap_or_default()
         });
+    window
+        .global::<PictureStore>()
+        .on_animated(|url| animated_url(url.as_str()).into());
+    window
+        .global::<PictureStore>()
+        .on_frames(|url, _revision| avatar_animation(url.as_str()).0);
+    window
+        .global::<PictureStore>()
+        .on_delays(|url, _revision| avatar_animation(url.as_str()).1);
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;

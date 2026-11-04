@@ -4,7 +4,7 @@ import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup, Strings } from "theme.slint";
-import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText } from "controls.slint";
+import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
@@ -441,7 +441,7 @@ export component AccountSettings inherits VerticalLayout {
         background: Theme.sidebar; border-radius: 8px;
         HorizontalLayout {
             padding: 16px; spacing: 16px;
-            Middle { Avatar { size: 64px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; } }
+            Middle { Avatar { size: 64px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; decoration-url: AccountLook.decoration-url; } }
             VerticalLayout {
                 alignment: center; spacing: 2px; horizontal-stretch: 1;
                 Text { text: root.account-name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }

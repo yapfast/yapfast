@@ -509,6 +509,10 @@ pub struct AppState {
     /// the pointer is on the account card.
     pub account_username: Option<String>,
     pub account_avatar: Option<String>,
+    /// The decoration around the account's avatar and its nameplate, which
+    /// the account card at the bottom of the sidebar shows; Discord's.
+    pub account_decoration: Option<String>,
+    pub account_nameplate: Option<crate::chat::Nameplate>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -915,6 +919,9 @@ impl AppState {
                 username: None,
                 role: Role::Member,
                 avatar: message.avatar.clone(),
+                decoration: None,
+                nameplate: None,
+                style: None,
                 group: None,
                 presence: None,
                 color: message.color,
@@ -942,6 +949,9 @@ impl AppState {
                 username: None,
                 role: Role::Member,
                 avatar: person.avatar.clone(),
+                decoration: None,
+                nameplate: None,
+                style: None,
                 group: None,
                 presence: None,
                 color: None,
@@ -969,6 +979,9 @@ impl AppState {
             username: None,
             role: Role::Member,
             avatar: None,
+            decoration: None,
+            nameplate: None,
+            style: None,
             group: None,
             presence: None,
             color: None,
@@ -2151,11 +2164,19 @@ fn pictures_on_screen<'a>(
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
+        .chain(state.account_decoration.as_deref())
+        .chain(
+            state
+                .account_nameplate
+                .as_ref()
+                .map(|plate| plate.picture.as_str()),
+        )
         .chain(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .filter_map(|room| room.avatar.as_deref())
+                .flat_map(|room| [room.avatar.as_deref(), room.decoration.as_deref()])
+                .flatten()
                 .take(LISTED_PICTURES),
         )
         .chain(
@@ -2305,7 +2326,7 @@ fn pictures_on_screen<'a>(
                 .chain(&state.panel_profile)
                 .flat_map(|view| {
                     let profile = &view.profile;
-                    [&profile.avatar, &profile.banner]
+                    [&profile.avatar, &profile.decoration, &profile.banner]
                         .into_iter()
                         .chain(
                             profile
@@ -2340,7 +2361,12 @@ fn pictures_on_screen<'a>(
                         .reply
                         .as_ref()
                         .and_then(|reply| reply.avatar.as_deref());
-                    message.avatar.as_deref().into_iter().chain(reply)
+                    message
+                        .avatar
+                        .as_deref()
+                        .into_iter()
+                        .chain(message.decoration.as_deref())
+                        .chain(reply)
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2363,7 +2389,17 @@ fn pictures_on_screen<'a>(
                         .filter(move |_| list_avatars)
                         .flat_map(|role| role.members.iter().flatten()),
                 )
-                .filter_map(|member| member.avatar.as_deref()),
+                .flat_map(|member| {
+                    [
+                        member.avatar.as_deref(),
+                        member.decoration.as_deref(),
+                        member
+                            .nameplate
+                            .as_ref()
+                            .map(|plate| plate.picture.as_str()),
+                    ]
+                })
+                .flatten(),
         )
         .chain(
             state
