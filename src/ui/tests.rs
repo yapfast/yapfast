@@ -6765,6 +6765,39 @@ fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
 }
 
 #[test]
+fn only_the_rows_the_picker_shows_are_drawn() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    let rows = window.get_emoji_rows();
+    let drawn_in = |index: usize| -> usize {
+        let Some(row) = rows.row_data(index) else {
+            return 0;
+        };
+        row.cells
+            .iter()
+            .filter(|cell| cell.picture.size().width > 0)
+            .count()
+    };
+    // The rows the grid shows carry their pictures, and those a page below are
+    // left as glyphs: a long list costs only what is looked at, and scrolling to
+    // one fills it then.
+    let shown: usize = (0..8.min(rows.row_count())).map(drawn_in).sum();
+    assert!(shown > 20, "the rows shown are drawn: {shown}");
+    let below: usize = (12..40.min(rows.row_count())).map(drawn_in).sum();
+    assert_eq!(below, 0, "the rows a page below are not prepared");
+}
+
+#[test]
 fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
     let row = |cells: Vec<EmojiCell>| EmojiRow {
         heading: "".into(),
@@ -6796,6 +6829,8 @@ fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
         0,
         EmojiCell {
             picture: slint::Image::from_rgba8(slint::SharedPixelBuffer::new(2, 2)),
+
+            usable: true,
             ..filled
         },
     );

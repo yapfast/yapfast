@@ -3,11 +3,11 @@ source snapshot each release carries, and the dependencies' licenses and
 notices each package holds."""
 import hashlib
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tarfile
 import zipfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_FILES = ("Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml", "README.md", "LICENSE", ".gitignore")
@@ -95,7 +95,10 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
     with tarfile.open(skia_archive) as native:
         for member in native.getmembers():
             if member.isfile() and Path(member.name).name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
-                with native.extractfile(member) as notice:
+                notice_file = native.extractfile(member)
+                if notice_file is None:
+                    continue
+                with notice_file as notice:
                     (licenses / ("skia-native-" + Path(member.name).name)).write_bytes(notice.read())
     for notice in skia_source.rglob("*"):
         if license_file(notice):
@@ -103,6 +106,22 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(notice, destination)
     shutil.copy2(webrtc / "LICENSE.md", licenses / "libwebrtc-LICENSE.md")
+    # Twemoji's pictures, which the picker's and reactions' emoji are drawn from:
+    # CC-BY 4.0, which asks for the attribution its README.yapfast.md carries.
+    twemoji = ROOT / "vendor" / "twemoji"
+    twemoji_licenses = []
+    for name in ["LICENSE-GRAPHICS", "LICENSE", "README.md", "README.yapfast.md"]:
+        target = licenses / ("twemoji-" + name)
+        shutil.copy2(twemoji / name, target)
+        twemoji_licenses.append(target.relative_to(package).as_posix())
+    dependencies.append({
+        "name": "twemoji",
+        "version": (twemoji / "REVISION").read_text().strip(),
+        "license": "CC-BY-4.0",
+        "source": "https://github.com/discord/twemoji",
+        "repository": "https://github.com/discord/twemoji",
+        "license_files": twemoji_licenses,
+    })
     # Some crates ship a license only their owner may read (fnv's are 0600),
     # and the AppImage's files all belong to root.
     for path in licenses.rglob("*"):

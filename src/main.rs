@@ -37,6 +37,8 @@ mod push_to_talk;
 #[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
+mod twemoji;
+#[cfg(feature = "desktop")]
 mod ui;
 #[cfg(feature = "desktop")]
 mod zoom;

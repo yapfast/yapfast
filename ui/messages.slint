@@ -6,7 +6,10 @@ import { FavoriteStar, GifFavorites } from "gifs.slint";
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
 /// emoji is Discord's `name:id`. A custom emoji shows its `picture` once it has
 /// arrived; until then its glyph is its name.
-export struct EmojiCell { glyph: string, name: string, key: string, picture: image }
+/// An emoji as a button, tooltip or grid cell shows it. `usable` is false for a
+/// custom emoji this account may not use where it is looking, which the picker
+/// shows greyed with a lock, as Discord's does.
+export struct EmojiCell { glyph: string, name: string, key: string, picture: image, usable: bool }
 /// A heading, or up to a row's worth of emoji, in the emoji picker.
 export struct EmojiRow { heading: string, cells: [EmojiCell] }
 /// A place the emoji picker's sidebar jumps to: the row of its heading, and the
@@ -46,10 +49,15 @@ export component EmojiButton inherits Rectangle {
     in property <length> glyph: 20px;
     in property <color> fill: transparent;
     in property <bool> tip: true;
+    /// Whether this account may use the emoji here. One it may not shows
+    /// greyed, with a lock over its corner, and clicking it offers Nitro.
+    in property <bool> usable: true;
     /// What clicking does with the emoji, for screen readers.
     in property <string> verb: "React with";
     callback clicked;
     callback hovered;
+    /// A locked emoji was pressed.
+    callback locked;
     width: root.size; height: root.size;
     border-radius: 6px;
     background: pointer.has-hover ? Theme.overlay.with-alpha(0.12) : root.fill;
@@ -57,10 +65,16 @@ export component EmojiButton inherits Rectangle {
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
-    accessible-label: root.verb + " " + root.emoji.name;
+    accessible-label: root.usable ? root.verb + " " + root.emoji.name : "Locked, Nitro only: " + root.emoji.name;
+    opacity: root.usable ? 1 : 0.4;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     EmojiFace { emoji: root.emoji; font: root.font; side: root.glyph; }
+    if !root.usable: Image {
+        source: @image-url("icons/lock.svg"); width: 14px; height: 14px;
+        x: root.width - self.width - 4px; y: root.height - self.height - 4px;
+        colorize: Theme.text;
+    }
     focus := FocusScope {
         key-pressed(event) => {
             if event.text == "\n" || event.text == " " {
@@ -70,7 +84,10 @@ export component EmojiButton inherits Rectangle {
         }
         pointer := TouchArea {
             mouse-cursor: MouseCursor.pointer;
-            clicked => { Tip.text = ""; root.clicked(); }
+            clicked => {
+                Tip.text = "";
+                if root.usable { root.clicked(); } else { root.locked(); }
+            }
             changed has-hover => {
                 if self.has-hover {
                     root.hovered();
@@ -648,6 +665,8 @@ export component EmojiPicker inherits Rectangle {
     callback emoji-search(string);
     callback pick(EmojiCell);
     callback close-picker;
+    /// A locked emoji was pressed: offer Nitro, which unlocks it.
+    callback unlock-nitro;
     /// How far the grid is scrolled and how tall it shows, so the adapter
     /// fetches the pictures of the custom emoji in sight rather than all of them.
     callback scrolled-to(length, length);
@@ -733,9 +752,11 @@ export component EmojiPicker inherits Rectangle {
                                 alignment: start;
                                 for cell in row.cells: EmojiButton {
                                     emoji: cell; font: root.emoji-font; size: 56px; glyph: 36px; tip: false;
+                                    usable: cell.usable;
                                     verb: root.react-item == "yapfast:status" ? "Choose" : root.react-item == "yapfast:composer" ? "Insert" : "React with";
                                     hovered => { root.emoji-hover = cell; }
                                     clicked => { root.pick(cell); }
+                                    locked => { root.unlock-nitro(); }
                                 }
                             }
                         }

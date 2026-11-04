@@ -863,6 +863,11 @@ pub struct CustomEmoji {
     pub text: String,
     pub id: String,
     pub animated: bool,
+    /// Whether this account may use it in the room it is looking at: Nitro
+    /// reaches every server's, and animated ones; without it, only the room's
+    /// own server's still ones. The emoji picker shows the others greyed, as
+    /// Discord's does.
+    pub usable: bool,
     /// The address of its picture; see [`DiscordCommand::Pictures`].
     pub picture: String,
 }
@@ -2002,6 +2007,10 @@ pub struct OAuthPreview {
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Downloads these pictures for the disk cache alone, decoding none and
+    /// holding none in memory: what a start prefetches so that the picker's
+    /// first look finds its emoji kept. See [`Pictures::prefetch`].
+    PrefetchPictures(Vec<String>),
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -4608,6 +4617,7 @@ mod tests {
     #[test]
     fn sends_custom_emoji_in_discords_form() {
         let emoji = |name: &str, id: &str, animated| CustomEmoji {
+            usable: true,
             text: format!(":{name}:"),
             id: id.into(),
             animated,

@@ -79,6 +79,7 @@ pub fn cell(key: &str) -> EmojiCell {
             name: name.into(),
             key: key.into(),
             picture: custom_emoji::image(id).unwrap_or_default(),
+            usable: true,
         };
     }
     let name = emojis::get(key).map_or(key, emojis::Emoji::name);
@@ -92,6 +93,7 @@ pub fn cell(key: &str) -> EmojiCell {
             .into(),
         key: key.into(),
         picture: slint::Image::default(),
+        usable: true,
     }
 }
 
@@ -112,6 +114,24 @@ pub fn shortcode(key: &str) -> String {
         .find(|code| code.starts_with(|c: char| c.is_ascii_alphanumeric()))
         .or_else(|| codes().next())
         .map_or_else(|| key.to_owned(), |code| format!(":{code}:"))
+}
+
+/// The cells as Twemoji draws them, each with its picture in place of its glyph,
+/// at the size the picker's grid draws; a smaller button shows it smaller.
+pub fn with_pictures(cells: Vec<EmojiCell>, scale: f32) -> Vec<EmojiCell> {
+    cells
+        .into_iter()
+        .map(
+            |cell| match crate::twemoji::picture(&cell.glyph, GLYPH, scale) {
+                Some(picture) if cell.picture.size().width == 0 => EmojiCell {
+                    usable: true,
+                    picture,
+                    ..cell
+                },
+                _ => cell,
+            },
+        )
+        .collect()
 }
 
 /// Gives the picker's custom emoji the pictures that arrived since its rows
@@ -137,7 +157,11 @@ fn with_picture(shown: EmojiCell) -> Option<EmojiCell> {
         return None;
     }
     let picture = cell(&shown.key).picture;
-    (picture.size().width > 0).then_some(EmojiCell { picture, ..shown })
+    (picture.size().width > 0).then_some(EmojiCell {
+        usable: true,
+        picture,
+        ..shown
+    })
 }
 
 /// A custom emoji's reaction key, Discord's `name:id`.
@@ -213,6 +237,8 @@ pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiC
         .into_iter()
         .take(limit)
         .map(|(_, _, name, key)| EmojiCell {
+            usable: true,
+
             name: format!(":{name}:").into(),
             ..cell(&key)
         })
@@ -233,20 +259,22 @@ pub fn rows(
 ) -> (Vec<EmojiRow>, Vec<EmojiSection>) {
     let query = query.trim().trim_matches(':').to_lowercase();
     let available = || emojis::iter().filter(|emoji| emoji.unicode_version() <= NEWEST);
-    let custom_keys: Vec<Vec<String>> = custom
+    // Each custom emoji with whether this account may use it where it is
+    // looking: the picker shows the others greyed with a lock.
+    let custom_keys: Vec<Vec<(String, bool)>> = custom
         .iter()
         .map(|set| {
             set.emoji
                 .iter()
                 .filter(|emoji| query.is_empty() || emoji.text.to_lowercase().contains(&query))
-                .map(custom_key)
+                .map(|emoji| (custom_key(emoji), emoji.usable))
                 .collect()
         })
         .collect();
     let mut rows = Vec::new();
     let mut sections = Vec::new();
     // A section under a heading of its icon's name, or the matches, under none.
-    let mut section = |icon: Option<EmojiCell>, glyphs: Vec<String>| {
+    let mut section = |icon: Option<EmojiCell>, glyphs: Vec<(String, bool)>| {
         if glyphs.is_empty() {
             return;
         }
@@ -266,12 +294,20 @@ pub fn rows(
             rows.push(EmojiRow {
                 heading: SharedString::default(),
                 cells: ModelRc::new(VecModel::from(
-                    chunk.iter().map(|glyph| cell(glyph)).collect::<Vec<_>>(),
+                    chunk
+                        .iter()
+                        .map(|(glyph, usable)| EmojiCell {
+                            usable: *usable,
+                            ..cell(glyph)
+                        })
+                        .collect::<Vec<_>>(),
                 )),
             });
         }
     };
     let titled = |glyph: &str, name: &str| EmojiCell {
+        usable: true,
+
         name: name.into(),
         ..cell(glyph)
     };
@@ -288,19 +324,25 @@ pub fn rows(
                             emoji.name().contains(&query)
                                 || emoji.shortcodes().any(|code| code.contains(&query))
                         })
-                        .map(|emoji| emoji.as_str().to_owned()),
+                        .map(|emoji| (emoji.as_str().to_owned(), true)),
                 )
                 .collect(),
         );
         return (rows, sections);
     }
-    section(Some(titled("🕒", "Frequently used")), frequent.to_vec());
+    section(
+        Some(titled("🕒", "Frequently used")),
+        frequent.iter().map(|key| (key.clone(), true)).collect(),
+    );
     for (set, keys) in custom.iter().zip(custom_keys) {
-        let Some(first) = keys.first() else { continue };
-        let first = cell(first);
+        let Some((first_key, _)) = keys.first() else {
+            continue;
+        };
+        let first = cell(first_key);
         let icon = EmojiCell {
             name: set.server.as_str().into(),
             picture: server_icon(set).unwrap_or(first.picture.clone()),
+            usable: true,
             ..first
         };
         section(Some(icon), keys);
@@ -322,7 +364,7 @@ pub fn rows(
             group
                 .emojis()
                 .filter(|emoji| emoji.unicode_version() <= NEWEST)
-                .map(|emoji| emoji.as_str().to_owned())
+                .map(|emoji| (emoji.as_str().to_owned(), true))
                 .collect(),
         );
     }
@@ -522,6 +564,7 @@ mod tests {
                 text: ":gg:".into(),
                 id: "77".into(),
                 animated: false,
+                usable: true,
                 picture: String::new(),
             }],
         }];
@@ -548,6 +591,44 @@ mod tests {
         );
         // A server without an icon is shown in the sidebar by its first emoji.
         assert_eq!(sections.row_data(0).unwrap().icon.picture.size().width, 2);
+    }
+
+    #[test]
+    fn the_grid_carries_whether_an_emoji_may_be_used() {
+        let custom = [EmojiSet {
+            server: "Games".into(),
+            icon: None,
+            emoji: vec![
+                yapfast_core::chat::CustomEmoji {
+                    text: ":mine:".into(),
+                    id: "1".into(),
+                    animated: false,
+                    usable: true,
+                    picture: String::new(),
+                },
+                yapfast_core::chat::CustomEmoji {
+                    text: ":theirs:".into(),
+                    id: "2".into(),
+                    animated: true,
+                    usable: false,
+                    picture: String::new(),
+                },
+            ],
+        }];
+        let (rows, _) = rows("", &[], &custom, columns(498.), |_| None);
+        let cells: Vec<EmojiCell> = rows.iter().flat_map(|row| row.cells.iter()).collect();
+        // A locked one is shown all the same, marked so the picker greys it and
+        // offers Nitro when it is pressed.
+        let mine = cells
+            .iter()
+            .find(|cell| cell.key == "mine:1")
+            .expect("mine");
+        let theirs = cells
+            .iter()
+            .find(|cell| cell.key == "theirs:2")
+            .expect("theirs");
+        assert!(mine.usable, "an emoji of this server may be used");
+        assert!(!theirs.usable, "an animated one may not without Nitro");
     }
 
     #[test]
@@ -603,6 +684,7 @@ mod tests {
                 text: ":pog:".into(),
                 id: "5".into(),
                 animated: false,
+                usable: true,
                 picture: String::new(),
             }],
         }];
@@ -644,6 +726,7 @@ mod tests {
                 text: ":thunk:".into(),
                 id: "5".into(),
                 animated: false,
+                usable: true,
                 picture: String::new(),
             }],
         }];

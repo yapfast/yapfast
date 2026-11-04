@@ -43,6 +43,13 @@ pub fn image(id: &str) -> Option<slint::Image> {
     REGISTRY.with_borrow(|registry| registry.images.get(id).cloned())
 }
 
+/// Lets go of the pictures kept of emoji shown on their own, which the picker's
+/// cells hold while they show and the disk cache holds after; what a look shows
+/// next is put back by [`add_images`] from the pictures still in memory.
+pub fn forget_images() {
+    REGISTRY.with_borrow_mut(|registry| registry.images.clear());
+}
+
 /// Keeps the pictures that arrived of emoji shown on their own. True when
 /// there are new ones.
 pub fn add_images<'a>(arrived: impl IntoIterator<Item = (&'a str, &'a Picture)>) -> bool {

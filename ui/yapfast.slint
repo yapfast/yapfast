@@ -485,6 +485,9 @@ export component YapfastWindow inherits Window {
     in property <bool> gif-has-favorites;
     callback open-gifs;
     callback close-gifs;
+    /// The emoji grid went: the pictures it showed can be let go of, which the
+    /// disk cache keeps.
+    callback emoji-picker-closed;
     callback gif-search(string);
     callback gif-view-chosen(int);
     callback gif-category(string);
@@ -1804,6 +1807,7 @@ export component YapfastWindow inherits Window {
     property <bool> picker-open: emoji-picker.is-open;
     changed picker-open => {
         if !root.picker-open {
+            root.emoji-picker-closed();
             if root.react-item == "yapfast:composer" { root.focus-composer(); }
             root.react-item = "";
         }
@@ -1851,6 +1855,7 @@ export component YapfastWindow inherits Window {
     changed expressions-open => {
         if !root.expressions-open {
             root.close-gifs();
+            root.emoji-picker-closed();
             root.focus-composer();
             root.react-item = "";
         }
@@ -1908,6 +1913,7 @@ export component YapfastWindow inherits Window {
                     emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
                     emoji-search(text) => { root.emoji-search(text); }
                     pick(cell) => { root.pick(cell); }
+                    unlock-nitro => { root.unlock-nitro(); }
                     close-picker => { expressions.close(); }
                     scrolled-to(top, height) => { root.emoji-scrolled-to(top, height); }
                 }
@@ -1955,6 +1961,7 @@ export component YapfastWindow inherits Window {
             emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
             emoji-search(text) => { root.emoji-search(text); }
             pick(cell) => { root.pick(cell); }
+            unlock-nitro => { root.unlock-nitro(); }
             close-picker => { emoji-picker.close(); }
             scrolled-to(top, height) => { root.emoji-scrolled-to(top, height); }
         }

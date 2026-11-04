@@ -216,6 +216,10 @@ impl Chat {
                 self.pictures.fetch(&self.discord, urls, events);
                 return;
             }
+            Command::Discord(DiscordCommand::PrefetchPictures(urls)) => {
+                self.pictures.prefetch(&self.discord, urls);
+                return;
+            }
             Command::PlayVideo {
                 room,
                 item,

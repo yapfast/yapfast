@@ -1542,21 +1542,28 @@ impl Adapter {
                 })
                 .collect(),
         );
+        let scale = window.window().scale_factor();
         update_model(
             &self.models.bar_reactions,
-            self.app
-                .frequent_reactions(3)
-                .iter()
-                .map(|key| emoji::cell(key))
-                .collect(),
+            emoji::with_pictures(
+                self.app
+                    .frequent_reactions(3)
+                    .iter()
+                    .map(|key| emoji::cell(key))
+                    .collect(),
+                scale,
+            ),
         );
         update_model(
             &self.models.menu_reactions,
-            self.app
-                .frequent_reactions(4)
-                .iter()
-                .map(|key| emoji::cell(key))
-                .collect(),
+            emoji::with_pictures(
+                self.app
+                    .frequent_reactions(4)
+                    .iter()
+                    .map(|key| emoji::cell(key))
+                    .collect(),
+                scale,
+            ),
         );
         let role = state.role.as_ref();
         window.set_role_open(role.is_some());
@@ -2939,7 +2946,10 @@ impl Adapter {
         if window.get_emoji_suggestion_index() >= cells.len() as i32 {
             window.set_emoji_suggestion_index(0);
         }
-        update_model(&self.models.emoji_suggestions, cells);
+        update_model(
+            &self.models.emoji_suggestions,
+            emoji::with_pictures(cells, window.window().scale_factor()),
+        );
     }
 
     /// The messages, built again only where they changed, and where the list
@@ -2970,7 +2980,7 @@ impl Adapter {
                 self.restyle = true;
             }
             let usable = if pictures_arrived {
-                self.app.usable_emoji()
+                self.app.emoji_sets()
             } else {
                 Vec::new()
             };
@@ -4654,6 +4664,7 @@ fn sound_rows(
                         name: sound.name.as_str().into(),
                         key: SharedString::new(),
                         picture: cached_picture(pictures, state, sound.picture.as_deref()),
+                        usable: true,
                     },
                     favorite: sound.favorite,
                 })

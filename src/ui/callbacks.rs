@@ -49,11 +49,17 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
             if cell.picture.size().width > 0 || cell.key.contains(':') || cell.glyph != cell.key {
                 continue;
             }
-            if let Some(image) = crate::emoji_glyphs::picture(&cell.glyph, emoji::GLYPH, scale) {
+            // Twemoji's picture, as Discord's client draws emoji; a code point it
+            // has none for keeps the system font's glyph, drawn once here too.
+            if let Some(image) = crate::twemoji::picture(&cell.glyph, emoji::GLYPH, scale)
+                .or_else(|| crate::emoji_glyphs::picture(&cell.glyph, emoji::GLYPH, scale))
+            {
                 row.cells.set_row_data(
                     cell_index,
                     EmojiCell {
                         picture: image,
+
+                        usable: true,
                         ..cell
                     },
                 );
@@ -94,7 +100,7 @@ pub(super) fn custom_keys_without_pictures(
 fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &str, columns: usize) {
     let mut adapter = adapter.borrow_mut();
     let (rows, sections) = {
-        let custom = adapter.app.usable_emoji();
+        let custom = adapter.app.emoji_sets();
         emoji::rows(
             query,
             &adapter.app.frequent_reactions(16),
@@ -1000,6 +1006,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         columns_shown.set(columns);
         // The grid keeps what is being searched for, laid out again.
         show_emoji(&state, &window, &window.get_emoji_query(), columns);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    // The grid went: its cells kept the pictures they showed, and the disk cache
+    // has the rest, so the pictures held for them can go, the custom emoji ones
+    // once there were more than a wide grid shows.
+    window.on_emoji_picker_closed(move || {
+        let Some(window) = weak.upgrade() else { return };
+        custom_emoji::forget_images();
+        state
+            .borrow_mut()
+            .action(&window, Action::UnloadEmojiPictures);
     });
     let state = adapter.clone();
     let weak = window.as_weak();

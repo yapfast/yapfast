@@ -4975,6 +4975,7 @@ fn custom_emoji_are_requested_only_for_nearby_messages_and_stale_views_are_ignor
                 text: ":test:".into(),
                 id: index.to_string(),
                 animated: false,
+                usable: true,
             }],
             ..message(&format!("e:${index}"), false)
         })

@@ -138,11 +138,19 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   that window and its width: the GIFs' grid fits another column for every
   212px, and the emoji's another of Discord's 56px buttons a row. The buttons
   keep their size and their spacing as it widens, so what the width has over
-  stays at the row's end. Each emoji is drawn once into a picture and the grid
-  shows that: the system emoji font is a colour font, whose layers Skia
-  otherwise paints again for every emoji on screen, every frame, which made a
-  stretched picker scroll slowly. The sequences the font joins by shaping, such
-  as a family or a flag, keep their glyphs. A drag that changed
+  stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
+  which is the artwork Discord's client uses and which the program carries
+  (`vendor/twemoji`, CC-BY 4.0), decoded once at the size the grid draws and
+  kept; drawing the system emoji font instead cost a colour font's paint graph
+  for every emoji on screen, every frame, and made a stretched picker scroll
+  slowly. A code point Twemoji has no picture for, and emoji in message text,
+  are still drawn by the system font. Every server's emoji show, as Discord's
+  picker shows them: the ones this account may not use where it is looking —
+  another server's, or an animated one without Nitro — are greyed with a lock
+  in their corner, and pressing one opens Discord's Nitro page. A start whose
+  picture cache is empty fetches all of them into it in the background, off the
+  thread that draws, decoding none and holding none, so the first look finds
+  them. A drag that changed
   the width keeps it in `layout.json` (`picker_width`), and it comes back at
   the next start. See [Discord](discord/messages.md#gifs).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
