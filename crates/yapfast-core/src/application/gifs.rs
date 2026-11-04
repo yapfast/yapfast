@@ -415,15 +415,39 @@ impl Application {
     pub(super) fn gif_categories_came(
         &mut self,
         result: Result<(Vec<GifCategory>, Option<Gif>), String>,
-    ) {
+    ) -> Vec<Effect> {
         let picker = &mut self.state.gifs;
         picker.home_loading = false;
         match result {
             Ok((categories, preview)) => {
                 picker.categories = categories;
                 picker.trending_preview = preview;
+                // The home is a handful of pictures: the trending terms' and the
+                // Trending GIFs tile's. They are fetched ahead, to the disk only,
+                // so the home shows at once the next time and its tiles animate
+                // from what is kept.
+                let mut pictures: Vec<(String, u32, u32)> = picker
+                    .categories
+                    .iter()
+                    .filter(|category| !category.src.is_empty())
+                    .map(|category| (category.src.clone(), THUMBNAIL_WIDTH, THUMBNAIL_WIDTH))
+                    .collect();
+                if let Some(preview) = &picker.trending_preview
+                    && !preview.src.is_empty()
+                {
+                    pictures.push((preview.src.clone(), THUMBNAIL_WIDTH, THUMBNAIL_WIDTH));
+                }
+                (!pictures.is_empty())
+                    .then_some(Effect::Backend(Command::Discord(
+                        DiscordCommand::PrefetchGifHome(pictures),
+                    )))
+                    .into_iter()
+                    .collect()
             }
-            Err(error) => picker.home_error = Some(error),
+            Err(error) => {
+                picker.home_error = Some(error);
+                vec![]
+            }
         }
     }
 

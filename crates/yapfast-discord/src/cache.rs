@@ -23,9 +23,12 @@
 //!   [`crate::api::Api::learn_build_number`].
 //! - `discord-favorite-gifs.json`: the favourite GIFs, as Discord's settings
 //!   last gave them, so the picker shows them before Discord answers.
-//! - `discord-gifs/`: a thumbnail of each favourite GIF, by its picture's
+//! - `discord-gifs/`: the GIF itself of each favourite, by its picture's
 //!   address, kept for as long as the GIF is favourited and no longer: see
 //!   [`retain_gif_thumbnails`].
+//! - `discord-gif-home/`: the home's pictures, the trending terms' and the
+//!   Trending GIFs tile's, fetched ahead so the home shows at once; see
+//!   [`retain_gif_home`].
 //!
 //! The files name the login they belong to by a hash of the token, so another
 //! account linked meanwhile starts empty, and unlinking deletes them all.
@@ -265,6 +268,10 @@ fn gifs() -> Option<PathBuf> {
     Some(file()?.with_file_name("discord-gifs"))
 }
 
+fn gif_home() -> Option<PathBuf> {
+    Some(file()?.with_file_name("discord-gif-home"))
+}
+
 /// Where the thumbnail of the favourite GIF whose picture is at `url` is
 /// kept, and where its picture downloads to first.
 fn gif_file(url: &str) -> Option<PathBuf> {
@@ -274,6 +281,51 @@ fn gif_file(url: &str) -> Option<PathBuf> {
 /// The thumbnail kept of the favourite GIF whose picture is at `url`.
 pub fn kept_gif(url: &str) -> Option<PathBuf> {
     gif_file(url).filter(|file| file.is_file())
+}
+
+/// The home's picture kept for the GIF at `url`, which a tile reads.
+pub fn kept_gif_home(url: &str) -> Option<PathBuf> {
+    let file = gif_home()?.join(hash(url));
+    file.is_file().then_some(file)
+}
+
+/// Keeps the home's picture at `url` as it was downloaded, for its tile to
+/// animate from: the GIF itself, as a favourite's is kept.
+pub fn keep_gif_home(url: &str, picture: KeptGif<'_>) -> Option<PathBuf> {
+    let file = gif_home()?.join(hash(url));
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent).ok()?;
+    }
+    let kept = match picture {
+        KeptGif::File(from) => std::fs::rename(from, &file).map_err(anyhow::Error::from),
+        KeptGif::Bytes(data) => write_bytes(&file, data),
+    };
+    match kept {
+        Ok(()) => Some(file),
+        Err(error) => {
+            tracing::warn!(%error, "could not keep one of the home's GIFs");
+            None
+        }
+    }
+}
+
+/// Keeps the home's pictures of exactly these GIFs, whose pictures are at these
+/// addresses: the home is what it shows now, so a picture it no longer offers
+/// goes.
+pub fn retain_gif_home(urls: impl IntoIterator<Item = String>) {
+    let Some(directory) = gif_home() else { return };
+    let keep: std::collections::HashSet<PathBuf> = urls
+        .into_iter()
+        .map(|url| directory.join(hash(&url)))
+        .collect();
+    let Ok(entries) = std::fs::read_dir(&directory) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        if !keep.contains(&entry.path()) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Keeps a thumbnail of exactly these favourite GIFs, whose pictures are at

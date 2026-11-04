@@ -3375,7 +3375,7 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
-            Event::GifCategories(result) => self.gif_categories_came(result),
+            Event::GifCategories(result) => return self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),

@@ -8466,6 +8466,43 @@ fn votes_go_to_discord_and_the_window_lists_who_voted() {
 
 #[cfg(feature = "discord")]
 #[test]
+fn the_home_gifs_are_fetched_ahead() {
+    use crate::chat::{Gif, GifCategory};
+    let mut app = Application::default();
+    let term = |name: &str| GifCategory {
+        name: name.into(),
+        src: format!("https://static.klipy.com/{name}.webp"),
+    };
+    let effects = app.gif_categories_came(Ok((
+        vec![term("happy"), term("sad")],
+        Some(Gif {
+            url: "https://klipy.com/gifs/trend".into(),
+            src: "https://static.klipy.com/trend.webp".into(),
+            ..Default::default()
+        }),
+    )));
+    // The home is a handful of pictures, all of them fetched ahead so it shows
+    // at once the next time.
+    let [Effect::Backend(Command::Discord(DiscordCommand::PrefetchGifHome(pictures)))] =
+        effects.as_slice()
+    else {
+        panic!(
+            "the home's pictures are fetched ahead, got {} effects",
+            effects.len()
+        );
+    };
+    let srcs: Vec<&str> = pictures.iter().map(|(src, ..)| src.as_str()).collect();
+    assert_eq!(
+        srcs,
+        [
+            "https://static.klipy.com/happy.webp",
+            "https://static.klipy.com/sad.webp",
+            "https://static.klipy.com/trend.webp"
+        ]
+    );
+}
+
+#[test]
 fn every_favourite_gif_is_fetched_ahead() {
     use crate::chat::{FavoriteGif, Gif};
     let mut app = Application::default();

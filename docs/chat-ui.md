@@ -136,7 +136,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   favourite's GIF itself is kept on disk, frames and all, for as long as the GIF
   is favourited — every one of them, with no size to stay under — so its tile
   animates from the file, and a start fetches the ones missing in the background
-  so the Favourites view is complete when it opens.
+  so the Favourites view is complete when it opens. The home's pictures — the
+  trending terms' and the Trending GIFs tile's, seven or so — are fetched the
+  same way into a cache of their own, so the home shows at once the next time it
+  opens and its tiles animate from what is kept.
   Its left
   edge drags it wider, as Discord's does: the right edge and the height stay,
   the grid fits another column for every 212px, and the edge stops 8px past

@@ -2011,6 +2011,11 @@ pub enum DiscordCommand {
     /// complete when it opens. The list is the whole set: a thumbnail of a GIF
     /// no longer favourited goes.
     PrefetchFavorites(Vec<(String, u32, u32)>),
+    /// Keeps the home's pictures, the trending terms' and the Trending GIFs
+    /// tile's, at these addresses and sizes, so the home shows at once and its
+    /// tiles animate from the disk. The list is the whole home: a picture it no
+    /// longer offers goes.
+    PrefetchGifHome(Vec<(String, u32, u32)>),
     /// GIFs for a search, or with `None` those trending; [`Event::Gifs`]
     /// follows.
     Gifs(Option<String>),

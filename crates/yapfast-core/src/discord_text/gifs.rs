@@ -26,7 +26,8 @@ pub(super) fn command(
             | DiscordCommand::FavoriteGifs
             | DiscordCommand::SetFavoriteGifs(_)
             | DiscordCommand::GifPicture { .. }
-            | DiscordCommand::PrefetchFavorites(_),
+            | DiscordCommand::PrefetchFavorites(_)
+            | DiscordCommand::PrefetchGifHome(_),
             Ok(discord),
         ) => discord.clone(),
         (DiscordCommand::GifCategories, Err(why)) => {
@@ -49,7 +50,8 @@ pub(super) fn command(
             | DiscordCommand::GifPicked { .. }
             | DiscordCommand::SetFavoriteGifs(_)
             | DiscordCommand::GifPicture { .. }
-            | DiscordCommand::PrefetchFavorites(_),
+            | DiscordCommand::PrefetchFavorites(_)
+            | DiscordCommand::PrefetchGifHome(_),
             Err(_),
         ) => return None,
         _ => return Some(Command::Discord(command)),
@@ -140,6 +142,41 @@ pub(super) fn command(
                 }
             });
         }
+        DiscordCommand::PrefetchGifHome(pictures) => {
+            tokio::spawn(async move {
+                // The home is exactly these, so its cache keeps their pictures
+                // and lets the others go.
+                let urls: Vec<String> = pictures.iter().map(|(url, ..)| url.clone()).collect();
+                let _ = tokio::task::spawn_blocking(move || {
+                    yapfast_discord::cache::retain_gif_home(urls)
+                })
+                .await;
+                let turns = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+                for (url, _width, _height) in pictures {
+                    let Ok(turn) = turns.clone().acquire_owned().await else {
+                        return;
+                    };
+                    let discord = discord.clone();
+                    tokio::spawn(async move {
+                        let _turn = turn;
+                        let known = url.clone();
+                        let kept = tokio::task::spawn_blocking(move || {
+                            yapfast_discord::cache::kept_gif_home(&known)
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some();
+                        if kept {
+                            return;
+                        }
+                        if keep_home_picture(&discord, &url).await.is_some() {
+                            tracing::debug!(%url, "prefetched one of the home's GIFs");
+                        }
+                    });
+                }
+            });
+        }
         DiscordCommand::PrefetchFavorites(thumbnails) => {
             tokio::spawn(async move {
                 // The favourites are exactly these, so the cache keeps theirs
@@ -202,6 +239,21 @@ pub(super) fn command(
 
 /// The GIF picture at `url`, fit to `width` by `height`.
 async fn picture(discord: &Discord, url: &str, width: u32, height: u32) -> Option<Picture> {
+    // The home's pictures are fetched ahead into the home's cache, and its tiles
+    // read them from there.
+    let lookup = url.to_owned();
+    let kept = tokio::task::spawn_blocking(move || yapfast_discord::cache::kept_gif_home(&lookup))
+        .await
+        .ok()
+        .flatten();
+    if let Some(kept) = kept {
+        return tokio::task::spawn_blocking(move || {
+            crate::chat::decode_picture_at(&kept, width, height)
+        })
+        .await
+        .ok()
+        .flatten();
+    }
     match discord.download(url, MAX_GIF_BYTES).await {
         Ok(data) => {
             tokio::task::spawn_blocking(move || crate::chat::decode_picture(&data, width, height))
@@ -247,7 +299,7 @@ const MAX_FAVORITE_BYTES: u64 = 40 * 1024 * 1024;
 /// Makes the thumbnail of the favourite whose picture is at `url`, for tiles
 /// `width` wide, from Tenor's small MP4 when it's Tenor's, or from the
 /// picture itself, which downloads to disk as it arrives.
-async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<PathBuf> {
+async fn make_thumbnail(discord: &Discord, url: &str, _width: u32) -> Option<PathBuf> {
     use std::io::Seek;
     let target = url.to_owned();
     let (download, mut file) =
@@ -282,6 +334,56 @@ async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<Path
     })
     .await
     .ok()?
+}
+
+/// Keeps the home's picture at `url` in the home's own cache, as a tile would
+/// make it: Tenor's small MP4 where it is Tenor's, else the picture itself, the
+/// file kept as it came so its tile animates from it.
+async fn keep_home_picture(discord: &Discord, url: &str) -> Option<()> {
+    use std::io::Seek;
+    let target = url.to_owned();
+    let (download, mut file) =
+        tokio::task::spawn_blocking(move || yapfast_discord::cache::gif_download(&target))
+            .await
+            .ok()??;
+    let mut downloaded = false;
+    for source in yapfast_discord::gifs::small_video(url)
+        .into_iter()
+        .chain([url.to_owned()])
+    {
+        if file.set_len(0).and_then(|()| file.rewind()).is_err() {
+            break;
+        }
+        match discord
+            .download_into(&source, &mut file, MAX_FAVORITE_BYTES)
+            .await
+        {
+            Ok(_) => {
+                downloaded = true;
+                break;
+            }
+            Err(error) => {
+                tracing::debug!(%error, %source, "could not download one of the home's GIFs");
+            }
+        }
+    }
+    drop(file);
+    let url = url.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let kept = downloaded
+            .then(|| {
+                yapfast_discord::cache::keep_gif_home(
+                    &url,
+                    yapfast_discord::cache::KeptGif::File(&download),
+                )
+            })
+            .flatten();
+        let _ = std::fs::remove_file(&download);
+        kept.is_some()
+    })
+    .await
+    .ok()?
+    .then_some(())
 }
 
 /// Keeps the picture downloaded to `download` as the favourite's thumbnail:
