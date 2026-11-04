@@ -1929,8 +1929,11 @@ impl Discord {
             .iter()
             .any(|request| request.user_id == user && request.incoming);
         // Discord's client accepts from its friends list and sends from a profile.
-        let place = if incoming { "Friends" } else { "User Profile" };
-        self.api.add_friend(user, place).await
+        if incoming {
+            self.api.accept_friend(user, "Friends").await
+        } else {
+            self.api.add_friend(user, "User Profile").await
+        }
     }
 
     /// Ignores a friend request to this account, or cancels one it sent.
