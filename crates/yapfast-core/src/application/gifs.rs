@@ -168,13 +168,17 @@ impl Application {
         if self.state.preview {
             return vec![];
         }
-        let mut effects = self.load_favorite_gifs();
+        // The home's answer first: it is one small request, and its terms' pictures
+        // are what the home draws. The favourites' list is the larger call, and
+        // the GIFs it leads to take the longest to fetch, so it follows.
+        let mut effects = vec![];
         if self.state.gifs.categories.is_empty() && !self.state.gifs.home_loading {
             self.state.gifs.home_loading = true;
             effects.push(Effect::Backend(Command::Discord(
                 DiscordCommand::GifCategories,
             )));
         }
+        effects.extend(self.load_favorite_gifs());
         effects
     }
 
