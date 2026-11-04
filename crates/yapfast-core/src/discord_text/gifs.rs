@@ -243,11 +243,6 @@ async fn favorite_picture(
 /// The most a favourite's picture downloads to make its thumbnail from:
 /// Tenor's full-size GIFs took up to 24 MB.
 const MAX_FAVORITE_BYTES: u64 = 40 * 1024 * 1024;
-/// A favourite's picture this small, or a video, is its own thumbnail. A
-/// small GIF keeps its transparency, which VP9 can't.
-const KEPT_AS_IS: u64 = 64 * 1024;
-/// A picture no thumbnail could be made of is kept if it's no larger.
-const KEPT_UNMADE: u64 = 8 * 1024 * 1024;
 
 /// Makes the thumbnail of the favourite whose picture is at `url`, for tiles
 /// `width` wide, from Tenor's small MP4 when it's Tenor's, or from the
@@ -281,9 +276,7 @@ async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<Path
     drop(file);
     let url = url.to_owned();
     tokio::task::spawn_blocking(move || {
-        let made = downloaded
-            .then(|| thumbnail(&url, &download, width))
-            .flatten();
+        let made = downloaded.then(|| thumbnail(&url, &download)).flatten();
         let _ = std::fs::remove_file(&download);
         made
     })
@@ -294,23 +287,12 @@ async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<Path
 /// Keeps the picture downloaded to `download` as the favourite's thumbnail:
 /// itself when it's a video or small, and otherwise a VP9 WebM of it at
 /// `width`, a tenth of a WebP's size.
-fn thumbnail(url: &str, download: &std::path::Path, width: u32) -> Option<PathBuf> {
-    use yapfast_discord::cache::{KeptGif, keep_gif};
-    let size = std::fs::metadata(download).ok()?.len();
-    let mut start = [0; 8];
-    let video = std::io::Read::read_exact(&mut std::fs::File::open(download).ok()?, &mut start)
-        .is_ok()
-        && crate::video::is_video(&start);
-    if video || size <= KEPT_AS_IS {
-        return keep_gif(url, KeptGif::File(download));
-    }
-    let made = crate::chat::decode_picture_at(download, width, width.saturating_mul(4))
-        .and_then(|picture| crate::clip::thumbnail(&picture));
-    match made {
-        Some(webm) => keep_gif(url, KeptGif::Bytes(&webm)),
-        None if size <= KEPT_UNMADE => keep_gif(url, KeptGif::File(download)),
-        None => None,
-    }
+fn thumbnail(url: &str, download: &std::path::Path) -> Option<PathBuf> {
+    // A favourite keeps its picture as it was downloaded — the animating file
+    // itself, not a frame of it — so the grid's tile animates from the file and
+    // shows its first frame as the still. One file per favourite, and every
+    // favourite has one: see `yapfast_discord::cache::retain_gif_thumbnails`.
+    yapfast_discord::cache::keep_gif(url, yapfast_discord::cache::KeptGif::File(download))
 }
 
 /// A message's picture as a GIF to keep among the favourites, as Discord's
@@ -518,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_a_favourites_thumbnail_as_vp9_unless_small() {
+    fn keeps_a_favourites_picture_as_it_came() {
         let directory = tempfile::tempdir().unwrap();
         yapfast_discord::cache::keep_in(directory.path().join("discord-account.json"));
         let download = |url: &str, data: &[u8]| {
@@ -526,26 +508,16 @@ mod tests {
             std::io::Write::write_all(&mut file, data).unwrap();
             path
         };
-
-        // A large GIF becomes a WebM at the tiles' width, its frames timed
-        // as they were.
-        let large = noisy_gif(30);
-        assert!(large.len() as u64 > KEPT_AS_IS);
+        // The GIF itself is kept, frames and all, so its tile animates from the
+        // file and shows its first frame as the still: a favourite is its GIF.
+        let frames = noisy_gif(30);
         let url = "https://media.tenor.com/abc/large.gif";
-        let kept = thumbnail(url, &download(url, &large), 32).unwrap();
+        let kept = thumbnail(url, &download(url, &frames)).unwrap();
         assert_eq!(yapfast_discord::cache::kept_gif(url), Some(kept.clone()));
-        let webm = std::fs::read(&kept).unwrap();
-        assert!(crate::video::is_video(&webm) && webm.len() < large.len() / 4);
+        assert_eq!(std::fs::read(&kept).unwrap(), frames, "kept as it came");
         let picture = crate::chat::decode_picture_at(&kept, 32, 128).unwrap();
         assert_eq!((picture.width, picture.height), (32, 24));
         assert_eq!(picture.animation.as_ref().unwrap().delays, [80; 30]);
         assert_eq!(picture.frames().count(), 30);
-
-        // A small one stays as it is.
-        let small = noisy_gif(2);
-        assert!(small.len() as u64 <= KEPT_AS_IS);
-        let url = "https://media.tenor.com/abc/small.gif";
-        let kept = thumbnail(url, &download(url, &small), 32).unwrap();
-        assert_eq!(std::fs::read(kept).unwrap(), small);
     }
 }

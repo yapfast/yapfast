@@ -133,9 +133,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the
   favourites; GIFs and moving pictures in messages have the star too. A
-  favourite's thumbnail is kept on disk for as long as the GIF is favourited,
-  every one of them with no size to stay under, and a start fetches the ones
-  missing in the background so the Favourites view is complete when it opens.
+  favourite's GIF itself is kept on disk, frames and all, for as long as the GIF
+  is favourited — every one of them, with no size to stay under — so its tile
+  animates from the file, and a start fetches the ones missing in the background
+  so the Favourites view is complete when it opens.
   Its left
   edge drags it wider, as Discord's does: the right edge and the height stay,
   the grid fits another column for every 212px, and the edge stops 8px past
