@@ -490,12 +490,45 @@ its linker also writes a RUNPATH of `$PWD/outputs/out/lib` and Nix store
 folders into the binary; the [AppImage](packaging.md#linux-appimage) avoids both by
 building in the Nix sandbox.
 
-The supported build route is the Linux MSVC cross-build.
-Native Windows development needs Rustup, Visual Studio C++ tools and SDK, CMake,
-LLVM, Protobuf and NASM, plus the same prepared Skia archive through
-`SKIA_BINARIES_URL`. Opus comes from the libopus in libwebrtc's archive.
-That native-host preparation/build route has not been checked.
-The downloadable package needs none of these tools to run.
+The supported and packaged build route remains the Linux MSVC cross-build.
+A native Windows build is for development only: it names this machine's folders
+and must not be shipped. It needs Rust 1.97.1, Visual Studio C++ tools and the
+Windows 10/11 SDK, LLVM with `clang-cl`, `llvm-rc` and `libclang` on `PATH`
+(the SDK's `rc.exe` can replace `llvm-rc`), and NASM on `PATH`. bindgen, which
+`thorvg-sys` runs, finds `libclang` only through `LIBCLANG_PATH`, `llvm-config
+--prefix` or `LIBRARY_PATH`, never `PATH`, so set `LIBCLANG_PATH` to LLVM's
+`bin` where `llvm-config` is not on `PATH`. `skia-bindings` reads the LLVM
+Skia's build needs from `LLVM_HOME`, then `C:\Program Files\LLVM`, `C:\LLVM`
+and `%USERPROFILE%\scoop\apps\llvm\current`; the preparation script passes it
+the LLVM it found on `PATH`. Skia preparation also needs Python 3 and Ninja;
+Ninja comes with Visual Studio, and the script fetches its pinned GN. A network
+connection is needed once for the pinned Skia source and libwebrtc archive.
+`vendor/ffmpeg-src/build.rs` and `crates/yapfast-core/build.rs` select
+`clang-cl` for MSVC targets only when `CC`/`CXX` are unset, because FFmpeg's x86
+assembly and the camera shim's Clang warning flags need it; an explicitly
+selected compiler wins.
+
+Prepare a static-CRT Skia archive from the pinned source and seven
+checksum-pinned externals; it is cached in `.local/windows/skia/` and takes
+about 20–40 minutes once. rust-skia's Windows archive is not interchangeable:
+it uses the dynamic CRT and different features, and its JPEG table conflicts
+with libwebrtc's bundled libjpeg-turbo. Set `SKIA_BINARIES_URL` in the
+PowerShell environment to the prepared archive (`--print-env` prints the
+assignments); do not put it in the repository's `.cargo/config.toml`, where a
+conflict with a user-level Cargo config would prevent Cargo from starting.
+
+```powershell
+python scripts/prepare-windows-skia.py
+python scripts/prepare-windows-skia.py --print-env
+cargo build --release
+```
+
+Or prepare Skia and build in one step with
+`python scripts/prepare-windows-skia.py --build`, which sets the archive URL
+and nothing else: the build that follows sees the environment the script ran
+in, so `clang-cl`, `llvm-rc` and `LIBCLANG_PATH` have to be set here too, as
+for a plain `cargo build --release`. The downloadable package
+needs none of these tools to run.
 
 Before accepting the Windows build, check text entry, selection, copy/paste,
 keyboard focus, navigation, both renderers, resizing, normal close, and reopen

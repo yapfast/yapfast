@@ -16,7 +16,9 @@ shell's nixpkgs, configures and builds FFmpeg for each target, and keeps
 what follows. Windows is built with clang-cl against the MSVC runtime and
 Windows SDK in cargo-xwin's cache, which `scripts/build-windows` fills the
 first time; configure finds them through `INCLUDE` and `LIB`, so
-`config.h` names no folder of the machine that ran it.
+`config.h` names no folder of the machine that ran it. When nothing else is set,
+`build.rs` picks `clang-cl` for MSVC targets, because `gen/windows-x86_64` was
+configured with clang-cl.
 
 - `ffmpeg/`: the FFmpeg files that build read, unchanged but for `patches/`,
   under FFmpeg's LGPL-2.1-or-later (`ffmpeg/COPYING.LGPLv2.1`).

@@ -358,6 +358,5 @@ above ends with what real Windows still needs. Beyond those: text entry,
 selection, copy/paste, keyboard focus, resizing, both renderers, restarts,
 network interruptions and crashes on a tester's PC; whether Direct3D 12 keeps
 an NVIDIA card's CPU use low; a display that reports no refresh rate, under
-remote desktop or in a virtual machine; Intel GPU encoding; and a native
-Windows build, which [Building](building.md#windows) describes but nobody has
-run. The packages are unsigned.
+remote desktop or in a virtual machine; and Intel GPU encoding. The packages
+are unsigned.
