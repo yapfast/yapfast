@@ -168,6 +168,9 @@
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
 // /_control/presence shows the presence her session last sent with op 3. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
+// Erin's request is a stranger's (`stranger_request`), which PUT accepts only
+// with `confirm_stranger_request`, as Discord's client confirms one; without it
+// it answers 80013.
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
 // stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
@@ -369,13 +372,16 @@ const strangers: Record<string, User> = {
 const userById = new Map([...Object.values(users), ...Object.values(strangers)].map((user) => [user.id, user]));
 
 // Alice's relationships by user id: Bob and Carol are friends (1), and Erin
-// sent her a friend request (3). Alice's own requests are outgoing (4); Dave
-// accepts hers after FRIEND_ACCEPT_MS, and nobody else answers.
+// sent her a friend request (3). Erin shares no friend and no small server with
+// Alice, so Discord counts her request a stranger's (`stranger_request`), and
+// takes it only once the client confirms it. Alice's own requests are outgoing
+// (4); Dave accepts hers after FRIEND_ACCEPT_MS, and nobody else answers.
 const relationships = new Map<string, number>([
   [users.bob.id, 1],
   [users.carol.id, 1],
   [strangers.erin!.id, 3],
 ]);
+const strangerRequests = new Set<string>([strangers.erin!.id]);
 const FRIEND_ACCEPT_MS = 2000;
 // Whom Alice ignores, the nicknames she gave friends and her notes, by user id.
 const ignored = new Set<string>();
@@ -383,6 +389,7 @@ const nicknames = new Map<string, string>();
 const notes = new Map<string, string>();
 const wireRelationship = (id: string, type: number) => ({
   id, type, nickname: nicknames.get(id) ?? null, user_id: id, since: JOINED_AT, user_ignored: ignored.has(id),
+  stranger_request: strangerRequests.has(id),
 });
 // Alice's notification settings by server, "@me" for her DMs, as Discord
 // keeps her user guild settings: the server's mute and level, which
@@ -5964,6 +5971,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       nicknames.delete(id);
       befriend(user, 2);
       return empty();
+    }
+    // A stranger's request is accepted only with the confirmation the client
+    // shows a warning for; without it Discord answers 80013.
+    if (strangerRequests.has(id) && body.confirm_stranger_request !== true) {
+      return json({ message: "You must confirm the friend request to add this user.", code: 80013 }, 400);
     }
     request(user);
     return empty();

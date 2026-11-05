@@ -86,9 +86,13 @@ RELATIONSHIP_ADD and RELATIONSHIP_REMOVE. One sent to this account is
 accepted with the check or ignored with the cross; one it sent is cancelled
 with the cross. A profile card offers "Send friend request" to someone who
 isn't a friend, or "Accept friend request" when they asked first, and the
-header of a DM with them offers the same. Sending or accepting is
-`PUT /users/@me/relationships/{id}` with an empty body, and ignoring or
-cancelling is `DELETE` on the same path, each with the X-Context-Properties
+header of a DM with them offers the same. Sending is
+`PUT /users/@me/relationships/{id}` with an empty body, and accepting is the
+same with `{"confirm_stranger_request": true}`: Discord calls a request a
+stranger's, `stranger_request` in the relationship, when it comes from
+someone with no friend and no small server in common, and answers 80013 to an
+acceptance that doesn't say so. Ignoring or cancelling is `DELETE` on the
+same path, each with the X-Context-Properties
 header Discord's client sends: `{"location":"User Profile"}` when sending
 from a profile, `{"location":"Friends"}` otherwise, as base64. Discord
 doesn't let a client send many requests quickly, and Yapfast only sends one when

@@ -993,12 +993,24 @@ impl Api {
         self.empty(self.request(Method::POST, &path)).await
     }
 
-    /// Sends `user` a friend request, or accepts theirs. `place` is where in
-    /// Discord's client this happens, which it tells Discord with each change
-    /// to a relationship, such as "User Profile" or "Friends".
+    /// Sends `user` a friend request. `place` is where in Discord's client this
+    /// happens, which it tells Discord with each change to a relationship, such
+    /// as "User Profile" or "Friends".
     pub async fn add_friend(&self, user: &str, place: &str) -> Result<()> {
         let path = format!("/users/@me/relationships/{user}");
         let request = with_json(self.request(Method::PUT, &path), &json!({}));
+        self.empty(request.header("X-Context-Properties", context(place)))
+            .await
+    }
+
+    /// Accepts the friend request `user` sent this account. Discord wants it
+    /// said that a stranger's request is welcome: one from someone with no
+    /// friend and no small server in common needs `confirm_stranger_request`,
+    /// and is refused with 80013 without it.
+    pub async fn accept_friend(&self, user: &str, place: &str) -> Result<()> {
+        let path = format!("/users/@me/relationships/{user}");
+        let body = json!({ "confirm_stranger_request": true });
+        let request = with_json(self.request(Method::PUT, &path), &body);
         self.empty(request.header("X-Context-Properties", context(place)))
             .await
     }
