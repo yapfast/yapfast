@@ -3,7 +3,10 @@
 //! dav1d, through native/av1.c; and H265 with the HEVC decoder of
 //! vendor/ffmpeg-src's FFmpeg, through native/hevc.c, where it's built.
 
-use std::ffi::{c_int, c_uchar, c_uint};
+use std::{
+    ffi::{c_int, c_uchar, c_uint},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use anyhow::{Result, bail};
 use livekit::webrtc::native::yuv_helper;
@@ -69,11 +72,94 @@ pub const DECODES: &[Codec] = if cfg!(hevcdec) {
     &[Codec::Av1, Codec::H264, Codec::Vp8]
 };
 
+/// The most threads one decoder asks for. A stream shown large comes off
+/// four threads close to real time, while each of them is a reference picture
+/// the codec keeps, so past four the work is heavier for little gain.
+const MOST_THREADS: usize = 4;
+
+/// The decoder threads everything decoding in this process shares.
+///
+/// Each decoder asking the machine what it has, as if it were alone on it,
+/// leaves the sum of them to chance: a watch that turns to another codec, a
+/// second decoder beside the first, and two streams on a four-core machine
+/// would each take four threads.
+static THREADS: Budget = Budget::new();
+
+/// The threads decoders in one process may use between them, handed out a
+/// decoder at a time and given back when it goes.
+pub struct Budget {
+    claimed: AtomicUsize,
+}
+
+impl Budget {
+    const fn new() -> Self {
+        Self {
+            claimed: AtomicUsize::new(0),
+        }
+    }
+
+    /// Claims threads for one decoder on a machine with `cores`: up to four,
+    /// as many as the budget has left, and at least one. A decoder on no
+    /// threads decodes nothing, so a stream past the budget oversubscribes by
+    /// the one thread it can't do without rather than waiting for another
+    /// stream to finish.
+    fn claim(&self, cores: usize) -> Threads<'_> {
+        let want = cores.min(MOST_THREADS);
+        let mut claimed = self.claimed.load(Ordering::Relaxed);
+        loop {
+            let threads = want.min(cores.saturating_sub(claimed)).max(1);
+            match self.claimed.compare_exchange_weak(
+                claimed,
+                claimed + threads,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    return Threads {
+                        budget: self,
+                        threads: threads as u32,
+                    };
+                }
+                Err(moved) => claimed = moved,
+            }
+        }
+    }
+
+    /// How many threads this process's decoders hold now.
+    pub fn claimed(&self) -> usize {
+        self.claimed.load(Ordering::Relaxed)
+    }
+}
+
+/// One decoder's share of a [`Budget`], given back when the decoder goes.
+pub struct Threads<'a> {
+    budget: &'a Budget,
+    threads: u32,
+}
+
+impl Threads<'_> {
+    pub fn count(&self) -> u32 {
+        self.threads
+    }
+}
+
+impl Drop for Threads<'_> {
+    fn drop(&mut self) {
+        self.budget
+            .claimed
+            .fetch_sub(self.threads as usize, Ordering::AcqRel);
+    }
+}
+
 pub struct Decoder {
     raw: *mut Raw,
     codec: Codec,
     decode: DecodeFn,
     free: FreeFn,
+    /// The share of this process's thread budget the decoder holds, if it took
+    /// one from there: given back with the reference frames it keeps when the
+    /// decoder goes.
+    claimed: Option<Threads<'static>>,
 }
 
 // SAFETY: no library keeps thread-local state; one thread uses the decoder at a time.
@@ -90,13 +176,18 @@ pub struct Picture<'a> {
 }
 
 impl Decoder {
-    /// A decoder on up to four threads, for a stream shown large.
+    /// A decoder on up to four threads, of what this process has to spare for
+    /// decoding at once, for a stream shown large.
     pub fn new(codec: Codec) -> Result<Self> {
-        let threads = std::thread::available_parallelism().map_or(1, |cores| cores.get().min(4));
-        Self::with_threads(codec, threads as u32)
+        let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+        let claimed = THREADS.claim(cores);
+        let mut decoder = Self::with_threads(codec, claimed.count())?;
+        decoder.claimed = Some(claimed);
+        Ok(decoder)
     }
 
-    /// A decoder on `threads` threads; each keeps frames of its own.
+    /// A decoder on `threads` threads; each keeps frames of its own. The
+    /// caller has those threads to give, so none are claimed from the budget.
     pub fn with_threads(codec: Codec, threads: u32) -> Result<Self> {
         let threads = threads.max(1) as c_uint;
         // SAFETY: plain values; null means the codec couldn't start.
@@ -134,6 +225,7 @@ impl Decoder {
             codec,
             decode,
             free,
+            claimed: None,
         })
     }
 
@@ -242,6 +334,37 @@ mod tests {
                 .join(name),
         )
         .unwrap()
+    }
+
+    /// Watches that decode at once share one budget of threads: the first on
+    /// a four-core machine gets the four threads a lone stream always got, the
+    /// next gets the one a decoder can't do without rather than four more, and
+    /// what one gives back another may claim.
+    #[test]
+    fn decoders_share_one_budget_of_threads() {
+        let budget = Budget::new();
+        let first = budget.claim(4);
+        assert_eq!(
+            first.count(),
+            4,
+            "a stream on a four-core machine gets four"
+        );
+        let second = budget.claim(4);
+        assert_eq!(second.count(), 1, "a stream past the budget gets one");
+        assert_eq!(budget.claimed(), 5, "five threads on four cores, not eight");
+        // Cores to spare don't buy one stream more than four of them.
+        assert_eq!(Budget::new().claim(32).count(), 4);
+        // A small machine gives what it has, not four.
+        assert_eq!(Budget::new().claim(2).count(), 2);
+        // A decoder that goes gives its threads back, and the next claims as
+        // many as the budget has left then.
+        drop(first);
+        assert_eq!(budget.claimed(), 1);
+        let third = budget.claim(4);
+        assert_eq!(third.count(), 3);
+        assert_eq!(budget.claimed(), 4);
+        drop((second, third));
+        assert_eq!(budget.claimed(), 0, "every thread went back");
     }
 
     fn check(codec: Codec, frame: &[u8]) {

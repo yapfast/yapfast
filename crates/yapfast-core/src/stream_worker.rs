@@ -974,7 +974,14 @@ fn watch(
     // A frame that doesn't fit scales through this, a picture of the size
     // shown; one that does goes straight into the shared frame.
     let mut scratch = vec![];
-    let mut shown = false;
+    // A whole frame taken off the stream only to learn that a newer picture
+    // was already waiting: decoded on the next turn, in order, so taking it
+    // never skips one.
+    let mut ahead: Option<ReceivedFrame> = None;
+    // When the last picture reached the shared frame, and how many a newer one
+    // replaced before it could.
+    let mut showing: Option<Instant> = None;
+    let mut replaced = 0u64;
     let mut failures = 0u64;
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
@@ -987,7 +994,10 @@ fn watch(
         if let Link::Ended(reason) = receiver.link() {
             bail!("Lost the stream: {reason}");
         }
-        let Some(frame) = receiver.next(Duration::from_millis(100)) else {
+        let Some(frame) = ahead
+            .take()
+            .or_else(|| receiver.next(Duration::from_millis(100)))
+        else {
             continue;
         };
         let picture = match decoding.decode(&frame) {
@@ -1009,6 +1019,31 @@ fn watch(
                 continue;
             }
         };
+        // The whole frame that would replace this picture, if it is already
+        // here. It waits for the next turn rather than being dropped, so
+        // looking ahead never skips a frame the decoder needs.
+        let newer = match receiver.next(Duration::ZERO) {
+            Some(frame) => {
+                ahead = Some(frame);
+                true
+            }
+            None => false,
+        };
+        if !worth_showing(showing, Instant::now(), newer) {
+            replaced += 1;
+            // The first of a run, and then now and again, as for a stream
+            // frame that didn't decode: a watch that shows fewer pictures
+            // than it decodes is one whose decode is outrunning its screen.
+            if replaced == 1 || replaced.is_multiple_of(100) {
+                tracing::debug!(
+                    replaced,
+                    width = picture.width,
+                    height = picture.height,
+                    "a decoded picture a newer one replaced wasn't shown"
+                );
+            }
+            continue;
+        }
         let (width, height) = (picture.width, picture.height);
         if writer.fits(width, height) && width <= max_width && height <= max_height {
             writer.write(width, height, |pixels| picture.to_rgba(pixels));
@@ -1018,13 +1053,36 @@ fn watch(
                 picture.i420().to_rgba(&mut scratch, pixels, width, height)
             });
         }
-        if !shown {
-            shown = true;
+        let first = showing.is_none();
+        // Once the conversion is done, not when it began: what the next
+        // picture is measured from is when this one reached the screen.
+        showing = Some(Instant::now());
+        if first {
             tracing::info!(width, height, codec = ?frame.codec, "showing the stream");
             report(Report::Streaming);
         }
     }
     Ok(())
+}
+
+/// How soon after one picture another is worth converting and scaling: faster
+/// than any screen a stream plays on draws, so a picture decoded within this
+/// of the one before it is one the next replaces before it's seen.
+const SHOW_EVERY: Duration = Duration::from_millis(8);
+
+/// Whether a picture decoded now is worth converting and showing, given when
+/// one last reached the screen and whether a newer whole frame was already in
+/// hand.
+///
+/// Decoding is never skipped this way — a picture the next one references has
+/// to be decoded for the pictures after it, and the whole frame taken to find
+/// a newer one is decoded on the next turn. What is skipped is the RGBA
+/// conversion of a picture the screen would never show, which is the work the
+/// picture the viewer is waiting for would otherwise pay for. A picture that
+/// arrives a frame period after the last is always shown, whatever else is in
+/// hand, so a watch that keeps up shows every frame and leaves nothing out.
+fn worth_showing(shown: Option<Instant>, now: Instant, newer: bool) -> bool {
+    shown.is_none_or(|shown| !newer || now.duration_since(shown) >= SHOW_EVERY)
 }
 
 /// When frame `frame` of a loop begun at `started` is due at `fps`.
@@ -2004,6 +2062,32 @@ mod tests {
         assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
         assert_eq!(fit(3440, 1440, 1280, 720), (1280, 534));
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
+    }
+
+    /// A picture a newer one replaces before the screen could draw it isn't
+    /// converted, scaled or shown: the watch drains what queued and shows the
+    /// newest of it. A watch that keeps up shows every frame, and a watch
+    /// that hasn't shown anything yet always shows the first.
+    #[test]
+    fn a_picture_a_newer_one_replaces_isnt_shown() {
+        let millis = Duration::from_millis;
+        let shown = Instant::now();
+        // Nothing shown yet: the first picture reaches the screen whatever
+        // came in behind it, or a stream that outruns its decoder would show
+        // nothing at all.
+        assert!(worth_showing(None, shown, false));
+        assert!(worth_showing(None, shown, true));
+        // Pictures decoded back to back — what queued while the decoder was
+        // slow — are pictures no screen draws: the last of them is shown.
+        assert!(!worth_showing(Some(shown), shown + millis(1), true));
+        assert!(!worth_showing(Some(shown), shown + millis(7), true));
+        assert!(worth_showing(Some(shown), shown + millis(8), true));
+        // A frame period later — 30 frames a second — it's the newest
+        // picture there could be, so it's shown.
+        assert!(worth_showing(Some(shown), shown + millis(33), true));
+        // With nothing newer in hand the decoder is keeping up: every frame
+        // is shown, however fast they come.
+        assert!(worth_showing(Some(shown), shown, false));
     }
 
     /// Frames at 30 fps are due every 33⅓ ms: on time, a loop waits for the

@@ -233,7 +233,9 @@ every 500 ms as above, and decoding nothing until one comes, the deltas after it
 being built on a picture the decoder never had. A decoder replaced because the
 stream changed codec starts from a keyframe too. A stream in a codec this build
 has no decoder for keeps its sound playing, and gets pictures again if the
-streamer turns to one this build has.
+streamer turns to one this build has. A decoder asks for up to four threads
+from a budget it gives back when it goes, and a picture a newer one replaces
+before the screen draws it is decoded but not converted or shown.
 dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
 H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor
