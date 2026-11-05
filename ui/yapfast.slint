@@ -3621,6 +3621,7 @@ export component YapfastWindow inherits Window {
                             befriend => { root.befriend(root.panel-profile.id); }
                             more(x, y) => { root.open-context-menu(root.panel-profile.id, true, x, y); }
                             send-message(text) => { root.message-from-profile(root.panel-profile.id, text); }
+                            edit-profile => { root.edit-profile(); }
                             open-link(link) => { root.open-link(link); }
                             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
                             open-friend(id, x, y, width, height) => {
@@ -4103,6 +4104,7 @@ export component YapfastWindow inherits Window {
             more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
         }
     }
     // A full profile over the window, as the viewer shows images.
@@ -4135,6 +4137,7 @@ export component YapfastWindow inherits Window {
             // In the full profile, a friend's opens full too.
             open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
             tab-opened(page) => { root.profile-tab-opened(page); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
         }
     }
     // A mutual server's card, over the profile that lists it. Clicking

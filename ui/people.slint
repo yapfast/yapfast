@@ -889,6 +889,8 @@ export component ProfileCard inherits Rectangle {
     callback open-friend(string, length, length, length, length);
     /// Enter in the card's message box, with what it held.
     callback send-message(string);
+    /// Edit Profile, on one's own card.
+    callback edit-profile;
     property <length> banner-height: root.side ? 140px : root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
     property <length> pad: root.side ? 20px : root.large ? 24px : 16px;
@@ -1041,7 +1043,12 @@ export component ProfileCard inherits Rectangle {
                         }
                         // The full profile's actions: the friend button, the message
                         // button and the menu, as Discord sets them under the name.
-                        if root.large && !root.preview && (root.data.friend > 0 || root.data.can-message || root.data.id != ""): HorizontalLayout {
+                        // One's own, as Discord's, has Edit Profile in their place.
+                        if root.large && !root.preview && root.data.own: HorizontalLayout {
+                            alignment: start; height: 32px;
+                            ActionButton { text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true; small: true; clicked => { root.edit-profile(); } }
+                        }
+                        if root.large && !root.preview && !root.data.own && (root.data.friend > 0 || root.data.can-message || root.data.id != ""): HorizontalLayout {
                             spacing: 8px; alignment: start; height: 32px;
                             if root.data.friend > 0: Rectangle {
                                 height: 32px; width: friend-row.preferred-width + 24px; border-radius: 4px;
@@ -1282,6 +1289,10 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         if root.data.note != "": Text { text: root.data.note; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+                        if !root.large && !root.preview && root.data.own: ActionButton {
+                            text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true;
+                            clicked => { root.edit-profile(); }
+                        }
                         // Escape in the box closes the card, as it does elsewhere.
                         if !root.large && !root.preview && root.data.message-hint != "": FocusScope {
                             // It empties for someone else's profile.
@@ -1373,6 +1384,8 @@ export component ProfileModal inherits Rectangle {
     /// A tab opened, by its page; Board, Activity and Wishlist ask Discord
     /// for what they show the first time.
     callback tab-opened(int);
+    /// Edit Profile, on one's own.
+    callback edit-profile;
     /// 0 activity, 1 mutual friends, 2 mutual servers, 3 board, 4 wishlist.
     in-out property <int> page: 0;
     // The tab asked for when it is empty falls back to the first.
@@ -1403,6 +1416,7 @@ export component ProfileModal inherits Rectangle {
             save-note(user, note) => { root.save-note(user, note); }
             more(x, y) => { root.more(x, y); }
             open-link(link) => { root.open-link(link); }
+            edit-profile => { root.edit-profile(); }
         }
         VerticalLayout {
             padding-left: 12px; padding-right: 12px; padding-top: 4px; spacing: 12px;
