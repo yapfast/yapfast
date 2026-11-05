@@ -29,26 +29,46 @@ commit. These close the items named, not the whole section around them.
 
 | Item | Change | Commit |
 | --- | --- | --- |
+| C1, C2 | Conversion and scaling write into kept buffers, the status lock is never held while a frame is made, and a stale capture generation can't write into the one that replaced it | `5dd91e2`, `ffb09f2` |
 | C3 | Frames a stall swallowed are skipped rather than chased | `cf90bf9` |
-| C1, C2 | Conversion and scaling write into kept buffers; the capture's status lock is never held while a frame is made; the preview scales into one buffer | `5dd91e2` |
-| C4 | A preview is made only while the UI shows one, told by `Control::Preview`; buffers unchanged | `6e07c38` |
-| E1 | An encoded frame owns its bytes from a bounded pool of three, so nothing copies them to send | `3ffea45` |
-| E2 | The format the encoder took and the clock its frames carry are stated rather than assumed; a late packet is dropped, not relabelled | `5032635` |
-| E3 | Encoder settings are required or optional, so an open fails on what it needs and the stream never claims a setting it hasn't got; AMF's AV1 open no longer fails on an `aud` it has no option for | `9e73614` |
+| C4 | A preview is made only while the UI shows one — including a grid scrolled past the tile | `6e07c38`, `d242374` |
+| E1 | An encoded frame owns its bytes from a bounded pool of three | `3ffea45` |
+| E2 | The format the encoder took and the clock its frames carry are stated, not assumed; a late packet is dropped, not relabelled | `5032635` |
+| E3 | Settings are required or optional, so an open fails on what it needs; a backend passed over says why; AMF's AV1 no longer fails on an `aud` it hasn't got | `9e73614`, `dbb6164` |
+| E4 | NVENC's tuning is one table with the applied configuration logged; the default is unchanged pending measurement | `320e31e` |
+| E5 | The declared colour is the colour the pixels are | `dbb6164` |
 | T1 | Packetizing allocates nothing per frame: one reused plan and one datagram buffer | `5d8b902` |
-| T2 | The RTX history reuses packet buffers | `df7e492` |
-| T3 | A frame's packets go out over many turns of the loop, so sound, the gateway and viewers' feedback are polled between batches | `958ff2e` |
-| T4 | A keyframe request is answered at most twice a second, so a congestion event doesn't turn into a run of IDRs; a backlogged sender skips the encode | `a8ae641`, `d3fd7ec` |
-| A1 | Opus encoder settings are checked and reported when refused | `27ad894` |
-| A3 | Shared-sound capture is bounded without oversizing | `b93604b` |
-| A4 | Received sound carries its numbering and arrival time, and the playout reorders, primes, conceals, recovers by FEC and restarts on a new SSRC or clock | `56a0f7e` |
-| A5 | The playout's hold is bounded in held time as well as frames, and a bound drops the sound that came too early, never the packet about to play | `e8228e8` |
-| W1 | A device wait is cut short when the stream is stopping, and never counts as a lost device; `Output::write` starts a stream as soon as sound is queued; a system that can't name an endpoint no longer moves a working stream | `41b2406`, `6965384` |
-| §7 | A decode failure waits for a keyframe instead of failing every delta after it, and a codec this build lacks no longer ends the watch | `215394e` |
+| T2 | The RTX history reuses buffers, and nothing older than two seconds is resent | `df7e492`, `9e9827c` |
+| T3 | A frame's packets go out over many turns of the loop | `958ff2e` |
+| T4 | A keyframe is made at most twice a second; a fall is obeyed at a tenth and a rise at a quarter; a stale estimate is forgotten; a backlogged sender skips the encode | `a8ae641`, `d3fd7ec`, `9e9827c` |
+| §7 | A decode failure waits for a keyframe; an unknown codec keeps the sound; threads come from a budget the app divides; a replaced picture isn't converted or shown | `215394e`, `5cbc3cc`, `ffb09f2` |
+| A1, A2 | Opus settings are checked and reported, and written down where they were only defaults | `27ad894`, `7c6b115` |
+| A3 | Capture is bounded without oversizing; the mix doesn't clip and a driver's NaN stops at the input | `b93604b`, `03b13ab` |
+| A4 | Received sound carries its numbering and arrival time; the playout reorders, primes, conceals, recovers by FEC and restarts correctly | `56a0f7e` |
+| A5 | The hold is bounded in held time, a bound drops the sound that came too early, and loss is counted apart from drift | `e8228e8`, `04fc83d` |
+| W1 | Device waits are cancellable and never count as a lost device; a stream starts as soon as sound is queued; an unnamed endpoint doesn't move a working stream | `41b2406`, `6965384` |
+| W2 | The loopback leaves out the right process instead of guessing, and the engine's buffer is borrowed only for a copy | `87529b5` |
+| M1 | A suppressor loads between blocks, one network at a time; the chain was audited and refuted duplicate processing with measurements | `995e1f2` |
+| §11 | Reports cross a bounded queue, stopping doesn't block the call, a stopped share stops reading as live, and the tab shows what bounds gave up | `480374e` |
+| §12 | Assessed and **not built**: every experiment needs the NixOS measurement rig, a rebuilt FFmpeg, or hardware this machine hasn't got; see the note below | — |
 
-Still open and untouched: C1/C2's generation tags for late callbacks, W1's
-discontinuity reporting and ageing out a backlog, W2, M1, T4's floor and
-threshold behaviour, E4's measured tuning, E5, §11's reports, and §12.
+Section 12's verdict, so it is not re-opened blindly: Windows GPU
+capture-to-NVENC needs a replacement capture path and an FFmpeg configured with
+`--enable-d3d11va`; GPU conversion pays off only after that; hardware
+decode/render interop needs a rebuilt FFmpeg and still downloads to CPU to
+display; Intel QSV needs oneVPL headers the vendor lacks; the Linux surface
+paths already exist. All of them fail section 14's evidence bar on a machine
+without the rig.
+
+Still open: one bullet of section 7 — doing less presentation work while the
+window is hidden or minimised without stalling reference decoding or the sound.
+
+Everything else that remains is **waiting on measurement, not on code**: E4's
+choice of preset, E5's proof that a different colour claim would look right, A2's
+faster complexity setting, and A5's audio-to-video clock mapping. Each needs the
+NixOS/NVIDIA rig that produced `docs/measurements/README.md`, a viewer comparison,
+or a listener; none can be settled on a machine that can't run the app against a
+real screen. Section 14's rule stands: a claim without a number stays open.
 
 
 **Terminology:** AV1, H.265/HEVC, H.264, and Opus are codecs. NVENC (NVIDIA),
