@@ -30,37 +30,39 @@ const PALETTES: [(&str, u32); 12] = [
 pub struct Plate {
     /// The SKU it was sold as, which names its pictures.
     pub sku: u64,
-    /// Its palette, as an index into [`PALETTES`].
-    palette: u8,
+    /// Its palette, as an index into [`PALETTES`]; none for one Yapfast
+    /// doesn't know, whose plate shows its picture without the colour.
+    palette: Option<u8>,
 }
 
 impl Plate {
-    /// Reads `collectibles.nameplate`, when it has a SKU and a palette
-    /// Yapfast knows.
+    /// Reads `collectibles.nameplate`, when it has a SKU. A palette Yapfast
+    /// doesn't know, such as a custom one, leaves the plate without a colour.
     pub fn parse(nameplate: &Value) -> Option<Self> {
         let sku = nameplate["sku_id"].as_str()?.parse().ok()?;
-        let palette = palette(nameplate["palette"].as_str()?)?;
+        let palette = nameplate["palette"].as_str().and_then(palette);
         Some(Self { sku, palette })
     }
 
     /// A plate saved by [`Self::palette_name`].
-    pub fn restore(sku: u64, palette: &str) -> Option<Self> {
-        Some(Self {
+    pub fn restore(sku: u64, palette: &str) -> Self {
+        Self {
             sku,
-            palette: self::palette(palette)?,
-        })
+            palette: self::palette(palette),
+        }
     }
 
-    /// The palette's name, as Discord sends it.
+    /// The palette's name, as Discord sends it; empty without one.
     pub fn palette_name(&self) -> &'static str {
-        PALETTES[usize::from(self.palette)].0
+        self.palette
+            .map_or("", |palette| PALETTES[usize::from(palette)].0)
     }
 
     /// The plate as a member list or card shows it.
     pub fn shown(&self) -> Nameplate {
         Nameplate {
             picture: picture(self.sku),
-            color: PALETTES[usize::from(self.palette)].1,
+            color: self.palette.map(|palette| PALETTES[usize::from(palette)].1),
         }
     }
 }
@@ -121,8 +123,9 @@ pub struct Nameplate {
     /// The address of its still picture: a strip that fills the row's right
     /// end, behind the name.
     pub picture: String,
-    /// The RGB colour its gradient takes from its palette.
-    pub color: u32,
+    /// The RGB colour its gradient takes from its palette; none for a
+    /// palette Yapfast doesn't know, which leaves the picture bare.
+    pub color: Option<u32>,
 }
 
 /// The SKU of an avatar decoration, from `avatar_decoration_data`.
@@ -154,19 +157,24 @@ mod tests {
         assert_eq!(plate.sku, 1_409_983_105_577_783_410);
         assert_eq!(plate.palette_name(), "violet");
         let shown = plate.shown();
-        assert_eq!(shown.color, 0x730bc8);
+        assert_eq!(shown.color, Some(0x730bc8));
         assert!(
             shown
                 .picture
                 .ends_with("/media/v1/collectibles-shop/1409983105577783410/static")
         );
-        assert_eq!(Plate::restore(plate.sku, plate.palette_name()), Some(plate));
+        assert_eq!(Plate::restore(plate.sku, plate.palette_name()), plate);
     }
 
     #[test]
-    fn skips_a_palette_it_does_not_know() {
-        let custom = json!({"sku_id": "5", "palette": "custom_palette"});
-        assert_eq!(Plate::parse(&custom), None);
+    fn keeps_the_picture_of_a_palette_it_does_not_know() {
+        let custom = Plate::parse(&json!({"sku_id": "5", "palette": "custom_palette"})).unwrap();
+        let shown = custom.shown();
+        assert_eq!(shown.color, None);
+        assert!(shown.picture.ends_with("/collectibles-shop/5/static"));
+        assert_eq!(custom.palette_name(), "");
+        assert_eq!(Plate::restore(5, ""), custom, "it survives being saved");
+        assert_eq!(Plate::parse(&json!({"sku_id": "5"})), Some(custom));
         assert_eq!(Plate::parse(&json!({"palette": "violet"})), None);
         assert_eq!(decoration_sku(&json!({"asset": "a_x"})), None);
         assert_eq!(decoration_sku(&json!({"sku_id": "42"})), Some(42));

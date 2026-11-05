@@ -2094,7 +2094,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     window.show().unwrap();
     let plate = |picture: &str| Nameplate {
         picture: picture.into(),
-        color: 0x730bc8,
+        color: Some(0x730bc8),
     };
     let member = |id: &str, name: &str| ChatMember {
         id: id.into(),
@@ -2126,6 +2126,13 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
                 ..member("1", "Bob")
             },
             member("2", "Dave"),
+            ChatMember {
+                nameplate: Some(Nameplate {
+                    picture: "bare.png".into(),
+                    color: None,
+                }),
+                ..member("3", "Eve")
+            },
         ]));
         state.account_decoration = Some("mine.png".into());
         state.account_nameplate = Some(plate("mine-strip.png"));
@@ -2141,9 +2148,77 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         slint::Color::from_rgb_u8(0x73, 0x0b, 0xc8)
     );
     assert!(dave.decoration_url.is_empty() && dave.nameplate_url.is_empty());
+    // A palette Yapfast doesn't know leaves the picture without a colour.
+    let eve = roster.row_data(2).unwrap();
+    assert_eq!(eve.nameplate_url, "bare.png");
+    assert_eq!(eve.nameplate_color.alpha(), 0);
     let look = window.global::<AccountLook>();
     assert_eq!(look.get_decoration_url(), "mine.png");
     assert_eq!(look.get_nameplate_url(), "mine-strip.png");
+    // Show nameplates off takes every one away.
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.dispatch(Action::HideNameplates(true));
+        let window = window.clone_strong();
+        adapter.refresh(&window);
+    }
+    let roster = window.get_roster();
+    assert!((0..3).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
+    assert_eq!(roster.row_data(0).unwrap().decoration_url, "ring.png");
+    assert!(look.get_nameplate_url().is_empty());
+    window.hide().unwrap();
+}
+
+#[test]
+fn the_nameplates_setting_is_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // On unless turned off.
+    assert!(window.get_show_nameplates());
+    assert_eq!(Layout::read(directory.path()).nameplates, None);
+    assert!(!adapter.borrow().app.state.hide_nameplates);
+    window.set_show_nameplates(false);
+    window.invoke_preferences_changed();
+    assert_eq!(Layout::read(directory.path()).nameplates, Some(false));
+    assert!(adapter.borrow().app.state.hide_nameplates);
+}
+
+#[test]
+fn a_nameplates_picture_is_asked_for_when_its_row_shows() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    window.set_workspace(true);
+    window.set_room_selected(true);
+    window.set_room_ready(true);
+    window.set_members_available(true);
+    let requested = Rc::new(RefCell::new(HashSet::new()));
+    let requests = requested.clone();
+    window
+        .global::<PictureStore>()
+        .on_picture(|_, _| slint::Image::default());
+    window.global::<PictureStore>().on_request(move |url| {
+        requests.borrow_mut().insert(url.to_string());
+    });
+    window.set_roster(ModelRc::new(VecModel::from(vec![MemberRow {
+        id: "1".into(),
+        name: "Member".into(),
+        nameplate_url: "plate/still".into(),
+        ..Default::default()
+    }])));
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+    assert!(requested.borrow().contains("plate/still"));
     window.hide().unwrap();
 }
 

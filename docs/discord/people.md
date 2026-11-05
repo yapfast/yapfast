@@ -359,7 +359,9 @@ nameplate among `collectibles` takes them off.
   palettes (`crimson`, `berry`, `sky`, `teal`, `forest`, `bubble_gum`,
   `violet`, `cobalt`, `clover`, `lemon`, `white`, `black`) have the colours
   of the client's own `darkBackground` (`collectibles.rs`); a palette it
-  doesn't know, such as `custom_palette`, shows no plate.
+  doesn't know, such as `custom_palette`, shows the plate's picture without
+  the gradient. Show nameplates in Appearance (on unless turned off, kept in
+  `layout.json` as `nameplates`) hides every plate: none is fetched or drawn.
 
 Both pictures are served by `https://cdn.discordapp.com/media/v1/collectibles-shop/{sku_id}/static`,
 a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The

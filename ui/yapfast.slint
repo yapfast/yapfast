@@ -1084,6 +1084,8 @@ export component YapfastWindow inherits Window {
     in-out property <bool> link-previews: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
+    /// Whether nameplates show, in member lists and on the account's card.
+    in-out property <bool> show-nameplates: true;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
@@ -3639,6 +3641,8 @@ export component YapfastWindow inherits Window {
             can-save: root.theme-can-save;
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
+            show-nameplates <=> root.show-nameplates;
+            preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }

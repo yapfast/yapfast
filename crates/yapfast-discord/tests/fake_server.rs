@@ -1338,7 +1338,7 @@ async fn shows_decorations_and_nameplates() {
         url.ends_with("/media/v1/collectibles-shop/1500000000000000003/static")
     }));
     let plate = account.nameplate.as_ref().unwrap();
-    assert_eq!(plate.color, 0xdc3e97, "bubble gum");
+    assert_eq!(plate.color, Some(0xdc3e97), "bubble gum");
     assert!(
         plate
             .picture
@@ -1357,7 +1357,10 @@ async fn shows_decorations_and_nameplates() {
     let person = |name: &str| members.iter().find(|member| member.name == name).unwrap();
     assert!(person("Bob").decoration.is_some() && person("Bob").nameplate.is_none());
     assert!(person("Carol").decoration.is_none());
-    assert_eq!(person("Carol").nameplate.as_ref().unwrap().color, 0x730bc8);
+    assert_eq!(
+        person("Carol").nameplate.as_ref().unwrap().color,
+        Some(0x730bc8)
+    );
     // Dave has none of his own, but wears a decoration and a nameplate for
     // this server alone, which member objects carry; Bob's name takes a
     // style there, and Carol's everywhere.
@@ -1367,7 +1370,10 @@ async fn shows_decorations_and_nameplates() {
             .as_deref()
             .is_some_and(|url| url.ends_with("/collectibles-shop/1500000000000000005/static"))
     );
-    assert_eq!(person("Dave").nameplate.as_ref().unwrap().color, 0x086460);
+    assert_eq!(
+        person("Dave").nameplate.as_ref().unwrap().color,
+        Some(0x086460)
+    );
     let bob_style = person("Bob").style.unwrap();
     assert_eq!((bob_style.font, bob_style.effect), (14, 3));
     assert_eq!(bob_style.colors(), [0x00ff99]);

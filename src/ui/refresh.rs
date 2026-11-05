@@ -1046,12 +1046,16 @@ impl Adapter {
             state
                 .account_nameplate
                 .as_ref()
+                .filter(|_| !state.hide_nameplates)
                 .map(|plate| plate.picture.as_str())
                 .unwrap_or_default()
                 .into(),
         );
         look.set_nameplate_color(role_color(
-            state.account_nameplate.as_ref().map(|plate| plate.color),
+            state
+                .account_nameplate
+                .as_ref()
+                .and_then(|plate| plate.color),
         ));
         let (custom_status, status_emoji) = state
             .custom_status
@@ -1710,11 +1714,12 @@ impl Adapter {
                         nameplate_url: member
                             .nameplate
                             .as_ref()
+                            .filter(|_| !state.hide_nameplates)
                             .map(|plate| plate.picture.as_str())
                             .unwrap_or_default()
                             .into(),
                         nameplate_color: role_color(
-                            member.nameplate.as_ref().map(|plate| plate.color),
+                            member.nameplate.as_ref().and_then(|plate| plate.color),
                         ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         presence: presence_name(member.presence).into(),

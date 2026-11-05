@@ -1499,6 +1499,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
+        layout.nameplates = Some(window.get_show_nameplates());
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
@@ -1560,6 +1561,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             (window.get_reply_ping_default(), window.get_strip_tracking());
         adapter.app.dispatch(Action::ReplyPing(reply_ping));
         adapter.app.dispatch(Action::StripTracking(strip_tracking));
+        adapter
+            .app
+            .dispatch(Action::HideNameplates(!window.get_show_nameplates()));
         adapter.restyle = true;
         adapter.refresh(&window);
     });

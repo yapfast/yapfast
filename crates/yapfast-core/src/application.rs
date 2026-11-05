@@ -493,6 +493,9 @@ pub struct AppState {
     pub reply_ping: bool,
     /// Tracking parameters come out of the links in sent messages.
     pub strip_tracking: bool,
+    /// Nameplates aren't fetched or shown, in member lists or on the
+    /// account's card.
+    pub hide_nameplates: bool,
     /// Messages from people this account blocked don't show at all, rather
     /// than collapsed.
     pub hide_blocked: bool,
@@ -1953,6 +1956,8 @@ pub enum Action {
     },
     /// Take tracking parameters out of links in sent messages.
     StripTracking(bool),
+    /// Turns nameplates off, or on again.
+    HideNameplates(bool),
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
@@ -2169,6 +2174,7 @@ fn pictures_on_screen<'a>(
             state
                 .account_nameplate
                 .as_ref()
+                .filter(|_| !state.hide_nameplates)
                 .map(|plate| plate.picture.as_str()),
         )
         .chain(
@@ -2396,6 +2402,7 @@ fn pictures_on_screen<'a>(
                         member
                             .nameplate
                             .as_ref()
+                            .filter(|_| !state.hide_nameplates)
                             .map(|plate| plate.picture.as_str()),
                     ]
                 })
@@ -3261,6 +3268,10 @@ impl Application {
             }
             Action::StripTracking(strip) => {
                 self.state.strip_tracking = strip;
+                vec![]
+            }
+            Action::HideNameplates(hide) => {
+                self.state.hide_nameplates = hide;
                 vec![]
             }
             Action::HideBlocked(hide) => {

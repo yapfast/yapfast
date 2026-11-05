@@ -665,8 +665,9 @@ pub struct ServerTag {
 pub struct Nameplate {
     /// The address of its picture; see [`DiscordCommand::Pictures`].
     pub picture: String,
-    /// The RGB colour its gradient takes from its palette.
-    pub color: u32,
+    /// The RGB colour its gradient takes from its palette; none leaves the
+    /// picture bare.
+    pub color: Option<u32>,
 }
 
 /// A Discord display name style: how someone's name is drawn, with up to

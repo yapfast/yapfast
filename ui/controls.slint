@@ -409,6 +409,8 @@ export component Avatar inherits Rectangle {
 export component Nameplate inherits Rectangle {
     /// The address of the plate's picture, and its palette's colour.
     in property <string> picture-url;
+    /// The palette's colour; a transparent one means a palette Yapfast
+    /// doesn't know, and the picture shows without the tint.
     in property <color> palette;
     /// The account card's plate, which is stronger and isn't faded.
     in property <bool> account;
@@ -461,7 +463,7 @@ export component Nameplate inherits Rectangle {
         background: @linear-gradient(90deg, root.ground.with-alpha(0.7) 0%, root.ground.with-alpha(0.7) root.fade-from / root.width * 100%, root.ground.with-alpha(0) root.fade-to / root.width * 100%, root.ground.with-alpha(0) 100%);
     }
     // The palette's tint, from nothing at the left edge.
-    Rectangle {
+    if root.palette.alpha > 0: Rectangle {
         background: root.account
             ? @linear-gradient(90deg, root.palette.with-alpha(0.1) 0%, root.palette.with-alpha(0.4) 100%)
             : @linear-gradient(90deg, root.palette.with-alpha(0) 0%, root.palette.with-alpha(0.08) 20%, root.palette.with-alpha(0.08) 50%, root.palette.with-alpha(root.selected ? 0.5 : root.hovered ? 0.3 : 0.2) 100%);

@@ -3967,7 +3967,7 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
             decoration: Some("mine.png".into()),
             nameplate: Some(Nameplate {
                 picture: "plate.png".into(),
-                color: 0x730bc8,
+                color: Some(0x730bc8),
             }),
             premium_type: 0,
             mfa_enabled: false,
@@ -3991,7 +3991,7 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
         let plate = app.state.account_nameplate.as_ref().unwrap();
         assert_eq!(
             (plate.picture.as_str(), plate.color),
-            ("plate.png", 0x730bc8)
+            ("plate.png", Some(0x730bc8))
         );
     }
 }
@@ -5211,7 +5211,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
-            color: 0x730bc8,
+            color: Some(0x730bc8),
         }),
         ..member("@bob", "Bob")
     }]));
@@ -5230,6 +5230,33 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
         assert!(app.state.pictures.contains_key(shown), "{shown} stays");
     }
     assert!(!app.state.pictures.contains_key("0.png"));
+}
+
+#[test]
+fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
+    let mut app = connected();
+    app.state.members = Some(Ok(vec![ChatMember {
+        decoration: Some("bobs-ring.png".into()),
+        nameplate: Some(crate::chat::Nameplate {
+            picture: "plate.png".into(),
+            color: None,
+        }),
+        ..member("@bob", "Bob")
+    }]));
+    app.dispatch(Action::HideNameplates(true));
+    for url in ["bobs-ring.png", "plate.png"]
+        .into_iter()
+        .map(String::from)
+        .chain((0..=KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key("bobs-ring.png"));
+    assert!(!app.state.pictures.contains_key("plate.png"));
 }
 
 #[test]

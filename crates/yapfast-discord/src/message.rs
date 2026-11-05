@@ -1358,7 +1358,7 @@ impl Names {
                 .nameplates
                 .iter()
                 .filter_map(|(user, sku, palette)| {
-                    Some((id(user)?, Plate::restore(id(sku)?, palette)?))
+                    Some((id(user)?, Plate::restore(id(sku)?, palette)))
                 })
                 .collect(),
             member_decorations: saved
@@ -1370,7 +1370,7 @@ impl Names {
                 .member_nameplates
                 .iter()
                 .filter_map(|(guild, user, sku, palette)| {
-                    Some((member_key(guild, user)?, Plate::restore(id(sku)?, palette)?))
+                    Some((member_key(guild, user)?, Plate::restore(id(sku)?, palette)))
                 })
                 .collect(),
             styles: saved
@@ -2618,7 +2618,7 @@ mod tests {
                 .ends_with("/collectibles-shop/77/static")
         );
         let plate = names.nameplate(None, "2").unwrap();
-        assert_eq!(plate.color, 0x086460);
+        assert_eq!(plate.color, Some(0x086460));
         assert!(plate.picture.ends_with("/collectibles-shop/88/static"));
         let style = names.style(None, "2").unwrap();
         assert_eq!((style.font, style.effect), (3, 2));
@@ -2669,7 +2669,10 @@ mod tests {
             "elsewhere, their own"
         );
         assert!(ends(names.decoration(None, "2"), "77"));
-        assert_eq!(names.nameplate(Some("10"), "2").unwrap().color, 0x0080b7);
+        assert_eq!(
+            names.nameplate(Some("10"), "2").unwrap().color,
+            Some(0x0080b7)
+        );
         assert_eq!(names.nameplate(Some("11"), "2"), None);
         assert_eq!(names.style(Some("10"), "2").unwrap().font, 4);
         assert_eq!(names.style(None, "2").unwrap().font, 11);
