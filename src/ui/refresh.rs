@@ -80,6 +80,26 @@ impl Reach {
     }
 }
 
+/// The colour behind a member's nameplate, by the name Discord gives it.
+fn nameplate_color(member: &yapfast_core::chat::ChatMember) -> Option<u32> {
+    let palette = member.nameplate.as_ref()?.palette.as_deref()?;
+    Some(match palette {
+        "crimson" => 0x900007,
+        "berry" => 0x893a99,
+        "sky" => 0x0080b7,
+        "teal" => 0x086460,
+        "forest" => 0x2d5401,
+        "bubble_gum" => 0xdc3e97,
+        "violet" => 0x730bc8,
+        "cobalt" => 0x0131c2,
+        "clover" => 0x047b20,
+        "lemon" => 0xf6cd12,
+        "white" => 0xffffff,
+        "black" => 0x000000,
+        _ => return None,
+    })
+}
+
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
@@ -1511,6 +1531,20 @@ impl Adapter {
                         picture: slint::Image::default(),
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
+                        nameplate: member
+                            .nameplate
+                            .as_ref()
+                            .map(|plate| plate.still.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                        nameplate_moving: member
+                            .nameplate
+                            .as_ref()
+                            .map(|plate| plate.moving.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                        nameplate_tint: role_color(nameplate_color(member)),
+                        has_nameplate_tint: nameplate_color(member).is_some(),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
                         has_color: member.color.is_some(),

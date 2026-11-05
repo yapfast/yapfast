@@ -281,6 +281,7 @@ fn members_belong_to_the_selected_text_room() {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        nameplate: None,
     };
     app.apply(Event::Members {
         room: "games".into(),
@@ -2950,6 +2951,7 @@ fn member(id: &str, name: &str) -> ChatMember {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        nameplate: None,
     }
 }
 
@@ -3847,6 +3849,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            nameplate: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {
@@ -5036,6 +5039,32 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
         Arc::ptr_eq(&shelved(&plain)[0], &plain[0]),
         "rows without previews aren't copied"
     );
+}
+
+#[test]
+fn a_nameplates_still_stays_while_its_row_shows() {
+    let mut app = connected();
+    app.state.members = Some(Ok(vec![ChatMember {
+        nameplate: Some(crate::chat::Nameplate {
+            still: "still.png".into(),
+            moving: "moving.webm".into(),
+            palette: None,
+        }),
+        ..member("@bob", "Bob")
+    }]));
+    for url in ["still.png".to_owned(), "moving.webm".to_owned()]
+        .into_iter()
+        .chain((0..=KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key("still.png"));
+    assert!(!app.state.pictures.contains_key("moving.webm"));
+    assert!(!app.state.pictures.contains_key("0.png"));
 }
 
 #[test]

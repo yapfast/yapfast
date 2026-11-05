@@ -36,6 +36,8 @@ pub struct ListedMember {
     pub activities: Activities,
     /// Their roles' ids, shared with [`Names`]; empty outside a server.
     pub roles: Arc<[String]>,
+    /// The picture behind their row.
+    pub nameplate: Option<crate::ready::Nameplate>,
     /// When their timeout ends, in Unix milliseconds, while they're timed
     /// out as far as Yapfast knows.
     pub timed_out_until: Option<u64>,
@@ -82,6 +84,8 @@ impl Presence {
 struct Person {
     /// Shared with [`Names`] while it knows them.
     roles: Arc<[String]>,
+    #[serde(default)]
+    nameplate: Option<crate::ready::Nameplate>,
     presence: Presence,
     activity: Option<String>,
     /// Not saved: a game is over by the next start, and the line above
@@ -317,6 +321,7 @@ impl MemberList {
                         activity: person.activity,
                         activities: person.activities,
                         roles: person.roles,
+                        nameplate: person.nameplate,
                         timed_out_until: names.timed_out_until(&self.guild, user),
                     });
                 }
@@ -357,6 +362,7 @@ fn row(guild: &str, item: &Value, names: &mut Names, people: &mut HashMap<String
         user.to_owned(),
         Person {
             roles: names.shared_roles(guild, user).unwrap_or_default(),
+            nameplate: crate::ready::nameplate(&member["user"]),
             presence: Presence::parse(presence),
             activity: activity(&presence["activities"]),
             activities: activities(&presence["activities"]),
@@ -415,6 +421,23 @@ mod tests {
 
     fn member(id: &str, name: &str) -> Value {
         json!({"member": {"user": {"id": id, "username": name}, "roles": [], "nick": null}})
+    }
+
+    #[test]
+    fn a_row_keeps_the_nameplate_its_user_has_on() {
+        let mut names = Names::default();
+        let mut people = HashMap::new();
+        let item = json!({"member": {"roles": [], "user": {
+            "id": "1", "username": "a",
+            "collectibles": {"nameplate": {"asset": "nameplates/a/", "palette": "sky"}},
+        }}});
+        row("5", &item, &mut names, &mut people);
+        row("5", &member("2", "b"), &mut names, &mut people);
+        assert_eq!(
+            people["1"].nameplate.as_ref().unwrap().palette.as_deref(),
+            Some("sky")
+        );
+        assert_eq!(people["2"].nameplate, None);
     }
 
     #[test]

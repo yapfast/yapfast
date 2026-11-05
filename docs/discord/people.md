@@ -275,6 +275,30 @@ once a second, and only while a profile with one shows. Matrix members and
 one-to-one Matrix DMs get the same card with their name, Matrix ID, avatar and
 room role.
 
+## Nameplates
+
+A member list's rows bring each user's `collectibles.nameplate`: `{asset,
+palette, sku_id, label}`, `asset` being a path that ends in `/`. The picture
+behind their row is `/assets/collectibles/{asset}static.png` on the CDN, and
+while the row is pointed at, `{asset}asset.webm` plays in its place; it's
+fetched the first time that happens, and the still stays while animations are
+held still (`Motion.playing`). Both are kept in the picture cache with
+avatars, and the video's frames decode from that file as they show. Only
+member lists show them, and a change reaches a row when Discord next sends it,
+not from USER_UPDATE; DM rows and profile cards show none.
+
+The row is drawn as in Discord's client: the picture at the row's right end at
+60% opacity (90% selected), over a wash of the palette's colour from
+transparent on the left to 20% at the right edge (30% pointed at, 50%
+selected). Discord fades the picture out behind the name with a mask, which
+Slint doesn't have, so Yapfast draws the row's colour over it at 70%, fading
+out over 50 pixels after the name. A palette Yapfast doesn't know has no wash.
+
+The WebM is VP9 with transparency, which shows as it does for any WebM, so the
+row shows through it; the still is hidden while it plays.
+
+Show nameplates, in Appearance, turns them off; `layout.json` keeps the choice.
+
 ## Editing one's main profile
 
 Edit Profile, in the account's menu bottom left, or Edit profile in My
@@ -330,8 +354,8 @@ to remove it. The client never sends the bio, pronouns or banner to
 The client's tab also has Profile Widgets, an avatar decoration, a
 nameplate, a profile effect, a frame, display name styles and, with
 Nitro, a profile theme of two colours in place of the banner colour, then
-the Server Tag and badges. Yapfast leaves them out, as it shows none of
-them. Changing the username, in My Account with the password, is left
+the Server Tag and badges. Yapfast leaves them out: it shows only
+[nameplates](#nameplates), and shows none of the others. Changing the username, in My Account with the password, is left
 for later.
 
 ## Editing one's server profile
@@ -394,7 +418,8 @@ client never sends them there.
 
 Discord's editor also has a profile theme, an avatar decoration, display
 name styles, a nameplate, a profile effect and a frame, all Nitro and most
-bought from its shop. Yapfast leaves them out, as it shows none of them.
+bought from its shop. Yapfast leaves them out: it shows only
+[nameplates](#nameplates), and shows none of the others.
 
 A member's server profile shows wherever Yapfast shows them in that server:
 their server avatar in the member list and on their messages, from their

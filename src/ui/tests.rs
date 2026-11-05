@@ -618,6 +618,24 @@ fn the_renderer_setting_is_remembered() {
 }
 
 #[test]
+fn the_nameplates_setting_is_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    assert_eq!(Layout::read(directory.path()).nameplates, None);
+    window.global::<Looks>().set_nameplates(false);
+    window.invoke_preferences_changed();
+    assert_eq!(Layout::read(directory.path()).nameplates, Some(false));
+}
+
+#[test]
 fn custom_games_are_remembered_and_edited_in_place() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -3060,6 +3078,53 @@ fn rows_mark_mentions_and_the_new_bar_counts_what_others_sent() {
             .starts_with("1 new message since 14:05 on "),
         "with the date when it wasn't today"
     );
+}
+
+#[test]
+fn a_nameplates_video_comes_when_its_row_is_pointed_at() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_workspace(true);
+    window.set_room_selected(true);
+    window.set_room_ready(true);
+    window.set_members_available(true);
+    let requested = Rc::new(RefCell::new(HashSet::new()));
+    let requests = requested.clone();
+    window
+        .global::<PictureStore>()
+        .on_picture(|_, _| slint::Image::default());
+    window.global::<PictureStore>().on_request(move |url| {
+        requests.borrow_mut().insert(url.to_string());
+    });
+    window.set_roster(ModelRc::new(VecModel::from(vec![MemberRow {
+        id: "1".into(),
+        name: "Member".into(),
+        nameplate: "plate/still".into(),
+        nameplate_moving: "plate/moving".into(),
+        ..Default::default()
+    }])));
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    let point = |x: f32, y: f32| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerMoved {
+                position: slint::LogicalPosition::new(x, y),
+            });
+    };
+    // Over the chat, away from the member list.
+    point(400., 400.);
+    point(400., 400.);
+    assert!(requested.borrow().contains("plate/still"));
+    assert!(!requested.borrow().contains("plate/moving"));
+    // Wherever the row is in the list down the window's right side.
+    for y in (0..760).step_by(10) {
+        point(1050., y as f32);
+    }
+    assert!(requested.borrow().contains("plate/moving"));
 }
 
 #[test]

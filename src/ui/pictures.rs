@@ -114,6 +114,14 @@ pub(super) fn avatar_picture(url: &str) -> slint::Image {
     })
 }
 
+/// [`animation`] for the picture at `url`; none until it has arrived.
+pub(super) fn avatar_animation(url: &str) -> (ModelRc<slint::Image>, ModelRc<i32>) {
+    AVATAR_SOURCES
+        .with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade))
+        .map(|source| animation(&source))
+        .unwrap_or_default()
+}
+
 thread_local! {
     static AVATAR_SOURCES: RefCell<HashMap<String, std::sync::Weak<Picture>>> = RefCell::default();
 }

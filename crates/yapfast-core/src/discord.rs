@@ -66,6 +66,10 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
+/// A nameplate, at twice the height of a member's row; a larger one is shrunk
+/// to it.
+#[cfg(feature = "discord")]
+const NAMEPLATE_SIZE: (u32, u32) = (448, 84);
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -1099,6 +1103,8 @@ impl Pictures {
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
+                } else if url.contains("/assets/collectibles/") {
+                    NAMEPLATE_SIZE
                 } else {
                     (PICTURE_SIZE, PICTURE_SIZE)
                 };

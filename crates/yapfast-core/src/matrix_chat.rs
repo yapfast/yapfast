@@ -1094,6 +1094,7 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                         activities: Default::default(),
                         roles: Default::default(),
                         timed_out_until: None,
+                        nameplate: None,
                     })
                     .collect();
                 sort_members(&mut members);

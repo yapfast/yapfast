@@ -1517,11 +1517,54 @@ fn murmur3(data: &[u8]) -> u32 {
     hash ^ hash >> 16
 }
 
+/// The picture behind someone's row in a member list.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Nameplate {
+    /// The address of its still picture.
+    pub still: String,
+    /// The address of the video it plays while pointed at.
+    pub moving: String,
+    /// The name of its colour, such as `berry`.
+    pub palette: Option<String>,
+}
+
+/// The nameplate `user` has on, if any.
+pub fn nameplate(user: &Value) -> Option<Nameplate> {
+    let plate = &user["collectibles"]["nameplate"];
+    let asset = plate["asset"].as_str().filter(|asset| !asset.is_empty())?;
+    let base = format!("{}/assets/collectibles/{asset}", cdn());
+    Some(Nameplate {
+        still: format!("{base}static.png"),
+        moving: format!("{base}asset.webm"),
+        palette: plate["palette"].as_str().map(str::to_owned),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn nameplates_have_a_still_and_a_moving_picture() {
+        let user = serde_json::json!({"collectibles": {"nameplate": {
+            "asset": "nameplates/nameplates_v3/bonsai/", "palette": "forest",
+        }}});
+        let plate = nameplate(&user).unwrap();
+        assert!(
+            plate
+                .still
+                .ends_with("/assets/collectibles/nameplates/nameplates_v3/bonsai/static.png")
+        );
+        assert!(
+            plate
+                .moving
+                .ends_with("/assets/collectibles/nameplates/nameplates_v3/bonsai/asset.webm")
+        );
+        assert_eq!(plate.palette.as_deref(), Some("forest"));
+        assert_eq!(nameplate(&serde_json::json!({"collectibles": null})), None);
+    }
 
     #[test]
     fn only_lottie_sticker_addresses_are_lottie() {

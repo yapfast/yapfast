@@ -20,6 +20,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window
         .global::<PictureStore>()
         .on_picture(|url, _revision| avatar_picture(url.as_str()));
+    window
+        .global::<PictureStore>()
+        .on_frames(|url, _revision| pictures::avatar_animation(url.as_str()).0);
+    window
+        .global::<PictureStore>()
+        .on_delays(|url, _revision| pictures::avatar_animation(url.as_str()).1);
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -1183,6 +1189,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
+        layout.nameplates = Some(window.global::<Looks>().get_nameplates());
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
         layout.level_voice = Some(window.get_level_voice());

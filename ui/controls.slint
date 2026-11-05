@@ -223,6 +223,9 @@ export component DeviceToggle inherits Rectangle {
 export global PictureStore {
     in property <int> revision;
     pure callback picture(string, int) -> image;
+    /// A moving picture's frames and how long each shows, once it has arrived.
+    pure callback frames(string, int) -> [image];
+    pure callback delays(string, int) -> [int];
     callback request(string);
 }
 

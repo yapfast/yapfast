@@ -46,7 +46,7 @@ import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
-export { Theme, Badges, Popup } from "theme.slint";
+export { Theme, Badges, Popup, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
@@ -3355,6 +3355,7 @@ export component YapfastWindow inherits Window {
             can-save: root.theme-can-save;
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
+            preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }

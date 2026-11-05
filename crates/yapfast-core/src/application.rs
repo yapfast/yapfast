@@ -906,6 +906,7 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                nameplate: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -930,6 +931,7 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                nameplate: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -954,6 +956,7 @@ impl AppState {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            nameplate: None,
         })
     }
 
@@ -2284,6 +2287,18 @@ fn pictures_on_screen<'a>(
                         .flat_map(|role| role.members.iter().flatten()),
                 )
                 .filter_map(|member| member.avatar.as_deref()),
+        )
+        .chain(
+            // The moving one goes with the rest, and comes back when next
+            // pointed at.
+            state
+                .members
+                .iter()
+                .filter(move |_| list_avatars)
+                .flatten()
+                .flatten()
+                .filter_map(|member| member.nameplate.as_ref())
+                .map(|plate| plate.still.as_str()),
         )
         .chain(
             state

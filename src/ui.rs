@@ -970,6 +970,8 @@ struct Layout {
     strip_tracking: Option<bool>,
     /// When animations play.
     animate: Animate,
+    /// The pictures behind people's rows; on unless turned off.
+    nameplates: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1217,6 +1219,9 @@ impl Layout {
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);
+        window
+            .global::<Looks>()
+            .set_nameplates(self.nameplates.unwrap_or(true));
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
         window.set_level_voice(self.level_voice.unwrap_or(true));

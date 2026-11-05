@@ -1111,6 +1111,7 @@ impl Tracker {
                     activities: known.activities,
                     roles: Arc::default(),
                     timed_out_until: None,
+                    nameplate: None,
                 }
             })
             .collect();

@@ -87,6 +87,7 @@ pub(super) fn command(
                     activities: Default::default(),
                     roles: discord.roles(guild, &user),
                     timed_out_until: None,
+                    nameplate: None,
                     id: user,
                 })
                 .collect();
@@ -142,6 +143,7 @@ pub(super) fn command(
                         activities: Default::default(),
                         roles: discord.roles(&guild, &user),
                         timed_out_until: None,
+                        nameplate: None,
                         id: user,
                     })
                     .collect();

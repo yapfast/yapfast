@@ -666,6 +666,17 @@ pub struct ProfileRole {
     pub color: Option<u32>,
 }
 
+/// The picture behind someone's row in a member list.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Nameplate {
+    /// The address of its still picture; see [`DiscordCommand::Pictures`].
+    pub still: String,
+    /// The address of the video it plays while pointed at.
+    pub moving: String,
+    /// The name of its colour, such as `berry`.
+    pub palette: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatMember {
     pub id: String,
@@ -693,6 +704,8 @@ pub struct ChatMember {
     /// When their Discord timeout ends, in Unix milliseconds, while they're
     /// timed out as far as Yapfast knows.
     pub timed_out_until: Option<u64>,
+    /// The picture behind their row, from Discord.
+    pub nameplate: Option<Nameplate>,
 }
 
 /// Someone to start a DM with.
