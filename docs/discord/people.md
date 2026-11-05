@@ -384,6 +384,79 @@ and then leaves the panel empty. A wait that ends while it can't ask leaves the
 feed due, for the next time it can. The answer's shape comes from Discord's
 client, as docs.discord.food doesn't cover this endpoint.
 
+## The full profile's tabs
+
+The full profile has tabs beside the card, in the client's order and by its
+rules:
+
+| Tab | Shows when |
+| --- | --- |
+| Board | It's one's own, or they have widgets |
+| Activity | Always |
+| Wishlist | It's one's own, or it's public and they're a friend or share a server |
+| Mutual friends, mutual servers | Always |
+
+It opens on Activity. Activity lists their activities, then, under "Recent
+activity", from `GET /content-inventory/users/{id}/outbox` when the tab first
+opens, what they listened to (`extra.entries[0].media`: its `title`, first
+artist and `image_url`), watched (`extra.media_title`) and played
+(`extra.game_name`), each with how long ago, from `ended_at`, else
+`started_at`, else the snowflake of a listening session's `id`.
+
+Board and Wishlist come only for the full profile, and only when their tab
+opens, read-only: a small card and the DM's panel ask for neither. A
+wishlist that failed is asked for again when its tab next opens, and a
+profile that arrives after a tab opened asks then. The client fetches a
+wishlist when the window opens, and hides the tab if it's empty; Yapfast
+asks when the tab opens, and an empty one says so in a line. It leaves out
+the wishlist's age check (`nsfwAllowed`), Filter and Browse the Shop.
+
+The Board comes with the profile: `widgets`, each `{id, data: {type,
+...}}`. A game list's `data` holds `games: [{game_id, comment, tags}]`, read
+as the client reads them, a game listed twice showing once and an unknown
+type left out. Their headings are the client's:
+
+| `type` | Heading | Shows |
+| --- | --- | --- |
+| `favorite_games` | Favorite Game | Its game and comment |
+| `current_games` | Games in Rotation | Its games |
+| `want_to_play_games` | Want to Play | Its games |
+| `played_games` | Games I Like | Its games |
+| `application` | The application's name, from `GET /applications/public` | A line that it only shows in Discord |
+| `personal` | Personal | The same line |
+| `clips_gallery` | Clips Gallery | The same line |
+
+Games are named by `GET /games?game_ids=...`, at most 20 at once as the
+client asks, when the tab first opens, and only if it has any. A game's
+picture is `media.icon`, else `media.cover`, each `{type: "hash" | "url",
+value}`, where a hash is at `/app-icons/{game}/{hash}.png`. One Discord
+doesn't know is an "Unknown game", as in the client. Tags aren't shown.
+
+The Wishlist is `GET /wishlists/{id}?source=user_profile`, which the client
+uses for its own account's and for anyone's, the first id in the profile's
+`wishlist_settings` `{id: {updated_at, visibility}}`, where visibility 0 is
+private. Its only other route Yapfast knows of, `POST
+/users/@me/wishlist/items`, adds an item, which Yapfast never sends. With no
+id there's nothing on it, and a 403 or 404 says it's private; a private list
+of one's own loads, and says that. An item in `wishlist_items` is named by
+`sku.name`, else `sku_name`, and pictured by what it is, `sku.product_line`,
+else the item's `sku_product_line`:
+
+| Line | What | Picture |
+| --- | --- | --- |
+| 1 | Nitro | None: the client draws its own, so the card shows a letter |
+| 7 | Avatar decoration, by `type` 0 | `/avatar-decoration-presets/{asset}.png`, its still |
+| 7 | Profile effect, by `type` 1 | `thumbnailPreviewSrc`, else `reducedMotionSrc`, `staticFrameSrc` |
+| 7 | Nameplate, by `type` 2 | `/media/v1/collectibles-shop/{sku}/static` |
+| 7 | Profile frame, by `type` 3 | `/media/v1/collectibles-shop/{sku}/{layer}/static`, the first layer not `responsive` |
+| 7 | Bundle | `sku.preview_asset_paths.fg_static`, else the first thing in it with a picture |
+| 14 | A game's item | `/app-assets/{sku.application_id}/store/{asset}.webp`, the asset being `tenant_metadata.social_layer.card_image_asset_id`, else `thumbnail_asset_id` |
+
+A collectible's kind and `asset` are in `sku.tenant_metadata.collectibles.item`,
+else the item's `collectibles_item` or `bundle_items`. The client's card shows
+only lines 1, 7 and 14; Yapfast also shows others it can name, by the store
+picture if they have one.
+
 ## Avatar decorations and nameplates
 
 What a person equips from Discord's shop shows as it does in Discord's client.

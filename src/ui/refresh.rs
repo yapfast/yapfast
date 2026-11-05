@@ -2512,6 +2512,7 @@ impl Adapter {
             loading: false,
             kept: false,
             note: None,
+            ..Default::default()
         };
         let mut preview = profile_data(&mut self.pictures, &self.app.state, &view);
         // Someone's own card offers them nothing.

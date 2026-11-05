@@ -466,6 +466,24 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_profile_tab_opened(move |page| {
+        use yapfast_core::application::ProfileTab;
+        // ProfileModal's pages: 0 Activity, 3 Board, 4 Wishlist; the mutual
+        // ones ask for nothing.
+        let tab = match page {
+            0 => ProfileTab::Activity,
+            3 => ProfileTab::Board,
+            4 => ProfileTab::Wishlist,
+            _ => return,
+        };
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::OpenProfileTab(tab));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_save_note(move |user, note| {
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().action(

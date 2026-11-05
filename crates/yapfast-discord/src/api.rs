@@ -652,6 +652,29 @@ impl Api {
             .await
     }
 
+    /// What someone did lately, as the client fetches it for their profile's
+    /// Activity tab: `{entries: [{content_type, extra, ...}]}`.
+    pub async fn outbox(&self, user: &str) -> Result<Value> {
+        let path = format!("/content-inventory/users/{user}/outbox");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Games by their ids, at most [`crate::widgets::GAMES_AT_ONCE`], as the
+    /// client fetches them for a profile's widgets: `[{id, name, media: {icon,
+    /// cover}, ...}]`, without those Discord doesn't know.
+    pub async fn games(&self, ids: &[&str]) -> Result<Value> {
+        let query: Vec<_> = ids.iter().map(|id| format!("game_ids={id}")).collect();
+        let path = format!("/games?{}", query.join("&"));
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// A wishlist, its owner's or anyone's, as the client fetches it for a
+    /// profile: `{id, user_id, wishlist_items: [{sku_id, sku_name, sku, ...}]}`.
+    pub async fn wishlist(&self, id: &str) -> Result<Value> {
+        let path = format!("/wishlists/{id}?source=user_profile");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// Applications' public objects, with their names and icons, as the
     /// client fetches them for activities: `[{id, name, icon, ...}]`.
     pub async fn public_applications(&self, ids: &[&str]) -> Result<Value> {
