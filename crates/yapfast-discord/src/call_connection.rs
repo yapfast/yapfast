@@ -765,10 +765,24 @@ impl Speaker {
             }
         };
         match decoded {
-            Ok(samples) => Some(samples),
-            Err(error) => {
-                tracing::debug!(%error, "a call's audio packet didn't decode");
-                None
+            Ok(samples) if samples > 0 => Some(samples),
+            // A packet libopus can't read, or one that decodes to nothing,
+            // is a missing frame like any other: Opus conceals 20 ms on from
+            // the last frame that played, so the mix hears the sound carry on
+            // rather than a hole where a word was. A stream's playout
+            // conceals a broken frame the same way and for the same reason;
+            // this is the slot a decode error used to leave empty.
+            decoded => {
+                if let Err(error) = decoded {
+                    tracing::debug!(%error, "a call's audio packet didn't decode");
+                }
+                match self.decoder.conceal(&mut self.pcm[..frame]) {
+                    Ok(samples) => Some(samples),
+                    Err(error) => {
+                        tracing::debug!(%error, "couldn't conceal a call's audio frame");
+                        None
+                    }
+                }
             }
         }
     }
@@ -858,6 +872,72 @@ mod tests {
         let played = std::iter::from_fn(|| speaker.next().map(|_| ())).count();
         assert_eq!(played, usize::from(GONE) - 1);
         assert!(speaker.next.is_none());
+    }
+
+    #[test]
+    fn a_broken_packet_plays_concealment_rather_than_leaving_a_hole() {
+        // A packet Opus can't read is a missing frame, not a frame of silence:
+        // the mix hears the sound carry on from the last frame that played,
+        // where a hole would be 20 ms of nothing in the middle of a word.
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        let packets: Vec<Vec<u8>> = (0..6).map(|frame| tone(&mut encoder, frame)).collect();
+        for sequence in 0..START as u16 {
+            speaker.push(sequence, packets[usize::from(sequence)].clone());
+        }
+        let mut played = Vec::new();
+        for _ in 0..START {
+            played.push(speaker.next().expect("a packet to play").to_vec());
+        }
+        speaker.push(START as u16, vec![0xff]);
+        let concealed = speaker
+            .next()
+            .expect("a broken packet still gets its 20 ms")
+            .to_vec();
+        assert_eq!(concealed.len(), FRAME * 2);
+        assert!(
+            concealed.iter().any(|&sample| sample != 0),
+            "the slot was silence, not concealment"
+        );
+        assert_ne!(
+            concealed,
+            played[START - 1],
+            "the slot replayed the frame before it"
+        );
+        // The broken packet was its own slot, so the sound after it plays.
+        assert!(speaker.waiting.is_empty());
+        speaker.push(START as u16 + 1, packets[4].clone());
+        assert!(speaker.next().is_some(), "packet 4 plays as itself");
+    }
+
+    #[test]
+    fn a_missing_packet_beside_a_broken_one_is_concealed_not_replayed() {
+        // Packet 3 is lost and packet 4, which would carry its forward error
+        // correction, can't be read: 3's slot is made up from the sound
+        // before it rather than played again, and 4 gets its own concealing
+        // turn, which is Opus's promise for a packet it can't read.
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        let packets: Vec<Vec<u8>> = (0..6).map(|frame| tone(&mut encoder, frame)).collect();
+        for sequence in 0..START as u16 {
+            speaker.push(sequence, packets[usize::from(sequence)].clone());
+        }
+        let mut played = Vec::new();
+        for _ in 0..START {
+            played.push(speaker.next().expect("a packet to play").to_vec());
+        }
+        speaker.push(4, vec![0xff]);
+        let concealed = speaker.next().expect("3's slot, made up").to_vec();
+        assert_eq!(concealed.len(), FRAME * 2);
+        assert_ne!(concealed, played[START - 1], "3's slot replayed packet 2");
+        assert_eq!(
+            speaker.next().map(<[i16]>::len),
+            Some(FRAME * 2),
+            "4's slot, made up too"
+        );
+        assert!(speaker.waiting.is_empty());
+        speaker.push(5, packets[5].clone());
+        assert!(speaker.next().is_some(), "packet 5 plays as itself");
     }
 
     #[test]

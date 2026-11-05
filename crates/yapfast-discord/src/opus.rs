@@ -144,20 +144,24 @@ impl Encoder {
         // for DTX to save.
         set(&encoder, SET_DTX, 0, "discontinuous transmission")?;
         // Signal type stays at libopus's automatic choice. The application
-        // already separates speech from other sound, and calls send through
-        // Audio mode, so calling Audio "music" would mislabel as music the
-        // very frames that most need the encoder's speech handling.
+        // already says how the sound is meant to be treated, and Audio covers
+        // a call's speech as well as a stream's music; labelling it "music"
+        // would mislabel as music the very frames that most need the encoder's
+        // speech handling.
         if application == APPLICATION_VOIP {
             // In-band FEC lets a receiver rebuild a lost frame from the next
             // packet, and libopus spends on it only when it also knows the
             // loss to expect: FEC alone left packet sizes unchanged here,
-            // here, while FEC with an estimate put recoverable data in every
-            // voiced one. A call's speech is worth the band that costs, so
-            // Voice asks for both. Audio, which is a stream's shared music,
-            // does not: the low band FEC duplicates is the part music can
-            // most afford to lose, and asking at 128 kbit/s stereo measured
-            // about a quarter less payload. Whether that trade sounds better
-            // is a listening comparison this machine cannot make.
+            // while FEC with an estimate put recoverable data in every
+            // voiced one. Speech is worth the band that costs, so Voice asks
+            // for both. Audio, which carries a stream's shared music and a
+            // call's microphone alike, does not: the low band FEC duplicates
+            // is the part music can most afford to lose, and asking at
+            // 128 kbit/s stereo measured about a quarter less payload. A
+            // call sends in Audio mode, as songbird sent it and as Yapfast's
+            // voice processing was tuned, so a call's speech goes without
+            // FEC; whether that quarter of its payload would buy a better
+            // call is a listening comparison this machine cannot make.
             set(&encoder, SET_INBAND_FEC, 1, "inband FEC")?;
             set(
                 &encoder,
@@ -402,6 +406,53 @@ mod tests {
         assert_eq!(get(&encoder, GET_COMPLEXITY), COMPLEXITY);
         assert_eq!(get(&encoder, GET_VBR_CONSTRAINT), 1, "constrained VBR");
         assert_eq!(get(&encoder, GET_DTX), 0);
+    }
+
+    /// The bytes the encoder spends on `frames` of noise, which nothing can
+    /// compress away, so what it spends is what its rate control allows.
+    fn spent(encoder: &mut Encoder, frames: usize) -> usize {
+        // A fixed sequence rather than a random one: the check is the same
+        // every run, and it is the picture of the packet that is measured.
+        let mut random = 2_469_068_507u32;
+        let mut pcm = vec![0.0f32; 960 * 2];
+        let mut packet = [0u8; 1500];
+        (0..frames)
+            .map(|_| {
+                for sample in &mut pcm {
+                    random = random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    *sample = (random >> 8) as f32 / 8_388_608.0 - 0.5;
+                }
+                encoder
+                    .encode_float(&pcm, &mut packet)
+                    .expect("a real frame")
+            })
+            .sum()
+    }
+
+    #[test]
+    fn a_calls_bitrate_reaches_the_encoder_in_music_mode() {
+        // A call asks for 128 kbit/s stereo in Audio mode. libopus would take
+        // a bitrate above its mode's ceiling and quietly spend less, so this
+        // asks the encoder what it holds, and measures what it spends on
+        // noise against the stream's half of the same settings. A call sends
+        // no FEC, which is the other half of what Audio mode decides.
+        let mut encoder = Encoder::new(2, Application::Audio, 128_000).unwrap();
+        assert_eq!(get(&encoder, GET_BITRATE), 128_000, "the bitrate it took");
+        assert_eq!(get(&encoder, GET_INBAND_FEC), 0, "a call sends no FEC");
+        assert_eq!(
+            get(&encoder, GET_PACKET_LOSS_PERC),
+            0,
+            "nor a loss estimate"
+        );
+        let call = spent(&mut encoder, 20);
+        let stream = spent(
+            &mut Encoder::new(2, Application::Audio, 64_000).unwrap(),
+            20,
+        );
+        assert!(
+            call > stream * 3 / 2,
+            "20 frames took {call} bytes at 128 kbit/s and {stream} at 64"
+        );
     }
 
     #[test]
