@@ -237,3 +237,23 @@ real implementation needs fences or double buffering. The producer also becomes
 adapter-bound, and failures only appear at `OpenSharedHandle`, so a per-stream
 LUID check is the fallback gate. Note the card enumerates twice here
 (`0x1488A`, `0x2079F`), so LUIDs must be compared, not names.
+
+### Assessed, measured, and not built
+
+Section 12 was first assessed as "not buildable here"; it has since been
+measured instead, and the numbers are in `docs/measurements/README.md`:
+
+- **Windows GPU capture-to-NVENC works**, with no CPU pixel copy: a real desktop
+  through Windows Graphics Capture into a D3D11 texture into NVENC. It is worth
+  the conversion and upload that stop happening — a couple of milliseconds a
+  frame at 1080p, and about 4.4 ms of CPU copy at 3440×1440 — not the twenty
+  times first rumoured. **Windows Graphics Capture, borderless, with the
+  libwebrtc capturer as fallback**, is the decision; Windows 10 needs Desktop
+  Duplication, which cannot remove the border and breaks on HDR frames.
+- **Hardware decode** still needs an FFmpeg with `d3d11va` — the vendored one
+  has neither hwaccel nor a single parser — so it remains gated on that build
+  and on a display path that doesn't read every frame back to the CPU.
+- **Intel QSV** needs oneVPL headers the vendor lacks, and additionally
+  `--enable-d3d11va` on Windows; on this machine's UHD 770 it would buy H.264
+  and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
+- GPU conversion and the Linux surface paths gain nothing further on their own.
