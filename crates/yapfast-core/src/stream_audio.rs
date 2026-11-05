@@ -37,6 +37,17 @@ const PRIMED: usize = FRAME * 2;
 /// The most kept for an application; older sound is dropped, so clock
 /// drift never grows into delay.
 const BACKLOG: usize = FRAME * 10;
+/// Where a mixed sample starts bending towards full scale rather than
+/// flat-topping, in sample values. Under it every sample is mixed as it came:
+/// an application playing quietly is never made quieter for the company it
+/// keeps, and one whose sound stays under it sounds exactly as it played. No
+/// curve can be the identity all the way to full scale and still round the
+/// corner there, so the bend starts a little under it; a single application at
+/// full scale gives up 0.45 dB, which is under the step an ear hears as a
+/// change in loudness.
+const KNEE: f32 = 0.9;
+/// The room a sample over [`KNEE`] has to bend in, up to full scale.
+const BEND: f32 = 1.0 - KNEE;
 /// What Discord's client gives a stream's sound.
 const BITRATE: i32 = 64_000;
 /// A player's turn: 20 ms of sound, then the next.
@@ -106,6 +117,11 @@ impl Input {
     fn push(&mut self, samples: impl IntoIterator<Item = f32>) -> u64 {
         let mut dropped = 0;
         for sample in samples {
+            // A driver that lost its place can hand over a number that isn't
+            // one, and the mix would carry it: a clamp returns a NaN as it
+            // came, and Opus has no way to answer for it. Silence costs one
+            // sample of one application, which the rest of the frame covers.
+            let sample = if sample.is_finite() { sample } else { 0.0 };
             if self.samples.len() >= BACKLOG {
                 self.samples.pop_front();
                 dropped += 1;
@@ -144,6 +160,14 @@ struct Counted {
 }
 
 impl Counted {
+    /// Records how much one application's sound waits, in samples of one
+    /// channel as [`Input::waiting`] gives it, which every channel's is
+    /// converted from on reading.
+    fn hold(&self, waiting: u32) {
+        self.held
+            .store(waiting * CHANNELS as u32, Ordering::Relaxed);
+    }
+
     fn read(&self) -> SoundStats {
         let milliseconds = |samples: u64| samples * 1000 / (RATE as u64 * CHANNELS as u64);
         SoundStats {
@@ -156,6 +180,25 @@ impl Counted {
 
 /// Each monitored application's sound, by the system's number for it.
 type Inputs = Arc<Mutex<HashMap<u32, Input>>>;
+
+/// A mixed sample, bent rather than clipped at full scale: up to [`KNEE`]
+/// exactly as it summed, and above it towards full scale without reaching it.
+/// The bend is what several loud applications adding up need, since their sum
+/// would otherwise flat-top at the first sample past full scale and tear the
+/// sound; 1.4 comes out at 0.98 of full scale instead. Slope is one where the
+/// bend starts, so nothing jumps where it begins, and the curve carries
+/// nothing from frame to frame: a loud passage can't pull down the sound after
+/// it, and the bend is not a gain heard as the mix pumping.
+fn bend(sample: f32) -> f32 {
+    let over = (sample.abs() - KNEE) / BEND;
+    if over <= 0.0 {
+        return sample;
+    }
+    // The one over one plus it, written so a sum that overflowed to infinity
+    // still lands on full scale rather than on a NaN.
+    let eased = 1.0 - 1.0 / (1.0 + over);
+    (KNEE + BEND * eased).copysign(sample)
+}
 
 /// Mixes the next frame from every application with enough waiting into
 /// `out`, interleaved stereo. False when none had any, so nothing plays.
@@ -176,7 +219,7 @@ fn mix(inputs: &mut HashMap<u32, Input>, out: &mut [f32]) -> bool {
         input.primed = taken == out.len();
     }
     for sample in out.iter_mut() {
-        *sample = sample.clamp(-1.0, 1.0);
+        *sample = bend(*sample);
     }
     heard
 }
@@ -259,7 +302,7 @@ impl Capture {
                     let waiting = inputs.values().map(Input::waiting).max().unwrap_or(0);
                     let heard = mix(&mut inputs, &mut frame);
                     drop(inputs);
-                    counting.held.store(waiting, Ordering::Relaxed);
+                    counting.hold(waiting);
                     if heard {
                         match encoder.encode_float(&frame, &mut opus) {
                             Ok(size) => sound.send(Sound {
@@ -1097,7 +1140,7 @@ mod tests {
             .push(std::iter::repeat_n(0.5, FRAME));
         assert!(mix(&mut inputs, &mut out));
         assert_eq!(out[0], 0.75);
-        // The first ran dry: it waits again, and loud sums clip.
+        // The first ran dry: it waits again, and the second goes loud.
         inputs
             .get_mut(&2)
             .unwrap()
@@ -1109,9 +1152,113 @@ mod tests {
             .unwrap()
             .push(std::iter::repeat_n(0.9, PRIMED));
         assert!(mix(&mut inputs, &mut out));
-        assert_eq!(out[0], 1.0);
+        // 1.8 summed: bent towards full scale rather than flat-topped at it.
+        assert!(out[0] < 1.0, "{} is inside full scale", out[0]);
+        assert!(out[0] > 0.98, "{} of full scale, not pulled down", out[0]);
         inputs.clear();
         assert!(!mix(&mut inputs, &mut out), "silence sends nothing");
+    }
+
+    #[test]
+    fn loud_applications_stay_inside_full_scale_and_quiet_ones_keep_their_loudness() {
+        let mut inputs = HashMap::new();
+        let mut out = vec![0.0; FRAME];
+        for (source, loudness) in [(1, 0.25), (2, 0.5)] {
+            let mut input = Input::default();
+            input.push(std::iter::repeat_n(loudness, PRIMED));
+            inputs.insert(source, input);
+        }
+        assert!(mix(&mut inputs, &mut out));
+        assert_eq!(out[0], 0.75, "under the knee, mixed exactly as it summed");
+
+        for (source, loudness) in [(1, 0.9), (2, 0.9)] {
+            let mut input = Input::default();
+            input.push(std::iter::repeat_n(loudness, PRIMED));
+            inputs.insert(source, input);
+        }
+        assert!(mix(&mut inputs, &mut out));
+        assert!(
+            out.iter().all(|sample| sample.abs() <= 1.0),
+            "two applications at 1.8 summed stay inside full scale"
+        );
+        assert!(out[0] < 1.0, "{} is inside full scale", out[0]);
+        assert!(out[0] > 0.98, "{} of full scale, not pulled down", out[0]);
+
+        inputs.clear();
+        let mut quiet = Input::default();
+        quiet.push(std::iter::repeat_n(0.25, PRIMED));
+        inputs.insert(1, quiet);
+        assert!(mix(&mut inputs, &mut out));
+        assert_eq!(out[0], 0.25, "one quiet application alone is untouched");
+
+        // The one thing the bend costs a single application: full scale it
+        // played, and 0.95 of full scale it comes out, so the loudest sound
+        // gives up under half a decibel.
+        inputs.clear();
+        let mut loudest = Input::default();
+        loudest.push(std::iter::repeat_n(1.0, PRIMED));
+        inputs.insert(1, loudest);
+        assert!(mix(&mut inputs, &mut out));
+        assert!(out[0] < 1.0, "{} is inside full scale", out[0]);
+        assert!(
+            out[0] > 0.94,
+            "{} of full scale at most a half decibel down",
+            out[0]
+        );
+    }
+
+    #[test]
+    fn a_flooding_application_starves_no_other_and_grows_nothing() {
+        let mut inputs = HashMap::new();
+        let mut flood = Input::default();
+        flood.push(std::iter::repeat_n(0.5, BACKLOG));
+        inputs.insert(1, flood);
+        let mut steady = Input::default();
+        steady.push(std::iter::repeat_n(0.25, PRIMED));
+        inputs.insert(2, steady);
+        let mut out = vec![0.0; FRAME];
+        for turn in 0..50 {
+            // Each callback from the flooder carries a whole backlog, ten
+            // turns of sound; the other delivers a frame a turn, as a system
+            // handing over every 20 ms would.
+            inputs
+                .get_mut(&1)
+                .unwrap()
+                .push(std::iter::repeat_n(0.5, BACKLOG));
+            inputs
+                .get_mut(&2)
+                .unwrap()
+                .push(std::iter::repeat_n(0.25, FRAME));
+            assert!(mix(&mut inputs, &mut out));
+            assert_eq!(out[0], 0.75, "turn {turn}: the steady one still plays");
+            assert_eq!(out[FRAME - 1], 0.75, "turn {turn}: for its whole frame");
+            assert!(
+                inputs[&1].samples.len() <= BACKLOG,
+                "turn {turn}: the flooder's backlog stays bounded"
+            );
+        }
+    }
+
+    #[test]
+    fn the_frame_kept_for_mixing_holds_the_new_mix_not_the_old() {
+        let mut inputs = HashMap::new();
+        let mut loud = Input::default();
+        loud.push(std::iter::repeat_n(0.5, PRIMED));
+        inputs.insert(1, loud);
+        let mut frame = vec![0.0; FRAME];
+        assert!(mix(&mut inputs, &mut frame));
+        assert_eq!(frame[0], 0.5);
+        assert_eq!(frame[FRAME - 1], 0.5);
+        // The same buffer, another turn, with an application playing silence.
+        inputs.clear();
+        let mut quiet = Input::default();
+        quiet.push(std::iter::repeat_n(0.0, PRIMED));
+        inputs.insert(2, quiet);
+        assert!(mix(&mut inputs, &mut frame), "silence still plays");
+        assert!(
+            frame.iter().all(|&sample| sample == 0.0),
+            "the old mix is gone from the buffer it was mixed in"
+        );
     }
 
     #[test]
@@ -1135,15 +1282,29 @@ mod tests {
         counted
             .dropped
             .store(RATE as u64 / 1000 * 30 * CHANNELS as u64, Ordering::Relaxed);
-        counted
-            .held
-            .store(RATE / 1000 * 40 * CHANNELS as u32, Ordering::Relaxed);
+        // Held comes from the mixer in samples of one channel, as every
+        // application's backlog is measured, and the report counts every
+        // channel's.
+        counted.hold(RATE / 1000 * 40);
         assert_eq!(
             counted.read(),
             SoundStats {
                 held_ms: 40,
                 dropped_ms: 30
             }
+        );
+    }
+
+    #[test]
+    fn a_full_backlog_waits_two_hundred_milliseconds() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG));
+        let stats = Counted::default();
+        stats.hold(input.waiting());
+        assert_eq!(
+            stats.read().held_ms,
+            200,
+            "the delay a viewer would hear at the bound"
         );
     }
 
@@ -1976,6 +2137,25 @@ mod tests {
         let mut input = Input::default();
         input.push(std::iter::repeat_n(0.1, BACKLOG * 3));
         assert_eq!(input.samples.len(), BACKLOG);
+    }
+
+    #[test]
+    fn a_sample_that_is_not_a_number_becomes_silence() {
+        let mut input = Input::default();
+        input.push([0.25, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.5]);
+        assert_eq!(
+            input.samples.len(),
+            5,
+            "a replaced sample keeps its place in the frame"
+        );
+        assert!(
+            input.samples.iter().all(|sample| sample.is_finite()),
+            "nothing Opus can't encode gets past the boundary"
+        );
+        assert_eq!(input.samples[0], 0.25);
+        assert_eq!(input.samples[1], 0.0);
+        assert_eq!(input.samples[2], 0.0);
+        assert_eq!(input.samples[4], 0.5);
     }
 
     #[test]
