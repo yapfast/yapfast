@@ -23,6 +23,8 @@ pub mod cli;
 #[cfg(feature = "discord")]
 pub mod clip;
 pub mod clock;
+#[cfg(all(feature = "discord", d3d11enc))]
+pub mod d3d11;
 #[cfg(feature = "discord")]
 mod declick;
 #[cfg(feature = "discord")]

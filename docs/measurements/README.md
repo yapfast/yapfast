@@ -118,6 +118,14 @@ private `records.md` beside this file.
 
 ## GPU capture and encode, on Windows
 
+The spike's result is now reproduced **inside the crate**: a D3D11 texture goes
+into NVENC through `native/d3d11enc.c`, and a test that runs only where an
+NVIDIA GPU is present encodes thirty frames of each codec from that texture.
+That run reports 0.16 ms of CPU a frame for H.264 and H.265 and 0.47 for AV1 —
+figures to read against the same 15.6 ms clock, since thirty frames is two
+ticks.
+
+
 An experiment, not shipped behaviour: the spike is in `spike/wgc-nvenc/` in the
 working tree and is not committed. Machine: RTX 4090 (driver 617.14), Windows
 build 26200, a 3440×1440 monitor in HDR, an Intel UHD 770 also present.

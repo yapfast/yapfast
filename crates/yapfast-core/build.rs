@@ -17,6 +17,7 @@ fn main() {
         "camera.cc",
         "hwenc.c",
         "hevc.c",
+        "d3d11enc.c",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -61,6 +62,30 @@ fn main() {
     }
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
+    println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
+    // Windows' own capture path can hand NVENC its frames as D3D11 textures,
+    // so d3d11enc.c encodes from the GPU without a frame's pixels being
+    // converted or uploaded; see native/d3d11enc.c. It needs no library of
+    // ours, only the ffnvcodec header it includes itself, so it is built here
+    // where every Windows build gets it, rather than behind the encoders
+    // FFmpeg has.
+    if target_os == "windows" {
+        let mut d3d11 = cc::Build::new();
+        d3d11.file("native/d3d11enc.c").warnings(true);
+        use_clang_cl(&mut d3d11);
+        if d3d11.get_compiler().is_like_msvc() {
+            d3d11.flag("/std:c17");
+        } else {
+            d3d11.flag("-std:c17");
+        }
+        d3d11.compile("yapfast_d3d11enc");
+        // The device and its swap chain, the adapter list, DXGI's ids and the
+        // shader the stand-in capture source is compiled from.
+        for library in ["d3d11", "dxgi", "dxguid", "d3dcompiler"] {
+            println!("cargo:rustc-link-lib=dylib={library}");
+        }
+        println!("cargo:rustc-cfg=d3d11enc");
+    }
     if std::env::var_os("CARGO_FEATURE_DISCORD").is_none() {
         return;
     }
