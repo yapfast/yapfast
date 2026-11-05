@@ -18,6 +18,7 @@ fn main() {
         "hwenc.c",
         "hevc.c",
         "d3d11enc.c",
+        "wgc.cc",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -63,6 +64,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
+    println!("cargo::rustc-check-cfg=cfg(wgc)");
     // Windows' own capture path can hand NVENC its frames as D3D11 textures,
     // so d3d11enc.c encodes from the GPU without a frame's pixels being
     // converted or uploaded; see native/d3d11enc.c. It needs no library of
@@ -85,6 +87,47 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib={library}");
         }
         println!("cargo:rustc-cfg=d3d11enc");
+    }
+    // Windows' own capture path, the other end of the same idea: native/wgc.cc
+    // fills a D3D11 texture from the screen, and d3d11enc.c above encodes it
+    // where it lies. Built only where it can be — this target, a build with
+    // Discord's Go Live in it, and a Windows SDK whose WinRT headers carry the
+    // capture API — since a probe that finds nothing costs nothing, and a build
+    // that fails on a machine without the headers costs everything.
+    if target_os == "windows" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
+        if graphics_capture_headers() {
+            let mut wgc = cc::Build::new();
+            // C++, because the WinRT ABI headers declare classes rather than C
+            // vtables: see native/wgc.cc.
+            wgc.cpp(true)
+                .file("native/wgc.cc")
+                .std("c++17")
+                .warnings(true);
+            use_clang_cl(&mut wgc);
+            wgc.compile("yapfast_wgc");
+            // The device and its frame pool, DXGI's ids and its output
+            // enumeration, the WinRT activation entry points (windowsapp), the
+            // monitor handle a caller enumerates and its name (user32), the
+            // apartment, the strings and the freed ones (ole32), and gdi32,
+            // which the capture's own compositor side links against.
+            for library in [
+                "d3d11",
+                "dxgi",
+                "dxguid",
+                "d3dcompiler",
+                "windowsapp",
+                "user32",
+                "ole32",
+                "gdi32",
+            ] {
+                println!("cargo:rustc-link-lib=dylib={library}");
+            }
+            println!("cargo::rustc-cfg=wgc");
+        } else {
+            println!(
+                "cargo:warning=this Windows SDK has no Windows.Graphics.Capture header, so screen capture into a texture isn't built"
+            );
+        }
     }
     if std::env::var_os("CARGO_FEATURE_DISCORD").is_none() {
         return;
@@ -140,6 +183,42 @@ fn main() {
         .warnings(true);
     use_clang_cl(&mut codecs);
     codecs.compile("yapfast_codecs");
+}
+
+// Whether the Windows SDK's WinRT headers on this machine carry Windows Graphics
+// Capture: the one fact that decides whether native/wgc.cc can be compiled here
+// at all, asked before the compiler so that a machine without those headers gets
+// a build without the capture path rather than a failure in a file it can't
+// read.
+//
+// Looked for where the compiler will look: first the INCLUDE a Visual Studio
+// prompt puts there, which is also what cc passes on, and then the kits the SDK
+// installs itself under, since cargo is normally run without one.
+fn graphics_capture_headers() -> bool {
+    let mut folders: Vec<PathBuf> = Vec::new();
+    for path in env::split_paths(&env::var_os("INCLUDE").unwrap_or_default()) {
+        folders.push(path.join("winrt"));
+        folders.push(path);
+    }
+    for variable in ["WindowsSdkDir", "ProgramFiles(x86)", "ProgramFiles"] {
+        let Some(root) = env::var_os(variable).map(PathBuf::from) else {
+            continue;
+        };
+        let include = match variable {
+            "WindowsSdkDir" => root.join("Include"),
+            _ => root.join("Windows Kits").join("10").join("Include"),
+        };
+        // One directory per installed kit, each with its own winrt folder.
+        let Ok(kits) = std::fs::read_dir(&include) else {
+            continue;
+        };
+        for kit in kits.flatten() {
+            folders.push(kit.path().join("winrt"));
+        }
+    }
+    folders
+        .iter()
+        .any(|folder| folder.join("windows.graphics.capture.h").is_file())
 }
 
 // camera.cc uses Clang-only warning flags, which cl.exe rejects. Switch only

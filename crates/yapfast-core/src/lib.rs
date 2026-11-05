@@ -90,6 +90,8 @@ pub mod voice;
 #[cfg(feature = "matrix")]
 pub mod voice_demo;
 pub mod volume;
+#[cfg(all(feature = "discord", wgc))]
+pub mod wgc;
 
 /// Install the TLS provider before starting Matrix or calling services.
 pub fn init_tls() -> anyhow::Result<()> {
