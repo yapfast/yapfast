@@ -39,10 +39,12 @@ a modal with a 266px sidebar and a content column up to 696px.
 
 ## Not yet Discord
 
-Only implemented destinations appear. Missing: banner, badges and decorations
-in the profile and account popover, clan tags, per-channel unread counts, the
+Only implemented destinations appear. Missing: per-channel unread counts, the
 quick switcher and Nitro, Shop and Quests pages. Several need data the client
-does not fetch yet.
+does not fetch yet. The account popover asks for the account's own profile
+each time it opens (`Action::LoadOwnProfile`, the main profile, without its
+effect) and draws its banner or colour, theme, decoration, styled name,
+server tag and badges from it once it has come.
 
 ## Tests
 

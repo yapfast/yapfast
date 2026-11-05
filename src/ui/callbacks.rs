@@ -839,6 +839,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     bind!(on_close_channel, Action::CloseChannelDialog);
     bind!(on_edit_profile, Action::EditProfile);
+    bind!(on_account_opened, Action::LoadOwnProfile);
     bind!(on_undo_profile, Action::UndoProfileEdits);
     bind!(on_save_profile, Action::SaveProfile);
     bind!(on_close_profile_editor, Action::CloseProfileEditor);

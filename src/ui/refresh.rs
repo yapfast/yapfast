@@ -1037,6 +1037,31 @@ impl Adapter {
             state,
             state.account_avatar.as_deref(),
         ));
+        // The account's card, from its own profile once that's come.
+        let own = state
+            .account_profile
+            .as_ref()
+            .map(|profile| (profile.clone(), state.picture_changes));
+        let same = match (&own, &self.account_profile_shown) {
+            (Some((profile, changes)), Some((shown, shown_changes))) => {
+                Arc::ptr_eq(profile, shown) && changes == shown_changes
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            let data = own
+                .as_ref()
+                .map_or_else(ProfileData::default, |(profile, _)| {
+                    let view = ProfileView {
+                        profile: yapfast_core::chat::Profile::clone(profile),
+                        ..Default::default()
+                    };
+                    profile_data(&mut self.pictures, state, &view)
+                });
+            window.set_account_profile(data);
+            self.account_profile_shown = own;
+        }
         let look = window.global::<AccountLook>();
         let cosmetics = state.cosmetics;
         look.set_decoration_url(

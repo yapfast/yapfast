@@ -236,6 +236,11 @@ export component YapfastWindow inherits Window {
     in-out property <string> profile-editor-colour;
     /// Opens the editor of the main Discord profile, as Edit Profile does.
     callback edit-profile;
+    /// The account's card opened, which asks for its own profile.
+    callback account-opened;
+    /// The account's own profile, which its card draws its banner, theme,
+    /// name and badges from; empty until it's come.
+    in property <ProfileData> account-profile;
     callback write-profile(int, string);
     callback pick-profile-picture(int);
     callback reset-profile-picture(int);
@@ -1952,7 +1957,9 @@ export component YapfastWindow inherits Window {
             if ClientStyle.enabled: AccountPopover {
                 available-height: max(120px, root.menu-y - 12px);
                 name: root.account-name; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture;
-                user-id: root.account-user-id;
+                user-id: root.account-user-id; profile: root.account-profile;
+                opened => { root.account-opened(); }
+                open-link(link) => { root.open-link(link); status-menu.close(); }
                 status: root.discord-status; has-custom-status: root.has-custom-status;
                 custom-text: root.account-status; custom-emoji: root.account-status-emoji;
                 game-name: root.game-activity-name; game-duration: root.game-activity-duration;
