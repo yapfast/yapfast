@@ -9,7 +9,10 @@
  * (docs/discord/go-live.md):
  * low-latency tuning, no B-frames, a frame out for each frame in, the
  * bitrate capped over half a second without padding a calm screen, H264's
- * Main profile, and parameter sets before each IDR. */
+ * Main profile, and parameter sets before each IDR. What NVENC is tuned
+ * with is `NVENC_TUNINGS` below, a row per tuning the stream may ask for,
+ * so a change to the picture's quality is read, compared and made in one
+ * place rather than found among the settings each encoder needs. */
 #define _POSIX_C_SOURCE 200809L
 #include <stdarg.h>
 #include <stdint.h>
@@ -50,6 +53,11 @@ struct yapfast_hwenc {
    * separated by commas, and empty when it kept them all: Rust warns about
    * what the stream lost. */
   char notes[96];
+  /* How hard the encoder works per frame, how its cap is spent and how
+   * often a viewer waits for a keyframe, in the words of the tuning that
+   * chose them, for Rust to log once: the settings a picture's quality is
+   * compared by, which Rust chooses none of. */
+  char tuning[96];
 };
 
 /* FFmpeg's first error on this thread since it was cleared, for saying why
@@ -113,6 +121,93 @@ static void set_rate(AVCodecContext *codec, unsigned kbps) {
   codec->rc_buffer_size = (int)(kbps * 500);
 }
 
+/* One complete set of the settings NVENC is opened with: a row per tuning
+ * the stream can ask for, and the whole set in one place so that what makes
+ * a picture better can be read and changed without hunting through the open
+ * below. A new tuning is a row here and a name in Rust's `Tuning`, and the
+ * open is untouched.
+ *
+ * `preset` is how much work NVENC does per frame: p1 is the fastest and p7
+ * the slowest, and every step down that ladder is GPU time the same card
+ * isn't spending on the game, so the price is paid in the game's frames as
+ * well as the encoder's. p4 is where screen recordings and games landed
+ * (docs/discord/go-live.md): slower presets looked no better at the bitrates
+ * a Discord stream carries. That comparison has not been run again, so p4
+ * stays until one says otherwise, and a row that isn't p4 is a hypothesis
+ * about the picture, not a measured setting.
+ *
+ * `tune` weights the pictures the encoder spends bits on; `ll` is the
+ * low-latency one, and a stream that is a picture someone is waiting for is
+ * not a candidate for any other.
+ *
+ * `rc` is how the cap is spent: `vbr` leaves a calm screen below it, where
+ * `cbr` would fill a still screen out to the cap with bits nobody looks at.
+ * Whether that calmness costs a burst its sharpness is a question for a
+ * measurement, not for a default.
+ *
+ * `zerolatency` and `delay` are whether NVENC may hold a frame back to have
+ * the next one to look at. No row here holds one: a held frame is delay in
+ * every viewer's picture, so a row that changes these is a row that has to
+ * say what its delay costs.
+ *
+ * `forced_idr` is what lets a viewer who joins, or one whose picture broke,
+ * be given a keyframe at once instead of waiting out the interval.
+ *
+ * The keyframe interval itself (three seconds, in `open_encoder`) is not a
+ * column: a shorter one costs a keyframe's bits more often, and a longer one
+ * is what a viewer who joins waits for, so it moves with the experiment that
+ * moves a preset rather than with the preset it sits in. */
+struct nvenc_tuning {
+  const char *name, *preset, *tune, *rc, *zerolatency, *delay, *forced_idr;
+};
+
+/* The tunings the stream may ask for; the first is the one it asks for when
+ * it names none. */
+static const struct nvenc_tuning NVENC_TUNINGS[] = {
+    {"p4", "p4", "ll", "vbr", "1", "0", "1"},
+};
+
+/* The tuning Rust asked for by name, or the first row when it named none:
+ * a name that isn't here is NULL, since Rust names one from this set and an
+ * unknown one is a mistake worth failing the open for rather than encoding
+ * something nobody chose. */
+static const struct nvenc_tuning *nvenc_tuning(const char *name) {
+  for (size_t i = 0; i < sizeof NVENC_TUNINGS / sizeof *NVENC_TUNINGS; i++)
+    if (!name || !strcmp(name, NVENC_TUNINGS[i].name)) return &NVENC_TUNINGS[i];
+  return NULL;
+}
+
+/* The settings `tuning` opens NVENC with, in the order they are set, and
+ * whether the stream can't do without each. The open and the report Rust
+ * holds the shipped tuning to both read this one list, so a setting can't be
+ * needed in one of them and droppable in the other. */
+static size_t nvenc_settings(const struct nvenc_tuning *tuning, struct setting *settings) {
+  const struct setting wanted[] = {
+      {OPTIONAL, "preset", tuning->preset},
+      {REQUIRED, "tune", tuning->tune},
+      {OPTIONAL, "rc", tuning->rc},
+      {OPTIONAL, "zerolatency", tuning->zerolatency},
+      {REQUIRED, "delay", tuning->delay},
+      {REQUIRED, "forced-idr", tuning->forced_idr},
+  };
+  memcpy(settings, wanted, sizeof wanted);
+  return sizeof wanted / sizeof *wanted;
+}
+
+/* Opens NVENC with `tuning`. Low-latency tuning, no frame delay and IDR
+ * frames on demand are what the stream can't do without, so a driver that
+ * refuses one fails the open; a preset, a rate control or a zero-latency
+ * hint this FFmpeg doesn't have or the driver refuses only costs the
+ * picture, so it is noted and the encoder goes on without it. */
+static int set_nvenc(struct yapfast_hwenc *h, const struct nvenc_tuning *tuning,
+                     unsigned codec_id) {
+  struct setting settings[8];
+  size_t count = nvenc_settings(tuning, settings);
+  int ret = set_options(h, settings, count);
+  if (ret >= 0 && codec_id == CODEC_H264) ret = set_option(h, REQUIRED, "profile", "main");
+  return ret;
+}
+
 static void close_encoder(struct yapfast_hwenc *h) {
   avcodec_free_context(&h->codec);
   av_frame_free(&h->surface);
@@ -150,8 +245,8 @@ static int open_vaapi(struct yapfast_hwenc *h, AVCodecContext *codec, struct va_
 }
 
 static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va_device device,
-                        unsigned codec_id, unsigned width, unsigned height, unsigned fps,
-                        unsigned kbps) {
+                        const struct nvenc_tuning *nvenc, unsigned codec_id, unsigned width,
+                        unsigned height, unsigned fps, unsigned kbps) {
   int vaapi = device.path != NULL, amf = strstr(found->name, "_amf") != NULL;
   AVCodecContext *codec = h->codec = avcodec_alloc_context3(found);
   if (!codec) return AVERROR(ENOMEM);
@@ -174,6 +269,10 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   codec->color_range = AVCOL_RANGE_MPEG;
   set_rate(codec, kbps);
   if (codec_id == CODEC_H264) codec->profile = AV_PROFILE_H264_MAIN;
+  /* What the tuning that opened the encoder said its quality is, for Rust to
+   * log: FFmpeg reports no more of it back than it was told, and whatever a
+   * driver refused is in `notes` instead. */
+  const char *preset = "no", *rate = "no";
   int ret = 0;
   if (vaapi) {
     /* Capped VBR, which leaves a calm screen below the cap rather than
@@ -185,6 +284,7 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     };
     ret = set_options(h, vaapi_settings, sizeof vaapi_settings / sizeof *vaapi_settings);
     if (ret < 0) return ret;
+    rate = "VBR";
     ret = open_vaapi(h, codec, device);
     if (ret < 0) return ret;
   } else if (amf) {
@@ -204,6 +304,8 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     };
     ret = set_options(h, amf_settings, sizeof amf_settings / sizeof *amf_settings);
     if (ret < 0) return ret;
+    preset = "balanced";
+    rate = "vbr_peak";
     /* av1_amf has no `aud`, and asking it for one only fails the open. */
     if (codec_id != CODEC_AV1) {
       ret = set_option(h, REQUIRED, "aud", "0");
@@ -239,21 +341,13 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     if (ret < 0) return ret;
     h->poll = 1;
   } else {
-    /* Low latency tuning, no frame delay and IDR frames on demand are what
-     * the stream can't do without; p4, VBR and zerolatency are what make it
-     * fast and capped. */
-    const struct setting nvenc_settings[] = {
-        {OPTIONAL, "preset", "p4"},
-        {REQUIRED, "tune", "ll"},
-        {OPTIONAL, "rc", "vbr"},
-        {OPTIONAL, "zerolatency", "1"},
-        {REQUIRED, "delay", "0"},
-        {REQUIRED, "forced-idr", "1"},
-    };
-    ret = set_options(h, nvenc_settings, sizeof nvenc_settings / sizeof *nvenc_settings);
-    if (ret >= 0 && codec_id == CODEC_H264) ret = set_option(h, REQUIRED, "profile", "main");
+    ret = set_nvenc(h, nvenc, codec_id);
     if (ret < 0) return ret;
+    preset = nvenc->preset;
+    rate = nvenc->rc;
   }
+  snprintf(h->tuning, sizeof h->tuning, "%s preset, %s rate control, keyframe every %d frames",
+           preset, rate, codec->gop_size);
   ret = avcodec_open2(codec, found, NULL);
   if (ret < 0) return ret;
   /* Rust hands over I420, and the encoders that read their frames from the
@@ -335,6 +429,10 @@ static void kernel_driver(int n, char *name, size_t size) {
 
 struct opening {
   unsigned codec_id, width, height, fps, kbps;
+  /* The NVENC tuning each encoder is offered, which is the same for all of
+   * them: it says how hard the one that opens should work, not which one to
+   * try. */
+  const struct nvenc_tuning *nvenc;
   char *report;
   size_t report_size, used;
 };
@@ -364,7 +462,8 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
   struct yapfast_hwenc *h = av_mallocz(sizeof *h);
   if (!h) return NULL;
   first_error[0] = 0;
-  int ret = open_encoder(h, found, device, o->codec_id, o->width, o->height, o->fps, o->kbps);
+  int ret = open_encoder(h, found, device, o->nvenc, o->codec_id, o->width, o->height, o->fps,
+                         o->kbps);
   if (ret >= 0) {
     snprintf(o->report, o->report_size, "%s", label);
     return h;
@@ -383,13 +482,28 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
  * stream that fell back to x264 says which encoders this machine hasn't
  * got, as well as which it has and wouldn't open. */
 struct yapfast_hwenc *yapfast_hwenc_new(unsigned codec_id, unsigned width, unsigned height,
-                                        unsigned fps, unsigned kbps, char *report,
-                                        size_t report_size) {
+                                        unsigned fps, unsigned kbps, const char *tuning,
+                                        char *report, size_t report_size) {
   if (report_size) report[0] = 0;
   if (codec_id > CODEC_AV1) return NULL;
+  /* The tuning Rust named, before any encoder is tried: a name from outside
+   * this set says the two sides disagree, which is worth refusing rather
+   * than encoding with the tuning nobody asked for. */
+  const struct nvenc_tuning *nvenc = nvenc_tuning(tuning);
+  if (!nvenc) {
+    if (report_size) snprintf(report, report_size, "no tuning called %s", tuning);
+    return NULL;
+  }
   av_log_set_level(AV_LOG_ERROR);
   av_log_set_callback(keep_error);
-  struct opening o = {codec_id, width, height, fps, kbps, report, report_size, 0};
+  struct opening o = {.codec_id = codec_id,
+                      .width = width,
+                      .height = height,
+                      .fps = fps,
+                      .kbps = kbps,
+                      .nvenc = nvenc,
+                      .report = report,
+                      .report_size = report_size};
   for (const char *const *name = ENCODERS[codec_id]; *name; name++) {
     const AVCodec *found = avcodec_find_encoder_by_name(*name);
     if (!found) {
@@ -551,6 +665,43 @@ int yapfast_hwenc_set_bitrate(struct yapfast_hwenc *h, unsigned kbps) {
  * kept them all. */
 void yapfast_hwenc_notes(struct yapfast_hwenc *h, char *notes, size_t size) {
   if (size) snprintf(notes, size, "%s", h->notes);
+}
+
+/* The settings this encoder was opened with, as far as FFmpeg will say: how
+ * hard it works per frame, how its cap is spent, and how often a viewer waits
+ * for a keyframe. Rust logs it once, at the open, and a measurement quotes it
+ * beside its numbers, so a picture is compared with the encoder that made it
+ * rather than with whatever tuning the reader assumed. */
+void yapfast_hwenc_tuning(struct yapfast_hwenc *h, char *tuning, size_t size) {
+  if (size) snprintf(tuning, size, "%s", h->tuning);
+}
+
+/* The settings the tuning named `name` opens NVENC with, and whether the
+ * stream can't do without each, into `asked`; the first row's when `name` is
+ * NULL. It is the same list `set_nvenc` opens with, so Rust holds its shipped
+ * tuning to what the stream actually sends, and does it without a GPU at hand:
+ * a tuning that changed without a measurement behind it is a failing test
+ * rather than a picture nobody compared. Returns 0, or -1 for a name no row
+ * has. */
+int yapfast_hwenc_nvenc_settings(const char *name, char *asked, size_t size) {
+  const struct nvenc_tuning *tuning = nvenc_tuning(name);
+  if (!tuning) return -1;
+  if (!size) return 0;
+  struct setting settings[8];
+  size_t count = nvenc_settings(tuning, settings), used = 0;
+  asked[0] = 0;
+  for (size_t i = 0; i < count; i++) {
+    int written = snprintf(asked + used, size - used, "%s%s=%s%s", used ? " " : "",
+                           settings[i].name, settings[i].value,
+                           settings[i].worth == OPTIONAL ? "(optional)" : "(required)");
+    if (written < 0) break;
+    used += (size_t)written;
+    if (used >= size) {
+      used = size - 1;
+      break;
+    }
+  }
+  return 0;
 }
 
 void yapfast_hwenc_free(struct yapfast_hwenc *h) {

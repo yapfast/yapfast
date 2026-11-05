@@ -351,6 +351,11 @@ is dropped and counted rather than sent under a later frame's timestamp. The
 frame carries that timestamp on to the packetizer, and one function derives it,
 so a frame can't go out under another's time. The format, colour claim, time
 base and rate it settled on are reported at open.
+NVENC's tuning lives in one table in `native/hwenc.c` — preset, tune, rate
+control, zerolatency, frame delay and forced-IDR in a row — so choosing a
+different one is adding a row rather than editing the open path, and what a
+stream actually got is logged at open. The default is unchanged: a preset has to
+earn its place with a measured comparison, not a guess.
 NVENC, AMF and VA-API change their bitrate as they run, without the IDR frame
 FFmpeg would insert, with a patch to FFmpeg for each (AMF's sets the target,
 peak and buffer on the running encoder). "Higher quality" changes nothing on

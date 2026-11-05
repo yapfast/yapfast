@@ -105,12 +105,14 @@ unsafe extern "C" {
 
 #[cfg(hwenc)]
 unsafe extern "C" {
+    #[allow(clippy::too_many_arguments)]
     fn yapfast_hwenc_new(
         codec: c_uint,
         width: c_uint,
         height: c_uint,
         fps: c_uint,
         kbps: c_uint,
+        tuning: *const std::ffi::c_char,
         report: *mut std::ffi::c_char,
         report_size: usize,
     ) -> *mut Raw;
@@ -133,6 +135,7 @@ unsafe extern "C" {
     fn yapfast_hwenc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_hwenc_notes(encoder: *mut Raw, notes: *mut std::ffi::c_char, notes_size: usize);
     fn yapfast_hwenc_config(encoder: *mut Raw, config: *mut std::ffi::c_char, config_size: usize);
+    fn yapfast_hwenc_tuning(encoder: *mut Raw, tuning: *mut std::ffi::c_char, tuning_size: usize);
     fn yapfast_hwenc_late(encoder: *mut Raw) -> c_uint;
     fn yapfast_hwenc_free(encoder: *mut Raw);
 }
@@ -161,13 +164,61 @@ pub enum Effort {
     High,
 }
 
+/// The tuning the stream asks a GPU's encoder for: how hard it works per
+/// frame, how its bitrate cap is spent, and how often a viewer waits for a
+/// keyframe. The set itself is `NVENC_TUNINGS` in native/hwenc.c, which knows
+/// what each setting needs and what it costs; this names one row of it.
+///
+/// It is not a setting a person chooses. The stream's quality setting is
+/// [`Effort`], which picks between x264's presets, and the GPU's encoders have
+/// always run one tuning, so there is one row to name: adding a candidate is a
+/// row there and a variant here, and nothing else, and it stays out of the
+/// settings until a comparison of its picture puts it there.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Tuning {
+    /// p4 at low-latency tuning, capped VBR, no frame delay and an IDR on
+    /// demand: where screen recordings and games landed.
+    #[default]
+    LowLatency,
+}
+
+impl Tuning {
+    /// The row's name, as native/hwenc.c reads it.
+    #[cfg(hwenc)]
+    fn name(self) -> &'static std::ffi::CStr {
+        match self {
+            Self::LowLatency => c"p4",
+        }
+    }
+}
+
+/// What an encoder was opened with: which engine runs, what it was asked to
+/// tune for, and what its shim says it took. Rust chooses nothing here but
+/// that ask, so this is what the stream got rather than what it wanted, and it
+/// holds for as long as the encoder does: the bitrate, which moves with the
+/// network, is [`Encoder::bitrate`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Configuration {
+    /// Which encoder runs: "libvpx", "x264", or FFmpeg's name for a hardware
+    /// one, such as "h264_nvenc".
+    pub engine: String,
+    /// The tuning the stream asked for, in that row's own words: "p4" for
+    /// NVENC, or the effort x264 was given.
+    pub asked: String,
+    /// What the encoder reports it was opened with — its preset, its rate
+    /// control and its keyframe interval, such as "p4 preset, vbr rate
+    /// control, keyframe every 90 frames" — and empty for the encoders on the
+    /// processor, whose shims report nothing back and so claim nothing. A
+    /// driver that refused one of these said so through the `notes` warning
+    /// beside it.
+    pub tuning: String,
+}
+
 pub struct Encoder {
     raw: *mut Raw,
     codec: Codec,
     effort: Effort,
-    /// Which encoder runs: "libvpx", "x264", or FFmpeg's name for a
-    /// hardware one, such as "h264_nvenc".
-    engine: String,
+    configuration: Configuration,
     encode: Encode,
     set_bitrate: SetBitrate,
     free: Free,
@@ -203,8 +254,14 @@ pub struct Frame {
     pub timestamp: u32,
 }
 
-/// An opened encoder's handle and functions, and its name.
-type Opened = (*mut Raw, Encode, SetBitrate, Free, String);
+/// An opened encoder's handle, its functions, and what it was opened with.
+struct Opened {
+    raw: *mut Raw,
+    encode: Encode,
+    set_bitrate: SetBitrate,
+    free: Free,
+    configuration: Configuration,
+}
 
 /// What one call of an encoder made of a frame.
 #[derive(Clone, Copy)]
@@ -233,20 +290,21 @@ impl Encoder {
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             bail!("{codec:?} frames need an even size, not {width}x{height}");
         }
-        let opened = match hardware.then(|| open_hardware(codec, width, height, fps, kbps)) {
+        let opened = match hardware
+            .then(|| open_hardware(codec, width, height, fps, kbps, Tuning::default()))
+        {
             Some(Some(opened)) => opened,
             _ => open_software(codec, width, height, fps, kbps, effort)?,
         };
-        let (raw, encode, set_bitrate, free, engine) = opened;
         let pixels = (width * height) as usize;
         Ok(Self {
-            raw,
+            raw: opened.raw,
             codec,
             effort,
-            engine,
-            encode,
-            set_bitrate,
-            free,
+            configuration: opened.configuration,
+            encode: opened.encode,
+            set_bitrate: opened.set_bitrate,
+            free: opened.free,
             kbps,
             width,
             height,
@@ -261,24 +319,28 @@ impl Encoder {
     /// Which encoder runs: "libvpx", "x264", or FFmpeg's name for a
     /// hardware one, such as "h264_nvenc".
     pub fn engine(&self) -> &str {
-        &self.engine
+        &self.configuration.engine
+    }
+
+    /// What this encoder was opened with, for a log or a measurement to quote
+    /// beside its numbers.
+    pub fn configuration(&self) -> &Configuration {
+        &self.configuration
     }
 
     fn hardware(&self) -> bool {
-        !matches!(self.engine.as_str(), "libvpx" | "x264")
+        !matches!(self.engine(), "libvpx" | "x264")
     }
 
     /// Puts `opened` in place of the encoder running now.
     fn replace(&mut self, opened: Opened) {
         // SAFETY: raw came from its codec's constructor and is freed once.
         unsafe { (self.free)(self.raw) };
-        (
-            self.raw,
-            self.encode,
-            self.set_bitrate,
-            self.free,
-            self.engine,
-        ) = opened;
+        self.raw = opened.raw;
+        self.encode = opened.encode;
+        self.set_bitrate = opened.set_bitrate;
+        self.free = opened.free;
+        self.configuration = opened.configuration;
     }
 
     pub fn codec(&self) -> Codec {
@@ -440,7 +502,11 @@ impl Encoder {
     ) -> Result<Written> {
         match self.encode_once(planes, pts, keyframe, out) {
             Err(error) if self.hardware() && self.codec == Codec::H264 => {
-                tracing::warn!(engine = self.engine, %error, "the GPU's encoder failed; encoding with x264");
+                tracing::warn!(
+                    engine = self.engine(),
+                    %error,
+                    "the GPU's encoder failed; encoding with x264"
+                );
                 let (codec, width, height, fps) = (self.codec, self.width, self.height, self.fps);
                 let opened = open_software(codec, width, height, fps, self.kbps, self.effort)?;
                 self.replace(opened);
@@ -482,7 +548,7 @@ impl Encoder {
             return;
         }
         tracing::warn!(
-            engine = self.engine,
+            engine = self.engine(),
             frames = fresh,
             "the GPU's encoder answered frames late; they were dropped"
         );
@@ -539,35 +605,63 @@ fn open_software(
 ) -> Result<Opened> {
     let threads = std::thread::available_parallelism().map_or(1, |cores| cores.get().min(4)) as u32;
     // SAFETY: plain values; null means the library refused the configuration.
-    let opened: Opened = match codec {
-        Codec::Vp8 => (
-            unsafe { yapfast_vp8_new(width, height, fps, kbps, threads) },
-            yapfast_vp8_encode,
-            yapfast_vp8_set_bitrate,
-            yapfast_vp8_free,
-            "libvpx".into(),
-        ),
-        Codec::H264 => (
-            unsafe { yapfast_h264_new(width, height, fps, kbps, threads, effort as c_uint) },
-            yapfast_h264_encode,
-            yapfast_h264_set_bitrate,
-            yapfast_h264_free,
-            "x264".into(),
-        ),
+    let opened = match codec {
+        Codec::Vp8 => Opened {
+            raw: unsafe { yapfast_vp8_new(width, height, fps, kbps, threads) },
+            encode: yapfast_vp8_encode,
+            set_bitrate: yapfast_vp8_set_bitrate,
+            free: yapfast_vp8_free,
+            configuration: software_configuration("libvpx", effort),
+        },
+        Codec::H264 => Opened {
+            raw: unsafe { yapfast_h264_new(width, height, fps, kbps, threads, effort as c_uint) },
+            encode: yapfast_h264_encode,
+            set_bitrate: yapfast_h264_set_bitrate,
+            free: yapfast_h264_free,
+            configuration: software_configuration("x264", effort),
+        },
         Codec::H265 | Codec::Av1 => bail!(
             "{} encodes only on a GPU, and this one has no encoder for it",
             codec.name()
         ),
     };
-    if opened.0.is_null() {
+    if opened.raw.is_null() {
         bail!("could not start the {codec:?} encoder");
     }
+    // The settings a stream is compared by, said once rather than left to be
+    // guessed from the picture: x264's effort is the only one of them Rust
+    // chooses, and native/h264.c's own choices are its to report, not this
+    // side's to claim.
+    tracing::debug!(
+        engine = opened.configuration.engine.as_str(),
+        asked = opened.configuration.asked.as_str(),
+        "encoding on the processor"
+    );
     Ok(opened)
+}
+
+/// What an encoder on the processor was opened with: the one setting Rust
+/// chooses for it is its effort, and its shim reports nothing back of its own,
+/// so the tuning stays empty rather than become a claim about presets that
+/// nothing read.
+fn software_configuration(engine: &str, effort: Effort) -> Configuration {
+    Configuration {
+        engine: engine.to_owned(),
+        asked: format!("{effort:?} effort"),
+        tuning: String::new(),
+    }
 }
 
 /// The GPU's encoder for `codec`, if it has one that opens.
 #[cfg(hwenc)]
-fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> Option<Opened> {
+fn open_hardware(
+    codec: Codec,
+    width: u32,
+    height: u32,
+    fps: u32,
+    kbps: u32,
+    tuning: Tuning,
+) -> Option<Opened> {
     let number = match codec {
         Codec::H264 => 0,
         Codec::H265 => 1,
@@ -584,6 +678,7 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
             height,
             fps,
             kbps,
+            tuning.name().as_ptr(),
             report.as_mut_ptr().cast(),
             report.len(),
         )
@@ -613,19 +708,32 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
     let mut config = [0u8; 80];
     // SAFETY: raw is an open encoder, and the buffer is as large as its size.
     unsafe { yapfast_hwenc_config(raw, config.as_mut_ptr().cast(), config.len()) };
+    // And how hard it works per frame, how its cap is spent and how often a
+    // viewer waits for a keyframe: the settings a change to the picture's
+    // quality moves, said at the open so a stream's picture can be compared
+    // with the encoder that made it rather than with what it was meant to be.
+    let mut opened_with = [0u8; 96];
+    // SAFETY: raw is an open encoder, and the buffer is as large as its size.
+    unsafe { yapfast_hwenc_tuning(raw, opened_with.as_mut_ptr().cast(), opened_with.len()) };
+    let opened_with = c_text(&opened_with);
     tracing::debug!(
         engine = report.as_str(),
         ?codec,
+        tuning = opened_with.as_str(),
         config = c_text(&config),
         "encoding on the GPU"
     );
-    Some((
+    Some(Opened {
         raw,
-        yapfast_hwenc_encode,
-        yapfast_hwenc_set_bitrate,
-        yapfast_hwenc_free,
-        report,
-    ))
+        encode: yapfast_hwenc_encode,
+        set_bitrate: yapfast_hwenc_set_bitrate,
+        free: yapfast_hwenc_free,
+        configuration: Configuration {
+            engine: report,
+            asked: tuning.name().to_string_lossy().into_owned(),
+            tuning: opened_with,
+        },
+    })
 }
 
 /// The text a shim wrote into `bytes`, which ends with a zero.
@@ -638,7 +746,7 @@ fn c_text(bytes: &[u8]) -> String {
 }
 
 #[cfg(not(hwenc))]
-fn open_hardware(_: Codec, _: u32, _: u32, _: u32, _: u32) -> Option<Opened> {
+fn open_hardware(_: Codec, _: u32, _: u32, _: u32, _: u32, _: Tuning) -> Option<Opened> {
     None
 }
 
@@ -655,14 +763,27 @@ mod tests {
     use crate::decode::Decoder;
     use std::{collections::VecDeque, sync::Arc};
 
-    /// Four frames of moving colour, the third a forced keyframe, and the
-    /// engine that encoded them.
+    // The settings native/hwenc.c opens NVENC with for the tuning named, and
+    // whether the stream can't do without each: the list the open reads, so a
+    // test holds the shipped tuning to what the stream sends rather than to a
+    // copy of it, and needs no GPU in the shape of the question.
+    #[cfg(hwenc)]
+    unsafe extern "C" {
+        fn yapfast_hwenc_nvenc_settings(
+            tuning: *const std::ffi::c_char,
+            asked: *mut std::ffi::c_char,
+            asked_size: usize,
+        ) -> c_int;
+    }
+
+    /// Four frames of moving colour, the third a forced keyframe, and what
+    /// the encoder that made them was opened with.
     fn encode_four(
         codec: Codec,
         effort: Effort,
         (width, height): (u32, u32),
         hardware: bool,
-    ) -> (Vec<(bool, Vec<u8>)>, String) {
+    ) -> (Vec<(bool, Vec<u8>)>, Configuration) {
         let mut encoder = Encoder::new(codec, width, height, 30, 500, effort, hardware).unwrap();
         let mut rgba = vec![0u8; (width * height * 4) as usize];
         let mut frames = vec![];
@@ -686,7 +807,7 @@ mod tests {
             frames.push((encoded.keyframe, encoded.data.to_vec()));
         }
         assert!(Encoder::new(codec, 63, 36, 30, 500, effort, hardware).is_err());
-        (frames, encoder.engine().to_owned())
+        (frames, encoder.configuration().clone())
     }
 
     /// The stream's clock is worked out in [`timestamp`] and nowhere else:
@@ -950,6 +1071,9 @@ mod tests {
                 8192,
                 30,
                 500,
+                // No tuning named: the shipped one, which is what a stream
+                // that says nothing about its quality is given.
+                std::ptr::null(),
                 report.as_mut_ptr().cast(),
                 report.len(),
             )
@@ -970,9 +1094,9 @@ mod tests {
     }
 
     /// Main profile H264 at `size` that decodes: parameter sets and an IDR
-    /// first, a forced IDR third. Returns the engine.
-    fn check_h264(effort: Effort, size: (u32, u32), hardware: bool) -> String {
-        let (frames, engine) = encode_four(Codec::H264, effort, size, hardware);
+    /// first, a forced IDR third. Returns what the encoder was opened with.
+    fn check_h264(effort: Effort, size: (u32, u32), hardware: bool) -> Configuration {
+        let (frames, configuration) = encode_four(Codec::H264, effort, size, hardware);
         {
             let keys: Vec<bool> = frames.iter().map(|(key, _)| *key).collect();
             assert_eq!(keys[..3], [true, false, true]);
@@ -998,16 +1122,17 @@ mod tests {
             }
             assert!(
                 shown >= 3,
-                "{shown} pictures from {engine} at {effort:?} effort"
+                "{shown} pictures from {} at {effort:?} effort",
+                configuration.engine
             );
         }
-        engine
+        configuration
     }
 
     #[test]
     fn encodes_main_profile_h264_that_decodes() {
         for effort in [Effort::Light, Effort::High] {
-            assert_eq!(check_h264(effort, (64, 36), false), "x264");
+            assert_eq!(check_h264(effort, (64, 36), false).engine, "x264");
         }
     }
 
@@ -1021,8 +1146,8 @@ mod tests {
             return;
         }
         assert!(Encoder::new(Codec::H265, 320, 180, 30, 500, Effort::Light, false).is_err());
-        let (frames, engine) = encode_four(Codec::H265, Effort::Light, (320, 180), true);
-        eprintln!("encoded with {engine}");
+        let (frames, configuration) = encode_four(Codec::H265, Effort::Light, (320, 180), true);
+        eprintln!("encoded with {configuration:?}");
         let types = |data| -> Vec<u8> {
             yapfast_discord::rtp::nal_units(data)
                 .iter()
@@ -1051,8 +1176,8 @@ mod tests {
             return;
         }
         assert!(Encoder::new(Codec::Av1, 320, 180, 30, 500, Effort::Light, false).is_err());
-        let (frames, engine) = encode_four(Codec::Av1, Effort::Light, (320, 180), true);
-        eprintln!("encoded with {engine}");
+        let (frames, configuration) = encode_four(Codec::Av1, Effort::Light, (320, 180), true);
+        eprintln!("encoded with {configuration:?}");
         let sequence = |data| {
             yapfast_discord::rtp::obu_elements(data)
                 .expect("OBUs within the frame")
@@ -1069,7 +1194,86 @@ mod tests {
     /// the same stream either way.
     #[test]
     fn encodes_h264_on_the_gpu_or_falls_back() {
-        let engine = check_h264(Effort::Light, (320, 180), true);
-        eprintln!("encoded with {engine}");
+        let configuration = check_h264(Effort::Light, (320, 180), true);
+        eprintln!("encoded with {configuration:?}");
+        // What the stream was tuned with is said at the open, and the keyframe
+        // interval in it is the encoder's own answer rather than this side's
+        // assumption. x264 has its settings in native/h264.c and reports none
+        // of them, so it is held to claiming nothing instead.
+        assert!(
+            configuration.engine == "x264" || configuration.tuning.contains("keyframe every"),
+            "{configuration:?}"
+        );
+    }
+
+    /// An encoder on the processor says which effort it was asked for and
+    /// claims nothing that nobody read back: the picture's settings are
+    /// native/h264.c's, and this side never says what they came out as.
+    #[test]
+    fn a_software_encoder_reports_the_effort_it_was_asked_for() {
+        let encoder = Encoder::new(Codec::H264, 64, 36, 30, 500, Effort::High, false).unwrap();
+        assert_eq!(
+            encoder.configuration(),
+            &Configuration {
+                engine: "x264".into(),
+                asked: "High effort".into(),
+                tuning: String::new(),
+            }
+        );
+    }
+
+    /// The shipped tuning is the one the stream was measured with, and the
+    /// settings a driver may drop are still marked as ones it may drop.
+    ///
+    /// The list is native/hwenc.c's own, not a copy here, so this reads what
+    /// the open applies: p4 at low-latency tuning, capped VBR, no frame
+    /// allowed to wait and an IDR on demand. The optional ones are the three
+    /// that only improve the picture, which is what makes a driver refusing
+    /// one a note the stream warns about ("the GPU's encoder dropped optional
+    /// settings") rather than a failed open; a required one marked optional
+    /// would go missing in silence instead, and a new picture is a change
+    /// nobody has run a comparison of, so it has to be a failing test before
+    /// it is a shipped default.
+    #[cfg(hwenc)]
+    #[test]
+    fn the_shipped_tuning_is_the_one_that_was_measured() {
+        let tuning = Tuning::default();
+        assert_eq!(tuning.name(), c"p4");
+        let mut asked = [0u8; 192];
+        // SAFETY: a name from the table above, and a buffer of the size given.
+        let found = unsafe {
+            yapfast_hwenc_nvenc_settings(
+                tuning.name().as_ptr(),
+                asked.as_mut_ptr().cast(),
+                asked.len(),
+            )
+        };
+        assert_eq!(found, 0);
+        assert_eq!(
+            c_text(&asked),
+            "preset=p4(optional) tune=ll(required) rc=vbr(optional) \
+             zerolatency=1(optional) delay=0(required) forced-idr=1(required)"
+        );
+        // Naming nothing asks for the same row, so an encoder opened without a
+        // word from Rust is the tuning that was tested.
+        let mut unnamed = [0u8; 192];
+        // SAFETY: as above, with no name at all.
+        let found = unsafe {
+            yapfast_hwenc_nvenc_settings(
+                std::ptr::null(),
+                unnamed.as_mut_ptr().cast(),
+                unnamed.len(),
+            )
+        };
+        assert_eq!((found, c_text(&unnamed)), (0, c_text(&asked)));
+        // A tuning nobody has is refused rather than quietly replaced by this
+        // one: a name that stopped matching would otherwise encode a tuning
+        // the stream never chose.
+        let mut none = [0u8; 192];
+        // SAFETY: as above, with a name no row has.
+        let found = unsafe {
+            yapfast_hwenc_nvenc_settings(c"p7".as_ptr(), none.as_mut_ptr().cast(), none.len())
+        };
+        assert_eq!(found, -1);
     }
 }
