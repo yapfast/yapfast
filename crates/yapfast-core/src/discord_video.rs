@@ -24,7 +24,7 @@ use yapfast_discord::{
 use crate::{
     camera::{self, Camera},
     decode::Decoder,
-    encode::{CLOCK, Effort, Encoder},
+    encode::{Effort, Encoder, timestamp},
     picture::{Feed, I420},
 };
 
@@ -123,12 +123,12 @@ impl Filming {
                 return;
             };
             let keyframe = sender.take_keyframe_request() || fresh;
-            let pts = started.elapsed().as_micros() as u64 * CLOCK / 1_000_000;
+            let pts = timestamp(started.elapsed());
             match encoder.encode_picture(picture, pts, keyframe) {
                 Ok(Some(frame)) => sender.send(Frame {
                     data: frame.data,
                     codec: SEND_CODEC,
-                    timestamp: pts as u32,
+                    timestamp: frame.timestamp,
                     keyframe: frame.keyframe,
                 }),
                 Ok(None) => {}

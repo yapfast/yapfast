@@ -21,7 +21,9 @@
 
 #include "libavcodec/avcodec.h"
 #include "libavutil/hwcontext.h"
+#include "libavutil/mathematics.h"
 #include "libavutil/opt.h"
+#include "libavutil/pixdesc.h"
 #include "libavutil/time.h"
 
 /* The codecs, as Rust numbers them. */
@@ -35,7 +37,13 @@ struct yapfast_hwenc {
   /* The frame handed over, in memory: I420 for NVENC, NV12 for VA-API. */
   AVFrame *frame;
   AVPacket *packet;
-  int64_t index;
+  /* Packets handed back for an earlier picture than the frame given: a
+   * driver holding one back, whose time has gone by, so it is dropped
+   * rather than sent under the next frame's time. */
+  unsigned late;
+  /* The format, colour and time base the encoder took, and the rate asked
+   * for, for Rust to log once: what the stream actually got. */
+  char config[80];
   /* AMF hands a frame back a little after taking it, and is polled for it. */
   int poll;
   /* The optional settings FFmpeg didn't have or its driver didn't keep,
@@ -244,12 +252,37 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   }
   ret = avcodec_open2(codec, found, NULL);
   if (ret < 0) return ret;
+  /* Rust hands over I420, and the encoders that read their frames from the
+   * GPU take NV12, with the chroma interleaved instead. Whichever the
+   * encoder took is the one `fill` lays out, so it is read back rather than
+   * assumed: a format `fill` can't write would encode the wrong picture at
+   * the wrong size. */
+  const AVHWFramesContext *surfaces =
+      codec->hw_frames_ctx ? (const AVHWFramesContext *)codec->hw_frames_ctx->data : NULL;
+  enum AVPixelFormat pixels = surfaces ? surfaces->sw_format : codec->pix_fmt;
+  const char *format = av_get_pix_fmt_name(pixels);
+  if (pixels != AV_PIX_FMT_NV12 && pixels != AV_PIX_FMT_YUV420P) {
+    snprintf(first_error, sizeof first_error, "the encoder takes %s, not I420 or NV12",
+             format ? format : "a format with no name");
+    return AVERROR(EINVAL);
+  }
+  /* Frames are timed by the stream's clock in 90 kHz units, rescaled into
+   * this time base, which has to exist to rescale into. */
+  if (codec->time_base.num <= 0 || codec->time_base.den <= 0) {
+    snprintf(first_error, sizeof first_error, "the encoder kept no time base");
+    return AVERROR(EINVAL);
+  }
   h->frame = av_frame_alloc();
   h->packet = av_packet_alloc();
   if (!h->frame || !h->packet) return AVERROR(ENOMEM);
-  h->frame->format = vaapi || amf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+  h->frame->format = pixels;
   h->frame->width = (int)width;
   h->frame->height = (int)height;
+  const char *space = av_color_space_name(codec->colorspace);
+  snprintf(h->config, sizeof h->config, "%s, %s %s range, %d/%d, %u kbit/s", format,
+           space ? space : "no colour space",
+           codec->color_range == AVCOL_RANGE_JPEG ? "full" : "limited", codec->time_base.num,
+           codec->time_base.den, kbps);
   return av_frame_get_buffer(h->frame, 0);
 }
 
@@ -361,7 +394,9 @@ struct yapfast_hwenc *yapfast_hwenc_new(unsigned codec_id, unsigned width, unsig
 }
 
 /* Copies an I420 picture into the frame the encoder reads: as it is for
- * NVENC, with its chroma planes interleaved for VA-API's and AMF's NV12. */
+ * NVENC, with its chroma planes interleaved for VA-API's and AMF's NV12.
+ * `open_encoder` checked the frame's format, so the other layout is I420
+ * rather than whatever the driver felt like. */
 static int fill(struct yapfast_hwenc *h, const uint8_t *y, int y_stride, const uint8_t *u,
                 int u_stride, const uint8_t *v, int v_stride) {
   AVFrame *frame = h->frame;
@@ -386,16 +421,21 @@ static int fill(struct yapfast_hwenc *h, const uint8_t *y, int y_stride, const u
   return 0;
 }
 
-/* Encodes one I420 frame into `out`. Returns the encoded size, 0 when the
- * encoder gave no frame, or a negative number on failure. `out` stays Rust's:
- * this writes it and keeps no reference to it. `pts` and `duration` are
- * unused: frames are timed by the frame rate. */
+/* Encodes one I420 frame into `out`, whose time is `pts` in 90 kHz units:
+ * the stream's own clock, which Rust also labels the frame's packets with.
+ * The encoder is given the same time rescaled into its time base, so a
+ * packet can be told apart from another frame's, and an encoder opened
+ * again mid-stream carries on from the stream's time rather than from a
+ * count of its own. Returns the encoded size, 0 when the encoder gave no
+ * frame, or a negative number on failure. `out` stays Rust's: this writes it
+ * and keeps no reference to it. `duration` is unused: frames are timed by
+ * the frame rate. */
 long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y_stride,
                           const unsigned char *u, int u_stride, const unsigned char *v,
                           int v_stride, long long pts, unsigned long duration, int keyframe,
                           unsigned char *out, size_t capacity, int *is_key) {
-  (void)pts;
   (void)duration;
+  int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
   int ret = fill(h, y, y_stride, u, u_stride, v, v_stride);
   if (ret < 0) return -1;
   AVFrame *frame = h->frame;
@@ -406,7 +446,7 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
     if (ret < 0) return -1;
     frame = h->surface;
   }
-  frame->pts = h->index++;
+  frame->pts = at;
   frame->pict_type = keyframe ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
   if (avcodec_send_frame(h->codec, frame) < 0) return -1;
   size_t size = 0;
@@ -422,6 +462,15 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
       continue;
     }
     if (ret < 0) break;
+    /* The encoder takes one frame and gives back one packet for it, timed
+     * as the frame was. A packet timed for another is one a driver held
+     * back: its frame is already gone and its time with it, so sending it
+     * now would pass it off as this frame's, and it's dropped instead. */
+    if (h->packet->pts != AV_NOPTS_VALUE && h->packet->pts != at) {
+      h->late++;
+      av_packet_unref(h->packet);
+      continue;
+    }
     if (size + (size_t)h->packet->size > capacity) {
       av_packet_unref(h->packet);
       return -2;
@@ -435,9 +484,22 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
   return (long)size;
 }
 
+/* How many packets the encoder handed back for an earlier frame than the one
+ * it was given, and which were dropped rather than sent under a later
+ * frame's time: a driver that falls behind, worth warning about. */
+unsigned yapfast_hwenc_late(struct yapfast_hwenc *h) { return h->late; }
+
+/* The format, colour and time base this encoder took, and the rate asked
+ * for, into `config`: what Rust can't see, since it hands over I420 at a
+ * rate and the encoder decides the rest. */
+void yapfast_hwenc_config(struct yapfast_hwenc *h, char *config, size_t size) {
+  if (size) snprintf(config, size, "%s", h->config);
+}
+
 /* Changes the bitrate aimed for, from the next frame on, without a
- * keyframe: patches/ in vendor/ffmpeg-src make NVENC and VA-API follow it.
- * Returns 0. */
+ * keyframe: patches/ in vendor/ffmpeg-src make NVENC, AMF and VA-API follow
+ * it. Returns 0: the context's aim is what is set here, and the driver's
+ * answer comes with the frames after, as FFmpeg's own error. */
 int yapfast_hwenc_set_bitrate(struct yapfast_hwenc *h, unsigned kbps) {
   set_rate(h->codec, kbps);
   return 0;

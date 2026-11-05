@@ -299,7 +299,15 @@ setting this FFmpeg doesn't have, or the driver refuses, fails that encoder's
 open, and the worker logs it by name ("no GPU encoder opened"); an optional
 one the driver drops is logged too ("the GPU's encoder dropped optional
 settings"), and the stream goes on without it, so it never claims a setting it
-hasn't got.
+hasn't got. The format it writes is the one the encoder reports it took, NV12
+or planar I420, and an open that gets neither fails by name rather than
+scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
+the encoder's own time base, so every engine, and a fallback between them, runs
+on one clock; a packet the encoder returns for a frame it has already finished
+is dropped and counted rather than sent under a later frame's timestamp. The
+frame carries that timestamp on to the packetizer, and one function derives it,
+so a frame can't go out under another's time. The format, colour claim, time
+base and rate it settled on are reported at open.
 NVENC, AMF and VA-API change their bitrate as they run, without the IDR frame
 FFmpeg would insert, with a patch to FFmpeg for each (AMF's sets the target,
 peak and buffer on the running encoder). "Higher quality" changes nothing on

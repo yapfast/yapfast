@@ -8,6 +8,7 @@
 use std::{
     ffi::{c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Result, bail};
@@ -131,11 +132,23 @@ unsafe extern "C" {
     ) -> c_long;
     fn yapfast_hwenc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_hwenc_notes(encoder: *mut Raw, notes: *mut std::ffi::c_char, notes_size: usize);
+    fn yapfast_hwenc_config(encoder: *mut Raw, config: *mut std::ffi::c_char, config_size: usize);
+    fn yapfast_hwenc_late(encoder: *mut Raw) -> c_uint;
     fn yapfast_hwenc_free(encoder: *mut Raw);
 }
 
 /// RTP's video clock.
 pub const CLOCK: u64 = 90_000;
+
+/// The time of a point in a stream, `elapsed` into it, in [`CLOCK`] units:
+/// where the encoder's frames, the camera's and the RTP timestamps on their
+/// packets are all timed from, so a frame can't be timed two ways. RTP's
+/// timestamp is 32 bits and wraps after 13 hours, and [`Frame::timestamp`]
+/// is the low half of this.
+pub fn timestamp(elapsed: Duration) -> u64 {
+    // Multiplied before it's divided, or most of a millisecond would be lost.
+    elapsed.as_micros() as u64 * CLOCK / 1_000_000
+}
 
 /// How much work the H264 encoder puts into each frame: x264's superfast
 /// preset, or its faster one, for a sharper picture at about twice the CPU.
@@ -163,6 +176,9 @@ pub struct Encoder {
     width: u32,
     height: u32,
     fps: u32,
+    /// How many frames the GPU's encoder has answered late so far, as last
+    /// read, so that a warning names each new one once.
+    late: u32,
     /// The frame as I420, for [`Self::encode`]: a full-size luma plane, then
     /// two quarter-size chroma planes. Empty until it's first needed: the
     /// screen and the camera arrive as I420.
@@ -181,6 +197,10 @@ unsafe impl Send for Encoder {}
 pub struct Frame {
     pub data: Encoded,
     pub keyframe: bool,
+    /// Its time in the stream, in 90 kHz units, cut to the 32 bits RTP sends
+    /// it in. It travels with the bytes rather than being worked out again
+    /// for the packet, so a frame is never sent under another frame's time.
+    pub timestamp: u32,
 }
 
 /// An opened encoder's handle and functions, and its name.
@@ -231,6 +251,7 @@ impl Encoder {
             width,
             height,
             fps,
+            late: 0,
             planes: Vec::new(),
             // Starts lean; a keyframe of noise is the most the pool can grow to.
             out: Arc::new(Pool::new(pixels * 2 + 4096)),
@@ -376,6 +397,7 @@ impl Encoder {
         let mut out = self.out.checkout();
         let mut written = self.encode_once_fallback(planes, pts, keyframe, &mut out)?;
         loop {
+            self.note_late();
             match written {
                 Written::TooSmall => {
                     if !self.out.grow() {
@@ -393,6 +415,9 @@ impl Encoder {
                     return Ok(Some(Frame {
                         data: out,
                         keyframe,
+                        // The frame was encoded at this time, whether it
+                        // took one call or, grown, two.
+                        timestamp: pts as u32,
                     }));
                 }
                 // The skipped frame's buffer goes back to the pool.
@@ -427,6 +452,37 @@ impl Encoder {
     /// Their other negative numbers are failures.
     fn too_small(&self) -> c_long {
         if self.codec == Codec::Vp8 { -3 } else { -2 }
+    }
+
+    /// How many frames the GPU's encoder has answered late, and which
+    /// native/hwenc.c dropped rather than let them be sent under a newer
+    /// frame's time. An encoder on the processor has none to report.
+    fn late(&self) -> u32 {
+        #[cfg(hwenc)]
+        {
+            if self.hardware() {
+                // SAFETY: a hardware engine is native/hwenc.c's, and is live.
+                return unsafe { yapfast_hwenc_late(self.raw) };
+            }
+        }
+        0
+    }
+
+    /// Warns about frames the GPU's encoder answered late, when one is
+    /// answered: a driver falling behind, whose frame is dropped rather than
+    /// sent under this frame's time.
+    fn note_late(&mut self) {
+        let late = self.late();
+        let fresh = late.saturating_sub(self.late);
+        self.late = late;
+        if fresh == 0 {
+            return;
+        }
+        tracing::warn!(
+            engine = self.engine,
+            frames = fresh,
+            "the GPU's encoder answered frames late; they were dropped"
+        );
     }
 
     fn encode_once(
@@ -548,7 +604,18 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
             "the GPU's encoder dropped optional settings"
         );
     }
-    tracing::debug!(engine = report, ?codec, "encoding on the GPU");
+    // What the encoder took, which Rust can't see from this side of the call:
+    // the format it fills a frame in, the colour it was told, the time base
+    // frames are timed in. A stream that looks wrong says which it encoded.
+    let mut config = [0u8; 80];
+    // SAFETY: raw is an open encoder, and the buffer is as large as its size.
+    unsafe { yapfast_hwenc_config(raw, config.as_mut_ptr().cast(), config.len()) };
+    tracing::debug!(
+        engine = report.as_str(),
+        ?codec,
+        config = c_text(&config),
+        "encoding on the GPU"
+    );
     Some((
         raw,
         yapfast_hwenc_encode,
@@ -608,10 +675,27 @@ mod tests {
                 .encode(&rgba, frame * 3000, frame == 2)
                 .unwrap()
                 .unwrap();
+            assert_eq!(
+                encoded.timestamp,
+                (frame * 3000) as u32,
+                "the frame carries the time it was encoded at"
+            );
             frames.push((encoded.keyframe, encoded.data.to_vec()));
         }
         assert!(Encoder::new(codec, 63, 36, 30, 500, effort, hardware).is_err());
         (frames, encoder.engine().to_owned())
+    }
+
+    /// The stream's clock is worked out in [`timestamp`] and nowhere else:
+    /// 90 kHz over RTP's 32 bits, which wrap after 13 hours.
+    #[test]
+    fn the_stream_clock_is_one_derivation() {
+        assert_eq!(timestamp(Duration::ZERO), 0);
+        assert_eq!(timestamp(Duration::from_millis(1)), 90);
+        assert_eq!(timestamp(Duration::from_secs(1)), CLOCK);
+        // 48,000 seconds is 4,320,000,000 ticks: more than 32 bits holds.
+        assert_eq!(timestamp(Duration::from_secs(48_000)), 4_320_000_000);
+        assert_eq!(timestamp(Duration::from_secs(48_000)) as u32, 25_032_704);
     }
 
     /// Three frames alive at once keep the bytes they were encoded with while
@@ -731,11 +815,15 @@ mod tests {
         assert_eq!(frame.data.len(), BULKY);
         assert!(frame.keyframe);
         assert!(frame.data.iter().all(|&byte| byte == 0xab));
+        // The frame that didn't fit was encoded again at the same time: one
+        // frame out, at the time it was captured, not a frame later.
+        assert_eq!(frame.timestamp, 0);
         assert_eq!(encoder.out.capacity(), 1024 * 1024);
         drop(frame);
         // The grown buffer came back, and is the one the next frame uses.
         let again = encoder.encode(&rgba, 3000, false).unwrap().unwrap();
         assert_eq!(again.data.len(), BULKY);
+        assert_eq!(again.timestamp, 3000);
         assert_eq!(encoder.created(), 2);
     }
 
