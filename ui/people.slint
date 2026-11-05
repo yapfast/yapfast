@@ -329,6 +329,23 @@ export struct ProfileBadgeRow { icon: string, description: string, link: string,
 /// account was made ("" when unknown), and whether the service verified it.
 export struct ProfileConnectionRow { kind: string, name: string, url: string, since: string, verified: bool }
 
+/// A game on a widget, with the address of its picture.
+export struct ProfileGameRow { name: string, initial: string, icon: string, comment: string }
+
+/// A widget on someone's Discord board.
+export struct ProfileWidgetRow {
+    title: string,
+    games: [ProfileGameRow],
+    /// It holds something shown only in Discord.
+    elsewhere: bool,
+}
+
+/// An item on someone's Discord wishlist, with the address of its picture.
+export struct ProfileWishlistRow { name: string, initial: string, url: string }
+
+/// A past thing on someone's Activity tab.
+export struct ProfileRecentRow { title: string, subtitle: string, url: string, initial: string, music: bool, when: string }
+
 export struct ProfileData {
     id: string, name: string, initial: string, tint: color, picture: image,
     /// The address of the decoration around their avatar, and how their name
@@ -375,6 +392,84 @@ export struct ProfileData {
     can-message: bool,
     /// "5 mutual friends" and "2 mutual servers" in the chosen language.
     mutual-friends-text: string, mutual-servers-text: string,
+    /// Their Discord board and wishlist, each with a line about it: why it
+    /// doesn't show, or that it's private.
+    widgets: [ProfileWidgetRow], board-note: string,
+    wishlist: [ProfileWishlistRow], wishlist-note: string,
+    /// What they did lately, once the Activity tab asked.
+    recent: [ProfileRecentRow],
+    /// Whether the full profile has a Board and a Wishlist tab, as Discord's
+    /// client decides.
+    board-tab: bool, wishlist-tab: bool,
+    /// It's this account's own profile.
+    own: bool,
+}
+
+// A picture on the Board or Wishlist tab, asked for as it shows. What has none,
+// as Nitro has none, shows its name's first letter.
+component ShowcasePicture inherits Rectangle {
+    in property <string> url;
+    in property <string> label;
+    in property <string> initial;
+    in property <length> initial-size: 16px;
+    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    function request() {
+        if root.url != "" && root.picture.width == 0 {
+            PictureStore.request(root.url);
+        }
+    }
+    init => { root.request(); }
+    changed url => { root.request(); }
+    changed picture => { root.request(); }
+    clip: true;
+    accessible-role: image;
+    accessible-label: root.label;
+    Image { source: root.picture; width: parent.width; height: parent.height; image-fit: contain; }
+    if root.url == "": Text {
+        text: root.initial; color: Theme.muted; font-size: root.initial-size; font-weight: 700;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
+
+// A widget on the Board tab: Discord's heading for it, then its games.
+component BoardCard inherits Rectangle {
+    in property <ProfileWidgetRow> widget;
+    in property <color> tile: Theme.raised;
+    background: root.tile;
+    border-radius: 12px;
+    VerticalLayout {
+        padding: 14px; spacing: 10px;
+        Text { text: root.widget.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+        for game in root.widget.games: HorizontalLayout {
+            spacing: 10px;
+            ShowcasePicture {
+                width: 44px; height: 44px; border-radius: 8px; background: Theme.field;
+                url: game.icon; label: game.name; initial: game.initial;
+            }
+            VerticalLayout {
+                alignment: center; spacing: 2px;
+                Text { text: game.name; color: Theme.text; font-size: 13px; font-weight: 500; overflow: elide; }
+                if game.comment != "": Text { text: game.comment; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+            }
+        }
+        if root.widget.elsewhere: Text { text: "This one only shows in Discord for now."; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+    }
+}
+
+// An item on the Wishlist tab: its picture, and its name under that.
+component WishlistCard inherits Rectangle {
+    in property <ProfileWishlistRow> item;
+    in property <color> tile: Theme.raised;
+    background: root.tile;
+    border-radius: 12px;
+    VerticalLayout {
+        padding: 10px; spacing: 8px;
+        ShowcasePicture {
+            vertical-stretch: 1; border-radius: 8px;
+            url: root.item.url; label: root.item.name; initial: root.item.initial; initial-size: 40px;
+        }
+        Text { text: root.item.name; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; overflow: elide; }
+    }
 }
 
 /// A section's title on a card, as Discord writes it: small, bold, sentence
@@ -1225,11 +1320,18 @@ export component ProfileModal inherits Rectangle {
     callback open-server(ProfileServerRow, length, length, length, length);
     /// A mutual friend's full profile was asked for.
     callback open-friend(string, length, length, length, length);
-    /// 0 activity, 1 mutual friends, 2 mutual servers.
+    /// A tab opened, by its page; Board, Activity and Wishlist ask Discord
+    /// for what they show the first time.
+    callback tab-opened(int);
+    /// 0 activity, 1 mutual friends, 2 mutual servers, 3 board, 4 wishlist.
     in-out property <int> page: 0;
     // The tab asked for when it is empty falls back to the first.
     property <string> person: root.data.id;
-    changed person => { root.page = 0; }
+    changed person => { root.page = 0; root.tab-opened(0); }
+    changed page => { root.tab-opened(root.page); }
+    init => { root.tab-opened(root.page); }
+    // What tiles take on the panel, which a theme tints.
+    property <color> tile: root.data.has-theme ? #ffffff14 : Theme.raised;
     // The whole panel takes the profile's theme, not only the card on its left.
     background: root.data.has-theme
         ? @linear-gradient(180deg, root.data.theme-primary.mix(#000000, 0.4) 0%, root.data.theme-secondary.mix(#000000, 0.4) 100%)
@@ -1257,24 +1359,27 @@ export component ProfileModal inherits Rectangle {
             // The tabs, with the close button at the end.
             HorizontalLayout {
                 height: 40px; spacing: 20px;
-                for entry[index] in [
-                    { label: Strings.tab-activity, count: -1 },
-                    { label: root.data.mutual-friends-text, count: -1 },
-                    { label: root.data.mutual-servers-text, count: -1 },
+                // Discord's order: Board, Activity, Wishlist, then what's mutual.
+                for entry in [
+                    { label: "Board", page: 3, shows: root.data.board-tab },
+                    { label: Strings.tab-activity, page: 0, shows: true },
+                    { label: "Wishlist", page: 4, shows: root.data.wishlist-tab },
+                    { label: root.data.mutual-friends-text, page: 1, shows: true },
+                    { label: root.data.mutual-servers-text, page: 2, shows: true },
                 ]: Rectangle {
-                    width: tab-text.preferred-width; height: 40px;
+                    width: entry.shows ? tab-text.preferred-width : 0px; height: 40px; visible: entry.shows;
                     accessible-role: tab;
                     accessible-label: entry.label;
                     accessible-checkable: true;
-                    accessible-checked: root.page == index;
-                    accessible-action-default => { root.page = index; }
+                    accessible-checked: root.page == entry.page;
+                    accessible-action-default => { root.page = entry.page; }
                     tab-text := Text {
-                        text: entry.count >= 0 ? entry.label + " " + entry.count : entry.label;
-                        color: root.page == index || tab-touch.has-hover ? Theme.text : Theme.muted;
-                        font-size: 14px; font-weight: root.page == index ? 700 : 500; vertical-alignment: center;
+                        text: entry.label;
+                        color: root.page == entry.page || tab-touch.has-hover ? Theme.text : Theme.muted;
+                        font-size: 14px; font-weight: root.page == entry.page ? 700 : 500; vertical-alignment: center;
                     }
-                    Rectangle { y: parent.height - 2px; height: 2px; border-radius: 1px; background: Theme.text; visible: root.page == index; }
-                    tab-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.page = index; } }
+                    Rectangle { y: parent.height - 2px; height: 2px; border-radius: 1px; background: Theme.text; visible: root.page == entry.page; }
+                    tab-touch := TouchArea { enabled: entry.shows; mouse-cursor: MouseCursor.pointer; clicked => { root.page = entry.page; } }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Rectangle {
@@ -1298,8 +1403,55 @@ export component ProfileModal inherits Rectangle {
                             activity: activity;
                             open-link(url) => { root.open-link(url); }
                         }
-                        if root.data.activities.length == 0: Text {
+                        if root.data.activities.length == 0 && root.data.recent.length == 0: Text {
                             text: "Nothing to show here right now."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                        }
+                        // What they did lately, from Discord's outbox.
+                        if root.data.recent.length > 0: Text { text: "Recent activity"; color: Theme.secondary; font-size: 12px; font-weight: 500; }
+                        for entry in root.data.recent: Rectangle {
+                            border-radius: 10px; background: root.tile;
+                            height: 84px;
+                            HorizontalLayout {
+                                padding: 12px; spacing: 12px;
+                                ShowcasePicture {
+                                    width: 60px; height: 60px; border-radius: 8px; background: root.tile;
+                                    url: entry.url; label: entry.title; initial: entry.initial; initial-size: 22px;
+                                }
+                                VerticalLayout {
+                                    alignment: center; spacing: 2px; horizontal-stretch: 1;
+                                    Text { text: entry.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                                    if entry.subtitle != "": Text { text: entry.subtitle; color: Theme.secondary; font-size: 13px; overflow: elide; }
+                                    if entry.when != "": Text { text: (entry.music ? "\u{266b} " : "") + entry.when; color: Theme.muted; font-size: 12px; }
+                                }
+                            }
+                        }
+                    }
+                    if root.page == 3: VerticalLayout {
+                        spacing: 12px;
+                        if root.data.board-note != "": Text { text: root.data.board-note; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                        if root.data.board-note == "" && root.data.widgets.length == 0: Text { text: "Nothing on the board yet."; color: Theme.muted; font-size: 14px; wrap: word-wrap; }
+                        if root.data.board-note == "": VerticalLayout {
+                            spacing: 12px;
+                            for widget in root.data.widgets: BoardCard { widget: widget; tile: root.tile; }
+                        }
+                    }
+                    if root.page == 4: wishlist-grid := VerticalLayout {
+                        property <length> gap: 12px;
+                        property <length> card-width: min((self.width - 2 * self.gap) / 3, 168px);
+                        property <length> card-height: self.card-width + 26px;
+                        property <int> count: root.data.wishlist.length;
+                        spacing: 12px;
+                        if root.data.wishlist-note != "": Text { text: root.data.wishlist-note; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                        if root.data.wishlist-note == "" && wishlist-grid.count == 0: Text { text: root.data.own ? "Nothing on your wishlist yet." : "Nothing on their wishlist."; color: Theme.muted; font-size: 14px; wrap: word-wrap; }
+                        if wishlist-grid.count > 0: Rectangle {
+                            height: ceil(wishlist-grid.count / 3) * (wishlist-grid.card-height + wishlist-grid.gap) - wishlist-grid.gap;
+                            for item[index] in root.data.wishlist: WishlistCard {
+                                x: mod(index, 3) * (wishlist-grid.card-width + wishlist-grid.gap);
+                                y: floor(index / 3) * (wishlist-grid.card-height + wishlist-grid.gap);
+                                width: wishlist-grid.card-width;
+                                height: wishlist-grid.card-height;
+                                item: item; tile: root.tile;
+                            }
                         }
                     }
                     if root.page == 1: VerticalLayout {

@@ -363,6 +363,19 @@ pub struct ProfileView {
     pub kept: bool,
     /// Why Discord didn't give the rest.
     pub note: Option<String>,
+    /// The full profile's Board, Activity or Wishlist tab has been opened,
+    /// so a profile that comes later is asked after in turn.
+    pub board_open: bool,
+    pub activity_open: bool,
+    pub wishlist_open: bool,
+}
+
+/// A tab on the full profile that asks Discord for more when it first opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileTab {
+    Board,
+    Activity,
+    Wishlist,
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
@@ -2023,6 +2036,8 @@ pub enum Action {
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
+    /// A tab of the full profile opened.
+    OpenProfileTab(ProfileTab),
     /// Which cosmetics show, from Settings → Appearance → Profiles. What's
     /// shown loses what's turned off at once; what's turned on shows as its
     /// pictures arrive, and a profile's effect once the profile is fetched
@@ -3362,6 +3377,7 @@ impl Application {
                 self.state.hide_nameplates = hide;
                 vec![]
             }
+            Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
             Action::SetCosmetics(cosmetics) => {
                 self.state.cosmetics = cosmetics;
                 vec![]
@@ -3597,8 +3613,11 @@ impl Application {
                     self.state.notice = Some(message);
                 }
             }
-            Event::Profile { user, result } => self.show_fetched_profile(user, result),
-            Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
+            Event::Profile { user, result } => return self.show_fetched_profile(user, result),
+            Event::KeptProfile { user, profile } => return self.show_kept_profile(user, profile),
+            Event::Wishlist { id, wishlist } => self.profile_wishlist_loaded(&id, &wishlist),
+            Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
+            Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.

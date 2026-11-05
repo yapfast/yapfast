@@ -50,6 +50,74 @@ pub struct Profile {
     /// The accounts on other services their profile shows.
     #[serde(default)]
     pub connections: Vec<Connection>,
+    /// The widgets on their board, whose games only
+    /// [`Discord::name_widgets`](crate::service::Discord::name_widgets) names.
+    #[serde(default)]
+    pub widgets: Vec<crate::widgets::Widget>,
+    /// Where their wishlist is, if they have one that's said.
+    #[serde(default)]
+    pub wishlist: Option<crate::wishlist::Place>,
+}
+
+/// A past thing on someone's Activity tab.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecentEntry {
+    pub title: String,
+    pub subtitle: String,
+    /// The address of its picture.
+    pub picture: Option<String>,
+    /// It's music, marked with a note.
+    pub music: bool,
+    /// When it ended, in milliseconds.
+    pub at: Option<u64>,
+}
+
+/// What's in someone's outbox that this shows: music, what they watched and
+/// games they played, by the client's numbers for `content_type`.
+pub fn recent_entries(value: &Value) -> Vec<RecentEntry> {
+    const PLAYED_GAME: u64 = 1;
+    const WATCHED_MEDIA: u64 = 2;
+    const TOP_GAME: u64 = 3;
+    const LISTENED_SESSION: u64 = 5;
+    value["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let extra = &entry["extra"];
+            let at = entry["ended_at"]
+                .as_str()
+                .or_else(|| entry["started_at"].as_str())
+                .and_then(iso_ms)
+                // A session has no times of its own; its id says when it began.
+                .or_else(|| text(&entry["id"]).map(snowflake_ms).filter(|ms| *ms > 0));
+            match entry["content_type"].as_u64()? {
+                LISTENED_SESSION => {
+                    let media = &extra["entries"][0]["media"];
+                    Some(RecentEntry {
+                        title: text(&media["title"])?.to_owned(),
+                        subtitle: text(&media["artists"][0]["name"])
+                            .unwrap_or_default()
+                            .to_owned(),
+                        picture: text(&media["image_url"]).map(str::to_owned),
+                        music: true,
+                        at,
+                    })
+                }
+                WATCHED_MEDIA => Some(RecentEntry {
+                    title: text(&extra["media_title"])?.to_owned(),
+                    at,
+                    ..Default::default()
+                }),
+                PLAYED_GAME | TOP_GAME => Some(RecentEntry {
+                    title: text(&extra["game_name"])?.to_owned(),
+                    at,
+                    ..Default::default()
+                }),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 /// An account on another service that a profile shows, such as Steam.
@@ -380,6 +448,8 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
                 })
             })
             .collect(),
+        widgets: crate::widgets::parse(value),
+        wishlist: crate::wishlist::place(value),
         user_id: id,
     })
 }
@@ -389,6 +459,34 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn recent_activity_reads_songs_and_games_and_leaves_the_rest() {
+        let entries = recent_entries(&json!({"entries": [
+            {"content_type": 5, "ended_at": "2026-10-27T00:00:00+00:00", "extra": {"entries": [{"media": {
+                "title": "A song", "artists": [{"name": "A band"}], "image_url": "https://art",
+            }}]}},
+            {"content_type": 1, "extra": {"game_name": "A game"}},
+            {"content_type": 7, "extra": {}},
+        ]}));
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].subtitle, "A band");
+        assert!(entries[0].music && entries[0].at.is_some());
+        assert_eq!(entries[1].title, "A game");
+    }
+
+    #[test]
+    fn a_listening_session_is_dated_by_its_id() {
+        let outbox = json!({"entries": [{
+            "id": "1522378878083924051", "content_type": 5,
+            "expires_at": "2026-11-04T23:42:33+00:00",
+            "extra": {"last_update": "2026-11-04T23:12:33+00:00", "entries": [
+                {"media": {"title": "Song", "artists": [{"name": "Band"}]}},
+            ]},
+        }]});
+        let entries = recent_entries(&outbox);
+        assert_eq!(entries[0].at, Some(snowflake_ms("1522378878083924051")));
+    }
 
     #[test]
     fn the_servers_profile_wins_over_their_own() {

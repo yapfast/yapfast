@@ -306,9 +306,99 @@ pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Opt
     data.effect_layers = same_list(&shown.effect_layers, data.effect_layers);
     data.badges = same_list(&shown.badges, data.badges);
     data.connections = same_list(&shown.connections, data.connections);
+    data.recent = same_list(&shown.recent, data.recent);
+    data.widgets = same_widget_rows(&shown.widgets, data.widgets);
+    data.wishlist = same_list(&shown.wishlist, data.wishlist);
     data.role_rows = same_role_rows(&shown.role_rows, data.role_rows);
     data.role_rows_large = same_role_rows(&shown.role_rows_large, data.role_rows_large);
     (*shown != data).then_some(data)
+}
+
+/// A Discord board as its tab shows it.
+fn widget_rows(widgets: &[yapfast_core::chat::ProfileWidget]) -> ModelRc<ProfileWidgetRow> {
+    let rows: Vec<ProfileWidgetRow> = widgets
+        .iter()
+        .map(|widget| ProfileWidgetRow {
+            title: widget.title.as_str().into(),
+            elsewhere: !widget.lists_games,
+            games: ModelRc::new(VecModel::from(
+                widget
+                    .games
+                    .iter()
+                    .map(|game| ProfileGameRow {
+                        name: game.name.as_str().into(),
+                        initial: initial(&game.name),
+                        icon: game.icon.as_deref().unwrap_or_default().into(),
+                        comment: game.comment.as_deref().unwrap_or_default().into(),
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+        })
+        .collect();
+    ModelRc::new(VecModel::from(rows))
+}
+
+/// A Discord wishlist as its tab shows it: its items, and a line about it. An
+/// empty list has no line, as the tab says that itself.
+fn wishlist_rows(
+    profile: &yapfast_core::chat::Profile,
+) -> (ModelRc<ProfileWishlistRow>, &'static str) {
+    use yapfast_core::chat::Wishlist;
+    let private = profile
+        .wishlist_place
+        .as_ref()
+        .is_some_and(|place| place.private);
+    match &profile.wishlist {
+        Wishlist::Unasked | Wishlist::Loading => (ModelRc::default(), "Loading the wishlist..."),
+        Wishlist::Hidden => (ModelRc::default(), "This wishlist is private."),
+        Wishlist::Failed => (ModelRc::default(), "Couldn't load the wishlist."),
+        Wishlist::Loaded(items) => {
+            let rows: Vec<ProfileWishlistRow> = items
+                .iter()
+                .map(|item| ProfileWishlistRow {
+                    name: item.name.as_str().into(),
+                    initial: initial(&item.name),
+                    url: item.picture.as_deref().unwrap_or_default().into(),
+                })
+                .collect();
+            let note = if private && !rows.is_empty() {
+                "Your wishlist is private: only you can see it."
+            } else {
+                ""
+            };
+            (ModelRc::new(VecModel::from(rows)), note)
+        }
+    }
+}
+
+/// Board rows, each holding a list of its own, compared as `same_list` does.
+pub(super) fn same_widget_rows(
+    old: &ModelRc<ProfileWidgetRow>,
+    new: ModelRc<ProfileWidgetRow>,
+) -> ModelRc<ProfileWidgetRow> {
+    let rows: Vec<ProfileWidgetRow> = new
+        .iter()
+        .enumerate()
+        .map(|(index, row)| match old.row_data(index) {
+            Some(shown) => ProfileWidgetRow {
+                games: same_list(&shown.games, row.games.clone()),
+                ..row
+            },
+            None => row,
+        })
+        .collect();
+    same_list(old, ModelRc::new(VecModel::from(rows)))
+}
+
+/// How long ago a time in Unix milliseconds was, as the Activity tab says it.
+fn time_ago(at: u64) -> String {
+    let minutes = yapfast_core::clock::now_ms().saturating_sub(at) / 60_000;
+    match minutes {
+        0 => "Just now".to_owned(),
+        1..60 => format!("{minutes}m ago"),
+        60..1440 => format!("{}h ago", minutes / 60),
+        _ => format!("{}d ago", minutes / 1440),
+    }
 }
 
 /// A profile effect's layers as the card plays them, in the order they lie.
@@ -360,6 +450,10 @@ pub(super) fn profile_data(
     });
     let avatar = cached_picture(pictures, state, profile.avatar.as_deref());
     let banner = cached_picture(pictures, state, profile.banner.as_deref());
+    // Matrix IDs start with `@`; Discord user ids are numbers.
+    let discord = !profile.id.is_empty() && !profile.id.starts_with('@');
+    let own = discord && state.relation(&profile.id) == Relation::Me;
+    let (wishlist, wishlist_note) = wishlist_rows(profile);
     // With no banner, accent colour or theme, Discord tints the banner area
     // with the avatar's dominant colour.
     let accent = profile.accent.or_else(|| {
@@ -525,6 +619,41 @@ pub(super) fn profile_data(
                 })
                 .collect::<Vec<_>>(),
         )),
+        widgets: widget_rows(&profile.widgets),
+        board_note: if profile.board_asked && !profile.board_named {
+            "Loading the board...".into()
+        } else {
+            Default::default()
+        },
+        wishlist,
+        wishlist_note: wishlist_note.into(),
+        recent: ModelRc::new(VecModel::from(
+            profile
+                .recent
+                .iter()
+                .map(|entry| ProfileRecentRow {
+                    title: entry.title.as_str().into(),
+                    subtitle: entry.subtitle.as_str().into(),
+                    url: entry.picture.as_deref().unwrap_or_default().into(),
+                    initial: initial(&entry.title),
+                    music: entry.music,
+                    when: entry.at.map(time_ago).unwrap_or_default().into(),
+                })
+                .collect::<Vec<_>>(),
+        )),
+        // The client's list of tabs: the Board for one's own or with widgets,
+        // and the Wishlist for one's own or a public one from a friend or
+        // someone in a shared server.
+        board_tab: discord && (own || !profile.widgets.is_empty()),
+        wishlist_tab: discord
+            && (own
+                || (profile
+                    .wishlist_place
+                    .as_ref()
+                    .is_some_and(|place| !place.private)
+                    && (state.relation(&profile.id) == Relation::Friend
+                        || !profile.servers.is_empty()))),
+        own,
         mutual_friends_text: yapfast_core::i18n::mutual_friends(profile.friends.len()).into(),
         mutual_servers_text: yapfast_core::i18n::mutual_servers(profile.servers.len()).into(),
         note_text: profile.note.as_str().into(),
