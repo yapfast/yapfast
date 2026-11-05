@@ -386,7 +386,7 @@ impl Playout {
         // signed, its difference is small.
         if let Some(expected) = self.expected {
             let jump = frame.timestamp.wrapping_sub(expected) as i32;
-            if jump > JUMP || jump < -JUMP {
+            if jump.unsigned_abs() > JUMP.unsigned_abs() {
                 self.restart(frame, now);
                 return Landing::Restart;
             }
@@ -1129,7 +1129,11 @@ mod tests {
         assert_eq!(playout.next(primed), PLAYING);
         // 2 hasn't come, and 3 and 4 have.
         push_tones(&mut playout, &opus[3..], 3, 7, primed);
-        assert_eq!(playout.next(primed), Turn::Wait(LATE), "its slot waits for it");
+        assert_eq!(
+            playout.next(primed),
+            Turn::Wait(LATE),
+            "its slot waits for it"
+        );
         // It comes within that wait, so it plays, and 3 and 4 after it.
         let later = primed + LATE / 2;
         let landing = playout.push(
@@ -1202,7 +1206,10 @@ mod tests {
         assert!(playout.waiting.is_empty());
         assert_eq!(playout.next, Some(4));
         // Sound after it plays as usual.
-        let landing = playout.push(sound(4, 4 * SAMPLES as u32, 7, opus[4].clone(), primed), primed);
+        let landing = playout.push(
+            sound(4, 4 * SAMPLES as u32, 7, opus[4].clone(), primed),
+            primed,
+        );
         assert_eq!(landing, Landing::InOrder);
         assert_eq!(playout.next(primed + LATE), PLAYING);
     }

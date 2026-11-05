@@ -163,10 +163,10 @@ impl<S: Sample> LastingOutput<S> {
 
     /// Waits until everything queued has played.
     pub fn drain(&mut self) {
-        if let Some(stream) = self.lasting.stream() {
-            if let Err(error) = stream.drain() {
-                self.lasting.lost(&error);
-            }
+        if let Some(stream) = self.lasting.stream()
+            && let Err(error) = stream.drain()
+        {
+            self.lasting.lost(&error);
         }
     }
 }
