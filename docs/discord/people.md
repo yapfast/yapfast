@@ -258,7 +258,9 @@ its own friends and servers, which it shares with nobody, so the card and its
 tabs say "5 friends" and "2 servers" rather than "5 mutual friends" and
 "2 mutual servers", and an empty tab says "No friends." rather than "No friends
 in common." Presence and activity come from the member
-list, since the profile doesn't carry them. When Discord refuses, the card
+list, since the profile doesn't carry them. Their custom status, or what
+they're doing, sits in a thought bubble beside the picture, as in
+Discord's: two lines at most, and all of it while pointed at. When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
 
