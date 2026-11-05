@@ -41,6 +41,13 @@
  *
  * Nothing here is wired into a stream: see src/dup.rs. */
 
+/* The device is the one thing a caller may bring rather than have made. A
+ * duplication draws into textures of the device it was created with, so opening
+ * on the encoder's device is what saves every frame a copy between devices;
+ * `yapfast_dup_open_on` takes that device and `yapfast_dup_device` hands out the
+ * one in use either way. Whoever made the device releases it, and `owns_device`
+ * is which of the two that is. */
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d11.h>
@@ -119,6 +126,9 @@ struct yapfast_dup {
   IDXGIOutput1 *output;
   IDXGIOutputDuplication *duplication;
   ID3D11Device *device;
+  /* Whether this capture made the device. It releases only what it made: a
+   * device handed to `yapfast_dup_open_on` is the caller's to release. */
+  int owns_device;
   ID3D11DeviceContext *context;
 
   /* The mode: the surface as DXGI hands it over, and the desktop as a person sees
@@ -847,10 +857,36 @@ failed:
   return 0;
 }
 
-/* Opens a duplication of one output on one adapter: the device, the duplication
- * and everything a frame is drawn with. */
-extern "C" yapfast_dup *yapfast_dup_open(unsigned luid_high, unsigned luid_low, unsigned output,
-                                        char *why, size_t size) {
+/* The card a device was made on, as DXGI reports it. A LUID of an adapter is a
+ * fact about the hardware and is what this compares; the devices themselves are
+ * never compared, since two devices on one adapter can't read each other's
+ * textures and matching LUIDs would say they could. */
+static HRESULT device_adapter(ID3D11Device *device, IDXGIAdapter1 **adapter_out,
+                              DXGI_ADAPTER_DESC1 *desc) {
+  IDXGIDevice *dxgi = NULL;
+  IDXGIAdapter *adapter = NULL;
+  IDXGIAdapter1 *found = NULL;
+  HRESULT status = device->QueryInterface(IID_PPV_ARGS(&dxgi));
+  if (FAILED(status)) return status;
+  status = dxgi->GetAdapter(&adapter);
+  dxgi->Release();
+  if (FAILED(status)) return status;
+  status = adapter->QueryInterface(IID_PPV_ARGS(&found));
+  adapter->Release();
+  if (FAILED(status)) return status;
+  status = found->GetDesc1(desc);
+  if (FAILED(status)) {
+    found->Release();
+    return status;
+  }
+  *adapter_out = found;
+  return S_OK;
+}
+
+/* Opens a duplication of one output on one adapter: the device (made here, or the
+ * one handed in), the duplication and everything a frame is drawn with. */
+static yapfast_dup *open_dup(void *given, unsigned luid_high, unsigned luid_low, unsigned output,
+                             char *why, size_t size) {
   yapfast_dup *capture = NULL;
   IDXGIFactory1 *factory = NULL;
   DXGI_OUTDUPL_DESC desc;
@@ -903,17 +939,59 @@ extern "C" yapfast_dup *yapfast_dup_open(unsigned luid_high, unsigned luid_low, 
   }
 
   /* BGRA is what a duplication surface is and what the frame handed out is; the
-   * device is made on this adapter because the surface only ever exists there. */
-  static const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
-                                             D3D_FEATURE_LEVEL_10_0};
-  D3D_FEATURE_LEVEL reached;
-  status = D3D11CreateDevice((IDXGIAdapter *)capture->adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL,
-                             D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, ARRAYSIZE(levels),
-                             D3D11_SDK_VERSION, &capture->device, &reached, &capture->context);
-  if (FAILED(status)) {
-    say(why, size, "D3D11CreateDevice on %s refused (0x%08lX)", capture->card,
-        (unsigned long)status);
-    goto failed;
+   * device is made on this adapter because the surface only ever exists there. A
+   * device the caller brought is used where it was made on this adapter, which is
+   * the same requirement stated by DXGI: `IDXGIOutput1::DuplicateOutput` takes only
+   * a device created on the output's own adapter, and answers E_INVALIDARG for any
+   * other. That is why this is a comparison of adapters and not of devices — the
+   * device itself may be anyone's, so long as the adapter is this one — and why a
+   * device from another card is refused here in words rather than by DXGI's
+   * status number. */
+  if (given) {
+    IDXGIAdapter1 *actual = NULL;
+    DXGI_ADAPTER_DESC1 made_on;
+
+    capture->device = (ID3D11Device *)given;
+    /* Borrowed: the caller made it and keeps it alive. */
+    capture->owns_device = 0;
+    memset(&made_on, 0, sizeof made_on);
+    status = device_adapter(capture->device, &actual, &made_on);
+    if (FAILED(status)) {
+      refused(why, size, "IDXGIDevice::GetAdapter on the device handed in", status);
+      goto failed;
+    }
+    if (made_on.AdapterLuid.HighPart != wanted.HighPart ||
+        made_on.AdapterLuid.LowPart != wanted.LowPart) {
+      say(why, size,
+          "the device handed in was made on %ls (LUID %08lX:%08lX), and output %u being "
+          "duplicated is on %s (LUID %08lX:%08lX): IDXGIOutput1::DuplicateOutput takes only a "
+          "device made on the output's own adapter, so this one can't be used here",
+          made_on.Description, (unsigned long)made_on.AdapterLuid.HighPart,
+          (unsigned long)made_on.AdapterLuid.LowPart, output, capture->card,
+          (unsigned long)wanted.HighPart, (unsigned long)wanted.LowPart);
+      actual->Release();
+      goto failed;
+    }
+    actual->Release();
+    capture->device->GetImmediateContext(&capture->context);
+    if (!capture->context) {
+      say(why, size, "the device handed in has no immediate context");
+      goto failed;
+    }
+  } else {
+    static const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
+                                               D3D_FEATURE_LEVEL_10_0};
+    D3D_FEATURE_LEVEL reached;
+    status = D3D11CreateDevice((IDXGIAdapter *)capture->adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL,
+                               D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, ARRAYSIZE(levels),
+                               D3D11_SDK_VERSION, &capture->device, &reached, &capture->context);
+    if (FAILED(status)) {
+      say(why, size, "D3D11CreateDevice on %s refused (0x%08lX)", capture->card,
+          (unsigned long)status);
+      goto failed;
+    }
+    /* Made here, so released by `yapfast_dup_close` and nowhere else. */
+    capture->owns_device = 1;
   }
 
   status = capture->output->DuplicateOutput(capture->device, &capture->duplication);
@@ -974,6 +1052,29 @@ failed:
   if (factory) factory->Release();
   yapfast_dup_close(capture);
   return NULL;
+}
+
+/* Opens a duplication of one output on one adapter with a device of its own, made
+ * on the adapter that drives that output. NULL with `why` filled in when
+ * anything refused. */
+extern "C" yapfast_dup *yapfast_dup_open(unsigned luid_high, unsigned luid_low, unsigned output,
+                                       char *why, size_t size) {
+  return open_dup(NULL, luid_high, luid_low, output, why, size);
+}
+
+/* Opens a duplication on `device`, a D3D11 device the caller already has, so that
+ * the frame's texture is a texture that device reads — in a stream, the
+ * encoder's, which is what saves a copy per frame between them. The device is
+ * borrowed: this does not AddRef it and `yapfast_dup_close` does not release it,
+ * so the caller keeps it alive for at least as long as the capture.
+ *
+ * It has to have been made on the adapter that drives the output being
+ * duplicated — DXGI's own requirement for `DuplicateOutput`, not this file's —
+ * and one from another card is refused here naming both cards rather than by
+ * DXGI's status number. NULL with `why` filled in when anything refused. */
+extern "C" yapfast_dup *yapfast_dup_open_on(void *device, unsigned luid_high, unsigned luid_low,
+                                          unsigned output, char *why, size_t size) {
+  return open_dup(device, luid_high, luid_low, output, why, size);
 }
 
 /* ----------------------------------------------------------- the frames */
@@ -1165,8 +1266,10 @@ extern "C" int yapfast_dup_sample(yapfast_dup *capture, unsigned x, unsigned y, 
   capture->context->Unmap(capture->stage, 0);
   return 1;
 }
-/* The ID3D11Device the frame's texture is on, for an encoder that has to open its
- * session on that same device. */
+/* The ID3D11Device the frame's texture is on, as an `ID3D11Device *`: the one this
+ * capture made, or the one it was opened on, which is what an encoder opens its
+ * session on so that a frame's texture is one it can read. It belongs to this
+ * capture when the capture made it and to whoever made it otherwise. */
 extern "C" void *yapfast_dup_device(yapfast_dup *capture) {
   return capture ? (void *)capture->device : NULL;
 }
@@ -1264,7 +1367,10 @@ extern "C" void yapfast_dup_close(yapfast_dup *capture) {
   if (capture->held_view) capture->held_view->Release();
   if (capture->held) capture->held->Release();
   if (capture->context) capture->context->Release();
-  if (capture->device) capture->device->Release();
+  /* Only what this capture made: a device handed to `yapfast_dup_open_on` is the
+   * caller's, and releasing it here would take it out from under the encoder
+   * sharing it. */
+  if (capture->owns_device && capture->device) capture->device->Release();
   if (capture->output) capture->output->Release();
   if (capture->adapter) capture->adapter->Release();
   free(capture->shape_bytes);

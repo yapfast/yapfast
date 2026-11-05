@@ -33,6 +33,15 @@
  * out — so a stopped stream stops holding a compositor buffer, and nothing here
  * allocates per frame.
  *
+ * The device follows the same rule, kept with a flag. A capture opened with
+ * `yapfast_wgc_open` makes its device and releases it in `yapfast_wgc_close`; a
+ * capture opened with `yapfast_wgc_open_on` is on a device its caller made — in a
+ * stream, the encoder's, so that the texture a frame arrives in is a texture the
+ * encoder reads — and this neither AddRefs nor releases that one. The caller
+ * keeps it alive for at least as long as the capture. Only a device that sits on
+ * the display's own adapter can be used this way, and `yapfast_wgc_open_on` says
+ * so by name when the one handed in doesn't.
+ *
  * What it deliberately doesn't do yet: it opens a capture and hands out frames,
  * and nothing else. No rate limiting (`IGraphicsCaptureSession2`'s
  * `MinUpdateInterval`), no window capture, and nothing in this crate calls it —
@@ -174,6 +183,9 @@ struct yapfast_wgc {
    * These live as long as the capture and are what a frame's texture is on. */
   IDXGIAdapter1 *adapter;
   ID3D11Device *device;
+  /* Whether this capture made the device. It releases only what it made: a
+   * device handed to `yapfast_wgc_open_on` is the caller's to release. */
+  int owns_device;
   ID3D11DeviceContext *context;
   IInspectable *graphics_device;
 
@@ -566,11 +578,38 @@ static HRESULT make_pool(yapfast_wgc *capture, ABI::Windows::Graphics::SizeInt32
   return status;
 }
 
+/* The card a device was made on, as DXGI reports it. LUIDs of two adapters are
+ * what this compares, since that is a fact about the hardware; the devices
+ * themselves are never compared, because two devices made on one adapter can't
+ * read each other's textures and matching LUIDs would say they could. */
+static HRESULT device_adapter(ID3D11Device *device, IDXGIAdapter1 **adapter_out,
+                              DXGI_ADAPTER_DESC1 *desc) {
+  IDXGIDevice *dxgi = NULL;
+  IDXGIAdapter *adapter = NULL;
+  IDXGIAdapter1 *found = NULL;
+  HRESULT status = device->QueryInterface(IID_PPV_ARGS(&dxgi));
+  if (FAILED(status)) return status;
+  status = dxgi->GetAdapter(&adapter);
+  dxgi->Release();
+  if (FAILED(status)) return status;
+  status = adapter->QueryInterface(IID_PPV_ARGS(&found));
+  adapter->Release();
+  if (FAILED(status)) return status;
+  status = found->GetDesc1(desc);
+  if (FAILED(status)) {
+    found->Release();
+    return status;
+  }
+  *adapter_out = found;
+  return S_OK;
+}
+
 /* Opens a capture of `monitor`, an HMONITOR, or of the primary display when it is
- * NULL, and starts it: the device, the frame pool on that device's adapter, the
- * session, the request that it draw no border, and the subscription to the item
- * ending. NULL with `why` filled in when anything refused. */
-extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) {
+ * NULL, and starts it: the device (made here, or the one handed in), the frame
+ * pool on it, the session, the request that it draw no border, and the
+ * subscription to the item ending. NULL with `why` filled in when anything
+ * refused. */
+static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t size) {
   yapfast_wgc *capture = NULL;
   DXGI_OUTPUT_DESC output;
   ABI::Windows::Graphics::SizeInt32 content;
@@ -605,15 +644,64 @@ extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) 
                           size))
     goto failed;
   /* BGRA_SUPPORT is what Windows Graphics Capture requires of the device it hands
-   * BGRA frames to, so it is asked for rather than fallen back from. */
-  status = D3D11CreateDevice((IDXGIAdapter *)capture->adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL,
-                             D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, ARRAYSIZE(levels),
-                             D3D11_SDK_VERSION, &capture->device, &reached, &capture->context);
-  if (FAILED(status)) {
-    say(why, size, "D3D11CreateDevice on %s refused (0x%08lX)", capture->card,
-        (unsigned long)status);
-    goto failed;
+   * BGRA frames to, so it is asked for rather than fallen back from. A device the
+   * caller brought can't be made again, so what it was made with is checked
+   * instead: either it takes BGRA as a texture, or this refuses in a sentence
+   * rather than letting the pool's creation fail later with a status number. */
+  if (given) {
+    IDXGIAdapter1 *actual = NULL;
+    DXGI_ADAPTER_DESC1 desc;
+    UINT support = 0;
+
+    capture->device = (ID3D11Device *)given;
+    /* Borrowed: see the ownership note at the top of this file. */
+    capture->owns_device = 0;
+    memset(&desc, 0, sizeof desc);
+    status = device_adapter(capture->device, &actual, &desc);
+    if (FAILED(status)) {
+      refused(why, size, "IDXGIDevice::GetAdapter on the device handed in", status);
+      goto failed;
+    }
+    /* The pool's textures are filled by the compositor from the display's own
+     * adapter, so a device elsewhere means every frame is copied across cards:
+     * a capture that works and a stream that pays for it on every frame. It is
+     * refused with the two cards named instead, which is a call the caller can
+     * act on — open on a device made where the display is. */
+    if (desc.AdapterLuid.HighPart != capture->luid.HighPart ||
+        desc.AdapterLuid.LowPart != capture->luid.LowPart) {
+      say(why, size,
+          "the device handed in was made on %ls (LUID %08lX:%08lX), and this display is on %s "
+          "(LUID %08lX:%08lX): a capture has to be opened on a device made where the display is, "
+          "or every frame is copied between cards",
+          desc.Description, (unsigned long)desc.AdapterLuid.HighPart,
+          (unsigned long)desc.AdapterLuid.LowPart, capture->card,
+          (unsigned long)capture->luid.HighPart, (unsigned long)capture->luid.LowPart);
+      actual->Release();
+      goto failed;
+    }
+    actual->Release();
+    status = capture->device->CheckFormatSupport(DXGI_FORMAT_B8G8R8A8_UNORM, &support);
+    if (FAILED(status) || !(support & D3D11_FORMAT_SUPPORT_TEXTURE2D)) {
+      say(why, size,
+          "the device handed in can't hold BGRA textures (0x%08lX, formats 0x%08lX), which is "
+          "the only format Windows Graphics Capture delivers; a device made with "
+          "D3D11_CREATE_DEVICE_BGRA_SUPPORT can",
+          (unsigned long)status, (unsigned long)support);
+      goto failed;
+    }
+  } else {
+    status = D3D11CreateDevice((IDXGIAdapter *)capture->adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL,
+                               D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, ARRAYSIZE(levels),
+                               D3D11_SDK_VERSION, &capture->device, &reached, &capture->context);
+    if (FAILED(status)) {
+      say(why, size, "D3D11CreateDevice on %s refused (0x%08lX)", capture->card,
+          (unsigned long)status);
+      goto failed;
+    }
+    /* Made here, so released by `yapfast_wgc_close` and nowhere else. */
+    capture->owns_device = 1;
   }
+  if (!capture->context) capture->device->GetImmediateContext(&capture->context);
   status = capture->device->QueryInterface(IID_PPV_ARGS(&dxgi_device));
   if (FAILED(status)) {
     refused(why, size, "QueryInterface(IDXGIDevice)", status);
@@ -686,6 +774,27 @@ failed:
    * shape of every other shim's failure in native/. */
   yapfast_wgc_close(capture);
   return NULL;
+}
+
+/* Opens a capture of `monitor` with a device of its own, made on the adapter
+ * that drives that display. NULL with `why` filled in when anything refused. */
+extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) {
+  return open_capture(NULL, monitor, why, size);
+}
+
+/* Opens a capture of `monitor` on `device`, a D3D11 device the caller already
+ * has, so that the pool's textures are textures that device reads — the one
+ * thing that lets a captured frame reach an encoder with no copy between. The
+ * device is borrowed: this does not AddRef it and `yapfast_wgc_close` does not
+ * release it, so the caller keeps it alive for at least as long as the capture.
+ *
+ * It has to be made on the adapter that drives the display being captured, and
+ * with `D3D11_CREATE_DEVICE_BGRA_SUPPORT`; both are checked here and refused by
+ * name, since either would otherwise show up as a pool that wouldn't be created
+ * or as a frame that encodes as noise. NULL with `why` filled in when anything
+ * refused. */
+extern "C" yapfast_wgc *yapfast_wgc_open_on(void *device, void *monitor, char *why, size_t size) {
+  return open_capture(device, monitor, why, size);
 }
 
 /* The next frame, if the compositor has made one. */
@@ -788,10 +897,11 @@ extern "C" void yapfast_wgc_content_size(yapfast_wgc *capture, unsigned *width, 
   if (height) *height = capture ? capture->height : 0;
 }
 
-/* The ID3D11Device the frames' textures are on, as an `ID3D11Device *`, for an
- * encoder that has to open its session on that same device: NVENC reads a texture
- * only on the device it was opened on, and a session on another device refuses
- * every frame this hands out. */
+/* The ID3D11Device the frames' textures are on, as an `ID3D11Device *`: the one
+ * this capture made, or the one it was opened on, which is what an encoder
+ * opens its session on so that a frame's texture is a texture it can read. It
+ * belongs to this capture when the capture made it and to whoever made it
+ * otherwise; releasing it is that owner's business, and never a reader's. */
 extern "C" void *yapfast_wgc_device(yapfast_wgc *capture) {
   return capture ? (void *)capture->device : NULL;
 }
@@ -847,7 +957,10 @@ extern "C" void yapfast_wgc_close(yapfast_wgc *capture) {
   if (capture->item) capture->item->Release();
   if (capture->graphics_device) capture->graphics_device->Release();
   if (capture->context) capture->context->Release();
-  if (capture->device) capture->device->Release();
+  /* Only what this capture made: a device handed to `yapfast_wgc_open_on` is the
+   * caller's, and releasing it here would take it out from under the encoder
+   * sharing it. */
+  if (capture->owns_device && capture->device) capture->device->Release();
   if (capture->adapter) capture->adapter->Release();
   free(capture);
 }

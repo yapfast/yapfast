@@ -17,7 +17,11 @@
 //! Two things a caller has to know that the shim can't enforce: the texture is
 //! the pool's, so it lives only until the next [`Capture::frame`] or the
 //! `Capture` being dropped, and the device a frame's texture is on is
-//! [`Capture::device`], which an encoder has to open its session on to read it.
+//! [`Capture::device`], which an encoder has to read it on. Either side can be
+//! the one that makes that device: an encoder opened with
+//! [`D3d11Encoder::open_on`](crate::d3d11::D3d11Encoder::open_on) joins this
+//! capture's, and [`Capture::open_on`] joins an encoder's, and either way there
+//! is one device for the pair rather than two.
 
 use std::ffi::{c_char, c_int, c_uint, c_void};
 
@@ -33,6 +37,12 @@ struct Raw {
 // and the buffers are as large as their sizes say.
 unsafe extern "C" {
     fn yapfast_wgc_open(monitor: *mut c_void, why: *mut c_char, why_size: usize) -> *mut Raw;
+    fn yapfast_wgc_open_on(
+        device: *mut c_void,
+        monitor: *mut c_void,
+        why: *mut c_char,
+        why_size: usize,
+    ) -> *mut Raw;
     fn yapfast_wgc_frame(
         capture: *mut Raw,
         texture: *mut *mut c_void,
@@ -121,7 +131,9 @@ impl Capture {
     ///
     /// The shim finds the adapter that drives that display and makes its device
     /// there, since a capture on another adapter's device would fill textures the
-    /// encoder can't read.
+    /// encoder can't read. A caller that already has a device on that adapter —
+    /// an encoder's — uses [`Capture::open_on`] instead, and saves the second
+    /// device.
     pub fn open(monitor: Monitor) -> Result<Self> {
         let mut why = [0u8; 256];
         // SAFETY: the buffer is as large as its size says, and the shim ends it
@@ -129,6 +141,45 @@ impl Capture {
         let raw = unsafe { yapfast_wgc_open(monitor.0, why.as_mut_ptr().cast(), why.len()) };
         if raw.is_null() {
             bail!("no Windows Graphics Capture opened: {}", text(&why));
+        }
+        Ok(Self {
+            raw,
+            texture: std::ptr::null_mut(),
+        })
+    }
+
+    /// Opens a capture of `monitor` on `device`, an `ID3D11Device` somebody has
+    /// already made — in a stream, the encoder's, so that the texture a frame
+    /// arrives in is a texture the encoder reads with nothing copied in between.
+    ///
+    /// `device` is **borrowed**: this does not AddRef it and dropping the capture
+    /// does not release it, so the caller keeps it alive for at least as long as
+    /// the capture. It has to have been made on the adapter that drives that
+    /// display and with `D3D11_CREATE_DEVICE_BGRA_SUPPORT`; the shim checks both
+    /// and refuses by name, since either would otherwise show up as a pool that
+    /// wouldn't be created or as a frame that encodes as noise.
+    ///
+    /// [`Capture::device`] answers with the same pointer back, which is the whole
+    /// of the sharing: one device for a capture and its encoder.
+    //
+    // `device` is an opaque handle in the same sense [`Capture::texture`] is:
+    // nothing in this crate reads through it, it is handed to the shim, and the
+    // shim holds it for the capture's length without taking a reference of its
+    // own. What a caller owes is the lifetime above, which a capture beside the
+    // encoder is how a stream keeps.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn open_on(device: *mut c_void, monitor: Monitor) -> Result<Self> {
+        let mut why = [0u8; 256];
+        // SAFETY: the buffer is as large as its size says and the shim ends it
+        // with a zero; the device is the caller's and outlives the call, which
+        // is what borrowing it means; the monitor handle is only compared.
+        let raw =
+            unsafe { yapfast_wgc_open_on(device, monitor.0, why.as_mut_ptr().cast(), why.len()) };
+        if raw.is_null() {
+            bail!(
+                "no Windows Graphics Capture opened on that device: {}",
+                text(&why)
+            );
         }
         Ok(Self {
             raw,
@@ -187,9 +238,12 @@ impl Capture {
         (width, height)
     }
 
-    /// The `ID3D11Device` the frames' textures are on, for an encoder that has to
-    /// open its session on the same device: NVENC reads a texture only on the
-    /// device it was opened on, and refuses these from any other.
+    /// The `ID3D11Device` the frames' textures are on: the one this capture made,
+    /// or the one it was opened on with [`Capture::open_on`]. It is what an
+    /// encoder opens its session on, with
+    /// [`D3d11Encoder::open_on`](crate::d3d11::D3d11Encoder::open_on), so that it
+    /// reads these frames. It belongs to this capture when the capture made it
+    /// and to whoever made it otherwise; nothing may release it but its maker.
     pub fn device(&self) -> *mut c_void {
         // SAFETY: raw is an open capture.
         unsafe { yapfast_wgc_device(self.raw) }

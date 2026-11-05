@@ -30,15 +30,17 @@
 //! which ran.
 //!
 //! Wiring this into a stream needs a capture source that fills a texture on
-//! [`D3d11Encoder::device`] instead of handing over I420: [`D3d11Encoder`]
-//! itself changes not at all. It is not wired in yet, because the capture path
-//! doesn't produce textures and `stream_worker` was being changed elsewhere. What
-//! the capture path will need from here: its textures made with
-//! `D3D11_BIND_SHADER_RESOURCE`, or as render targets, which is what a video
-//! processor input view and a shader resource view each take; a `scale` to the
-//! stream's size before each `encode_texture` where the capture's size differs;
-//! and a `readback` at tile size where a preview used to open a second capture of
-//! the same screen.
+//! [`D3d11Encoder::device`] instead of handing over I420, or an encoder opened on
+//! the capture's device with [`D3d11Encoder::open_on`], which is the same one
+//! device seen from the other end — [`crate::wgc::Capture::open_on`] and
+//! [`crate::dup::Capture::open_on`] are that direction. Either way there is one
+//! D3D11 device for a capture and its encoder rather than two, and a texture made
+//! by one is read by the other because it is the same object. What the capture
+//! path will need from here: its textures made with `D3D11_BIND_SHADER_RESOURCE`,
+//! or as render targets, which is what a video processor input view and a shader
+//! resource view each take; a `scale` to the stream's size before each
+//! `encode_texture` where the capture's size differs; and a `readback` at tile
+//! size where a preview used to open a second capture of the same screen.
 
 use std::{
     ffi::{c_char, c_int, c_long, c_longlong, c_uchar, c_uint, c_ulonglong, c_void},
@@ -79,6 +81,18 @@ unsafe extern "C" {
         kbps: c_uint,
         luid_low: c_uint,
         luid_high: c_int,
+        tuning: *const c_char,
+        report: *mut c_char,
+        report_size: usize,
+    ) -> *mut Raw;
+    #[allow(clippy::too_many_arguments)]
+    fn yapfast_d3d11enc_new_on(
+        device: *mut c_void,
+        codec: c_uint,
+        width: c_uint,
+        height: c_uint,
+        fps: c_uint,
+        kbps: c_uint,
         tuning: *const c_char,
         report: *mut c_char,
         report_size: usize,
@@ -255,8 +269,9 @@ fn wide(text: &[u16]) -> String {
 /// A texture the encoder reads, and which of its subresources: the surface a
 /// capture source has just filled, which stays the caller's. Its handle is an
 /// `ID3D11Texture2D` on [`D3d11Encoder::device`]'s device, and the shim checks
-/// that on the first frame it reads it, since a texture from another device
-/// can't be encoded by this session.
+/// that on the first frame it reads it, by asking the texture which device it is
+/// on and comparing that pointer with its own: a texture from another device is
+/// memory it can't read, and two devices made on one adapter are still two.
 #[derive(Clone, Copy, Debug)]
 pub struct Texture {
     /// The `ID3D11Texture2D` itself.
@@ -273,6 +288,21 @@ impl Texture {
             subresource: 0,
         }
     }
+}
+
+/// The codec as native/d3d11enc.c numbers it, and the size checked before either
+/// open is attempted: NVENC takes even dimensions only, and a codec this backend
+/// has no number for is refused in words rather than by a status number.
+fn codec_number(codec: Codec, width: u32, height: u32) -> Result<c_uint> {
+    if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+        bail!("{codec:?} frames need an even size, not {width}x{height}");
+    }
+    Ok(match codec {
+        Codec::H264 => 0,
+        Codec::H265 => 1,
+        Codec::Av1 => 2,
+        Codec::Vp8 => bail!("VP8 doesn't encode on the GPU; libvpx does it on the processor"),
+    })
 }
 
 /// How far a [`D3d11Encoder::scale`] may resize a picture, since a stream's size
@@ -313,16 +343,13 @@ impl D3d11Encoder {
     /// chose. H264, H265 and AV1 all encode here, where the card has them; AV1
     /// needs an RTX 40 series or newer, and a driver without one is refused by
     /// name rather than by status number.
+    ///
+    /// This is the open for a caller with no device to offer, and it makes one on
+    /// the adapter the GPU setting chose. A caller that already has one — a
+    /// capture source's, so that the texture it fills is a texture this reads —
+    /// uses [`Self::open_on`] instead.
     pub fn new(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> Result<Self> {
-        if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
-            bail!("{codec:?} frames need an even size, not {width}x{height}");
-        }
-        let number = match codec {
-            Codec::H264 => 0,
-            Codec::H265 => 1,
-            Codec::Av1 => 2,
-            Codec::Vp8 => bail!("VP8 doesn't encode on the GPU; libvpx does it on the processor"),
-        };
+        let number = codec_number(codec, width, height)?;
         // Which adapter the device is made on is decided here, once per open:
         // the shim is handed that adapter's LUID and finds exactly it, so the
         // policy lives in Rust and the device in C.
@@ -350,6 +377,107 @@ impl D3d11Encoder {
             let report = c_text(&report);
             bail!("no NVENC encoder opened: {report}");
         }
+        let (encoder, config) = Self::adopt(raw, codec, width, height, kbps, &report);
+        // What it runs on, what it took, and the settings a change to the
+        // picture's quality moves, said once at the open so a stream is
+        // compared with the encoder that made it rather than with what it was
+        // meant to be.
+        tracing::debug!(
+            engine = encoder.configuration.engine.as_str(),
+            ?codec,
+            ?preference,
+            adapter = picked.name.as_str(),
+            tuning = encoder.configuration.tuning.as_str(),
+            config = config.as_str(),
+            codecs = encoder.codecs.as_str(),
+            "encoding on the GPU from D3D11 textures"
+        );
+        Ok(encoder)
+    }
+
+    /// An encoder for `codec` on `device`, a D3D11 device that already exists —
+    /// in a stream, the one a capture source is filling textures on — so that a
+    /// captured frame is a texture this session reads with nothing copied in
+    /// between. Everything [`Self::new`] promises holds here too: the same codec
+    /// and size checks, the same tuning and settings, the same keyframe and
+    /// bitrate contract, and the same report of what opened.
+    ///
+    /// `device` is an `ID3D11Device` somebody has already made, and it is
+    /// **borrowed**: this does not AddRef it and dropping the encoder does not
+    /// release it, so the caller keeps it alive for at least as long as the
+    /// encoder and releases its own reference afterwards. That is what makes a
+    /// stream cost one device per capture rather than one per capture and one
+    /// per encoder. It has to sit on an NVIDIA card, which the open refuses by
+    /// name where it doesn't.
+    ///
+    /// A device from a capture source is [`crate::wgc::Capture::device`] or
+    /// [`crate::dup::Capture::device`]; the adapter preference of
+    /// [`Self::new`] doesn't apply, since the device is already made and the
+    /// adapter it is on is the answer.
+    ///
+    // `device` is an opaque handle in the same sense [`Texture`] is: nothing in
+    // this crate reads through it, it is handed to the shim, and the shim holds
+    // it for the session's length without ever taking a reference of its own.
+    // The obligation a caller carries is the one above — keep it alive — which is
+    // a lifetime this signature can't name and a stream keeps by owning the
+    // capture beside the encoder.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn open_on(
+        device: *mut c_void,
+        codec: Codec,
+        width: u32,
+        height: u32,
+        fps: u32,
+        kbps: u32,
+    ) -> Result<Self> {
+        let number = codec_number(codec, width, height)?;
+        let mut report = [0u8; 192];
+        // SAFETY: `device` is an `ID3D11Device` the caller keeps alive for the
+        // length of this call and beyond, and `report` is a buffer of the size
+        // given, which the shim ends with a zero.
+        let raw = unsafe {
+            yapfast_d3d11enc_new_on(
+                device,
+                number,
+                width,
+                height,
+                fps,
+                kbps,
+                std::ptr::null(),
+                report.as_mut_ptr().cast(),
+                report.len(),
+            )
+        };
+        if raw.is_null() {
+            let report = c_text(&report);
+            bail!("no NVENC encoder opened on that device: {report}");
+        }
+        let (encoder, config) = Self::adopt(raw, codec, width, height, kbps, &report);
+        tracing::debug!(
+            engine = encoder.configuration.engine.as_str(),
+            ?codec,
+            tuning = encoder.configuration.tuning.as_str(),
+            config = config.as_str(),
+            codecs = encoder.codecs.as_str(),
+            "encoding on the GPU from D3D11 textures on a device the caller brought"
+        );
+        Ok(encoder)
+    }
+
+    /// The encoder behind `raw`, with what it says about itself read back: the
+    /// tail both opens share, so that a session on a device of its own and one
+    /// on a device the caller brought answer [`Self::configuration`] and
+    /// [`Self::codecs`] identically. Also answered is the sentence the shim
+    /// says the session is configured with, which is the open's own log line and
+    /// nothing a stream reads again.
+    fn adopt(
+        raw: *mut Raw,
+        codec: Codec,
+        width: u32,
+        height: u32,
+        kbps: u32,
+        report: &[u8; 192],
+    ) -> (Self, String) {
         // SAFETY: raw is an open encoder, and each buffer is as large as its
         // size; every one of these ends what it writes with a zero.
         let (asked, tuning, config, codecs) = unsafe {
@@ -368,23 +496,8 @@ impl D3d11Encoder {
                 c_text(&codecs),
             )
         };
-        // What it runs on, what it took, and the settings a change to the
-        // picture's quality moves, said once at the open so a stream is
-        // compared with the encoder that made it rather than with what it was
-        // meant to be.
-        let engine = c_text(&report);
-        tracing::debug!(
-            engine = engine.as_str(),
-            ?codec,
-            ?preference,
-            adapter = picked.name.as_str(),
-            tuning = tuning.as_str(),
-            config = config.as_str(),
-            codecs = codecs.as_str(),
-            "encoding on the GPU from D3D11 textures"
-        );
         let pixels = (width * height) as usize;
-        Ok(Self {
+        let encoder = Self {
             raw,
             codec,
             width,
@@ -392,7 +505,7 @@ impl D3d11Encoder {
             kbps,
             codecs,
             configuration: Configuration {
-                engine,
+                engine: c_text(report),
                 asked,
                 tuning,
                 // Every setting an NVENC session is opened with here is one the
@@ -401,7 +514,8 @@ impl D3d11Encoder {
                 settings_dropped: String::new(),
             },
             out: Arc::new(Pool::new(pixels * 2 + 4096)),
-        })
+        };
+        (encoder, config)
     }
 
     /// Which encoder runs, such as "h264_nvenc/d3d11": the codec's FFmpeg name
@@ -437,11 +551,16 @@ impl D3d11Encoder {
         self.kbps
     }
 
-    /// The D3D11 device the textures have to live on, as an `ID3D11Device`. A
-    /// capture source creates its surfaces on it — desktop duplication's own
-    /// device has to be this one — or opens its own device and hands this the
-    /// textures from it, which the shim refuses on the first frame rather than
-    /// encoding the wrong memory.
+    /// The D3D11 device the textures have to live on, as an `ID3D11Device`: the
+    /// one this encoder made, or the one it was opened on with
+    /// [`Self::open_on`]. A capture source opens on it, or is opened on by it —
+    /// [`crate::wgc::Capture::open_on`] and [`crate::dup::Capture::open_on`] —
+    /// and one that does neither hands over textures from another device, which
+    /// the shim refuses on the first frame rather than encoding the wrong
+    /// memory.
+    ///
+    /// It belongs to this encoder when the encoder made it and to whoever made
+    /// it otherwise; neither a caller nor a capture may release it.
     pub fn device(&self) -> *mut c_void {
         // SAFETY: raw is an open encoder.
         unsafe { yapfast_d3d11enc_device(self.raw) }
@@ -1164,5 +1283,152 @@ mod tests {
             encoder.staging_textures(),
             encoder.scaled_textures()
         );
+    }
+
+    /// A captured texture is the encoder's texture: the capture makes the device,
+    /// the encoder opens on that same one instead of making its own, and the very
+    /// texture the compositor filled encodes to a bitstream whose first frame is a
+    /// keyframe. That is the whole texture path end to end — screen, texture,
+    /// driver's encoder, packet — and the device count is the half of it no picture
+    /// can show: one device for a capture and its encoder, not one each.
+    ///
+    /// Nothing here wires the pair into a stream; it is the same two calls a
+    /// stream will make, in the same order, so that the API is proven rather than
+    /// assumed.
+    #[test]
+    #[ignore = "needs a screen and an NVIDIA GPU: it captures the primary display and encodes it"]
+    fn a_captured_frame_encodes_on_the_captures_own_device() {
+        use std::time::{Duration, Instant};
+
+        use crate::wgc::{Arrival, Capture, Monitor};
+
+        let _gpu = one_gpu_test_at_a_time();
+        let mut capture =
+            Capture::open(Monitor::PRIMARY).expect("a capture of the primary display");
+        eprintln!("{}", capture.describe());
+        let device = capture.device();
+        assert!(!device.is_null(), "a capture with no device");
+
+        // One frame, waited for rather than demanded: the compositor makes one
+        // when it has something to draw, which on the first call is a few tens of
+        // milliseconds.
+        let started = Instant::now();
+        let (captured_width, captured_height) = loop {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "no frame in 10 s, which is what a capture of a screen that isn't drawing does"
+            );
+            match capture.frame().expect("a frame") {
+                Arrival::Frame => break capture.content_size(),
+                Arrival::Idle => std::thread::sleep(Duration::from_millis(5)),
+                // The pool is rebuilt at the new size by the shim, so the next
+                // frame is the one to encode.
+                Arrival::Resized => continue,
+                Arrival::Closed => panic!("the primary display's capture closed"),
+            }
+        };
+        let texture = capture.texture();
+        assert!(!texture.is_null(), "a frame arrived with no texture");
+
+        // The captured texture itself is what is encoded, so that the frame the
+        // encoder reads is the frame the compositor filled. NVENC takes even
+        // dimensions; H.264 stops at 4096 a side where H.265 and AV1 go to 8192,
+        // and a display past that goes through the scaler, which is what a stream
+        // does with any display wider than the stream's own size.
+        let (captured_even_width, captured_even_height) =
+            (captured_width & !1, captured_height & !1);
+        assert!(
+            captured_even_width > 0 && captured_even_height > 0,
+            "a {captured_width}x{captured_height} display"
+        );
+        let within = |side: u32| captured_even_width <= side && captured_even_height <= side;
+        let (codec, width, height) = if within(4096) {
+            (Codec::H264, captured_even_width, captured_even_height)
+        } else if within(8192) {
+            (Codec::H265, captured_even_width, captured_even_height)
+        } else {
+            (Codec::H264, 1920u32, 1080u32)
+        };
+
+        // The count is this process's, so it is read either side of the open that
+        // must not move it: what an encoder on a device handed to it must not do is
+        // make a second device.
+        let devices_before = unsafe { yapfast_d3d11enc_devices_created() };
+        let mut encoder = D3d11Encoder::open_on(device, codec, width, height, 60, 8000)
+            .unwrap_or_else(|why| panic!("no encoder on the capture's device: {why:#}"));
+        assert_eq!(
+            unsafe { yapfast_d3d11enc_devices_created() },
+            devices_before,
+            "the encoder opened on a device and made a second one anyway"
+        );
+        assert_eq!(
+            encoder.device(),
+            device,
+            "the encoder is on a device of its own rather than the capture's"
+        );
+        let scaled = (width, height) != (captured_width, captured_height);
+        let texture = if scaled {
+            encoder
+                .scale(Texture::new(texture), width, height, Resize::Shrink)
+                .expect("the capture's picture scaled to the encoder's size")
+        } else {
+            Texture::new(texture)
+        };
+
+        eprintln!(
+            "{} ({}), {width}x{height} from a {captured_width}x{captured_height} capture ({}), \
+             device {device:p}",
+            encoder.engine(),
+            encoder.configuration().tuning,
+            if scaled {
+                "through the scaler"
+            } else {
+                "the captured texture itself"
+            }
+        );
+        let packet = encoder
+            .encode_texture(texture, 0, true)
+            .expect("the captured frame encoded")
+            .expect("a packet for the captured frame");
+        assert!(!packet.data.is_empty(), "an empty access unit");
+        assert!(packet.keyframe, "the first frame isn't a keyframe");
+        // Its structure, as the packetizer reads it: parameter sets before the
+        // picture, in the form this codec's packets take — the same check the
+        // drawn-texture test makes, now made about a screen.
+        match codec {
+            Codec::H265 => assert_eq!(
+                (yapfast_discord::rtp::nal_units(&packet.data)[0][0] >> 1) & 0x3f,
+                32,
+                "an H.265 keyframe starts with its video parameter set"
+            ),
+            _ => assert_eq!(
+                yapfast_discord::rtp::nal_units(&packet.data)[0][0] & 0x1f,
+                7,
+                "an H.264 keyframe starts with its sequence parameter set"
+            ),
+        }
+        // No pixel of it touched by the processor: the same claim the drawn-texture
+        // tests make, now made about a screen.
+        assert_eq!(
+            encoder.copied(),
+            0,
+            "the capture's pixels crossed the processor"
+        );
+        eprintln!(
+            "{} bytes for the captured frame, a keyframe, {} frames' pixels copied by the processor",
+            packet.data.len(),
+            encoder.copied()
+        );
+
+        // The capture outlives the encoder here, which is the ownership rule read
+        // the other way: the encoder borrowed the device and released nothing, so
+        // the capture still has one to close.
+        drop(encoder);
+        assert_eq!(
+            capture.device(),
+            device,
+            "the encoder took the device with it"
+        );
+        drop(capture);
     }
 }

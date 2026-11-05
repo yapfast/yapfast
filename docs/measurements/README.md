@@ -123,7 +123,11 @@ into NVENC through `native/d3d11enc.c`, and a test that runs only where an
 NVIDIA GPU is present encodes thirty frames of each codec from that texture.
 That run reports 0.16 ms of CPU a frame for H.264 and H.265 and 0.47 for AV1 —
 figures to read against the same 15.6 ms clock, since thirty frames is two
-ticks.
+ticks. The encoder can also open on a device a capture already
+has (`yapfast_d3d11enc_new_on`, `Capture::open_on`), so a stream costs one D3D11
+device rather than two: an ignored test captures with Windows Graphics Capture
+and encodes that very 4520×1920 texture on the capture's own device — 250,984
+bytes, keyframe first, and not one pixel of the frame copied by the processor.
 
 
 An experiment, not shipped behaviour: the spike is in `spike/wgc-nvenc/` in the

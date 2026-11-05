@@ -47,6 +47,14 @@ unsafe extern "C" {
         why: *mut c_char,
         why_size: usize,
     ) -> *mut Raw;
+    fn yapfast_dup_open_on(
+        device: *mut c_void,
+        luid_high: c_uint,
+        luid_low: c_uint,
+        output: c_uint,
+        why: *mut c_char,
+        why_size: usize,
+    ) -> *mut Raw;
     fn yapfast_dup_frame(
         capture: *mut Raw,
         timeout_ms: c_uint,
@@ -216,7 +224,9 @@ unsafe impl Send for Capture {}
 
 impl Capture {
     /// Opens a duplication of `target` and makes its device on the card that
-    /// drives it, since a duplication only exists on its own adapter's device.
+    /// drives it, since a duplication only exists on its own adapter's device. A
+    /// caller that already has a device there — an encoder's — uses
+    /// [`Capture::open_on`] instead, and saves the second device.
     ///
     /// It fails on a display another duplicator already holds, on a secure
     /// desktop, and on an output that cannot be duplicated at all; the shim's
@@ -236,6 +246,50 @@ impl Capture {
         };
         if raw.is_null() {
             bail!("no Desktop Duplication opened: {}", text(&why));
+        }
+        Ok(Self {
+            raw,
+            texture: std::ptr::null_mut(),
+        })
+    }
+
+    /// Opens a duplication of `target` on `device`, an `ID3D11Device` somebody has
+    /// already made — in a stream, the encoder's, so that the frame's texture is a
+    /// texture the encoder reads with nothing copied in between.
+    ///
+    /// `device` is **borrowed**: this does not AddRef it and dropping the capture
+    /// does not release it, so the caller keeps it alive for at least as long as
+    /// the capture. It has to have been made on the adapter that drives the output
+    /// being duplicated, which is DXGI's own requirement for `DuplicateOutput`
+    /// rather than this crate's: a device from another card is refused naming both
+    /// cards. [`Capture::device`] answers with the same pointer back.
+    //
+    // `device` is an opaque handle in the same sense [`Capture::texture`] is:
+    // nothing in this crate reads through it, it is handed to the shim, and the
+    // shim holds it for the capture's length without taking a reference of its
+    // own. What a caller owes is the lifetime above, which a capture beside the
+    // encoder is how a stream keeps.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn open_on(device: *mut c_void, target: Target) -> Result<Self> {
+        let mut why = [0u8; 256];
+        // SAFETY: the buffer is as large as its size says and the shim ends it
+        // with a zero; the device is the caller's and outlives the call, which is
+        // what borrowing it means.
+        let raw = unsafe {
+            yapfast_dup_open_on(
+                device,
+                target.luid_high,
+                target.luid_low,
+                target.output,
+                why.as_mut_ptr().cast(),
+                why.len(),
+            )
+        };
+        if raw.is_null() {
+            bail!(
+                "no Desktop Duplication opened on that device: {}",
+                text(&why)
+            );
         }
         Ok(Self {
             raw,
@@ -329,8 +383,12 @@ impl Capture {
         (unsafe { yapfast_dup_pointer_seen(self.raw) }) != 0
     }
 
-    /// The `ID3D11Device` the frame's texture is on, as an `ID3D11Device *`, for
-    /// an encoder that has to open its session on that same device.
+    /// The `ID3D11Device` the frame's texture is on: the one this capture made, or
+    /// the one it was opened on with [`Capture::open_on`]. It is what an encoder
+    /// opens its session on, with
+    /// [`D3d11Encoder::open_on`](crate::d3d11::D3d11Encoder::open_on), so that it
+    /// reads these frames; it belongs to this capture when the capture made it and
+    /// to whoever made it otherwise.
     pub fn device(&self) -> *mut c_void {
         // SAFETY: raw is an open capture.
         unsafe { yapfast_dup_device(self.raw) }
@@ -484,6 +542,79 @@ mod tests {
             } else {
                 "never seen"
             }
+        );
+        drop(capture);
+    }
+
+    /// A duplication opened on a device someone else made: `DuplicateOutput`
+    /// takes any device made on the output's own adapter rather than one this
+    /// file made, which is what lets a stream hand it the encoder's and read the
+    /// frame where it already is. In a stream the device comes from an encoder on
+    /// the same card as the display; here it is an encoder's, opened the way a
+    /// stream without a capture yet opens one.
+    ///
+    /// On a machine whose display is on a different card from the one the GPU
+    /// setting chose, this can't work for anyone, and the shim says which two
+    /// cards it was asked to bridge rather than failing obscurely; the test says
+    /// so and stops instead of failing a correct machine.
+    #[test]
+    #[ignore = "needs a screen and an NVIDIA GPU: it duplicates the primary display on an encoder's device"]
+    fn a_duplication_opens_on_a_device_it_was_given() {
+        let target = Target::primary().expect("a primary display to duplicate");
+        let encoder = crate::d3d11::D3d11Encoder::new(
+            yapfast_discord::rtp::Codec::H264,
+            1920,
+            1080,
+            60,
+            8000,
+        )
+        .expect("an NVENC encoder on this machine");
+        let device = encoder.device();
+        assert!(!device.is_null(), "an encoder with no device");
+
+        let mut capture = match Capture::open_on(device, target) {
+            Ok(capture) => capture,
+            Err(why) => {
+                let said = format!("{why:#}");
+                if said.contains("was made on") {
+                    eprintln!("the display and the encoder are on different cards: {said}");
+                    return;
+                }
+                panic!("no duplication on the encoder's device: {said}");
+            }
+        };
+        eprintln!("{}", capture.describe());
+        assert_eq!(
+            capture.device(),
+            device,
+            "the duplication is on a device of its own rather than the one handed in"
+        );
+
+        // One frame is enough to prove the duplication was created with that
+        // device: a duplication on another one would not be this capture's at all.
+        let started = Instant::now();
+        loop {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "no frame in 10 s, which is what a capture of a screen that isn't drawing does"
+            );
+            match capture.frame(Duration::from_millis(100)).expect("a frame") {
+                Arrival::Frame | Arrival::Pointer => break,
+                Arrival::Still => std::thread::sleep(Duration::from_millis(5)),
+            }
+        }
+        let texture = capture.texture();
+        assert!(!texture.is_null(), "a frame arrived with no texture");
+        let (width, height) = capture.content_size();
+        eprintln!("a {width}x{height} frame on the encoder's own device {device:p}");
+
+        // The capture outlives the device's borrower: the encoder goes first, and
+        // the duplication still has its device to close with.
+        drop(encoder);
+        assert_eq!(
+            capture.device(),
+            device,
+            "the encoder took the device with it"
         );
         drop(capture);
     }

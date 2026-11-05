@@ -18,9 +18,23 @@
  *
  * What makes it fast is also what makes it delicate: the texture has to live on
  * the same device the session was opened on, in a concrete format (the driver
- * reads the real DXGI format and refuses a typeless texture), so
- * `yapfast_d3d11enc_device` hands the device out for a capture source to create
- * its surfaces on.
+ * reads the real DXGI format and refuses a typeless texture). A capture source
+ * and an encoder therefore have to share one D3D11 device, and this file has two
+ * ways to get one: `yapfast_d3d11enc_new` makes a device on the adapter its LUID
+ * names, as it always did, and `yapfast_d3d11enc_new_on` opens on a device the
+ * caller already has — a capture source's — so that a captured texture is the
+ * encoder's texture and a stream costs one device rather than two.
+ *
+ * Ownership of that device is a rule, not a guess, because COM counts nothing
+ * for us: whoever calls D3D11CreateDevice owns the device and is the one that
+ * releases it. An encoder here that made its device releases it in
+ * `yapfast_d3d11enc_free`; an encoder opened on a device it was handed does not
+ * AddRef it and does not release it, and the caller keeps it alive for at least
+ * as long as the encoder — which is what a capture source that outlives the
+ * encoder, or an encoder that outlives the capture, has to arrange. Nothing of
+ * the device's is written to here, so two encoders opened on one device are
+ * fine; the immediate context is got and released by each, so each also holds a
+ * reference of its own to that.
  *
  * The settings are native/hwenc.c's `NVENC_TUNINGS` row for the tuning asked
  * for, said again here as NVENC's own parameters rather than as FFmpeg's
@@ -315,6 +329,58 @@ static int open_device(LUID want, IDXGIAdapter1 **adapter_out, ID3D11Device **de
   return 0;
 }
 
+/* Told below where the rest of the failures are, and used before there because
+ * the first thing an open does with a borrowed device is ask DXGI about it. */
+static void hr_failure(char *error, size_t size, const char *what, HRESULT status);
+
+/* The adapter a device was made on, and what NVENC needs of it: a session only
+ * exists on NVIDIA's cards, so a device made on anything else is refused here in
+ * the words a caller can act on rather than by a status number from
+ * nvEncOpenEncodeSessionEx. The adapter is asked of the device rather than
+ * searched for by LUID, since the device is the thing that has to be right and a
+ * LUID that matched a different object would say nothing about it. */
+static int adapter_of(ID3D11Device *device, IDXGIAdapter1 **adapter_out, DXGI_ADAPTER_DESC1 *desc,
+                      char *why, size_t size) {
+  IDXGIDevice *dxgi = NULL;
+  IDXGIAdapter *adapter = NULL;
+  IDXGIAdapter1 *found = NULL;
+  HRESULT status = device->lpVtbl->QueryInterface(device, &IID_IDXGIDevice, (void **)&dxgi);
+  if (FAILED(status)) {
+    hr_failure(why, size, "QueryInterface(IDXGIDevice) on the device handed in", status);
+    return -1;
+  }
+  status = dxgi->lpVtbl->GetAdapter(dxgi, &adapter);
+  dxgi->lpVtbl->Release(dxgi);
+  if (FAILED(status)) {
+    hr_failure(why, size, "IDXGIDevice::GetAdapter on the device handed in", status);
+    return -1;
+  }
+  status = adapter->lpVtbl->QueryInterface(adapter, &IID_IDXGIAdapter1, (void **)&found);
+  adapter->lpVtbl->Release(adapter);
+  if (FAILED(status)) {
+    hr_failure(why, size, "QueryInterface(IDXGIAdapter1) on the device's adapter", status);
+    return -1;
+  }
+  memset(desc, 0, sizeof *desc);
+  status = found->lpVtbl->GetDesc1(found, desc);
+  if (FAILED(status)) {
+    found->lpVtbl->Release(found);
+    hr_failure(why, size, "IDXGIAdapter1::GetDesc1 on the device's adapter", status);
+    return -1;
+  }
+  if (desc->VendorId != 0x10DE) {
+    if (size)
+      snprintf(why, size,
+               "no NVENC on %ls (0x%04lX), the adapter the device handed in was made on: only "
+               "NVIDIA's cards carry one",
+               desc->Description, (unsigned long)desc->VendorId);
+    found->lpVtbl->Release(found);
+    return -1;
+  }
+  *adapter_out = found;
+  return 0;
+}
+
 /* The texture's concrete format as a name, and as the buffer format the driver
  * registers it under: a typeless texture is refused, so this reads the format
  * the surface really has. */
@@ -421,6 +487,10 @@ void yapfast_d3d11enc_free(struct yapfast_d3d11enc *e);
 struct yapfast_d3d11enc {
   IDXGIAdapter1 *adapter;
   ID3D11Device *device;
+  /* Whether this encoder made the device: it releases only what it made, and a
+   * device handed to `yapfast_d3d11enc_new_on` is borrowed for as long as the
+   * caller keeps it alive. */
+  int owns_device;
   ID3D11DeviceContext *context;
   void *session;
   NV_ENC_OUTPUT_PTR bitstream;
@@ -561,8 +631,12 @@ unsigned yapfast_d3d11enc_staging_textures(struct yapfast_d3d11enc *e) {
 }
 
 /* The device the caller's textures have to live on, as an ID3D11Device: a
- * capture source creates its surfaces on it, since a texture from another device
- * can't be read by this session. */
+ * capture source creates its surfaces on it or opens on it — see
+ * `yapfast_wgc_open_on` and `yapfast_dup_open_on` — since a texture from another
+ * device can't be read by this session. It belongs to this encoder when the
+ * encoder made it and to the caller otherwise; either way the caller must not
+ * release it, and handing it back to `yapfast_d3d11enc_new_on` is what saves the
+ * second device. */
 void *yapfast_d3d11enc_device(struct yapfast_d3d11enc *e) { return e ? e->device : NULL; }
 
 /* The settings the tuning named `name` opens NVENC with, and whether the stream
@@ -686,41 +760,147 @@ static void configure(struct yapfast_d3d11enc *e, const NV_ENC_PRESET_CONFIG *pr
   }
 }
 
+/* Checks what both ways in are given, before a device is made or borrowed: none
+ * of it depends on which device the session ends up on, so a caller that got one
+ * wrong is told without a device having been opened. 0, or -1 with `report` set. */
+static int argcheck(unsigned codec_id, unsigned width, unsigned height, const char *tuning_name,
+                    char *report, size_t report_size) {
+  if (codec_id >= CODEC_COUNT) {
+    if (report_size) snprintf(report, report_size, "%u isn't a codec this encoder has", codec_id);
+    return -1;
+  }
+  if (!nvenc_tuning(tuning_name)) {
+    if (report_size) snprintf(report, report_size, "no tuning called %s", tuning_name);
+    return -1;
+  }
+  if (!width || !height || (width & 1) || (height & 1)) {
+    if (report_size)
+      snprintf(report, report_size, "%ux%u isn't an even size NVENC encodes", width, height);
+    return -1;
+  }
+  return 0;
+}
+
+/* Opens the NVENC session on `e->device` and everything an encode is opened
+ * with: the codecs this driver offers, the settings the tuning row names, the
+ * session, and the bitstream buffer every frame is written into. The device is
+ * already decided by the caller of this — made here or handed in — and nothing
+ * below asks for another one, which is the point of the split. 0, or -1 with
+ * `why` set. */
+static int start_session(struct yapfast_d3d11enc *e, char *why, size_t size) {
+  const NV_ENCODE_API_FUNCTION_LIST *api = &library.functions;
+  NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS open;
+  NV_ENC_PRESET_CONFIG preset;
+  NVENCSTATUS status;
+
+  memset(&open, 0, sizeof open);
+  open.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
+  open.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
+  open.device = e->device;
+  open.apiVersion = NVENCAPI_VERSION;
+  status = api->nvEncOpenEncodeSessionEx(&open, &e->session);
+  if (status != NV_ENC_SUCCESS) {
+    status_failure(why, size, "nvEncOpenEncodeSessionEx on the D3D11 device", status);
+    return -1;
+  }
+  /* The driver is asked which codecs it encodes before one is opened: a card
+   * whose driver has no encoder for the codec asked for says so in a sentence,
+   * rather than failing later with a status nobody can act on. */
+  note_codecs(e);
+  if (e->supported && !(e->supported & (1u << e->codec_id))) {
+    snprintf(why, size, "this driver has no %s encoder (it has %s)%s",
+             CODECS[e->codec_id].name, e->codecs,
+             e->codec_id == CODEC_AV1 ? ", and AV1 needs an RTX 40 series or newer" : "");
+    return -1;
+  }
+
+  memset(&preset, 0, sizeof preset);
+  preset.version = NV_ENC_PRESET_CONFIG_VER;
+  preset.presetCfg.version = NV_ENC_CONFIG_VER;
+  status = api->nvEncGetEncodePresetConfigEx(e->session, *CODECS[e->codec_id].guid,
+                                            *e->tuning->preset_guid, e->tuning->tune, &preset);
+  if (status != NV_ENC_SUCCESS) {
+    status_failure(why, size, "nvEncGetEncodePresetConfigEx", status);
+    return -1;
+  }
+  configure(e, &preset);
+
+  memset(&e->init, 0, sizeof e->init);
+  e->init.version = NV_ENC_INITIALIZE_PARAMS_VER;
+  e->init.encodeGUID = *CODECS[e->codec_id].guid;
+  e->init.presetGUID = *e->tuning->preset_guid;
+  e->init.tuningInfo = e->tuning->tune;
+  e->init.encodeWidth = e->width;
+  e->init.encodeHeight = e->height;
+  e->init.darWidth = e->width;
+  e->init.darHeight = e->height;
+  e->init.frameRateNum = e->fps;
+  e->init.frameRateDen = 1;
+  /* Synchronous: a frame in is a packet out on the same call, so the capture
+   * loop never holds a picture it can't account for. */
+  e->init.enableEncodeAsync = 0;
+  e->init.enablePTD = 1;
+  e->init.maxEncodeWidth = e->width;
+  e->init.maxEncodeHeight = e->height;
+  e->init.encodeConfig = &e->settings;
+  status = api->nvEncInitializeEncoder(e->session, &e->init);
+  if (status != NV_ENC_SUCCESS) {
+    status_failure(why, size, "nvEncInitializeEncoder", status);
+    return -1;
+  }
+
+  NV_ENC_CREATE_BITSTREAM_BUFFER bitstream;
+  memset(&bitstream, 0, sizeof bitstream);
+  bitstream.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
+  bitstream.size = BITSTREAM_BYTES;
+  bitstream.memoryHeap = NV_ENC_MEMORY_HEAP_AUTOSELECT;
+  status = api->nvEncCreateBitstreamBuffer(e->session, &bitstream);
+  if (status != NV_ENC_SUCCESS) {
+    status_failure(why, size, "nvEncCreateBitstreamBuffer", status);
+    return -1;
+  }
+  e->bitstream = bitstream.bitstreamBuffer;
+  return 0;
+}
+
+/* Says what opened, in the words a log quotes: the card the device is on, what
+ * the session was tuned to, and the backend's name. */
+static void describe_open(struct yapfast_d3d11enc *e, char *report, size_t report_size) {
+  DXGI_ADAPTER_DESC1 desc;
+  char card[128] = "";
+  if (e->adapter && SUCCEEDED(e->adapter->lpVtbl->GetDesc1(e->adapter, &desc)))
+    snprintf(card, sizeof card, "%ls, ", desc.Description);
+  snprintf(e->config, sizeof e->config, "%sBGRA in, NV12 4:2:0 out, bt601 limited range", card);
+  snprintf(e->tuning_text, sizeof e->tuning_text,
+           "%s preset, %s rate control, keyframe every %u frames", e->tuning->preset,
+           e->tuning->rc, e->settings.gopLength);
+  if (report_size) snprintf(report, report_size, "%s_nvenc/d3d11", CODECS[e->codec_id].short_name);
+}
+
 /* Opens an encoder for one codec on a new D3D11 device, `width` by `height` at
  * `fps` and `kbps`, tuned by `tuning_name`, on the adapter whose LUID is
  * `adapter_low`:`adapter_high`. `report` gets the name of what opened, or why
  * nothing did: one backend, so one line either way, in words that name the
- * driver's refusal rather than its status number. */
+ * driver's refusal rather than its status number.
+ *
+ * This is the open for a caller that has no device to offer, and it makes one on
+ * the adapter the GPU setting chose. A caller that already has a device — a
+ * capture source's, so that the texture it fills is a texture this reads — uses
+ * `yapfast_d3d11enc_new_on` instead. */
 struct yapfast_d3d11enc *yapfast_d3d11enc_new(unsigned codec_id, unsigned width, unsigned height,
                                               unsigned fps, unsigned kbps, unsigned adapter_low,
                                               int adapter_high, const char *tuning_name,
                                               char *report, size_t report_size) {
   struct yapfast_d3d11enc *e;
-  NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS open;
-  NV_ENC_PRESET_CONFIG preset;
-  NVENCSTATUS status;
   char why[192] = "";
 
   if (report_size) report[0] = 0;
-  if (codec_id >= CODEC_COUNT) {
-    if (report_size) snprintf(report, report_size, "%u isn't a codec this encoder has", codec_id);
-    return NULL;
-  }
+  if (argcheck(codec_id, width, height, tuning_name, report, report_size)) return NULL;
   const struct nvenc_tuning *tuning = nvenc_tuning(tuning_name);
-  if (!tuning) {
-    if (report_size) snprintf(report, report_size, "no tuning called %s", tuning_name);
-    return NULL;
-  }
-  if (!width || !height || (width & 1) || (height & 1)) {
-    if (report_size)
-      snprintf(report, report_size, "%ux%u isn't an even size NVENC encodes", width, height);
-    return NULL;
-  }
   if (!driver(why, sizeof why)) {
     if (report_size) snprintf(report, report_size, "%s", why);
     return NULL;
   }
-  const NV_ENCODE_API_FUNCTION_LIST *api = &library.functions;
   e = calloc(1, sizeof *e);
   if (!e) {
     if (report_size) snprintf(report, report_size, "no memory for the encoder");
@@ -740,82 +920,75 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new(unsigned codec_id, unsigned width,
   wanted.LowPart = adapter_low;
   wanted.HighPart = adapter_high;
   if (open_device(wanted, &e->adapter, &e->device, &e->context, why, sizeof why)) goto failed;
+  /* Made here, and so released in `yapfast_d3d11enc_free` and nowhere else. */
+  e->owns_device = 1;
+  if (start_session(e, why, sizeof why)) goto failed;
+  describe_open(e, report, report_size);
+  return e;
 
-  memset(&open, 0, sizeof open);
-  open.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
-  open.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
-  open.device = e->device;
-  open.apiVersion = NVENCAPI_VERSION;
-  status = api->nvEncOpenEncodeSessionEx(&open, &e->session);
-  if (status != NV_ENC_SUCCESS) {
-    status_failure(why, sizeof why, "nvEncOpenEncodeSessionEx on the D3D11 device", status);
-    goto failed;
-  }
-  /* The driver is asked which codecs it encodes before one is opened: a card
-   * whose driver has no encoder for the codec asked for says so in a sentence,
-   * rather than failing later with a status nobody can act on. */
-  note_codecs(e);
-  if (e->supported && !(e->supported & (1u << codec_id))) {
-    snprintf(why, sizeof why, "this driver has no %s encoder (it has %s)%s", CODECS[codec_id].name,
-             e->codecs, codec_id == CODEC_AV1 ? ", and AV1 needs an RTX 40 series or newer" : "");
-    goto failed;
-  }
+failed:
+  if (report_size) snprintf(report, report_size, "%s", why);
+  yapfast_d3d11enc_free(e);
+  return NULL;
+}
 
-  memset(&preset, 0, sizeof preset);
-  preset.version = NV_ENC_PRESET_CONFIG_VER;
-  preset.presetCfg.version = NV_ENC_CONFIG_VER;
-  status = api->nvEncGetEncodePresetConfigEx(e->session, *CODECS[codec_id].guid,
-                                             *tuning->preset_guid, tuning->tune, &preset);
-  if (status != NV_ENC_SUCCESS) {
-    status_failure(why, sizeof why, "nvEncGetEncodePresetConfigEx", status);
-    goto failed;
-  }
-  configure(e, &preset);
-
-  memset(&e->init, 0, sizeof e->init);
-  e->init.version = NV_ENC_INITIALIZE_PARAMS_VER;
-  e->init.encodeGUID = *CODECS[codec_id].guid;
-  e->init.presetGUID = *tuning->preset_guid;
-  e->init.tuningInfo = tuning->tune;
-  e->init.encodeWidth = width;
-  e->init.encodeHeight = height;
-  e->init.darWidth = width;
-  e->init.darHeight = height;
-  e->init.frameRateNum = fps;
-  e->init.frameRateDen = 1;
-  /* Synchronous: a frame in is a packet out on the same call, so the capture
-   * loop never holds a picture it can't account for. */
-  e->init.enableEncodeAsync = 0;
-  e->init.enablePTD = 1;
-  e->init.maxEncodeWidth = width;
-  e->init.maxEncodeHeight = height;
-  e->init.encodeConfig = &e->settings;
-  status = api->nvEncInitializeEncoder(e->session, &e->init);
-  if (status != NV_ENC_SUCCESS) {
-    status_failure(why, sizeof why, "nvEncInitializeEncoder", status);
-    goto failed;
-  }
-
-  NV_ENC_CREATE_BITSTREAM_BUFFER bitstream;
-  memset(&bitstream, 0, sizeof bitstream);
-  bitstream.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
-  bitstream.size = BITSTREAM_BYTES;
-  bitstream.memoryHeap = NV_ENC_MEMORY_HEAP_AUTOSELECT;
-  status = api->nvEncCreateBitstreamBuffer(e->session, &bitstream);
-  if (status != NV_ENC_SUCCESS) {
-    status_failure(why, sizeof why, "nvEncCreateBitstreamBuffer", status);
-    goto failed;
-  }
-  e->bitstream = bitstream.bitstreamBuffer;
-
+/* Opens an encoder for one codec on `device`, a D3D11 device the caller already
+ * has — in a stream, the one a capture source is filling textures on — so that a
+ * captured texture is a texture this session can read with nothing copied in
+ * between. Everything else is `yapfast_d3d11enc_new`'s: the same codec, size,
+ * rate, tuning and report, and the same contract for the frames it encodes.
+ *
+ * `device` is borrowed: this does not AddRef it and `yapfast_d3d11enc_free` does
+ * not release it, so the caller keeps it alive for at least as long as the
+ * encoder and releases its own reference afterwards. The adapter is read from
+ * the device rather than named, so the open still reports the card the session
+ * is really on, and a device made on anything but NVIDIA's is refused in words
+ * before a session is attempted. NULL with `report` filled in when the device
+ * isn't one NVENC can encode on, or when the session refuses it. */
+struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id, unsigned width,
+                                                 unsigned height, unsigned fps, unsigned kbps,
+                                                 const char *tuning_name, char *report,
+                                                 size_t report_size) {
+  struct yapfast_d3d11enc *e;
   DXGI_ADAPTER_DESC1 desc;
-  char card[128] = "";
-  if (SUCCEEDED(e->adapter->lpVtbl->GetDesc1(e->adapter, &desc))) snprintf(card, sizeof card, "%ls, ", desc.Description);
-  snprintf(e->config, sizeof e->config, "%sBGRA in, NV12 4:2:0 out, bt601 limited range", card);
-  snprintf(e->tuning_text, sizeof e->tuning_text,
-           "%s preset, %s rate control, keyframe every %u frames", tuning->preset, tuning->rc,
-           e->settings.gopLength);
-  if (report_size) snprintf(report, report_size, "%s_nvenc/d3d11", CODECS[codec_id].short_name);
+  char why[192] = "";
+
+  if (report_size) report[0] = 0;
+  if (argcheck(codec_id, width, height, tuning_name, report, report_size)) return NULL;
+  const struct nvenc_tuning *tuning = nvenc_tuning(tuning_name);
+  if (!device) {
+    if (report_size) snprintf(report, report_size, "no D3D11 device to open the encoder on");
+    return NULL;
+  }
+  if (!driver(why, sizeof why)) {
+    if (report_size) snprintf(report, report_size, "%s", why);
+    return NULL;
+  }
+  e = calloc(1, sizeof *e);
+  if (!e) {
+    if (report_size) snprintf(report, report_size, "no memory for the encoder");
+    return NULL;
+  }
+  e->codec_id = codec_id;
+  e->width = width;
+  e->height = height;
+  e->fps = fps;
+  e->kbps = kbps;
+  e->tuning = tuning;
+  e->device = (ID3D11Device *)device;
+  /* Borrowed, so not released here: see the ownership note at the top of this
+   * file. */
+  e->owns_device = 0;
+  if (adapter_of(e->device, &e->adapter, &desc, why, sizeof why)) goto failed;
+  /* The context is this encoder's own reference to the device's, and so is
+   * released with the encoder whichever way the device arrived. */
+  e->device->lpVtbl->GetImmediateContext(e->device, &e->context);
+  if (!e->context) {
+    snprintf(why, sizeof why, "the device handed in has no immediate context");
+    goto failed;
+  }
+  if (start_session(e, why, sizeof why)) goto failed;
+  describe_open(e, report, report_size);
   return e;
 
 failed:
@@ -858,7 +1031,10 @@ static struct slot *slot_register(struct yapfast_d3d11enc *e, void *texture, uns
 
   /* Which device owns it, asked rather than assumed: a texture from another
    * device is memory this session can't read, and the driver would fail the
-   * registration rather than the frame. */
+   * registration rather than the frame. The comparison is the device pointer as
+   * asked back, and not a LUID or a name: two devices can be made on one adapter
+   * and neither can read the other's textures, so an adapter that matched would
+   * say nothing. */
   surface->lpVtbl->GetDevice(surface, &owner);
   if (!owner) {
     snprintf(why, size, "the texture isn't a D3D11 texture this session can read");
@@ -869,7 +1045,8 @@ static struct slot *slot_register(struct yapfast_d3d11enc *e, void *texture, uns
   if (!ours) {
     snprintf(why, size,
              "the texture lives on another D3D11 device than the session's; a capture source "
-             "creates its textures on the device yapfast_d3d11enc_device hands out");
+             "opens on the encoder's device (yapfast_d3d11enc_device), or the encoder opens on "
+             "the capture's (yapfast_d3d11enc_new_on)");
     return NULL;
   }
   surface->lpVtbl->GetDesc(surface, &desc);
@@ -988,7 +1165,10 @@ void yapfast_d3d11enc_free(struct yapfast_d3d11enc *e) {
   }
   close_scale(e);
   if (e->context) e->context->lpVtbl->Release(e->context);
-  if (e->device) e->device->lpVtbl->Release(e->device);
+  /* Only what this encoder made: a device it was opened on belongs to the caller
+   * that made it, and releasing that would take the capture source's device out
+   * from under it. */
+  if (e->owns_device && e->device) e->device->lpVtbl->Release(e->device);
   if (e->adapter) e->adapter->lpVtbl->Release(e->adapter);
   free(e);
 }
