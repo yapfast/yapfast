@@ -30,6 +30,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d11.h>
+/* D3D11.3's shader resource views, which are the only ones that can name a
+ * plane of a planar surface: how a shader reads NV12's chroma. */
+#include <d3d11_3.h>
 #include <d3dcompiler.h>
 #include <dxgi1_2.h>
 #include <stdarg.h>
@@ -344,6 +347,68 @@ struct slot {
   NV_ENC_BUFFER_FORMAT format;
   unsigned long long used;
 };
+/* One of the caller's textures as a scaler reads it: the views either scaler
+ * makes of a surface, kept for as long as the same surface keeps coming back.
+ * Both are made on first use and released with the entry, in the same
+ * least-recently-used way as the encoder's slots — a capture source hands back
+ * a few surfaces in rotation, and a view made per frame would be exactly the
+ * per-frame allocation this file exists to avoid. */
+struct input {
+  ID3D11Texture2D *texture;
+  unsigned subresource;
+  DXGI_FORMAT format;
+  ID3D11VideoProcessorInputView *video;
+  /* A shader reads a picture's planes: one for BGRA or RGBA, two for NV12,
+   * whose luma and chroma are separate planes of the one surface. */
+  ID3D11ShaderResourceView *planes[2];
+  unsigned long long used;
+};
+/* The scaler, and the textures it reads back through. Everything here is made
+ * on the first frame that needs it and kept while the size it was made for
+ * comes back, so a stream capturing one screen pays for it once rather than per
+ * frame: one destination texture, one staging texture, one video processor, and
+ * one input view per surface the capture rotates through. */
+struct scale {
+  /* The scaled picture, as the encoder reads it, and the size it was made for. */
+  ID3D11Texture2D *picture;
+  unsigned width, height;
+  /* The video processor, when this device has one that takes these formats. The
+   * enumerator and the processor are made for one pair of sizes and remade when
+   * a capture's size changes, which is when the screen does and not when a frame
+   * does. */
+  ID3D11VideoDevice *video;
+  ID3D11VideoContext *video_context;
+  ID3D11VideoProcessorEnumerator *enumerator;
+  ID3D11VideoProcessor *processor;
+  ID3D11VideoProcessorOutputView *output;
+  ID3D11RenderTargetView *target;
+  unsigned source_width, source_height;
+  /* The shader that stands in when the driver has no video processor, or none
+   * that takes these formats: one program for a colour picture and one for a
+   * planar one, since what a shader is given is known when it is compiled and
+   * not per frame. */
+  ID3D11VertexShader *vertex;
+  ID3D11PixelShader *rgb;
+  ID3D11PixelShader *planar;
+  ID3D11SamplerState *sampler;
+  ID3D11Buffer *sizes;
+  /* D3D11.3's device, which is what makes a view of one plane of a planar
+   * surface: asked for the first time a shader is handed NV12. */
+  ID3D11Device3 *planes_of;
+  /* The staging texture a readback maps, and the size it was made for. */
+  ID3D11Texture2D *staging;
+  unsigned staging_width, staging_height;
+  struct input inputs[SLOTS];
+  /* How many destination and staging textures this has made, so that "the
+   * hundredth readback reused the first one's" is a number rather than a hope. */
+  unsigned pictures, stagings;
+  /* The clock the input views turn on: a preview that never encodes would leave
+   * them all looking equally old, and every frame would remake the views of a
+   * surface that hadn't changed. */
+  unsigned long long scaled;
+  /* Which filter scaled the last picture, in words, for a log to quote. */
+  const char *filter;
+};
 
 struct yapfast_d3d11enc;
 
@@ -374,6 +439,9 @@ struct yapfast_d3d11enc {
    * the encode path keeps at zero, and says so. */
   unsigned long long copied;
   struct slot slots[SLOTS];
+  /* What a capture of another size goes through to reach the encoder, and what
+   * a preview is read back through: see `struct scale`. */
+  struct scale scaler;
   char error[192];
   char config[128];
   char tuning_text[96];
@@ -386,16 +454,34 @@ void yapfast_d3d11enc_error(struct yapfast_d3d11enc *e, char *error, size_t size
   snprintf(error, size, "%s", e && e->error[0] ? e->error : "no error");
 }
 
+/* Says why a call failed, in the encoder's own words: what Rust logs beside the
+ * frame it lost. */
+static void says(struct yapfast_d3d11enc *e, const char *format, va_list args) {
+  if (e) vsnprintf(e->error, sizeof e->error, format, args);
+}
 /* Fails a call with a reason that travels to Rust, and returns `value`, so the
  * call sites that fail read as one line. */
 static long fail(struct yapfast_d3d11enc *e, long value, const char *format, ...) {
-  if (e) {
-    va_list args;
-    va_start(args, format);
-    vsnprintf(e->error, sizeof e->error, format, args);
-    va_end(args);
-  }
+  va_list args;
+  va_start(args, format);
+  says(e, format, args);
+  va_end(args);
   return value;
+}
+/* The same for the calls that answer with a pointer: a texture this couldn't
+ * produce and one it hasn't produced are the same nothing to a caller, and the
+ * reason is what tells them apart. */
+static void *nothing(struct yapfast_d3d11enc *e, const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  says(e, format, args);
+  va_end(args);
+  return NULL;
+}
+/* One of Direct3D's own failures, in the shape `status_failure` gives the
+ * driver's: what failed, and the code that says which way. */
+static void hr_failure(char *error, size_t size, const char *what, HRESULT status) {
+  if (size) snprintf(error, size, "%s failed (0x%08lX)", what, (unsigned long)status);
 }
 
 /* The codecs this session's driver will encode, as bits of codec ids and in
@@ -453,6 +539,25 @@ void yapfast_d3d11enc_asked(struct yapfast_d3d11enc *e, char *asked, size_t size
  * thing a careless change would take away without any frame looking different. */
 unsigned long long yapfast_d3d11enc_copied(struct yapfast_d3d11enc *e) {
   return e ? e->copied : 0;
+}
+/* Which filter scaled the last picture, in words: the video processor, the pixel
+ * shader that stands in when the driver has none, or a copy where the two sizes
+ * were already the same. Empty until something is scaled, and worth a line in a
+ * log beside the numbers, since a driver that declines the processor is the
+ * difference between a preview that is nearly free and one that is cheap. */
+void yapfast_d3d11enc_filter(struct yapfast_d3d11enc *e, char *filter, size_t size) {
+  if (size) snprintf(filter, size, "%s", e && e->scaler.filter ? e->scaler.filter : "");
+}
+/* How many destination textures the scaler has made since this encoder opened:
+ * one, however many frames went through it, and one per new size a capture
+ * asks for. A number that climbs every frame is a size that keeps changing. */
+unsigned yapfast_d3d11enc_scaled_textures(struct yapfast_d3d11enc *e) {
+  return e ? e->scaler.pictures : 0;
+}
+/* How many staging textures a readback has made: one, however many previews
+ * were read through it. This is the count a hundred readbacks leave alone. */
+unsigned yapfast_d3d11enc_staging_textures(struct yapfast_d3d11enc *e) {
+  return e ? e->scaler.stagings : 0;
 }
 
 /* The device the caller's textures have to live on, as an ID3D11Device: a
@@ -832,6 +937,47 @@ static void close_slots(struct yapfast_d3d11enc *e) {
     memset(slot, 0, sizeof *slot);
   }
 }
+/* One cached view of a surface, and the surface it holds: the view and the
+ * texture both release, so a capture source that has moved on to other surfaces
+ * doesn't keep the ones it replaced alive. */
+static void close_input(struct input *input) {
+  if (input->video) input->video->lpVtbl->Release(input->video);
+  for (size_t plane = 0; plane < 2; plane++)
+    if (input->planes[plane]) input->planes[plane]->lpVtbl->Release(input->planes[plane]);
+  if (input->texture) input->texture->lpVtbl->Release(input->texture);
+  memset(input, 0, sizeof *input);
+}
+/* The shader that stands in for a video processor, and the sampler and constants
+ * that go with it: released as a set, since they are made as one and a half-made
+ * set is retried from the start rather than used. */
+static void close_shader(struct yapfast_d3d11enc *e) {
+  if (e->scaler.vertex) e->scaler.vertex->lpVtbl->Release(e->scaler.vertex);
+  if (e->scaler.rgb) e->scaler.rgb->lpVtbl->Release(e->scaler.rgb);
+  if (e->scaler.planar) e->scaler.planar->lpVtbl->Release(e->scaler.planar);
+  if (e->scaler.sampler) e->scaler.sampler->lpVtbl->Release(e->scaler.sampler);
+  if (e->scaler.sizes) e->scaler.sizes->lpVtbl->Release(e->scaler.sizes);
+  e->scaler.vertex = NULL;
+  e->scaler.rgb = NULL;
+  e->scaler.planar = NULL;
+  e->scaler.sampler = NULL;
+  e->scaler.sizes = NULL;
+}
+/* Everything the scaler made, released with the encoder: the picture that holds
+ * the scaled frame, the staging texture a readback maps, and the processor or
+ * the shader that filled them. */
+static void close_scale(struct yapfast_d3d11enc *e) {
+  for (size_t i = 0; i < SLOTS; i++) close_input(&e->scaler.inputs[i]);
+  if (e->scaler.picture) e->scaler.picture->lpVtbl->Release(e->scaler.picture);
+  if (e->scaler.staging) e->scaler.staging->lpVtbl->Release(e->scaler.staging);
+  if (e->scaler.target) e->scaler.target->lpVtbl->Release(e->scaler.target);
+  if (e->scaler.output) e->scaler.output->lpVtbl->Release(e->scaler.output);
+  if (e->scaler.processor) e->scaler.processor->lpVtbl->Release(e->scaler.processor);
+  if (e->scaler.enumerator) e->scaler.enumerator->lpVtbl->Release(e->scaler.enumerator);
+  if (e->scaler.video_context) e->scaler.video_context->lpVtbl->Release(e->scaler.video_context);
+  if (e->scaler.video) e->scaler.video->lpVtbl->Release(e->scaler.video);
+  if (e->scaler.planes_of) e->scaler.planes_of->lpVtbl->Release(e->scaler.planes_of);
+  close_shader(e);
+}
 
 void yapfast_d3d11enc_free(struct yapfast_d3d11enc *e) {
   if (!e) return;
@@ -840,6 +986,7 @@ void yapfast_d3d11enc_free(struct yapfast_d3d11enc *e) {
     if (e->bitstream) library.functions.nvEncDestroyBitstreamBuffer(e->session, e->bitstream);
     library.functions.nvEncDestroyEncoder(e->session);
   }
+  close_scale(e);
   if (e->context) e->context->lpVtbl->Release(e->context);
   if (e->device) e->device->lpVtbl->Release(e->device);
   if (e->adapter) e->adapter->lpVtbl->Release(e->adapter);
@@ -944,6 +1091,757 @@ int yapfast_d3d11enc_set_bitrate(struct yapfast_d3d11enc *e, unsigned kbps) {
   e->kbps = kbps;
   return 0;
 }
+/* ----------------------------------------------------------------- the scaler
+ *
+ * A capture is whatever size the screen is and a stream is whatever size the
+ * stream is, and on a display wider than 1080p those are almost never the same
+ * number. Without this the textured path could only encode a capture that
+ * happened to come out at the stream's size, which is why a share of a big
+ * screen went back to the processor's converter — a full-frame read and upload
+ * of every frame, which is the copy everything else in this file avoids.
+ *
+ * So the same three steps happen on the GPU instead: the picture is scaled into
+ * a texture the encoder keeps, the encoder registers that texture exactly as it
+ * registers a capture's own, and a preview is read from the same texture through
+ * a staging one at the size the preview asks for. A capture that is already the
+ * stream's size skips all of it: the sizes match and the picture is copied,
+ * which is exact and is one GPU-side copy.
+ *
+ * The filter is the driver's video processor where it will take the texture and
+ * hand back BGRA — the scaler it plays video through, multi-tap and made for
+ * exactly this — and a pixel shader where it won't, which is a real case rather
+ * than a courtesy: a video processor input view needs the surface to have been
+ * made with one of a few bind flags, and a capture source's surfaces are the
+ * capture source's to make. `yapfast_d3d11enc_filter` says which one ran. */
+/* The entry for the caller's texture, made on the first frame it arrives and
+ * kept while it keeps arriving: the same least-recently-used rotation as the
+ * encoder's slots, since a capture source hands back a few surfaces in rotation
+ * rather than one. Never fails — the entry is one of a fixed array — and a view
+ * that can't be made of this surface is said by whoever asked for it. */
+static struct input *input_for(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture,
+                               unsigned subresource, DXGI_FORMAT format) {
+  struct input *oldest = NULL;
+  for (size_t i = 0; i < SLOTS; i++) {
+    struct input *input = &e->scaler.inputs[i];
+    if (input->texture == texture && input->subresource == subresource &&
+        input->format == format) {
+      input->used = e->scaler.scaled;
+      return input;
+    }
+    if (!input->texture) {
+      oldest = input;
+      break;
+    }
+    if (!oldest || input->used < oldest->used) oldest = input;
+  }
+  close_input(oldest);
+  oldest->texture = texture;
+  oldest->subresource = subresource;
+  oldest->format = format;
+  oldest->used = e->scaler.scaled;
+  /* Held for as long as a view names it, so a capture source that lets go of a
+   * surface can't pull it out from under the scaler. */
+  texture->lpVtbl->AddRef(texture);
+  return oldest;
+}
+/* The texture a scaled picture lands in, at `width` by `height`: made on the
+ * first frame of that size and kept until a frame of another size replaces it,
+ * since a capture's size changes when the screen does and not between frames. A
+ * render target, because that is what both scalers write it as, and BGRA,
+ * because that is what NVENC registers from this file and what a preview reads
+ * a tile of. */
+static int destination(struct yapfast_d3d11enc *e, unsigned width, unsigned height, char *why,
+                       size_t size) {
+  D3D11_TEXTURE2D_DESC desc;
+  HRESULT status;
+  if (e->scaler.picture && e->scaler.width == width && e->scaler.height == height) return 0;
+  if (e->scaler.picture) {
+    e->scaler.picture->lpVtbl->Release(e->scaler.picture);
+    e->scaler.picture = NULL;
+  }
+  /* Both views name the texture they draw into, so they go with it. */
+  if (e->scaler.output) e->scaler.output->lpVtbl->Release(e->scaler.output);
+  e->scaler.output = NULL;
+  if (e->scaler.target) e->scaler.target->lpVtbl->Release(e->scaler.target);
+  e->scaler.target = NULL;
+  memset(&desc, 0, sizeof desc);
+  desc.Width = width;
+  desc.Height = height;
+  desc.MipLevels = 1;
+  desc.ArraySize = 1;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.Usage = D3D11_USAGE_DEFAULT;
+  desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+  status = e->device->lpVtbl->CreateTexture2D(e->device, &desc, NULL, &e->scaler.picture);
+  if (FAILED(status)) {
+    e->scaler.picture = NULL;
+    hr_failure(why, size, "CreateTexture2D for the scaled picture", status);
+    return -1;
+  }
+  e->scaler.width = width;
+  e->scaler.height = height;
+  e->scaler.pictures++;
+  return 0;
+}
+/* The video processor, ready to take a picture of `source_width` by
+ * `source_height` in `format` and put it in the destination's size: the
+ * enumerator and the processor are made for one pair of sizes and one pair of
+ * formats and remade when either changes. Answers 0 when there is one to blit
+ * through, and -1 with `why` when there isn't, which is the caller's cue to use
+ * the shader. */
+static int video_processor(struct yapfast_d3d11enc *e, unsigned source_width,
+                           unsigned source_height, DXGI_FORMAT format, char *why, size_t size) {
+  D3D11_VIDEO_PROCESSOR_CONTENT_DESC content;
+  D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC view;
+  RECT rect;
+  UINT support = 0;
+  HRESULT status;
+  if (!e->scaler.video) {
+    /* Asked of the device the encoder opened rather than a second one: a
+     * processor on another device can't read these textures, and a device made
+     * with the video flag from the start would be a change to the device the
+     * encode path opens. A driver that has no processor is what the shader is
+     * for. */
+    status = e->device->lpVtbl->QueryInterface(e->device, &IID_ID3D11VideoDevice,
+                                               (void **)&e->scaler.video);
+    if (FAILED(status) || !e->scaler.video) {
+      e->scaler.video = NULL;
+      hr_failure(why, size, "this device has no video device (QueryInterface)", status);
+      return -1;
+    }
+    status = e->context->lpVtbl->QueryInterface(e->context, &IID_ID3D11VideoContext,
+                                                (void **)&e->scaler.video_context);
+    if (FAILED(status) || !e->scaler.video_context) {
+      e->scaler.video_context = NULL;
+      hr_failure(why, size, "this context has no video context (QueryInterface)", status);
+      return -1;
+    }
+  }
+  if (e->scaler.processor && e->scaler.output && e->scaler.source_width == source_width &&
+      e->scaler.source_height == source_height) {
+    status =
+        e->scaler.enumerator->lpVtbl->CheckVideoProcessorFormat(e->scaler.enumerator, format, &support);
+    if (!FAILED(status) && (support & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT)) return 0;
+    if (size)
+      snprintf(why, size, "the video processor won't take DXGI format %u as a picture",
+               (unsigned)format);
+    return -1;
+  }
+  if (e->scaler.output) e->scaler.output->lpVtbl->Release(e->scaler.output);
+  e->scaler.output = NULL;
+  if (e->scaler.processor) e->scaler.processor->lpVtbl->Release(e->scaler.processor);
+  e->scaler.processor = NULL;
+  if (e->scaler.enumerator) e->scaler.enumerator->lpVtbl->Release(e->scaler.enumerator);
+  e->scaler.enumerator = NULL;
+  /* Both rates the same: the processor is told frames arrive as fast as they
+   * leave, so it scales one frame into one frame instead of converting between
+   * rates on frames handed to it at no fixed rate at all. */
+  memset(&content, 0, sizeof content);
+  content.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
+  content.InputFrameRate.Numerator = 60;
+  content.InputFrameRate.Denominator = 1;
+  content.InputWidth = source_width;
+  content.InputHeight = source_height;
+  content.OutputFrameRate = content.InputFrameRate;
+  content.OutputWidth = e->scaler.width;
+  content.OutputHeight = e->scaler.height;
+  content.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
+  status = e->scaler.video->lpVtbl->CreateVideoProcessorEnumerator(e->scaler.video, &content,
+                                                                   &e->scaler.enumerator);
+  if (FAILED(status)) {
+    hr_failure(why, size, "CreateVideoProcessorEnumerator", status);
+    return -1;
+  }
+  status =
+      e->scaler.enumerator->lpVtbl->CheckVideoProcessorFormat(e->scaler.enumerator, format, &support);
+  if (FAILED(status) || !(support & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT)) {
+    if (size)
+      snprintf(why, size, "the video processor won't take %ux%u of DXGI format %u as a picture",
+               source_width, source_height, (unsigned)format);
+    return -1;
+  }
+  status = e->scaler.enumerator->lpVtbl->CheckVideoProcessorFormat(
+      e->scaler.enumerator, DXGI_FORMAT_B8G8R8A8_UNORM, &support);
+  if (FAILED(status) || !(support & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT)) {
+    if (size) snprintf(why, size, "the video processor won't write BGRA");
+    return -1;
+  }
+  status = e->scaler.video->lpVtbl->CreateVideoProcessor(e->scaler.video, e->scaler.enumerator, 0,
+                                                         &e->scaler.processor);
+  if (FAILED(status)) {
+    hr_failure(why, size, "CreateVideoProcessor", status);
+    return -1;
+  }
+  /* The whole source into the whole destination, said rather than left to the
+   * defaults: the whole of one to the whole of the other is the stretch that is
+   * the scale, and a driver's idea of a border has no place in the picture. */
+  SetRect(&rect, 0, 0, (LONG)e->scaler.width, (LONG)e->scaler.height);
+  e->scaler.video_context->lpVtbl->VideoProcessorSetOutputTargetRect(e->scaler.video_context,
+                                                                     e->scaler.processor, TRUE, &rect);
+  SetRect(&rect, 0, 0, (LONG)source_width, (LONG)source_height);
+  e->scaler.video_context->lpVtbl->VideoProcessorSetStreamSourceRect(
+      e->scaler.video_context, e->scaler.processor, 0, TRUE, &rect);
+  memset(&view, 0, sizeof view);
+  view.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+  view.Texture2D.MipSlice = 0;
+  status = e->scaler.video->lpVtbl->CreateVideoProcessorOutputView(
+      e->scaler.video, (ID3D11Resource *)e->scaler.picture, e->scaler.enumerator, &view,
+      &e->scaler.output);
+  if (FAILED(status)) {
+    e->scaler.output = NULL;
+    hr_failure(why, size, "CreateVideoProcessorOutputView", status);
+    return -1;
+  }
+  e->scaler.source_width = source_width;
+  e->scaler.source_height = source_height;
+  return 0;
+}
+/* The picture in `texture`, through the video processor, into the destination:
+ * a view of the surface made once and kept, and then one blit per frame. */
+static int processor_blit(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture,
+                          unsigned subresource, DXGI_FORMAT format, char *why, size_t size) {
+  struct input *input = input_for(e, texture, subresource, format);
+  D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC desc;
+  D3D11_VIDEO_PROCESSOR_STREAM stream;
+  HRESULT status;
+  if (!input->video) {
+    memset(&desc, 0, sizeof desc);
+    /* FourCC zero: the surface's own format, which is the one the encoder would
+     * register it as. The subresource is an array slice, since a capture's
+     * surfaces have one mip each. */
+    desc.FourCC = 0;
+    desc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+    desc.Texture2D.MipSlice = 0;
+    desc.Texture2D.ArraySlice = subresource;
+    status = e->scaler.video->lpVtbl->CreateVideoProcessorInputView(
+        e->scaler.video, (ID3D11Resource *)texture, e->scaler.enumerator, &desc, &input->video);
+    if (FAILED(status)) {
+      input->video = NULL;
+      hr_failure(why, size, "CreateVideoProcessorInputView of the capture's texture", status);
+      return -1;
+    }
+  }
+  memset(&stream, 0, sizeof stream);
+  stream.Enable = TRUE;
+  stream.OutputIndex = 0;
+  stream.InputFrameOrField = 0;
+  stream.pInputSurface = input->video;
+  status = e->scaler.video_context->lpVtbl->VideoProcessorBlt(
+      e->scaler.video_context, e->scaler.processor, e->scaler.output, 0, 1, &stream);
+  if (FAILED(status)) {
+    hr_failure(why, size, "VideoProcessorBlt", status);
+    return -1;
+  }
+  return 0;
+}
+/* The picture the shader scales with: four bilinear taps at the corners of a box
+ * a quarter of the source's footprint across, which is what a downscale needs.
+ * One tap of a frame four times smaller keeps one pixel of the sixteen it covers
+ * and the picture crawls with whatever the samples happened to land on; four
+ * taps spread over the footprint are the cheap end of a box filter, and what is
+ * between them is the hardware's bilinear filter, which costs nothing. The same
+ * source compiles twice — once with NV12 defined, for a surface it reads as two
+ * planes — so the two paths can't drift apart. */
+static const char *scale_shader =
+    "Texture2D<float4> luma : register(t0);\n"
+    "Texture2D<float4> chroma : register(t1);\n"
+    "SamplerState tap : register(s0);\n"
+    "cbuffer Sizes : register(b0) { float2 source; float2 target; };\n"
+    "struct Varying { float4 position : SV_Position; float2 uv : TEXCOORD0; };\n"
+    /* One triangle over the whole target: three vertices, no vertex buffer and
+     * nothing uploaded per frame, with the corner of the target at the corner of
+     * the picture. */
+    "Varying VSMain(uint vertex : SV_VertexID) {\n"
+    "  float2 corner = float2((vertex << 1) & 2, vertex & 2);\n"
+    "  Varying varying;\n"
+    "  varying.position = float4(corner * float2(2, -2) + float2(-1, 1), 0, 1);\n"
+    "  varying.uv = corner;\n"
+    "  return varying;\n"
+    "}\n"
+    "float4 PSMain(Varying varying) : SV_Target {\n"
+    /* A quarter of the footprint, so the four taps are at the corners of a box
+     * half the footprint across. A picture that is growing keeps a footprint of
+     * one texel, so a scale up is a bilinear stretch rather than a blur forty
+     * texels wide. */
+    "  float2 step = 0.25 * max(source / target, 1.0) / source;\n"
+    "  static const float2 corners[4] = { float2(-1, -1), float2(1, -1),\n"
+    "                                     float2(-1, 1), float2(1, 1) };\n"
+    "  float4 picture = 0;\n"
+    "  [unroll] for (uint i = 0; i < 4; i++)\n"
+    "    picture += luma.Sample(tap, varying.uv + corners[i] * step);\n"
+    "  picture *= 0.25;\n"
+    "#ifdef NV12\n"
+    "  float2 colour = 0;\n"
+    "  [unroll] for (uint j = 0; j < 4; j++)\n"
+    "    colour += chroma.Sample(tap, varying.uv + corners[j] * step).rg;\n"
+    "  colour *= 0.25;\n"
+    /* BT.601's matrix over its limited range, the claim this file makes to NVENC
+     * in every codec's VUI and the one hwenc.c makes to FFmpeg: a picture that
+     * passes through the scaler says what a picture that doesn't says. */
+    "  float brightness = saturate((picture.r - 16.0 / 255.0) * (255.0 / 219.0));\n"
+    "  colour = (colour - 128.0 / 255.0) * (255.0 / 224.0);\n"
+    "  return float4(saturate(float3(brightness + 1.402 * colour.y,\n"
+    "                                brightness - 0.344136 * colour.x - 0.714136 * colour.y,\n"
+    "                                brightness + 1.772 * colour.x)),\n"
+    "                1.0);\n"
+    "#else\n"
+    /* Colour in, the same colour out: a shader's channels are R, G, B whatever
+     * order the surface keeps them in, so a BGRA or an RGBA texture lands in the
+     * BGRA destination with its colours where it put them. */
+    "  return float4(picture.rgb, 1.0);\n"
+    "#endif\n"
+    "}\n";
+/* One entry point of the scale's shader, compiled for `profile`: D3DCompile
+ * either writes the program or says, in its own words, which line it didn't
+ * like. */
+static int shader_stage(const char *entry, const char *profile, int planar, ID3DBlob **out,
+                        char *why, size_t size) {
+  D3D_SHADER_MACRO macros[2] = {{"NV12", "1"}, {NULL, NULL}};
+  ID3DBlob *errors = NULL;
+  HRESULT status = D3DCompile(scale_shader, strlen(scale_shader), "yapfast-scale.hlsl",
+                              planar ? macros : NULL, NULL, entry, profile,
+                              D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, out, &errors);
+  if (FAILED(status)) {
+    if (size)
+      snprintf(why, size, "D3DCompile(%s) failed (0x%08lX) %.96s", entry, (unsigned long)status,
+               errors ? (const char *)errors->lpVtbl->GetBufferPointer(errors) : "");
+    if (errors) errors->lpVtbl->Release(errors);
+    return -1;
+  }
+  if (errors) errors->lpVtbl->Release(errors);
+  return 0;
+}
+/* One stage of that shader, made on the device: the vertex stage, or the pixel
+ * stage for a colour picture or a planar one. */
+static int make_stage(struct yapfast_d3d11enc *e, const char *entry, const char *profile,
+                      int planar, const char *what, void **out, char *why, size_t size) {
+  ID3DBlob *code = NULL;
+  HRESULT status;
+  if (shader_stage(entry, profile, planar, &code, why, size)) return -1;
+  if (profile[0] == 'v')
+    status = e->device->lpVtbl->CreateVertexShader(e->device, code->lpVtbl->GetBufferPointer(code),
+                                                   code->lpVtbl->GetBufferSize(code), NULL,
+                                                   (ID3D11VertexShader **)out);
+  else
+    status = e->device->lpVtbl->CreatePixelShader(e->device, code->lpVtbl->GetBufferPointer(code),
+                                                  code->lpVtbl->GetBufferSize(code), NULL,
+                                                  (ID3D11PixelShader **)out);
+  code->lpVtbl->Release(code);
+  if (FAILED(status)) {
+    *out = NULL;
+    hr_failure(why, size, what, status);
+    return -1;
+  }
+  return 0;
+}
+/* The shader, its sampler and the constants the taps are worked out from, made
+ * once. A half-made set is released rather than kept, so the next frame tries
+ * again from the start instead of drawing with a NULL. */
+static int shader_ready(struct yapfast_d3d11enc *e, char *why, size_t size) {
+  D3D11_SAMPLER_DESC sampler;
+  D3D11_BUFFER_DESC sizes;
+  HRESULT status;
+  if (e->scaler.vertex) return 0;
+  if (make_stage(e, "VSMain", "vs_5_0", 0, "CreateVertexShader", (void **)&e->scaler.vertex, why,
+                 size))
+    goto failed;
+  if (make_stage(e, "PSMain", "ps_5_0", 0, "CreatePixelShader", (void **)&e->scaler.rgb, why,
+                 size))
+    goto failed;
+  if (make_stage(e, "PSMain", "ps_5_0", 1, "CreatePixelShader for NV12",
+                 (void **)&e->scaler.planar, why, size))
+    goto failed;
+  /* Bilinear and clamped: the taps decide what is read, the filter between them
+   * is the hardware's, and a texel outside the picture is the picture's edge. */
+  memset(&sampler, 0, sizeof sampler);
+  sampler.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+  sampler.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sampler.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sampler.ComparisonFunc = D3D11_COMPARISON_NEVER;
+  sampler.MaxLOD = D3D11_FLOAT32_MAX;
+  status = e->device->lpVtbl->CreateSamplerState(e->device, &sampler, &e->scaler.sampler);
+  if (FAILED(status)) {
+    e->scaler.sampler = NULL;
+    hr_failure(why, size, "CreateSamplerState", status);
+    goto failed;
+  }
+  /* Sixteen bytes: the source's size and the target's, written per frame, which
+   * is a register write and not an allocation. */
+  memset(&sizes, 0, sizeof sizes);
+  sizes.ByteWidth = 16;
+  sizes.Usage = D3D11_USAGE_DEFAULT;
+  sizes.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+  status = e->device->lpVtbl->CreateBuffer(e->device, &sizes, NULL, &e->scaler.sizes);
+  if (FAILED(status)) {
+    e->scaler.sizes = NULL;
+    hr_failure(why, size, "CreateBuffer for the scale's sizes", status);
+    goto failed;
+  }
+  return 0;
+failed:
+  close_shader(e);
+  return -1;
+}
+/* One plane of a planar surface as a shader's view. D3D11.3 makes it as a
+ * ShaderResourceView1, which is a shader resource view as well, so the older
+ * interface is asked for — the one the texture's cache holds — and the newer
+ * one released. */
+static int plane_view(ID3D11Device3 *device, ID3D11Texture2D *texture,
+                      const D3D11_SHADER_RESOURCE_VIEW_DESC1 *desc, ID3D11ShaderResourceView **out,
+                      char *why, size_t size) {
+  ID3D11ShaderResourceView1 *view = NULL;
+  HRESULT status =
+      device->lpVtbl->CreateShaderResourceView1(device, (ID3D11Resource *)texture, desc, &view);
+  if (FAILED(status) || !view) {
+    *out = NULL;
+    hr_failure(why, size, "CreateShaderResourceView1 of a plane", status);
+    return -1;
+  }
+  status = view->lpVtbl->QueryInterface(view, &IID_ID3D11ShaderResourceView, (void **)out);
+  view->lpVtbl->Release(view);
+  if (FAILED(status)) {
+    *out = NULL;
+    hr_failure(why, size, "QueryInterface for the plane's shader resource view", status);
+    return -1;
+  }
+  return 0;
+}
+/* The views a shader reads `input`'s surface through: one for BGRA or RGBA, and
+ * one per plane for NV12, whose second plane only D3D11.3's view can name. */
+static int source_views(struct yapfast_d3d11enc *e, struct input *input, DXGI_FORMAT format,
+                        char *why, size_t size) {
+  D3D11_SHADER_RESOURCE_VIEW_DESC1 desc;
+  HRESULT status;
+  if (input->planes[0]) return 0;
+  if (format != DXGI_FORMAT_NV12) {
+    status = e->device->lpVtbl->CreateShaderResourceView(e->device,
+                                                         (ID3D11Resource *)input->texture, NULL,
+                                                         &input->planes[0]);
+    if (FAILED(status)) {
+      input->planes[0] = NULL;
+      if (size)
+        snprintf(why, size,
+                 "CreateShaderResourceView of the capture's texture failed (0x%08lX): a shader "
+                 "reads a texture its source made with D3D11_BIND_SHADER_RESOURCE",
+                 (unsigned long)status);
+      return -1;
+    }
+    return 0;
+  }
+  if (!e->scaler.planes_of) {
+    status = e->device->lpVtbl->QueryInterface(e->device, &IID_ID3D11Device3,
+                                               (void **)&e->scaler.planes_of);
+    if (FAILED(status) || !e->scaler.planes_of) {
+      e->scaler.planes_of = NULL;
+      hr_failure(why, size, "QueryInterface for D3D11.3's device, which reads a plane of NV12",
+                 status);
+      return -1;
+    }
+  }
+  memset(&desc, 0, sizeof desc);
+  desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+  desc.Texture2D.MipLevels = 1;
+  desc.Format = DXGI_FORMAT_R8_UNORM;
+  if (plane_view(e->scaler.planes_of, input->texture, &desc, &input->planes[0], why, size)) return -1;
+  desc.Format = DXGI_FORMAT_R8G8_UNORM;
+  desc.Texture2D.PlaneSlice = 1;
+  if (plane_view(e->scaler.planes_of, input->texture, &desc, &input->planes[1], why, size)) {
+    /* Both go: a luma view with no chroma beside it is a picture the next frame
+     * would sample half of rather than one this frame refused. */
+    input->planes[0]->lpVtbl->Release(input->planes[0]);
+    input->planes[0] = NULL;
+    return -1;
+  }
+  return 0;
+}
+/* The drawing state a blit borrows and gives back: a capture source that was
+ * midway through compositing its own frame finds the context as it left it,
+ * rather than drawing into the scaler's target or through its shader. */
+struct drawing {
+  ID3D11RenderTargetView *target;
+  ID3D11DepthStencilView *depth;
+  ID3D11BlendState *blend;
+  FLOAT factor[4];
+  UINT mask;
+  ID3D11DepthStencilState *depth_stencil;
+  UINT stencil;
+  ID3D11RasterizerState *rasterizer;
+  D3D11_VIEWPORT viewport;
+  UINT viewports;
+};
+static void save_drawing(ID3D11DeviceContext *context, struct drawing *drawing) {
+  memset(drawing, 0, sizeof *drawing);
+  context->lpVtbl->OMGetRenderTargets(context, 1, &drawing->target, &drawing->depth);
+  context->lpVtbl->OMGetBlendState(context, &drawing->blend, drawing->factor, &drawing->mask);
+  context->lpVtbl->OMGetDepthStencilState(context, &drawing->depth_stencil, &drawing->stencil);
+  drawing->viewports = 1;
+  context->lpVtbl->RSGetViewports(context, &drawing->viewports, &drawing->viewport);
+  context->lpVtbl->RSGetState(context, &drawing->rasterizer);
+}
+static void restore_drawing(ID3D11DeviceContext *context, struct drawing *drawing) {
+  context->lpVtbl->OMSetRenderTargets(context, 1, &drawing->target, drawing->depth);
+  context->lpVtbl->OMSetBlendState(context, drawing->blend, drawing->factor, drawing->mask);
+  context->lpVtbl->OMSetDepthStencilState(context, drawing->depth_stencil, drawing->stencil);
+  context->lpVtbl->RSSetViewports(context, drawing->viewports, &drawing->viewport);
+  context->lpVtbl->RSSetState(context, drawing->rasterizer);
+  if (drawing->target) drawing->target->lpVtbl->Release(drawing->target);
+  if (drawing->depth) drawing->depth->lpVtbl->Release(drawing->depth);
+  if (drawing->blend) drawing->blend->lpVtbl->Release(drawing->blend);
+  if (drawing->depth_stencil) drawing->depth_stencil->lpVtbl->Release(drawing->depth_stencil);
+  if (drawing->rasterizer) drawing->rasterizer->lpVtbl->Release(drawing->rasterizer);
+}
+/* The picture in `texture`, through the shader, into the destination: one draw
+ * of three vertices and no geometry at all. */
+static int shader_blit(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, unsigned subresource,
+                       DXGI_FORMAT format, unsigned source_width, unsigned source_height,
+                       char *why, size_t size) {
+  ID3D11DeviceContext *context = e->context;
+  struct input *input = input_for(e, texture, subresource, format);
+  ID3D11ShaderResourceView *planes[2];
+  ID3D11ShaderResourceView *unbound[2] = {NULL, NULL};
+  ID3D11Buffer *sizes = e->scaler.sizes;
+  ID3D11SamplerState *sampler = e->scaler.sampler;
+  ID3D11PixelShader *shader = format == DXGI_FORMAT_NV12 ? e->scaler.planar : e->scaler.rgb;
+  float extents[4] = {(float)source_width, (float)source_height, (float)e->scaler.width,
+                      (float)e->scaler.height};
+  D3D11_VIEWPORT viewport;
+  struct drawing drawing;
+  HRESULT status;
+  if (source_views(e, input, format, why, size)) return -1;
+  if (!e->scaler.target) {
+    status = e->device->lpVtbl->CreateRenderTargetView(
+        e->device, (ID3D11Resource *)e->scaler.picture, NULL, &e->scaler.target);
+    if (FAILED(status)) {
+      e->scaler.target = NULL;
+      hr_failure(why, size, "CreateRenderTargetView of the scaled picture", status);
+      return -1;
+    }
+  }
+  planes[0] = input->planes[0];
+  planes[1] = input->planes[1];
+  context->lpVtbl->UpdateSubresource(context, (ID3D11Resource *)sizes, 0, NULL, extents, 0, 0);
+  save_drawing(context, &drawing);
+  memset(&viewport, 0, sizeof viewport);
+  viewport.Width = (float)e->scaler.width;
+  viewport.Height = (float)e->scaler.height;
+  viewport.MaxDepth = 1.f;
+  context->lpVtbl->OMSetRenderTargets(context, 1, &e->scaler.target, NULL);
+  /* The defaults, which the triangle was wound for: opaque, no depth test, and
+   * the back face culled so the three vertices cover the target rather than half
+   * of it. */
+  context->lpVtbl->OMSetBlendState(context, NULL, NULL, 0xFFFFFFFF);
+  context->lpVtbl->OMSetDepthStencilState(context, NULL, 0);
+  context->lpVtbl->RSSetState(context, NULL);
+  context->lpVtbl->RSSetViewports(context, 1, &viewport);
+  context->lpVtbl->IASetPrimitiveTopology(context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  context->lpVtbl->IASetInputLayout(context, NULL);
+  context->lpVtbl->VSSetShader(context, e->scaler.vertex, NULL, 0);
+  context->lpVtbl->VSSetConstantBuffers(context, 0, 1, &sizes);
+  context->lpVtbl->PSSetShader(context, shader, NULL, 0);
+  context->lpVtbl->PSSetConstantBuffers(context, 0, 1, &sizes);
+  context->lpVtbl->PSSetShaderResources(context, 0, 2, planes);
+  context->lpVtbl->PSSetSamplers(context, 0, 1, &sampler);
+  context->lpVtbl->Draw(context, 3, 0);
+  /* The source unbound and the caller's drawing state put back before anything
+   * reads the destination: a texture left bound as a shader's input is one the
+   * driver would rather not be asked to copy or encode. */
+  context->lpVtbl->PSSetShaderResources(context, 0, 2, unbound);
+  restore_drawing(context, &drawing);
+  return 0;
+}
+/* Puts the picture in `texture`'s `subresource` into the encoder's destination
+ * texture at `width` by `height`: an exact copy where it is already that size
+ * and already BGRA, the video processor where the driver has one that takes
+ * these formats, and the shader where it hasn't. Answers 0, or -1 with `why`
+ * naming what the driver said about both. */
+static int scale_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, unsigned subresource,
+                         DXGI_FORMAT format, unsigned source_width, unsigned source_height,
+                         unsigned width, unsigned height, char *why, size_t size) {
+  char processor_why[128] = "the video processor wasn't tried";
+  char shader_why[128] = "the shader wasn't tried";
+  if (texture == e->scaler.picture) {
+    if (size)
+      snprintf(why, size,
+               "the %ux%u picture the scaler produced is the texture it would write into: a "
+               "capture's own texture is what it scales, and the picture it fills is for the "
+               "encoder or for a readback at its own size",
+               e->scaler.width, e->scaler.height);
+    return -1;
+  }
+  if (destination(e, width, height, why, size)) return -1;
+  e->scaler.scaled++;
+  if (width == source_width && height == source_height && format == DXGI_FORMAT_B8G8R8A8_UNORM) {
+    e->context->lpVtbl->CopySubresourceRegion(e->context, (ID3D11Resource *)e->scaler.picture, 0, 0,
+                                              0, 0, (ID3D11Resource *)texture, subresource, NULL);
+    e->scaler.filter = "a copy, the sizes being the same";
+    return 0;
+  }
+  if (!video_processor(e, source_width, source_height, format, processor_why,
+                       sizeof processor_why) &&
+      !processor_blit(e, texture, subresource, format, processor_why, sizeof processor_why)) {
+    e->scaler.filter = "the video processor";
+    return 0;
+  }
+  if (!shader_ready(e, shader_why, sizeof shader_why) &&
+      !shader_blit(e, texture, subresource, format, source_width, source_height, shader_why,
+                   sizeof shader_why)) {
+    e->scaler.filter = "a pixel shader";
+    return 0;
+  }
+  if (size) snprintf(why, size, "%s, and %s", processor_why, shader_why);
+  return -1;
+}
+/* Scales the picture in `texture`'s `subresource` to `width` by `height` on the
+ * GPU, into a texture this encoder keeps and reuses, and answers that texture as
+ * the ID3D11Texture2D the encoder then reads: how a capture of another size than
+ * the stream's reaches the encoder without a frame's pixels crossing the
+ * processor. The texture belongs to the encoder, and the next scale to the same
+ * size overwrites it, so a caller encodes a picture before scaling another.
+ *
+ * `upscale` allows a destination larger than the source; zero refuses one, since
+ * a capture bigger than the stream is what this exists for, and a picture
+ * stretched past its own pixels is a change nobody asked for. Answers NULL with
+ * `yapfast_d3d11enc_error` saying why. */
+void *yapfast_d3d11enc_scale(struct yapfast_d3d11enc *e, void *texture, unsigned subresource,
+                             unsigned width, unsigned height, int upscale) {
+  ID3D11Texture2D *source = texture;
+  D3D11_TEXTURE2D_DESC desc;
+  NV_ENC_BUFFER_FORMAT registered;
+  char why[192] = "";
+  if (!e) return NULL;
+  if (!source) return nothing(e, "the scaler was given nothing to scale");
+  if (!width || !height)
+    return nothing(e, "%ux%u isn't a size anything can be scaled to", width, height);
+  source->lpVtbl->GetDesc(source, &desc);
+  if (subresource >= desc.MipLevels * desc.ArraySize)
+    return nothing(e, "the texture has no subresource %u", subresource);
+  if (!texture_format(desc.Format, &registered))
+    return nothing(e,
+                   "the texture is DXGI format %u, and this scales BGRA, RGBA or NV12; a "
+                   "typeless texture has no format to scale from",
+                   (unsigned)desc.Format);
+  if (!upscale && (width > desc.Width || height > desc.Height))
+    return nothing(e,
+                   "scaling %ux%u up to %ux%u isn't asked for: this only shrinks a picture "
+                   "unless told otherwise",
+                   desc.Width, desc.Height, width, height);
+  if (scale_picture(e, source, subresource, desc.Format, desc.Width, desc.Height, width, height,
+                    why, sizeof why))
+    return nothing(e, "%s", why);
+  return e->scaler.picture;
+}
+/* The staging texture a readback is mapped through, at `width` by `height`: made
+ * once for the size a preview asks for and reused by every readback after it,
+ * which is what makes the hundredth tile cost a map and a copy rather than an
+ * allocation. */
+static int staging_texture(struct yapfast_d3d11enc *e, unsigned width, unsigned height, char *why,
+                           size_t size) {
+  D3D11_TEXTURE2D_DESC desc;
+  HRESULT status;
+  if (e->scaler.staging && e->scaler.staging_width == width &&
+      e->scaler.staging_height == height)
+    return 0;
+  if (e->scaler.staging) {
+    e->scaler.staging->lpVtbl->Release(e->scaler.staging);
+    e->scaler.staging = NULL;
+  }
+  memset(&desc, 0, sizeof desc);
+  desc.Width = width;
+  desc.Height = height;
+  desc.MipLevels = 1;
+  desc.ArraySize = 1;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  /* Staging and nothing else: a texture the processor reads and never draws, so
+   * a tile is one copy and one map of the size the caller asked for. */
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  status = e->device->lpVtbl->CreateTexture2D(e->device, &desc, NULL, &e->scaler.staging);
+  if (FAILED(status)) {
+    e->scaler.staging = NULL;
+    hr_failure(why, size, "CreateTexture2D for the readback's staging texture", status);
+    return -1;
+  }
+  e->scaler.staging_width = width;
+  e->scaler.staging_height = height;
+  e->scaler.stagings++;
+  return 0;
+}
+/* Reads the picture in `texture`'s `subresource` back as BGRA at `width` by
+ * `height`, rows packed one after another with no padding into the caller's
+ * `pixels`, which has `size` bytes: a preview's tile, not the whole screen. It
+ * is scaled on the GPU into the encoder's destination, copied there into the
+ * one staging texture this keeps, and mapped — so what crosses the processor is
+ * the tile and nothing else, and nothing of it is allocated per call. Never
+ * larger than the picture: a tile is a smaller look at a screen.
+ *
+ * Answers the bytes written, which is the tile's `width * height * 4`, or -1
+ * with `yapfast_d3d11enc_error` saying why. */
+long yapfast_d3d11enc_readback(struct yapfast_d3d11enc *e, void *texture, unsigned subresource,
+                               unsigned width, unsigned height, void *pixels, size_t size) {
+  ID3D11Texture2D *source = texture;
+  ID3D11DeviceContext *context;
+  D3D11_TEXTURE2D_DESC desc;
+  D3D11_MAPPED_SUBRESOURCE mapped;
+  HRESULT status;
+  NV_ENC_BUFFER_FORMAT registered;
+  char why[192] = "";
+  size_t needed;
+  ID3D11Texture2D *from;
+  int direct;
+  if (!e) return -1;
+  if (!source || !pixels) return fail(e, -1, "the readback was given nothing to read");
+  if (!width || !height)
+    return fail(e, -1, "%ux%u isn't a size anything can be read back at", width, height);
+  needed = (size_t)width * (size_t)height * 4;
+  if (size < needed)
+    return fail(e, -1, "a %ux%u picture is %zu bytes and the readback was given %zu", width,
+                height, needed, size);
+  source->lpVtbl->GetDesc(source, &desc);
+  if (subresource >= desc.MipLevels * desc.ArraySize)
+    return fail(e, -1, "the texture has no subresource %u", subresource);
+  if (!texture_format(desc.Format, &registered))
+    return fail(e,
+                -1,
+                "the texture is DXGI format %u, and this reads BGRA, RGBA or NV12",
+                (unsigned)desc.Format);
+  if (width > desc.Width || height > desc.Height)
+    return fail(e, -1,
+                "a %ux%u readback of a %ux%u picture is larger than the picture, and a tile is "
+                "a smaller look at a screen rather than a bigger one",
+                width, height, desc.Width, desc.Height);
+  /* A picture that is already the size the caller asked for and already BGRA is
+   * its own source: the copy is exact, so a readback of a texture's own pixels
+   * is those pixels and not a scaler's idea of them. */
+  direct = width == desc.Width && height == desc.Height && desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
+  if (!direct && scale_picture(e, source, subresource, desc.Format, desc.Width, desc.Height, width,
+                               height, why, sizeof why))
+    return fail(e, -1, "%s", why);
+  if (staging_texture(e, width, height, why, sizeof why)) return fail(e, -1, "%s", why);
+  context = e->context;
+  from = direct ? source : e->scaler.picture;
+  if (direct)
+    context->lpVtbl->CopySubresourceRegion(context, (ID3D11Resource *)e->scaler.staging, 0, 0, 0, 0,
+                                           (ID3D11Resource *)from, subresource, NULL);
+  else
+    context->lpVtbl->CopyResource(context, (ID3D11Resource *)e->scaler.staging,
+                                  (ID3D11Resource *)from);
+  memset(&mapped, 0, sizeof mapped);
+  status = context->lpVtbl->Map(context, (ID3D11Resource *)e->scaler.staging, 0, D3D11_MAP_READ, 0,
+                                &mapped);
+  if (FAILED(status))
+    return fail(e, -1, "Map of the readback's staging texture failed (0x%08lX)",
+                (unsigned long)status);
+  /* A texture's rows are padded to the pitch the driver likes; the caller's are
+   * not, so a tile is copied a row at a time into the buffer it was given. */
+  for (unsigned row = 0; row < height; row++)
+    memcpy((unsigned char *)pixels + (size_t)row * width * 4,
+           (const unsigned char *)mapped.pData + (size_t)row * mapped.RowPitch, (size_t)width * 4);
+  context->lpVtbl->Unmap(context, (ID3D11Resource *)e->scaler.staging, 0);
+  return (long)needed;
+}
 
 /* -------------------------------------------------- the stand-in capture source
  *
@@ -960,6 +1858,10 @@ struct yapfast_d3d11enc_source {
   ID3D11Texture2D *texture;
   ID3D11UnorderedAccessView *view;
   ID3D11ComputeShader *shader;
+  /* The four quadrants a test holds the scaler to, compiled when it is first
+   * asked for: a picture with known colours in known corners, where the moving
+   * one is a measurement. */
+  ID3D11ComputeShader *quads;
   /* One 32-byte constant buffer per frame, holding the frame's index and the
    * texture's size to animate on and clip against: made up front, so a frame
    * costs a bind and a dispatch and no write of its own. */
@@ -1083,17 +1985,77 @@ struct yapfast_d3d11enc_source *yapfast_d3d11enc_source_new(struct yapfast_d3d11
   return source;
 }
 
-/* Refills the texture on the GPU with the picture `frame` shows: three commands,
- * and nothing of the frame crosses the processor. */
-void yapfast_d3d11enc_source_draw(struct yapfast_d3d11enc_source *source, unsigned frame) {
-  if (!source) return;
+/* A picture refilled on the GPU by one of the source's shaders: three commands,
+ * and nothing of the frame crosses the processor. `params` is the frame's
+ * constants, or none for a picture that is the same every time. */
+static void dispatch(struct yapfast_d3d11enc_source *source, ID3D11ComputeShader *shader,
+                     ID3D11Buffer *params) {
   struct yapfast_d3d11enc *e = source->encoder;
   ID3D11DeviceContext *context = e->context;
-  ID3D11Buffer *params = source->params[frame % source->frames];
+  ID3D11UnorderedAccessView *unbound = NULL;
   context->lpVtbl->CSSetConstantBuffers(context, 0, 1, &params);
+  context->lpVtbl->CSSetShader(context, shader, NULL, 0);
   context->lpVtbl->CSSetUnorderedAccessViews(context, 0, 1, &source->view, NULL);
-  context->lpVtbl->CSSetShader(context, source->shader, NULL, 0);
   context->lpVtbl->Dispatch(context, (e->width + 7) / 8, (e->height + 7) / 8, 1);
+  /* Unbound once the picture is drawn, so the texture can be read by the scaler
+   * or registered by the encoder without the context still holding it for
+   * writing. */
+  context->lpVtbl->CSSetUnorderedAccessViews(context, 0, 1, &unbound, NULL);
+}
+void yapfast_d3d11enc_source_draw(struct yapfast_d3d11enc_source *source, unsigned frame) {
+  if (!source) return;
+  dispatch(source, source->shader, source->params[frame % source->frames]);
+}
+
+/* Four solid quadrants, which is the picture a scaler is held to: every corner of
+ * the picture keeps its own colour, so a filter that mixed the quarters or put
+ * the seam in the wrong place says so here where a moving picture would hide it.
+ * The size is written into the source rather than passed in a constant buffer,
+ * since the picture is a fixed one and the clip against the texture's size is all
+ * it needs. Answers 0, or -1 with `why`. */
+int yapfast_d3d11enc_source_quads(struct yapfast_d3d11enc_source *source, char *why, size_t size) {
+  char text[768];
+  ID3DBlob *blob = NULL, *errors = NULL;
+  HRESULT status;
+  if (why && size) why[0] = 0;
+  if (!source) return -1;
+  if (!source->quads) {
+    struct yapfast_d3d11enc *e = source->encoder;
+    snprintf(text, sizeof text,
+             "RWTexture2D<float4> dst : register(u0);\n"
+             "[numthreads(8,8,1)]\n"
+             "void CSMain(uint3 id : SV_DispatchThreadID) {\n"
+             "  if (id.x >= %u || id.y >= %u) return;\n"
+             "  bool right = id.x * 2 >= %u;\n"
+             "  bool bottom = id.y * 2 >= %u;\n"
+             "  float3 c = right ? (bottom ? float3(0.8, 0.8, 0.8) : float3(0.8, 0.2, 0.2))\n"
+             "                   : (bottom ? float3(0.2, 0.8, 0.2) : float3(0.2, 0.2, 0.8));\n"
+             "  dst[id.xy] = float4(c, 1.0);\n"
+             "}\n",
+             e->width, e->height, e->width, e->height);
+    status = D3DCompile(text, strlen(text), "yapfast-quads.hlsl", NULL, NULL, "CSMain", "cs_5_0",
+                        D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors);
+    if (FAILED(status)) {
+      if (size)
+        snprintf(why, size, "D3DCompile(quadrants) failed (0x%08lX) %.96s",
+                 (unsigned long)status,
+                 errors ? (const char *)errors->lpVtbl->GetBufferPointer(errors) : "");
+      if (errors) errors->lpVtbl->Release(errors);
+      return -1;
+    }
+    if (errors) errors->lpVtbl->Release(errors);
+    status = e->device->lpVtbl->CreateComputeShader(
+        e->device, blob->lpVtbl->GetBufferPointer(blob), blob->lpVtbl->GetBufferSize(blob), NULL,
+        &source->quads);
+    blob->lpVtbl->Release(blob);
+    if (FAILED(status)) {
+      source->quads = NULL;
+      hr_failure(why, size, "CreateComputeShader for the quadrants", status);
+      return -1;
+    }
+  }
+  dispatch(source, source->quads, NULL);
+  return 0;
 }
 
 /* The texture the source draws into, as the ID3D11Texture2D the encoder reads: a
@@ -1112,6 +2074,7 @@ void yapfast_d3d11enc_source_free(struct yapfast_d3d11enc_source *source) {
   }
   if (source->view) source->view->lpVtbl->Release(source->view);
   if (source->shader) source->shader->lpVtbl->Release(source->shader);
+  if (source->quads) source->quads->lpVtbl->Release(source->quads);
   if (source->texture) source->texture->lpVtbl->Release(source->texture);
   free(source);
 }

@@ -19,10 +19,26 @@
 //! caller that has textures can hold this instead of that, and the stream's
 //! bytes and timing are the same either way.
 //!
+//! A capture is rarely the size of a stream — a display wider than 1080p against
+//! a 1080p stream is the ordinary case — so the encoder also scales:
+//! [`D3d11Encoder::scale`] puts a captured picture at the stream's size in a
+//! texture the encoder keeps and reuses, and [`D3d11Encoder::readback`] reads a
+//! tile of it back at whatever size a preview asks for through one staging
+//! texture, so a preview costs that tile rather than the screen. Both stay on the
+//! GPU and go through the driver's video processor where it takes the texture,
+//! and through a pixel shader where it doesn't; [`D3d11Encoder::filter`] says
+//! which ran.
+//!
 //! Wiring this into a stream needs a capture source that fills a texture on
 //! [`D3d11Encoder::device`] instead of handing over I420: [`D3d11Encoder`]
 //! itself changes not at all. It is not wired in yet, because the capture path
-//! doesn't produce textures and `stream_worker` was being changed elsewhere.
+//! doesn't produce textures and `stream_worker` was being changed elsewhere. What
+//! the capture path will need from here: its textures made with
+//! `D3D11_BIND_SHADER_RESOURCE`, or as render targets, which is what a video
+//! processor input view and a shader resource view each take; a `scale` to the
+//! stream's size before each `encode_texture` where the capture's size differs;
+//! and a `readback` at tile size where a preview used to open a second capture of
+//! the same screen.
 
 use std::{
     ffi::{c_char, c_int, c_long, c_longlong, c_uchar, c_uint, c_ulonglong, c_void},
@@ -79,6 +95,26 @@ unsafe extern "C" {
         is_key: *mut c_int,
     ) -> c_long;
     fn yapfast_d3d11enc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
+    fn yapfast_d3d11enc_scale(
+        encoder: *mut Raw,
+        texture: *mut c_void,
+        subresource: c_uint,
+        width: c_uint,
+        height: c_uint,
+        upscale: c_int,
+    ) -> *mut c_void;
+    fn yapfast_d3d11enc_readback(
+        encoder: *mut Raw,
+        texture: *mut c_void,
+        subresource: c_uint,
+        width: c_uint,
+        height: c_uint,
+        pixels: *mut c_void,
+        size: usize,
+    ) -> c_long;
+    fn yapfast_d3d11enc_filter(encoder: *mut Raw, filter: *mut c_char, filter_size: usize);
+    fn yapfast_d3d11enc_scaled_textures(encoder: *mut Raw) -> c_uint;
+    fn yapfast_d3d11enc_staging_textures(encoder: *mut Raw) -> c_uint;
     fn yapfast_d3d11enc_asked(encoder: *mut Raw, asked: *mut c_char, asked_size: usize);
     fn yapfast_d3d11enc_config(encoder: *mut Raw, config: *mut c_char, config_size: usize);
     fn yapfast_d3d11enc_tuning(encoder: *mut Raw, tuning: *mut c_char, tuning_size: usize);
@@ -95,6 +131,11 @@ unsafe extern "C" {
     ) -> *mut RawSource;
     fn yapfast_d3d11enc_source_draw(source: *mut RawSource, frame: c_uint);
     fn yapfast_d3d11enc_source_texture(source: *mut RawSource) -> *mut c_void;
+    fn yapfast_d3d11enc_source_quads(
+        source: *mut RawSource,
+        why: *mut c_char,
+        why_size: usize,
+    ) -> c_int;
     fn yapfast_d3d11enc_source_free(source: *mut RawSource);
 }
 
@@ -232,6 +273,18 @@ impl Texture {
             subresource: 0,
         }
     }
+}
+
+/// How far a [`D3d11Encoder::scale`] may resize a picture, since a stream's size
+/// is fixed and a capture's is whatever the screen is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resize {
+    /// Only to a size no larger than the source's: what a display wider than the
+    /// stream needs, and the case the scaler exists for.
+    Shrink,
+    /// To any size, a larger one included: a small window that is the whole of
+    /// what a viewer watches, shown at the stream's size.
+    Either,
 }
 
 /// An encoder on the GPU reading D3D11 textures: NVENC through a D3D11 device,
@@ -418,6 +471,110 @@ impl D3d11Encoder {
         self.kbps = kbps;
         Ok(())
     }
+    /// Scales `texture` on the GPU to `width` by `height`, as far as `resize`
+    /// allows, and answers the texture to encode: it is in the size asked for, on
+    /// this encoder's device, and the encoder reads it exactly as it reads a
+    /// capture's own. Nothing of the picture crosses the processor — the driver's
+    /// video processor scales it where it takes these formats and a shader does
+    /// where it doesn't, and [`Self::filter`] says which.
+    ///
+    /// The texture belongs to the encoder and is reused, so it is the same
+    /// texture, and the same picture, until a scale to another size replaces it:
+    /// encode it before scaling again. A scale to the source's own size is a
+    /// copy, which is exact.
+    pub fn scale(
+        &mut self,
+        texture: Texture,
+        width: u32,
+        height: u32,
+        resize: Resize,
+    ) -> Result<Texture> {
+        // SAFETY: raw is an open encoder, and the texture is the caller's and
+        // lives as long as the call; the picture answered with belongs to the
+        // encoder and is only read.
+        let scaled = unsafe {
+            yapfast_d3d11enc_scale(
+                self.raw,
+                texture.handle,
+                texture.subresource,
+                width,
+                height,
+                c_int::from(resize == Resize::Either),
+            )
+        };
+        if scaled.is_null() {
+            bail!(
+                "{:?} couldn't scale a picture to {width}x{height}: {}",
+                self.codec,
+                self.error()
+            );
+        }
+        Ok(Texture::new(scaled))
+    }
+    /// Reads `texture` back at `width` by `height` as BGRA — `blue`, `green`,
+    /// `red`, `alpha`, one row after another with no padding — into `pixels`,
+    /// and answers the bytes it wrote, which is the tile's `width * height * 4`.
+    ///
+    /// This is a preview's tile rather than a whole frame: the picture is scaled
+    /// on the GPU into the texture [`Self::scale`] uses, copied there into one
+    /// staging texture this encoder keeps, and mapped, so what crosses the
+    /// processor is the tile and nothing of it is allocated per call. A readback
+    /// is a smaller look at a picture and never a stretched one — scaling up is
+    /// [`Self::scale`]'s business, not a preview's — so a larger size is refused
+    /// rather than answered.
+    pub fn readback(
+        &mut self,
+        texture: Texture,
+        width: u32,
+        height: u32,
+        pixels: &mut [u8],
+    ) -> Result<usize> {
+        // SAFETY: raw is an open encoder, the texture is the caller's and lives as
+        // long as the call, and the buffer is as large as its length and stays put
+        // during it.
+        let written = unsafe {
+            yapfast_d3d11enc_readback(
+                self.raw,
+                texture.handle,
+                texture.subresource,
+                width,
+                height,
+                pixels.as_mut_ptr().cast(),
+                pixels.len(),
+            )
+        };
+        match written {
+            ..0 => bail!(
+                "{:?} couldn't read {width}x{height} back: {}",
+                self.codec,
+                self.error()
+            ),
+            size => Ok(size as usize),
+        }
+    }
+    /// Which filter scaled the last picture, in words: "the video processor",
+    /// "a pixel shader", or "a copy, the sizes being the same". Empty until
+    /// something is scaled, and worth a line in a log beside the numbers, since a
+    /// driver that declines the processor scales in a shader instead.
+    pub fn filter(&self) -> String {
+        let mut filter = [0u8; 96];
+        // SAFETY: raw is an open encoder, and a buffer of the size given.
+        unsafe { yapfast_d3d11enc_filter(self.raw, filter.as_mut_ptr().cast(), filter.len()) };
+        c_text(&filter)
+    }
+    /// How many textures the scaler has made to scale pictures into: one, however
+    /// many frames went through it, and one more for each new size a capture asks
+    /// for. A count that climbs a frame at a time is a size that keeps changing.
+    pub fn scaled_textures(&self) -> u32 {
+        // SAFETY: raw is an open encoder.
+        unsafe { yapfast_d3d11enc_scaled_textures(self.raw) }
+    }
+    /// How many staging textures a readback has made: one for the size a preview
+    /// asks for, however many tiles were read through it.
+    pub fn staging_textures(&self) -> u32 {
+        // SAFETY: raw is an open encoder.
+        unsafe { yapfast_d3d11enc_staging_textures(self.raw) }
+    }
 
     /// Encodes `texture`'s picture, shown at `pts` in [`CLOCK`](
     /// crate::encode::CLOCK) units. None when the encoder made no packet. A frame
@@ -534,6 +691,19 @@ impl Source {
         // as long as it does.
         Texture::new(unsafe { yapfast_d3d11enc_source_texture(self.raw) })
     }
+    /// Draws four solid quadrants instead of the moving picture: one known colour
+    /// in each corner of the texture, which is the picture a scaler is held to.
+    pub fn quads(&self) -> Result<()> {
+        let mut why = [0u8; 192];
+        // SAFETY: raw is a source that hasn't been freed, and a buffer of the size
+        // given, which the shim ends with a zero.
+        let drew =
+            unsafe { yapfast_d3d11enc_source_quads(self.raw, why.as_mut_ptr().cast(), why.len()) };
+        if drew != 0 {
+            bail!("no quadrants to draw: {}", c_text(&why));
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Source {
@@ -562,6 +732,16 @@ mod tests {
     unsafe extern "C" {
         fn yapfast_d3d11enc_devices_created() -> c_uint;
         fn yapfast_d3d11enc_cpu_time() -> c_ulonglong;
+    }
+    /// One GPU test at a time: the encoder counts the devices this process has
+    /// opened, so a test held to its own count has to be the only one opening
+    /// devices while it counts. Taken for a test's whole body, and taken again
+    /// after a panic in another test rather than poisoning every test after it.
+    static ONE_GPU_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn one_gpu_test_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        ONE_GPU_TEST
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     // The settings native/d3d11enc.c opens NVENC with for the tuning named, and
@@ -681,6 +861,7 @@ mod tests {
     #[test]
     #[ignore = "needs an NVIDIA GPU: it opens an NVENC session on one"]
     fn thirty_frames_of_each_codec_encode_from_a_texture() {
+        let _gpu = one_gpu_test_at_a_time();
         // 1080p at 60, the shape a stream of a game is, so the numbers this prints
         // are the ones a stream would see.
         let (width, height, fps, kbps) = (1920u32, 1080u32, 60u32, 8000u32);
@@ -810,5 +991,178 @@ mod tests {
             );
         }
         assert_eq!(opened, 3, "not every codec opened on this GPU");
+    }
+    /// The four quadrant colours as memory holds them: a BGRA texture's first
+    /// byte is blue, and 0.2 and 0.8 of full scale are 51 and 204.
+    const BLUE: [u8; 4] = [204, 51, 51, 255];
+    const RED: [u8; 4] = [51, 51, 204, 255];
+    const GREEN: [u8; 4] = [51, 204, 51, 255];
+    const WHITE: [u8; 4] = [204, 204, 204, 255];
+    /// Where each quadrant's own colour is read: each quarter's middle, which is
+    /// nowhere near a seam, and the colour the picture has there.
+    fn quarters(width: u32, height: u32) -> [(&'static str, u32, u32, [u8; 4]); 4] {
+        [
+            ("top left", width / 4, height / 4, BLUE),
+            ("top right", width * 3 / 4, height / 4, RED),
+            ("bottom left", width / 4, height * 3 / 4, GREEN),
+            ("bottom right", width * 3 / 4, height * 3 / 4, WHITE),
+        ]
+    }
+    /// The BGRA pixel at (`x`, `y`) of a picture `width` pixels wide.
+    fn pixel(pixels: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+        let at = ((y * width + x) * 4) as usize;
+        pixels[at..at + 4].try_into().expect("four bytes a pixel")
+    }
+    /// Holds a scaled pixel to the colour its quarter had in the source: a solid
+    /// colour through four taps and a bilinear filter loses a rounding or two,
+    /// and a driver converting it on its way through loses a couple more, so four
+    /// of 255 is the tolerance a colour is held to here.
+    fn assert_solid(got: [u8; 4], colour: [u8; 4], quarter: &str) {
+        for (channel, (got, had)) in ["blue", "green", "red", "alpha"]
+            .into_iter()
+            .zip(got.iter().zip(colour.iter()))
+        {
+            assert!(
+                got.abs_diff(*had) <= 4,
+                "{quarter}'s {channel} is {got} where the picture had {had}"
+            );
+        }
+    }
+    /// A known picture scaled down keeps its structure: four solid quadrants of a
+    /// 1080p capture are four quadrants of a 480x270 picture, each in the corner
+    /// it was in and each still one colour. That is the whole of what a display
+    /// wider than 1080p needs to reach a 1080p stream, and a filter that mixed the
+    /// quarters or lost one would look like a smeared screen rather than a wrong
+    /// number.
+    #[test]
+    #[ignore = "needs an NVIDIA GPU: it opens an NVENC session on one"]
+    fn a_scaled_picture_keeps_its_four_quadrants() {
+        let _gpu = one_gpu_test_at_a_time();
+        let (width, height) = (480u32, 270u32);
+        let mut encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
+            .expect("an NVENC encoder on this machine");
+        let source = encoder.source(1).expect("a texture to draw on");
+        source.quads().expect("the quadrants to draw");
+        // Four times smaller on each side, as a 3840-wide screen is on its way to
+        // a 1080p stream.
+        let scaled = encoder
+            .scale(source.texture(), width, height, Resize::Shrink)
+            .expect("a picture scaled down four times");
+        eprintln!("scaled by {}", encoder.filter());
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        assert_eq!(
+            encoder
+                .readback(scaled, width, height, &mut pixels)
+                .expect("the scaled picture read back"),
+            pixels.len()
+        );
+        for (quarter, x, y, colour) in quarters(width, height) {
+            assert_solid(pixel(&pixels, width, x, y), colour, quarter);
+        }
+    }
+    /// A readback at a picture's own size is that picture's pixels, exactly: the
+    /// copy is a copy, with no scaler in it to move a value, so the two pixels
+    /// either side of a quadrant's seam keep the colours the picture put there.
+    #[test]
+    #[ignore = "needs an NVIDIA GPU: it opens an NVENC session on one"]
+    fn a_readback_returns_the_textures_own_pixels() {
+        let _gpu = one_gpu_test_at_a_time();
+        let (width, height) = (1920u32, 1080u32);
+        let mut encoder = D3d11Encoder::new(Codec::H264, width, height, 60, 8000)
+            .expect("an NVENC encoder on this machine");
+        let source = encoder.source(1).expect("a texture to draw on");
+        source.quads().expect("the quadrants to draw");
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        assert_eq!(
+            encoder
+                .readback(source.texture(), width, height, &mut pixels)
+                .expect("the picture read back at its own size"),
+            pixels.len()
+        );
+        for (quarter, x, y, colour) in quarters(width, height) {
+            assert_eq!(pixel(&pixels, width, x, y), colour, "{quarter}");
+        }
+        // The seam, on the row above the halves' own: the last column of the left
+        // half is the left half's colour to the byte and the first of the right
+        // half is the right half's, where a scale would have blended them.
+        let middle = (width / 2, height / 2 - 1);
+        assert_eq!(pixel(&pixels, width, middle.0 - 1, middle.1), BLUE);
+        assert_eq!(pixel(&pixels, width, middle.0, middle.1), RED);
+        eprintln!("{} bytes read back at the picture's own size", pixels.len());
+    }
+    /// A readback at a smaller size is genuinely smaller: the bytes it answers
+    /// with, and the buffer they fit in, are the tile's and not the frame's. A
+    /// preview that cost a whole frame's read per frame is what this replaces, and
+    /// the tile still holds a picture of the whole screen rather than the corner
+    /// of one.
+    #[test]
+    #[ignore = "needs an NVIDIA GPU: it opens an NVENC session on one"]
+    fn a_readback_at_a_smaller_size_is_genuinely_smaller() {
+        let _gpu = one_gpu_test_at_a_time();
+        let (width, height) = (1920u32, 1080u32);
+        let (tile_width, tile_height) = (480u32, 270u32);
+        let mut encoder = D3d11Encoder::new(Codec::H264, width, height, 60, 8000)
+            .expect("an NVENC encoder on this machine");
+        let source = encoder.source(1).expect("a texture to draw on");
+        source.quads().expect("the quadrants to draw");
+        let mut tile = vec![0u8; (tile_width * tile_height * 4) as usize];
+        let read = encoder
+            .readback(source.texture(), tile_width, tile_height, &mut tile)
+            .expect("a tile of a 1080p picture");
+        let frame = (width * height * 4) as usize;
+        assert_eq!(read, tile.len(), "the bytes written are the buffer's");
+        assert_eq!(read, frame / 16, "a sixteenth of the frame, by area");
+        assert!(read < frame, "a tile is smaller than the frame it is of");
+        for (quarter, x, y, colour) in quarters(tile_width, tile_height) {
+            assert_solid(pixel(&tile, tile_width, x, y), colour, quarter);
+        }
+        eprintln!(
+            "{read} bytes of a {frame}-byte frame, scaled by {}",
+            encoder.filter()
+        );
+    }
+    /// A hundred readbacks reuse the one scaled picture and the one staging
+    /// texture: nothing is allocated per call and the hundredth tile is the first
+    /// one's picture. Memory is a product goal here, so this is a count the
+    /// encoder reports rather than a hope about the code — and a preview reads a
+    /// tile thirty times a second for as long as somebody is watching.
+    #[test]
+    #[ignore = "needs an NVIDIA GPU: it opens an NVENC session on one"]
+    fn a_hundred_readbacks_reuse_their_textures() {
+        let _gpu = one_gpu_test_at_a_time();
+        let (tile_width, tile_height) = (480u32, 270u32);
+        let mut encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
+            .expect("an NVENC encoder on this machine");
+        let source = encoder.source(1).expect("a texture to draw on");
+        source.quads().expect("the quadrants to draw");
+        let texture = source.texture();
+        let mut tile = vec![0u8; (tile_width * tile_height * 4) as usize];
+        encoder
+            .readback(texture, tile_width, tile_height, &mut tile)
+            .expect("the first tile");
+        let first = tile.clone();
+        assert_eq!(
+            (encoder.scaled_textures(), encoder.staging_textures()),
+            (1, 1),
+            "the first readback made more than one texture"
+        );
+        for read in 1..100 {
+            let written = encoder
+                .readback(texture, tile_width, tile_height, &mut tile)
+                .unwrap_or_else(|why| panic!("tile {read}: {why:#}"));
+            assert_eq!(written, tile.len());
+            assert_eq!(tile, first, "tile {read} isn't the picture the first was");
+        }
+        assert_eq!(
+            (encoder.scaled_textures(), encoder.staging_textures()),
+            (1, 1),
+            "a hundred readbacks made another texture"
+        );
+        eprintln!(
+            "{} bytes a tile, a hundred of them, through {} staging texture(s) and {} scaled",
+            tile.len(),
+            encoder.staging_textures(),
+            encoder.scaled_textures()
+        );
     }
 }
