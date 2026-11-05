@@ -200,6 +200,10 @@ struct Watch {
     user: String,
     opening: Starting,
     worker: Option<(Worker, mpsc::Receiver<Report>)>,
+    /// Whether a window showed the pictures when the UI last said: a worker
+    /// opened in place of another is told again, so one that starts while the
+    /// window is hidden converts and writes nothing.
+    shown: bool,
 }
 
 impl Watch {
@@ -207,6 +211,29 @@ impl Watch {
     fn hear(watch: &mut Option<Self>, hearing: bool) {
         if let Some((worker, _)) = watch.as_mut().and_then(|watch| watch.worker.as_mut())
             && let Err(error) = worker.hear(hearing)
+        {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
+    /// Shows the stream's pictures, or not, as a hidden or minimised window
+    /// can't: the worker then decodes on without converting or writing frames
+    /// nobody can see. Its sound plays either way.
+    fn shown(watch: &mut Option<Self>, shown: bool) {
+        if let Some(watching) = watch.as_mut() {
+            watching.shown = shown;
+            watching.tell_shown();
+        }
+    }
+
+    /// Tells the worker whether a window shows its pictures, if there is one
+    /// yet: Discord's answer starts it.
+    fn tell_shown(&mut self) {
+        if let Some((worker, _)) = self.worker.as_mut()
+            && let Err(error) = worker.shown(self.shown)
         {
             tracing::warn!(
                 error = format!("{error:#}"),
@@ -252,6 +279,8 @@ impl Watch {
             user: user.to_owned(),
             opening: Some(Box::pin(async move { discord.watch(&asked).await })),
             worker: None,
+            // A watch starts from a window that shows it.
+            shown: true,
         }
     }
 
@@ -267,6 +296,9 @@ impl Watch {
         let (worker, frames, reports) =
             Worker::watch(server, state.speaker.clone(), state.deafened, volume)?;
         self.worker = Some((worker, reports));
+        // What the window last said outlives the worker it was said to: a
+        // window hidden since then is hidden from this one too.
+        self.tell_shown();
         if let Some(shown) = state.watching.as_mut() {
             shown.frames = Some(Arc::new(frames));
         }
@@ -683,6 +715,7 @@ pub(crate) async fn call(
                                 stopped.stop(discord, state);
                             }
                         }
+                        Some(Command::WatchShown(shown)) => Watch::shown(&mut watch, shown),
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
                         Some(Command::Soundboard(id)) => {

@@ -393,6 +393,10 @@ pub enum Command {
     /// Watch the participant with this id's stream.
     Watch(String),
     StopWatching,
+    /// Show the watched stream's pictures, or stop: a hidden or minimised
+    /// window shows none, so the worker decodes on without converting or
+    /// writing frames nobody can see.
+    WatchShown(bool),
     /// Remove memberships this device left in voice channels, for example
     /// after Yapfast was killed. Ignored during a call.
     LeaveStale,

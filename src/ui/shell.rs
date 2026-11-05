@@ -414,6 +414,16 @@ impl Adapter {
         if let Some(dialog) = self.dialog.take() {
             dialog.abort();
         }
+        // The window went, and with it the ticks that would tell a watched
+        // stream's worker that no picture shows any more: without a window
+        // none does, so it's told here, and goes on decoding with its sound
+        // while converting and writing nothing.
+        if self.app.state.voice.watching.is_some() {
+            let effects = self
+                .app
+                .dispatch(Action::Voice(voice::Command::WatchShown(false)));
+            self.execute(effects);
+        }
         self.window = slint::Weak::default();
     }
 

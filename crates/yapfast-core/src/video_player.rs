@@ -441,6 +441,9 @@ fn take(shared: &Shared, progress: &Progress, control: Control) {
             None => progress.failed(),
         },
         Control::Send(_) | Control::Switch(_) | Control::Hear(_) | Control::Preview(_) => {}
+        // A video's pictures go to a window of their own, whose player knows
+        // whether it shows one: nothing here is told that.
+        Control::Shown(_) => {}
     }
     shared.changed.notify_all();
 }

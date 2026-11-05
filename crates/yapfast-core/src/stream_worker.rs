@@ -10,8 +10,11 @@
 //! stream's server, and it sends the video there; a [`Control::Switch`] line
 //! shares another screen, window or camera on the same stream, and a
 //! [`Control::Preview`] line says whether the UI shows the preview, which
-//! the worker makes only while one does. A `stop` line, or
-//! closing its input, ends the job. Frames go to the UI through [`crate::frames`].
+//! the worker makes only while one does. A [`Control::Shown`] line says
+//! whether the UI shows a watched stream's pictures, which a hidden or
+//! minimised window doesn't, and none is converted or written while it
+//! doesn't. A `stop` line, or closing its input, ends the job. Frames go to
+//! the UI through [`crate::frames`].
 
 use std::{
     io::{BufRead, BufReader, Write},
@@ -281,6 +284,11 @@ pub enum Control {
     /// Show the shared screen in the UI's preview, or not, as the UI shows
     /// it or stops: a preview isn't made while nothing displays it.
     Preview(bool),
+    /// Show a watched stream's pictures, or not, as a window can: a hidden or
+    /// minimised one shows none, so none is converted or written into the
+    /// shared frames while it can't, though the stream is decoded all the
+    /// same. This says nothing about the sound, which plays on.
+    Shown(bool),
     /// Play a watched stream's or a video's sound this loud.
     Volume(f32),
     /// Play the video, from the start once it has ended.
@@ -1015,11 +1023,16 @@ fn watch(
     let mut showing: Option<Instant> = None;
     let mut replaced = 0u64;
     let mut failures = 0u64;
+    // Whether a window shows these pictures at all, as the UI says when that
+    // changes: a hidden or minimised window shows none, and a picture nobody
+    // can see isn't converted or written. The stream is decoded all the same.
+    let mut visible = true;
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
             match control {
                 Control::Hear(hearing) => sound.hearing.store(hearing, Ordering::Relaxed),
                 Control::Volume(volume) => sound.volume.set(volume),
+                Control::Shown(shown) => visible = shown,
                 _ => {}
             }
         }
@@ -1061,20 +1074,28 @@ fn watch(
             }
             None => false,
         };
-        if !worth_showing(showing, Instant::now(), newer) {
-            replaced += 1;
-            // The first of a run, and then now and again, as for a stream
-            // frame that didn't decode: a watch that shows fewer pictures
-            // than it decodes is one whose decode is outrunning its screen.
-            if replaced == 1 || replaced.is_multiple_of(100) {
-                tracing::debug!(
-                    replaced,
-                    width = picture.width,
-                    height = picture.height,
-                    "a decoded picture a newer one replaced wasn't shown"
-                );
+        match worth_showing(visible, showing, Instant::now(), newer) {
+            Worth::Show => {}
+            Worth::Replaced => {
+                replaced += 1;
+                // The first of a run, and then now and again, as for a stream
+                // frame that didn't decode: a watch that shows fewer pictures
+                // than it decodes is one whose decode is outrunning its screen.
+                if replaced == 1 || replaced.is_multiple_of(100) {
+                    tracing::debug!(
+                        replaced,
+                        width = picture.width,
+                        height = picture.height,
+                        "a decoded picture a newer one replaced wasn't shown"
+                    );
+                }
+                continue;
             }
-            continue;
+            // The frame was decoded — the pictures after it are made from it,
+            // and waiting for a keyframe when the window came back would show
+            // the still it stopped on until one came — but nothing is
+            // converted or written for a window that shows no picture.
+            Worth::Unseen => continue,
         }
         let (width, height) = (picture.width, picture.height);
         if writer.fits(width, height) && width <= max_width && height <= max_height {
@@ -1102,9 +1123,23 @@ fn watch(
 /// of the one before it is one the next replaces before it's seen.
 const SHOW_EVERY: Duration = Duration::from_millis(8);
 
-/// Whether a picture decoded now is worth converting and showing, given when
-/// one last reached the screen and whether a newer whole frame was already in
-/// hand.
+/// What a decoded picture is worth, as no screen takes every one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Worth {
+    /// Convert it to RGBA and write it into the shared frames.
+    Show,
+    /// Let it go: a newer whole frame was already in hand, and the screen
+    /// drew the picture before this within [`SHOW_EVERY`] of it, so no screen
+    /// would draw it.
+    Replaced,
+    /// Let it go: no window shows a picture, being hidden to the tray or
+    /// minimised. The frame was decoded all the same.
+    Unseen,
+}
+
+/// What a picture decoded now is worth, given whether a window shows
+/// pictures at all, when one last reached the screen, and whether a newer
+/// whole frame was already in hand.
 ///
 /// Decoding is never skipped this way — a picture the next one references has
 /// to be decoded for the pictures after it, and the whole frame taken to find
@@ -1112,9 +1147,17 @@ const SHOW_EVERY: Duration = Duration::from_millis(8);
 /// conversion of a picture the screen would never show, which is the work the
 /// picture the viewer is waiting for would otherwise pay for. A picture that
 /// arrives a frame period after the last is always shown, whatever else is in
-/// hand, so a watch that keeps up shows every frame and leaves nothing out.
-fn worth_showing(shown: Option<Instant>, now: Instant, newer: bool) -> bool {
-    shown.is_none_or(|shown| !newer || now.duration_since(shown) >= SHOW_EVERY)
+/// hand, so a watch that keeps up shows every frame and leaves nothing out —
+/// and the first picture after a hidden window comes back is one of those,
+/// the last shown being long enough ago.
+fn worth_showing(visible: bool, shown: Option<Instant>, now: Instant, newer: bool) -> Worth {
+    if !visible {
+        return Worth::Unseen;
+    }
+    match shown {
+        Some(shown) if newer && now.duration_since(shown) < SHOW_EVERY => Worth::Replaced,
+        _ => Worth::Show,
+    }
 }
 
 /// When frame `frame` of a loop begun at `started` is due at `fps`.
@@ -1970,6 +2013,12 @@ impl Worker {
         self.control(&Control::Preview(shown))
     }
 
+    /// Tells a watching worker whether a window shows its pictures, which it
+    /// converts and writes only while one does.
+    pub fn shown(&mut self, shown: bool) -> Result<()> {
+        self.control(&Control::Shown(shown))
+    }
+
     /// Tells a watching worker how loud to play the stream's sound.
     pub fn volume(&mut self, volume: f32) -> Result<()> {
         self.control(&Control::Volume(volume))
@@ -2228,19 +2277,62 @@ mod tests {
         // Nothing shown yet: the first picture reaches the screen whatever
         // came in behind it, or a stream that outruns its decoder would show
         // nothing at all.
-        assert!(worth_showing(None, shown, false));
-        assert!(worth_showing(None, shown, true));
+        assert_eq!(worth_showing(true, None, shown, false), Worth::Show);
+        assert_eq!(worth_showing(true, None, shown, true), Worth::Show);
         // Pictures decoded back to back — what queued while the decoder was
         // slow — are pictures no screen draws: the last of them is shown.
-        assert!(!worth_showing(Some(shown), shown + millis(1), true));
-        assert!(!worth_showing(Some(shown), shown + millis(7), true));
-        assert!(worth_showing(Some(shown), shown + millis(8), true));
+        assert_eq!(
+            worth_showing(true, Some(shown), shown + millis(1), true),
+            Worth::Replaced
+        );
+        assert_eq!(
+            worth_showing(true, Some(shown), shown + millis(7), true),
+            Worth::Replaced
+        );
+        assert_eq!(
+            worth_showing(true, Some(shown), shown + millis(8), true),
+            Worth::Show
+        );
         // A frame period later — 30 frames a second — it's the newest
         // picture there could be, so it's shown.
-        assert!(worth_showing(Some(shown), shown + millis(33), true));
+        assert_eq!(
+            worth_showing(true, Some(shown), shown + millis(33), true),
+            Worth::Show
+        );
         // With nothing newer in hand the decoder is keeping up: every frame
         // is shown, however fast they come.
-        assert!(worth_showing(Some(shown), shown, false));
+        assert_eq!(worth_showing(true, Some(shown), shown, false), Worth::Show);
+    }
+
+    /// A hidden or minimised window shows no picture, so none is converted or
+    /// written while it's hidden, however long the decoder has been running;
+    /// the frames themselves are decoded all the same. When the window comes
+    /// back, the picture decoded next is the one shown, at once: the last one
+    /// that reached the screen was long enough ago to be replaced by any.
+    #[test]
+    fn a_hidden_window_shows_no_picture() {
+        let millis = Duration::from_millis;
+        let shown = Instant::now();
+        // Hidden, nothing at all is made of a picture: not the first, not one
+        // with nothing behind it, and not the newest of a queue either.
+        assert_eq!(worth_showing(false, None, shown, false), Worth::Unseen);
+        assert_eq!(
+            worth_showing(false, Some(shown), shown + millis(33), false),
+            Worth::Unseen,
+        );
+        assert_eq!(
+            worth_showing(false, Some(shown), shown + millis(33), true),
+            Worth::Unseen,
+        );
+        // The frame is decoded before this is asked, in the watch's loop: what
+        // a hidden window skips is the conversion and the write, not the
+        // decode. So the pictures after the window comes back are made from a
+        // chain the decoder kept, and the next one decoded is shown without
+        // waiting for anything: the screen drew its last a minute ago.
+        assert_eq!(
+            worth_showing(true, Some(shown), shown + Duration::from_secs(60), true),
+            Worth::Show,
+        );
     }
 
     /// Frames at 30 fps are due every 33⅓ ms: on time, a loop waits for the

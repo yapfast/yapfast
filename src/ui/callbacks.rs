@@ -192,6 +192,19 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     }
     fetch_shown_pictures(&mut adapter, window, 0, GRID_ROWS);
     fill_shown_glyphs(window, &mut adapter, 0, GRID_ROWS);
+
+/// Whether a window shows what it's drawn: one hidden to the tray, or
+/// minimised, shows nothing, so a picture made for it is work nobody sees.
+/// Wayland can't say whether a window is minimised, and one that can't say
+/// is taken to show its pictures.
+fn on_screen(window: &YapfastWindow) -> bool {
+    window.window().is_visible()
+        && window
+            .window()
+            .with_winit_window(|winit| winit.is_minimized())
+            .flatten()
+            .is_none_or(|minimised| !minimised)
+>>>>>>> 44f6b382 (perf(stream): stop presenting pictures nothing can see)
 }
 
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
@@ -2344,6 +2357,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // What the worker was last told about the UI showing the preview of
     // what's shared: it's told when that changes, not with every frame.
     let told = std::cell::Cell::new(false);
+    // And what it was last told about a window showing the watched stream's
+    // pictures, which it's told once when that changes too.
+    let seen = std::cell::Cell::new(false);
     window.on_stream_tick(move || {
         let Some(window) = weak.upgrade() else {
             return;
@@ -2356,6 +2372,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let effects = adapter
                 .app
                 .dispatch(Action::Voice(voice::Command::Preview(shown)));
+            adapter.execute(effects);
+        }
+        // A watched stream's pictures are converted and written only while a
+        // window shows them. A hidden or minimised one shows none, so the
+        // worker is told that too, once, rather than with every frame; it
+        // goes on decoding and its sound plays either way.
+        let seeing = window.get_watching() && on_screen(&window);
+        if seeing != seen.replace(seeing) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::WatchShown(seeing)));
             adapter.execute(effects);
         }
         let adapter = state.borrow();
