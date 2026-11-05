@@ -116,3 +116,56 @@ one build. Keep the hardware, workload, warm-up, window state and memory
 metric with every result. Dated records of past measurements are in the
 private `records.md` beside this file.
 
+## GPU capture and encode, on Windows
+
+An experiment, not shipped behaviour: the spike is in `spike/wgc-nvenc/` in the
+working tree and is not committed. Machine: RTX 4090 (driver 617.14), Windows
+build 26200, a 3440×1440 monitor in HDR, an Intel UHD 770 also present.
+
+A real desktop captured by Windows Graphics Capture into a D3D11 texture and
+handed to NVENC (`NV_ENC_DEVICE_TYPE_DIRECTX`) encodes with no CPU pixel copy:
+`Map`, `Unmap`, `UpdateSubresource`, `CopyResource` all zero over 300 frames, one
+`nvEncMapInputResource` before the loop. A control run with a deliberate CPU copy
+per frame fires the counter exactly 300 times and costs 5.36 ms of CPU a frame
+against 0.42 without it, so the counter is live rather than silent.
+
+| leg | CPU ms/frame | spread |
+| --- | --- | --- |
+| D3D11 texture → NVENC, 1080p | 0.34 | 0.10–0.57, 10 runs |
+| WGC monitor, 3440×1440 | 0.82 | 0.63–1.20, 3 runs |
+| WGC window, 1922×1112 | 0.64 | 0.37–0.94, 3 runs |
+| Desktop Duplication, 3440×1440 | 1.07 | 0.78–1.35, 2 runs |
+| CPU copy of a 3440×1440 BGRA frame, as a control | 4.38 | one run |
+| FFmpeg `h264_nvenc`, CPU BGRA in, 1080p | 1.51 | 3 runs |
+| FFmpeg `h264_nvenc`, yuv420p planes in, 1080p | 0.38 | 3 runs |
+
+`GetProcessTimes` ticks at 15.625 ms, so 300 frames at 0.3 ms is six ticks: a
+sub-millisecond figure carries about 0.05 ms of quantisation, and most of the
+spread above is that rather than the encoder. The FFmpeg legs drive `ffmpeg.exe`
+over a pipe — no prebuilt libavcodec was available to link — and include the
+spike's own frame generation, so they are upper bounds. An earlier spike
+reported 0.365 ms and an 11.09 ms FFmpeg baseline; neither survives a rerun, and
+its logs did not contain them.
+
+So the change is worth the conversion and the upload that stop happening — a
+full-frame CPU copy at 3440×1440 costs about 4.4 ms, and at 1080p the whole
+saving is a couple of milliseconds a frame. Real, and far smaller than the
+"twenty times" first reported.
+
+What the platform said, which matters more than the percentages:
+
+- The yellow capture border is a screen-space overlay that **never enters the
+  captured texture**; sampling at the outline found no outline. It can be turned
+  off anyway with `IGraphicsCaptureSession3::IsBorderRequired` after
+  `RequestAccessAsync(Borderless)` answers `Allowed`, with no manifest or consent
+  needed on this build. Windows 10 has no such interface, so there the border
+  cannot be removed.
+- `WDA_EXCLUDEFROMCAPTURE` is honoured by all three methods: WGC monitor capture
+  and Desktop Duplication show the background where an excluded window was, and
+  WGC *window* capture of an excluded window fails closed with no frame.
+  Desktop Duplication's first `AcquireNextFrame` is all black with
+  `AccumulatedFrames` at zero, which reads as "blacked out" until it is retried.
+- **HDR breaks Desktop Duplication**: it hands back `R16G16B16A16_FLOAT` scRGB
+  with a rotation, and registering that as ARGB runs clean but produces invalid
+  video, so it needs a GPU conversion pass. WGC hands back BGRA8, already
+  tonemapped, and encodes correctly.

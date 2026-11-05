@@ -52,13 +52,23 @@ commit. These close the items named, not the whole section around them.
 | §11 | Reports cross a bounded queue, stopping doesn't block the call, a stopped share stops reading as live, and the tab shows what bounds gave up | `480374e` |
 | §12 | Assessed and **not built**: every experiment needs the NixOS measurement rig, a rebuilt FFmpeg, or hardware this machine hasn't got; see the note below | — |
 
-Section 12's verdict, so it is not re-opened blindly: Windows GPU
-capture-to-NVENC needs a replacement capture path and an FFmpeg configured with
-`--enable-d3d11va`; GPU conversion pays off only after that; hardware
-decode/render interop needs a rebuilt FFmpeg and still downloads to CPU to
-display; Intel QSV needs oneVPL headers the vendor lacks; the Linux surface
-paths already exist. All of them fail section 14's evidence bar on a machine
-without the rig.
+Section 12 was first assessed as "not buildable here"; it has since been
+measured instead, and the numbers are in `docs/measurements/README.md`:
+
+- **Windows GPU capture-to-NVENC works**, with no CPU pixel copy: a real desktop
+  through Windows Graphics Capture into a D3D11 texture into NVENC. It is worth
+  the conversion and upload that stop happening — a couple of milliseconds a
+  frame at 1080p, and about 4.4 ms of CPU copy at 3440×1440 — not the twenty
+  times first rumoured. **Windows Graphics Capture, borderless, with the
+  libwebrtc capturer as fallback**, is the decision; Windows 10 needs Desktop
+  Duplication, which cannot remove the border and breaks on HDR frames.
+- **Hardware decode** still needs an FFmpeg with `d3d11va` — the vendored one
+  has neither hwaccel nor a single parser — so it remains gated on that build
+  and on a display path that doesn't read every frame back to the CPU.
+- **Intel QSV** needs oneVPL headers the vendor lacks, and additionally
+  `--enable-d3d11va` on Windows; on this machine's UHD 770 it would buy H.264
+  and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
+- GPU conversion and the Linux surface paths gain nothing further on their own.
 
 Still open: one bullet of section 7 — doing less presentation work while the
 window is hidden or minimised without stalling reference decoding or the sound.
