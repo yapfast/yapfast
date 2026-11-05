@@ -19,7 +19,7 @@ use crate::{
     cache, forum, gift, invite, limits,
     marked::MarkedServer,
     member_list::{ListedMember, Presence},
-    message::{self, Message, Names, Page},
+    message::{self, Message, Names, Page, Reply},
     mfa,
     notifications::Change,
     oauth,
@@ -820,6 +820,16 @@ impl Discord {
             full,
             newest,
         })
+    }
+
+    /// The quote of the message `id` a reply answers, learning its author,
+    /// or none once it's gone.
+    pub async fn original(&self, guild: &str, channel: &str, id: &str) -> Result<Option<Reply>> {
+        let Some(original) = self.api.message(channel, id).await? else {
+            return Ok(None);
+        };
+        self.learn(guild, std::slice::from_ref(&original), false);
+        Ok(Some(Reply::of(&original)))
     }
 
     /// Messages from a server's channel, or with [`PRIVATE`] a DM, learning

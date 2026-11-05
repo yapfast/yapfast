@@ -130,6 +130,9 @@
 // buttons and a menu under its text, and one of components outside a
 // container, with a gallery of its attachments and a file. It answers with
 // the notice's id.
+// POST /_control/unlooked-reply?channel=ID&to=ID makes Bob reply to a message
+// in a channel, live and in its history without `referenced_message`, as when
+// Discord didn't look the original up, and answers with the reply's id.
 // POST /_control/embeds makes Bob post an article link, whose preview arrives
 // a moment later in a MESSAGE_UPDATE as Discord's does, a YouTube link and a
 // GIF link, and a bot post a card with fields; their pictures come from
@@ -1037,6 +1040,8 @@ type Message = {
   type: number;
   nonce?: string;
   reply?: string;
+  /** Sent without `referenced_message`: Discord didn't look its original up. */
+  unlooked?: boolean;
   files: File[];
   reactions: Reaction[];
   edited?: number;
@@ -1201,7 +1206,7 @@ function wireMessage(message: Message, origin: string, nested = false): Record<s
       message_id: message.reply,
       ...guildOf(message.channel),
     };
-    wire.referenced_message = original ? wireMessage(original, origin, true) : null;
+    if (!message.unlooked) wire.referenced_message = original ? wireMessage(original, origin, true) : null;
   }
   return wire;
 }
@@ -1263,7 +1268,6 @@ function guildOf(channel: string): { guild_id?: string } {
   return privates.has(channel) ? {} : { guild_id: fillerChannels.get(channel) ?? world?.channelGuild.get(channel)?.id ?? GUILD };
 }
 
-/** A message as the gateway dispatches it: with the server and the author's member. */
 /**
  * A message as the MESSAGE_UPDATE that brings its link previews carries it.
  * Discord's unfurler doesn't fetch the message a reply answers, so the update
@@ -1275,6 +1279,7 @@ function previewUpdate(message: Message, origin: string) {
   return update;
 }
 
+/** A message as the gateway dispatches it: with the server and the author's member. */
 function dispatched(message: Message, origin: string) {
   if (privates.has(message.channel)) return wireMessage(message, origin);
   const { user: _, ...profile } = memberIn(guildOf(message.channel).guild_id, message.author);
@@ -7983,6 +7988,14 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/components") {
       return new Response(`${postComponents(origin)}\n`);
+    }
+    if (req.method === "POST" && path === "/_control/unlooked-reply") {
+      const channel = url.searchParams.get("channel") ?? GENERAL;
+      const to = url.searchParams.get("to");
+      if (!to) return new Response("to is required\n", { status: 400 });
+      const message = post(channel, users.bob, "About that", Date.now(), { reply: to, unlooked: true });
+      dispatch("MESSAGE_CREATE", dispatched(message, origin));
+      return new Response(message.id);
     }
     if (req.method === "POST" && path === "/_control/embeds") {
       postEmbeds(origin);

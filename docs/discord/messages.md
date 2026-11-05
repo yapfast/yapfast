@@ -352,7 +352,13 @@ an error.
   It says the original was deleted only when `referenced_message` is
   `null`. A message without the field, such as the update that brings a
   link's preview, didn't look the original up, so an update keeps the quote
-  it had; one never seen with it says the original couldn't be loaded.
+  it had. A reply never seen with it looks the original up once it's on
+  screen: from the messages loaded, or else with
+  `GET /channels/{id}/messages?limit=1&around={id}`, as Discord's client
+  does, since user accounts can't ask for one message by its id. Any other
+  message in the answer means the original is gone. Replies ask one after
+  another, each original once while the channel stays open; if Discord
+  doesn't answer, the line says it couldn't be loaded and still jumps there.
 - Desktop notifications follow the person's Discord settings: each channel's,
   category's or server's level (every message, mentions only or nothing),
   falling back to the server's default, with mutes leaving only mentions. DMs

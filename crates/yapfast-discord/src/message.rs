@@ -279,7 +279,33 @@ pub enum Reply {
     Deleted,
     /// Discord didn't look the original up, as in the MESSAGE_UPDATE that
     /// brings a link's preview: it may well still be there.
-    Unknown,
+    Unknown {
+        /// The original's id, in the reply's channel, empty when Discord
+        /// didn't name it.
+        id: String,
+    },
+}
+
+impl Reply {
+    /// The quote of an original message as Discord sends it.
+    pub fn of(original: &Value) -> Self {
+        Self::Message {
+            id: original["id"].as_str().unwrap_or_default().into(),
+            author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
+            author: author_name(original).into(),
+            content: original["content"].as_str().unwrap_or_default().into(),
+        }
+    }
+
+    /// The quote of an original message already parsed.
+    pub fn quoting(original: &Message) -> Self {
+        Self::Message {
+            id: original.id.clone(),
+            author_id: original.author_id.clone(),
+            author: original.author.clone(),
+            content: original.content.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -588,14 +614,14 @@ pub fn parse(value: &Value) -> Option<Message> {
     };
     // `null` says the original was deleted; no field at all says nothing.
     let reply = (kind == REPLY).then(|| match value.get("referenced_message") {
-        Some(original @ Value::Object(_)) => Reply::Message {
-            id: original["id"].as_str().unwrap_or_default().into(),
-            author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
-            author: author_name(original).into(),
-            content: original["content"].as_str().unwrap_or_default().into(),
-        },
+        Some(original @ Value::Object(_)) => Reply::of(original),
         Some(_) => Reply::Deleted,
-        None => Reply::Unknown,
+        None => Reply::Unknown {
+            id: value["message_reference"]["message_id"]
+                .as_str()
+                .unwrap_or_default()
+                .into(),
+        },
     });
     let attachments = shown["attachments"]
         .as_array()
@@ -1915,8 +1941,12 @@ mod tests {
         );
         assert_eq!(deleted.unwrap().reply, Some(Reply::Deleted));
         // Without the field, Discord didn't look the original up.
-        let unknown = parse(&json!({"id": "1", "type": 19, "author": {"id": "1"}}));
-        assert_eq!(unknown.unwrap().reply, Some(Reply::Unknown));
+        let unknown = parse(&json!({"id": "1", "type": 19, "author": {"id": "1"},
+            "message_reference": {"channel_id": "11", "message_id": "500"}}));
+        assert_eq!(
+            unknown.unwrap().reply,
+            Some(Reply::Unknown { id: "500".into() })
+        );
     }
 
     #[test]

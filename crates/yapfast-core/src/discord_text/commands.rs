@@ -416,6 +416,7 @@ pub fn finished(
 ) {
     let room = match &finished {
         Done::History { room, .. }
+        | Done::Original { room, .. }
         | Done::Sent { room, .. }
         | Done::Edited { room, .. }
         | Done::Deleted { room, .. }
@@ -575,6 +576,10 @@ pub fn finished(
                 });
             }
         },
+        (Done::Original { id, result, .. }, Some(channel)) => {
+            channel.original(&id, result);
+            changed = true;
+        }
         (Done::Picture { url, picture, .. }, Some(channel)) => {
             channel.picture(url, picture);
             changed = true;
