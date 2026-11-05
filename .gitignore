@@ -5,6 +5,8 @@
 /.impeccable/review
 __pycache__/
 .direnv/
+# Finder leaves one in any folder it opens.
+.DS_Store
 
 # Private working material, kept on this machine but out of the repository:
 # old plans and records (docs/archive), measurement data, experiments, the beta server's
