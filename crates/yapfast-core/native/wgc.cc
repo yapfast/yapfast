@@ -321,7 +321,7 @@ static void watch_closed(yapfast_wgc *capture) {
 static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
                                DXGI_OUTPUT_DESC *output_out, LUID *luid_out, unsigned *index_out,
                                char *card, size_t card_size, char *display, size_t display_size,
-                               int *primary, char *why, size_t size) {
+                               HMONITOR *resolved_out, int *primary, char *why, size_t size) {
   IDXGIFactory1 *factory = NULL;
   IDXGIAdapter1 *chosen = NULL;
   HRESULT status;
@@ -340,6 +340,11 @@ static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
     }
     *primary = 1;
   }
+  /* The handle the caller named, or the primary's: `CreateForMonitor` with a
+   * null handle makes an item of the whole virtual desktop, which is how a share
+   * of the primary once came out 4520x1920 on a 3440x1440 screen with a second
+   * display beside it. */
+  *resolved_out = monitor;
   status = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
   if (FAILED(status)) {
     refused(why, size, "CreateDXGIFactory1", status);
@@ -612,6 +617,7 @@ static HRESULT device_adapter(ID3D11Device *device, IDXGIAdapter1 **adapter_out,
 static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t size) {
   yapfast_wgc *capture = NULL;
   DXGI_OUTPUT_DESC output;
+  HMONITOR resolved = NULL;
   ABI::Windows::Graphics::SizeInt32 content;
   IDXGIDevice *dxgi_device = NULL;
   abi::ItemInterop *interop = NULL;
@@ -640,8 +646,8 @@ static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t s
   }
   if (adapter_for_monitor((HMONITOR)monitor, &capture->adapter, &output, &capture->luid,
                           &capture->output, capture->card, sizeof capture->card,
-                          capture->display, sizeof capture->display, &capture->primary, why,
-                          size))
+                          capture->display, sizeof capture->display, &resolved, &capture->primary,
+                          why, size))
     goto failed;
   /* BGRA_SUPPORT is what Windows Graphics Capture requires of the device it hands
    * BGRA frames to, so it is asked for rather than fallen back from. A device the
@@ -731,7 +737,7 @@ static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t s
         (unsigned long)status);
     goto failed;
   }
-  status = interop->CreateForMonitor((HMONITOR)monitor, IID_PPV_ARGS(&capture->item));
+  status = interop->CreateForMonitor(resolved, IID_PPV_ARGS(&capture->item));
   interop->Release();
   if (FAILED(status)) {
     refused(why, size, "IGraphicsCaptureItemInterop::CreateForMonitor", status);
