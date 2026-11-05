@@ -575,7 +575,9 @@ struct Processing {
     echo: AudioProcessingModule,
     /// Takes out the room's reverb while asked to.
     dereverb: Option<crate::dereverb::Dereverb>,
-    denoiser: Denoiser,
+    /// The suppressor running now. It's an option so that a switch can let
+    /// the old network go before the new one loads; see [`Processing::switch`].
+    denoiser: Option<Denoiser>,
     gain: AudioProcessingModule,
     leveler: crate::leveling::Leveler,
     gate: Gate,
@@ -595,9 +597,11 @@ impl Processing {
         Self {
             echo,
             dereverb: None,
-            denoiser: denoiser
-                .filter(|denoiser| denoiser.suppressor() == chosen)
-                .unwrap_or_else(|| Denoiser::new(chosen, crate::noise::limit())),
+            denoiser: Some(
+                denoiser
+                    .filter(|denoiser| denoiser.suppressor() == chosen)
+                    .unwrap_or_else(|| Denoiser::new(chosen, crate::noise::limit())),
+            ),
             gain: AudioProcessingModule::new(false, true, false, false),
             leveler: crate::leveling::Leveler::default(),
             gate: Gate::default(),
@@ -605,6 +609,32 @@ impl Processing {
             level: f32::NEG_INFINITY,
             samples: [0.0; BLOCK],
         }
+    }
+
+    /// The suppressor this processing runs, whichever stands in.
+    fn suppressor(&self) -> crate::noise::Suppressor {
+        self.denoiser
+            .as_ref()
+            .expect("a capture takes up its suppressor before it runs a block")
+            .suppressor()
+    }
+
+    /// Whether the suppressor chosen now isn't the one running.
+    fn stale(&self) -> bool {
+        self.suppressor() != crate::noise::chosen()
+    }
+
+    /// Takes up the suppressor chosen now, between blocks rather than inside
+    /// one: DeepFilterNet takes 0.2 s to load, which would drop a dozen
+    /// blocks' worth of what the microphone says. The old network goes before
+    /// the new one loads, rather than along with it, so a switch never holds
+    /// two of its 39 MiB at once.
+    fn switch(&mut self) {
+        let chosen = crate::noise::chosen();
+        tracing::info!(?chosen, "Discord microphone switches noise suppression");
+        // Taking the old one out frees it before the new one loads.
+        self.denoiser = None;
+        self.denoiser = Some(Denoiser::new(chosen, crate::noise::limit()));
     }
 
     /// Notes what the speakers played, for echo cancellation.
@@ -619,12 +649,6 @@ impl Processing {
     /// push-to-talk while the key is up.
     fn block(&mut self, block: &mut [i16]) -> &[[f32; BLOCK]] {
         let _ = self.echo.process_stream(block, SAMPLE_RATE as i32, 1);
-        let chosen = crate::noise::chosen();
-        if self.denoiser.suppressor() != chosen {
-            tracing::info!(?chosen, "Discord microphone switches noise suppression");
-            self.denoiser = Denoiser::new(chosen, crate::noise::limit());
-        }
-        self.denoiser.limit(crate::noise::limit());
         for (value, sample) in self.samples.iter_mut().zip(block.iter()) {
             *value = f32::from(*sample);
         }
@@ -646,7 +670,14 @@ impl Processing {
             Some(true) => Sent::Always,
             Some(false) => Sent::Never,
         };
-        let speech = self.denoiser.block(&mut self.samples, sent);
+        let denoiser = self
+            .denoiser
+            .as_mut()
+            .expect("a capture takes up its suppressor before it runs a block");
+        // The strength can change between blocks without reloading the
+        // network: it only mixes differently.
+        denoiser.limit(crate::noise::limit());
+        let speech = denoiser.block(&mut self.samples, sent);
         for (sample, value) in block.iter_mut().zip(&self.samples) {
             *sample = value.clamp(-32768.0, 32767.0) as i16;
         }
@@ -689,6 +720,10 @@ fn measure(microphone: Option<&str>, shared: &Arc<MeterShared>) -> Result<()> {
     let mut shown = f32::NEG_INFINITY;
     while !shared.stop.load(Ordering::Relaxed) {
         stream.read(&mut block);
+        // The meter hears the suppressor chosen now, as a call does.
+        if processing.stale() {
+            processing.switch();
+        }
         processing.block(&mut block);
         shown = processing.level.max(shown - 0.9);
         shared.level.store(shown.to_bits(), Ordering::Relaxed);
@@ -763,6 +798,16 @@ impl CaptureRequest {
                 processing.played(&mut played);
                 recycle(played);
             }
+            // A suppressor switch loads a network, so it waits for between
+            // blocks rather than stalling one, and what played meanwhile is
+            // let go of instead of reaching the echo canceller as if it had
+            // just played.
+            if processing.stale() {
+                processing.switch();
+                while let Ok(played) = reverse.try_recv() {
+                    recycle(played);
+                }
+            }
             let was_open = processing.gate.is_open();
             let sent = processing.block(&mut block);
             // The gate sends while it's open.
@@ -782,7 +827,7 @@ impl CaptureRequest {
         }
         self.talking.store(false, Ordering::Relaxed);
         let _ = self.track.pause();
-        Some(processing.denoiser)
+        processing.denoiser
     }
 }
 
@@ -1252,5 +1297,50 @@ mod tests {
         let hiss = vec![10i16; FRAME * 2];
         hearing.tick(&[(1, &speech), (2, &hiss)]);
         assert_eq!(hearing.speaking(), vec![1]);
+    }
+
+    /// A suppressor switch loads a network, so it waits for between blocks and
+    /// leaves the rest of the processing as it was.
+    #[test]
+    fn a_suppressor_switch_waits_for_between_blocks() {
+        use crate::noise::{self, Suppressor};
+        noise::set(Suppressor::Off);
+        let mut processing = Processing::new(None);
+        assert_eq!(processing.suppressor(), Suppressor::Off);
+        let mut block = [0i16; BLOCK];
+        processing.block(&mut block);
+        noise::set(Suppressor::RNNoise);
+        processing.block(&mut block);
+        assert_eq!(
+            processing.suppressor(),
+            Suppressor::Off,
+            "a block doesn't load a network"
+        );
+        assert!(processing.stale(), "but the choice is noticed");
+        let heard = processing.gate.heard;
+        processing.switch();
+        assert_eq!(processing.suppressor(), Suppressor::RNNoise);
+        assert_eq!(processing.gate.heard, heard, "the gate keeps what it heard");
+        noise::set(Suppressor::DeepFilterNet);
+    }
+
+    /// Push to talk holds the microphone, not the speakers: what plays in a
+    /// call, the soundboard included, plays while the key is up.
+    #[test]
+    fn push_to_talk_silences_only_the_microphone() {
+        crate::push_to_talk::set_on(true);
+        crate::push_to_talk::hold(false);
+        let (ended, _) = tokio::sync::mpsc::unbounded_channel();
+        let hearing = Hearing::new(ended);
+        let (output, played) = mpsc::sync_channel(1);
+        hearing.set_output(Some(output));
+        hearing.play(vec![8_000; FRAME_SAMPLES], 1.0);
+        hearing.tick(&[]);
+        let frame = played.try_recv().expect("the sound plays");
+        assert!(
+            frame.iter().any(|sample| *sample != 0),
+            "the key being up doesn't silence the sound"
+        );
+        crate::push_to_talk::set_on(false);
     }
 }

@@ -349,7 +349,9 @@ and they hold the gate open. Settings → Voice & video → "Noise suppression i
 Discord calls" still chooses it, to compare the two, as does Off, for a quiet
 room: RNNoise then only tells the gate which blocks are speech. Yapfast keeps
 the choice in `layout.json` as `noise_suppression`. A call going on switches
-at its next block, after DeepFilterNet's 0.2 s load if switching to it.
+between blocks rather than in one, after DeepFilterNet's 0.2 s load if
+switching to it, and the network it replaces goes before the new one loads,
+so a switch never holds two of them.
 Muting closes the microphone, but the call's microphone thread,
 `yapfast-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it
