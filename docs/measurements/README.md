@@ -169,3 +169,26 @@ What the platform said, which matters more than the percentages:
   with a rotation, and registering that as ARGB runs clean but produces invalid
   video, so it needs a GPU conversion pass. WGC hands back BGRA8, already
   tonemapped, and encodes correctly.
+
+### What a source picker finds, on this machine
+
+Same machine, Windows 11 25H2 build 26200, from the spike in
+`spike/capture-enum/` (also not committed):
+
+- **Both displays are driven by the RTX 4090**; the Intel UHD 770 drives none.
+  So capture here is born on the discrete adapter and NVENC needs no
+  cross-adapter copy — the zero-copy result above is not being quietly undone
+  by the hybrid setup. Two outputs: `\.\DISPLAY1` 3440×1440 HDR10 and
+  `\.\DISPLAY2` 1080×1920 rotated, sRGB.
+- **The card is enumerated twice** — two LUIDs for the same 4090 — so a picker
+  must key rows on LUID rather than on the description, which is identical.
+  The Basic Render Driver also appears; it must never be chosen.
+- **398 top-level windows, 12 shirable** by the usual filter (visible, titled,
+  not `WS_EX_TOOLWINDOW`, not cloaked).
+- **`WDA_EXCLUDEFROMCAPTURE` arrived at the export boundary**: excluding a
+  *foreign* window fails with `ERROR_ACCESS_DENIED` — only the owning process
+  may set or clear it. Reading it, via `GetWindowDisplayAffinity`, works for
+  any window, and caught another process's excluded window on an early run.
+- A window can exclude itself and then clear it with `WDA_NONE`; a picker
+  therefore has to re-read affinity during a share, not only when the list is
+  built.
