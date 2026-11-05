@@ -24,6 +24,7 @@ mod browse;
 mod calls;
 mod channel_settings;
 mod compose;
+mod cosmetics;
 mod discord_account;
 mod forum;
 mod gifs;
@@ -55,6 +56,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
@@ -512,6 +514,8 @@ pub struct AppState {
     pub activity_people: Option<(String, Arc<[crate::chat::FeedPerson]>)>,
     /// The panel shows its header alone.
     pub activity_cards_hidden: bool,
+    /// Which of the cosmetics people wear show, and are fetched.
+    pub cosmetics: Cosmetics,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -2066,6 +2070,11 @@ pub enum Action {
     WindowFocused(bool),
     /// Hides or shows the cards in the member list's Activity panel.
     ActivityCardsHidden(bool),
+    /// Which cosmetics show, from Settings → Appearance → Profiles. What's
+    /// shown loses what's turned off at once; what's turned on shows as its
+    /// pictures arrive, and a profile's effect once the profile is fetched
+    /// again.
+    SetCosmetics(Cosmetics),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -2284,13 +2293,14 @@ fn pictures_on_screen<'a>(
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
 ) -> impl Iterator<Item = &'a str> {
+    let cosmetics = state.cosmetics;
     state
         .servers
         .iter()
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
-        .chain(state.account_decoration.as_deref())
+        .chain(cosmetics.decoration(state.account_decoration.as_deref()))
         .chain(
             state
                 .account_nameplate
@@ -2302,11 +2312,11 @@ fn pictures_on_screen<'a>(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .flat_map(|room| {
+                .flat_map(move |room| {
                     [
                         room.avatar.as_deref(),
-                        room.decoration.as_deref(),
-                        tag_badge(&room.tag),
+                        cosmetics.decoration(room.decoration.as_deref()),
+                        tag_badge(cosmetics, &room.tag),
                     ]
                 })
                 .flatten()
@@ -2467,7 +2477,7 @@ fn pictures_on_screen<'a>(
                 .chain(&state.panel_profile)
                 .flat_map(move |view| {
                     let profile = &view.profile;
-                    let effect = profile.effect.as_deref().and_then(|sku| {
+                    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
                         state
                             .profile_effects
                             .iter()
@@ -2483,8 +2493,8 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
-                        .chain(profile.decoration.as_deref())
-                        .chain(tag_badge(&profile.tag))
+                        .chain(cosmetics.decoration(profile.decoration.as_deref()))
+                        .chain(tag_badge(cosmetics, &profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         // Its layers are asked for when it first plays.
                         .chain(effect.into_iter().flat_map(move |effect| {
@@ -2519,7 +2529,7 @@ fn pictures_on_screen<'a>(
             timeline
                 .iter()
                 .filter(move |_| list_avatars)
-                .flat_map(|message| {
+                .flat_map(move |message| {
                     let reply = message
                         .reply
                         .as_ref()
@@ -2528,9 +2538,9 @@ fn pictures_on_screen<'a>(
                         .avatar
                         .as_deref()
                         .into_iter()
-                        .chain(message.decoration.as_deref())
+                        .chain(cosmetics.decoration(message.decoration.as_deref()))
                         .chain(reply)
-                        .chain(tag_badge(&message.tag))
+                        .chain(tag_badge(cosmetics, &message.tag))
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2553,10 +2563,10 @@ fn pictures_on_screen<'a>(
                         .filter(move |_| list_avatars)
                         .flat_map(|role| role.members.iter().flatten()),
                 )
-                .flat_map(|member| {
+                .flat_map(move |member| {
                     [
                         member.avatar.as_deref(),
-                        member.decoration.as_deref(),
+                        cosmetics.decoration(member.decoration.as_deref()),
                         member
                             .nameplate
                             .as_ref()
@@ -2564,7 +2574,7 @@ fn pictures_on_screen<'a>(
                             .map(|plate| &*plate.picture),
                         member.group_icon.as_deref(),
                         member.role_icon.as_deref(),
-                        tag_badge(&member.tag),
+                        tag_badge(cosmetics, &member.tag),
                     ]
                     .into_iter()
                     .flatten()
@@ -2580,8 +2590,8 @@ fn pictures_on_screen<'a>(
 }
 
 /// The address of the picture of a server tag's badge.
-fn tag_badge(tag: &Option<chat::ServerTag>) -> Option<&str> {
-    tag.as_ref()?.badge.as_deref()
+fn tag_badge(cosmetics: Cosmetics, tag: &Option<chat::ServerTag>) -> Option<&str> {
+    cosmetics.tag(tag.as_ref())?.badge.as_deref()
 }
 
 /// Discord's CDN keeps custom emoji under /emojis/.
@@ -3485,6 +3495,10 @@ impl Application {
             }
             Action::HideNameplates(hide) => {
                 self.state.hide_nameplates = hide;
+                vec![]
+            }
+            Action::SetCosmetics(cosmetics) => {
+                self.state.cosmetics = cosmetics;
                 vec![]
             }
             Action::WindowFocused(focused) => self.window_focused(focused),

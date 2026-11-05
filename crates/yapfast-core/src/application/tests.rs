@@ -3923,7 +3923,7 @@ fn a_linked_discord_profile_loads_for_someone_not_listed() {
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user }))
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user, .. }))
                 if room == "discord:10:11" && user == "4242"
         )),
         "Discord's profile is fetched"
@@ -4115,6 +4115,85 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn profile_switches_that_are_off_ask_for_nothing() {
+    use yapfast_discord::{
+        collectibles::Nameplate,
+        service::{Account, Conversation, Snapshot, Status},
+    };
+    let open = |cosmetics: Cosmetics| {
+        let mut app = Application::default();
+        app.dispatch(Action::SetCosmetics(cosmetics));
+        // Nameplates have their own switch, which follows decorations here.
+        app.dispatch(Action::HideNameplates(!cosmetics.decorations));
+        app.apply(discord_event(Snapshot {
+            status: Status::Online,
+            conversations: vec![Arc::new(Conversation {
+                id: "30".into(),
+                name: "Ann".into(),
+                decoration: Some("ring.png".into()),
+                person: Some("7".into()),
+                people: 2,
+                ..Default::default()
+            })],
+            account: Some(Account {
+                username: String::new(),
+                name: "Me".into(),
+                avatar: "me.png".into(),
+                decoration: Some("mine.png".into()),
+                nameplate: Some(Nameplate {
+                    picture: "plate.png".into(),
+                    colors: Some([0x730bc8, 0x730bc8]),
+                }),
+                premium_type: 0,
+                mfa_enabled: false,
+                has_email: true,
+            }),
+            ..Default::default()
+        }));
+        let effects = app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
+        let effect = effects.iter().find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { effect, .. })) => {
+                Some(*effect)
+            }
+            _ => None,
+        });
+        (app, effect)
+    };
+    let off = Cosmetics {
+        effects: false,
+        decorations: false,
+        moving: false,
+        name_styles: false,
+        server_tags: false,
+    };
+    let (app, effect) = open(off);
+    assert_eq!(effect, Some(false), "the effect isn't asked about");
+    for url in ["ring.png", "mine.png", "plate.png"] {
+        assert!(!app.requested_pictures.contains(url), "{url} isn't fetched");
+    }
+    // By default everything shows, as the stack draws it.
+    let (app, effect) = open(Cosmetics::default());
+    assert_eq!(effect, Some(true), "the effect is asked about");
+    assert!(app.requested_pictures.contains("ring.png"));
+    if cfg!(not(feature = "matrix")) {
+        assert!(app.requested_pictures.contains("mine.png"));
+        assert!(app.requested_pictures.contains("plate.png"));
+    }
+    // Effects alone off asks for no effect, and still for decorations.
+    let (app, effect) = open(Cosmetics {
+        effects: false,
+        ..Cosmetics::default()
+    });
+    assert_eq!(
+        effect,
+        Some(false),
+        "an effect that may not play isn't asked about"
+    );
+    assert!(app.requested_pictures.contains("ring.png"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn discord_profiles_load_the_rest_from_discord() {
     use yapfast_discord::service::{Conversation, Snapshot, Status};
     let mut app = Application::default();
@@ -4134,7 +4213,7 @@ fn discord_profiles_load_the_rest_from_discord() {
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user })) if room == "discord:@me:30" && user == "7"
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user, .. })) if room == "discord:@me:30" && user == "7"
         )),
         "Discord's profile is fetched"
     );
@@ -4531,7 +4610,7 @@ fn a_one_to_one_dm_shows_its_persons_profile_beside_it() {
     });
     assert!(effects.iter().any(|effect| matches!(
         effect,
-        Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user })) if room == "discord:@me:30" && user == "7"
+        Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user, .. })) if room == "discord:@me:30" && user == "7"
     )));
     let view = app.state.profile.as_ref().unwrap();
     assert!(!view.large && view.profile.name == "Ann");
@@ -5399,6 +5478,11 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
         })
     };
     let mut app = connected();
+    // Effects play only once the profile switch lets them.
+    app.dispatch(Action::SetCosmetics(Cosmetics {
+        effects: true,
+        ..Cosmetics::default()
+    }));
     for sku in 0..10 {
         app.apply(Event::ProfileEffect(effect(&sku.to_string())));
     }

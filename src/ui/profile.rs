@@ -424,7 +424,8 @@ pub(super) fn profile_data(
         .as_deref()
         .filter(|line| !names_an_activity(line, &profile.activities))
         .map_or((None, ""), yapfast_core::discord::status_parts);
-    let effect = profile.effect.as_deref().and_then(|sku| {
+    let cosmetics = state.cosmetics;
+    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
         state
             .profile_effects
             .iter()
@@ -464,12 +465,18 @@ pub(super) fn profile_data(
         initial: initial(&profile.name),
         tint: tint(&profile.name),
         picture: avatar.clone(),
-        decoration_url: profile.decoration.as_deref().unwrap_or_default().into(),
-        name_style: super::name_style::row(profile.style.as_deref(), &profile.name),
+        decoration_url: cosmetics
+            .decoration(profile.decoration.as_deref())
+            .unwrap_or_default()
+            .into(),
+        name_style: super::name_style::row(
+            cosmetics.style(profile.style.as_deref()),
+            &profile.name,
+        ),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
-        tag: tag_text(&profile.tag),
-        tag_badge: tag_badge(&profile.tag),
+        tag: tag_text(cosmetics.tag(profile.tag.as_ref())),
+        tag_badge: tag_badge(cosmetics.tag(profile.tag.as_ref())),
         banner: banner.clone(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
@@ -712,15 +719,13 @@ pub(super) fn dominant_color(picture: &slint::Image) -> Option<u32> {
 }
 
 /// A server tag's letters for Slint, or nothing for one who wears none.
-pub(super) fn tag_text(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
-    tag.as_ref()
-        .map_or_else(Default::default, |tag| (&*tag.text).into())
+pub(super) fn tag_text(tag: Option<&yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.map_or_else(Default::default, |tag| (&*tag.text).into())
 }
 
 /// The address of a server tag's badge for Slint, or nothing without one.
-pub(super) fn tag_badge(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
-    tag.as_ref()
-        .and_then(|tag| tag.badge.as_deref())
+pub(super) fn tag_badge(tag: Option<&yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.and_then(|tag| tag.badge.as_deref())
         .unwrap_or_default()
         .into()
 }

@@ -1588,6 +1588,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
+        layout.read_cosmetics(&window);
+        let cosmetics = layout.cosmetics();
         show_motion(&window);
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
@@ -1652,7 +1654,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             .app
             .dispatch(Action::HideNameplates(!window.get_show_nameplates()));
         adapter.restyle = true;
-        adapter.refresh(&window);
+        // It refreshes the window, and asks for what the profile switches
+        // may now show.
+        adapter.action(&window, Action::SetCosmetics(cosmetics));
     });
     let state = adapter.clone();
     let weak = window.as_weak();

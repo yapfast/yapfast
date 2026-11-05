@@ -272,9 +272,80 @@ fn palette(style: &NameStyle, name: &str, ground: u32) -> NameStyleRow {
     }
 }
 
+/// A name in a Discord server, as Yapfast draws it there: the style's font
+/// alone, in the row's own colour, with none of its colours or effect, even
+/// while it's pointed at. Profiles, DMs and the style's own editor show the
+/// whole style.
+/// `in_server` says whether the name is in one.
+pub(super) fn font_only_in(in_server: bool, row: ModelRc<NameStyleRow>) -> ModelRc<NameStyleRow> {
+    if !in_server || row.row_count() == 0 {
+        return row;
+    }
+    // A solid style with no colours is drawn in the row's own ink, so both
+    // themes' palettes are the same; rows in the same font share them.
+    let Some(style) = row.row_data(0) else {
+        return row;
+    };
+    let key = (style.family.to_string(), style.weight);
+    PLAIN_ROWS.with_borrow_mut(|rows| {
+        if let Some(plain) = rows.get(&key) {
+            return plain.clone();
+        }
+        let plain = NameStyleRow {
+            effect: 1,
+            family: style.family,
+            weight: style.weight,
+            ..NameStyleRow::default()
+        };
+        let plain = ModelRc::new(VecModel::from(vec![plain.clone(), plain]));
+        rows.insert(key, plain.clone());
+        plain
+    })
+}
+
+thread_local! {
+    /// The font-only palettes [`font_only_in`] makes, one per font; there
+    /// are a dozen fonts at most.
+    static PLAIN_ROWS: RefCell<HashMap<(String, i32), ModelRc<NameStyleRow>>> = RefCell::default();
+}
+
+/// Whether a place, a room's id, is in a Discord server rather than a DM,
+/// where names show as [`font_only_in`] says.
+pub(super) fn in_server(place: Option<&str>) -> bool {
+    place
+        .and_then(yapfast_core::discord::parse_room)
+        .is_some_and(|(guild, _)| guild != yapfast_core::discord::DM_GUILD)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_in_a_server_keep_only_their_font() {
+        let style = row(Some(&NameStyle::new(14, 7, &[0xff0000, 0x00ff00])), "Ann");
+        let plain = font_only_in(true, style.clone());
+        assert_eq!(plain.row_count(), 2, "a palette for each theme");
+        for (plain, style) in plain.iter().zip(style.iter()) {
+            assert_eq!((plain.effect, plain.count), (1, 0), "no colours or effect");
+            assert_eq!(
+                (plain.family.as_str(), plain.weight),
+                (style.family.as_str(), style.weight)
+            );
+        }
+        assert_eq!(font_only_in(true, ModelRc::default()).row_count(), 0);
+        assert_eq!(
+            font_only_in(false, style.clone())
+                .row_data(0)
+                .unwrap()
+                .count,
+            2,
+            "outside, all of it"
+        );
+        assert!(in_server(Some("discord:10:20")));
+        assert!(!in_server(Some("discord:@me:30")));
+        assert!(!in_server(None));
+    }
 
     #[test]
     fn colours_change_until_they_read_against_their_ground() {
