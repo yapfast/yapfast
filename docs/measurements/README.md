@@ -295,3 +295,25 @@ a viewing comparison can answer.
 second of audio against 4.85 at complexity 9, well inside the spread. On the
 content measured it changed **no packets at all** — the bitstreams were
 byte-identical — so there is no case for moving the default off 9.
+
+### A real share, card against processor
+
+The whole worker — capture, on-card scale, preview, shared sound and RTP — sending
+to the fake Discord for 20 s at 1920×802 and 30 fps with a preview shown, CPU per
+frame from `GetProcessTimes` over the frames the fake counted, four runs:
+
+| path | encoder | CPU ms/frame | frames |
+| --- | --- | --- | --- |
+| card | AV1 NVENC from a D3D11 texture | 3.82 / 2.86 / 2.46 / 3.10 (mean **3.06**) | 597–602 |
+| processor | x264 H.264 | 14.56 / 11.10 / 12.01 / 15.91 (mean **13.40**) | 601–602 |
+
+**Read this with care**: the two rows differ in *two* things, because the setting
+turns hardware encoding off as well as capture — so the card row is AV1 on NVENC
+and the processor row is H.264 on x264. It is the cost of a share as a user
+experiences the two settings, not the cost of the capture path alone. A
+like-for-like comparison (FFmpeg's NVENC fed by CPU frames against NVENC fed by a
+captured texture) has not been run.
+
+These are also whole-worker figures and must not be compared with the
+encoder-only numbers above.
+

@@ -148,7 +148,15 @@ goes into a buffer the capture keeps frame after frame, made again only
 when the screen or the stream changes size, so a captured frame allocates
 nothing once it has settled, and the preview scales into one buffer of its own.
 Conversion and scaling happen before the sink is locked, so the capture's
-status is never held while a frame is made. Discord's still is made from the
+status is never held while a frame is made. On Windows, with GPU encoding on and a screen whose card opens NVENC on the
+capture's own D3D11 device, no frame is converted at all: Windows Graphics
+Capture fills a BGRA texture and NVENC reads it there, the driver's video
+processor scaling it to the stream's size on the way. The preview's tile and
+Discord's still come from that same frame — scaled on the card to 1280×720 at
+most, copied into one staging texture, ten times a second while the UI shows a
+preview. Everything else — Linux, a window or a camera, the processor setting,
+or a card that won't open on the capture's device — takes the libyuv path above,
+and one log line says which ran and why. Discord's still is made from the
 same scaled picture, so it still refreshes while the local preview is hidden.
 
 Discord shows a still of each stream, in the call and to people outside it.

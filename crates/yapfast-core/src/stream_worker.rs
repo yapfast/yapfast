@@ -20,6 +20,7 @@
 //! its input, ends the job. Frames go to the UI through [`crate::frames`].
 
 use std::{
+    ffi::c_void,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
@@ -589,7 +590,7 @@ enum Footage {
 ///
 /// The two are the same stream from the packetizer's side: the bytes, their
 /// time on the stream clock and whether the frame is whole all come out of
-/// [`Encoding::encode_i420`] and [`Encoding::encode_texture`] in
+/// [`Encoding::encode_i420`] or [`d3d11::D3d11Encoder::encode_texture`] in
 /// [`encode::Frame`], and go on to the sender as one shape.
 enum Encoding {
     /// FFmpeg's encoder on the processor — x264, libvpx, or one of FFmpeg's
@@ -681,26 +682,14 @@ impl Encoding {
             Self::Texture(_) => None,
         }
     }
-
-    /// An encoded frame from the texture a capture filled, for an encoder that
-    /// reads the card's memory: `None` when this stream's frames are pictures.
-    #[cfg(wgc)]
-    fn encode_texture(
-        &mut self,
-        texture: d3d11::Texture,
-        pts: u64,
-        keyframe: bool,
-    ) -> Option<Result<Option<encode::Frame>>> {
-        match self {
-            Self::Texture(encoder) => Some(encoder.encode_texture(texture, pts, keyframe)),
-            Self::Picture(_) => None,
-        }
-    }
 }
 
 struct Video {
     sender: StreamSender,
-    encoder: Encoding,
+    /// The encoder the stream sends through: none while the card's session is
+    /// being rebuilt, since the device it read on may already have gone with
+    /// the capture that made it, and the next frame opens another.
+    encoder: Option<Encoding>,
     /// Other applications' sound, while sharing a screen.
     sound: Option<stream_audio::Capture>,
     /// Whether the encoder has to be opened again before the next frame: an
@@ -747,14 +736,18 @@ impl Video {
             .unwrap_or_default();
         StreamStats {
             fps,
-            target_kbps: self.encoder.bitrate(),
+            target_kbps: self.encoder.as_ref().map_or(0, Encoding::bitrate),
             sent_kbps: (bits / milliseconds) as u32,
             keyframe_requests: sent.keyframe_requests,
             resent: sent.resent,
             skipped: self.skipped,
             sound_held_ms: sound.held_ms,
             sound_dropped_ms: sound.dropped_ms,
-            ..self.encoder.report()
+            ..self
+                .encoder
+                .as_ref()
+                .map(Encoding::report)
+                .unwrap_or_default()
         }
     }
 }
@@ -790,41 +783,72 @@ impl Sink {
     /// the stream has a server.
     fn frame(&mut self, picture: &I420Buffer) -> Result<()> {
         self.preview(picture);
-        // A capture of the processor's running while the card's frames are the
-        // stream's is here for the preview alone: its pictures are not what the
-        // stream sends, and the card's are not a picture at all.
+        // A share of the card's frames has no picture to send: they reach the
+        // stream through `textured`, as the texture they already are. A picture
+        // that arrives while that share runs is the UI's alone, and `preview`
+        // has just had it.
         if self.footage != Footage::InMemory {
             return Ok(());
         }
-        let Some((pts, keyframe)) = self.ready((picture.width(), picture.height()))? else {
+        let Some((pts, keyframe)) = self.ready((picture.width(), picture.height()), None)? else {
             return Ok(());
         };
         let video = self.video.as_mut().expect("ready has opened the stream");
-        let codec = video.encoder.codec();
-        let Some(made) = video.encoder.encode_i420(picture, pts, keyframe) else {
+        let made = {
+            let encoder = video
+                .encoder
+                .as_mut()
+                .expect("ready has opened the stream's encoder");
+            (encoder.codec(), encoder.encode_i420(picture, pts, keyframe))
+        };
+        let (codec, made) = made;
+        let Some(made) = made else {
             return Ok(());
         };
         self.delivered(codec, made)
     }
 
-    /// The same for a frame the card captured as a texture `size` big, which
-    /// its encoder reads where it lies: no pixel of it is converted, uploaded
-    /// or copied, and the one copy a frame still costs is its bitstream out of
-    /// the driver.
+    /// The same for a frame the card captured as a texture `content` big, at
+    /// the size the stream sends, `size`: a screen larger than the stream is
+    /// scaled to it on the card, in one pass through the driver's video
+    /// processor or its shader, and its encoder reads the result where it
+    /// lies. No pixel of the frame is converted, uploaded or copied by the
+    /// processor; the one copy it still costs is its bitstream out of the
+    /// driver.
     #[cfg(wgc)]
-    fn textured(&mut self, texture: d3d11::Texture, size: (u32, u32)) -> Result<()> {
-        let Some((pts, keyframe)) = self.ready(size)? else {
+    fn textured(
+        &mut self,
+        texture: d3d11::Texture,
+        content: (u32, u32),
+        size: (u32, u32),
+        device: *mut c_void,
+    ) -> Result<()> {
+        let Some((pts, keyframe)) = self.ready(size, Some(device))? else {
             return Ok(());
         };
         let video = self.video.as_mut().expect("ready has opened the stream");
-        let codec = video.encoder.codec();
-        // A failure here is the session's own, and a session the card took away
-        // is one to open again rather than something to withdraw a codec over:
-        // the capture that feeds it is the caller's to rebuild with it, so this
-        // says nothing to Discord and leaves the codecs it offers alone.
-        let Some(made) = video.encoder.encode_texture(texture, pts, keyframe) else {
-            return Ok(());
+        let made = {
+            let Some(Encoding::Texture(encoder)) = video.encoder.as_mut() else {
+                return Ok(());
+            };
+            let codec = encoder.codec();
+            // A screen the stream's size is read where it lies, and one of
+            // another size is scaled to the stream's on the card: the size a
+            // capture comes at is the screen's, and the size a stream goes at
+            // is Discord's to choose.
+            let texture = if content == size {
+                texture
+            } else {
+                encoder.scale(texture, size.0, size.1, d3d11::Resize::Shrink)?
+            };
+            // A failure here is the session's own, and a session the card took
+            // away is one to open again rather than something to withdraw a
+            // codec over: the capture that feeds it is the caller's to rebuild
+            // with it, so this says nothing to Discord and leaves the codecs it
+            // offers alone.
+            (codec, encoder.encode_texture(texture, pts, keyframe))
         };
+        let (codec, made) = made;
         if let Some(frame) = made? {
             video.sender.send(stream_connection::Frame {
                 data: frame.data,
@@ -833,6 +857,59 @@ impl Sink {
                 keyframe: frame.keyframe,
             });
         }
+        Ok(())
+    }
+
+    /// A preview of a frame the card captured, read back from the card rather
+    /// than captured a second time: the picture the stream is sending is scaled
+    /// on the GPU to fit the tile, copied into the one staging texture the
+    /// preview's session keeps, and mapped once.
+    ///
+    /// What the card reads back is BGRA, so the tile is written to the UI as
+    /// RGBA a pixel at a time, and Discord's thumbnail is made first, when one
+    /// is due, from the same read: libyuv calls the card's order ARGB.
+    #[cfg(wgc)]
+    fn preview_from_card(
+        &mut self,
+        tile: &mut d3d11::D3d11Encoder,
+        texture: d3d11::Texture,
+        content: (u32, u32),
+        pixels: &mut Vec<u8>,
+    ) -> Result<()> {
+        let due = self.preview_due.is_some_and(|due| due <= Instant::now());
+        if !self.preview_shown && !due {
+            return Ok(());
+        }
+        let (width, height) = fit(content.0, content.1, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+        let length = (width * height * 4) as usize;
+        if pixels.len() < length {
+            pixels.resize(length, 0);
+        }
+        let read = &mut pixels[..length];
+        tile.readback(texture, width, height, read)?;
+        if due {
+            // The tile as a picture, once every five minutes rather than every
+            // frame: a screen's colour as the card already shows it, so no tone
+            // curve is asked of a texture the compositor has finished with.
+            let mut picture = I420Buffer::new(width, height);
+            convert(&mut picture, read, width * 4, &Tone::SDR);
+            let shown = planes(&picture);
+            if !is_black(shown.y) {
+                match thumbnail(&shown) {
+                    Ok(thumbnail) => self.thumbnail = Some(thumbnail),
+                    Err(error) => {
+                        tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                    }
+                }
+                self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
+            }
+        }
+        let Sink { writer, .. } = self;
+        writer.write(width, height, |rgba| {
+            for (pixel, read) in rgba.chunks_exact_mut(4).zip(read.chunks_exact(4)) {
+                pixel.copy_from_slice(&[read[2], read[1], read[0], 255]);
+            }
+        });
         Ok(())
     }
 
@@ -878,9 +955,13 @@ impl Sink {
     /// last estimated followed, and the frame's own time and whether it has to be
     /// whole. None when the frame is dropped instead — the queue is full, or
     /// nothing has said where the stream goes yet.
-    fn ready(&mut self, (width, height): (u32, u32)) -> Result<Option<(u64, bool)>> {
+    fn ready(
+        &mut self,
+        (width, height): (u32, u32),
+        device: Option<*mut c_void>,
+    ) -> Result<Option<(u64, bool)>> {
         if let Some(server) = self.server.take() {
-            let (offers, encoder) = self.offers(width, height)?;
+            let (offers, encoder) = self.offers(width, height, device)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
@@ -893,7 +974,7 @@ impl Sink {
             };
             self.video = Some(Video {
                 sender,
-                encoder,
+                encoder: Some(encoder),
                 sound,
                 reopen: false,
                 skipped: 0,
@@ -904,16 +985,29 @@ impl Sink {
             return Ok(None);
         };
         // Discord's choice of codec changes as viewers come and go.
-        let codec = video.sender.codec().unwrap_or(video.encoder.codec());
-        let resized = video.encoder.size() != (width, height);
+        let codec = video
+            .sender
+            .codec()
+            .or_else(|| video.encoder.as_ref().map(Encoding::codec))
+            .unwrap_or(stream_connection::SEND_CODEC);
+        let resized = video
+            .encoder
+            .as_ref()
+            .is_none_or(|encoder| encoder.size() != (width, height));
         // An encoder the card took away between frames is opened again at the
         // size the frames are now, whether or not that changed.
-        if resized || video.reopen || codec != video.encoder.codec() {
-            let opened = self.encoder(codec, width, height);
+        if resized
+            || video.reopen
+            || video
+                .encoder
+                .as_ref()
+                .is_none_or(|encoder| encoder.codec() != codec)
+        {
+            let opened = self.encoder(codec, width, height, device);
             let video = self.video.as_mut().expect("checked above");
             match opened {
                 Ok(encoder) => {
-                    video.encoder = encoder;
+                    video.encoder = Some(encoder);
                     video.reopen = false;
                     if resized {
                         video.sender.resize(width, height);
@@ -937,12 +1031,17 @@ impl Sink {
         let Some(video) = self.video.as_mut() else {
             return Ok(None);
         };
-        let aimed = video.encoder.bitrate();
+        let aimed = video.encoder.as_ref().expect("opened above").bitrate();
         // A rate a tenth below the aim is followed at once, and one a quarter
         // above it to climb; between the two is a wobble, and an estimate that
         // stopped coming says nothing at all.
         if let Some(wanted) = video.sender.bitrate(height, aimed) {
-            match video.encoder.set_bitrate(wanted) {
+            match video
+                .encoder
+                .as_mut()
+                .expect("opened above")
+                .set_bitrate(wanted)
+            {
                 Ok(()) => tracing::debug!(kbps = wanted, "following Discord's bandwidth estimate"),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
@@ -999,12 +1098,14 @@ impl Sink {
         self.preview_shown || self.preview_due.is_some_and(|due| due <= Instant::now())
     }
 
-    /// Lets go of the stream's encoder, so the next frame opens one: a session
-    /// the card took away mid-stream is a session to build again, not one to go
-    /// on asking.
+    /// Lets go of the stream's encoder, keeping the rest: the device the
+    /// encoder read on is about to go with the capture that made it, and a
+    /// session that outlived its device reads memory nobody owns. The next
+    /// frame opens another on the device the capture has then.
     #[cfg(wgc)]
-    fn reopen(&mut self) {
+    fn let_go(&mut self) {
         if let Some(video) = self.video.as_mut() {
+            video.encoder = None;
             video.reopen = true;
         }
     }
@@ -1013,11 +1114,16 @@ impl Sink {
     /// the first: AV1, then H265, where the GPU's encoder for each opens,
     /// then H264. Discord streams the first every viewer decodes. Each is
     /// opened to see that it opens, and only the first kept.
-    fn offers(&self, width: u32, height: u32) -> Result<(Vec<Codec>, Encoding)> {
+    fn offers(
+        &self,
+        width: u32,
+        height: u32,
+        device: Option<*mut c_void>,
+    ) -> Result<(Vec<Codec>, Encoding)> {
         let mut offers = vec![];
         let mut first = None;
         for codec in GPU_CODECS.iter().copied().filter(|_| self.hardware) {
-            if let Ok(encoder) = self.open(codec, width, height) {
+            if let Ok(encoder) = self.open(codec, width, height, device) {
                 offers.push(codec);
                 first.get_or_insert(encoder);
             }
@@ -1025,22 +1131,36 @@ impl Sink {
         offers.push(stream_connection::SEND_CODEC);
         let encoder = match first {
             Some(encoder) => encoder,
-            None => self.open(stream_connection::SEND_CODEC, width, height)?,
+            None => self.open(stream_connection::SEND_CODEC, width, height, device)?,
         };
         log_encoder(&encoder);
         Ok((offers, encoder))
     }
 
     /// An encoder for the stream in `codec`, as [`Self::open`] opens it.
-    fn encoder(&self, codec: Codec, width: u32, height: u32) -> Result<Encoding> {
-        let encoder = self.open(codec, width, height)?;
+    fn encoder(
+        &self,
+        codec: Codec,
+        width: u32,
+        height: u32,
+        device: Option<*mut c_void>,
+    ) -> Result<Encoding> {
+        let encoder = self.open(codec, width, height, device)?;
         log_encoder(&encoder);
         Ok(encoder)
     }
 
     /// An encoder in `codec`, at the bitrate Discord's cap for its height
-    /// allows, reading the frames where this share's capture puts them.
-    fn open(&self, codec: Codec, width: u32, height: u32) -> Result<Encoding> {
+    /// allows, reading the frames where this share's capture puts them: on the
+    /// card, a session opens on the device the capture fills its textures on,
+    /// which the stream hands over as `device`.
+    fn open(
+        &self,
+        codec: Codec,
+        width: u32,
+        height: u32,
+        _device: Option<*mut c_void>,
+    ) -> Result<Encoding> {
         let aimed = kbps(height, None);
         match self.footage {
             Footage::InMemory => Ok(Encoding::Picture(Encoder::new(
@@ -1052,11 +1172,17 @@ impl Sink {
                 self.effort,
                 self.hardware,
             )?)),
-            // The card's session reads a texture on the size the capture fills
-            // it at, so the size is the frame's own and not a size to scale to.
+            // The card's session reads a texture only on the device it opened
+            // on, so it opens on the capture's own, which is the whole of what
+            // lets a frame reach it without being copied first.
             #[cfg(wgc)]
-            Footage::OnTheCard => Ok(Encoding::Texture(d3d11::D3d11Encoder::new(
-                codec, width, height, self.fps, aimed,
+            Footage::OnTheCard => Ok(Encoding::Texture(d3d11::D3d11Encoder::open_on(
+                _device.context("the card's encoder needs the capture's device")?,
+                codec,
+                width,
+                height,
+                self.fps,
+                aimed,
             )?)),
         }
     }
@@ -1695,7 +1821,14 @@ fn capture_screen(
     #[cfg(wgc)]
     match card_capture(&source, &sink, (max_width, max_height)) {
         Ok((capture, monitor)) => {
-            return capture_textures(capture, monitor, source, sink, stop, report);
+            return capture_textures(
+                capture,
+                monitor,
+                sink,
+                (max_width, max_height),
+                stop,
+                report,
+            );
         }
         Err(why) => tracing::info!(why = format!("{why:#}"), "sharing from the processor"),
     }
@@ -1790,16 +1923,15 @@ fn screen_of(source: &Source) -> Result<wgc::Monitor> {
     }
 }
 
-/// A capture of `source` from the card, and one of its frames encoded on the
-/// card: the whole path a share takes when nothing of a frame has to cross the
+/// A capture of `source` from the card, or the reason this share stays on the
 /// processor.
 ///
-/// Each thing that stops that is worth saying rather than guessing at, because
-/// each one leaves the share doing what it has always done: a machine whose
-/// hardware setting is off, a screen larger than the stream's own size — which
-/// only the processor can scale — a card without NVENC, and a capture whose
-/// texture and whose encoder sit on two D3D11 devices, which is every machine
-/// until an encoder can be opened on a capture's own device.
+/// Each thing that stops the card's path is worth saying rather than guessing
+/// at, because each one leaves the share doing what it has always done: a
+/// machine whose hardware setting is off, a display that isn't a screen, and a
+/// card NVENC won't open a session on. A screen larger than the stream is no
+/// longer one of them: the session that reads the capture's texture scales it
+/// to the stream's size on the card.
 #[cfg(wgc)]
 fn card_capture(
     source: &Source,
@@ -1812,54 +1944,53 @@ fn card_capture(
     let monitor = screen_of(source)?;
     let capture = wgc::Capture::open(monitor)?;
     let (width, height) = capture.content_size();
-    if (width, height) != fit(width, height, max_width, max_height) {
-        bail!(
-            "the screen is {width}x{height}, and the stream fits {max_width}x{max_height}: \
-             scaling a frame is the processor's work"
-        );
+    if width == 0 || height == 0 {
+        bail!("the screen is {width}x{height}, which is nothing to capture");
     }
-    // Opened to see that it opens, on the card the capture fills its texture
-    // on. A session reads a texture only on the device it opened on, and two
-    // devices on one card are still two devices, so this is the check that
-    // decides whether these two halves of the path fit together at all. The
-    // session the stream sends through is opened later, at its own codec and
-    // on the same adapter this one chose.
-    let encoder = d3d11::D3d11Encoder::new(
+    // The stream's own session opens here and is let go: what it asks is
+    // whether NVENC opens on the device the capture fills its textures on,
+    // which is the one thing that decides whether these halves fit together.
+    // A session reads a texture only on the device it opened on, so asked
+    // before the loop starts, a card that can't answer leaves the share on the
+    // processor instead of failing its first frame.
+    let (sent_width, sent_height) = fit(width, height, max_width, max_height);
+    d3d11::D3d11Encoder::open_on(
+        capture.device(),
         stream_connection::SEND_CODEC,
-        width,
-        height,
+        sent_width,
+        sent_height,
         sink.fps,
-        kbps(height, None),
-    )?;
-    if encoder.device() != capture.device() {
-        bail!(
-            "the capture fills a texture on one D3D11 device and the NVENC session reads on \
-             another, so this card can't encode what it captures"
-        );
-    }
+        kbps(sent_height, None),
+    )
+    .context("the card won't open an encoder on the device it captures with")?;
     Ok((capture, monitor))
 }
 
 /// Shares a screen from the card: each frame the compositor makes goes to the
-/// encoder as the texture it filled it in, and the bitstream out of the driver
-/// is the only time a frame's bytes touch the processor.
+/// encoder as the texture it filled it in — scaled on the card to the stream's
+/// size where the screen is larger — and the bitstream out of the driver is the
+/// only time a frame's bytes touch the processor.
 ///
 /// Nothing here keeps a frame. The texture is the capture's pool's, borrowed
 /// until the next [`wgc::Capture::frame`]; the encoder's buffers come back to it
-/// as frames go out; and the one picture held in memory is the preview's, made
-/// from a second and much cheaper capture of the same screen that runs only
-/// while something shows a preview.
+/// as frames go out; and the one picture held in memory is the preview's tile,
+/// scaled on the card and read back at no more than [`PREVIEW_WIDTH`] by
+/// [`PREVIEW_HEIGHT`].
 #[cfg(wgc)]
 fn capture_textures(
     mut capture: wgc::Capture,
     monitor: wgc::Monitor,
-    source: Source,
     mut sink: Sink,
+    (max_width, max_height): (u32, u32),
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
+    let (screen_width, screen_height) = capture.content_size();
+    let (sent_width, sent_height) = fit(screen_width, screen_height, max_width, max_height);
     tracing::info!(
         capture = capture.describe().as_str(),
+        screen = format!("{screen_width}x{screen_height}"),
+        stream = format!("{sent_width}x{sent_height}"),
         "sharing from the card"
     );
     let fps = sink.fps;
@@ -1870,11 +2001,14 @@ fn capture_textures(
     // frame skipped, not one captured twice.
     let mut slot = 0u64;
     let mut reported = None;
-    // The preview's own capture: started when something first wants a preview,
-    // let go when nothing does, and asked for one picture ten times a second at
-    // most meanwhile. Nothing of it is sent, and none of it exists while nothing
-    // shows a preview.
-    let mut preview: Option<Capture> = None;
+    // The session a preview's tile is read back through, opened on the capture's
+    // device when something first wants a preview and let go when nothing does.
+    // A session of its own, because the encoder scales into one texture it keeps
+    // for each size, and a tile sharing the stream's session would remake that
+    // texture every frame, alternating the stream's size with the tile's.
+    let mut tile: Option<d3d11::D3d11Encoder> = None;
+    // The tile's pixels, in the card's order: BGRA, one row after another.
+    let mut pixels: Vec<u8> = vec![];
     let mut read: Option<Instant> = None;
     // How many times the session and the capture have been put back together
     // since a frame last went out.
@@ -1894,8 +2028,14 @@ fn capture_textures(
             match arrival {
                 wgc::Arrival::Frame => {
                     let content = capture.content_size();
-                    taken = sink.textured(d3d11::Texture::new(capture.texture()), content);
-                    size = Some(content);
+                    let sent = fit(content.0, content.1, max_width, max_height);
+                    taken = sink.textured(
+                        d3d11::Texture::new(capture.texture()),
+                        content,
+                        sent,
+                        capture.device(),
+                    );
+                    size = Some(sent);
                 }
                 // The screen changed size and the capture's pool with it, so the
                 // next frame is at the new size: `ready` opens an encoder for it
@@ -1938,41 +2078,69 @@ fn capture_textures(
                     error = format!("{error:#}"),
                     "the card's encoder stopped; opening it and the capture again"
                 );
-                capture = wgc::Capture::open(monitor)?;
+                // Nothing that reads the old device may outlive it: the tile's
+                // session goes now, and the stream's before the capture that
+                // made the device is let go of.
+                tile = None;
                 sink.lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .reopen();
+                    .let_go();
+                capture = wgc::Capture::open(monitor)?;
             }
             Ok(()) => restarts = 0,
         }
         // A preview is the one thing a texture can't be made into: the UI's tile
         // and Discord's thumbnail are pictures in memory, and this frame is on
-        // the card. So a second capture of the same screen on the processor,
-        // asked for one picture at a time and only while something shows one.
-        match (wanted, preview.is_some()) {
+        // the card. So the frame is scaled on the card to fit the tile and read
+        // back into the pixels kept for it, ten times a second at most and only
+        // while something shows one.
+        match (wanted, tile.is_some()) {
             (true, false) => {
-                match Capture::start(source.clone(), &sink, PREVIEW_WIDTH, PREVIEW_HEIGHT) {
-                    Ok(made) => preview = Some(made),
+                let content = capture.content_size();
+                let preview = fit(content.0, content.1, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+                match d3d11::D3d11Encoder::open_on(
+                    capture.device(),
+                    stream_connection::SEND_CODEC,
+                    preview.0,
+                    preview.1,
+                    fps,
+                    kbps(preview.1, None),
+                ) {
+                    Ok(opened) => {
+                        tile = Some(opened);
+                        read = Some(Instant::now());
+                    }
                     Err(error) => tracing::warn!(
                         error = format!("{error:#}"),
-                        "sharing without a preview: the screen's second capture didn't open"
+                        "sharing without a preview: the card won't open a session for one"
                     ),
                 }
-                read = Some(Instant::now());
             }
-            // Nobody is looking at one and none is due, so it goes, and takes
-            // its frame with it.
+            // Nobody is looking at one and none is due, so it goes, and its
+            // session goes with it.
             (false, true) => {
-                preview = None;
+                tile = None;
                 read = None;
             }
             _ => {}
         }
-        if let Some(capture) = &mut preview
+        if let Some(tile) = &mut tile
+            && arrival == wgc::Arrival::Frame
             && read.is_none_or(|last| last.elapsed() >= PREVIEW_EVERY)
         {
-            capture.capture_frame();
             read = Some(Instant::now());
+            let taken = {
+                let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                sink.preview_from_card(
+                    tile,
+                    d3d11::Texture::new(capture.texture()),
+                    capture.content_size(),
+                    &mut pixels,
+                )
+            };
+            if let Err(error) = taken {
+                tracing::warn!(error = format!("{error:#}"), "sharing without a preview");
+            }
         }
     }
     Ok(())
@@ -3103,7 +3271,7 @@ mod tests {
             thumbnail: None,
             lost: None,
         };
-        let (offers, encoder) = sink.offers(320, 180).unwrap();
+        let (offers, encoder) = sink.offers(320, 180, None).unwrap();
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
         assert_eq!(offers.last(), Some(&Codec::H264));
         let mut order = [Codec::Av1, Codec::H265, Codec::H264].iter();
@@ -3113,14 +3281,14 @@ mod tests {
         );
         assert_eq!(encoder.codec(), offers[0]);
         sink.hardware = false;
-        let (offers, encoder) = sink.offers(320, 180).unwrap();
+        let (offers, encoder) = sink.offers(320, 180, None).unwrap();
         assert_eq!((offers, encoder.engine()), (vec![Codec::H264], "x264"));
     }
 
     /// A share whose frames come from the card encodes with the card's encoder,
-    /// whether or not the processor's has a GPU encoder behind it: what reads a
-    /// texture is NVENC through a D3D11 device, which is another encoder of
-    /// FFmpeg's, reached another way.
+    /// on the device the capture fills its textures on: what reads a texture is
+    /// NVENC on one D3D11 device, which is another encoder of FFmpeg's, reached
+    /// another way, and the device it reads on is the capture's own.
     #[cfg(wgc)]
     #[test]
     fn a_share_from_the_card_encodes_on_the_card() {
@@ -3144,21 +3312,31 @@ mod tests {
             thumbnail: None,
             lost: None,
         };
-        // A machine without NVENC has nothing to check here, and says so the
-        // way a stream on it would: this is the error that keeps that machine
-        // sharing from the processor.
-        let Ok((offers, encoder)) = sink.offers(320, 180) else {
+        // The device the stream's own session opens on is the capture's, which
+        // a test can only ask for by capturing something. A machine with no
+        // screen has no card's device to check, and says so.
+        let Ok(capture) = wgc::Capture::open(wgc::Monitor::PRIMARY) else {
+            eprintln!("no screen here, so there is no capture to read from");
+            return;
+        };
+        // A machine without NVENC on that device has nothing to check here,
+        // and says so the way a stream on it would: this is the error that
+        // keeps that machine sharing from the processor.
+        let Ok((offers, encoder)) = sink.offers(320, 180, Some(capture.device())) else {
             eprintln!("no NVENC here, so there is no card's encoder to check");
             return;
         };
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
-        assert!(
-            matches!(encoder, Encoding::Texture(_)),
-            "{} reads textures",
-            encoder.engine()
-        );
+        let Encoding::Texture(encoder) = encoder else {
+            panic!("{} doesn't read textures", encoder.engine());
+        };
         assert!(encoder.engine().ends_with("/d3d11"), "{}", encoder.engine());
         assert_eq!(encoder.size(), (320, 180));
+        assert_eq!(
+            encoder.device(),
+            capture.device(),
+            "the session reads on the device the capture fills its textures on"
+        );
     }
 
     /// Everything that keeps a share on the processor says so, and names which
@@ -3212,12 +3390,13 @@ mod tests {
 
     /// Whether a screen's texture and an NVENC session can be on one device, as
     /// the share from the card needs them to be. It is a fact about the machine
-    /// and not about this code, so it is asked here and printed: the two shims
-    /// make a device each, and a session reads a texture only on its own.
+    /// and not about this code, so it is asked here and printed: a session reads
+    /// a texture only on the device it was opened on, and this one is opened on
+    /// the capture's.
     ///
-    /// The session is opened at a size NVENC takes rather than at the screen's,
-    /// since which size a card encodes at and which device it encodes on are two
-    /// separate answers, and only the second is what this asks.
+    /// The session is opened at the size the stream sends rather than at the
+    /// screen's, since that is the size the stream's own session opens at, and
+    /// the point is the device rather than the size.
     #[cfg(wgc)]
     #[test]
     #[ignore = "needs a screen and an NVIDIA card"]
@@ -3226,14 +3405,20 @@ mod tests {
         eprintln!("{}", capture.describe());
         let (width, height) = capture.content_size();
         eprintln!("the screen is {width}x{height}");
-        let Ok(encoder) = d3d11::D3d11Encoder::new(
+        let (sent_width, sent_height) = fit(width, height, SHARE_WIDTH, SHARE_HEIGHT);
+        eprintln!("a stream of it sends {sent_width}x{sent_height}");
+        let Ok(encoder) = d3d11::D3d11Encoder::open_on(
+            capture.device(),
             stream_connection::SEND_CODEC,
-            SHARE_WIDTH,
-            SHARE_HEIGHT,
+            sent_width,
+            sent_height,
             30,
-            kbps(SHARE_HEIGHT, None),
+            kbps(sent_height, None),
         ) else {
-            eprintln!("and this machine has no H264 NVENC session at all");
+            eprintln!(
+                "and this machine has no H264 NVENC session on the device the capture fills its \
+                 textures on"
+            );
             return;
         };
         eprintln!(
@@ -3244,10 +3429,343 @@ mod tests {
         assert_eq!(
             capture.device(),
             encoder.device(),
-            "a share from the card needs the capture's device to be the session's, and while this \
-             fails every share stays on the processor for the reason `card_capture` logs: the two \
-             shims each make a device, and NVENC reads a texture only on the one it opened on"
+            "a share from the card needs the capture's device to be the session's: NVENC reads a \
+             texture only on the one it opened on"
         );
+        assert_eq!(encoder.size(), (sent_width, sent_height));
+    }
+
+    /// The fake Discord's fixture: Alice, in the guild, in the Lounge. The ids
+    /// are `testing/fake_discord.ts`'s, which is where a stream's key and the
+    /// account watching it come from.
+    #[cfg(wgc)]
+    const GUILD: &str = "1400000000000000100";
+    #[cfg(wgc)]
+    const LOUNGE: &str = "1400000000000000103";
+    #[cfg(wgc)]
+    const ALICE: &str = "1400000000000000001";
+
+    /// What a real share costs the processor a frame, measured on the machine
+    /// that runs it: the primary display captured, encoded at 1080p30 and sent
+    /// to the fake Discord, once from the card and once through libwebrtc's
+    /// capturer and x264. The process's own kernel and user time is counted
+    /// across each leg and divided by the frames the fake says arrived, so
+    /// waiting on the compositor costs nothing and nothing that didn't arrive is
+    /// counted.
+    ///
+    /// It prints the numbers rather than asserting them: what a card or a
+    /// processor costs is the machine's answer, and this is here to be run on
+    /// the machine whose answer it is.
+    #[cfg(wgc)]
+    #[test]
+    #[ignore = "needs a screen, an NVIDIA card, bun and a python3 with tkinter"]
+    fn a_real_share_costs_what_it_costs_a_frame() {
+        // The worker's own log line says which path a share took and why, which
+        // is the half of this a number can't say.
+        crate::logging::init_to_stderr();
+        let fake = Fake::start();
+        let _drawing = Animated::start();
+        // The window takes a moment to appear, and a leg measured before it does
+        // sees a screen that isn't drawing.
+        std::thread::sleep(Duration::from_millis(1500));
+        for (hardware, path) in [(true, "the card"), (false, "the processor")] {
+            let (cpu, frames, stats) = share_for(&fake, hardware, Duration::from_secs(20));
+            assert!(
+                frames >= 100,
+                "{path} sent {frames} frames while the screen was measured: the screen wasn't \
+                 drawing, so there is no number for this path here"
+            );
+            // The card's path is the one whose encoder reads the capture's
+            // texture, which it says by naming the D3D11 backend; anything else
+            // is the processor's path, and isn't the number this test is for.
+            if hardware {
+                assert!(
+                    stats
+                        .as_ref()
+                        .is_some_and(|stats| stats.engine.ends_with("/d3d11")),
+                    "the card's path didn't engage: the stream says {:?}, and the log above says \
+                     why",
+                    stats.map(|stats| stats.engine)
+                );
+            }
+            eprintln!(
+                "{path}: {:.3} ms of processor a frame over {frames} frames{}",
+                cpu / frames.max(1) as f64,
+                stats.map_or(String::new(), |stats| format!(
+                    ", by {} ({} {}x{} at {} fps, {} kbit/s sent)",
+                    stats.engine,
+                    stats.codec,
+                    stats.width,
+                    stats.height,
+                    stats.fps,
+                    stats.sent_kbps
+                ))
+            );
+        }
+    }
+
+    /// Runs one share of the primary display against `fake` for `measure`, and
+    /// answers the processor time it took in milliseconds, the frames the fake
+    /// says arrived in that time, and the last statistics the worker reported.
+    #[cfg(wgc)]
+    fn share_for(
+        fake: &Fake,
+        hardware: bool,
+        measure: Duration,
+    ) -> (f64, u64, Option<StreamStats>) {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (input, mut feed) = std::io::pipe().unwrap();
+        let (reports, heard) = channel::channel();
+        let serving = std::thread::spawn(move || {
+            serve(Box::new(BufReader::new(input)), &mut |report| {
+                let _ = reports.send(report);
+            });
+        });
+        let job = Job::Share {
+            source: Source::Screen,
+            frames: frames.path().unwrap(),
+            width: SHARE_WIDTH,
+            height: SHARE_HEIGHT,
+            fps: 30,
+            effort: Effort::Light,
+            hardware,
+        };
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        assert_eq!(
+            heard
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the worker's first report"),
+            Report::Ready
+        );
+        // The UI shows the share's preview from the moment sharing starts, which
+        // is the card's own session for a tile, so a measurement has it on
+        // rather than measuring a share nobody is looking at.
+        writeln!(
+            feed,
+            "{}",
+            serde_json::to_string(&Control::Preview(true)).unwrap()
+        )
+        .unwrap();
+        let key = format!("guild:{GUILD}:{LOUNGE}:{ALICE}");
+        let server = StreamServer {
+            stream_key: key.clone(),
+            user_id: ALICE.to_owned(),
+            session_id: "measure".to_owned(),
+            rtc_server_id: "fake-rtc".to_owned(),
+            token: format!("stream-token-{key}"),
+            endpoint: fake.voice(),
+        };
+        writeln!(
+            feed,
+            "{}",
+            serde_json::to_string(&Control::Send(server)).unwrap()
+        )
+        .unwrap();
+        // Nothing is encoded before the stream is live, which the worker reports
+        // once the sender has connected: only the measuring waits for it.
+        loop {
+            match heard.recv_timeout(Duration::from_secs(30)) {
+                Ok(Report::Streaming) => break,
+                Ok(Report::Ended { error }) => {
+                    panic!("the share ended before it went live: {error:?}")
+                }
+                Ok(_) => {}
+                Err(error) => panic!("the stream never went live: {error}"),
+            }
+        }
+        let started = (cpu_millis(), fake.frames(&key));
+        std::thread::sleep(measure);
+        let (cpu, sent) = (cpu_millis(), fake.frames(&key));
+        // What the worker says about the leg it just ran: the engine that made
+        // the picture is what says which path engaged.
+        let mut stats = None;
+        while let Ok(report) = heard.try_recv() {
+            if let Report::Sending(sending) = report {
+                stats = Some(sending);
+            }
+        }
+        writeln!(feed, "stop").unwrap();
+        serving.join().unwrap();
+        (cpu - started.0, sent.saturating_sub(started.1), stats)
+    }
+
+    /// The fake Discord, on a port of its own, with the counters a measurement
+    /// reads: the only Discord a measurement here may talk to.
+    #[cfg(wgc)]
+    struct Fake {
+        child: std::process::Child,
+        address: String,
+    }
+
+    #[cfg(wgc)]
+    impl Fake {
+        fn start() -> Self {
+            let port = std::net::TcpListener::bind("127.0.0.1:0")
+                .expect("a free port")
+                .local_addr()
+                .unwrap()
+                .port();
+            let log = std::fs::File::create(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../target/fake-discord-measure.log"
+            ))
+            .unwrap();
+            let child = std::process::Command::new("bun")
+                .arg("testing/fake_discord.ts")
+                .args(["--port", &port.to_string()])
+                .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+                .stdout(log.try_clone().unwrap())
+                .stderr(log)
+                .spawn()
+                .expect("bun, which runs the fake Discord");
+            let fake = Self {
+                child,
+                address: format!("http://127.0.0.1:{port}"),
+            };
+            for _ in 0..100 {
+                if get(&format!("{}/_control/health", fake.address)).is_some() {
+                    return fake;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            panic!("the fake Discord didn't answer; see target/fake-discord-measure.log");
+        }
+
+        /// Where a stream's connection reaches the fake's voice server.
+        fn voice(&self) -> String {
+            format!("{}/voice", self.address.replacen("http", "ws", 1))
+        }
+
+        /// How many frames reached the fake on `key` since it started.
+        fn frames(&self, key: &str) -> u64 {
+            let answer = get(&format!("{}/_control/video", self.address))
+                .expect("the fake's video counters");
+            let body = answer
+                .split_once("\r\n\r\n")
+                .map_or(answer.as_str(), |(_, body)| body);
+            let counters: serde_json::Value =
+                serde_json::from_str(body).expect("what the fake received");
+            counters["received"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                // The fake keeps a record for every connection, and a leg's
+                // own is the last one on its key: an earlier leg's is still
+                // here.
+                .rev()
+                .find(|received| received["stream"].as_str() == Some(key))
+                .map_or(0, |received| received["frames"].as_u64().unwrap_or(0))
+        }
+    }
+
+    #[cfg(wgc)]
+    impl Drop for Fake {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// A GET of an `http://` URL, answered whole: what the fake's control
+    /// endpoints need, without an HTTP client in a test's dependencies.
+    #[cfg(wgc)]
+    fn get(url: &str) -> Option<String> {
+        let rest = url.strip_prefix("http://")?;
+        let (host, path) = rest.split_once('/')?;
+        let mut stream = std::net::TcpStream::connect(host).ok()?;
+        stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+        write!(
+            stream,
+            "GET /{path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+        )
+        .ok()?;
+        let mut answer = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut answer).ok()?;
+        // A connection refused while the fake starts is an answer without a
+        // status, which isn't one.
+        answer.starts_with("HTTP/1.1 200").then_some(answer)
+    }
+
+    /// A window that keeps drawing while a leg runs: Windows Graphics Capture
+    /// and libwebrtc's capturer both hand over a frame only when the screen
+    /// changed, so a still desktop would measure how often nothing happened.
+    #[cfg(wgc)]
+    struct Animated {
+        child: std::process::Child,
+    }
+
+    #[cfg(wgc)]
+    impl Animated {
+        fn start() -> Self {
+            let script = r##"
+import tkinter as tk
+root = tk.Tk()
+root.overrideredirect(True)
+root.attributes("-topmost", True)
+root.geometry("640x360+20+20")
+canvas = tk.Canvas(root, bg="black", highlightthickness=0)
+canvas.pack(fill="both", expand=True)
+step = [0]
+def tick():
+    step[0] = (step[0] + 9) % 580
+    canvas.delete("all")
+    canvas.create_rectangle(step[0], 20, step[0] + 60, 340, fill="#ff00ff", outline="")
+    canvas.create_rectangle(580 - step[0], 20, 640 - step[0], 340, fill="#00ff88", outline="")
+    root.after(16, tick)
+tick()
+root.mainloop()
+"##;
+            Self {
+                child: std::process::Command::new("python3")
+                    .args(["-c", script])
+                    .spawn()
+                    .expect("python3 with tkinter, which draws while a leg is measured"),
+            }
+        }
+    }
+
+    #[cfg(wgc)]
+    impl Drop for Animated {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// The process's own kernel and user time, in milliseconds, as the
+    /// measurements in `docs/measurements` count it: Windows charges it in
+    /// 15.6 ms ticks, so a leg has to run long enough for the ticks to add up.
+    #[cfg(wgc)]
+    fn cpu_millis() -> f64 {
+        #[repr(C)]
+        struct FileTime {
+            low: u32,
+            high: u32,
+        }
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> *mut c_void;
+            fn GetProcessTimes(
+                process: *mut c_void,
+                created: *mut FileTime,
+                exited: *mut FileTime,
+                kernel: *mut FileTime,
+                user: *mut FileTime,
+            ) -> i32;
+        }
+        let blank = || FileTime { low: 0, high: 0 };
+        let (mut created, mut exited, mut kernel, mut user) = (blank(), blank(), blank(), blank());
+        // SAFETY: plain out-parameters for the call, and the process is this one.
+        unsafe {
+            GetProcessTimes(
+                GetCurrentProcess(),
+                &mut created,
+                &mut exited,
+                &mut kernel,
+                &mut user,
+            )
+        };
+        let ticks = |time: FileTime| f64::from(time.high) * 4_294_967_296.0 + f64::from(time.low);
+        (ticks(kernel) + ticks(user)) / 10_000.0
     }
 
     #[test]
