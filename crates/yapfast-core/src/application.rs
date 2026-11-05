@@ -1464,8 +1464,18 @@ pub enum Action {
     /// Download pictures that show outside the state, such as the emoji
     /// picker's; see [`DiscordCommand::Pictures`].
     LoadPictures(Vec<String>),
+    /// Pick the server whose tag to wear in the profile editor; empty for none.
+    ChooseServerTag(String),
+    /// Set the name style from its window; colours are hex, joined by commas.
+    ChooseNameStyle {
+        font: u32,
+        effect: u32,
+        colours: String,
+    },
     /// Ask for the account's own profile, as its popout opens.
     LoadOwnProfile,
+    /// The profile editor's wishlist tab opened.
+    OpenWishlist,
     /// A tab of the full profile opened.
     OpenProfileTab(ProfileTab),
     /// A badge on someone's profile was clicked, with the window's number for it.
@@ -2712,6 +2722,7 @@ impl Application {
             Action::JumpToPresent => self.jump_to_present(),
             Action::LoadPictures(urls) => self.load_pictures(urls),
             Action::LoadOwnProfile => self.load_own_profile(),
+            Action::OpenWishlist => self.open_wishlist(),
             Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
             Action::ShowPersonBadges { user, badge } => self.show_person_badges(user, badge),
             Action::ClosePersonBadges => {
@@ -2722,6 +2733,18 @@ impl Application {
                 self.state.person_badges = None;
                 self.state.badges_initial = badge;
                 self.show_own_badges()
+            }
+            Action::ChooseServerTag(server) => {
+                self.choose_server_tag(server);
+                vec![]
+            }
+            Action::ChooseNameStyle {
+                font,
+                effect,
+                colours,
+            } => {
+                self.choose_name_style(font, effect, &colours);
+                vec![]
             }
             Action::ShowBadges => {
                 self.state.badges_initial = None;
@@ -3550,15 +3573,15 @@ impl Application {
             Event::ServerDeleted { server, result } => self.server_deleted(server, result),
             Event::ServerTransferred { server, result } => self.server_transferred(server, result),
             Event::ServerPincodeSent { server, result } => self.server_pincode_sent(server, result),
-            Event::OwnProfile { server, result } => self.own_profile_loaded(server, result),
-            Event::Wishlist { id, wishlist } => self.profile_wishlist_loaded(&id, &wishlist),
+            Event::OwnProfile { server, result } => return self.own_profile_loaded(server, result),
+            Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::PersonBadges { user, result } => self.person_badges_loaded(&user, result),
             Event::ProfilePicture { kind, path, result } => {
                 self.profile_picture_read(kind, path, result);
             }
-            Event::ProfileSaved { server, result } => self.profile_saved(server, result),
+            Event::ProfileSaved { server, result } => return self.profile_saved(server, result),
             Event::MfaRequired { id, methods } => return self.mfa_required(id, methods),
             Event::MfaFinished { id, result } => return self.mfa_finished(id, result),
             Event::MfaTexted { id, result } => self.mfa_texted(id, result),

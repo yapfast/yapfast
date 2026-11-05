@@ -637,6 +637,8 @@ pub(super) fn chat_profile(
         }),
         recent: Vec::new(),
         recent_asked: false,
+        wears_effect: profile.effect_sku.is_some(),
+        wears_frame: profile.frame_sku.is_some(),
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.

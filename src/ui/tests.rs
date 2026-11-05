@@ -3317,6 +3317,7 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened() {
             hide_muted: false,
             community: false,
             pinned: Vec::new(),
+            tag: None,
         }
     };
     let mut state = AppState::default();
@@ -3528,6 +3529,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         hide_muted: false,
         community: false,
         pinned: Vec::new(),
+        tag: None,
     })];
     let rooms_by_id = state
         .rooms
@@ -3569,6 +3571,7 @@ fn a_call_shows_on_its_servers_icon_and_its_closed_folder() {
             hide_muted: false,
             community: false,
             pinned: Vec::new(),
+            tag: None,
         }
     };
     let mut state = AppState::default();

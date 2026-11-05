@@ -929,6 +929,10 @@ fn server_rooms(
         hide_muted: server.marks.notifications.hide_muted_channels,
         community: server.community,
         pinned,
+        tag: server.tag.as_ref().map(|tag| chat::ServerTag {
+            text: tag.text.clone(),
+            badge: tag.badge.clone(),
+        }),
     };
     (rooms, server)
 }

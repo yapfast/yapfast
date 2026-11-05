@@ -5,6 +5,9 @@ import { Looks } from "theme.slint";
 export global NameLetters {
     pure callback letters(string) -> [string];
     pure callback colour(string, string, int) -> color;
+    pure callback stripe(string, int) -> color;
+    /// Whether a text holds what's searched for, whatever its case.
+    pure callback contains(string, string) -> bool;
 }
 
 export struct NamePreset { key: string, c1: color, c2: color, c3: color, c4: color, c5: color }

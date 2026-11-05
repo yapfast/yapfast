@@ -1,7 +1,7 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Popup } from "theme.slint";
 import { ActionButton, IconButton, Avatar, TextField, MenuItem, StatusText, Picture, PictureStore, GuildTag } from "controls.slint";
-import { ActivityCard, ActivityClock, ActivityRow, ProfileBadge, ProfileBadgeRow } from "people.slint";
+import { ProfileEditorPage, ActivityCard, ActivityClock, ActivityRow, ProfileBadge, ProfileBadgeRow } from "people.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
 import { NamePreset, StyledName } from "names.slint";
@@ -660,8 +660,12 @@ export component StatusMenu inherits Rectangle {
     callback open-badges;
     /// The status choices show under their row.
     property <bool> choosing;
-    out property <length> card-width: 300px;
+    property <length> card-width: 300px;
     out property <length> card-height: body.preferred-height;
+    // Its activity's more menu reaches past the card, as Discord's does.
+    property <bool> activity-open;
+    property <length> activity-y;
+    out property <length> full-width: root.card-width + (root.activity-open ? 164px : 0px);
     property <string> status-name: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
     property <length> banner-height: 105px;
     // Coloured as a profile card is, whatever the app's theme.
@@ -790,6 +794,11 @@ export component StatusMenu inherits Rectangle {
                         }
                     }
                     for activity in root.activities: ActivityCard {
+                        menu: true;
+                        more(x, y) => {
+                            root.activity-open = true;
+                            root.activity-y = y - root.absolute-position.y;
+                        }
                         activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3; plate: root.plate;
                         open-link(url) => { root.open-link(url); }
                     }
@@ -857,6 +866,20 @@ export component StatusMenu inherits Rectangle {
     Rectangle {
         x: 0px; y: 0px; width: root.card-width; height: root.card-height;
         border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+    }
+    if root.activity-open: TouchArea {
+        width: root.card-width; height: root.card-height;
+        clicked => { root.activity-open = false; }
+    }
+    if root.activity-open: Rectangle {
+        x: root.card-width - 8px; y: root.activity-y; width: 172px; height: 84px;
+        background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+        drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+        VerticalLayout {
+            padding: 6px; spacing: 2px;
+            MenuItem { text: "View All Activity"; clicked => { ProfileEditorPage.action = 1; } }
+            MenuItem { text: "Manage Privacy"; clicked => { ProfileEditorPage.action = 2; } }
+        }
     }
 }
 

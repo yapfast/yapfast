@@ -443,6 +443,9 @@ impl Application {
     fn keep_own_profile(&mut self, user: &str, profile: &Profile) {
         if self.state.account_id.as_deref() == Some(user) {
             self.state.account_profile = Some(profile.clone());
+            if let Some(editor) = self.state.profile_editor.as_mut() {
+                editor.fill_look(profile);
+            }
         }
     }
 

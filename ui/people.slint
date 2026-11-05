@@ -270,7 +270,7 @@ component ShowcasePicture inherits Rectangle {
 }
 
 // A widget on the Board tab: Discord's heading for it, then its games.
-component BoardCard inherits Rectangle {
+export component BoardCard inherits Rectangle {
     in property <ProfileWidgetRow> widget;
     background: Theme.raised;
     border-radius: 12px;
@@ -294,7 +294,7 @@ component BoardCard inherits Rectangle {
 }
 
 // An item on the Wishlist tab: its picture, and its name under that.
-component WishlistCard inherits Rectangle {
+export component WishlistCard inherits Rectangle {
     in property <ProfileWishlistRow> item;
     background: Theme.raised;
     border-radius: 12px;
@@ -330,9 +330,21 @@ component ActivityPicture inherits Rectangle {
     Image { source: root.picture; width: root.size; height: root.size; image-fit: cover; }
 }
 
+// The tab the profile editor should open on, which it takes when it opens.
+export global ProfileEditorPage {
+    in-out property <int> wanted: 0;
+    /// What one's own activity's more menu asked for: 1 its tab, 2 its
+    /// privacy. The window acts on it once the popups have closed.
+    in-out property <int> action: 0;
+}
+
 // One of someone's activities on their profile, as Discord's card shows it:
 // its pictures, its lines, and how long it's run or how far it's got.
 export component ActivityCard inherits Rectangle {
+    /// One's own, which has Discord's more menu.
+    in property <bool> menu;
+    /// Its more button was clicked, with the button's top right corner.
+    callback more(length, length);
     /// Its text and picture ring, which a themed profile card chooses.
     in property <color> ink: Theme.text;
     in property <color> ink2: Theme.secondary;
@@ -360,6 +372,12 @@ export component ActivityCard inherits Rectangle {
     HorizontalLayout {
         spacing: 6px; height: 16px;
         Text { text: root.activity.heading; color: root.ink; font-size: 12px; font-weight: 600; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+        if root.menu: Middle {
+            IconButton {
+                icon: @image-url("icons/ellipsis.svg"); label: "More"; size: 20px; glyph: 14px; tint: root.ink2;
+                clicked => { root.more(self.absolute-position.x + self.width, self.absolute-position.y); }
+            }
+        }
     }
     HorizontalLayout {
         spacing: 12px;
@@ -726,6 +744,8 @@ export component ProfileCard inherits Rectangle {
     callback send-message(string);
     /// A badge was clicked, by its number in the badge window.
     callback open-badge(int);
+    /// One's own activity's more button was clicked, with where it is.
+    callback activity-more(length, length);
     /// The full profile's Message and Note, and Edit Profile on one's own.
     callback message;
     callback open-note;
@@ -1027,6 +1047,8 @@ export component ProfileCard inherits Rectangle {
                     if !root.large && root.data.activities.length > 0: VerticalLayout {
                         spacing: 16px;
                         for activity in root.data.activities: ActivityCard {
+                            menu: root.data.own;
+                            more(x, y) => { root.activity-more(x, y); }
                             activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3; plate: root.plate;
                             open-link(url) => { root.open-link(url); }
                         }

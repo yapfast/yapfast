@@ -49,3 +49,9 @@ Slint 1.18.1's Fluent style (https://slint.dev/), unmodified, under Slint's
 licence (GPL-3.0-only, the Royalty-free License 2.0 or the Software License 3.0).
 
 - Drawn for Yapfast: medal, for the account popout's Badges row.
+- Drawn for Yapfast: eyedropper, for the name style window's own colour.
+- Drawn for Yapfast: moon and sun, for the name style preview light and dark switch.
+- Drawn for Yapfast: shop, for the profile editor.
+- Drawn for Yapfast: pen, for the profile editor name field.
+- Drawn for Yapfast: brush and chevrons-right, for the profile editor's Show
+  Styles and Hide Styles.

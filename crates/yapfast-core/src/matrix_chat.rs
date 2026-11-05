@@ -1145,6 +1145,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             hide_muted: false,
             community: false,
             pinned: Vec::new(),
+            tag: None,
         });
     }
     for room in client

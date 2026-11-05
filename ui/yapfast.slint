@@ -42,7 +42,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } fro
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { ActivityRow, MemberRow, ProfileBadgeRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ProfileWindow, ServerCard, RoleCard } from "people.slint";
+import { ProfileEditorPage, ActivityRow, MemberRow, ProfileBadgeRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ProfileWindow, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, BadgesWindow, BadgeRow, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
@@ -63,6 +63,7 @@ export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, Motion } from "controls.slint";
+export { ServerTagRow } from "server.slint";
 export { NameLetters, NamePreset } from "names.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
@@ -223,7 +224,15 @@ export component YapfastWindow inherits Window {
     in-out property <string> profile-editor-colour;
     /// Opens the editor of the main Discord profile, as Edit Profile does.
     callback edit-profile;
+    callback open-profile-wishlist;
     callback write-profile(int, string);
+    callback choose-name-style(int, int, string);
+    callback edit-own-note;
+    callback choose-server-tag(string);
+    pure callback parse-hex(string) -> color;
+    pure callback format-hex(color) -> string;
+    pure callback key-part(string, int) -> string;
+    pure callback key-colour(string, int) -> color;
     callback pick-profile-picture(int);
     callback reset-profile-picture(int);
     callback unlock-nitro;
@@ -1802,8 +1811,42 @@ export component YapfastWindow inherits Window {
             }
         }
     }
+    property <length> activity-menu-x;
+    property <length> activity-menu-y;
+    activity-menu := PopupWindow {
+        x: min(root.width - self.width - 8px, root.activity-menu-x + 4px);
+        y: root.activity-menu-y - 8px;
+        width: 170px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+            drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 6px; spacing: 2px;
+                MenuItem { text: "View All Activity"; clicked => { activity-menu.close(); ProfileEditorPage.action = 1; } }
+                MenuItem { text: "Manage Privacy"; clicked => { activity-menu.close(); ProfileEditorPage.action = 2; } }
+            }
+        }
+    }
+    Timer {
+        interval: 1ms; running: ProfileEditorPage.action != 0;
+        triggered => {
+            let action = ProfileEditorPage.action;
+            ProfileEditorPage.action = 0;
+            status-menu.close();
+            root.close-profile();
+            if action == 1 {
+                ProfileEditorPage.wanted = 1;
+                root.account-opened();
+                root.edit-profile();
+            } else {
+                root.settings-section = 8;
+                root.settings-open = true;
+            }
+        }
+    }
     status-menu := PopupWindow {
-        width: status-menu-content.card-width; height: status-menu-content.card-height;
+        width: status-menu-content.full-width; height: status-menu-content.card-height;
         x: max(8px, min(root.width - self.width - 8px, root.menu-x));
         y: max(8px, root.menu-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
@@ -1827,7 +1870,7 @@ export component YapfastWindow inherits Window {
             game-duration-due => { root.game-duration-due(); }
             choose(status) => { root.set-status(status); status-menu.close(); }
             custom-status => { root.open-status(); status-menu.close(); }
-            edit-profile => { root.edit-profile(); status-menu.close(); }
+            edit-profile => { root.account-opened(); root.edit-profile(); status-menu.close(); }
         }
     }
     function open-menu(message: MessageRow) {
@@ -3426,7 +3469,7 @@ export component YapfastWindow inherits Window {
             discord-linked: root.discord-linked; has-custom-status: root.has-custom-status;
             retry-sync => { root.retry-sync(); }
             set-custom-status => { root.settings-open = false; root.open-status(); }
-            edit-profile => { root.settings-open = false; root.edit-profile(); }
+            edit-profile => { root.settings-open = false; root.account-opened(); root.edit-profile(); }
             sign-out => { root.settings-open = false; root.logout(); }
         }
         if root.settings-section == 7: AppearanceSettings {
@@ -3715,7 +3758,8 @@ export component YapfastWindow inherits Window {
             open-menu(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             open-badge(badge) => { root.open-person-badges(root.profile.id, badge); }
-            edit-profile => { root.close-profile(); root.edit-profile(); }
+            activity-more(x, y) => { root.activity-menu-x = x; root.activity-menu-y = y; activity-menu.show(); }
+            edit-profile => { root.close-profile(); root.account-opened(); root.edit-profile(); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
         }
     }
@@ -3743,7 +3787,7 @@ export component YapfastWindow inherits Window {
             open-badge(badge) => { root.open-person-badges(root.profile.id, badge); }
             message => { root.message-person(root.profile.id); root.close-profile(); }
             open-note => { root.note-person(root.profile.id); }
-            edit-profile => { root.close-profile(); root.edit-profile(); }
+            edit-profile => { root.close-profile(); root.account-opened(); root.edit-profile(); }
             tab-opened(tab) => { root.profile-tab-opened(tab); }
             join-call(room) => { root.close-profile(); root.join-profile-call(room); }
             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
@@ -3899,11 +3943,24 @@ export component YapfastWindow inherits Window {
     }
     profile-editor-motion := PopupMotion { open: root.profile-editor-open; }
     if profile-editor-motion.shown: ProfileEditorDialog {
+        open-link(url) => { root.open-link(url); }
         motion: profile-editor-motion.amount;
         prompt: root.profile-editor-prompt;
         name <=> root.profile-editor-name; pronouns <=> root.profile-editor-pronouns;
         bio <=> root.profile-editor-bio; colour <=> root.profile-editor-colour;
         write(field, text) => { root.write-profile(field, text); }
+        choose-name-style(font, effect, colours) => { root.choose-name-style(font, effect, colours); }
+        copy-id => { root.copy-text(root.account-id); }
+        open-wishlist => { root.open-profile-wishlist(); }
+        edit-note => { root.edit-own-note(); }
+        choose-tag(server) => { root.choose-server-tag(server); }
+        edit-status => { root.open-status(); }
+        has-status: root.has-custom-status; status-text: root.account-status; status-emoji: root.account-status-emoji;
+        parse-hex(text) => { return root.parse-hex(text); }
+        format-hex(colour) => { return root.format-hex(colour); }
+        key-part(key, index) => { return root.key-part(key, index); }
+        key-colour(key, index) => { return root.key-colour(key, index); }
+        presence: root.account-presence;
         pick(kind) => { root.pick-profile-picture(kind); }
         reset(kind) => { root.reset-profile-picture(kind); }
         unlock-nitro => { root.unlock-nitro(); }

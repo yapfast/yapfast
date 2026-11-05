@@ -554,6 +554,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     bind!(on_close_channel, Action::CloseChannelDialog);
     bind!(on_edit_profile, Action::EditProfile);
+    bind!(on_open_profile_wishlist, Action::OpenWishlist);
     bind!(on_close_person_badges, Action::ClosePersonBadges);
     {
         let (state, weak) = (adapter.clone(), window.as_weak());
@@ -650,6 +651,52 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
+        window.on_choose_server_tag({
+            let (adapter, weak) = (adapter.clone(), weak.clone());
+            move |server| {
+                if let Some(window) = weak.upgrade() {
+                    adapter
+                        .borrow_mut()
+                        .action(&window, Action::ChooseServerTag(server.to_string()));
+                }
+            }
+        });
+        window.global::<NameLetters>().on_contains(|text, query| {
+            text.to_lowercase()
+                .contains(query.trim().to_lowercase().as_str())
+        });
+        window.on_edit_own_note({
+            let (adapter, weak) = (adapter.clone(), weak.clone());
+            move || {
+                if let Some(window) = weak.upgrade() {
+                    let user = adapter.borrow().app.state.account_id.clone();
+                    if let Some(user) = user {
+                        adapter.borrow_mut().action(
+                            &window,
+                            Action::AskPerson {
+                                user,
+                                ask: yapfast_core::application::PersonAsk::Note,
+                            },
+                        );
+                    }
+                }
+            }
+        });
+        window.on_choose_name_style({
+            let (adapter, weak) = (adapter.clone(), weak.clone());
+            move |font, effect, colours| {
+                if let Some(window) = weak.upgrade() {
+                    adapter.borrow_mut().action(
+                        &window,
+                        Action::ChooseNameStyle {
+                            font: font.max(0) as u32,
+                            effect: effect.max(1) as u32,
+                            colours: colours.to_string(),
+                        },
+                    );
+                }
+            }
+        });
         window.global::<NameLetters>().on_letters(|text| {
             let letters: Vec<SharedString> = text
                 .chars()
@@ -667,11 +714,66 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     .count();
                 pictures::nth_key_colour(&key, at)
             });
+        window
+            .global::<NameLetters>()
+            .on_stripe(|key, index| pictures::nth_key_colour(&key, index.max(0) as usize));
+        window.on_key_part(|key, index| {
+            key.split(',')
+                .nth(index.max(0) as usize)
+                .unwrap_or_default()
+                .into()
+        });
+        // Spread evenly over five stops, however many colours it has.
+        window.on_key_colour(|key, index| {
+            let colours: Vec<[f32; 3]> = key
+                .split(',')
+                .filter_map(|hex| u32::from_str_radix(hex.trim().trim_start_matches('#'), 16).ok())
+                .map(|rgb| {
+                    [
+                        (rgb >> 16 & 255) as f32,
+                        (rgb >> 8 & 255) as f32,
+                        (rgb & 255) as f32,
+                    ]
+                })
+                .collect();
+            let (Some(first), Some(last)) = (colours.first(), colours.last()) else {
+                return slint::Color::default();
+            };
+            let at = index.clamp(0, 4) as f32 / 4.0 * (colours.len() - 1) as f32;
+            let low = at.floor() as usize;
+            let (from, to) = (
+                colours.get(low).unwrap_or(first),
+                colours.get(low + 1).unwrap_or(last),
+            );
+            let part =
+                |channel: usize| (from[channel] + (to[channel] - from[channel]) * at.fract()) as u8;
+            slint::Color::from_rgb_u8(part(0), part(1), part(2))
+        });
+        window.on_format_hex(|colour| {
+            format!(
+                "{:02x}{:02x}{:02x}",
+                colour.red(),
+                colour.green(),
+                colour.blue()
+            )
+            .into()
+        });
+        window.on_parse_hex(|text| {
+            let hex = text.trim().trim_start_matches('#');
+            let value = (hex.len() == 6)
+                .then(|| u32::from_str_radix(hex, 16).ok())
+                .flatten();
+            value.map_or_else(slint::Color::default, |rgb| {
+                slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+            })
+        });
         window.on_write_profile(move |field, text| {
             let field = match field {
                 0 => ProfileText::Name,
                 1 => ProfileText::Pronouns,
                 2 => ProfileText::Bio,
+                4 => ProfileText::ThemeTop,
+                5 => ProfileText::ThemeBottom,
                 _ => ProfileText::Colour,
             };
             if let Some(window) = weak.upgrade() {
