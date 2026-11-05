@@ -286,7 +286,8 @@ or Intel's driver.
 
 ## Checks
 
-`scripts/check` enters the development shell itself. `scripts/check --fast`
+`scripts/check` enters the development shell itself when Nix is installed, and
+uses the tools already installed otherwise. `scripts/check --fast`
 builds with the `fast` profile, as local work does. It runs, in order:
 formatting; `scripts/check-doc-links`, which fails on a Markdown link to a
 missing file or heading; Clippy with warnings denied and the tests for the whole workspace
