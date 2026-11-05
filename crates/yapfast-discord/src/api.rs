@@ -480,6 +480,19 @@ impl Api {
         }
     }
 
+    /// A message of a channel, or none once it's gone. User accounts can't
+    /// ask for one message by its id, so this asks as Discord's client does,
+    /// for the one around it, which is another message when it's gone.
+    pub async fn message(&self, channel: &str, id: &str) -> Result<Option<Value>> {
+        let path = format!("/channels/{channel}/messages?limit=1&around={id}");
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages
+                .into_iter()
+                .find(|message| message["id"].as_str() == Some(id))),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
     /// Sends a message, as a reply when `options` names one in the same
     /// channel, with uploaded files.
     pub async fn send(

@@ -130,6 +130,9 @@
 // buttons and a menu under its text, and one of components outside a
 // container, with a gallery of its attachments and a file. It answers with
 // the notice's id.
+// POST /_control/unlooked-reply?channel=ID&to=ID makes Bob reply to a message
+// in a channel, live and in its history without `referenced_message`, as when
+// Discord didn't look the original up, and answers with the reply's id.
 // POST /_control/embeds makes Bob post an article link, whose preview arrives
 // a moment later in a MESSAGE_UPDATE as Discord's does, a YouTube link and a
 // GIF link, and a bot post a card with fields; their pictures come from
@@ -1040,6 +1043,8 @@ type Message = {
   type: number;
   nonce?: string;
   reply?: string;
+  /** Sent without `referenced_message`: Discord didn't look its original up. */
+  unlooked?: boolean;
   files: File[];
   reactions: Reaction[];
   edited?: number;
@@ -1204,7 +1209,7 @@ function wireMessage(message: Message, origin: string, nested = false): Record<s
       message_id: message.reply,
       ...guildOf(message.channel),
     };
-    wire.referenced_message = original ? wireMessage(original, origin, true) : null;
+    if (!message.unlooked) wire.referenced_message = original ? wireMessage(original, origin, true) : null;
   }
   return wire;
 }
@@ -1264,6 +1269,17 @@ function endPoll(message: Message, origin: string) {
 /** The server of a channel as events carry it; DMs have none. */
 function guildOf(channel: string): { guild_id?: string } {
   return privates.has(channel) ? {} : { guild_id: fillerChannels.get(channel) ?? world?.channelGuild.get(channel)?.id ?? GUILD };
+}
+
+/**
+ * A message as the MESSAGE_UPDATE that brings its link previews carries it.
+ * Discord's unfurler doesn't fetch the message a reply answers, so the update
+ * leaves `referenced_message` out: its state is unknown, not deleted, which
+ * only `null` means.
+ */
+function previewUpdate(message: Message, origin: string) {
+  const { referenced_message: _, ...update } = dispatched(message, origin) as Record<string, unknown>;
+  return update;
 }
 
 /** A message as the gateway dispatches it: with the server and the author's member. */
@@ -5412,7 +5428,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       if (linked) {
         setTimeout(() => {
           message.embeds = () => [linked];
-          dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+          dispatch("MESSAGE_UPDATE", previewUpdate(message, origin));
         }, 300);
       } else if (sentGif) {
         setTimeout(() => {
@@ -5421,7 +5437,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
             type: "gifv", url: wired.url, provider: { name: "Klipy", url: "https://klipy.com" },
             thumbnail: { url: `https://static.klipy.com/${sentGif.name}.webp`, proxy_url: wired.src, width: sentGif.width, height: sentGif.height, content_type: "image/webp" },
           }];
-          dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+          dispatch("MESSAGE_UPDATE", previewUpdate(message, origin));
         }, 300);
       }
       return json(wireMessage(message, origin));
@@ -6839,7 +6855,7 @@ function postEmbeds(origin: string) {
   // Discord fetches the page after the message is sent, then updates it.
   setTimeout(() => {
     article.embeds = (origin) => [articleEmbed(origin)];
-    dispatch("MESSAGE_UPDATE", dispatched(article, origin));
+    dispatch("MESSAGE_UPDATE", previewUpdate(article, origin));
   }, 800);
   const video = post(GENERAL, users.bob, "This one too https://www.youtube.com/watch?v=talk", now + 1, {
     embeds: (origin) => [
@@ -8001,6 +8017,14 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/components") {
       return new Response(`${postComponents(origin)}\n`);
+    }
+    if (req.method === "POST" && path === "/_control/unlooked-reply") {
+      const channel = url.searchParams.get("channel") ?? GENERAL;
+      const to = url.searchParams.get("to");
+      if (!to) return new Response("to is required\n", { status: 400 });
+      const message = post(channel, users.bob, "About that", Date.now(), { reply: to, unlooked: true });
+      dispatch("MESSAGE_CREATE", dispatched(message, origin));
+      return new Response(message.id);
     }
     if (req.method === "POST" && path === "/_control/embeds") {
       postEmbeds(origin);

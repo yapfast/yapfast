@@ -1352,9 +1352,14 @@ export component YapfastWindow inherits Window {
     // that jumps back to it is gone.
     in property <bool> caught-up;
     // The newest message is in view, with the window in front and no jump settling,
-    // which reads the conversation.
+    // which reads the conversation. A jump that placed its row with the list at its
+    // end, as to the "New" divider of a short unread stretch, reads it at once
+    // rather than once the jump lets go.
     property <bool> reading-latest: root.room-selected && !root.requests-open && !root.friends-open
-        && root.follow-latest && root.window-focused && root.jump-item == "";
+        && root.window-focused
+        && ((root.follow-latest && root.jump-item == "")
+            || (root.jump-item != "" && root.jump-placed && !root.detached
+                && root.timeline-position <= min(0px, root.timeline-viewport - root.timeline-content) + 0.5px));
     changed reading-latest => { root.reading-changed(self.reading-latest); }
     public function reading() -> bool { return root.reading-latest; }
     // How far the newest message is below the view; zero at the end.
@@ -2693,6 +2698,10 @@ export component YapfastWindow inherits Window {
                                                     root.jump-placed = true;
                                                     timeline.content-y = max(min(0px, timeline.height - timeline.content-height),
                                                         min(0px, (root.jump-lit ? timeline.height / 3 : 0px) - self.y - self.top));
+                                                    // The list may have been at its end before the jump and be there after,
+                                                    // so `reading-latest` needn't change, but the application stopped counting
+                                                    // on it when it asked for the jump.
+                                                    root.reading-changed(root.reading-latest);
                                                 }
                                             }
                                             // The keyboard's message stays in view, with room for the next one,

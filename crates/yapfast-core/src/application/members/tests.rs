@@ -376,6 +376,10 @@ fn invite_to_server_lists_where_one_may_invite_but_the_server_theyre_shown_in() 
     );
     assert!(app.invite_servers("1").is_empty(), "not oneself");
     assert!(app.invite_servers("8").is_empty(), "not a bot");
+    // Discord refuses friend requests to bots, so none is offered or sent.
+    assert_eq!(app.state.relation("8"), Relation::Bot);
+    assert!(!app.person_choices("8").contains(&AddFriend));
+    assert!(app.dispatch(Action::Befriend("8".into())).is_empty());
     assert!(!app.person_choices("1").contains(&InviteToServer));
     // Away from the server, its own members may be invited to it too.
     app.dispatch(Action::Navigate(Navigation::DirectMessages));

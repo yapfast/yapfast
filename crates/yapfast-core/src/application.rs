@@ -411,6 +411,9 @@ pub struct AppState {
     /// Those it blocked, by name, and those it ignores, by user id.
     pub discord_blocked: Vec<chat::Blocked>,
     pub discord_ignored: Arc<[String]>,
+    /// Who is who, as the Discord service knows them.
+    #[cfg(feature = "discord")]
+    pub discord_names: Option<yapfast_discord::service::SharedNames>,
     /// DMs pinned to the top of the DM list on this device, by room id, the
     /// first pinned first.
     pub pinned: Vec<String>,
@@ -1125,8 +1128,23 @@ impl AppState {
             {
                 Some(request) if request.incoming => Relation::Incoming,
                 Some(_) => Relation::Outgoing,
+                None if self.is_discord_bot(user) => Relation::Bot,
                 None => Relation::Stranger,
             }
+        }
+    }
+
+    /// Whether a Discord user is a bot or an app, as far as it's known.
+    fn is_discord_bot(&self, user: &str) -> bool {
+        #[cfg(feature = "discord")]
+        return self
+            .discord_names
+            .as_ref()
+            .is_some_and(|names| names.read().is_bot(user));
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = user;
+            false
         }
     }
 
@@ -1252,6 +1270,8 @@ pub enum Relation {
     Incoming,
     /// This account sent them one.
     Outgoing,
+    /// A bot or an app, which Discord refuses friend requests to.
+    Bot,
     Stranger,
 }
 
@@ -2022,6 +2042,9 @@ pub struct Application {
     /// the first message after it is still to be found, and whether the
     /// messages around it were asked for.
     read_marker: Option<(String, bool)>,
+    /// What shows is what was kept, with the newest page on its way, so the
+    /// "New" divider isn't placed yet: see [`chat::Direction::Kept`].
+    divider_waits: bool,
     /// [`AppState::seen`] is still to be checked against the selected room's
     /// timeline, once it comes.
     placing_seen: bool,

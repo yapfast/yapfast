@@ -656,11 +656,11 @@ impl Backend {
         _skia_surface: &mut skia_safe::Surface,
     ) {
         match self {
-            // Metal and D3D12 have no image layout for Skia to hand back.
+            // Metal has no image layout for Skia to hand back.
             #[cfg(target_vendor = "apple")]
             Self::Metal => {}
             #[cfg(target_family = "windows")]
-            Self::Dx12 => {}
+            Self::Dx12 => dx12::release_dx12_swapchain_surface(_gr_context, _skia_surface),
             #[cfg(skia_wgpu_vulkan)]
             Self::Vulkan { queue_family_index } => vulkan::release_vulkan_swapchain_surface(
                 _gr_context,

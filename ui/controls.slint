@@ -586,6 +586,10 @@ export component MenuItem inherits Rectangle {
 export struct MenuRow {
     /// What the menu reports when it's chosen.
     id: string,
+    /// What it reports when it's clicked, instead of its submenu opening,
+    /// for a row whose submenu is a choice of how, as a mute for a time is;
+    /// empty for a row whose click opens its submenu, as hovering does.
+    click-id: string,
     text: string,
     /// A second line under the text, such as what its submenu has chosen.
     subtitle: string,
@@ -644,7 +648,9 @@ component MenuRows inherits VerticalLayout {
 // Space chooses, Right opens a row's submenu and Left leaves it, and Escape
 // closes the submenu, then the menu. A checkbox row reports `toggled`
 // rather than `chose`, and the menu stays open; a disabled row reports
-// neither. A menu or submenu taller than `tallest` scrolls.
+// neither. A row whose submenu is a choice of how, as a mute's times are,
+// opens that submenu on hover; clicked itself, it reports its `click-id`
+// and the menu closes. A menu or submenu taller than `tallest` scrolls.
 //
 // The menu stays where it opens. A submenu lines up with its row and moves
 // up to stay within `room-below`, past the menu's top if it must, and
@@ -713,7 +719,7 @@ export component ContextMenu inherits Rectangle {
     }
     function pick(row: MenuRow) {
         if row.disabled { return; }
-        if row.checkbox { root.toggled(row.id); } else { root.chose(row.id); }
+        if row.checkbox { root.toggled(row.id); } else { root.chose(row.click-id == "" ? row.id : row.click-id); }
     }
     // Where a menu that scrolls goes to show the row lit `y` down it and
     // `height` tall, as the keys move to it.
@@ -781,7 +787,7 @@ export component ContextMenu inherits Rectangle {
                     }
                 }
                 clicked(index) => {
-                    if root.has-submenu(index) {
+                    if root.has-submenu(index) && root.rows[index].click-id == "" {
                         root.open-submenu(index);
                     } else {
                         root.pick(root.rows[index]);

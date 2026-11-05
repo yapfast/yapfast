@@ -445,6 +445,7 @@ impl Application {
                 .collect();
         }
         self.state.discord_ignored = snapshot.ignored.clone();
+        self.state.discord_names = Some(snapshot.names.clone());
         if changed(|a, b| Arc::ptr_eq(&a.friend_list, &b.friend_list)) {
             self.state.friends = snapshot
                 .friend_list
@@ -586,6 +587,10 @@ impl Application {
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
+        #[cfg(feature = "discord")]
+        {
+            self.state.discord_names = None;
+        }
         self.state.person_dialog = None;
         self.state.server_settings = None;
         self.state.channel_settings = None;

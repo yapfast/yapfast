@@ -1584,6 +1584,9 @@ pub enum Direction {
     Later,
     /// [`Command::Around`].
     Around,
+    /// What's kept of a Discord channel shows, with its newest page on its way,
+    /// which may bring messages newer than those: a "New" divider waits for it.
+    Kept,
     /// The newest page of a Discord channel, as it opens or loads again:
     /// what shows of it by then is all there is.
     Latest,
