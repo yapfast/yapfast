@@ -534,6 +534,12 @@ impl Application {
         effects.extend(self.mark_aside_read());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
+        // The emoji picker shows the account's favourite and used emoji, as
+        // its other clients keep them; another client's changes come live.
+        if self.state.discord_online && !self.emojis_asked && !self.state.preview {
+            self.emojis_asked = true;
+            effects.push(Effect::Backend(Command::Discord(DiscordCommand::Emojis)));
+        }
         effects
     }
 

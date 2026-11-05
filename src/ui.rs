@@ -2576,6 +2576,8 @@ const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
 
 /// The most custom emoji the picker fetches pictures for at once.
 const MAX_PICKER_EMOJI: usize = 600;
+/// The emoji the picker's Frequently used row holds: two rows of them.
+const FREQUENT_EMOJI: usize = 16;
 
 /// How many emoji the composer suggests for a `:name` word.
 const EMOJI_SUGGESTIONS: usize = 10;

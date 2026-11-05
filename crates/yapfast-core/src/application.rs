@@ -597,6 +597,9 @@ pub struct AppState {
     /// A message being forwarded, while its dialog is open.
     pub forwarding: Option<Forwarding>,
     pub places_used: PlacesUsed,
+    /// The Discord account's favourite emoji and the emoji it uses, which the
+    /// emoji picker shows first.
+    pub discord_emojis: chat::DiscordEmojis,
     /// What the quick switcher searches for, while it's open.
     pub switcher: Option<String>,
     pub new_dm: Option<NewDm>,
@@ -1949,6 +1952,8 @@ pub struct Application {
     samples: HashMap<String, Vec<Arc<ChatMessage>>>,
     /// How often this device added each reaction.
     reaction_uses: HashMap<String, u32>,
+    /// Discord's favourite and used emoji were asked for, once a session.
+    emojis_asked: bool,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
     /// Forwards sent, until each conversation they went to answers.
@@ -3381,6 +3386,18 @@ impl Application {
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),
             Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
+            Event::DiscordEmojis(result) => match result {
+                Ok(emojis) => {
+                    let known = &mut self.state.discord_emojis;
+                    if emojis.favorites.is_some() {
+                        known.favorites = emojis.favorites;
+                    }
+                    if emojis.used.is_some() {
+                        known.used = emojis.used;
+                    }
+                }
+                Err(error) => tracing::debug!(%error, "could not fetch the emoji used"),
+            },
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
             Event::Reactors {
                 item,
@@ -3825,6 +3842,22 @@ impl Application {
                 .collect();
         }
         vec![]
+    }
+
+    /// The emoji the Discord account used most lately, as its clients rank
+    /// them, best first: custom emoji's ids and Unicode emoji's Discord names.
+    pub fn discord_frequent_emojis(&self, now: u64) -> Vec<&str> {
+        let mut ranked: Vec<(&str, u32)> = self
+            .state
+            .discord_emojis
+            .used
+            .iter()
+            .flatten()
+            .map(|(name, uses)| (name.as_str(), place_search::frecency(uses, now)))
+            .filter(|(_, frecency)| *frecency > 0)
+            .collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        ranked.into_iter().map(|(name, _)| name).collect()
     }
 
     /// The `count` reactions this device adds most, then the defaults.

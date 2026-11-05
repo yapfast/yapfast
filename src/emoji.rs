@@ -127,6 +127,41 @@ fn with_picture(shown: EmojiCell) -> Option<EmojiCell> {
     (picture.size().width > 0).then_some(EmojiCell { picture, ..shown })
 }
 
+/// The picker's key for an emoji as Discord's settings name it: a custom
+/// emoji's id, found among `custom`, or a Unicode emoji's Discord name, such
+/// as `slight_smile`, `thumbsup_tone2` or `flag_fr`, from Discord's own names
+/// where they differ from GitHub's shortcodes. `None` for a custom emoji not
+/// there, or a name Yapfast doesn't know.
+pub fn discord_key(name: &str, custom: &[EmojiSet]) -> Option<String> {
+    if name.bytes().all(|byte| byte.is_ascii_digit()) {
+        return custom
+            .iter()
+            .flat_map(|set| &set.emoji)
+            .find(|emoji| emoji.id == name)
+            .map(custom_key);
+    }
+    let (base, tone) = match name.rsplit_once("_tone") {
+        Some((base, tone @ ("1" | "2" | "3" | "4" | "5"))) => (base, tone),
+        _ => (name, ""),
+    };
+    let names = crate::discord_emoji_names::NAMES;
+    let emoji = names
+        .binary_search_by_key(&base, |(name, _)| name)
+        .ok()
+        .and_then(|at| emojis::get(names[at].1))
+        .or_else(|| emojis::get_by_shortcode(base))
+        .or_else(|| emojis::get_by_shortcode(base.strip_prefix("flag_")?))?;
+    let emoji = match tone {
+        "1" => emoji.with_skin_tone(emojis::SkinTone::Light)?,
+        "2" => emoji.with_skin_tone(emojis::SkinTone::MediumLight)?,
+        "3" => emoji.with_skin_tone(emojis::SkinTone::Medium)?,
+        "4" => emoji.with_skin_tone(emojis::SkinTone::MediumDark)?,
+        "5" => emoji.with_skin_tone(emojis::SkinTone::Dark)?,
+        _ => emoji,
+    };
+    (emoji.unicode_version() <= NEWEST).then(|| emoji.as_str().to_owned())
+}
+
 /// A custom emoji's reaction key, Discord's `name:id`.
 pub fn custom_key(emoji: &yapfast_core::chat::CustomEmoji) -> String {
     format!("{}:{}", emoji.text.trim_matches(':'), emoji.id)
@@ -206,13 +241,15 @@ pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiC
         .collect()
 }
 
-/// The picker's rows: with no query, frequently used emoji, the custom emoji of
-/// each server in `custom`, and then every category under its heading; otherwise
+/// The picker's rows: with no query, favourite emoji, frequently used emoji, the
+/// custom emoji of each server in `custom`, and then every category under its
+/// heading; otherwise
 /// the emoji whose name or shortcode contains the query. With no query, also
 /// the sections the sidebar jumps to, each shown by `server_icon` for a server
 /// that has one, and its first emoji otherwise.
 pub fn rows(
     query: &str,
+    favorites: &[String],
     frequent: &[String],
     custom: &[EmojiSet],
     server_icon: impl Fn(&EmojiSet) -> Option<slint::Image>,
@@ -280,6 +317,7 @@ pub fn rows(
         );
         return (rows, sections);
     }
+    section(Some(titled("⭐", "Favorites")), favorites.to_vec());
     section(Some(titled("🕒", "Frequently used")), frequent.to_vec());
     for (set, keys) in custom.iter().zip(custom_keys) {
         let Some(first) = keys.first() else { continue };
@@ -511,7 +549,7 @@ mod tests {
                 picture: String::new(),
             }],
         }];
-        let (rows, sections) = rows("", &[], &custom, |_| None);
+        let (rows, sections) = rows("", &[], &[], &custom, |_| None);
         let model = VecModel::from(rows);
         let sections = VecModel::from(sections);
         let cells = model.row_data(1).unwrap().cells;
@@ -538,26 +576,27 @@ mod tests {
 
     #[test]
     fn the_picker_lists_categories_or_matches_and_names_emoji() {
-        let (all, sections) = rows("", &["🔥".into()], &[], |_| None);
-        assert_eq!(all[0].heading, "FREQUENTLY USED");
-        assert_eq!(all[1].cells.row_count(), 1);
-        assert_eq!(all[2].heading, "SMILEYS & EMOTION");
+        let (all, sections) = rows("", &["☠️".into()], &["🔥".into()], &[], |_| None);
+        assert_eq!(all[0].heading, "FAVORITES");
+        assert_eq!(all[2].heading, "FREQUENTLY USED");
+        assert_eq!(all[3].cells.row_count(), 1);
+        assert_eq!(all[4].heading, "SMILEYS & EMOTION");
         assert!(all.iter().all(|row| row.cells.row_count() <= COLUMNS));
         // The sidebar jumps to each heading; a section ends where the next begins.
-        assert_eq!(sections.len(), 1 + emojis::Group::iter().count());
+        assert_eq!(sections.len(), 2 + emojis::Group::iter().count());
         assert_eq!((sections[0].row, sections[0].end), (0, 2));
-        assert_eq!(sections[1].icon.name, "Smileys & emotion");
+        assert_eq!(sections[2].icon.name, "Smileys & emotion");
         for (section, next) in sections.iter().zip(&sections[1..]) {
             assert!(!all[section.row as usize].heading.is_empty());
             assert_eq!(section.end, next.row);
         }
         assert_eq!(sections.last().unwrap().end as usize, all.len());
-        let (found, sections) = rows(":pizza", &[], &[], |_| None);
+        let (found, sections) = rows(":pizza", &[], &[], &[], |_| None);
         assert_eq!(found.len(), 1);
         assert!(sections.is_empty(), "matches have no sections");
         assert!(found[0].heading.is_empty());
         assert_eq!(found[0].cells.row_data(0).unwrap().glyph, "🍕");
-        assert!(rows("no such emoji", &[], &[], |_| None).0.is_empty());
+        assert!(rows("no such emoji", &[], &[], &[], |_| None).0.is_empty());
         assert_eq!(cell("👍").name, "Thumbs up");
         // The composer gets the emoji, or a custom emoji's name.
         assert_eq!(composer_text("👍"), "👍");
@@ -575,7 +614,7 @@ mod tests {
             }],
         }];
         let icon = slint::Image::from_rgba8(slint::SharedPixelBuffer::new(3, 3));
-        let (all, sections) = rows("", &[], &custom, |_| Some(icon.clone()));
+        let (all, sections) = rows("", &[], &[], &custom, |_| Some(icon.clone()));
         assert_eq!(all[0].heading, "GAMES");
         let pog = all[1].cells.row_data(0).unwrap();
         assert_eq!((pog.glyph.as_str(), pog.key.as_str()), (":pog:", "pog:5"));
@@ -586,13 +625,39 @@ mod tests {
             "the server's icon"
         );
         assert_eq!(
-            rows("po", &[], &custom, |_| None).0[0]
+            rows("po", &[], &[], &custom, |_| None).0[0]
                 .cells
                 .row_data(0)
                 .unwrap()
                 .key,
             "pog:5"
         );
+    }
+
+    #[test]
+    fn finds_emoji_by_discord_names() {
+        let names = crate::discord_emoji_names::NAMES;
+        assert!(names.windows(2).all(|pair| pair[0].0 < pair[1].0), "sorted");
+        let custom = [EmojiSet {
+            server: "Server".into(),
+            icon: None,
+            emoji: vec![yapfast_core::chat::CustomEmoji {
+                text: ":talk:".into(),
+                id: "5".into(),
+                animated: false,
+                picture: String::new(),
+            }],
+        }];
+        let key = |name| discord_key(name, &custom);
+        // Discord's own names, then GitHub's that it shares.
+        assert_eq!(key("skull_crossbones").as_deref(), Some("☠️"));
+        assert_eq!(key("slight_smile").as_deref(), Some("🙂"));
+        assert_eq!(key("joy").as_deref(), Some("😂"));
+        assert_eq!(key("thumbsup_tone4").as_deref(), Some("👍🏾"));
+        assert_eq!(key("flag_fr").as_deref(), Some("🇫🇷"));
+        assert_eq!(key("5").as_deref(), Some("talk:5"));
+        assert_eq!(key("6"), None, "a custom emoji not usable here");
+        assert_eq!(key("no_such_emoji"), None);
     }
 
     #[test]

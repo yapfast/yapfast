@@ -112,9 +112,9 @@ fn weight(days: i64) -> u32 {
     }
 }
 
-/// A place's frecency: its uses in all, scaled by how recent the latest
-/// were; none for a place not used lately.
-fn frecency(uses: &PlaceUses, now: u64) -> u32 {
+/// A place's or emoji's frecency: its uses in all, scaled by how recent the
+/// latest were; none for one not used lately.
+pub(super) fn frecency(uses: &PlaceUses, now: u64) -> u32 {
     let score: u32 = uses
         .recent
         .iter()

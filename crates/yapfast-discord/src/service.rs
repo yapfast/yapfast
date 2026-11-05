@@ -411,6 +411,9 @@ pub enum Live {
     /// The servers and channels this account used, as another client counted
     /// them; see [`crate::frecency`].
     PlacesUsed(Vec<(String, crate::frecency::Uses)>),
+    /// The account's favourite emoji and the emoji it uses, as another
+    /// client changed them; see [`crate::frecency::Emojis`].
+    Emojis(crate::frecency::Emojis),
     /// Who watches a stream this account is in, and whether it's paused.
     StreamUpdated {
         stream_key: String,
@@ -1908,6 +1911,13 @@ impl Discord {
     pub async fn places_used(&self) -> Result<Vec<(String, crate::frecency::Uses)>> {
         let settings = self.api.frecency_settings().await?;
         Ok(crate::frecency::read_places(&settings).unwrap_or_default())
+    }
+
+    /// The account's favourite emoji and the emoji it uses, as its
+    /// clients keep them; see [`crate::frecency::Emojis`].
+    pub async fn emojis(&self) -> Result<crate::frecency::Emojis> {
+        let settings = self.api.frecency_settings().await?;
+        Ok(crate::frecency::read_emojis(&settings).unwrap_or_default())
     }
 
     /// Keeps `favorites` as the account's favourite GIFs, in place of the old.

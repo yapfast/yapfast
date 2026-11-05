@@ -877,15 +877,33 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .collect();
             adapter.action(&window, Action::LoadPictures(pictures));
         }
-        let (rows, sections) = emoji::rows(
-            &query,
-            &adapter.app.frequent_reactions(16),
-            &custom,
-            |set| {
-                let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
-                Some(picture(icon))
-            },
-        );
+        // The Discord account's favourites, then the emoji it used most, as
+        // its other clients keep them, and those this device reacts with.
+        let favorites: Vec<String> = adapter
+            .app
+            .state
+            .discord_emojis
+            .favorites
+            .iter()
+            .flatten()
+            .filter_map(|name| emoji::discord_key(name, &custom))
+            .collect();
+        let mut frequent: Vec<String> = adapter
+            .app
+            .discord_frequent_emojis(yapfast_core::clock::now_ms())
+            .into_iter()
+            .filter_map(|name| emoji::discord_key(name, &custom))
+            .collect();
+        for key in adapter.app.frequent_reactions(16) {
+            if !frequent.contains(&key) {
+                frequent.push(key);
+            }
+        }
+        frequent.truncate(FREQUENT_EMOJI);
+        let (rows, sections) = emoji::rows(&query, &favorites, &frequent, &custom, |set| {
+            let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
+            Some(picture(icon))
+        });
         update_model(&adapter.models.emoji_rows, rows);
         // Matches have no sections; the sidebar keeps those it jumps back to.
         if !sections.is_empty() {

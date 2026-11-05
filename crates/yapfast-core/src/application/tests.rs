@@ -9779,6 +9779,36 @@ fn going_idle_while_signed_out_tells_nobody() {
     ));
 }
 
+#[test]
+fn discord_emoji_favourites_and_uses_rank_and_last_through_partial_updates() {
+    let mut app = connected();
+    let now = crate::clock::now_ms();
+    let used = |total, days: &[u64]| crate::chat::PlaceUses {
+        total,
+        recent: days.iter().map(|days| now - days * 86_400_000).collect(),
+    };
+    app.apply(Event::DiscordEmojis(Ok(crate::chat::DiscordEmojis {
+        favorites: Some(vec!["skull_crossbones".into()]),
+        used: Some(vec![
+            ("thumbsup".into(), used(2, &[30])),
+            ("joy".into(), used(9, &[0, 0])),
+            ("sob".into(), used(1, &[])),
+        ]),
+    })));
+    // Used most lately first; one not used lately isn't frequent.
+    assert_eq!(app.discord_frequent_emojis(now), ["joy", "thumbsup"]);
+    // An update that leaves the uses out didn't change them.
+    app.apply(Event::DiscordEmojis(Ok(crate::chat::DiscordEmojis {
+        favorites: Some(vec!["heart".into()]),
+        used: None,
+    })));
+    assert_eq!(
+        app.state.discord_emojis.favorites.as_deref(),
+        Some(&["heart".to_owned()][..])
+    );
+    assert_eq!(app.discord_frequent_emojis(now), ["joy", "thumbsup"]);
+}
+
 #[cfg(feature = "discord")]
 mod arrange;
 #[cfg(feature = "discord")]

@@ -337,6 +337,18 @@ an error.
   picker offers only the open server's emoji, none animated, and sending
   turns `:name:` into Discord's `<:name:id>` only for those. Animated emoji
   show their first frame.
+- The emoji picker's Favorites and the start of its Frequently used are the
+  account's own, as every Discord client of it shows them: `favorite_emojis`
+  and `emoji_frecency` in `FrecencyUserSettings`, the second settings
+  protobuf, fetched once Discord connects and followed through
+  USER_SETTINGS_PROTO_UPDATE, where a partial update's missing field keeps
+  what Yapfast had. Frequently used ranks them by frecency as the quick
+  switcher ranks places, then adds the reactions this computer counts. The
+  settings name a custom emoji by its id, shown if it's usable here, and a
+  Unicode emoji by Discord's name, such as `slight_smile`;
+  `src/discord_emoji_names.rs`, which `scripts/discord-emoji-names` writes
+  from emojibase-data, holds those that differ from GitHub's shortcodes,
+  which the `emojis` crate knows. Yapfast doesn't change them yet.
 - Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
   GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation
