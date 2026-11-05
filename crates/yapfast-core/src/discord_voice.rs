@@ -259,6 +259,10 @@ impl Watch {
     /// the server it was on before.
     fn open(&mut self, server: &StreamServer, state: &mut State) -> Result<()> {
         self.opening = None;
+        // The worker showing the server before this one gives up its place
+        // among those decoding first, so this one isn't counted beside a
+        // worker that's stopping and handed half its threads for good.
+        self.worker = None;
         let volume = crate::volume::heard(crate::volume::Kind::Stream, &self.user);
         let (worker, frames, reports) =
             Worker::watch(server, state.speaker.clone(), state.deafened, volume)?;

@@ -77,6 +77,15 @@ pub const DECODES: &[Codec] = if cfg!(hevcdec) {
 /// the codec keeps, so past four the work is heavier for little gain.
 const MOST_THREADS: usize = 4;
 
+/// One stream's share of a machine with `cores` that is decoding `streams` of
+/// them at once: the cores divided among the streams, up to the four one
+/// stream alone takes, and never less than the one thread a decoder can't do
+/// without. A stream past the cores oversubscribes by that one thread rather
+/// than waiting for another stream to finish.
+pub fn share(cores: usize, streams: usize) -> usize {
+    (cores / streams.max(1)).clamp(1, MOST_THREADS)
+}
+
 /// The decoder threads everything decoding in this process shares.
 ///
 /// Each decoder asking the machine what it has, as if it were alone on it,
@@ -84,6 +93,19 @@ const MOST_THREADS: usize = 4;
 /// second decoder beside the first, and two streams on a four-core machine
 /// would each take four threads.
 static THREADS: Budget = Budget::new();
+
+/// The threads this process's decoders may use between them: what the Yapfast
+/// that started this worker worked out for it, or what one decoder asks for
+/// when a worker was started by hand.
+static ALLOWED: AtomicUsize = AtomicUsize::new(MOST_THREADS);
+
+/// Sets the threads this process's decoders may use between them, which the
+/// Yapfast that started a stream worker works out from the machine's cores and
+/// how many streams it's decoding at once. One thread is the floor, and four
+/// the most one decoder asks for; anything else is ignored.
+pub fn allow(threads: usize) {
+    ALLOWED.store(threads.clamp(1, MOST_THREADS), Ordering::Relaxed);
+}
 
 /// The threads decoders in one process may use between them, handed out a
 /// decoder at a time and given back when it goes.
@@ -98,16 +120,16 @@ impl Budget {
         }
     }
 
-    /// Claims threads for one decoder on a machine with `cores`: up to four,
-    /// as many as the budget has left, and at least one. A decoder on no
-    /// threads decodes nothing, so a stream past the budget oversubscribes by
-    /// the one thread it can't do without rather than waiting for another
-    /// stream to finish.
-    fn claim(&self, cores: usize) -> Threads<'_> {
-        let want = cores.min(MOST_THREADS);
+    /// Claims threads for one decoder out of `allowed`: up to four, as many
+    /// as the budget has left, and at least one. A decoder on no threads
+    /// decodes nothing, so a stream past the budget oversubscribes by the one
+    /// thread it can't do without rather than waiting for another stream to
+    /// finish.
+    fn claim(&self, allowed: usize) -> Threads<'_> {
+        let want = allowed.min(MOST_THREADS);
         let mut claimed = self.claimed.load(Ordering::Relaxed);
         loop {
-            let threads = want.min(cores.saturating_sub(claimed)).max(1);
+            let threads = want.min(allowed.saturating_sub(claimed)).max(1);
             match self.claimed.compare_exchange_weak(
                 claimed,
                 claimed + threads,
@@ -176,11 +198,10 @@ pub struct Picture<'a> {
 }
 
 impl Decoder {
-    /// A decoder on up to four threads, of what this process has to spare for
-    /// decoding at once, for a stream shown large.
+    /// A decoder on up to four threads, out of the threads this process may
+    /// decode on, for a stream shown large.
     pub fn new(codec: Codec) -> Result<Self> {
-        let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
-        let claimed = THREADS.claim(cores);
+        let claimed = THREADS.claim(ALLOWED.load(Ordering::Relaxed));
         let mut decoder = Self::with_threads(codec, claimed.count())?;
         decoder.claimed = Some(claimed);
         Ok(decoder)
@@ -334,6 +355,22 @@ mod tests {
                 .join(name),
         )
         .unwrap()
+    }
+
+    /// A stream's share of the machine's decoder threads, as the Yapfast that
+    /// starts a worker works it out: a stream alone takes the four one decoder
+    /// asks for however many cores there are, four streams on eight cores take
+    /// two each, and a stream past the cores still takes the one thread a
+    /// decoder can't do without.
+    #[test]
+    fn a_streams_share_of_the_decoder_threads() {
+        assert_eq!(share(4, 1), 4, "a stream alone takes four threads");
+        assert_eq!(share(32, 1), 4, "cores to spare don't buy one stream more");
+        assert_eq!(share(8, 4), 2, "four streams on eight cores take two each");
+        assert_eq!(share(4, 4), 1, "four streams on four cores take one each");
+        assert_eq!(share(4, 8), 1, "past the cores, a stream still takes one");
+        assert_eq!(share(1, 1), 1, "a one-core machine has one to give");
+        assert_eq!(share(2, 2), 1, "a small machine gives what it has");
     }
 
     /// Watches that decode at once share one budget of threads: the first on

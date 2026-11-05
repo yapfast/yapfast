@@ -19,7 +19,7 @@ use std::{
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc as channel,
     },
     time::{Duration, Instant},
@@ -50,6 +50,11 @@ use crate::{
 
 /// The argument that starts Yapfast as a stream worker.
 pub const ARGUMENT: &str = "--stream-worker";
+
+/// The environment variable that tells a stream worker how many threads its
+/// decoder may use: the share of the machine the Yapfast that starts it works
+/// out from the machine's cores and how many streams it's decoding at once.
+const THREADS: &str = "YAPFAST_STREAM_THREADS";
 
 /// The largest frame shared at 1080p. Discord's own client trials 1080p at
 /// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
@@ -135,6 +140,15 @@ pub enum Job {
         width: u32,
         height: u32,
     },
+}
+
+impl Job {
+    /// Whether a worker doing this decodes pictures, and so wants a share of
+    /// the machine's decoder threads: a watched stream and a played video do,
+    /// where a shared screen only encodes and a glance only takes a picture.
+    fn decodes(&self) -> bool {
+        matches!(self, Job::Watch { .. } | Job::Play { .. })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,6 +357,13 @@ impl Report {
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
+    // The share of the machine's decoder threads Yapfast gave this worker.
+    // Started by hand, it decodes on the most one decoder asks for.
+    if let Some(threads) =
+        std::env::var_os(THREADS).and_then(|threads| threads.to_str()?.trim().parse().ok())
+    {
+        crate::decode::allow(threads);
+    }
     let mut output = std::io::stdout();
     serve(Box::new(BufReader::new(std::io::stdin())), &mut |report| {
         // Yapfast is gone if this fails; the job ends when its input closes.
@@ -1746,6 +1767,38 @@ pub struct Worker {
     /// on it here.
     child: Option<Child>,
     stdin: Option<ChildStdin>,
+    /// The place this worker takes among those decoding, given back when it
+    /// stops. A worker that decodes no picture has none.
+    _place: Option<Place>,
+}
+
+/// The workers this Yapfast has decoding pictures: streams watched and videos
+/// played. Each is a process of its own, so the number of them is only known
+/// here, in the Yapfast that started them, and it's from that number and the
+/// machine's cores that a new worker's decoder learns how much it may take.
+static DECODERS: AtomicUsize = AtomicUsize::new(0);
+
+/// A worker's place among those decoding, given back when the worker goes.
+struct Place {
+    /// The threads its decoder may use.
+    threads: u32,
+}
+
+impl Place {
+    /// Takes a place for a worker starting on a machine with `cores`, and
+    /// works out the share of its decoder threads that place leaves.
+    fn claim(cores: usize) -> Self {
+        let streams = DECODERS.fetch_add(1, Ordering::AcqRel) + 1;
+        Self {
+            threads: crate::decode::share(cores, streams) as u32,
+        }
+    }
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        DECODERS.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// How many reports may wait for the UI: a share sends a status a second, so
@@ -1911,8 +1964,18 @@ impl Worker {
             Some(program) => PathBuf::from(program),
             None => running_yapfast()?,
         };
-        let mut child = Command::new(program)
-            .arg(ARGUMENT)
+        // A worker that decodes takes its share of the machine, out of the
+        // streams this Yapfast already has decoding.
+        let place = job.decodes().then(|| {
+            let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+            Place::claim(cores)
+        });
+        let mut command = Command::new(program);
+        command.arg(ARGUMENT);
+        if let Some(place) = &place {
+            command.env(THREADS, place.threads.to_string());
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(crate::logging::for_worker())
@@ -1966,6 +2029,7 @@ impl Worker {
             Self {
                 child: Some(child),
                 stdin,
+                _place: place,
             },
             receiver,
         ))
@@ -2062,6 +2126,58 @@ mod tests {
         assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
         assert_eq!(fit(3440, 1440, 1280, 720), (1280, 534));
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
+    }
+
+    /// Only a worker that decodes pictures takes a share of the machine's
+    /// decoder threads: a watched stream and a played video do, where a shared
+    /// screen only encodes and a glance only takes a picture.
+    #[test]
+    fn only_a_worker_that_decodes_takes_a_share() {
+        let frames = PathBuf::from("frames");
+        let server = StreamServer {
+            stream_key: "key".into(),
+            user_id: "1".into(),
+            session_id: "2".into(),
+            rtc_server_id: "3".into(),
+            token: "token".into(),
+            endpoint: "wss://discord.test".into(),
+        };
+        let watch = Job::Watch {
+            server,
+            frames: frames.clone(),
+            width: WATCH_WIDTH,
+            height: WATCH_HEIGHT,
+            speakers: None,
+            deafened: false,
+            volume: 1.0,
+        };
+        assert!(watch.decodes(), "a watched stream decodes");
+        let played = Job::Play {
+            file: PathBuf::from("video"),
+            size: None,
+            frames: frames.clone(),
+            width: WATCH_WIDTH,
+            height: WATCH_HEIGHT,
+            speakers: None,
+            volume: 1.0,
+        };
+        assert!(played.decodes(), "a played video decodes");
+        let shared = Job::Share {
+            source: Source::Screen,
+            frames: frames.clone(),
+            width: SHARE_WIDTH,
+            height: SHARE_HEIGHT,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+        };
+        assert!(!shared.decodes(), "a shared screen only encodes");
+        let glance = Job::Glance {
+            screens: vec![1],
+            width: 320,
+            height: 180,
+        };
+        assert!(!glance.decodes(), "a glance only takes a picture");
     }
 
     /// A picture a newer one replaces before the screen could draw it isn't
