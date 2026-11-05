@@ -204,6 +204,10 @@ struct Watch {
     /// opened in place of another is told again, so one that starts while the
     /// window is hidden converts and writes nothing.
     shown: bool,
+    /// The size in pixels of the tile showing the pictures, as the UI last
+    /// said it, which a worker opened in place of another is told again too;
+    /// zero until the UI says.
+    size: (u32, u32),
 }
 
 impl Watch {
@@ -234,6 +238,34 @@ impl Watch {
     fn tell_shown(&mut self) {
         if let Some((worker, _)) = self.worker.as_mut()
             && let Err(error) = worker.shown(self.shown)
+        {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
+    /// Scales the stream's pictures to the tile showing them, which says how
+    /// large it is when that changes and not with every frame: a stream shown
+    /// in a small tile costs a small frame, and one shown larger grows the
+    /// frames. A zero says nothing about the size.
+    fn size(watch: &mut Option<Self>, width: u32, height: u32) {
+        if let Some(watching) = watch.as_mut() {
+            if width == 0 || height == 0 {
+                return;
+            }
+            watching.size = (width, height);
+            watching.tell_size();
+        }
+    }
+
+    /// Tells the worker the tile's size, if there is one yet: a worker opened
+    /// in place of another starts at a tile's size, so it's told too.
+    fn tell_size(&mut self) {
+        let (width, height) = self.size;
+        if let Some((worker, _)) = self.worker.as_mut()
+            && let Err(error) = worker.size(width, height)
         {
             tracing::warn!(
                 error = format!("{error:#}"),
@@ -281,6 +313,8 @@ impl Watch {
             worker: None,
             // A watch starts from a window that shows it.
             shown: true,
+            // At a tile's size until the UI says how large its tile is.
+            size: (0, 0),
         }
     }
 
@@ -297,8 +331,10 @@ impl Watch {
             Worker::watch(server, state.speaker.clone(), state.deafened, volume)?;
         self.worker = Some((worker, reports));
         // What the window last said outlives the worker it was said to: a
-        // window hidden since then is hidden from this one too.
+        // window hidden since then is hidden from this one too, and so is a
+        // tile's size.
         self.tell_shown();
+        self.tell_size();
         if let Some(shown) = state.watching.as_mut() {
             shown.frames = Some(Arc::new(frames));
         }
@@ -716,6 +752,9 @@ pub(crate) async fn call(
                             }
                         }
                         Some(Command::WatchShown(shown)) => Watch::shown(&mut watch, shown),
+                        Some(Command::WatchSize { width, height }) => {
+                            Watch::size(&mut watch, width, height);
+                        }
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
                         Some(Command::Soundboard(id)) => {

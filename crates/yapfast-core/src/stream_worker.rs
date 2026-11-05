@@ -13,8 +13,11 @@
 //! the worker makes only while one does. A [`Control::Shown`] line says
 //! whether the UI shows a watched stream's pictures, which a hidden or
 //! minimised window doesn't, and none is converted or written while it
-//! doesn't. A `stop` line, or closing its input, ends the job. Frames go to
-//! the UI through [`crate::frames`].
+//! doesn't. A [`Control::Size`] line says how large the tile showing a
+//! watched stream is, which the UI sends when that changes and on start, so
+//! the stream is scaled to what shows it: a small tile costs a small frame,
+//! and the frames file grows to hold a larger one. A `stop` line, or closing
+//! its input, ends the job. Frames go to the UI through [`crate::frames`].
 
 use std::{
     io::{BufRead, BufReader, Write},
@@ -71,6 +74,12 @@ pub const PREVIEW_HEIGHT: u32 = 720;
 /// scaled down to it.
 pub const WATCH_WIDTH: u32 = 1920;
 pub const WATCH_HEIGHT: u32 = 1080;
+/// The picture a watched stream starts at, until the UI says how large the
+/// tile showing it is: a tile of the call's five-up grid, so a stream shown
+/// in one costs what it shows from its first frame. The UI's next tick lifts
+/// it to its tile's size, and the frames file grows once to hold that.
+const WATCH_TILE_WIDTH: u32 = 480;
+const WATCH_TILE_HEIGHT: u32 = 270;
 /// The largest preview Discord shows of a stream, and how often its client
 /// sends a new one.
 const THUMBNAIL_WIDTH: u32 = 512;
@@ -296,7 +305,10 @@ pub enum Control {
     Pause,
     /// Move to this many milliseconds into the video.
     Seek(u64),
-    /// Draw the video's pictures to fit this.
+    /// Draw the video's pictures to fit this, and a watched stream's too:
+    /// each is scaled to the size it shows at, never up to it. A watched
+    /// stream is told it when the tile showing it changes size, and once
+    /// when it starts showing.
     Size {
         width: u32,
         height: u32,
@@ -990,11 +1002,11 @@ impl Decoding {
 }
 
 /// Shows someone's stream: whole frames from the connection, decoded, then
-/// scaled down if they don't fit, and plays its sound.
+/// scaled down to the tile showing them, and plays its sound.
 fn watch(
     server: StreamServer,
     mut writer: Writer,
-    (max_width, max_height): (u32, u32),
+    (mut max_width, mut max_height): (u32, u32),
     sound: Sound,
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
@@ -1011,8 +1023,8 @@ fn watch(
         .ok()
     });
     let mut decoding = Decoding::new();
-    // A frame that doesn't fit scales through this, a picture of the size
-    // shown; one that does goes straight into the shared frame.
+    // A picture that doesn't fit the tile showing it scales through this, at
+    // the size it shows; one that does goes to the shared frame as it is.
     let mut scratch = vec![];
     // A whole frame taken off the stream only to learn that a newer picture
     // was already waiting: decoded on the next turn, in order, so taking it
@@ -1033,6 +1045,22 @@ fn watch(
                 Control::Hear(hearing) => sound.hearing.store(hearing, Ordering::Relaxed),
                 Control::Volume(volume) => sound.volume.set(volume),
                 Control::Shown(shown) => visible = shown,
+                // The tile showing the stream says how large it is when that
+                // changes, not with every frame: the stream is scaled to it
+                // from then on, and the frames file is grown once to hold it.
+                Control::Size { width, height } => {
+                    if let Some(size) = tile_size((width, height))
+                        && size != (max_width, max_height)
+                    {
+                        (max_width, max_height) = size;
+                        if let Err(error) = writer.reserve(max_width, max_height) {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not make room in the frames for the tile"
+                            );
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1097,15 +1125,12 @@ fn watch(
             // converted or written for a window that shows no picture.
             Worth::Unseen => continue,
         }
-        let (width, height) = (picture.width, picture.height);
-        if writer.fits(width, height) && width <= max_width && height <= max_height {
-            writer.write(width, height, |pixels| picture.to_rgba(pixels));
-        } else {
-            let (width, height) = fit(width, height, max_width, max_height);
-            writer.write(width, height, |pixels| {
-                picture.i420().to_rgba(&mut scratch, pixels, width, height)
-            });
-        }
+        let (width, height) = write_picture(
+            &mut writer,
+            &picture.i420(),
+            &mut scratch,
+            (max_width, max_height),
+        );
         let first = showing.is_none();
         // Once the conversion is done, not when it began: what the next
         // picture is measured from is when this one reached the screen.
@@ -1116,6 +1141,33 @@ fn watch(
         }
     }
     Ok(())
+}
+
+/// Writes `picture` into the shared frames at the size the tile showing it
+/// takes: its own when that fits inside `(max_width, max_height)`, and else
+/// scaled down to fit, through `scratch`, which is sized once and kept. A
+/// stream smaller than its tile keeps its own size — nothing is scaled up —
+/// so a small stream costs no more than it is. Says the size it was written
+/// at, which is the size it shows at.
+fn write_picture(
+    writer: &mut Writer,
+    picture: &I420<'_>,
+    scratch: &mut Vec<u8>,
+    (max_width, max_height): (u32, u32),
+) -> (u32, u32) {
+    let (width, height) = fit(picture.width, picture.height, max_width, max_height);
+    writer.write(width, height, |pixels| {
+        picture.to_rgba(scratch, pixels, width, height)
+    });
+    (width, height)
+}
+
+/// What a stream is scaled to fit, given the size in pixels of the tile
+/// showing it, as the UI says it: none while no tile shows it, which says
+/// nothing about the size, and never more than a stream is shown at, however
+/// large the window is.
+fn tile_size((width, height): (u32, u32)) -> Option<(u32, u32)> {
+    (width > 0 && height > 0).then(|| (width.min(WATCH_WIDTH), height.min(WATCH_HEIGHT)))
 }
 
 /// How soon after one picture another is worth converting and scaling: faster
@@ -1959,12 +2011,12 @@ impl Worker {
         deafened: bool,
         volume: f32,
     ) -> Result<(Self, Frames, mpsc::Receiver<Report>)> {
-        let frames = Frames::create(WATCH_WIDTH, WATCH_HEIGHT)?;
+        let frames = Frames::create(WATCH_TILE_WIDTH, WATCH_TILE_HEIGHT)?;
         let job = Job::Watch {
             server: server.clone(),
             frames: frames.path().context("the video frames file has no name")?,
-            width: WATCH_WIDTH,
-            height: WATCH_HEIGHT,
+            width: WATCH_TILE_WIDTH,
+            height: WATCH_TILE_HEIGHT,
             speakers,
             deafened,
             volume,
@@ -2017,6 +2069,12 @@ impl Worker {
     /// converts and writes only while one does.
     pub fn shown(&mut self, shown: bool) -> Result<()> {
         self.control(&Control::Shown(shown))
+    }
+
+    /// Tells a watching worker the size in pixels of the tile showing its
+    /// pictures, which it scales them to; see [`Control::Size`].
+    pub fn size(&mut self, width: u32, height: u32) -> Result<()> {
+        self.control(&Control::Size { width, height })
     }
 
     /// Tells a watching worker how loud to play the stream's sound.
@@ -2332,6 +2390,61 @@ mod tests {
         assert_eq!(
             worth_showing(true, Some(shown), shown + Duration::from_secs(60), true),
             Worth::Show,
+        );
+    }
+
+    /// What a watched stream is written at: a picture larger than the tile
+    /// showing it is scaled down to the tile, and one smaller keeps its own
+    /// size, so a stream shown in a small tile costs a small frame and a
+    /// small stream no more than it is.
+    #[test]
+    fn a_stream_is_written_at_the_size_its_tile_shows_it() {
+        let frames = Frames::create(32, 18).unwrap();
+        let mut writer = Writer::open(&frames.path().unwrap()).unwrap();
+        frames.unlink();
+        let mut scratch = vec![];
+        let picture = |width, height| {
+            let mut picture = I420Buffer::new(width, height);
+            let (y, u, v) = picture.data_mut();
+            y.fill(126);
+            u.fill(128);
+            v.fill(128);
+            picture
+        };
+        // A 64 by 36 picture in a 32 by 18 tile is scaled down to the tile.
+        let large = picture(64, 36);
+        let shown = planes(&large);
+        let size = write_picture(&mut writer, &shown, &mut scratch, (32, 18));
+        assert_eq!(size, (32, 18));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.len())),
+            Some((32, 18, 32 * 18 * 4)),
+            "the tile's RGBA, row for row"
+        );
+        // A 16 by 10 picture in that tile keeps its own size: nothing scales
+        // a stream up to the tile it shows in.
+        let small = picture(16, 10);
+        let shown = planes(&small);
+        let size = write_picture(&mut writer, &shown, &mut scratch, (32, 18));
+        assert_eq!(size, (16, 10));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.len())),
+            Some((16, 10, 16 * 10 * 4))
+        );
+    }
+
+    /// A tile's size says what size a stream shows at: none while no tile
+    /// shows it, and never more than a stream is shown at, however large the
+    /// window is, so a 4K tile doesn't grow the frames for a 1080p stream.
+    #[test]
+    fn a_tile_says_how_large_a_stream_shows() {
+        assert_eq!(tile_size((0, 0)), None, "no tile shows it");
+        assert_eq!(tile_size((0, 270)), None, "half a size says nothing");
+        assert_eq!(tile_size((480, 270)), Some((480, 270)));
+        assert_eq!(
+            tile_size((3840, 2160)),
+            Some((WATCH_WIDTH, WATCH_HEIGHT)),
+            "no stream is shown larger than it is"
         );
     }
 

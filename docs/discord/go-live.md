@@ -242,7 +242,10 @@ from a budget it gives back when it goes, and a picture a newer one replaces
 before the screen draws it is decoded but not converted or shown. A window that is hidden or minimised stops there too — the pictures
 stop being converted and written while the stream keeps decoding, because the
 next frames are built on them, and its sound keeps playing; showing it again
-presents the next complete picture rather than a stale one.
+presents the next complete picture rather than a stale one. A stream is written at the size its tile is shown at, scaled with the
+same filter the share's preview uses and never upscaled, so a 480×270 tile
+costs 0.5 MB a frame rather than the 8.3 MB a 1080p picture takes, and a
+window grown to full screen grows the file once.
 dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
 H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor

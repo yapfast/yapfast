@@ -9,6 +9,13 @@
 //! processes let go. Windows won't remove a mapped file, so there it's a
 //! temporary file, kept in memory while it fits, that goes once the last
 //! process closes it.
+//!
+//! The file is made for the size its frames show at, so a stream shown in a
+//! small tile costs a small file. One shown larger than the file was made for
+//! grows it: the worker lengthens the file and maps it again, and the header
+//! says where the slots lie now, which is how the UI's mapping learns it must
+//! be made again too. A file never shrinks, so a mapping one process still
+//! holds stays whole under it.
 
 use std::{
     fs::{File, OpenOptions},
@@ -33,7 +40,10 @@ const FRESH: u32 = 4;
 #[repr(C)]
 struct Header {
     magic: u32,
-    capacity: u32,
+    /// The bytes a slot holds, which is where each slot starts: it changes
+    /// only by growing, and the process that grows it says so here before it
+    /// writes a frame at the new size.
+    capacity: AtomicU32,
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
     _reserved: u32,
@@ -63,7 +73,7 @@ impl Mapping {
         ensure!(map.len() >= HEADER, "the video frames file is too short");
         let mapping = Self { capacity: 0, map };
         ensure!(mapping.header().magic == MAGIC, "not a video frames file");
-        let capacity = mapping.header().capacity as usize;
+        let capacity = mapping.capacity_now();
         ensure!(
             mapping.map.len() >= HEADER + SLOTS as usize * capacity,
             "the video frames file is too short"
@@ -72,6 +82,35 @@ impl Mapping {
             capacity,
             ..mapping
         })
+    }
+
+    /// The bytes a slot holds, as the header says: frames larger than those
+    /// that wrote it moved every slot, and this mapping with them.
+    fn capacity_now(&self) -> usize {
+        self.header().capacity.load(Ordering::Acquire) as usize
+    }
+
+    /// Grows the file and this mapping to hold slots of `capacity` bytes,
+    /// when they hold smaller ones, and says so in the header. Only growing
+    /// keeps a mapping another process holds whole: the file it read stays
+    /// where it was, and the header is what tells it to map again.
+    fn grow(&mut self, file: &File, capacity: usize) -> Result<()> {
+        if capacity <= self.capacity {
+            return Ok(());
+        }
+        let length = HEADER + SLOTS as usize * capacity;
+        file.set_len(length as u64)
+            .context("could not size the video frames file")?;
+        // SAFETY: only Yapfast's own processes map the file, and they touch
+        // the slots through the triple buffer, never the same slot at once.
+        let map = unsafe { MmapMut::map_mut(file) }.context("could not map the video frames")?;
+        ensure!(map.len() >= length, "the video frames file is too short");
+        self.map = map;
+        self.capacity = capacity;
+        self.header()
+            .capacity
+            .store(u32::try_from(capacity)?, Ordering::Release);
+        Ok(())
     }
 
     fn header(&self) -> &Header {
@@ -93,10 +132,28 @@ impl Mapping {
 
 /// The UI's side: it creates the file and shows the newest frame.
 pub struct Frames {
-    mapping: Mapping,
-    /// The slot the UI reads, while it reads it.
-    front: Mutex<u32>,
+    /// The mapping the UI reads through and the slot it reads: the two change
+    /// together, so a frame is never read through a mapping replaced under it.
+    front: Mutex<Front>,
+    /// The file, kept to map it again at the size the worker grows it to.
+    file: File,
     name: Mutex<Option<Name>>,
+}
+
+/// What the UI reads through: the mapping, and the slot it holds.
+struct Front {
+    mapping: Mapping,
+    slot: u32,
+}
+
+impl Front {
+    /// Maps the file again when the worker has grown it: a frame larger than
+    /// these slots holds moved every slot, so a mapping left behind reads
+    /// another frame's pixels.
+    fn follow(&mut self, file: &File) -> Result<()> {
+        let capacity = self.mapping.capacity_now();
+        self.mapping.grow(file, capacity)
+    }
 }
 
 /// What keeps the file's name until [`Frames::unlink`].
@@ -162,9 +219,16 @@ fn create_file(directory: PathBuf) -> std::io::Result<(File, Name)> {
 
 impl std::fmt::Debug for Frames {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // A frame being read holds the mapping, and a log line doesn't wait
+        // for it: what it holds is printed when it can be read.
+        let capacity = self
+            .front
+            .try_lock()
+            .ok()
+            .map(|front| front.mapping.capacity);
         formatter
             .debug_struct("Frames")
-            .field("capacity", &self.mapping.capacity)
+            .field("capacity", &capacity)
             .finish_non_exhaustive()
     }
 }
@@ -191,8 +255,11 @@ impl Frames {
             map[8..12].copy_from_slice(&1u32.to_ne_bytes());
         }
         Ok(Self {
-            mapping: Mapping::open(&file)?,
-            front: Mutex::new(2),
+            front: Mutex::new(Front {
+                mapping: Mapping::open(&file)?,
+                slot: 2,
+            }),
+            file,
             name: Mutex::new(Some(name)),
         })
     }
@@ -223,31 +290,56 @@ impl Frames {
 
     /// As [`Self::take`], with when the frame shows in a video file.
     pub fn take_timed<T>(&self, show: impl FnOnce(u32, u32, &[u8]) -> T) -> Option<(T, u64)> {
-        let header = self.mapping.header();
-        if header.middle.load(Ordering::Acquire) & FRESH == 0 {
-            return None;
-        }
         let mut front = self
             .front
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *front = header.middle.swap(*front, Ordering::AcqRel) & !FRESH;
-        let [width, height] = &header.sizes[*front as usize];
+        if let Err(error) = front.follow(&self.file) {
+            // The frames are lost with the mapping, but a stream's sound and
+            // the call go on: whoever grows the file asks again next time.
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not map the video frames"
+            );
+            return None;
+        }
+        let held = front.mapping.capacity;
+        if front.mapping.header().middle.load(Ordering::Acquire) & FRESH == 0 {
+            return None;
+        }
+        front.slot = front
+            .mapping
+            .header()
+            .middle
+            .swap(front.slot, Ordering::AcqRel)
+            & !FRESH;
+        // The worker may have grown the file since: the frame just taken was
+        // written at a slot size this mapping doesn't know, so it's let go for
+        // the frame after it, which is read where it was written.
+        if front.mapping.capacity_now() != held {
+            let _ = front.follow(&self.file);
+            return None;
+        }
+        let header = front.mapping.header();
+        let [width, height] = &header.sizes[front.slot as usize];
         let (width, height) = (
             width.load(Ordering::Relaxed),
             height.load(Ordering::Relaxed),
         );
-        let length = capacity(width, height).min(self.mapping.capacity);
+        let length = capacity(width, height).min(held);
         // SAFETY: the worker no longer writes this slot: it's the UI's front
         // until the UI swaps it back.
-        let pixels = unsafe { std::slice::from_raw_parts(self.mapping.slot(*front), length) };
-        let time = header.times[*front as usize].load(Ordering::Relaxed);
+        let pixels = unsafe { std::slice::from_raw_parts(front.mapping.slot(front.slot), length) };
+        let time = header.times[front.slot as usize].load(Ordering::Relaxed);
         Some((show(width, height, pixels), time))
     }
 }
 
 /// The worker's side: it fills frames.
 pub struct Writer {
+    /// The file the slots are mapped from, kept to lengthen it when a frame
+    /// needs more room than it has.
+    file: File,
     mapping: Mapping,
     back: u32,
 }
@@ -261,6 +353,7 @@ impl Writer {
             .context("could not open the video frames file")?;
         Ok(Self {
             mapping: Mapping::open(&file)?,
+            file,
             back: 0,
         })
     }
@@ -268,6 +361,14 @@ impl Writer {
     /// The largest frame, in pixels, that fits.
     pub fn fits(&self, width: u32, height: u32) -> bool {
         capacity(width, height) <= self.mapping.capacity
+    }
+
+    /// Makes room for frames of `width` by `height`, growing the file and the
+    /// slots in it when they hold smaller ones: a stream shown larger than
+    /// the file was made for grows it once, instead of being scaled down to
+    /// what it holds.
+    pub fn reserve(&mut self, width: u32, height: u32) -> Result<()> {
+        self.mapping.grow(&self.file, capacity(width, height))
     }
 
     /// Writes a frame with `fill`, which gets its RGBA pixels, then shows it.
@@ -283,7 +384,16 @@ impl Writer {
         time_ms: u64,
         fill: impl FnOnce(&mut [u8]),
     ) {
-        assert!(self.fits(width, height), "a frame larger than its slot");
+        // A frame larger than the slots grows them, as one shown in a larger
+        // tile or window is; one that can't grow them is skipped, leaving the
+        // frame before it showing rather than writing over the slots.
+        if let Err(error) = self.reserve(width, height) {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not grow the video frames"
+            );
+            return;
+        }
         // SAFETY: the back slot is the worker's alone until it's swapped in.
         let pixels = unsafe {
             std::slice::from_raw_parts_mut(self.mapping.slot(self.back), capacity(width, height))
@@ -333,6 +443,42 @@ mod tests {
         // A video's frames carry their time.
         writer.write_timed(1, 1, 1234, |pixels| pixels.fill(0));
         assert_eq!(frames.take_timed(|_, _, _| ()), Some(((), 1234)));
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A frame larger than the slots grows the file, and the UI's mapping with
+    /// it: a stream shown in a larger window is written at its size, rather
+    /// than scaled down to what the file was made for. Growing moves every
+    /// slot, so what the UI reads after it is the frame the worker wrote
+    /// there, at the size it wrote it.
+    #[test]
+    fn frames_grow_for_pictures_larger_than_their_slots() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+        writer.write(4, 2, |pixels| pixels.fill(1));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((4, 2, vec![1; 32]))
+        );
+        assert!(!writer.fits(8, 4), "eight by four is larger than a slot");
+
+        writer.write(8, 4, |pixels| pixels.fill(2));
+        assert!(writer.fits(8, 4), "the slots grew with the frame");
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((8, 4, vec![2; 128]))
+        );
+
+        // A frame smaller than the grown slots still shows at its own size.
+        writer.write(2, 1, |pixels| pixels.fill(3));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((2, 1, vec![3; 8]))
+        );
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");

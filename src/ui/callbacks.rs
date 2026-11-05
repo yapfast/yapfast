@@ -2360,6 +2360,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // And what it was last told about a window showing the watched stream's
     // pictures, which it's told once when that changes too.
     let seen = std::cell::Cell::new(false);
+    // And the size, in pixels, of the tile showing the watched stream, which
+    // it's told once when that changes: a stream is scaled to what shows it,
+    // so a small tile costs a small frame. Zero until a tile shows one.
+    let sized = std::cell::Cell::new((0u32, 0u32));
     window.on_stream_tick(move || {
         let Some(window) = weak.upgrade() else {
             return;
@@ -2384,6 +2388,25 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let effects = adapter
                 .app
                 .dispatch(Action::Voice(voice::Command::WatchShown(seeing)));
+            adapter.execute(effects);
+        }
+        // The tile showing the watched stream says how large it is, in pixels,
+        // once when the window or the tile changes size rather than with every
+        // frame: the worker scales the stream to it, and a larger picture grows
+        // the frames file once. While no tile shows it, the worker keeps the
+        // size it has.
+        let size = {
+            let adapter = state.borrow();
+            watch_size(&adapter, &window).unwrap_or_default()
+        };
+        if size.0 > 0 && size != sized.replace(size) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::WatchSize {
+                    width: size.0,
+                    height: size.1,
+                }));
             adapter.execute(effects);
         }
         let adapter = state.borrow();
@@ -3009,6 +3032,33 @@ fn place_videos(adapter: &Adapter, window: &YapfastWindow) {
 /// The corner's size, as StreamPip draws it.
 const PIP_WIDTH: f32 = 320.0;
 const PIP_HEIGHT: f32 = 180.0;
+
+/// The size in pixels of the tile showing the watched stream, if a tile shows
+/// it: the grid's tile, small or large, or the corner it shows in while the
+/// call is off screen. None while no tile does, as while the call is hidden,
+/// which says nothing about the size.
+fn watch_size(adapter: &Adapter, window: &YapfastWindow) -> Option<(u32, u32)> {
+    let voice = &adapter.app.state.voice;
+    let watching = voice.watching.as_ref()?.user.as_str();
+    let scale = window.window().scale_factor();
+    let pixels = |side: f32| ((side * scale).round() as u32).max(2);
+    // The corner shows it while the call is off screen, at the size the
+    // corner draws.
+    if window.get_pip_shown() && window.get_pip_kind() == 1 {
+        return Some((pixels(PIP_WIDTH), pixels(PIP_HEIGHT)));
+    }
+    if !(window.get_grid_shown() && voice.active()) {
+        return None;
+    }
+    // Its place in the grid, as the call's tiles are ordered: this account's
+    // shared screen first, then the streams' tiles, then the participants'.
+    let stage = Stage {
+        participants: &voice.participants,
+        sharing: voice.sharing.is_some(),
+    };
+    let slot = stage.slot(&Focus::Stream(watching.to_owned()))?;
+    adapter.tiles?.shown_at(slot, scale)
+}
 
 /// Opens a web page in the browser. Only web pages open: a message can't
 /// start other programs.

@@ -397,6 +397,15 @@ pub enum Command {
     /// window shows none, so the worker decodes on without converting or
     /// writing frames nobody can see.
     WatchShown(bool),
+    /// The size, in pixels, of the tile showing the watched stream, as the
+    /// UI says it when that changes and when the stream starts showing: the
+    /// worker scales the stream to it, so a small tile costs a small frame
+    /// and a large one grows the frames file once. A zero or the size the
+    /// worker already has says nothing.
+    WatchSize {
+        width: u32,
+        height: u32,
+    },
     /// Remove memberships this device left in voice channels, for example
     /// after Yapfast was killed. Ignored during a call.
     LeaveStale,
