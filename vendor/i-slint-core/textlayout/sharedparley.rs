@@ -224,23 +224,12 @@ pub fn draw_text(
                         item_renderer.fill_rectangle_with_color(span, background);
                     }
                 }
-                // Yapfast: the text shaped, which names the emoji a run draws.
-                let shown = text.text();
-                let shown = match &shown {
-                    crate::item_rendering::PlainOrStyledText::Plain(plain) => {
-                        alloc::borrow::Cow::Borrowed(plain.as_str())
-                    }
-                    crate::item_rendering::PlainOrStyledText::Styled(styled) => {
-                        crate::styled_text::get_raw_text(styled)
-                    }
-                };
                 layout.draw(
                     item_renderer,
                     platform_fill_brush,
                     platform_stroke_brush,
                     text_color,
                     None,
-                    &shown,
                 );
             }
 
@@ -517,7 +506,6 @@ pub fn draw_text_input(
                     None,
                     text_color,
                     selection.as_ref(),
-                    visual_representation.text.as_str(),
                 );
 
                 if let Some(cursor_pos) = visual_representation.cursor_position {

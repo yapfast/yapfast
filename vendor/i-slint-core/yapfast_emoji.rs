@@ -241,15 +241,6 @@ pub fn frame_of_glyph(glyph: char) -> Option<Image> {
     })
 }
 
-/// The frame a glyph run draws, when its text is one emoji's glyph.
-pub(crate) fn frame_of_run(run_text: &str) -> Option<Image> {
-    let mut chars = run_text.chars();
-    match (chars.next(), chars.next()) {
-        (Some(glyph), None) => frame_of_glyph(glyph),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,8 +314,6 @@ mod tests {
         let by_glyph = frame_of_glyph('\u{10fff0}').expect("a frame by glyph");
         assert!(core::ptr::eq(&by_key, &by_glyph) || by_key == by_glyph);
         assert!(frame_of_key("party:8").is_none());
-        assert!(frame_of_run("\u{10fff0}").is_some());
-        assert!(frame_of_run("two chars").is_none());
         remove("party:9");
         assert!(frame_of_key("party:9").is_none());
         assert!(frame_of_glyph('\u{10fff0}').is_none());

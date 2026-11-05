@@ -530,6 +530,51 @@ fn decode(picture: &Picture, side: u32) -> (Vec<Vec<u8>>, Vec<u32>) {
     (frames, delays)
 }
 
+#[test]
+fn frames_reach_the_registry() {
+    use yapfast_core::chat;
+    // A GIF of two frames, as a Discord emoji's picture is.
+    let mut data = Vec::new();
+    {
+        let mut encoder = image::codecs::gif::GifEncoder::new(&mut data);
+        for index in 0..2u8 {
+            let shade = image::Rgba([index.wrapping_mul(200), 0, 0, 255]);
+            let frame = image::Frame::from_parts(
+                image::RgbaImage::from_pixel(8, 8, shade),
+                0,
+                0,
+                image::Delay::from_numer_denom_ms(50, 1),
+            );
+            encoder.encode_frame(frame).unwrap();
+        }
+    }
+    let picture = Arc::new(chat::decode_picture(&data, 128, 128).expect("a picture"));
+    assert!(picture.animation.is_some(), "a GIF animates");
+
+    let (key, glyph) = ("frames-reach:1", '\u{10ffe1}');
+    let mut animations = Animations::new();
+    animations.side = 16;
+    let pictures = HashMap::from([("pic".to_owned(), picture)]);
+    animations.show(
+        vec![(key.to_owned(), Some(glyph), "pic".to_owned())],
+        &pictures,
+    );
+    animations.start(&pictures);
+    // The worker decodes on its own thread; the tick waits for it the same way.
+    for _ in 0..200 {
+        animations.drain();
+        if i_slint_core::yapfast_emoji::frame_of_glyph(glyph).is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        i_slint_core::yapfast_emoji::frame_of_glyph(glyph).is_some(),
+        "the frames reached the registry"
+    );
+    i_slint_core::yapfast_emoji::remove(key);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

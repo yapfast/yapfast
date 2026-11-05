@@ -108,11 +108,8 @@ impl TextParagraph {
         default_stroke_brush: &Option<<R as GlyphRenderer>::PlatformBrush>,
         default_text_color: Color,
         selection: Option<&SelectionRendering<'_, R>>,
-        // Yapfast: the text shaped, which names the emoji a run draws.
-        text: &str,
     ) {
         let para_y = layout.y_offset + self.y;
-        let paragraph_text = text.get(self.range.clone()).unwrap_or_default();
 
         let line_count = self.layout.lines().len();
 
@@ -202,9 +199,12 @@ impl TextParagraph {
                         // Yapfast: an emoji whose animation plays draws the
                         // frame it is on over the glyph it would show, so the
                         // text keeps its wrapping, its selection and its caret.
-                        let frame = paragraph_text
-                            .get(glyph_run.run().text_range())
-                            .and_then(crate::yapfast_emoji::frame_of_run);
+                        let run_range = glyph_run.run().text_range();
+                        let frame = self
+                            .pictures
+                            .iter()
+                            .find(|(range, _)| *range == run_range)
+                            .and_then(|(_, glyph)| crate::yapfast_emoji::frame_of_glyph(*glyph));
                         let ellipsis = if last_line {
                             let (truncated_glyphs, ellipsis) = layout.glyphs_with_elision(
                                 &glyph_run,
@@ -817,8 +817,6 @@ impl Layout {
         default_stroke_brush: Option<<R as GlyphRenderer>::PlatformBrush>,
         default_text_color: Color,
         selection: Option<&SelectionRendering<'_, R>>,
-        // Yapfast: the text shaped, which names the emoji a run draws.
-        text: &str,
     ) {
         // Compute the cut once: explicit `\n` breaks produce one paragraph each, but they must
         // elide as a single block (drop lines below the box, ellipsis on the last visible one).
@@ -860,7 +858,6 @@ impl Layout {
                 &default_stroke_brush,
                 default_text_color,
                 selection,
-                text,
             );
         }
     }

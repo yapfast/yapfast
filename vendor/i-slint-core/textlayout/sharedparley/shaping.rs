@@ -334,7 +334,22 @@ pub(super) fn create_text_paragraphs(
             });
             let layout = layout_builder.build(font_context, text, formatting, Some(link_color));
 
-            TextParagraph { range, y: PhysicalLength::default(), layout, links, code_ranges, mentions }
+            // Yapfast: the glyphs an animation may stand in for, found while the
+            // text is at hand rather than in every draw.
+            let pictures = text
+                .char_indices()
+                .filter(|(_, character)| (0x10_0000..=0x10_FFFD).contains(&(*character as u32)))
+                .map(|(at, character)| (at..at + character.len_utf8(), character))
+                .collect();
+            TextParagraph {
+                pictures,
+                range,
+                y: PhysicalLength::default(),
+                layout,
+                links,
+                code_ranges,
+                mentions,
+            }
         };
 
     let mut paragraphs = Vec::with_capacity(1);
@@ -456,6 +471,10 @@ pub(super) fn shape_paragraphs(
 }
 
 pub(super) struct TextParagraph {
+    /// Yapfast: the runs that are one emoji glyph, each with the glyph it
+    /// draws, in the order they come. Kept instead of the text itself, which
+    /// would copy every message into its layout.
+    pub(super) pictures: alloc::vec::Vec<(Range<usize>, char)>,
     pub(super) range: Range<usize>,
     pub(super) y: PhysicalLength,
     pub(super) layout: parley::Layout<Brush>,
