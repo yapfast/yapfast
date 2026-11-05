@@ -99,6 +99,11 @@ libpulse-simple-binding = { version = "2", default-features = false }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dxgi",
+    # DXGI's output descriptions name the monitor handle a display was listed
+    # by, which is what turns a chosen screen into a duplication's adapter and
+    # output.
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
     "Win32_Media_Audio",
     "Win32_Media_KernelStreaming",
     "Win32_Media_Multimedia",

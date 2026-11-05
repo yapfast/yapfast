@@ -46,8 +46,12 @@ use livekit::webrtc::{
     video_frame::{I420Buffer, VideoBuffer},
 };
 
+#[cfg(any(wgc, dup))]
+use crate::d3d11;
+#[cfg(dup)]
+use crate::dup;
 #[cfg(wgc)]
-use crate::{d3d11, wgc};
+use crate::wgc;
 use crate::{
     decode::{Frame, Live},
     encode::{self, Effort, Encoder},
@@ -102,13 +106,13 @@ const STOP_WAIT: Duration = Duration::from_secs(2);
 /// and it's a tile a person glances at: ten a second is smoother than the eye
 /// reads a thumbnail, and the picture it replaces is a tenth of a second old
 /// rather than a frame's.
-#[cfg(wgc)]
+#[cfg(any(wgc, dup))]
 const PREVIEW_EVERY: Duration = Duration::from_millis(100);
 /// How many times a share puts the card's session and its capture back
 /// together before it stops trying. A driver reset is worth rebuilding both
 /// for; a card that answers every frame with the same failure is one to stop
 /// sharing on, not to keep asking.
-#[cfg(wgc)]
+#[cfg(any(wgc, dup))]
 const CARD_RESTARTS: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -579,10 +583,10 @@ enum Footage {
     /// converted to I420: a picture in memory, which FFmpeg's encoder reads
     /// from there.
     InMemory,
-    /// A screen Windows Graphics Capture filled a texture with, which NVENC
-    /// reads on the card that shows it. Nothing of a frame crosses the
-    /// processor on its way to the encoder.
-    #[cfg(wgc)]
+    /// A screen Windows Graphics Capture or DXGI's Desktop Duplication filled
+    /// a texture with, which NVENC reads on the card that shows it. Nothing of
+    /// a frame crosses the processor on its way to the encoder.
+    #[cfg(any(wgc, dup))]
     OnTheCard,
 }
 
@@ -599,7 +603,7 @@ enum Encoding {
     /// NVENC on the card, reading the capture's texture where the frame
     /// already is. The one copy a frame still costs is its bitstream out of
     /// the driver, which [`d3d11::D3d11Encoder::copied`] says is the only one.
-    #[cfg(wgc)]
+    #[cfg(any(wgc, dup))]
     Texture(d3d11::D3d11Encoder),
 }
 
@@ -607,7 +611,7 @@ impl Encoding {
     fn codec(&self) -> Codec {
         match self {
             Self::Picture(encoder) => encoder.codec(),
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.codec(),
         }
     }
@@ -615,7 +619,7 @@ impl Encoding {
     fn size(&self) -> (u32, u32) {
         match self {
             Self::Picture(encoder) => encoder.size(),
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.size(),
         }
     }
@@ -623,7 +627,7 @@ impl Encoding {
     fn bitrate(&self) -> u32 {
         match self {
             Self::Picture(encoder) => encoder.bitrate(),
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.bitrate(),
         }
     }
@@ -631,7 +635,7 @@ impl Encoding {
     fn set_bitrate(&mut self, kbps: u32) -> Result<()> {
         match self {
             Self::Picture(encoder) => encoder.set_bitrate(kbps),
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.set_bitrate(kbps),
         }
     }
@@ -640,7 +644,7 @@ impl Encoding {
     fn engine(&self) -> &str {
         match self {
             Self::Picture(encoder) => encoder.engine(),
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.engine(),
         }
     }
@@ -650,7 +654,7 @@ impl Encoding {
     fn report(&self) -> StreamStats {
         match self {
             Self::Picture(encoder) => encoder_report(encoder),
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => {
                 let (width, height) = encoder.size();
                 StreamStats {
@@ -678,7 +682,7 @@ impl Encoding {
     ) -> Option<Result<Option<encode::Frame>>> {
         match self {
             Self::Picture(encoder) => Some(encoder.encode_i420(picture, pts, keyframe)),
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Self::Texture(_) => None,
         }
     }
@@ -815,7 +819,7 @@ impl Sink {
     /// lies. No pixel of the frame is converted, uploaded or copied by the
     /// processor; the one copy it still costs is its bitstream out of the
     /// driver.
-    #[cfg(wgc)]
+    #[cfg(any(wgc, dup))]
     fn textured(
         &mut self,
         texture: d3d11::Texture,
@@ -868,7 +872,7 @@ impl Sink {
     /// What the card reads back is BGRA, so the tile is written to the UI as
     /// RGBA a pixel at a time, and Discord's thumbnail is made first, when one
     /// is due, from the same read: libyuv calls the card's order ARGB.
-    #[cfg(wgc)]
+    #[cfg(any(wgc, dup))]
     fn preview_from_card(
         &mut self,
         tile: &mut d3d11::D3d11Encoder,
@@ -1093,7 +1097,7 @@ impl Sink {
 
     /// Whether a preview is wanted now: the UI shows one, or Discord's thumbnail
     /// is due. Nothing is made while neither is.
-    #[cfg(wgc)]
+    #[cfg(any(wgc, dup))]
     fn preview_wanted(&self) -> bool {
         self.preview_shown || self.preview_due.is_some_and(|due| due <= Instant::now())
     }
@@ -1102,7 +1106,7 @@ impl Sink {
     /// encoder read on is about to go with the capture that made it, and a
     /// session that outlived its device reads memory nobody owns. The next
     /// frame opens another on the device the capture has then.
-    #[cfg(wgc)]
+    #[cfg(any(wgc, dup))]
     fn let_go(&mut self) {
         if let Some(video) = self.video.as_mut() {
             video.encoder = None;
@@ -1175,7 +1179,7 @@ impl Sink {
             // The card's session reads a texture only on the device it opened
             // on, so it opens on the capture's own, which is the whole of what
             // lets a frame reach it without being copied first.
-            #[cfg(wgc)]
+            #[cfg(any(wgc, dup))]
             Footage::OnTheCard => Ok(Encoding::Texture(d3d11::D3d11Encoder::open_on(
                 _device.context("the card's encoder needs the capture's device")?,
                 codec,
@@ -1812,23 +1816,16 @@ fn capture_screen(
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
     // Where a share's frames come from is decided here, and nowhere else: from
-    // the card, as the texture Windows Graphics Capture fills, when this build
-    // has that capture and the machine can encode what it fills; from the
-    // processor's memory, as the I420 libwebrtc's capturer hands over,
-    // everywhere else, which is every machine without NVENC. Everything that
-    // keeps a share on the processor is named in the line this logs, so a
-    // stream that costs more than it should says why.
-    #[cfg(wgc)]
+    // the card, as the texture Windows Graphics Capture fills or DXGI's
+    // Desktop Duplication copies, when this build has either and the machine
+    // can encode what it fills; from the processor's memory, as the I420
+    // libwebrtc's capturer hands over, everywhere else, which is every machine
+    // without NVENC. Everything that keeps a share on the processor is named in
+    // the line this logs, so a stream that costs more than it should says why.
+    #[cfg(any(wgc, dup))]
     match card_capture(&source, &sink, (max_width, max_height)) {
-        Ok((capture, monitor)) => {
-            return capture_textures(
-                capture,
-                monitor,
-                sink,
-                (max_width, max_height),
-                stop,
-                report,
-            );
+        Ok(capture) => {
+            return capture_textures(capture, sink, (max_width, max_height), stop, report);
         }
         Err(why) => tracing::info!(why = format!("{why:#}"), "sharing from the processor"),
     }
@@ -1905,6 +1902,215 @@ fn capture_screen(
     Ok(())
 }
 
+/// One rung of the card's capture path: a display's picture arriving as a
+/// texture the encoder reads where it lies, and the capture's own device that
+/// texture is on.
+///
+/// The two rungs differ in which door they come through and not in what they
+/// hand over: a borrowed BGRA texture and the device it was made on, so the
+/// loop above them, the encoder and the preview are the same either way. Which
+/// one a share got is kept here, because rebuilding it after the card takes its
+/// device away means opening the same display the same way.
+#[cfg(any(wgc, dup))]
+enum Card {
+    /// Windows Graphics Capture, which draws the pointer and, on a Windows
+    /// whose session can't be asked, leaves its yellow border on.
+    #[cfg(wgc)]
+    Graphics {
+        capture: wgc::Capture,
+        monitor: wgc::Monitor,
+    },
+    /// DXGI's Desktop Duplication, which has no border and paints the pointer
+    /// into the frame itself. It is the second rung, for a machine or a build
+    /// whose Graphics Capture isn't there or won't open.
+    #[cfg(dup)]
+    Duplication {
+        capture: dup::Capture,
+        target: dup::Target,
+    },
+}
+
+/// What the card had for the loop this pass: a new picture in the capture's
+/// texture, a still screen, a size change, or the end of the capture.
+#[cfg(any(wgc, dup))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Arrival {
+    /// The capture's texture holds a new picture. A pointer that moved counts:
+    /// the screen shows it somewhere else, and the frame is the picture the
+    /// stream should send.
+    Frame,
+    /// Nothing has been drawn and nothing has moved. This is not a failure and
+    /// makes no frame: the next pass is the next slot.
+    Still,
+    /// The screen changed size and the capture has rebuilt at the new one.
+    Resized,
+    /// What was captured ended. This rung hands out no more frames.
+    Closed,
+}
+
+/// The order the card's two capture ways are tried in, which is the whole of
+/// the fallback: Windows Graphics Capture first, because it is the one whose
+/// frames need nothing drawn into them, and Desktop Duplication second, because
+/// it is there where the first is not.
+#[cfg(any(wgc, dup))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rung {
+    #[cfg(wgc)]
+    Graphics,
+    #[cfg(dup)]
+    Duplication,
+}
+
+#[cfg(any(wgc, dup))]
+impl Rung {
+    /// What this rung is called in the one log line that says which ran.
+    fn name(self) -> &'static str {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics => "Windows Graphics Capture",
+            #[cfg(dup)]
+            Self::Duplication => "Desktop Duplication",
+        }
+    }
+}
+
+/// The rungs in the order a share tries them.
+#[cfg(any(wgc, dup))]
+const RUNGS: &[Rung] = &[
+    #[cfg(wgc)]
+    Rung::Graphics,
+    #[cfg(dup)]
+    Rung::Duplication,
+];
+
+#[cfg(any(wgc, dup))]
+impl Card {
+    /// Asks for the next frame. `wait` is how long a duplication may wait for
+    /// the desktop to change; it is zero because the stream's own slot is the
+    /// pace on both rungs, and a capture that waited would spend a second wait
+    /// on top of that slot. Graphics Capture's look never waits at all.
+    fn frame(&mut self, wait: Duration) -> Result<Arrival> {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => match capture.frame()? {
+                wgc::Arrival::Frame => Ok(Arrival::Frame),
+                // Nothing drawn since the last look is the compositor's own
+                // rate, and the loop's next slot is when it asks again.
+                wgc::Arrival::Idle => Ok(Arrival::Still),
+                wgc::Arrival::Resized => Ok(Arrival::Resized),
+                wgc::Arrival::Closed => Ok(Arrival::Closed),
+            },
+            // A duplication reports a moved pointer separately from a new
+            // desktop image, and both leave the last picture in the texture
+            // with the pointer where it is now: either is a frame to send.
+            #[cfg(dup)]
+            Self::Duplication { capture, .. } => match capture.frame(wait)? {
+                dup::Arrival::Frame | dup::Arrival::Pointer => Ok(Arrival::Frame),
+                dup::Arrival::Still => Ok(Arrival::Still),
+            },
+        }
+    }
+
+    fn content_size(&self) -> (u32, u32) {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => capture.content_size(),
+            #[cfg(dup)]
+            Self::Duplication { capture, .. } => capture.content_size(),
+        }
+    }
+
+    /// The borrowed texture the last [`Arrival::Frame`] left here.
+    fn texture(&self) -> *mut c_void {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => capture.texture(),
+            #[cfg(dup)]
+            Self::Duplication { capture, .. } => capture.texture(),
+        }
+    }
+
+    /// The device the texture is on, which the encoder has to open on.
+    fn device(&self) -> *mut c_void {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => capture.device(),
+            #[cfg(dup)]
+            Self::Duplication { capture, .. } => capture.device(),
+        }
+    }
+
+    /// What this capture is, in one line, for the log that says which rung ran.
+    fn describe(&self) -> String {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => capture.describe(),
+            #[cfg(dup)]
+            Self::Duplication { capture, .. } => capture.describe(),
+        }
+    }
+
+    fn rung(&self) -> &'static str {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { .. } => Rung::Graphics.name(),
+            #[cfg(dup)]
+            Self::Duplication { .. } => Rung::Duplication.name(),
+        }
+    }
+
+    /// Opens the capture again, of the display it was of, after the card took
+    /// the device it was on away. The old capture is let go first, not after:
+    /// DXGI gives an output to one duplicator at a time, so asking for the new
+    /// one while the old one still holds it would be answered with another
+    /// duplicator already having it. The encoder must already be let go too: a
+    /// session read the old device, and this capture makes a new one.
+    fn reopen(self) -> Result<Self> {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, monitor } => {
+                drop(capture);
+                Ok(Self::Graphics {
+                    capture: wgc::Capture::open(monitor)?,
+                    monitor,
+                })
+            }
+            #[cfg(dup)]
+            Self::Duplication { capture, target } => {
+                drop(capture);
+                Ok(Self::Duplication {
+                    capture: dup::Capture::open(target)?,
+                    target,
+                })
+            }
+        }
+    }
+}
+
+/// Tries each rung in [`RUNGS`] order and answers the first that opens, with
+/// the refusals of those before it in one line. That line is what a share that
+/// stays on the processor logs, and what a share that fell through to the
+/// second rung says about the first: each refusal names its rung, in the order
+/// they were tried.
+#[cfg(any(wgc, dup))]
+fn first_rung<T>(mut open: impl FnMut(Rung) -> Result<T>) -> Result<(T, String)> {
+    let mut refused = String::new();
+    for &rung in RUNGS {
+        match open(rung) {
+            Ok(opened) => return Ok((opened, refused)),
+            Err(why) => {
+                if !refused.is_empty() {
+                    refused.push_str("; ");
+                }
+                refused.push_str(rung.name());
+                refused.push_str(": ");
+                refused.push_str(&format!("{why:#}"));
+            }
+        }
+    }
+    bail!("{refused}")
+}
+
 /// Which screen `source` is, when it is one: the display's own handle, or the
 /// one the desktop starts on when nothing has been picked yet. A window or a
 /// camera is not a screen, and saying so is the reason a share of one stays on
@@ -1923,36 +2129,27 @@ fn screen_of(source: &Source) -> Result<wgc::Monitor> {
     }
 }
 
-/// A capture of `source` from the card, or the reason this share stays on the
-/// processor.
+/// The Windows Graphics Capture rung: the display's compositor fills the
+/// texture, so the pointer is already in it and no pixel is drawn here.
 ///
-/// Each thing that stops the card's path is worth saying rather than guessing
-/// at, because each one leaves the share doing what it has always done: a
-/// machine whose hardware setting is off, a display that isn't a screen, and a
-/// card NVENC won't open a session on. A screen larger than the stream is no
-/// longer one of them: the session that reads the capture's texture scales it
-/// to the stream's size on the card.
+/// The stream's own session opens on the capture's device and is let go: what
+/// it asks is whether NVENC opens where the capture fills its textures, which
+/// is the one thing that decides whether these halves fit together. A session
+/// reads a texture only on the device it opened on, so asked before the loop
+/// starts, a card that can't answer leaves the share on the processor instead
+/// of failing its first frame.
 #[cfg(wgc)]
-fn card_capture(
+fn graphics_capture(
     source: &Source,
     sink: &Sink,
     (max_width, max_height): (u32, u32),
-) -> Result<(wgc::Capture, wgc::Monitor)> {
-    if !sink.hardware {
-        bail!("the stream is set to encode on the processor");
-    }
+) -> Result<Card> {
     let monitor = screen_of(source)?;
     let capture = wgc::Capture::open(monitor)?;
     let (width, height) = capture.content_size();
     if width == 0 || height == 0 {
         bail!("the screen is {width}x{height}, which is nothing to capture");
     }
-    // The stream's own session opens here and is let go: what it asks is
-    // whether NVENC opens on the device the capture fills its textures on,
-    // which is the one thing that decides whether these halves fit together.
-    // A session reads a texture only on the device it opened on, so asked
-    // before the loop starts, a card that can't answer leaves the share on the
-    // processor instead of failing its first frame.
     let (sent_width, sent_height) = fit(width, height, max_width, max_height);
     d3d11::D3d11Encoder::open_on(
         capture.device(),
@@ -1963,23 +2160,165 @@ fn card_capture(
         kbps(sent_height, None),
     )
     .context("the card won't open an encoder on the device it captures with")?;
-    Ok((capture, monitor))
+    Ok(Card::Graphics { capture, monitor })
 }
 
-/// Shares a screen from the card: each frame the compositor makes goes to the
-/// encoder as the texture it filled it in — scaled on the card to the stream's
-/// size where the screen is larger — and the bitstream out of the driver is the
-/// only time a frame's bytes touch the processor.
+/// The Desktop Duplication rung: DXGI hands over the compositor's own surface,
+/// and native/dup.cc turns it upright, converts it to BGRA and paints the
+/// pointer into it on the card before the loop sees it. No border is drawn and
+/// nothing is left on the screen, so this is where a screen reaches a stream on
+/// a Windows whose Graphics Capture is missing or won't open.
 ///
-/// Nothing here keeps a frame. The texture is the capture's pool's, borrowed
-/// until the next [`wgc::Capture::frame`]; the encoder's buffers come back to it
-/// as frames go out; and the one picture held in memory is the preview's tile,
-/// scaled on the card and read back at no more than [`PREVIEW_WIDTH`] by
-/// [`PREVIEW_HEIGHT`].
-#[cfg(wgc)]
+/// The device is the duplication's own, made by the shim on the adapter that
+/// drives the display, because a duplication exists only on its own card's
+/// device: the encoder then opens its session there rather than on a device of
+/// its choosing. That is the same one-device rule as the first rung, and it is
+/// why a machine whose NVENC is on another card refuses here too.
+#[cfg(dup)]
+fn duplication(source: &Source, sink: &Sink, (max_width, max_height): (u32, u32)) -> Result<Card> {
+    let target = duplication_target(source)?;
+    let capture = dup::Capture::open(target)?;
+    let (width, height) = capture.content_size();
+    if width == 0 || height == 0 {
+        bail!("the screen is {width}x{height}, which is nothing to duplicate");
+    }
+    let (sent_width, sent_height) = fit(width, height, max_width, max_height);
+    d3d11::D3d11Encoder::open_on(
+        capture.device(),
+        stream_connection::SEND_CODEC,
+        sent_width,
+        sent_height,
+        sink.fps,
+        kbps(sent_height, None),
+    )
+    .context(
+        "the card won't open an encoder on the device the duplication fills its textures on",
+    )?;
+    Ok(Card::Duplication { capture, target })
+}
+
+/// Which display a duplication captures, following the rule the first rung's
+/// [`screen_of`] follows: the primary display when the person hasn't chosen
+/// one, and otherwise the one they chose — here as the adapter and output index
+/// DXGI knows it by, since a duplication is opened by those and not by a monitor
+/// handle.
+#[cfg(dup)]
+fn duplication_target(source: &Source) -> Result<dup::Target> {
+    match source {
+        Source::Screen => dup::Target::primary(),
+        Source::Display(monitor) => target_of_monitor(*monitor),
+        Source::Window(_) => bail!(
+            "a window is captured on the processor: what DXGI duplicates here is a whole display"
+        ),
+        Source::Camera(_) => bail!("a camera isn't a display to duplicate"),
+        Source::TestPattern => bail!("a test pattern is drawn, not copied from a display"),
+    }
+}
+
+/// The adapter and output driving the display `monitor`, as DXGI numbers them.
+///
+/// The monitor handle is the one the shell's list gives — the same one Windows
+/// Graphics Capture takes — and DXGI names an output by its adapter's LUID and
+/// an index, so the two are matched by asking every adapter for every output's
+/// monitor, which is what native/wgc.cc does with the same handle. It is asked
+/// once per share, before the loop, so it costs nothing a frame.
+#[cfg(dup)]
+fn target_of_monitor(monitor: u64) -> Result<dup::Target> {
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
+
+    // The first rung's `Monitor::new(0)` is the primary display, and the same
+    // handle from a stale list means the same thing here rather than a search
+    // for an output with no monitor at all.
+    if monitor == 0 {
+        return dup::Target::primary();
+    }
+    let handle = monitor as usize as *mut std::ffi::c_void;
+    // SAFETY: DXGI is asked for its factory and then for each adapter and output
+    // by index, and every one it hands back is released when it goes out of
+    // scope.
+    let factory: IDXGIFactory1 =
+        unsafe { CreateDXGIFactory1() }.map_err(|status| anyhow!("no DXGI factory: {status}"))?;
+    let mut at = 0;
+    while let Ok(adapter) = unsafe { factory.EnumAdapters1(at) } {
+        at += 1;
+        let Ok(described) = (unsafe { adapter.GetDesc1() }) else {
+            continue;
+        };
+        let mut output = 0;
+        while let Ok(screen) = unsafe { adapter.EnumOutputs(output) } {
+            let Ok(desc) = (unsafe { screen.GetDesc() }) else {
+                output += 1;
+                continue;
+            };
+            if desc.Monitor.0 == handle {
+                return Ok(dup::Target::new(
+                    described.AdapterLuid.HighPart as u32,
+                    described.AdapterLuid.LowPart,
+                    output,
+                ));
+            }
+            output += 1;
+        }
+    }
+    bail!("no display at monitor handle 0x{monitor:x}, which DXGI enumerates")
+}
+
+/// A capture of `source` from the card, or the reason this share stays on the
+/// processor.
+///
+/// Each thing that stops the card's path is worth saying rather than guessing
+/// at, because each one leaves the share doing what it has always done: a
+/// machine whose hardware setting is off, a display that isn't a screen, and a
+/// card NVENC won't open a session on. A screen larger than the stream is no
+/// longer one of them: the session that reads the capture's texture scales it
+/// to the stream's size on the card.
+///
+/// The card is tried in [`RUNGS`] order. Windows Graphics Capture comes first:
+/// its frames arrive with the pointer already in them and no work of ours on the
+/// way. Desktop Duplication is the second rung, for a machine or a build where
+/// that capture isn't there or won't open — an older Windows 10, or a build whose
+/// SDK has no header for it. Duplication also draws no border, which is what a
+/// Windows 10 whose Graphics Capture leaves its yellow indicator on would want;
+/// this code can't tell that from the shim's description without reading a log
+/// line, so it doesn't refuse the first rung over it. Either rung hands the loop
+/// the same borrowed BGRA texture on the device its capture made, so everything
+/// after this decision is the same.
+#[cfg(any(wgc, dup))]
+fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> Result<Card> {
+    if !sink.hardware {
+        bail!("the stream is set to encode on the processor");
+    }
+    let (capture, refused) = first_rung(|rung| match rung {
+        #[cfg(wgc)]
+        Rung::Graphics => graphics_capture(source, sink, bounds),
+        #[cfg(dup)]
+        Rung::Duplication => duplication(source, sink, bounds),
+    })?;
+    if !refused.is_empty() {
+        // The line that otherwise says only that the card runs now also says
+        // which rung had it first and why it didn't: a share that took the
+        // fallback is worth being able to see.
+        tracing::info!(
+            why = refused.as_str(),
+            rung = capture.rung(),
+            "the card's first capture refused; sharing from the second"
+        );
+    }
+    Ok(capture)
+}
+
+/// Shares a screen from the card: each frame either capture fills a texture
+/// with goes to the encoder as that texture — scaled on the card to the
+/// stream's size where the screen is larger — and the bitstream out of the
+/// driver is the only time a frame's bytes touch the processor.
+///
+/// Nothing here keeps a frame. The texture is the capture's own, borrowed until
+/// the next [`Card::frame`]; the encoder's buffers come back to it as frames go
+/// out; and the one picture held in memory is the preview's tile, scaled on the
+/// card and read back at no more than [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`].
+#[cfg(any(wgc, dup))]
 fn capture_textures(
-    mut capture: wgc::Capture,
-    monitor: wgc::Monitor,
+    mut capture: Card,
     mut sink: Sink,
     (max_width, max_height): (u32, u32),
     stop: &AtomicBool,
@@ -1987,8 +2326,10 @@ fn capture_textures(
 ) -> Result<()> {
     let (screen_width, screen_height) = capture.content_size();
     let (sent_width, sent_height) = fit(screen_width, screen_height, max_width, max_height);
+    let described = capture.describe();
     tracing::info!(
-        capture = capture.describe().as_str(),
+        rung = capture.rung(),
+        capture = described.as_str(),
         screen = format!("{screen_width}x{screen_height}"),
         stream = format!("{sent_width}x{sent_height}"),
         "sharing from the card"
@@ -2014,19 +2355,31 @@ fn capture_textures(
     // since a frame last went out.
     let mut restarts = 0u32;
     while next_frame(started, &mut slot, fps, stop).is_some() {
-        let arrival = capture.frame()?;
+        // One look per stream slot, paced by `next_frame` on both rungs: a
+        // duplication asked with no wait answers at once whether the desktop
+        // changed, and a still one makes no frame here and no spin either. A
+        // capture that stops — a duplication loses its desktop on a secure
+        // screen or a display change — is put back together below with the
+        // encoder, exactly as a device the card took away is.
+        let mut taken = Ok(());
+        let arrival = match capture.frame(Duration::ZERO) {
+            Ok(arrival) => arrival,
+            Err(error) => {
+                taken = Err(error);
+                Arrival::Still
+            }
+        };
         // Everything the sink has to say about this pass, under its lock once:
         // the controls, which is also where its reports go, whether a preview is
         // wanted, and the frame itself when one arrived. No lock is held while
         // the capture, the encoder or the preview work.
-        let mut taken = Ok(());
         let mut size = None;
         let (switched, wanted) = {
             let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             let switched = sink.check(report)?;
             let wanted = sink.preview_wanted();
             match arrival {
-                wgc::Arrival::Frame => {
+                Arrival::Frame => {
                     let content = capture.content_size();
                     let sent = fit(content.0, content.1, max_width, max_height);
                     taken = sink.textured(
@@ -2037,17 +2390,18 @@ fn capture_textures(
                     );
                     size = Some(sent);
                 }
-                // The screen changed size and the capture's pool with it, so the
-                // next frame is at the new size: `ready` opens an encoder for it
-                // and tells the sender, and a session's first frame is whole.
-                wgc::Arrival::Resized => tracing::info!("the screen changed size"),
-                // Nothing has been drawn since the last frame, which is the
-                // compositor's own rate: the next pass is the next slot.
-                wgc::Arrival::Idle => {}
-                // What was being captured closed, or its session ended. This
-                // capture hands out no more frames, so the share ends rather than
-                // waits on one that won't come.
-                wgc::Arrival::Closed => bail!("the capture of the screen ended"),
+                // The screen changed size and the capture's texture with it, so
+                // the next frame is at the new size: `ready` opens an encoder
+                // for it and tells the sender, and a session's first frame is
+                // whole.
+                Arrival::Resized => tracing::info!("the screen changed size"),
+                // Nothing has been drawn and nothing has moved, which is the
+                // desktop's own rate: the next pass is the next slot.
+                Arrival::Still => {}
+                // What was being captured ended. This capture hands out no more
+                // frames, so the share ends rather than waits on one that won't
+                // come.
+                Arrival::Closed => bail!("the capture of the screen ended"),
             };
             (switched, wanted)
         };
@@ -2072,11 +2426,11 @@ fn capture_textures(
             Err(error) => {
                 restarts = restarts.saturating_add(1);
                 if restarts > CARD_RESTARTS {
-                    return Err(error.context("the card's encoder stopped"));
+                    return Err(error.context("the card's session stopped"));
                 }
                 tracing::warn!(
                     error = format!("{error:#}"),
-                    "the card's encoder stopped; opening it and the capture again"
+                    "the card stopped; opening the capture and the encoder again"
                 );
                 // Nothing that reads the old device may outlive it: the tile's
                 // session goes now, and the stream's before the capture that
@@ -2085,7 +2439,7 @@ fn capture_textures(
                 sink.lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .let_go();
-                capture = wgc::Capture::open(monitor)?;
+                capture = capture.reopen()?;
             }
             Ok(()) => restarts = 0,
         }
@@ -2125,7 +2479,7 @@ fn capture_textures(
             _ => {}
         }
         if let Some(tile) = &mut tile
-            && arrival == wgc::Arrival::Frame
+            && arrival == Arrival::Frame
             && read.is_none_or(|last| last.elapsed() >= PREVIEW_EVERY)
         {
             read = Some(Instant::now());
@@ -3343,7 +3697,7 @@ mod tests {
     /// one it was: a window and a camera aren't screens, a test pattern isn't
     /// captured at all, and a stream set to encode on the processor doesn't look
     /// at the card.
-    #[cfg(wgc)]
+    #[cfg(any(wgc, dup))]
     #[test]
     fn a_share_the_card_cannot_capture_says_why() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
@@ -3386,6 +3740,87 @@ mod tests {
             format!("{error:#}").contains("processor"),
             "the setting itself keeps it there"
         );
+    }
+
+    /// The card's captures are tried in the order the constant names: Graphics
+    /// Capture first, because its frames need nothing drawn into them, and
+    /// Desktop Duplication second, because it is there where the first isn't.
+    /// Each refusal carries its rung's name into the one line that reports
+    /// them, in the order they were tried, and the first rung that opens ends
+    /// the search.
+    #[cfg(any(wgc, dup))]
+    #[test]
+    fn the_card_tries_graphics_capture_first_and_duplication_second() {
+        let mut asked = Vec::new();
+        let error = first_rung::<u8>(|rung| {
+            asked.push(rung);
+            bail!("{} refused", rung.name())
+        })
+        .expect_err("no rung opens");
+        assert_eq!(asked.as_slice(), RUNGS, "the rungs are tried in order");
+        let said = format!("{error:#}");
+        let mut after = 0;
+        for rung in RUNGS {
+            let at = said
+                .find(rung.name())
+                .unwrap_or_else(|| panic!("{} is not named in {said}", rung.name()));
+            assert!(
+                at >= after,
+                "{} is named in the order it was tried",
+                rung.name()
+            );
+            after = at;
+        }
+
+        let mut asked = Vec::new();
+        let (opened, refused) = first_rung(|rung| {
+            asked.push(rung);
+            if asked.len() < RUNGS.len() {
+                bail!("{} refused", rung.name());
+            }
+            Ok(7)
+        })
+        .expect("the last rung opens");
+        assert_eq!(opened, 7);
+        assert_eq!(
+            asked.as_slice(),
+            RUNGS,
+            "the search stops at the first rung that opens"
+        );
+        if RUNGS.len() > 1 {
+            assert!(
+                refused.contains(RUNGS[0].name()),
+                "the refusal before it is kept: {refused}"
+            );
+            assert!(
+                !refused.contains(RUNGS[RUNGS.len() - 1].name()),
+                "the rung that opened isn't a refusal: {refused}"
+            );
+        }
+    }
+
+    /// A duplication takes the same displays the first rung does — the primary
+    /// one when nothing was picked, and the one the shell listed otherwise — and
+    /// refuses everything that isn't a display by its own name, rather than
+    /// duplicating the primary display and calling it the chosen one.
+    #[cfg(dup)]
+    #[test]
+    fn a_duplication_names_the_display_it_captures_and_what_it_cannot() {
+        for (source, why) in [
+            (Source::Window(7), "window"),
+            (Source::Camera("none".into()), "camera"),
+            (Source::TestPattern, "drawn"),
+        ] {
+            let Err(error) = duplication_target(&source) else {
+                panic!("{source:?} isn't a display to duplicate");
+            };
+            let said = format!("{error:#}");
+            assert!(said.contains(why), "{said}");
+        }
+        let Err(error) = duplication_target(&Source::Display(u64::MAX)) else {
+            panic!("a handle no display has named one");
+        };
+        assert!(format!("{error:#}").contains("monitor handle"), "{error:#}");
     }
 
     /// Whether a screen's texture and an NVENC session can be on one device, as

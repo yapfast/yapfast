@@ -156,7 +156,13 @@ Discord's still come from that same frame — scaled on the card to 1280×720 at
 most, copied into one staging texture, ten times a second while the UI shows a
 preview. Everything else — Linux, a window or a camera, the processor setting,
 or a card that won't open on the capture's device — takes the libyuv path above,
-and one log line says which ran and why. Discord's still is made from the
+and one log line says which ran and why. Where Windows Graphics Capture is missing or won't open, DXGI's Desktop
+Duplication fills the same kind of texture — upright, in BGRA, with the pointer
+drawn in and no border — and everything above it, the scale to the stream's size
+and the preview's readback, is identical. It is the second rung rather than the
+first: on Windows 10, where Graphics Capture cannot shed its own border, it still
+wins when it opens, because this build tells the two apart by what each reports
+rather than by refusing a capture whose border it cannot remove. Discord's still is made from the
 same scaled picture, so it still refreshes while the local preview is hidden.
 
 Discord shows a still of each stream, in the call and to people outside it.
