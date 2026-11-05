@@ -248,7 +248,9 @@ nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
 and the servers and friends the account shares with them. Profiles are kept for
 five minutes, at most 32 of them. Presence and activity come from the member
-list, since the profile doesn't carry them. When Discord refuses, the card
+list, since the profile doesn't carry them. Their custom status, or what
+they're doing, sits in a thought bubble beside the picture, as in
+Discord's: two lines at most, and all of it while pointed at. When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
 

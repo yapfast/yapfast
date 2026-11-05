@@ -759,6 +759,13 @@ export component ProfileCard inherits Rectangle {
     property <color> theme-end: root.data.theme-secondary.mix(#000000, 0.4);
     /// What lies behind the avatar's ring, where the banner ends.
     property <color> ground: root.themed ? root.theme-start : root.plain-ground;
+    /// Their custom status or what they're doing, which Discord puts in a
+    /// thought bubble beside the picture.
+    property <bool> has-thought: root.data.activity != "" || root.data.activity-emoji != "";
+    // The bubble is solid, so its dots and bump join it with no seam; on a
+    // themed card, the colours measured off Discord's.
+    property <color> bubble: root.themed ? #232427 : Theme.raised;
+    property <color> bubble-edge: root.themed ? #404044 : Theme.edge;
     height: min(body.preferred-height, root.limit);
     background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : root.plain-ground;
     border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
@@ -789,6 +796,62 @@ export component ProfileCard inherits Rectangle {
                         background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
                         if root.data.banner.width > 0: Image {
                             width: parent.width; height: parent.height; source: root.data.banner; image-fit: cover;
+                        }
+                    }
+                    // What they're up to, a thought beside the picture: two
+                    // lines at most, and all of it while pointed at, as Discord's.
+                    // The full profile's.
+                    if root.has-thought && root.large: Rectangle {
+                        x: root.pad + root.avatar-size + 14px; y: root.banner-height - root.avatar-size / 2 + 30px; width: 10px; height: 10px; border-radius: 5px;
+                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                    }
+                    if root.has-thought && root.large: Rectangle {
+                        x: root.pad + root.avatar-size + 26px; y: root.banner-height - root.avatar-size / 2 + 37px; width: 18px; height: 18px; border-radius: 9px;
+                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                    }
+                    if root.has-thought && root.large: Rectangle {
+                        x: root.pad + root.avatar-size + 18px; y: root.banner-height - root.avatar-size / 2 + 45px;
+                        width: min(root.width - self.x - 12px, min(180px, large-thought.preferred-width + 26px));
+                        height: (large-bubble.has-hover ? large-thought.preferred-height : min(large-thought.preferred-height, 42px)) + 16px;
+                        animate height { duration: 180ms; easing: ease-out; }
+                        clip: true; z: large-bubble.has-hover ? 10 : 0;
+                        border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                        // The bump joins the bubble with no line between them.
+                        Rectangle { x: 9px; y: 0px; width: 16px; height: 2px; background: root.bubble; }
+                        large-bubble := TouchArea { }
+                        Rectangle {
+                            x: 13px; y: 8px; width: parent.width - 26px; height: parent.height - 16px; clip: true;
+                            large-thought := StatusText {
+                                width: parent.width; height: parent.height;
+                                text: root.data.activity; emoji-url: root.data.activity-emoji;
+                                color: Theme.text; font-size: 14px; wrap: word-wrap;
+                            }
+                        }
+                    }
+                    // The card's.
+                    if root.has-thought && !root.large: Rectangle {
+                        x: root.pad + root.avatar-size + 2px; y: root.banner-height - 16px; width: 7px; height: 7px; border-radius: 3.5px;
+                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                    }
+                    if root.has-thought && !root.large: Rectangle {
+                        x: root.pad + root.avatar-size + 11px; y: root.banner-height - 9px; width: 11px; height: 11px; border-radius: 5.5px;
+                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                    }
+                    if root.has-thought && !root.large: Rectangle {
+                        x: root.pad + root.avatar-size + 12px; y: root.banner-height + 4px;
+                        width: min(root.width - self.x - 12px, thought.preferred-width + 24px);
+                        height: (small-bubble.has-hover ? thought.preferred-height : min(thought.preferred-height, 38px)) + 14px;
+                        animate height { duration: 180ms; easing: ease-out; }
+                        clip: true; z: small-bubble.has-hover ? 10 : 0;
+                        border-radius: 14px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                        small-bubble := TouchArea { }
+                        Rectangle {
+                            x: 12px; y: 7px; width: parent.width - 24px; height: parent.height - 14px; clip: true;
+                            thought := StatusText {
+                                width: parent.width; height: parent.height;
+                                text: root.data.activity; emoji-url: root.data.activity-emoji;
+                                color: Theme.text; font-size: 13px; wrap: word-wrap;
+                            }
                         }
                     }
                     Rectangle {
@@ -830,10 +893,6 @@ export component ProfileCard inherits Rectangle {
                                 color: Theme.text; font-size: 14px; font-weight: 400; overflow: elide; vertical-alignment: center;
                             }
                             if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: #97979f1f; outline: #97979f0a; outline-width: 1px; } }
-                        }
-                        if root.data.activity != "" || root.data.activity-emoji != "": StatusText {
-                            text: root.data.activity; emoji-url: root.data.activity-emoji;
-                            color: Theme.secondary; font-size: 14px; wrap: word-wrap; max-height: 40px;
                         }
                     }
                     // The full profile's actions: the friend button, the message
