@@ -370,6 +370,9 @@ an error.
   anyone may mention, and every role with @everyone and @here for those
   allowed to mention everyone. Sending turns each `@Name` into Discord's
   `<@id>` or `<@&id>`.
+- Typing `#` in a server channel suggests the server's text and voice
+  channels this account can see, in Discord's order, under CHANNELS. Sending
+  turns each `#name` into Discord's `<#id>`.
 - Who else is typing shows above the composer, for ten seconds after Discord
   last said so or until their message arrives. Writing tells Discord Alice is
   typing, at most every eight seconds, unless a setting turns it off.

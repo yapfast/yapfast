@@ -17,10 +17,10 @@ impl Application {
         }
     }
 
-    pub(super) fn mention_query(&mut self, query: Option<String>) -> Vec<Effect> {
+    pub(super) fn mention_query(&mut self, query: Option<(char, String)>) -> Vec<Effect> {
         self.state.mention_query = query.clone();
         // Discord servers list only some members; ask for the rest by name.
-        let (Some(room), Some(query)) = (self.state.selected.clone(), query) else {
+        let (Some(room), Some(('@', query))) = (self.state.selected.clone(), query) else {
             return vec![];
         };
         let in_server =

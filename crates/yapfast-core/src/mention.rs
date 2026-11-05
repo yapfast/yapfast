@@ -1,5 +1,6 @@
-//! Mentioning people and roles from the composer: the `@` word being typed, who
-//! it may mean, and the message text that mentions them on its network.
+//! Mentioning people, roles and channels from the composer: the `@` or `#` word
+//! being typed, who or what it may mean, and the message text that mentions
+//! them on its network.
 
 use std::ops::Range;
 
@@ -16,8 +17,17 @@ pub struct Candidate {
     pub avatar: Option<String>,
     /// The RGB colour of the name.
     pub color: Option<u32>,
-    /// A role or a group such as @everyone, rather than a person.
+    /// A role or a group such as @everyone, or a channel, rather than a person.
     pub group: bool,
+    /// A channel, which `#` mentions rather than `@`.
+    pub channel: bool,
+}
+
+impl Candidate {
+    /// What the composer writes before the name: `#` for a channel, else `@`.
+    pub fn sigil(&self) -> char {
+        if self.channel { '#' } else { '@' }
+    }
 }
 
 /// Someone or something a message mentions, as the message shows it.
@@ -159,18 +169,23 @@ fn is_name_char(c: char) -> bool {
 /// Names longer than this aren't looked up while typing.
 const MAX_QUERY: usize = 32;
 
-/// The `@` word ending at `cursor`, a byte offset into `text`: where its `@` is,
-/// and what follows it.
-pub fn query(text: &str, cursor: usize) -> Option<(usize, &str)> {
+/// The `@` or `#` word ending at `cursor`, a byte offset into `text`: where its
+/// sigil is, which one, and what follows it.
+pub fn query(text: &str, cursor: usize) -> Option<(usize, char, &str)> {
     let before = text.get(..cursor)?;
-    let at = before.rfind('@')?;
+    let at = before.rfind(['@', '#'])?;
+    let sigil = if before[at..].starts_with('#') {
+        '#'
+    } else {
+        '@'
+    };
     let query = &before[at + 1..];
     let starts_word = before[..at]
         .chars()
         .next_back()
         .is_none_or(|previous| previous.is_whitespace() || "([{\"'".contains(previous));
     (starts_word && query.len() <= MAX_QUERY && !query.contains(char::is_whitespace))
-        .then_some((at, query))
+        .then_some((at, sigil, query))
 }
 
 /// The candidates `query` may mean, at most `limit`: names that start with it,
@@ -209,7 +224,8 @@ pub fn matching<'a>(candidates: &'a [Candidate], query: &str, limit: usize) -> V
         .collect()
 }
 
-/// `text` with each `@name` of a candidate, outside code, in its network's form.
+/// `text` with each `@name` or `#channel` of a candidate, outside code, in its
+/// network's form.
 pub fn wire(text: &str, candidates: &[Candidate]) -> String {
     let mut out = String::with_capacity(text.len());
     let mut end = 0;
@@ -231,10 +247,11 @@ pub fn marks(text: &str, candidates: &[Candidate]) -> Vec<(Range<usize>, Option<
         .collect()
 }
 
-/// Each `@name` of a candidate in `text`, outside code, and whom it names.
-/// The longest name that fits wins, so `@Ann Lee` isn't taken for `@Ann`.
+/// Each `@name` or `#channel` of a candidate in `text`, outside code, and whom
+/// it names. The longest name that fits wins, so `@Ann Lee` isn't taken for
+/// `@Ann`.
 fn found<'a>(text: &str, candidates: &'a [Candidate]) -> Vec<(Range<usize>, &'a Candidate)> {
-    if !text.contains('@') {
+    if !text.contains(['@', '#']) {
         return Vec::new();
     }
     let mut sorted: Vec<&Candidate> = candidates
@@ -251,13 +268,14 @@ fn found<'a>(text: &str, candidates: &'a [Candidate]) -> Vec<(Range<usize>, &'a 
             code = !code;
         }
         let starts_word = previous.is_none_or(|previous| !previous.is_alphanumeric());
-        if next == '@' && !code && starts_word {
+        if (next == '@' || next == '#') && !code && starts_word {
             let after = &text[at + 1..];
             let candidate = sorted.iter().find(|candidate| {
                 let name = &candidate.name;
-                after
-                    .get(..name.len())
-                    .is_some_and(|head| head.eq_ignore_ascii_case(name))
+                candidate.sigil() == next
+                    && after
+                        .get(..name.len())
+                        .is_some_and(|head| head.eq_ignore_ascii_case(name))
                     && ends_name(&after[name.len()..])
             });
             if let Some(candidate) = candidate {
@@ -286,6 +304,15 @@ mod tests {
             avatar: None,
             color: None,
             group: false,
+            channel: false,
+        }
+    }
+
+    fn channel(name: &str, mention: &str) -> Candidate {
+        Candidate {
+            group: true,
+            channel: true,
+            ..person(name, mention)
         }
     }
 
@@ -353,16 +380,20 @@ mod tests {
 
     #[test]
     fn finds_the_word_being_typed() {
-        assert_eq!(query("hi @bo", 6), Some((3, "bo")));
-        assert_eq!(query("@", 1), Some((0, "")));
-        assert_eq!(query("(@carol", 7), Some((1, "carol")));
+        assert_eq!(query("hi @bo", 6), Some((3, '@', "bo")));
+        assert_eq!(query("@", 1), Some((0, '@', "")));
+        assert_eq!(query("(@carol", 7), Some((1, '@', "carol")));
         assert_eq!(query("mail me@home", 12), None, "not after a letter");
         assert_eq!(query("@bob is here", 12), None, "a space ends it");
         assert_eq!(
             query("hi @bo and", 6),
-            Some((3, "bo")),
+            Some((3, '@', "bo")),
             "the cursor ends it"
         );
+        assert_eq!(query("see #gen", 8), Some((4, '#', "gen")));
+        assert_eq!(query("#", 1), Some((0, '#', "")));
+        assert_eq!(query("C#", 2), None, "not after a letter");
+        assert_eq!(query("# Title", 7), None, "a heading's space ends it");
     }
 
     #[test]
@@ -409,6 +440,24 @@ mod tests {
         assert_eq!(wire("me@Ann.com", &candidates), "me@Ann.com");
         assert_eq!(wire("`@Ann` but @Ann", &candidates), "`@Ann` but <@1>");
         assert_eq!(wire("café @Ann", &candidates), "café <@1>");
+    }
+
+    #[test]
+    fn channels_go_out_with_hash() {
+        let candidates = [
+            channel("general", "<#11>"),
+            channel("off-topic", "<#12>"),
+            person("general", "<@3>"),
+        ];
+        assert_eq!(
+            wire("see #general and #off-topic, ask @general", &candidates),
+            "see <#11> and <#12>, ask <@3>"
+        );
+        assert_eq!(
+            wire("C#general and #generalist", &candidates),
+            "C#general and #generalist"
+        );
+        assert_eq!(wire("`#general`", &candidates), "`#general`");
     }
 
     #[test]

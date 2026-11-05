@@ -3,6 +3,7 @@
 
 use super::{channels::SharedPreviews, *};
 use yapfast_discord::message::MentionTarget;
+use yapfast_discord::ready::Access;
 
 /// A new Discord message as a notification: who wrote it, by their name in the server,
 /// and what it says, or what it carries when it has no text.
@@ -467,7 +468,7 @@ pub(super) fn rendered(
 }
 
 /// The roles a message in a server channel may mention, after @everyone and @here
-/// for those allowed them.
+/// for those allowed them, then the channels it may link with `#`.
 pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup> {
     let Some((guild, channel)) = discord::parse_room(room) else {
         return vec![];
@@ -487,6 +488,7 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name: name.into(),
                 mention: format!("@{name}"),
                 color: None,
+                channel: false,
             });
         }
     }
@@ -498,6 +500,20 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name,
                 mention: format!("<@&{id}>"),
                 color,
+                channel: false,
+            }),
+    );
+    // Its text and voice channels this account can see, in Discord's order.
+    groups.extend(
+        server
+            .text_channels()
+            .chain(server.voice_channels())
+            .filter(|known| known.marks.access != Access::Hidden)
+            .map(|known| MentionGroup {
+                name: known.channel.name.clone(),
+                mention: format!("<#{}>", known.channel.id),
+                color: None,
+                channel: true,
             }),
     );
     groups
