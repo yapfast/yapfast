@@ -163,7 +163,11 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   codec->gop_size = (int)fps * 3;
   codec->max_b_frames = 0;
   codec->pix_fmt = vaapi ? AV_PIX_FMT_VAAPI : amf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
-  /* libyuv converts captured pixels with BT.601's limited range. */
+  /* What the pixels are, not what a player might prefer them to be: the
+   * screen, the camera and the clip all reach an encoder through libyuv's
+   * ABGR to I420, whose matrix is BT.601's over its limited range, so that
+   * is what the encoder is told. h264.c tells x264 the same four numbers;
+   * a conversion that changed would have to change both. */
   codec->color_primaries = AVCOL_PRI_SMPTE170M;
   codec->color_trc = AVCOL_TRC_SMPTE170M;
   codec->colorspace = AVCOL_SPC_SMPTE170M;
@@ -278,10 +282,16 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   h->frame->format = pixels;
   h->frame->width = (int)width;
   h->frame->height = (int)height;
+  /* Read back rather than assumed, as the format is: an encoder that kept
+   * none of what it was told is reported as claiming no colour at all, so
+   * the log never names a colour the stream doesn't have. */
   const char *space = av_color_space_name(codec->colorspace);
+  if (codec->colorspace == AVCOL_SPC_UNSPECIFIED) space = NULL;
+  const char *range = codec->color_range == AVCOL_RANGE_JPEG   ? "full"
+                      : codec->color_range == AVCOL_RANGE_MPEG ? "limited"
+                                                              : "no";
   snprintf(h->config, sizeof h->config, "%s, %s %s range, %d/%d, %u kbit/s", format,
-           space ? space : "no colour space",
-           codec->color_range == AVCOL_RANGE_JPEG ? "full" : "limited", codec->time_base.num,
+           space ? space : "no colour space", range, codec->time_base.num,
            codec->time_base.den, kbps);
   return av_frame_get_buffer(h->frame, 0);
 }
@@ -294,6 +304,7 @@ static const char *const ENCODERS[][4] = {
     [CODEC_AV1] = {"av1_nvenc", "av1_amf", "av1_vaapi", NULL},
 };
 
+#ifdef __linux__
 /* The libva drivers for each kernel driver whose GPUs encode, best first.
  * Naming the driver overrides LIBVA_DRIVER_NAME, which NixOS and others
  * set to nvidia for browsers, and which would fail every other GPU. NVIDIA's
@@ -306,10 +317,11 @@ static const char *const VA_DRIVERS[][4] = {
     {"virtio_gpu", "virtio_gpu", NULL},
 };
 
-/* The kernel driver of /dev/dri/renderD<128 + n>, or an empty string. */
+/* The kernel driver of /dev/dri/renderD<128 + n>, or an empty string. It is
+ * sysfs that says which driver a node has, and sysfs is Linux's, so this is
+ * Linux's alone: off Linux there are no VA-API devices to find. */
 static void kernel_driver(int n, char *name, size_t size) {
   name[0] = 0;
-#ifdef __linux__
   char link[64], target[256];
   snprintf(link, sizeof link, "/sys/class/drm/renderD%d/device/driver", 128 + n);
   ssize_t length = readlink(link, target, sizeof target - 1);
@@ -318,17 +330,26 @@ static void kernel_driver(int n, char *name, size_t size) {
   const char *base = strrchr(target, '/');
   base = base ? base + 1 : target;
   if (strlen(base) < size) memcpy(name, base, strlen(base) + 1);
-#else
-  (void)n;
-  (void)size;
-#endif
 }
+#endif
 
 struct opening {
   unsigned codec_id, width, height, fps, kbps;
   char *report;
   size_t report_size, used;
 };
+
+/* Adds one encoder's reason for not opening to the report, and nothing at all
+ * once the report is full: the buffer is Rust's, of a fixed size, and what
+ * fits in it is what the log can say. */
+static void skipped(struct opening *o, const char *name, const char *why) {
+  if (o->used + 1 >= o->report_size) return;
+  int written = snprintf(o->report + o->used, o->report_size - o->used, "%s%s: %s",
+                         o->used ? "; " : "", name, why);
+  if (written < 0) return;
+  o->used += (size_t)written;
+  if (o->used >= o->report_size) o->used = o->report_size - 1;
+}
 
 /* Opens `found` on `device`, or adds why it didn't open to the report. */
 static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
@@ -349,9 +370,7 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
     return h;
   }
   if (!first_error[0]) av_strerror(ret, first_error, sizeof first_error);
-  if (o->used < o->report_size)
-    o->used += (size_t)snprintf(o->report + o->used, o->report_size - o->used, "%s%s: %s",
-                                o->used ? "; " : "", label, first_error);
+  skipped(o, label, first_error);
   close_encoder(h);
   av_free(h);
   return NULL;
@@ -359,7 +378,10 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
 
 /* Opens the first encoder of `codec_id` that works, VA-API's on each GPU
  * that has a driver for it, and writes its name to `report`, or each one's
- * failure when none does. */
+ * failure when none does. Every encoder the list names is accounted for,
+ * including the ones that were passed over before they could be tried: a
+ * stream that fell back to x264 says which encoders this machine hasn't
+ * got, as well as which it has and wouldn't open. */
 struct yapfast_hwenc *yapfast_hwenc_new(unsigned codec_id, unsigned width, unsigned height,
                                         unsigned fps, unsigned kbps, char *report,
                                         size_t report_size) {
@@ -370,25 +392,44 @@ struct yapfast_hwenc *yapfast_hwenc_new(unsigned codec_id, unsigned width, unsig
   struct opening o = {codec_id, width, height, fps, kbps, report, report_size, 0};
   for (const char *const *name = ENCODERS[codec_id]; *name; name++) {
     const AVCodec *found = avcodec_find_encoder_by_name(*name);
-    if (!found) continue;
+    if (!found) {
+      /* An encoder this FFmpeg wasn't built with. It is named anyway, so a
+       * machine with that GPU is told it hasn't got it rather than nothing
+       * at all. */
+      skipped(&o, *name, "not in this FFmpeg");
+      continue;
+    }
     struct yapfast_hwenc *h = NULL;
     if (!strstr(*name, "_vaapi")) {
       h = try_open(&o, found, (struct va_device){NULL, NULL});
       if (h) return h;
       continue;
     }
+#ifdef __linux__
+    /* Each GPU's render node, and the libva driver that encodes on it. */
+    int tried = 0;
     for (int n = 0; n < 8; n++) {
       char kernel[32], path[32];
       kernel_driver(n, kernel, sizeof kernel);
+      if (!kernel[0]) continue;
       snprintf(path, sizeof path, "/dev/dri/renderD%d", 128 + n);
       for (size_t i = 0; i < sizeof VA_DRIVERS / sizeof *VA_DRIVERS; i++) {
         if (strcmp(kernel, VA_DRIVERS[i][0])) continue;
         for (const char *const *driver = VA_DRIVERS[i] + 1; *driver; driver++) {
+          tried++;
           h = try_open(&o, found, (struct va_device){path, *driver});
           if (h) return h;
         }
       }
     }
+    /* A GPU nothing here drives is one this can't encode on: an Intel GPU
+     * with no iHD, or a card whose kernel driver has no libva driver named
+     * for it. It goes in the report rather than unmentioned. */
+    if (!tried) skipped(&o, *name, "no GPU here with a VA-API driver");
+#else
+    /* VA-API is Linux's, and so are the render nodes it would be given. */
+    skipped(&o, *name, "VA-API is Linux's");
+#endif
   }
   return NULL;
 }

@@ -324,7 +324,10 @@ impl Encoder {
         let (y, chroma) = planes.split_at_mut(pixels);
         let (u, v) = chroma.split_at_mut(pixels / 4);
         // libyuv names formats by their order in a little-endian word: its
-        // ABGR is R, G, B, A in memory.
+        // ABGR is R, G, B, A in memory. This is the conversion the encoders'
+        // colour claim is about: libyuv writes BT.601's matrix over its
+        // limited range, so that is what native/h264.c and native/hwenc.c tell
+        // each encoder, and neither claim is right apart from the other.
         yuv_helper::abgr_to_i420(
             rgba,
             width * 4,
@@ -878,6 +881,92 @@ mod tests {
         }
         let keys: Vec<bool> = frames.iter().map(|(key, _)| *key).collect();
         assert_eq!(keys[..3], [true, false, true]);
+    }
+
+    /// The colour the encoders declare is the colour the pixels were
+    /// converted with, and nothing else is: `abgr_to_i420` writes BT.601's
+    /// matrix over its limited range, which is what h264.c's VUI (6, 6, 6,
+    /// not full range) and hwenc.c's `AVCOL_SPC_SMPTE170M` and
+    /// `AVCOL_RANGE_MPEG` say the stream is. Black and white land on the
+    /// range's ends rather than on 0 and 255, and green's luma is 601's
+    /// weights, not 709's. A converter that changed would fail this, and both
+    /// declarations would have to move with it.
+    #[test]
+    fn the_declared_colour_is_the_colour_that_was_converted() {
+        let (width, height) = (16u32, 16u32);
+        let planes = |pixel: [u8; 4]| {
+            let mut frame = vec![0u8; (width * height * 4) as usize];
+            for at in frame.chunks_exact_mut(4) {
+                at.copy_from_slice(&pixel);
+            }
+            let chroma = (width / 2 * (height / 2)) as usize;
+            let (mut y, mut u, mut v) = (
+                vec![0; (width * height) as usize],
+                vec![0; chroma],
+                vec![0; chroma],
+            );
+            yuv_helper::abgr_to_i420(
+                &frame,
+                width * 4,
+                &mut y,
+                width,
+                &mut u,
+                width / 2,
+                &mut v,
+                width / 2,
+                width as i32,
+                height as i32,
+            );
+            (y[0], u[0], v[0])
+        };
+        // Limited range: 16 at the bottom, 235 at the top, so a plane of
+        // mid-grey sits below the middle rather than on it.
+        assert_eq!(planes([0, 0, 0, 255]).0, 16);
+        assert_eq!(planes([255, 255, 255, 255]).0, 235);
+        assert!((124..=127).contains(&planes([128, 128, 128, 255]).0));
+        // 601's matrix: green is 0.587 of the way up the range, where 709's
+        // 0.715 would put it at 173.
+        let (green, ..) = planes([0, 255, 0, 255]);
+        assert!((143..=147).contains(&green), "green at Y {green}");
+    }
+
+    /// The report the worker logs as "no GPU encoder opened" names every
+    /// encoder the list holds, including the ones passed over before they
+    /// could be tried: a size no H264 encoder takes leaves a reason for each.
+    /// Which reason VA-API gives depends on the build, and the box this was
+    /// written on showed that plainly: FFmpeg for Windows has no h264_vaapi
+    /// in it, so it is "not in this FFmpeg" there rather than the no-device
+    /// reason a Linux build without a driver would give.
+    #[cfg(hwenc)]
+    #[test]
+    fn a_backend_passed_over_says_why() {
+        let mut report = [0u8; 512];
+        // SAFETY: plain values and a buffer of the size given, which the shim
+        // ends with a zero.
+        let raw = unsafe {
+            yapfast_hwenc_new(
+                0,
+                8192,
+                8192,
+                30,
+                500,
+                report.as_mut_ptr().cast(),
+                report.len(),
+            )
+        };
+        if !raw.is_null() {
+            // SAFETY: raw came from the call above and is freed once.
+            unsafe { yapfast_hwenc_free(raw) };
+            panic!("an H264 encoder opened on 8192 by 8192, so nothing was passed over");
+        }
+        let report = c_text(&report);
+        // Each name, and a reason after it rather than a bare mention.
+        for name in ["h264_nvenc", "h264_amf", "h264_vaapi"] {
+            assert!(
+                report.contains(&format!("{name}: ")) || report.contains(&format!("{name} (")),
+                "{name} is unmentioned in {report:?}"
+            );
+        }
     }
 
     /// Main profile H264 at `size` that decodes: parameter sets and an IDR

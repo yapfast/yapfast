@@ -338,7 +338,11 @@ setting this FFmpeg doesn't have, or the driver refuses, fails that encoder's
 open, and the worker logs it by name ("no GPU encoder opened"); an optional
 one the driver drops is logged too ("the GPU's encoder dropped optional
 settings"), and the stream goes on without it, so it never claims a setting it
-hasn't got. The format it writes is the one the encoder reports it took, NV12
+hasn't got. A backend that was passed over says so too, and why — a codec this
+FFmpeg wasn't built with, a driver that wouldn't open, an interface the platform
+doesn't have — so a card whose encoder wasn't used never looks like nothing at
+all. The colour the stream declares is the colour its frames are: capture
+converts to limited-range I420, and the declaration says that. The format it writes is the one the encoder reports it took, NV12
 or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs
