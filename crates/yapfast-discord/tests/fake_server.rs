@@ -111,7 +111,7 @@ async fn cameras_in_call(
     let recorded = recording(Codec::H264);
     for (index, data) in recorded.iter().take(10).enumerate() {
         camera.send(Frame {
-            data: data.clone(),
+            data: data.clone().into(),
             codec: Codec::H264,
             timestamp: index as u32 * 9000,
             keyframe: index == 0,
@@ -404,7 +404,7 @@ async fn streams_gpu_codec_until_a_viewer_cant_decode_it(
     let send = |codec, from: usize| {
         for (index, data) in recording(codec).into_iter().take(3).enumerate() {
             sender.send(Frame {
-                data,
+                data: data.into(),
                 codec,
                 timestamp: (from + index) as u32 * 3000,
                 keyframe: index == 0,
@@ -520,7 +520,7 @@ async fn send_recording(sender: &StreamSender, codec: Codec, from: usize, count:
     );
     for (index, data) in frames.into_iter().take(count).enumerate() {
         sender.send(Frame {
-            data,
+            data: data.into(),
             codec,
             timestamp: (from + index) as u32 * 3000,
             keyframe: index == 0,
@@ -2856,7 +2856,7 @@ async fn calls_and_goes_live() {
     let sound = sender.sound();
     for (index, data) in recording(SEND_CODEC).into_iter().take(5).enumerate() {
         sender.send(Frame {
-            data,
+            data: data.into(),
             codec: SEND_CODEC,
             timestamp: index as u32 * 3000,
             keyframe: index == 0,

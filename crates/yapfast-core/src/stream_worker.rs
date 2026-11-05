@@ -627,7 +627,7 @@ impl Sink {
         let codec = video.encoder.codec();
         match video.encoder.encode_i420(picture, pts, keyframe) {
             Ok(Some(frame)) => video.sender.send(stream_connection::Frame {
-                data: frame.data.to_vec(),
+                data: frame.data,
                 codec,
                 timestamp: pts as u32,
                 keyframe: frame.keyframe,

@@ -79,10 +79,16 @@ built from source) through `native/h264.c`, with a keyframe at least every 3 s
 and whenever RTCP asks for one; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
-work sends H264. H264 goes as whole NAL units or FU-A fragments, H265 as whole
-units or FU fragments (RFC 7798), and AV1 in AOM's [RTP payload
-format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html), as
-libwebrtc's packetizer sends it: OBU elements without their size fields,
+work sends H264. Each encoded frame owns the buffer it was encoded into: the
+encoder takes one of three and the frame gives it back when it's sent, so its
+bytes reach DAVE without a copy. The buffers start at 512 KiB, or at a
+frame's own cap where that is smaller, and double as a frame needs, up to 2
+bytes a pixel and 4 KiB more; three of those are 1.5 MiB at rest, and 12 MiB
+at 1080p only if every buffer grew to the cap. A frame beyond the three
+allocates its buffer rather than waiting for one. H264 goes as whole NAL units
+or FU-A fragments, H265 as whole units or FU fragments (RFC 7798), and AV1 in
+AOM's [RTP payload format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html),
+as libwebrtc's packetizer sends it: OBU elements without their size fields,
 temporal delimiters, tile lists and padding dropped, an element too large
 for a packet carried on in the next, OBUs of different layers in packets of
 their own, and a keyframe's first packet marked as starting a coded video

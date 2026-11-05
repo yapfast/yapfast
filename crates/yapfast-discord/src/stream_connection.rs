@@ -6,9 +6,10 @@
 
 use std::{
     collections::HashMap,
+    ops::Deref,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc as channel,
     },
     time::Duration,
@@ -59,11 +60,153 @@ const SOUNDSHARE: u8 = 2;
 pub const SEND_CODEC: Codec = Codec::H264;
 
 /// One encoded frame to send, in `codec`, with its time in the 90 kHz clock.
+/// Its bytes are its own until it's dropped, and go back to the encoder's
+/// [`Pool`] then, so nothing copies them between the encoder and the
+/// packetizer.
 pub struct Frame {
-    pub data: Vec<u8>,
+    pub data: Encoded,
     pub codec: Codec,
     pub timestamp: u32,
     pub keyframe: bool,
+}
+
+/// The encoded bytes of one frame, in a buffer from its encoder's [`Pool`].
+pub struct Encoded {
+    buffer: Vec<u8>,
+    len: usize,
+    pool: Option<Arc<Pool>>,
+}
+
+impl Encoded {
+    /// The whole buffer, for an encoder to write a frame into: [`Self::finish`]
+    /// says how much of it the frame is.
+    pub fn spare(&mut self) -> &mut [u8] {
+        &mut self.buffer
+    }
+
+    /// The number of bytes of [`Self::spare`] the encoder wrote.
+    pub fn finish(&mut self, len: usize) {
+        debug_assert!(len <= self.buffer.len());
+        self.len = len;
+    }
+}
+
+impl Deref for Encoded {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.buffer[..self.len]
+    }
+}
+
+impl From<Vec<u8>> for Encoded {
+    fn from(buffer: Vec<u8>) -> Self {
+        let len = buffer.len();
+        Self {
+            buffer,
+            len,
+            pool: None,
+        }
+    }
+}
+
+impl Drop for Encoded {
+    fn drop(&mut self) {
+        let Some(pool) = self.pool.take() else {
+            return;
+        };
+        // A buffer another size than the pool's is no use to it: keeping one
+        // would hold memory it can never hand out.
+        if self.buffer.capacity() != pool.capacity() {
+            return;
+        }
+        let buffer = std::mem::take(&mut self.buffer);
+        let mut idle = lock(&pool.idle);
+        if idle.len() < BUFFERS {
+            idle.push(buffer);
+        }
+    }
+}
+
+/// The most buffers a [`Pool`] keeps: one being encoded into, one queued to
+/// send, and one being sent. The queue is four frames deep, so a queue that
+/// fills allocates a buffer per frame beyond these and frees it with the
+/// frame: memory is a product goal, and a pool that kept pace with a stall
+/// would hold it for a burst that may not come.
+const BUFFERS: usize = 3;
+/// Where a [`Pool`]'s buffers start: two bytes a pixel is room for a keyframe
+/// of noise, but a stream's frames are a small fraction of that, and most
+/// never need more. One that does grows the pool.
+const START: usize = 512 * 1024;
+
+/// The buffers one encoder's frames are encoded into, reused as their frames
+/// are sent. [`Pool::checkout`] hands one out and [`Encoded`]'s drop brings
+/// it back; neither ever waits for one to come back.
+pub struct Pool {
+    /// The size buffers are handed out at now: a frame too big grows it.
+    capacity: AtomicUsize,
+    /// The most a frame of the encoder's size can need.
+    max: usize,
+    idle: Mutex<Vec<Vec<u8>>>,
+    created: AtomicUsize,
+}
+
+impl Pool {
+    /// A pool of buffers for an encoder's frames, which never need more than
+    /// `max` bytes: enough for a keyframe of noise. They start at [`START`],
+    /// or at `max` where that is already smaller.
+    pub fn new(max: usize) -> Self {
+        Self {
+            capacity: AtomicUsize::new(max.min(START)),
+            max,
+            idle: Mutex::new(Vec::new()),
+            created: AtomicUsize::new(0),
+        }
+    }
+
+    /// A buffer of the pool's current size to encode a frame into: an idle
+    /// one, or a new one when every buffer is still out.
+    pub fn checkout(self: &Arc<Self>) -> Encoded {
+        let capacity = self.capacity.load(Ordering::Relaxed);
+        let idle = lock(&self.idle).pop();
+        let buffer = match idle {
+            Some(buffer) if buffer.capacity() == capacity => buffer,
+            // A buffer of a size the pool has outgrown is no use to it.
+            _ => {
+                self.created.fetch_add(1, Ordering::Relaxed);
+                vec![0; capacity]
+            }
+        };
+        Encoded {
+            buffer,
+            len: capacity,
+            pool: Some(self.clone()),
+        }
+    }
+
+    /// Doubles the size buffers are handed out at, up to the pool's max, for
+    /// a frame too big for them: false when it is already as large as a
+    /// frame of the encoder's size can need, so the caller gives up.
+    pub fn grow(&self) -> bool {
+        let capacity = self.capacity.load(Ordering::Relaxed);
+        if capacity >= self.max {
+            return false;
+        }
+        self.capacity
+            .store((capacity * 2).min(self.max), Ordering::Relaxed);
+        true
+    }
+
+    /// The size of buffer it hands out now.
+    pub fn capacity(&self) -> usize {
+        self.capacity.load(Ordering::Relaxed)
+    }
+
+    /// How many buffers the pool has allocated so far, for tests and logs: a
+    /// pool that keeps allocating is one the stream is outrunning.
+    pub fn created(&self) -> usize {
+        self.created.load(Ordering::Relaxed)
+    }
 }
 
 /// One Opus frame of the stream's sound: 20 ms of stereo at 48 kHz, with

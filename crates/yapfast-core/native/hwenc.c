@@ -387,8 +387,9 @@ static int fill(struct yapfast_hwenc *h, const uint8_t *y, int y_stride, const u
 }
 
 /* Encodes one I420 frame into `out`. Returns the encoded size, 0 when the
- * encoder gave no frame, or a negative number on failure. `pts` and
- * `duration` are unused: frames are timed by the frame rate. */
+ * encoder gave no frame, or a negative number on failure. `out` stays Rust's:
+ * this writes it and keeps no reference to it. `pts` and `duration` are
+ * unused: frames are timed by the frame rate. */
 long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y_stride,
                           const unsigned char *u, int u_stride, const unsigned char *v,
                           int v_stride, long long pts, unsigned long duration, int keyframe,

@@ -5,14 +5,20 @@
 //! H264 or H265 access units in Annex B form, or AV1 temporal units of OBUs
 //! that give their sizes.
 
-use std::ffi::{c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong};
+use std::{
+    ffi::{c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
+    sync::Arc,
+};
 
 use anyhow::{Result, bail};
 use livekit::webrtc::{
     native::yuv_helper,
     video_frame::{I420Buffer, VideoBuffer},
 };
-use yapfast_discord::rtp::Codec;
+use yapfast_discord::{
+    rtp::Codec,
+    stream_connection::{Encoded, Pool},
+};
 // FFmpeg's and x264's libraries, which native/hwenc.c and native/h264.c
 // call: linked only while named.
 #[cfg(hwenc)]
@@ -161,21 +167,35 @@ pub struct Encoder {
     /// two quarter-size chroma planes. Empty until it's first needed: the
     /// screen and the camera arrive as I420.
     planes: Vec<u8>,
-    out: Vec<u8>,
+    /// The buffers encoded frames are written into, reused as frames are sent.
+    out: Arc<Pool>,
 }
 
 // SAFETY: no library keeps thread-local state past a call; one thread uses
 // the encoder at a time.
 unsafe impl Send for Encoder {}
 
-/// One encoded frame.
-pub struct Frame<'a> {
-    pub data: &'a [u8],
+/// One encoded frame, with the buffer it was encoded into: the bytes stay its
+/// own as long as it lives, and the buffer goes back to the encoder's pool
+/// when it's dropped.
+pub struct Frame {
+    pub data: Encoded,
     pub keyframe: bool,
 }
 
 /// An opened encoder's handle and functions, and its name.
 type Opened = (*mut Raw, Encode, SetBitrate, Free, String);
+
+/// What one call of an encoder made of a frame.
+#[derive(Clone, Copy)]
+enum Written {
+    /// Its size, and whether it's a keyframe.
+    Frame(usize, bool),
+    /// The encoder skipped it.
+    Skipped,
+    /// It didn't fit the buffer: a larger one may hold it.
+    TooSmall,
+}
 
 impl Encoder {
     /// An encoder for `width` by `height` frames, which must be even. With
@@ -212,8 +232,8 @@ impl Encoder {
             height,
             fps,
             planes: Vec::new(),
-            // Even a keyframe of noise fits.
-            out: vec![0; pixels * 2 + 4096],
+            // Starts lean; a keyframe of noise is the most the pool can grow to.
+            out: Arc::new(Pool::new(pixels * 2 + 4096)),
         })
     }
 
@@ -253,6 +273,13 @@ impl Encoder {
         self.kbps
     }
 
+    /// How many buffers the encoder's pool has allocated: the tests hold it
+    /// to the pool's bound.
+    #[cfg(test)]
+    fn created(&self) -> usize {
+        self.out.created()
+    }
+
     /// Aims for `kbps` from the next frame on, without a keyframe.
     pub fn set_bitrate(&mut self, kbps: u32) -> Result<()> {
         // SAFETY: raw came from this codec's constructor and is still live.
@@ -265,7 +292,7 @@ impl Encoder {
 
     /// Encodes RGBA pixels of the encoder's size, shown at `pts` in
     /// [`CLOCK`] units. None when the encoder skipped the frame.
-    pub fn encode(&mut self, rgba: &[u8], pts: u64, keyframe: bool) -> Result<Option<Frame<'_>>> {
+    pub fn encode(&mut self, rgba: &[u8], pts: u64, keyframe: bool) -> Result<Option<Frame>> {
         let (width, height) = (self.width, self.height);
         let pixels = (width * height) as usize;
         if rgba.len() < pixels * 4 {
@@ -292,7 +319,7 @@ impl Encoder {
         let encoded =
             self.encode_planes([(y, width), (u, width / 2), (v, width / 2)], pts, keyframe);
         self.planes = planes;
-        self.frame(encoded?)
+        encoded
     }
 
     /// Encodes an I420 picture of the encoder's size, like [`Self::encode`].
@@ -301,15 +328,13 @@ impl Encoder {
         picture: &I420Buffer,
         pts: u64,
         keyframe: bool,
-    ) -> Result<Option<Frame<'_>>> {
+    ) -> Result<Option<Frame>> {
         if (picture.width(), picture.height()) != (self.width, self.height) {
             bail!("a picture of another size than the encoder's");
         }
         let (y, u, v) = picture.data();
         let (y_stride, u_stride, v_stride) = picture.strides();
-        let encoded =
-            self.encode_planes([(y, y_stride), (u, u_stride), (v, v_stride)], pts, keyframe);
-        self.frame(encoded?)
+        self.encode_planes([(y, y_stride), (u, u_stride), (v, v_stride)], pts, keyframe)
     }
 
     /// Encodes a camera's picture, at least the encoder's size: its top left
@@ -320,12 +345,12 @@ impl Encoder {
         picture: &crate::picture::I420<'_>,
         pts: u64,
         keyframe: bool,
-    ) -> Result<Option<Frame<'_>>> {
+    ) -> Result<Option<Frame>> {
         if picture.width < self.width || picture.height < self.height {
             bail!("a picture smaller than the encoder's");
         }
         let [y_stride, u_stride, v_stride] = picture.strides;
-        let encoded = self.encode_planes(
+        self.encode_planes(
             [
                 (picture.y, y_stride),
                 (picture.u, u_stride),
@@ -333,30 +358,75 @@ impl Encoder {
             ],
             pts,
             keyframe,
-        );
-        self.frame(encoded?)
+        )
     }
 
-    /// Encodes three planes, each with its stride, into `out`: the encoded
-    /// size and whether it's a keyframe, or None when the frame was skipped.
-    /// When a hardware H264 encoder fails, x264 takes over from this frame,
-    /// with a keyframe; H265 and AV1 have nothing to take over.
+    /// Encodes three planes, each with its stride, into a buffer from the
+    /// encoder's pool: the frame, or None when the encoder skipped it. A frame
+    /// too big for the buffer grows the pool's buffers, doubling until one
+    /// holds it. When a hardware H264 encoder fails, x264 takes over from this
+    /// frame, with a keyframe, into the same buffer; H265 and AV1 have nothing
+    /// to take over.
     fn encode_planes(
         &mut self,
         planes: [(&[u8], u32); 3],
         pts: u64,
         keyframe: bool,
-    ) -> Result<Option<(usize, bool)>> {
-        match self.encode_once(planes, pts, keyframe) {
+    ) -> Result<Option<Frame>> {
+        let mut out = self.out.checkout();
+        let mut written = self.encode_once_fallback(planes, pts, keyframe, &mut out)?;
+        loop {
+            match written {
+                Written::TooSmall => {
+                    if !self.out.grow() {
+                        bail!(
+                            "the {:?} frame doesn't fit {} bytes",
+                            self.codec,
+                            self.out.capacity()
+                        );
+                    }
+                    out = self.out.checkout();
+                    written = self.encode_once_fallback(planes, pts, keyframe, &mut out)?;
+                }
+                Written::Frame(size, keyframe) => {
+                    out.finish(size);
+                    return Ok(Some(Frame {
+                        data: out,
+                        keyframe,
+                    }));
+                }
+                // The skipped frame's buffer goes back to the pool.
+                Written::Skipped => return Ok(None),
+            }
+        }
+    }
+
+    /// Encodes into `out`, with x264 taking over when the GPU's H264 encoder
+    /// failed.
+    fn encode_once_fallback(
+        &mut self,
+        planes: [(&[u8], u32); 3],
+        pts: u64,
+        keyframe: bool,
+        out: &mut Encoded,
+    ) -> Result<Written> {
+        match self.encode_once(planes, pts, keyframe, out) {
             Err(error) if self.hardware() && self.codec == Codec::H264 => {
                 tracing::warn!(engine = self.engine, %error, "the GPU's encoder failed; encoding with x264");
                 let (codec, width, height, fps) = (self.codec, self.width, self.height, self.fps);
                 let opened = open_software(codec, width, height, fps, self.kbps, self.effort)?;
                 self.replace(opened);
-                self.encode_once(planes, pts, true)
+                self.encode_once(planes, pts, true, out)
             }
-            encoded => encoded,
+            written => written,
         }
+    }
+
+    /// The negative number the engine returns for a frame too big for its
+    /// buffer: native/vp8.c says -3, native/h264.c and native/hwenc.c say -2.
+    /// Their other negative numbers are failures.
+    fn too_small(&self) -> c_long {
+        if self.codec == Codec::Vp8 { -3 } else { -2 }
     }
 
     fn encode_once(
@@ -364,8 +434,10 @@ impl Encoder {
         [(y, y_stride), (u, u_stride), (v, v_stride)]: [(&[u8], u32); 3],
         pts: u64,
         keyframe: bool,
-    ) -> Result<Option<(usize, bool)>> {
+        out: &mut Encoded,
+    ) -> Result<Written> {
         let mut is_key: c_int = 0;
+        let spare = out.spare();
         // SAFETY: the planes hold a picture of this encoder's size at these
         // strides, and the output buffer is sized for its frames; all stay
         // put during the call.
@@ -381,23 +453,19 @@ impl Encoder {
                 pts as c_longlong,
                 (CLOCK / u64::from(self.fps)) as c_ulong,
                 c_int::from(keyframe),
-                self.out.as_mut_ptr(),
-                self.out.len(),
+                spare.as_mut_ptr(),
+                spare.len(),
                 &mut is_key,
             )
         };
+        if written == self.too_small() {
+            return Ok(Written::TooSmall);
+        }
         match written {
             ..0 => bail!("{:?} encoding failed ({written})", self.codec),
-            0 => Ok(None),
-            _ => Ok(Some((written as usize, is_key != 0))),
+            0 => Ok(Written::Skipped),
+            _ => Ok(Written::Frame(written as usize, is_key != 0)),
         }
-    }
-
-    fn frame(&self, encoded: Option<(usize, bool)>) -> Result<Option<Frame<'_>>> {
-        Ok(encoded.map(|(size, keyframe)| Frame {
-            data: &self.out[..size],
-            keyframe,
-        }))
     }
 }
 
@@ -515,6 +583,7 @@ impl Drop for Encoder {
 mod tests {
     use super::*;
     use crate::decode::Decoder;
+    use std::{collections::VecDeque, sync::Arc};
 
     /// Four frames of moving colour, the third a forced keyframe, and the
     /// engine that encoded them.
@@ -543,6 +612,168 @@ mod tests {
         }
         assert!(Encoder::new(codec, 63, 36, 30, 500, effort, hardware).is_err());
         (frames, encoder.engine().to_owned())
+    }
+
+    /// Three frames alive at once keep the bytes they were encoded with while
+    /// the encoder encodes on: each owns its buffer, rather than viewing one
+    /// the encoder overwrites.
+    #[test]
+    fn frames_keep_their_bytes_past_more_encodes() {
+        let mut encoder = Encoder::new(Codec::Vp8, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        let mut rgba = vec![0u8; 64 * 36 * 4];
+        let paint = |rgba: &mut [u8], frame: u64| {
+            for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+                pixel.copy_from_slice(&[(index as u64 + frame * 8) as u8, 90, 200, 255]);
+            }
+        };
+        let mut held = vec![];
+        for frame in 0..3u64 {
+            paint(&mut rgba, frame);
+            held.push(
+                encoder
+                    .encode(&rgba, frame * 3000, frame == 0)
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        let encoded: Vec<Vec<u8>> = held.iter().map(|frame| frame.data.to_vec()).collect();
+        for frame in 3..12u64 {
+            paint(&mut rgba, frame);
+            let _ = encoder.encode(&rgba, frame * 3000, false).unwrap();
+        }
+        for (frame, encoded) in held.iter().zip(&encoded) {
+            assert_eq!(&*frame.data, encoded, "bytes changed under a live frame");
+        }
+    }
+
+    /// A frame's buffer goes back to the pool when the frame is dropped, and
+    /// the frames after it take that buffer rather than allocating.
+    #[test]
+    fn the_pool_takes_its_buffers_back() {
+        let pool = Arc::new(Pool::new(1024));
+        let held: Vec<Encoded> = (0..3).map(|_| pool.checkout()).collect();
+        assert_eq!(pool.created(), 3);
+        drop(held);
+        let again: Vec<Encoded> = (0..3).map(|_| pool.checkout()).collect();
+        assert_eq!(
+            pool.created(),
+            3,
+            "the pool allocated a buffer while three were idle"
+        );
+        drop(again);
+    }
+
+    /// Growing doubles towards the cap a frame of the encoder's size can
+    /// need, and stops there; a buffer of the size it left is dropped when
+    /// it comes back.
+    #[test]
+    fn the_pool_grows_up_to_its_max() {
+        let pool = Arc::new(Pool::new(1536 * 1024));
+        assert_eq!(pool.capacity(), 512 * 1024);
+        let old = pool.checkout();
+        assert!(pool.grow());
+        assert_eq!(pool.capacity(), 1024 * 1024);
+        assert!(pool.grow());
+        assert_eq!(pool.capacity(), 1536 * 1024, "clamped to the frame's cap");
+        assert!(!pool.grow(), "already as large as a frame can need");
+        drop(old);
+        let mut grown = pool.checkout();
+        assert_eq!(grown.spare().len(), 1536 * 1024);
+        assert_eq!(
+            pool.created(),
+            2,
+            "the buffer of the size it outgrew was dropped"
+        );
+    }
+
+    /// A frame too big for the lean buffer grows the pool's buffer, is
+    /// encoded into it, and leaves the pool at the size that held it. The
+    /// shim is a stand-in, since no real encoder here makes a 700 KiB frame
+    /// on demand: it answers like native/h264.c and native/hwenc.c do for a
+    /// frame that doesn't fit, and writes the frame once it does.
+    #[test]
+    fn a_frame_too_big_for_the_lean_buffer_grows_the_pool() {
+        const BULKY: usize = 700 * 1024;
+
+        unsafe extern "C" fn refuses_until_bulky(
+            _encoder: *mut Raw,
+            _y: *const c_uchar,
+            _y_stride: c_int,
+            _u: *const c_uchar,
+            _u_stride: c_int,
+            _v: *const c_uchar,
+            _v_stride: c_int,
+            _pts: c_longlong,
+            _duration: c_ulong,
+            _keyframe: c_int,
+            out: *mut c_uchar,
+            capacity: usize,
+            is_key: *mut c_int,
+        ) -> c_long {
+            if capacity < BULKY {
+                return -2;
+            }
+            // SAFETY: the caller gave a buffer of `capacity` bytes, at least
+            // BULKY here, and a place for the flag.
+            unsafe {
+                std::ptr::write_bytes(out, 0xab, BULKY);
+                *is_key = 1;
+            }
+            BULKY as c_long
+        }
+
+        let mut encoder =
+            Encoder::new(Codec::H264, 1280, 720, 30, 500, Effort::Light, false).unwrap();
+        assert_eq!(encoder.out.capacity(), 512 * 1024);
+        encoder.encode = refuses_until_bulky;
+        let rgba = vec![0u8; 1280 * 720 * 4];
+        let frame = encoder.encode(&rgba, 0, true).unwrap().unwrap();
+        assert_eq!(frame.data.len(), BULKY);
+        assert!(frame.keyframe);
+        assert!(frame.data.iter().all(|&byte| byte == 0xab));
+        assert_eq!(encoder.out.capacity(), 1024 * 1024);
+        drop(frame);
+        // The grown buffer came back, and is the one the next frame uses.
+        let again = encoder.encode(&rgba, 3000, false).unwrap().unwrap();
+        assert_eq!(again.data.len(), BULKY);
+        assert_eq!(encoder.created(), 2);
+    }
+
+    /// Thirty frames in a row, with three alive at once, stay within the
+    /// pool's three buffers: the encoder allocates no more than the first
+    /// three.
+    #[test]
+    fn encoding_thirty_frames_reuses_three_buffers() {
+        let mut encoder = Encoder::new(Codec::Vp8, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        let mut rgba = vec![0u8; 64 * 36 * 4];
+        let mut held = VecDeque::new();
+        for frame in 0..30u64 {
+            // The next frame is encoded before an old one is dropped, so this
+            // is three alive at once: what the pool has to cover.
+            if held.len() == 3 {
+                held.pop_front();
+            }
+            for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+                pixel.copy_from_slice(&[(index as u64 + frame * 8) as u8, 90, 200, 255]);
+            }
+            if let Some(frame) = encoder.encode(&rgba, frame * 3000, frame == 0).unwrap() {
+                held.push_back(frame);
+            }
+        }
+        assert_eq!(held.len(), 3);
+        assert!(
+            encoder.created() <= 3,
+            "the encoder allocated {} buffers over 30 frames",
+            encoder.created()
+        );
+    }
+
+    /// A frame crosses to the sending thread, so the buffer it owns has to.
+    #[test]
+    fn encoded_frames_are_send() {
+        fn send<T: Send>() {}
+        send::<Encoded>();
+        send::<Frame>();
     }
 
     #[test]
