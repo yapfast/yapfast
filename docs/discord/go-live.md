@@ -80,7 +80,8 @@ and whenever RTCP asks for one; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
 work sends H264. Each encoded frame owns the buffer it was encoded into: the
-encoder takes one of three and the frame gives it back when it's sent, so its
+encoder takes one of three and the frame gives it back when its packets are
+planned, so its
 bytes reach DAVE without a copy. The buffers start at 512 KiB, or at a
 frame's own cap where that is smaller, and double as a frame needs, up to 2
 bytes a pixel and 4 KiB more; three of those are 1.5 MiB at rest, and 12 MiB
@@ -103,7 +104,12 @@ frame's last OBU without its size, its trailer after it, and receivers keep
 it so, since DAVE's decryptor reads the frame as it was sealed. Past a
 frame's first 8 packets, 4 go out
 each millisecond: a 1080p keyframe of 200 sent at once can overflow buffers on
-the way. Yapfast keeps the last 2048 video packets, and when a viewer reports
+the way, and it goes out over as many turns of the send loop as it has batches:
+between batches the loop is back to poll the stream's sound, the gateway's
+heartbeats and session updates, and viewers' feedback, so a keyframe that takes
+tens of milliseconds holds none of them up. A frame partway out keeps its plan,
+its encrypted bytes and the count written; the next frame waits until it is
+whole. Yapfast keeps the last 2048 video packets, and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
 the original sequence number before the payload (RFC 4588), and the repaired
