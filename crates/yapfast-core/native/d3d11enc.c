@@ -234,20 +234,24 @@ static const NV_ENCODE_API_FUNCTION_LIST *driver(char *why, size_t size) {
 
 /* ---------------------------------------------------------------- the device */
 
-/* The D3D11 device the session encodes from, and the adapter it sits on. A
- * machine with integrated graphics presents more than one adapter and the WDDM
- * device has to be the one NVENC lives on, so the NVIDIA one is picked by
- * vendor id rather than by being first. */
-static int open_device(IDXGIAdapter1 **adapter_out, ID3D11Device **device_out,
+/* The D3D11 device the session encodes from, on exactly the adapter its LUID
+ * names. Which adapter that is was decided in Rust, from the GPU setting, and
+ * arrives here as that adapter's LUID: a machine with integrated graphics
+ * presents more than one adapter, and the device has to be the one the choice
+ * was made on rather than the first that looks like a card. A LUID is DXGI's own
+ * name for an adapter, the same across enumerations and runs. */
+static int open_device(LUID want, IDXGIAdapter1 **adapter_out, ID3D11Device **device_out,
                        ID3D11DeviceContext **context_out, char *why, size_t size) {
   IDXGIFactory1 *factory = NULL;
   IDXGIAdapter1 *chosen = NULL, *each = NULL;
+  DXGI_ADAPTER_DESC1 found;
   HRESULT status = CreateDXGIFactory1(&IID_IDXGIFactory1, (void **)&factory);
-  /* Every adapter is named in the failure, not just the fact that none was
-   * NVIDIA: a machine whose card wasn't found says which cards it does have,
-   * rather than leaving it to be guessed from the hardware. */
+  /* Every adapter is named in the failure, not just the fact that the wanted
+   * one wasn't found: a machine whose card has gone away says which adapters it
+   * does have, rather than leaving it to be guessed from the hardware. */
   char seen[192] = "";
   size_t used = 0;
+  memset(&found, 0, sizeof found);
   if (FAILED(status)) {
     if (size) snprintf(why, size, "CreateDXGIFactory1 failed (0x%08lX)", (unsigned long)status);
     return -1;
@@ -265,8 +269,10 @@ static int open_device(IDXGIAdapter1 **adapter_out, ID3D11Device **device_out,
       if (written > 0) used += (size_t)written;
       if (used >= sizeof seen) used = sizeof seen - 1;
     }
-    if (!chosen && desc.VendorId == 0x10DE && !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) {
+    if (!chosen && desc.AdapterLuid.LowPart == want.LowPart &&
+        desc.AdapterLuid.HighPart == want.HighPart) {
       chosen = each;
+      found = desc;
     } else {
       each->lpVtbl->Release(each);
     }
@@ -275,7 +281,9 @@ static int open_device(IDXGIAdapter1 **adapter_out, ID3D11Device **device_out,
   factory->lpVtbl->Release(factory);
   if (!chosen) {
     if (size)
-      snprintf(why, size, "no NVIDIA adapter to open an NVENC session on; this machine has %s",
+      snprintf(why, size,
+               "the adapter Yapfast chose (LUID %08lX:%08lX) isn't on this machine; it has %s",
+               (unsigned long)want.HighPart, (unsigned long)want.LowPart,
                seen[0] ? seen : "none");
     return -1;
   }
@@ -293,7 +301,9 @@ static int open_device(IDXGIAdapter1 **adapter_out, ID3D11Device **device_out,
                                ARRAYSIZE(levels), D3D11_SDK_VERSION, device_out, &got,
                                context_out);
   if (FAILED(status)) {
-    if (size) snprintf(why, size, "D3D11CreateDevice failed (0x%08lX)", (unsigned long)status);
+    if (size)
+      snprintf(why, size, "D3D11CreateDevice on %ls failed (0x%08lX)", found.Description,
+               (unsigned long)status);
     chosen->lpVtbl->Release(chosen);
     return -1;
   }
@@ -572,11 +582,13 @@ static void configure(struct yapfast_d3d11enc *e, const NV_ENC_PRESET_CONFIG *pr
 }
 
 /* Opens an encoder for one codec on a new D3D11 device, `width` by `height` at
- * `fps` and `kbps`, tuned by `tuning_name`. `report` gets the name of what
- * opened, or why nothing did: one backend, so one line either way, in words that
- * name the driver's refusal rather than its status number. */
+ * `fps` and `kbps`, tuned by `tuning_name`, on the adapter whose LUID is
+ * `adapter_low`:`adapter_high`. `report` gets the name of what opened, or why
+ * nothing did: one backend, so one line either way, in words that name the
+ * driver's refusal rather than its status number. */
 struct yapfast_d3d11enc *yapfast_d3d11enc_new(unsigned codec_id, unsigned width, unsigned height,
-                                              unsigned fps, unsigned kbps, const char *tuning_name,
+                                              unsigned fps, unsigned kbps, unsigned adapter_low,
+                                              int adapter_high, const char *tuning_name,
                                               char *report, size_t report_size) {
   struct yapfast_d3d11enc *e;
   NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS open;
@@ -616,7 +628,13 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new(unsigned codec_id, unsigned width,
   e->kbps = kbps;
   e->tuning = tuning;
 
-  if (open_device(&e->adapter, &e->device, &e->context, why, sizeof why)) goto failed;
+  /* The adapter is named, not searched for: Rust has already chosen it from the
+   * GPU setting and from what this machine has, and this opens the device on
+   * that one or on none. */
+  LUID wanted;
+  wanted.LowPart = adapter_low;
+  wanted.HighPart = adapter_high;
+  if (open_device(wanted, &e->adapter, &e->device, &e->context, why, sizeof why)) goto failed;
 
   memset(&open, 0, sizeof open);
   open.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
