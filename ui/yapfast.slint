@@ -771,11 +771,17 @@ export component YapfastWindow inherits Window {
     in property <int> pip-person: -1;
     in property <int> pip-slot: -1;
     out property <bool> pip-shown: root.workspace && root.voice-active && root.pip-kind != 0 && !root.call-on-screen && !root.stage-full;
-    /// A preview of what's shared is on screen: its tile in the call's grid,
-    /// large over the whole window, or in the corner. stream-tick tells the
-    /// worker to make previews only while that's so.
+    /// Whether the call's grid has the shared screen's tile in sight, as that
+    /// grid reported when it last laid itself out or scrolled. Until it says,
+    /// it holds, as a preview made for nothing costs less than a share gone
+    /// blank.
+    property <bool> grid-share-in-sight: true;
+    /// A preview of what's shared is on screen: its tile in the call's grid
+    /// while that tile is scrolled into sight, large over the whole window, or
+    /// in the corner. stream-tick tells the worker to make previews only while
+    /// that's so.
     out property <bool> share-preview-shown: root.sharing && (
-        (root.grid-shown && !root.stage-full)
+        (root.grid-shown && !root.stage-full && root.grid-share-in-sight)
         || (root.stage-full && root.voice-active && root.call-focus == 0)
         || (root.pip-shown && root.pip-kind == 2));
     /// Sharing a screen is offered in Discord calls.
@@ -2645,7 +2651,8 @@ export component YapfastWindow inherits Window {
                                     watch-stream(id) => { root.watch-stream(id); }
                                     stop-watching => { root.stop-watching(); }
                                     open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
-                                    tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
+                                    tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height, share-in-sight) => {
+                                        root.grid-share-in-sight = share-in-sight;
                                         root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
                                     }
                                 }
@@ -3449,7 +3456,8 @@ export component YapfastWindow inherits Window {
                 full-screen(on) => { root.stage-full = on; }
                 stop-watching => { root.stop-watching(); }
                 open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
-                tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
+                tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height, share-in-sight) => {
+                    root.grid-share-in-sight = share-in-sight;
                     root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
                 }
             }

@@ -737,11 +737,14 @@ export component ParticipantGrid inherits Flickable {
     /// Where the tiles are, so cameras are decoded only for tiles in sight,
     /// at their size: the columns, a tile's width and height, the gap, the
     /// first row's top, how far the grid is scrolled and its height; then
-    /// the large tile's place, width and height.
-    callback tiles(int, length, length, length, length, length, length, int, length, length);
+    /// the large tile's place, width and height; and whether the shared
+    /// screen's tile is in sight, so this account's preview of it is made
+    /// only while it is; see share-preview-shown.
+    callback tiles(int, length, length, length, length, length, length, int, length, length, bool);
     function report() {
         root.tiles(root.columns, root.tile-width, root.tile-height, root.gap, root.first-row, -root.content-y, root.height,
-            root.focusing ? root.focused : -1, root.focusing ? root.focus-width : 0px, root.focusing ? root.focus-height : 0px);
+            root.focusing ? root.focused : -1, root.focusing ? root.focus-width : 0px, root.focusing ? root.focus-height : 0px,
+            root.share-in-sight);
     }
     init => { self.report(); }
     changed columns => { self.report(); }
@@ -752,6 +755,9 @@ export component ParticipantGrid inherits Flickable {
     changed focused => { self.report(); }
     changed focusing => { self.report(); }
     changed focus-width => { self.report(); }
+    // A share starting or stopping puts a tile at the front of the grid, which
+    // moves what's in sight even when the tiles keep their size.
+    changed sharing => { self.report(); }
     vertical-stretch: 1;
     property <length> gap: root.full ? 0px : 12px;
     property <length> inset: root.full ? 0px : 24px;
@@ -803,6 +809,15 @@ export component ParticipantGrid inherits Flickable {
         : max(self.inset, (self.height - self.grid-height) / 2);
     content-height: self.focusing ? max(self.height, self.focus-top + self.focus-height + self.under-focus + self.inset)
         : max(self.height, self.grid-height + 2 * self.inset);
+    // The shared screen's tile, wherever it stands in the grid's content, and
+    // the part of that content in sight: the preview of the screen is worth
+    // making only while they meet. A grid the layout hasn't reached yet says
+    // nothing about what's in sight, so it stands as in sight, as does one
+    // without a screen shared. The window asks; see share-preview-shown.
+    property <bool> share-in-sight: root.sharing && (root.height <= 0px || (
+        root.full ? root.large(0)
+        : root.tile-y(0) + (root.large(0) ? root.focus-height : root.tile-height) > -root.content-y
+            && root.tile-y(0) < root.height - root.content-y));
     pure function large(slot: int) -> bool { root.focusing && slot == root.focused }
     // The place in the rows of the tile at `slot`, which skip the large one.
     pure function place(slot: int) -> int { root.focusing && slot > root.focused ? slot - 1 : slot }

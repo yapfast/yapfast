@@ -141,7 +141,9 @@ coming is not followed, and the rate holds rather than leaping to the cap. Disco
 captured frames to I420 with libyuv, scales them with libyuv's filtering
 scaler, and encodes those. The preview — the same picture scaled down to 720p,
 for the share's tile and the corner — is made only while the UI shows one: the
-window tells the worker, and the first frame after it says so has one. Each
+window tells the worker, and the first frame after it says so has one. A grid
+scrolled past the share's tile is not showing one, and neither is a call with no
+share tile at all. Each
 goes into a buffer the capture keeps frame after frame, made again only
 when the screen or the stream changes size, so a captured frame allocates
 nothing once it has settled, and the preview scales into one buffer of its own.
