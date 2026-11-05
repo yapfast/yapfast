@@ -124,6 +124,7 @@ unsafe extern "C" {
         is_key: *mut c_int,
     ) -> c_long;
     fn yapfast_hwenc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
+    fn yapfast_hwenc_notes(encoder: *mut Raw, notes: *mut std::ffi::c_char, notes_size: usize);
     fn yapfast_hwenc_free(encoder: *mut Raw);
 }
 
@@ -460,13 +461,24 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
             report.len(),
         )
     };
-    let report = std::ffi::CStr::from_bytes_until_nul(&report).map_or_else(
-        |_| String::new(),
-        |text| text.to_string_lossy().into_owned(),
-    );
+    let report = c_text(&report);
     if raw.is_null() {
         tracing::info!(?codec, tried = report, "no GPU encoder opened");
         return None;
+    }
+    // The settings the encoder needs made it open; the ones only better are
+    // its to drop, so the stream says which it isn't getting.
+    let mut notes = [0u8; 96];
+    // SAFETY: raw is an open encoder, and the buffer is as large as its size.
+    unsafe { yapfast_hwenc_notes(raw, notes.as_mut_ptr().cast(), notes.len()) };
+    let notes = c_text(&notes);
+    if !notes.is_empty() {
+        tracing::warn!(
+            engine = report.as_str(),
+            ?codec,
+            ignored = notes.as_str(),
+            "the GPU's encoder dropped optional settings"
+        );
     }
     tracing::debug!(engine = report, ?codec, "encoding on the GPU");
     Some((
@@ -476,6 +488,15 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
         yapfast_hwenc_free,
         report,
     ))
+}
+
+/// The text a shim wrote into `bytes`, which ends with a zero.
+#[cfg(hwenc)]
+fn c_text(bytes: &[u8]) -> String {
+    std::ffi::CStr::from_bytes_until_nul(bytes).map_or_else(
+        |_| String::new(),
+        |text| text.to_string_lossy().into_owned(),
+    )
 }
 
 #[cfg(not(hwenc))]

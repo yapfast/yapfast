@@ -267,11 +267,17 @@ The settings match x264's where they can: low-latency tuning (NVENC's p4
 preset, `ll`; AMF's `lowlatency` usage and balanced preset), no B-frames, a
 frame out for each frame in, Main profile, keyframes every 3 seconds and when
 asked, and variable bitrate capped at the target over half a second, which
-leaves a calm screen below the cap rather than padding it. NVENC, AMF and
-VA-API change their bitrate as they run, without the IDR frame FFmpeg would
-insert, with a patch to FFmpeg for each (AMF's sets the target, peak and buffer
-on the running encoder). "Higher quality" changes nothing on the GPU: NVENC's
-slowest preset looked no better than p4.
+leaves a calm screen below the cap rather than padding it. `native/hwenc.c`
+sorts them into what the stream needs and what only improves it: a needed
+setting this FFmpeg doesn't have, or the driver refuses, fails that encoder's
+open, and the worker logs it by name ("no GPU encoder opened"); an optional
+one the driver drops is logged too ("the GPU's encoder dropped optional
+settings"), and the stream goes on without it, so it never claims a setting it
+hasn't got.
+NVENC, AMF and VA-API change their bitrate as they run, without the IDR frame
+FFmpeg would insert, with a patch to FFmpeg for each (AMF's sets the target,
+peak and buffer on the running encoder). "Higher quality" changes nothing on
+the GPU: NVENC's slowest preset looked no better than p4.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better

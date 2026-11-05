@@ -38,6 +38,10 @@ struct yapfast_hwenc {
   int64_t index;
   /* AMF hands a frame back a little after taking it, and is polled for it. */
   int poll;
+  /* The optional settings FFmpeg didn't have or its driver didn't keep,
+   * separated by commas, and empty when it kept them all: Rust warns about
+   * what the stream lost. */
+  char notes[96];
 };
 
 /* FFmpeg's first error on this thread since it was cleared, for saying why
@@ -51,6 +55,48 @@ static void keep_error(void *context, int level, const char *format, va_list arg
   vsnprintf(first_error, sizeof first_error, format, args);
   size_t length = strlen(first_error);
   if (length && first_error[length - 1] == '\n') first_error[length - 1] = 0;
+}
+
+/* What a setting is worth to the stream: one it can't do without, or one
+ * that only improves the picture or the latency. */
+enum { OPTIONAL, REQUIRED };
+
+/* One of an encoder's settings, for setting several in turn. */
+struct setting {
+  int worth;
+  const char *name, *value;
+};
+
+/* Sets `name` to `value` on the encoder being opened, which is a number or
+ * one of an option's names. A required setting that FFmpeg or the driver
+ * refuses fails the open, and the reason it gives is what `try_open`
+ * reports; an optional one it refuses is noted for Rust to warn about, and
+ * the encoder goes on without it. Returns 0, or a required setting's
+ * failure. */
+static int set_option(struct yapfast_hwenc *h, int worth, const char *name, const char *value) {
+  int ret = av_opt_set(h->codec->priv_data, name, value, 0);
+  if (ret >= 0) return 0;
+  if (worth == REQUIRED) {
+    /* FFmpeg's option handling logs nothing, so the setting that the
+     * stream needed has to be named here to say why it didn't open. */
+    if (!first_error[0])
+      snprintf(first_error, sizeof first_error, "%s=%s: %s", name, value,
+               ret == AVERROR_OPTION_NOT_FOUND ? "this FFmpeg has no such setting" : "refused");
+    return ret;
+  }
+  size_t used = strlen(h->notes);
+  if (used < sizeof h->notes - 1)
+    snprintf(h->notes + used, sizeof h->notes - used, "%s%s", used ? "," : "", name);
+  return 0;
+}
+
+/* Sets each setting in turn, stopping at the first a required one refuses. */
+static int set_options(struct yapfast_hwenc *h, const struct setting *settings, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    int ret = set_option(h, settings[i].worth, settings[i].name, settings[i].value);
+    if (ret < 0) return ret;
+  }
+  return 0;
 }
 
 static void set_rate(AVCodecContext *codec, unsigned kbps) {
@@ -116,46 +162,85 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   codec->color_range = AVCOL_RANGE_MPEG;
   set_rate(codec, kbps);
   if (codec_id == CODEC_H264) codec->profile = AV_PROFILE_H264_MAIN;
-  void *options = codec->priv_data;
   int ret = 0;
   if (vaapi) {
-    av_opt_set(options, "rc_mode", "VBR", 0);
-    av_opt_set_int(options, "async_depth", 1, 0);
+    /* Capped VBR, which leaves a calm screen below the cap rather than
+     * padding it, and one frame in flight so a frame doesn't wait: the
+     * stream needs both, so a driver that can't do either fails the open. */
+    const struct setting vaapi_settings[] = {
+        {REQUIRED, "rc_mode", "VBR"},
+        {REQUIRED, "async_depth", "1"},
+    };
+    ret = set_options(h, vaapi_settings, sizeof vaapi_settings / sizeof *vaapi_settings);
+    if (ret < 0) return ret;
     ret = open_vaapi(h, codec, device);
     if (ret < 0) return ret;
   } else if (amf) {
     /* Or FFmpeg holds each frame's packet back until the next frame. */
     codec->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    av_opt_set(options, "usage", "lowlatency", 0);
-    av_opt_set(options, "quality", "balanced", 0);
-    av_opt_set(options, "rc", "vbr_peak", 0);
-    av_opt_set_int(options, "enforce_hrd", 1, 0);
-    av_opt_set_int(options, "filler_data", 0, 0);
-    av_opt_set_int(options, "async_depth", 1, 0);
-    av_opt_set_int(options, "forced_idr", 1, 0);
-    av_opt_set_int(options, "aud", 0, 0);
+    /* AMF's usage and rate control are the stream's latency and its cap
+     * without padding; its balanced quality preset and no filler padding
+     * only improve the picture. */
+    const struct setting amf_settings[] = {
+        {REQUIRED, "usage", "lowlatency"},
+        {OPTIONAL, "quality", "balanced"},
+        {REQUIRED, "rc", "vbr_peak"},
+        {REQUIRED, "enforce_hrd", "1"},
+        {OPTIONAL, "filler_data", "0"},
+        {REQUIRED, "async_depth", "1"},
+        {REQUIRED, "forced_idr", "1"},
+    };
+    ret = set_options(h, amf_settings, sizeof amf_settings / sizeof *amf_settings);
+    if (ret < 0) return ret;
+    /* av1_amf has no `aud`, and asking it for one only fails the open. */
+    if (codec_id != CODEC_AV1) {
+      ret = set_option(h, REQUIRED, "aud", "0");
+      if (ret < 0) return ret;
+    }
+    /* Each codec names its own latency mode (a mode for AV1, a flag for the
+     * others) and parameter sets before its keyframes; no B-frames, so a
+     * frame comes out for each frame in. */
     if (codec_id == CODEC_AV1) {
-      av_opt_set(options, "latency", "real_time", 0);
-      av_opt_set(options, "header_insertion_mode", "frame", 0);
-      av_opt_set_int(options, "bf", 0, 0);
+      const struct setting av1_settings[] = {
+          {REQUIRED, "latency", "real_time"},
+          {REQUIRED, "header_insertion_mode", "frame"},
+          {REQUIRED, "bf", "0"},
+      };
+      ret = set_options(h, av1_settings, sizeof av1_settings / sizeof *av1_settings);
     } else {
-      av_opt_set_int(options, "latency", 1, 0);
+      ret = set_option(h, REQUIRED, "latency", "1");
     }
-    if (codec_id == CODEC_HEVC) av_opt_set(options, "header_insertion_mode", "idr", 0);
-    if (codec_id == CODEC_H264) {
-      av_opt_set(options, "profile", "main", 0);
-      av_opt_set_int(options, "bf", 0, 0);
-      av_opt_set_int(options, "header_spacing", codec->gop_size, 0);
+    if (ret >= 0 && codec_id == CODEC_HEVC)
+      ret = set_option(h, REQUIRED, "header_insertion_mode", "idr");
+    if (ret >= 0 && codec_id == CODEC_H264) {
+      /* Main profile is Discord's client's; a driver that won't take it
+       * still encodes, so it's only asked for. */
+      char spacing[16];
+      snprintf(spacing, sizeof spacing, "%d", codec->gop_size);
+      const struct setting h264_settings[] = {
+          {OPTIONAL, "profile", "main"},
+          {REQUIRED, "bf", "0"},
+          {REQUIRED, "header_spacing", spacing},
+      };
+      ret = set_options(h, h264_settings, sizeof h264_settings / sizeof *h264_settings);
     }
+    if (ret < 0) return ret;
     h->poll = 1;
   } else {
-    av_opt_set(options, "preset", "p4", 0);
-    av_opt_set(options, "tune", "ll", 0);
-    av_opt_set(options, "rc", "vbr", 0);
-    av_opt_set_int(options, "zerolatency", 1, 0);
-    av_opt_set_int(options, "delay", 0, 0);
-    av_opt_set_int(options, "forced-idr", 1, 0);
-    if (codec_id == CODEC_H264) av_opt_set(options, "profile", "main", 0);
+    /* Low latency tuning, no frame delay and IDR frames on demand are what
+     * the stream can't do without; p4, VBR and zerolatency are what make it
+     * fast and capped. */
+    const struct setting nvenc_settings[] = {
+        {OPTIONAL, "preset", "p4"},
+        {REQUIRED, "tune", "ll"},
+        {OPTIONAL, "rc", "vbr"},
+        {OPTIONAL, "zerolatency", "1"},
+        {REQUIRED, "delay", "0"},
+        {REQUIRED, "forced-idr", "1"},
+    };
+    ret = set_options(h, nvenc_settings, sizeof nvenc_settings / sizeof *nvenc_settings);
+    if (ret >= 0 && codec_id == CODEC_H264) ret = set_option(h, REQUIRED, "profile", "main");
+    if (ret < 0) return ret;
   }
   ret = avcodec_open2(codec, found, NULL);
   if (ret < 0) return ret;
@@ -355,6 +440,13 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
 int yapfast_hwenc_set_bitrate(struct yapfast_hwenc *h, unsigned kbps) {
   set_rate(h->codec, kbps);
   return 0;
+}
+
+/* The optional settings this encoder's FFmpeg didn't have or its driver
+ * didn't keep, by name and separated by commas, into `notes`: empty when it
+ * kept them all. */
+void yapfast_hwenc_notes(struct yapfast_hwenc *h, char *notes, size_t size) {
+  if (size) snprintf(notes, size, "%s", h->notes);
 }
 
 void yapfast_hwenc_free(struct yapfast_hwenc *h) {
