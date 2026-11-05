@@ -1039,11 +1039,11 @@ mod tests {
     }
 
     /// Pushes `count` frames of a tone, from `sequence` on, in order.
-    fn push_tones(playout: &mut Playout, opus: &[Vec<u8>], first: u16, now: Instant) {
+    fn push_tones(playout: &mut Playout, opus: &[Vec<u8>], first: u16, ssrc: u32, now: Instant) {
         for (at, frame) in opus.iter().enumerate() {
             let sequence = first.wrapping_add(at as u16);
             let timestamp = u32::from(sequence) * SAMPLES as u32;
-            playout.push(sound(sequence, timestamp, 7, frame.clone(), now), now);
+            playout.push(sound(sequence, timestamp, ssrc, frame.clone(), now), now);
         }
     }
 
@@ -1053,7 +1053,7 @@ mod tests {
         let opus = tones(&mut encoder, 4);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus, 0, now);
+        push_tones(&mut playout, &opus, 0, 7, now);
         assert_eq!(playout.counts.came, 4, "all four came in order");
         assert_eq!(playout.next(now), PLAYING, "three waiting start it");
         // The packet it just played, again: its slot has gone.
@@ -1079,17 +1079,20 @@ mod tests {
         let opus = tones(&mut encoder, 5);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
-        assert_eq!(playout.next(now), PLAYING);
-        assert_eq!(playout.next(now), PLAYING);
+        push_tones(&mut playout, &opus[..2], 0, 7, now);
+        // Two are short of the three that start it, so they play because the
+        // first waited out PRIME.
+        let primed = now + PRIME;
+        assert_eq!(playout.next(primed), PLAYING);
+        assert_eq!(playout.next(primed), PLAYING);
         // Packet 2 never came, and 3 and 4 did.
-        push_tones(&mut playout, &opus[3..], 3, now);
+        push_tones(&mut playout, &opus[3..], 3, 7, primed);
         // Its slot waits 60 ms for it, then makes it up.
-        assert_eq!(playout.next(now), Turn::Wait(LATE));
-        assert_eq!(playout.next(now + LATE / 2), Turn::Wait(LATE / 2));
-        assert_eq!(playout.next(now + LATE), CONCEALED);
+        assert_eq!(playout.next(primed), Turn::Wait(LATE));
+        assert_eq!(playout.next(primed + LATE / 2), Turn::Wait(LATE / 2));
+        assert_eq!(playout.next(primed + LATE), CONCEALED);
         // Packet 3, which carried the concealment, still plays as itself.
-        assert_eq!(playout.next(now + LATE), PLAYING);
+        assert_eq!(playout.next(primed + LATE), PLAYING);
         assert_eq!(playout.waiting.len(), 1, "packet 4 waits its turn");
     }
 
@@ -1099,7 +1102,7 @@ mod tests {
         let opus = tones(&mut encoder, 5);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
+        push_tones(&mut playout, &opus[..3], 0, 7, now);
         assert_eq!(playout.next(now), PLAYING);
         // 4 comes before 3 does.
         let landing = playout.push(sound(4, 4 * SAMPLES as u32, 7, opus[4].clone(), now), now);
@@ -1118,21 +1121,24 @@ mod tests {
         let opus = tones(&mut encoder, 5);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
-        assert_eq!(playout.next(now), PLAYING);
-        assert_eq!(playout.next(now), PLAYING);
+        push_tones(&mut playout, &opus[..2], 0, 7, now);
+        // Two are short of the three that start it, so they play because the
+        // first waited out PRIME.
+        let primed = now + PRIME;
+        assert_eq!(playout.next(primed), PLAYING);
+        assert_eq!(playout.next(primed), PLAYING);
         // 2 hasn't come, and 3 and 4 have.
-        push_tones(&mut playout, &opus[3..], 3, now);
-        assert_eq!(playout.next(now), Turn::Wait(LATE), "its slot waits for it");
+        push_tones(&mut playout, &opus[3..], 3, 7, primed);
+        assert_eq!(playout.next(primed), Turn::Wait(LATE), "its slot waits for it");
         // It comes within that wait, so it plays, and 3 and 4 after it.
-        let later = now + LATE / 2;
+        let later = primed + LATE / 2;
         let landing = playout.push(
             sound(2, 2 * SAMPLES as u32, 7, opus[2].clone(), later),
             later,
         );
         assert_eq!(landing, Landing::Reordered);
         for at in 2..5 {
-            assert_eq!(playout.next(now + LATE), PLAYING, "frame {at}");
+            assert_eq!(playout.next(primed + LATE), PLAYING, "frame {at}");
         }
         assert!(playout.waiting.is_empty());
     }
@@ -1146,19 +1152,22 @@ mod tests {
         let opus = tones(&mut encoder, 5);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
-        assert_eq!(playout.next(now), PLAYING);
-        assert_eq!(playout.next(now), PLAYING);
+        push_tones(&mut playout, &opus[..2], 0, 7, now);
+        // Two are short of the three that start it, so they play because the
+        // first waited out PRIME.
+        let primed = now + PRIME;
+        assert_eq!(playout.next(primed), PLAYING);
+        assert_eq!(playout.next(primed), PLAYING);
         // Packet 2 is lost, and 3 and 4 came.
-        push_tones(&mut playout, &opus[3..], 3, now);
-        assert_eq!(playout.next(now), Turn::Wait(LATE));
-        assert_eq!(playout.next(now + LATE), CONCEALED);
+        push_tones(&mut playout, &opus[3..], 3, 7, primed);
+        assert_eq!(playout.next(primed), Turn::Wait(LATE));
+        assert_eq!(playout.next(primed + LATE), CONCEALED);
         assert_eq!(
             playout.waiting.front().map(|frame| frame.sequence),
             Some(3),
             "the packet that carried it isn't counted as played"
         );
-        assert_eq!(playout.next(now + LATE), PLAYING, "packet 3, as itself");
+        assert_eq!(playout.next(primed + LATE), PLAYING, "packet 3, as itself");
         assert_eq!(playout.waiting.front().map(|frame| frame.sequence), Some(4));
     }
 
@@ -1168,31 +1177,34 @@ mod tests {
         let opus = tones(&mut encoder, 5);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
-        assert_eq!(playout.next(now), PLAYING);
-        assert_eq!(playout.next(now), PLAYING);
+        push_tones(&mut playout, &opus[..2], 0, 7, now);
+        // Two are short of the three that start it, so they play because the
+        // first waited out PRIME.
+        let primed = now + PRIME;
+        assert_eq!(playout.next(primed), PLAYING);
+        assert_eq!(playout.next(primed), PLAYING);
         // Packet 2 is lost, and packet 3 is one libopus can't read: the try
         // at its forward error correction fails, so 2's slot is concealed
         // and 3 is left to play, and fail, on its own turn.
         let garbage = vec![0xff];
-        playout.push(sound(3, 3 * SAMPLES as u32, 7, garbage, now), now);
-        assert_eq!(playout.next(now), Turn::Wait(LATE));
-        assert_eq!(playout.next(now + LATE), CONCEALED);
+        playout.push(sound(3, 3 * SAMPLES as u32, 7, garbage, primed), primed);
+        assert_eq!(playout.next(primed), Turn::Wait(LATE));
+        assert_eq!(playout.next(primed + LATE), CONCEALED);
         assert_eq!(
             playout.waiting.front().map(|frame| frame.sequence),
             Some(3),
             "a failed decode is not swallowed"
         );
         assert!(
-            matches!(playout.next(now + LATE), Turn::Play { .. }),
+            matches!(playout.next(primed + LATE), Turn::Play { .. }),
             "it plays, and fails, on its own turn"
         );
         assert!(playout.waiting.is_empty());
         assert_eq!(playout.next, Some(4));
         // Sound after it plays as usual.
-        let landing = playout.push(sound(4, 4 * SAMPLES as u32, 7, opus[4].clone(), now), now);
+        let landing = playout.push(sound(4, 4 * SAMPLES as u32, 7, opus[4].clone(), primed), primed);
         assert_eq!(landing, Landing::InOrder);
-        assert_eq!(playout.next(now + LATE), PLAYING);
+        assert_eq!(playout.next(primed + LATE), PLAYING);
     }
 
     #[test]
@@ -1222,7 +1234,7 @@ mod tests {
         let opus = tones(&mut encoder, 8);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
+        push_tones(&mut playout, &opus[..3], 0, 7, now);
         for _ in 0..3 {
             assert_eq!(playout.next(now), PLAYING);
         }
@@ -1233,7 +1245,7 @@ mod tests {
         assert_eq!(playout.waiting.len(), 1);
         // A sender that began again may keep its SSRC: a timestamp a second
         // away is what says so.
-        push_tones(&mut playout, &opus[4..6], 1, now);
+        push_tones(&mut playout, &opus[4..6], 1, 8, now);
         for _ in 0..3 {
             assert_eq!(playout.next(now), PLAYING);
         }
@@ -1249,7 +1261,7 @@ mod tests {
         let opus = tones(&mut encoder, 9);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
+        push_tones(&mut playout, &opus[..3], 0, 7, now);
         for _ in 0..3 {
             assert_eq!(playout.next(now), PLAYING);
         }
@@ -1263,7 +1275,7 @@ mod tests {
         assert_eq!(playout.next, None, "it waits to start again");
         assert_eq!(playout.next(now), Turn::Wait(PRIME), "no sound to wait for");
         // The sender comes back where the silence left the stream: no jump.
-        push_tones(&mut playout, &opus[3..6], 8, now);
+        push_tones(&mut playout, &opus[3..6], 8, 7, now);
         assert_eq!(playout.next(now), PLAYING, "three frames start it again");
         assert_eq!(playout.counts.restarts, 0, "silence isn't a restart");
     }
@@ -1274,7 +1286,7 @@ mod tests {
         let opus = tones(&mut encoder, 4);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus[..3], 0, now);
+        push_tones(&mut playout, &opus[..3], 0, 7, now);
         for _ in 0..3 {
             assert_eq!(playout.next(now), PLAYING);
         }
@@ -1304,7 +1316,7 @@ mod tests {
             Turn::Wait(PRIME),
             "one frame isn't enough"
         );
-        push_tones(&mut playout, &opus[1..3], 1, now);
+        push_tones(&mut playout, &opus[1..3], 1, 7, now);
         assert_eq!(playout.next(now), PLAYING, "three are");
         // One that came alone starts once it has waited 100 ms.
         playout.reset();
@@ -1323,7 +1335,7 @@ mod tests {
         let opus = tones(&mut encoder, MOST + 5);
         let mut playout = Playout::new().unwrap();
         let now = Instant::now();
-        push_tones(&mut playout, &opus, 0, now);
+        push_tones(&mut playout, &opus, 0, 7, now);
         assert_eq!(playout.waiting.len(), MOST, "the oldest went");
         assert_eq!(playout.waiting.front().map(|frame| frame.sequence), Some(5));
         assert_eq!(playout.next(now), PLAYING);
