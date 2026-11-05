@@ -17,8 +17,39 @@
   Serialize integration, heavy builds, and measurements on the same machine.
 
 This document is a roadmap, not a statement that the optimizations are implemented
-or measured. Every checkbox is open. Proposals are grounded in repository review;
-future specialist assignments are described in section 13.
+or measured. Every checkbox stays open; what has landed is listed below, and
+nothing here counts as measured until a number is beside it. Proposals are
+grounded in repository review; future specialist assignments are described in
+section 13.
+
+### What has landed
+
+On `improve/streaming-codecs-audio`, each with its doc updated in the same
+commit. These close the items named, not the whole section around them.
+
+| Item | Change | Commit |
+| --- | --- | --- |
+| C3 | Frames a stall swallowed are skipped rather than chased | `cf90bf9` |
+| C1, C2 | Conversion and scaling write into kept buffers; the capture's status lock is never held while a frame is made; the preview scales into one buffer | `5dd91e2` |
+| C4 | A preview is made only while the UI shows one, told by `Control::Preview`; buffers unchanged | `6e07c38` |
+| E1 | An encoded frame owns its bytes from a bounded pool of three, so nothing copies them to send | `3ffea45` |
+| E2 | The format the encoder took and the clock its frames carry are stated rather than assumed; a late packet is dropped, not relabelled | `5032635` |
+| E3 | Encoder settings are required or optional, so an open fails on what it needs and the stream never claims a setting it hasn't got; AMF's AV1 open no longer fails on an `aud` it has no option for | `9e73614` |
+| T1 | Packetizing allocates nothing per frame: one reused plan and one datagram buffer | `5d8b902` |
+| T2 | The RTX history reuses packet buffers | `df7e492` |
+| T3 | A frame's packets go out over many turns of the loop, so sound, the gateway and viewers' feedback are polled between batches | `958ff2e` |
+| T4 | A keyframe request is answered at most twice a second, so a congestion event doesn't turn into a run of IDRs; a backlogged sender skips the encode | `a8ae641`, `d3fd7ec` |
+| A1 | Opus encoder settings are checked and reported when refused | `27ad894` |
+| A3 | Shared-sound capture is bounded without oversizing | `b93604b` |
+| A4 | Received sound carries its numbering and arrival time, and the playout reorders, primes, conceals, recovers by FEC and restarts on a new SSRC or clock | `56a0f7e` |
+| A5 | The playout's hold is bounded in held time as well as frames, and a bound drops the sound that came too early, never the packet about to play | `e8228e8` |
+| W1 | A device wait is cut short when the stream is stopping, and never counts as a lost device; `Output::write` starts a stream as soon as sound is queued; a system that can't name an endpoint no longer moves a working stream | `41b2406`, `6965384` |
+| §7 | A decode failure waits for a keyframe instead of failing every delta after it, and a codec this build lacks no longer ends the watch | `215394e` |
+
+Still open and untouched: C1/C2's generation tags for late callbacks, W1's
+discontinuity reporting and ageing out a backlog, W2, M1, T4's floor and
+threshold behaviour, E4's measured tuning, E5, §11's reports, and §12.
+
 
 **Terminology:** AV1, H.265/HEVC, H.264, and Opus are codecs. NVENC (NVIDIA),
 AMF (AMD), and VA-API (Linux hardware acceleration) are encoder backends.
