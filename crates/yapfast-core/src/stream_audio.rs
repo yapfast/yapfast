@@ -9,7 +9,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -99,13 +99,55 @@ struct Input {
 impl Input {
     /// Adds sound to the backlog, keeping only the newest [`BACKLOG`]
     /// samples: the oldest go first, so a long callback's chunk needs no more
-    /// room than its last [`BACKLOG`] samples ever take.
-    fn push(&mut self, samples: impl IntoIterator<Item = f32>) {
+    /// room than its last [`BACKLOG`] samples ever take. Gives how many it
+    /// dropped, which is a capture running faster than the mix.
+    fn push(&mut self, samples: impl IntoIterator<Item = f32>) -> u64 {
+        let mut dropped = 0;
         for sample in samples {
             if self.samples.len() >= BACKLOG {
                 self.samples.pop_front();
+                dropped += 1;
             }
             self.samples.push_back(sample);
+        }
+        dropped
+    }
+
+    /// The sound waiting to be mixed, in samples of one channel.
+    fn waiting(&self) -> u32 {
+        u32::try_from(self.samples.len() / CHANNELS).unwrap_or(u32::MAX)
+    }
+}
+
+/// What a sharing stream's sound did, for the stream's report: the sound a
+/// backlog holds, which is delay before viewers hear it, and the sound a full
+/// one dropped rather than mix late.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SoundStats {
+    /// The most any application's sound waits to be mixed, in milliseconds.
+    pub held_ms: u32,
+    /// Sound a full backlog dropped since the capture started, in
+    /// milliseconds of one channel.
+    pub dropped_ms: u64,
+}
+
+/// [`SoundStats`] while the capture runs, written by the mixer and its
+/// listener and read when the stream reports.
+#[derive(Default)]
+struct Counted {
+    /// Samples of every channel waiting: converted on reading, so a short
+    /// wait doesn't round away.
+    held: AtomicU32,
+    dropped: AtomicU64,
+}
+
+impl Counted {
+    fn read(&self) -> SoundStats {
+        let milliseconds = |samples: u64| samples * 1000 / (RATE as u64 * CHANNELS as u64);
+        SoundStats {
+            held_ms: u32::try_from(milliseconds(u64::from(self.held.load(Ordering::Relaxed))))
+                .unwrap_or(u32::MAX),
+            dropped_ms: milliseconds(self.dropped.load(Ordering::Relaxed)),
         }
     }
 }
@@ -138,7 +180,7 @@ fn mix(inputs: &mut HashMap<u32, Input>, out: &mut [f32]) -> bool {
 }
 
 /// Hears the other applications into `inputs` until `stop`.
-fn listen(inputs: Inputs, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
+fn listen(inputs: Inputs, counted: Arc<Counted>, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
     crate::audio_io::others(
         is_discord_client,
         move |heard| {
@@ -157,7 +199,8 @@ fn listen(inputs: Inputs, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
                 }
                 Heard::Samples { source, samples } => {
                     if let Some(input) = inputs.get_mut(&source) {
-                        input.push(samples.iter().copied());
+                        let dropped = input.push(samples.iter().copied());
+                        counted.dropped.fetch_add(dropped, Ordering::Relaxed);
                     }
                 }
                 Heard::Stopped { source } => {
@@ -177,6 +220,7 @@ fn listen(inputs: Inputs, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
 /// Captures and sends the stream's sound until dropped.
 pub struct Capture {
     stop: Arc<AtomicBool>,
+    counted: Arc<Counted>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -184,10 +228,12 @@ impl Capture {
     /// Starts capturing other applications' sound and sending it as Opus.
     pub fn start(sound: SoundSender) -> Result<Self> {
         let inputs = Inputs::default();
+        let counted = Arc::new(Counted::default());
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone())?;
+        let capture = listen(inputs.clone(), counted.clone(), stop.clone())?;
         let mut encoder = opus::Encoder::new(2, opus::Application::Audio, BITRATE)?;
         let stopping = stop.clone();
+        let counting = counted.clone();
         let mixer = std::thread::Builder::new()
             .name("yapfast-stream-sound".into())
             .spawn(move || {
@@ -202,12 +248,16 @@ impl Capture {
                     if let Some(wait) = due.checked_duration_since(Instant::now()) {
                         std::thread::sleep(wait);
                     }
-                    let heard = mix(
-                        &mut inputs
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner()),
-                        &mut frame,
-                    );
+                    let mut inputs = inputs
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    // What waits before this turn is mixed, which is the
+                    // delay a viewer would hear; the mix then takes a frame
+                    // from each application that has one.
+                    let waiting = inputs.values().map(Input::waiting).max().unwrap_or(0);
+                    let heard = mix(&mut inputs, &mut frame);
+                    drop(inputs);
+                    counting.held.store(waiting, Ordering::Relaxed);
                     if heard {
                         match encoder.encode_float(&frame, &mut opus) {
                             Ok(size) => sound.send(Sound {
@@ -225,8 +275,14 @@ impl Capture {
             .context("could not start mixing the stream's sound")?;
         Ok(Self {
             stop,
+            counted,
             threads: vec![capture, mixer],
         })
+    }
+
+    /// What the captured sound did so far, for the stream's report.
+    pub fn stats(&self) -> SoundStats {
+        self.counted.read()
     }
 }
 
@@ -969,6 +1025,39 @@ mod tests {
         assert_eq!(out[0], 1.0);
         inputs.clear();
         assert!(!mix(&mut inputs, &mut out), "silence sends nothing");
+    }
+
+    #[test]
+    fn counts_the_sound_a_backlog_holds_and_drops() {
+        let mut music = Input::default();
+        assert_eq!(
+            music.push(std::iter::repeat_n(0.25, PRIMED)),
+            0,
+            "room to spare"
+        );
+        assert_eq!(music.waiting(), (PRIMED / CHANNELS) as u32);
+        // Past the bound, the oldest goes, and it's counted.
+        let overflow = BACKLOG + 2 * CHANNELS;
+        assert_eq!(
+            music.push(std::iter::repeat_n(0.25, overflow)),
+            (overflow - (BACKLOG - PRIMED)) as u64,
+            "what the bound dropped"
+        );
+        assert_eq!(music.waiting(), (BACKLOG / CHANNELS) as u32, "bounded");
+        let counted = Counted::default();
+        counted
+            .dropped
+            .store(RATE as u64 / 1000 * 30 * CHANNELS as u64, Ordering::Relaxed);
+        counted
+            .held
+            .store(RATE / 1000 * 40 * CHANNELS as u32, Ordering::Relaxed);
+        assert_eq!(
+            counted.read(),
+            SoundStats {
+                held_ms: 40,
+                dropped_ms: 30
+            }
+        );
     }
 
     /// Plays a quiet tone with paplay and hears it through the monitor:

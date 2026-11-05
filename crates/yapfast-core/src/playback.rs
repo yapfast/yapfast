@@ -6,7 +6,7 @@
 use std::{future::Future, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
-use tokio::sync::{mpsc::UnboundedReceiver, oneshot};
+use tokio::sync::{mpsc::Receiver, oneshot};
 
 use crate::{
     chat::{Video, VideoCommand},
@@ -16,7 +16,7 @@ use crate::{
 pub struct Playback {
     pub video: Video,
     worker: Worker,
-    reports: Option<UnboundedReceiver<Report>>,
+    reports: Option<Receiver<Report>>,
     /// The download's size once it's done, none if it failed.
     downloaded: Option<oneshot::Receiver<Option<u64>>>,
     download: tokio::task::JoinHandle<()>,
@@ -211,7 +211,7 @@ fn gain(video: &Video) -> f32 {
 }
 
 /// The worker's next report, or never once they ended.
-async fn next(reports: &mut Option<UnboundedReceiver<Report>>) -> Option<Report> {
+async fn next(reports: &mut Option<Receiver<Report>>) -> Option<Report> {
     let Some(receiver) = reports else {
         return std::future::pending().await;
     };

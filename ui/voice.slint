@@ -102,8 +102,9 @@ export global CallLink {
     in property <[string]> code;
     /// While this account's screen is live, how it goes out: the encoder
     /// ("NVENC on the GPU"), the codec, the size and frame rate, the
-    /// bitrate sent and aimed for ("3.8 Mbit/s"), and what viewers asked
-    /// of it.
+    /// bitrate sent and aimed for ("3.8 Mbit/s"), what viewers asked of it,
+    /// and what a bound gave up: frames the send queue skipped, and the
+    /// shared sound waiting or dropped.
     in property <bool> streaming;
     in property <string> encoder;
     in property <string> codec;
@@ -112,6 +113,9 @@ export global CallLink {
     in property <string> target;
     in property <string> keyframes;
     in property <string> resent;
+    in property <string> skipped;
+    in property <string> sound-waiting;
+    in property <string> sound-dropped;
     callback read();
 }
 
@@ -238,6 +242,9 @@ export component CallLinkCard inherits Rectangle {
             LinkRow { label: "Aiming for:"; value: CallLink.target; }
             LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
             LinkRow { label: "Packets resent:"; value: CallLink.resent; }
+            LinkRow { label: "Frames a full queue skipped:"; value: CallLink.skipped; }
+            LinkRow { label: "Shared sound waiting:"; value: CallLink.sound-waiting; }
+            LinkRow { label: "Shared sound dropped:"; value: CallLink.sound-dropped; }
             Text {
                 text: "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.";
                 color: Theme.muted; font-size: 13px; wrap: word-wrap;

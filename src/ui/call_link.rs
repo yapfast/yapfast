@@ -68,6 +68,9 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
         link.set_target(rate(stream.target_kbps).into());
         link.set_keyframes(stream.keyframe_requests.to_string().into());
         link.set_resent(stream.resent.to_string().into());
+        link.set_skipped(stream.skipped.to_string().into());
+        link.set_sound_waiting(format!("{} ms", stream.sound_held_ms).into());
+        link.set_sound_dropped(format!("{} ms", stream.sound_dropped_ms).into());
     }
 }
 

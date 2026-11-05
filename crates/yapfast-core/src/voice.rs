@@ -148,7 +148,9 @@ pub struct LinkStats {
 /// it each second: the encoder ("h264_nvenc", "x264"), the codec Discord
 /// chose ("H264"), the size and frame rate sent, the kbit/s aimed for and
 /// sent in the last second, and the keyframes viewers asked for and the
-/// packets resent to them since the stream started.
+/// packets resent to them since the stream started. What a bound had to
+/// give up is here too, so a stream that stutters says why: the frames a
+/// full send queue skipped, and the shared sound a backlog dropped.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamStats {
     pub engine: String,
@@ -160,6 +162,15 @@ pub struct StreamStats {
     pub sent_kbps: u32,
     pub keyframe_requests: u64,
     pub resent: u64,
+    /// Frames the send queue was too full to take, since the stream started:
+    /// the encode that would have been thrown away was skipped instead.
+    pub skipped: u64,
+    /// The most any application's shared sound waited to be mixed, in
+    /// milliseconds: delay before viewers hear it.
+    pub sound_held_ms: u32,
+    /// Shared sound a full backlog dropped since the stream started, in
+    /// milliseconds.
+    pub sound_dropped_ms: u64,
 }
 
 /// Reads the call's [`LinkStats`], which the call measures all along and

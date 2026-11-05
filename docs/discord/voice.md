@@ -111,7 +111,11 @@ The stream worker reports them once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps
 the last report beside its own numbers, without refreshing the UI's state,
 and the popout reads it as it reads the pings. A report more than 3 s old
-means the stream stopped, and the tab goes. `talks_to_the_fake_server`
+means the stream stopped, and the tab goes. It also shows what a bound gave up:
+the frames a full send queue skipped rather than encoded and dropped, and the
+shared sound's queue — the longest wait before it was mixed, and the sound a
+full backlog dropped. Stopping the stream clears the call's copy of the last
+report at once, so a stream that ended never shows as live. `talks_to_the_fake_server`
 checks the bytes counted and a resend.
 
 Matrix calls don't have these yet. LiveKit's SDK measures its signal

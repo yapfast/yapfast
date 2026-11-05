@@ -28,11 +28,18 @@ use crate::{
 /// worker sends one each second while the stream is live.
 const SENDING_STALE: Duration = Duration::from_secs(3);
 
+/// How the shared stream last said it goes out, and when: the worker reports
+/// it each second, and the call's details read it while they show.
+type Sending = Arc<std::sync::Mutex<Option<(std::time::Instant, StreamStats)>>>;
+
 /// Going live: the worker capturing the screen, then the stream Discord
 /// started for it.
 struct Share {
     worker: Worker,
-    reports: mpsc::UnboundedReceiver<Report>,
+    reports: mpsc::Receiver<Report>,
+    /// Where the stream's statistics go, so ending it leaves none for the
+    /// call's details to show as live.
+    sending: Sending,
     /// The stream's key once Discord was asked to start it, so stopping ends
     /// it even before Discord answers.
     key: Option<String>,
@@ -43,7 +50,7 @@ struct Share {
 impl Share {
     /// Starts the worker; Discord hears of the stream once there's something
     /// to show, so a cancelled dialog shares nothing.
-    fn start(state: &mut State, quality: StreamQuality) -> Result<Self> {
+    fn start(state: &mut State, quality: StreamQuality, sending: &Sending) -> Result<Self> {
         // Tests and screenshots share colour bars instead of a screen.
         let source = if std::env::var_os("YAPFAST_STREAM_TEST_PATTERN").is_some() {
             stream_worker::Source::TestPattern
@@ -59,6 +66,7 @@ impl Share {
         Ok(Self {
             worker,
             reports,
+            sending: sending.clone(),
             key: None,
             preview: None,
         })
@@ -114,6 +122,12 @@ impl Share {
         if let Some(key) = &self.key {
             discord.end_stream(key);
         }
+        // The details showed a stream that no longer goes out; from here
+        // they say nothing of it, rather than its last second for a while.
+        *self
+            .sending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         drop(self.worker);
         state.sharing = None;
     }
@@ -185,7 +199,7 @@ struct Watch {
     /// Whose stream it is, by Discord user id.
     user: String,
     opening: Starting,
-    worker: Option<(Worker, mpsc::UnboundedReceiver<Report>)>,
+    worker: Option<(Worker, mpsc::Receiver<Report>)>,
 }
 
 impl Watch {
@@ -388,7 +402,7 @@ pub(crate) async fn call(
     // Discord wouldn't ring them, which the call says until someone comes.
     let mut unrung = false;
     // How the shared screen last said it goes out, and when.
-    let sending: Arc<std::sync::Mutex<Option<(std::time::Instant, StreamStats)>>> = Arc::default();
+    let sending: Sending = Arc::default();
     let mut soundboard = Soundboard::start(discord, guild);
     let (sound_events, mut sounds) = mpsc::unbounded_channel();
     {
@@ -620,7 +634,7 @@ pub(crate) async fn call(
                             if share.is_none() {
                                 state.quality = quality;
                                 Chosen::write(remembered, state);
-                                match Share::start(state, quality) {
+                                match Share::start(state, quality, &sending) {
                                     Ok(started) => {
                                         share = Some(started);
                                         state.error = None;

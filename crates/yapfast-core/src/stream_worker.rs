@@ -73,6 +73,10 @@ const THUMBNAIL_EVERY: Duration = Duration::from_secs(5 * 60);
 const MOVE_GRACE: Duration = Duration::from_secs(5);
 /// How often a shared screen reports how it goes out, for the call's details.
 const SENDING_EVERY: Duration = Duration::from_secs(1);
+/// How long a stopping worker has to end by itself before it's ended. A
+/// capture stuck in a system call is what takes this long; the stream's
+/// threads and memory go with the process.
+const STOP_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -325,6 +329,16 @@ pub enum Report {
     Ended { error: Option<String> },
 }
 
+impl Report {
+    /// Whether a later one of these says everything this one would, so a
+    /// queue with no room can drop it and still tell the truth. Only the
+    /// statistics are like that: every other report is a change the UI acts
+    /// on, which losing would leave it saying something that isn't so.
+    fn replaceable(&self) -> bool {
+        matches!(self, Report::Sending(_))
+    }
+}
+
 /// Runs this process as a stream worker until its job ends.
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
@@ -495,7 +509,10 @@ struct Video {
     sender: StreamSender,
     encoder: Encoder,
     /// Other applications' sound, while sharing a screen.
-    _sound: Option<stream_audio::Capture>,
+    sound: Option<stream_audio::Capture>,
+    /// Frames the send queue was too full to take, since the stream started:
+    /// a sender that can't keep up shows here first.
+    skipped: u64,
     /// When the stream last reported how it goes out, and the bytes it had
     /// sent then.
     measured: (Instant, u64),
@@ -510,6 +527,13 @@ impl Video {
         let milliseconds = since.elapsed().as_millis().max(1) as u64;
         self.measured = (Instant::now(), sent.video_bytes);
         let (width, height) = self.encoder.size();
+        // The sound shared with the screen, while there is one: what waits to
+        // be mixed is delay a viewer hears before the picture it came with.
+        let sound = self
+            .sound
+            .as_ref()
+            .map(stream_audio::Capture::stats)
+            .unwrap_or_default();
         StreamStats {
             engine: self.encoder.engine().to_owned(),
             codec: self.encoder.codec().name().to_owned(),
@@ -520,6 +544,9 @@ impl Video {
             sent_kbps: (bits / milliseconds) as u32,
             keyframe_requests: sent.keyframe_requests,
             resent: sent.resent,
+            skipped: self.skipped,
+            sound_held_ms: sound.held_ms,
+            sound_dropped_ms: sound.dropped_ms,
         }
     }
 }
@@ -602,7 +629,8 @@ impl Sink {
             self.video = Some(Video {
                 sender,
                 encoder,
-                _sound: sound,
+                sound,
+                skipped: 0,
                 measured: (Instant::now(), 0),
             });
         }
@@ -655,6 +683,7 @@ impl Sink {
         // away is skipped; the request for a whole frame waits for the one
         // that goes.
         if video.sender.backlogged() {
+            video.skipped = video.skipped.saturating_add(1);
             return Ok(());
         }
         let pts = self.started.elapsed().as_micros() as u64 * encode::CLOCK / 1_000_000;
@@ -1654,8 +1683,39 @@ pub fn set_hardware_encoding(on: bool) {
 
 /// Yapfast's handle on a running worker. Dropping it stops the worker.
 pub struct Worker {
-    child: Child,
+    /// Which ends the worker; taken when this handle goes, so nothing waits
+    /// on it here.
+    child: Option<Child>,
     stdin: Option<ChildStdin>,
+}
+
+/// How many reports may wait for the UI: a share sends a status a second, so
+/// 16 seconds of a window that stopped reading still fit, and one that stays
+/// stopped never grows the queue past this.
+const REPORTS_WAITING: usize = 16;
+
+/// Hands `report` to the UI, and says what's left to do with it: a status a
+/// later one replaces is dropped when there's no room, which keeps the
+/// worker's reader moving and its child from blocking on a full standard
+/// output. Everything else waits for room, however long the UI takes over
+/// it, so the end of a job is never the report that goes missing.
+fn deliver(reports: &mpsc::Sender<Report>, report: Report) -> Delivery {
+    match reports.try_send(report) {
+        Ok(()) => Delivery::Taken,
+        Err(mpsc::error::TrySendError::Full(report)) if report.replaceable() => Delivery::Taken,
+        Err(mpsc::error::TrySendError::Full(report)) => Delivery::Waiting(report),
+        Err(mpsc::error::TrySendError::Closed(_)) => Delivery::Gone,
+    }
+}
+
+/// What [`deliver`] left for the caller to do.
+enum Delivery {
+    /// The UI has it, or a later report says the same.
+    Taken,
+    /// The queue was full: the caller waits for room and hands it over.
+    Waiting(Report),
+    /// The UI stopped reading, so there's nobody left to report to.
+    Gone,
 }
 
 impl Worker {
@@ -1663,7 +1723,7 @@ impl Worker {
     pub fn share(
         source: Source,
         quality: StreamQuality,
-    ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
+    ) -> Result<(Self, Frames, mpsc::Receiver<Report>)> {
         let source = picked(source);
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT)?;
         let (width, height) = bounds(quality.resolution);
@@ -1691,7 +1751,7 @@ impl Worker {
         screens: Vec<u64>,
         width: u32,
         height: u32,
-    ) -> Result<(Self, mpsc::UnboundedReceiver<Report>)> {
+    ) -> Result<(Self, mpsc::Receiver<Report>)> {
         Self::start(&Job::Glance {
             screens,
             width,
@@ -1706,7 +1766,7 @@ impl Worker {
         speakers: Option<String>,
         deafened: bool,
         volume: f32,
-    ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
+    ) -> Result<(Self, Frames, mpsc::Receiver<Report>)> {
         let frames = Frames::create(WATCH_WIDTH, WATCH_HEIGHT)?;
         let job = Job::Watch {
             server: server.clone(),
@@ -1730,7 +1790,7 @@ impl Worker {
         (width, height): (u32, u32),
         speakers: Option<String>,
         volume: f32,
-    ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
+    ) -> Result<(Self, Frames, mpsc::Receiver<Report>)> {
         let frames = Frames::create(WATCH_WIDTH, WATCH_HEIGHT)?;
         let job = Job::Play {
             file,
@@ -1786,7 +1846,7 @@ impl Worker {
         Ok(())
     }
 
-    fn start(job: &Job) -> Result<(Self, mpsc::UnboundedReceiver<Report>)> {
+    fn start(job: &Job) -> Result<(Self, mpsc::Receiver<Report>)> {
         // Tests run from their own binary, so they name Yapfast's.
         let program = match std::env::var_os("YAPFAST_STREAM_WORKER") {
             Some(program) => PathBuf::from(program),
@@ -1805,7 +1865,7 @@ impl Worker {
         if let Some(stdin) = stdin.as_mut() {
             writeln!(stdin, "{line}").context("could not reach the stream worker")?;
         }
-        let (reports, receiver) = mpsc::unbounded_channel();
+        let (reports, receiver) = mpsc::channel(REPORTS_WAITING);
         let unexpected = match job {
             Job::Play { .. } => "The video stopped unexpectedly.",
             _ => "Screen sharing stopped unexpectedly.",
@@ -1821,21 +1881,35 @@ impl Worker {
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });
-                            if reports.send(report).is_err() {
-                                return;
+                            match deliver(&reports, report) {
+                                Delivery::Taken => {}
+                                Delivery::Waiting(report) => {
+                                    if reports.blocking_send(report).is_err() {
+                                        return;
+                                    }
+                                }
+                                Delivery::Gone => return,
                             }
                         }
                         Err(error) => tracing::warn!(%error, "unknown stream worker report"),
                     }
                 }
                 if !ended {
-                    let _ = reports.send(Report::Ended {
+                    // The UI hears of a worker gone quietly: its end is
+                    // worth waiting for room for, like any other.
+                    let _ = reports.blocking_send(Report::Ended {
                         error: Some(unexpected.into()),
                     });
                 }
             })
             .context("could not start the stream worker")?;
-        Ok((Self { child, stdin }, receiver))
+        Ok((
+            Self {
+                child: Some(child),
+                stdin,
+            },
+            receiver,
+        ))
     }
 }
 
@@ -1855,17 +1929,32 @@ impl Drop for Worker {
         if let Some(mut stdin) = self.stdin.take() {
             let _ = writeln!(stdin, "stop");
         }
-        // The worker checks for the stop between frames.
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < deadline {
-            if !matches!(self.child.try_wait(), Ok(None)) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
+        // The worker checks for the stop between frames, so this usually ends
+        // it at once; a capture stuck in a system call takes until the wait
+        // runs out. Waiting here would hold the call's own loop, which is
+        // where a stream stops from, so a thread of its own does the waiting.
+        // Closing the worker's input above ends it even if that thread can't
+        // start: it reads the stop, then the end of its input.
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+        let stopping = std::thread::Builder::new()
+            .name("yapfast-stream-stop".into())
+            .spawn(move || {
+                let deadline = Instant::now() + STOP_WAIT;
+                while Instant::now() < deadline {
+                    if !matches!(child.try_wait(), Ok(None)) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                tracing::warn!("the stream worker didn't stop; ending it");
+                let _ = child.kill();
+                let _ = child.wait();
+            });
+        if let Err(error) = stopping {
+            tracing::warn!(%error, "could not wait for the stream worker to stop");
         }
-        tracing::warn!("the stream worker didn't stop; ending it");
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 
@@ -1883,6 +1972,30 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn a_full_queue_drops_a_status_and_keeps_the_end() {
+        let (reports, mut ui) = mpsc::channel(1);
+        let first = Report::Sending(StreamStats::default());
+        assert!(matches!(deliver(&reports, first), Delivery::Taken));
+        let status = deliver(&reports, Report::Sending(StreamStats::default()));
+        assert!(
+            matches!(status, Delivery::Taken),
+            "a status is dropped rather than wait: a later one says the same"
+        );
+        let ended = deliver(&reports, Report::Ended { error: None });
+        assert!(
+            matches!(ended, Delivery::Waiting(Report::Ended { .. })),
+            "the end waits for room, so a full queue can't hide it"
+        );
+        assert!(matches!(ui.try_recv(), Ok(Report::Sending(_))), "the first");
+        assert!(ui.try_recv().is_err(), "and only the first");
+        drop(ui);
+        assert!(
+            matches!(deliver(&reports, Report::Streaming), Delivery::Gone),
+            "and nothing is left to report to"
+        );
     }
 
     #[test]
