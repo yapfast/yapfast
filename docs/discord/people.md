@@ -366,7 +366,9 @@ nameplate among `collectibles` takes them off.
 Both pictures are served by `https://cdn.discordapp.com/media/v1/collectibles-shop/{sku_id}/static`,
 a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The
 client asks for `/animated`, an APNG, or `/video`, a WebM, and Yapfast
-asks for `/animated` (Discord's own client does on Linux and Safari). Which
+asks for `/animated` (Discord's own client does on Linux and Safari), when
+the [profile switches](#profile-switches) let them animate, as they do
+unless turned off. Which
 surface animates follows `useAvatarDecoration` and `useNameplateAnimation`: a
 decoration plays always on messages and the profile card, but only while the
 pointer is on its row in the member list, a DM's row and the account card; a
@@ -437,12 +439,46 @@ one-to-one DM's row and the profile card's name (`StyledName` in
   prism); the shades neon, toon and pop use are derived from the first with
   the client's HSL steps (`$0`).
 
+In a server, a message's author and a member row show the style's font
+alone, in the row's own colour, with none of its colours or effect, even
+while pointed at (`name_style::font_only_in`), so a busy channel stays calm;
+DMs, profile cards and the style's editor show all of it.
+
 What still differs: names are drawn at rest, Discord's `STATIC` display type
 and its default; the `ANIMATED` one (neon flicker, toon and pop bounce, prism
 scroll and gummy squish, in the client's `_dfb989` keyframes) isn't drawn. Neon's halo is a stroke of the colour at 28% opacity,
 where Discord blurs a `text-shadow`; Slint has no text shadow or blur.
 Toon's light bands are a guess at the gradient the client draws, whose
 stops its stylesheet doesn't show.
+
+## Profile switches
+
+Settings → Appearance → Profiles has a switch for each cosmetic that
+downloads or animates pictures, as `CONTRIBUTING.md` asks, and one for
+name styles (`Cosmetics` in `application/cosmetics.rs`, `Looks` in
+`ui/theme.slint`). They're kept in `layout.json`, unset meaning the
+default, and what's off is left out before anything is fetched: the core
+asks for none of its pictures (`pictures_on_screen`), and the rows the
+window draws carry no address for it, so Slint asks for nothing either.
+
+| Switch (`layout.json` key) | Off | Default |
+| --- | --- | --- |
+| Play profile effects (`profile_effects`) | No `/user-profile-effects` or `/collectibles-products/` request for a profile's effect (`DiscordCommand::Profile`'s `effect`), and none of its layers | On |
+| Show avatar decorations (`decorations`) | No decoration on messages, member lists, DM rows, profile cards or the account | On |
+| Show nameplates (`nameplates`) | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`) | On |
+| Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
+| Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
+| Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+
+Every switch starts on, so profiles look as in Discord's client. The
+switches are there for the cheaper side: an effect's layers are APNGs up
+to 450 by 880 decoded frame by frame, and an animated decoration or
+nameplate decodes each frame it shows, CPU and memory for looks alone,
+and with effects and animation off none of that is fetched or decoded.
+Decorations, nameplates and tags are a still each, decoded once, and name
+styles use bundled fonts. Turning a switch off takes what it covers off
+what's shown at once; turning effects on shows a profile's effect the
+next time the profile is fetched.
 
 ## Editing one's main profile
 

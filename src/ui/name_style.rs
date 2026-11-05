@@ -227,9 +227,55 @@ pub(super) fn row(style: Option<NameStyle>, name: &str) -> NameStyleRow {
     }
 }
 
+/// A name in a Discord server, as Yapfast draws it there: the style's font
+/// alone, in the row's own colour, with none of its colours or effect, even
+/// while it's pointed at. Profiles, DMs and the style's own editor show the
+/// whole style.
+/// `in_server` says whether the name is in one.
+pub(super) fn font_only_in(in_server: bool, row: NameStyleRow) -> NameStyleRow {
+    if !in_server || row.effect == 0 {
+        return row;
+    }
+    // A solid style with no colours is drawn in the row's own ink.
+    NameStyleRow {
+        effect: 1,
+        family: row.family,
+        weight: row.weight,
+        ..NameStyleRow::default()
+    }
+}
+
+/// Whether a place, a room's id, is in a Discord server rather than a DM,
+/// where names show as [`font_only_in`] says.
+pub(super) fn in_server(place: Option<&str>) -> bool {
+    place
+        .and_then(yapfast_core::discord::parse_room)
+        .is_some_and(|(guild, _)| guild != yapfast_core::discord::DM_GUILD)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_in_a_server_keep_only_their_font() {
+        let style = row(Some(NameStyle::new(14, 7, &[0xff0000, 0x00ff00])), "Ann");
+        let plain = font_only_in(true, style.clone());
+        assert_eq!((plain.effect, plain.count), (1, 0), "no colours or effect");
+        assert_eq!(
+            (plain.family.as_str(), plain.weight),
+            (style.family.as_str(), style.weight)
+        );
+        assert_eq!(font_only_in(true, NameStyleRow::default()).effect, 0);
+        assert_eq!(
+            font_only_in(false, style.clone()).count,
+            2,
+            "outside, all of it"
+        );
+        assert!(in_server(Some("discord:10:20")));
+        assert!(!in_server(Some("discord:@me:30")));
+        assert!(!in_server(None));
+    }
 
     #[test]
     fn dark_colours_are_lightened_until_they_read() {

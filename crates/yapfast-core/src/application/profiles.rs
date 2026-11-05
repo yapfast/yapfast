@@ -71,6 +71,7 @@ impl Application {
         vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
             room,
             user,
+            effect: self.state.cosmetics.effects,
         }))]
     }
 
@@ -224,6 +225,7 @@ impl Application {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
                 room,
                 user,
+                effect: self.state.cosmetics.effects,
             }))]
         } else {
             vec![]

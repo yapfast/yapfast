@@ -15,7 +15,7 @@ use slint::{
 use yapfast_core::{
     application::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
-        ClearAfter, Compose, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
+        ClearAfter, Compose, Cosmetics, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
         MenuChoice, Navigation, NewDm, PersonAsk, Place, ProfileText, ProfileView, Relation,
         RoleInput, Search, TIMEOUT_TIMES,
     },
@@ -1026,6 +1026,12 @@ struct Layout {
     nameplates: Option<bool>,
     /// When animations play.
     animate: Animate,
+    /// The profile switches, each as [`Cosmetics`] starts it unless changed.
+    profile_effects: Option<bool>,
+    decorations: Option<bool>,
+    moving_cosmetics: Option<bool>,
+    name_styles: Option<bool>,
+    server_tags: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1298,6 +1304,42 @@ impl Layout {
         layout
     }
 
+    /// The profile switches, as saved.
+    fn cosmetics(&self) -> Cosmetics {
+        let default = Cosmetics::default();
+        Cosmetics {
+            effects: self.profile_effects.unwrap_or(default.effects),
+            decorations: self.decorations.unwrap_or(default.decorations),
+            moving: self.moving_cosmetics.unwrap_or(default.moving),
+            name_styles: self.name_styles.unwrap_or(default.name_styles),
+            server_tags: self.server_tags.unwrap_or(default.server_tags),
+        }
+    }
+
+    /// Sets Settings' profile switches as saved, and whether collectibles'
+    /// animated pictures may be asked for.
+    fn show_cosmetics(&self, window: &YapfastWindow) {
+        let cosmetics = self.cosmetics();
+        let looks = window.global::<Looks>();
+        looks.set_profile_effects(cosmetics.effects);
+        looks.set_decorations(cosmetics.decorations);
+        looks.set_moving(cosmetics.moving);
+        looks.set_name_styles(cosmetics.name_styles);
+        looks.set_server_tags(cosmetics.server_tags);
+        pictures::set_moving_collectibles(cosmetics.moving);
+    }
+
+    /// Reads Settings' profile switches.
+    fn read_cosmetics(&mut self, window: &YapfastWindow) {
+        let looks = window.global::<Looks>();
+        self.profile_effects = Some(looks.get_profile_effects());
+        self.decorations = Some(looks.get_decorations());
+        self.moving_cosmetics = Some(looks.get_moving());
+        self.name_styles = Some(looks.get_name_styles());
+        self.server_tags = Some(looks.get_server_tags());
+        pictures::set_moving_collectibles(self.cosmetics().moving);
+    }
+
     /// Shows the custom games, and has detection use them.
     fn apply_custom_games(&self, window: &YapfastWindow) {
         window.set_game_executables(ModelRc::new(VecModel::from(
@@ -1377,6 +1419,7 @@ impl Layout {
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
+        self.show_cosmetics(window);
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
@@ -1438,8 +1481,17 @@ impl Layout {
     }
 
     /// A message's row as these preferences show it: its time on the chosen clock, with its
-    /// date when it's from another day, and its link previews only when they're on.
+    /// date when it's from another day, its link previews only when they're on, and its
+    /// author's name style and server tag only as the profile switches let them show.
     fn restyle(&self, message: &ChatMessage, mut row: MessageRow) -> MessageRow {
+        let cosmetics = self.cosmetics();
+        if !cosmetics.name_styles {
+            row.name_style = NameStyleRow::default();
+        }
+        if !cosmetics.server_tags {
+            row.tag = SharedString::default();
+            row.tag_badge = SharedString::default();
+        }
         if message.timestamp != 0 {
             let (twelve_hour, with_seconds) = (self.twelve_hour_clock, self.clock_seconds);
             let now = yapfast_core::clock::now_ms() / 1000;
@@ -2022,6 +2074,7 @@ impl Adapter {
         ));
         app.dispatch(Action::ReplyPing(layout.reply_ping.unwrap_or(true)));
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
+        app.dispatch(Action::SetCosmetics(layout.cosmetics()));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));

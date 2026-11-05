@@ -22,6 +22,7 @@ mod browse;
 mod calls;
 mod channel_settings;
 mod compose;
+mod cosmetics;
 mod discord_account;
 mod forum;
 mod gifs;
@@ -53,6 +54,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
@@ -499,6 +501,8 @@ pub struct AppState {
     /// Messages from people this account blocked don't show at all, rather
     /// than collapsed.
     pub hide_blocked: bool,
+    /// Which of the cosmetics people wear show, and are fetched.
+    pub cosmetics: Cosmetics,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -2019,6 +2023,11 @@ pub enum Action {
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
+    /// Which cosmetics show, from Settings → Appearance → Profiles. What's
+    /// shown loses what's turned off at once; what's turned on shows as its
+    /// pictures arrive, and a profile's effect once the profile is fetched
+    /// again.
+    SetCosmetics(Cosmetics),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -2224,13 +2233,14 @@ fn pictures_on_screen<'a>(
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
 ) -> impl Iterator<Item = &'a str> {
+    let cosmetics = state.cosmetics;
     state
         .servers
         .iter()
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
-        .chain(state.account_decoration.as_deref())
+        .chain(cosmetics.decoration(state.account_decoration.as_deref()))
         .chain(
             state
                 .account_nameplate
@@ -2242,7 +2252,12 @@ fn pictures_on_screen<'a>(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .flat_map(|room| [room.avatar.as_deref(), room.decoration.as_deref()])
+                .flat_map(move |room| {
+                    [
+                        room.avatar.as_deref(),
+                        cosmetics.decoration(room.decoration.as_deref()),
+                    ]
+                })
                 .flatten()
                 .take(LISTED_PICTURES),
         )
@@ -2391,15 +2406,15 @@ fn pictures_on_screen<'a>(
                 .profile
                 .iter()
                 .chain(&state.panel_profile)
-                .flat_map(|view| {
+                .flat_map(move |view| {
                     let profile = &view.profile;
-                    let effect = profile.effect.as_deref().and_then(|sku| {
+                    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
                         state
                             .profile_effects
                             .iter()
                             .find(|effect| effect.sku == sku)
                     });
-                    [&profile.avatar, &profile.decoration, &profile.banner]
+                    [&profile.avatar, &profile.banner]
                         .into_iter()
                         .chain(
                             profile
@@ -2409,6 +2424,7 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
+                        .chain(cosmetics.decoration(profile.decoration.as_deref()))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         .chain(effect.into_iter().flat_map(|effect| effect.pictures()))
                 }),
@@ -2430,7 +2446,7 @@ fn pictures_on_screen<'a>(
             timeline
                 .iter()
                 .filter(move |_| list_avatars)
-                .flat_map(|message| {
+                .flat_map(move |message| {
                     let reply = message
                         .reply
                         .as_ref()
@@ -2439,7 +2455,7 @@ fn pictures_on_screen<'a>(
                         .avatar
                         .as_deref()
                         .into_iter()
-                        .chain(message.decoration.as_deref())
+                        .chain(cosmetics.decoration(message.decoration.as_deref()))
                         .chain(reply)
                 })
                 .chain(
@@ -2463,10 +2479,10 @@ fn pictures_on_screen<'a>(
                         .filter(move |_| list_avatars)
                         .flat_map(|role| role.members.iter().flatten()),
                 )
-                .flat_map(|member| {
+                .flat_map(move |member| {
                     [
                         member.avatar.as_deref(),
-                        member.decoration.as_deref(),
+                        cosmetics.decoration(member.decoration.as_deref()),
                         member
                             .nameplate
                             .as_ref()
@@ -3344,6 +3360,10 @@ impl Application {
             }
             Action::HideNameplates(hide) => {
                 self.state.hide_nameplates = hide;
+                vec![]
+            }
+            Action::SetCosmetics(cosmetics) => {
+                self.state.cosmetics = cosmetics;
                 vec![]
             }
             Action::HideBlocked(hide) => {

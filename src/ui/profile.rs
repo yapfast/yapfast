@@ -351,7 +351,8 @@ pub(super) fn profile_data(
         .as_deref()
         .filter(|line| !names_an_activity(line, &profile.activities))
         .map_or((None, ""), yapfast_core::discord::status_parts);
-    let effect = profile.effect.as_deref().and_then(|sku| {
+    let cosmetics = state.cosmetics;
+    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
         state
             .profile_effects
             .iter()
@@ -392,17 +393,18 @@ pub(super) fn profile_data(
         initial: initial(&profile.name),
         tint: tint(&profile.name),
         picture: avatar.clone(),
-        decoration_url: profile.decoration.as_deref().unwrap_or_default().into(),
-        name_style: super::name_style::row(profile.style, &profile.name),
+        decoration_url: cosmetics
+            .decoration(profile.decoration.as_deref())
+            .unwrap_or_default()
+            .into(),
+        name_style: super::name_style::row(cosmetics.style(profile.style), &profile.name),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
-        tag: profile
-            .tag
-            .as_ref()
+        tag: cosmetics
+            .tag(profile.tag.as_ref())
             .map_or_else(Default::default, |tag| tag.text.as_str().into()),
-        tag_badge: profile
-            .tag
-            .as_ref()
+        tag_badge: cosmetics
+            .tag(profile.tag.as_ref())
             .and_then(|tag| tag.badge.as_deref())
             .unwrap_or_default()
             .into(),

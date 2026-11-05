@@ -168,7 +168,7 @@ pub(super) fn command(
         }
         return None;
     }
-    if let Command::Discord(DiscordCommand::Profile { room, user }) = command {
+    if let Command::Discord(DiscordCommand::Profile { room, user, effect }) = command {
         match (discord, discord::parse_room(&room)) {
             (Ok(discord), Some((guild, _))) => {
                 let (discord, events, guild) = (discord.clone(), events.clone(), guild.to_owned());
@@ -193,7 +193,7 @@ pub(super) fn command(
                     };
                     // The effect over the card is the shop's to describe, and
                     // comes after the card does.
-                    let effect = profile.effect.clone();
+                    let effect = profile.effect.clone().filter(|_| effect);
                     let _ = events.send(Event::Profile {
                         user: user.clone(),
                         result: Ok(chat_profile(&discord, &guild, profile.clone())),

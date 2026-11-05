@@ -3,7 +3,7 @@ import { SettingsNavigation } from "yapfast/settings-nav.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, Popup, Strings } from "theme.slint";
+import { Theme, Middle, Label, Tip, Popup, Strings, Looks } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
@@ -972,11 +972,45 @@ export component AppearanceSettings inherits VerticalLayout {
         checked <=> root.system-title-bar;
         toggled => { root.title-bar-toggled(); }
     }
-    if !root.editor: SettingsSwitch {
-        text: "Show nameplates";
-        description: "The pictures Discord members equip behind their rows in the member list and on your account card.";
-        checked <=> root.show-nameplates;
-        toggled => { root.preferences-changed(); }
+    if !root.editor: VerticalLayout {
+        spacing: 12px;
+        SettingsHeading { text: "PROFILES"; }
+        SettingsSwitch {
+            text: "Play profile effects";
+            description: "The animations some people put over their profile cards.";
+            checked <=> Looks.profile-effects;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show avatar decorations";
+            description: "The pictures around people's avatars.";
+            checked <=> Looks.decorations;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show nameplates";
+            description: "The pictures Discord members equip behind their rows in the member list and on your account card.";
+            checked <=> root.show-nameplates;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Animate decorations and nameplates";
+            description: "They play when pointed at, as in Discord. Off, they hold still.";
+            checked <=> Looks.moving;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show name styles";
+            description: "The fonts and colours people give their display names.";
+            checked <=> Looks.name-styles;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show server tags";
+            description: "The tag and its badge beside people's names.";
+            checked <=> Looks.server-tags;
+            toggled => { root.preferences-changed(); }
+        }
     }
     if root.editor: form := VerticalLayout {
         property <bool> confirming;
