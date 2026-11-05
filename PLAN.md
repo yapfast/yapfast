@@ -70,6 +70,50 @@ measured instead, and the numbers are in `docs/measurements/README.md`:
   and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
 - GPU conversion and the Linux surface paths gain nothing further on their own.
 
+**Where this stands.** Every item above whose work could be done and verified
+here has landed; 54 commits, with the core, Discord and fake-server suites
+green. What is left in this document is four items that **only a
+measurement can settle**, and it would be dishonest to tick them:
+
+- **E4's** choice of NVENC preset — needs equal-rate quality comparison on the
+  rig, not a guess.
+- **E5's** opposite direction — proving a different colour claim *looks* right
+  needs a viewing comparison.
+- **A2's** faster complexity setting — needs a level-matched listen.
+- **A5's** audio-to-video clock mapping — needs real sender-report timing on a
+  live link.
+
+Everything else is code that exists, with its doc, and its tests.
+
+**Beyond this document.** The GPU work the user asked for afterwards is not
+described here and is only half built: capture into a texture (Windows Graphics
+Capture, borderless) works; encoding a texture with H.264/H.265/AV1 works; the
+card is chosen by the new preference; pictures are presented at their tile size;
+an HDR screen is tonemapped. Still missing, in order: one shared D3D11 device
+across capture and encoder, a GPU scale to the stream's size, and a readback for
+previews — without those three the texture path cannot engage at all, which is
+why it is not committed yet. Then the Duplication backend (Windows 10 borderless,
+with cursor compositing and scRGB→SDR), hardware decode's GPU conversion pass,
+and finally presenting a decoded texture without a CPU copy.
+
+Section 12 was first assessed as "not buildable here"; it has since been
+measured instead, and the numbers are in `docs/measurements/README.md`:
+
+- **Windows GPU capture-to-NVENC works**, with no CPU pixel copy: a real desktop
+  through Windows Graphics Capture into a D3D11 texture into NVENC. It is worth
+  the conversion and upload that stop happening — a couple of milliseconds a
+  frame at 1080p, and about 4.4 ms of CPU copy at 3440×1440 — not the twenty
+  times first rumoured. **Windows Graphics Capture, borderless, with the
+  libwebrtc capturer as fallback**, is the decision; Windows 10 needs Desktop
+  Duplication, which cannot remove the border and breaks on HDR frames.
+- **Hardware decode** still needs an FFmpeg with `d3d11va` — the vendored one
+  has neither hwaccel nor a single parser — so it remains gated on that build
+  and on a display path that doesn't read every frame back to the CPU.
+- **Intel QSV** needs oneVPL headers the vendor lacks, and additionally
+  `--enable-d3d11va` on Windows; on this machine's UHD 770 it would buy H.264
+  and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
+- GPU conversion and the Linux surface paths gain nothing further on their own.
+
 Still open: one bullet of section 7 — doing less presentation work while the
 window is hidden or minimised without stalling reference decoding or the sound.
 
