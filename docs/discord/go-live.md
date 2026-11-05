@@ -161,7 +161,9 @@ stopping the share cancels it.
 A shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
 the call echoed back (`stream_audio`, with `audio_io::others` hearing the
-applications). On Linux, PulseAudio or PipeWire's
+applications). On Windows that means Yapfast's own process tree: another
+Discord client's call is shared, since only its own processes can be left out
+there. On Linux, PulseAudio or PipeWire's
 PulseAudio server monitors each application's playback stream on its own
 (`pa_stream_set_monitor_stream`, as pavucontrol's level meters do), and
 streams from Yapfast's processes are skipped by process id. So are other Discord

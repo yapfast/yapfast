@@ -305,7 +305,8 @@ impl<S: Sample> Input<S> {
 /// What [`others`] hears from the other applications playing.
 #[cfg(feature = "discord")]
 pub enum Heard<'a> {
-    /// An application started playing, from this process when the system says.
+    /// An application started playing, and the process playing it when the
+    /// system says which.
     Started {
         source: u32,
         process: Option<u32>,
@@ -321,9 +322,11 @@ pub enum Heard<'a> {
 }
 
 /// Hears what every other application plays, at [`RATE`] in stereo, on a
-/// thread of its own until `stop`. Yapfast's own processes are left out. On
-/// Linux each application comes on its own, and those whose name or program
-/// `skip` picks are left out too; Windows mixes them all into one.
+/// thread of its own until `stop`. Yapfast's own processes are left out, and
+/// nothing else is: on Linux each application comes on its own, and those
+/// whose name or program `skip` picks are left out too, so another Discord
+/// client's call is; Windows mixes them all into one stream and can leave out
+/// only Yapfast's processes, so its call is shared.
 /// Returns once it hears, or with why it can't.
 #[cfg(feature = "discord")]
 pub fn others(

@@ -535,7 +535,10 @@ pub use others::others;
 /// Other applications' sound, through process loopback: one stream of
 /// everything the system plays but Yapfast's own processes, from Windows 10's
 /// 2004 update on. It can't leave out other applications, so `skip` has no
-/// effect here.
+/// effect here: another Discord client's call reaches the stream too.
+///
+/// Each packet is copied out of the engine's buffer before it's passed on,
+/// since what hears it mixes, which waits.
 #[cfg(feature = "discord")]
 mod others {
     use std::{
@@ -581,6 +584,11 @@ mod others {
     /// What a packet of other applications' sound holds at most.
     const LISTENING: Duration = Duration::from_millis(100);
 
+    /// How many processes above this one a walk looks through for Yapfast's
+    /// own: more than any launcher's chain, and enough that a snapshot naming
+    /// a cycle of them ends.
+    const LOOK_UP: usize = 64;
+
     pub fn others(
         _skip: fn(&str) -> bool,
         mut heard: Hear,
@@ -596,7 +604,8 @@ mod others {
                     channels: 2,
                     float: true,
                 };
-                let stream = activate(yapfast_process())
+                let stream = yapfast_process()
+                    .and_then(activate)
                     .and_then(|client| {
                         Stream::initialize(client, format, LISTENING, AUDCLNT_STREAMFLAGS_LOOPBACK)
                     })
@@ -649,9 +658,11 @@ mod others {
         heard: &mut dyn FnMut(Heard<'_>),
         stop: &AtomicBool,
     ) -> Result<()> {
-        // For packets the engine hands over at an odd address, which it
-        // shouldn't: a copy the size of its buffer, made once.
-        let mut unaligned = vec![0f32; stream.buffer as usize * 2];
+        // A packet, copied out of the engine's: the engine lends it only until
+        // ReleaseBuffer, and the mixer that hears it waits on its own lock,
+        // which the engine must never wait on too. The room is made once, as
+        // big as the largest packet, so a packet allocates nothing.
+        let mut packet: Vec<f32> = Vec::new();
         while !stop.load(Ordering::Relaxed) {
             // SAFETY: the event lives as long as the stream.
             let waited = unsafe { WaitForSingleObject(stream.event, STOP_CHECK_MS) };
@@ -665,34 +676,48 @@ mod others {
                     break;
                 }
                 let (mut data, mut count, mut flags) = (std::ptr::null_mut(), 0, 0);
+                let mut playing = false;
                 // SAFETY: the engine lends `count` frames of stereo floats
-                // at `data` until ReleaseBuffer.
+                // at `data` until ReleaseBuffer, which they leave before
+                // anything hears them.
                 unsafe {
                     capture.GetBuffer(&mut data, &mut count, &mut flags, None, None)?;
-                    let length = count as usize * 2;
                     // Nothing playing: the mixer hears nothing rather than silence.
                     let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null();
-                    if !silent && length > 0 {
-                        let samples = data.cast::<f32>();
-                        let samples: &[f32] = if samples.is_aligned() {
-                            std::slice::from_raw_parts(samples, length)
-                        } else {
-                            let room = unaligned.len();
-                            let into = &mut unaligned[..length.min(room)];
-                            std::ptr::copy_nonoverlapping(
-                                data,
-                                into.as_mut_ptr().cast(),
-                                size_of_val(into),
-                            );
-                            into
-                        };
-                        heard(Heard::Samples { source: 0, samples });
+                    if !silent {
+                        copy_packet(data.cast(), count as usize * 2, &mut packet);
+                        playing = !packet.is_empty();
                     }
                     capture.ReleaseBuffer(count)?;
+                }
+                if playing {
+                    heard(Heard::Samples {
+                        source: 0,
+                        samples: &packet,
+                    });
                 }
             }
         }
         Ok(())
+    }
+
+    /// Copies a packet of `length` stereo floats out of the engine's buffer
+    /// into `packet`, and leaves it holding them.
+    fn copy_packet(data: *const u8, length: usize, packet: &mut Vec<f32>) {
+        packet.clear();
+        packet.reserve(length);
+        // SAFETY: the caller read the packet from GetBuffer, which lends that
+        // many floats until ReleaseBuffer; the room for them was just reserved,
+        // and floats are copied as bytes, which an address of any alignment
+        // suits.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                data,
+                packet.as_mut_ptr().cast::<u8>(),
+                size_of::<f32>() * length,
+            );
+            packet.set_len(length);
+        }
     }
 
     /// Signals once Windows has made the loopback stream.
@@ -759,14 +784,21 @@ mod others {
 
     /// The process whose tree is Yapfast's own: the Yapfast that started this
     /// stream worker, or this process when it's Yapfast itself.
-    fn yapfast_process() -> u32 {
+    ///
+    /// Everything that tree plays is left out of what's heard, so it must never
+    /// be smaller than Yapfast's own: leaving out only this worker would hear
+    /// the window's call and share it back to the people in it. So a process
+    /// list Windows won't give is an error here, not a guess at this process
+    /// alone.
+    fn yapfast_process() -> Result<u32> {
         let own = std::process::id();
-        // SAFETY: a snapshot this function owns, and entries sized as asked.
-        let parent = unsafe {
-            let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
-                return own;
-            };
-            let find = |process: u32| {
+        // SAFETY: a snapshot this function owns, and entries sized as asked; it's
+        // closed before returning, whichever way that is.
+        unsafe {
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).context(
+                "Windows wouldn't list its processes, so there's no telling which sound is Yapfast's",
+            )?;
+            let listed = |process: u32| {
                 let mut entry = PROCESSENTRY32W {
                     dwSize: size_of::<PROCESSENTRY32W>() as u32,
                     ..Default::default()
@@ -777,18 +809,94 @@ mod others {
                 }
                 found.then_some(entry)
             };
-            let parent = find(own).and_then(|this| {
-                let parent = find(this.th32ParentProcessID)?;
-                let name = |entry: &PROCESSENTRY32W| {
-                    let length = entry.szExeFile.iter().position(|&unit| unit == 0);
-                    String::from_utf16_lossy(&entry.szExeFile[..length.unwrap_or(260)])
-                        .to_lowercase()
+            let name = |entry: &PROCESSENTRY32W| {
+                let length = entry.szExeFile.iter().position(|&unit| unit == 0);
+                String::from_utf16_lossy(&entry.szExeFile[..length.unwrap_or(260)]).to_lowercase()
+            };
+            let mut here = listed(own).context(
+                "Windows wouldn't list this process, so there's no telling which sound is Yapfast's",
+            )?;
+            let running = name(&here);
+            // The processes above this one, nearest first, as many as the
+            // snapshot lists: one that has already exited isn't there, so the
+            // walk ends at it.
+            let mut above = Vec::new();
+            for _ in 0..LOOK_UP {
+                let Some(parent) = listed(here.th32ParentProcessID) else {
+                    break;
                 };
-                (name(&parent) == name(&this)).then_some(parent.th32ProcessID)
-            });
+                above.push((parent.th32ProcessID, name(&parent)));
+                here = parent;
+            }
             let _ = CloseHandle(snapshot);
-            parent
-        };
-        parent.unwrap_or(own)
+            Ok(yapfasts(own, &running, above))
+        }
+    }
+
+    /// Yapfast's own process: the nearest process in `above`, which lists the
+    /// ones above this one nearest first with the program each runs, that runs
+    /// Yapfast's own program. That's the window that started this stream
+    /// worker; nothing between the two plays Yapfast's sound, so a shell or a
+    /// debugger passes. When nothing above does, this process is Yapfast's
+    /// whole tree itself.
+    fn yapfasts(own: u32, running: &str, above: Vec<(u32, String)>) -> u32 {
+        above
+            .into_iter()
+            .find(|(_, program)| program == running)
+            .map_or(own, |(process, _)| process)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::audio_io::bytes;
+        /// The engine may lend a packet at an address no float goes at, and it's
+        /// still every sample it holds: they're copied as bytes. The room made
+        /// for the largest packet is kept, so the next one allocates nothing.
+        #[test]
+        fn a_packet_is_copied_whatever_its_address() {
+            let samples = [0.25f32, -0.5, 1.0, -0.0];
+            let mut lent = vec![0u8; size_of_val(&samples) + 1];
+            lent[1..].copy_from_slice(bytes(&samples));
+            let mut packet: Vec<f32> = Vec::new();
+            copy_packet(lent[1..].as_ptr().cast(), samples.len(), &mut packet);
+            assert_eq!(&packet[..], &samples[..]);
+            let room = packet.capacity();
+            copy_packet(lent[1..].as_ptr().cast(), 2, &mut packet);
+            assert_eq!(&packet[..], &samples[..2]);
+            assert_eq!(packet.capacity(), room, "a packet copied into no new room");
+        }
+        /// The window that started the worker is Yapfast's own process, found
+        /// past whatever else is between them; a worker started by anything
+        /// else is Yapfast's whole tree itself.
+        #[test]
+        fn the_window_that_started_the_worker_is_yapfast() {
+            let above = |processes: &[(u32, &str)]| {
+                processes
+                    .iter()
+                    .map(|(process, program)| (*process, program.to_string()))
+                    .collect()
+            };
+            assert_eq!(
+                yapfasts(400, "yapfast.exe", above(&[(300, "yapfast.exe")])),
+                300,
+                "the window that started the worker"
+            );
+            assert_eq!(
+                yapfasts(
+                    400,
+                    "yapfast.exe",
+                    above(&[(300, "cmd.exe"), (200, "yapfast.exe")])
+                ),
+                200,
+                "a shell between them plays nothing of Yapfast's"
+            );
+            assert_eq!(
+                yapfasts(400, "yapfast.exe", above(&[(300, "explorer.exe")])),
+                400,
+                "started by something else, the worker is all of Yapfast there is"
+            );
+            assert_eq!(yapfasts(400, "yapfast.exe", above(&[])), 400);
+        }
     }
 }

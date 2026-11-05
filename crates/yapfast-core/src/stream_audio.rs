@@ -1,8 +1,10 @@
 //! Go Live's sound. Sharing: what every other application plays, mixed
 //! into 20 ms Opus frames for the stream. Yapfast's own sound is left out, so
 //! viewers never hear the call echoed back, as Discord's client and Vesktop
-//! do, and so are other Discord clients': their sound is a call too, which a
-//! stream would echo back. [`crate::audio_io::others`] hears the applications.
+//! do; on Linux so are other Discord clients', whose sound is a call too, which
+//! a stream would echo back. Windows can leave out only what Yapfast's own
+//! processes play, so another Discord client's call reaches viewers there.
+//! [`crate::audio_io::others`] hears the applications.
 //! Watching: the streamer's Opus, decoded and played ([`Player`]).
 
 use std::{
