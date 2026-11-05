@@ -11,6 +11,96 @@ use anyhow::Result;
 #[cfg(feature = "matrix")]
 use anyhow::{Context, bail};
 
+/// Hears the microphone and plays on the speakers the way a call does, and says
+/// what it found. The check to run when the sound is wrong: these are the same
+/// streams a call reads and writes, so what it reports is what a call sends.
+pub fn audio_test(seconds: u64) -> Result<()> {
+    let seconds = seconds.clamp(1, 30);
+    let audio = livekit::PlatformAudio::new().map_err(|_| {
+        anyhow::anyhow!("audio devices unavailable; check audio service and permissions")
+    })?;
+    let microphone = audio
+        .recording_devices()
+        .next()
+        .map(|device| device.name.clone())
+        .unwrap_or_default();
+    let speakers = audio
+        .playout_devices()
+        .next()
+        .map(|device| device.name.clone())
+        .unwrap_or_default();
+    println!("Microphone: {microphone}\nSpeakers:   {speakers}");
+
+    let rate = crate::audio_io::RATE;
+    let mut input = crate::audio_io::Input::<f32>::open(
+        None,
+        "yapfast audio test",
+        rate,
+        2,
+        std::time::Duration::from_millis(10),
+    )?;
+    let mut samples = vec![0.0f32; rate as usize / 20 * 2];
+    let mut peak = 0.0f32;
+    let mut energy = 0.0f64;
+    let mut counted = 0usize;
+    let mut broken = 0usize;
+    for _ in 0..seconds as usize * 20 {
+        input.read(&mut samples)?;
+        for sample in &samples {
+            // Samples that aren't numbers are the sound of a broken capture
+            // path, and they reach the other person as noise.
+            if !sample.is_finite() {
+                broken += 1;
+                continue;
+            }
+            peak = peak.max(sample.abs());
+            energy += f64::from(*sample) * f64::from(*sample);
+            counted += 1;
+        }
+    }
+    let rms = (energy / counted.max(1) as f64).sqrt() as f32;
+    println!("Heard for {seconds} s: peak {peak:.4}, rms {rms:.4}.");
+    if broken > 0 {
+        anyhow::bail!(
+            "{broken} of {} samples were not sound at all, so the microphone path is broken and \
+             nothing downstream can fix it",
+            counted + broken
+        );
+    }
+    if peak < 0.001 {
+        println!(
+            "Nothing was heard. Check the microphone isn't muted, and that Yapfast may use it."
+        );
+    } else if peak > 0.99 {
+        println!("That clipped. Turn the input down, or move back from the microphone.");
+    } else {
+        println!("The microphone gives clean samples.");
+    }
+
+    let mut output = crate::audio_io::Output::<f32>::open_or_default(
+        None,
+        "yapfast audio test",
+        rate,
+        2,
+        Some(std::time::Duration::from_millis(200)),
+    )?;
+    // Two notes rather than one, so it's obvious the sound came and went rather
+    // than hummed, which is what a stuck stream sounds like.
+    for frequency in [440.0f32, 660.0] {
+        let mut tone = vec![0.0f32; rate as usize / 3 * 2];
+        for (at, frame) in tone.chunks_exact_mut(2).enumerate() {
+            let value =
+                0.2 * (2.0 * std::f32::consts::PI * frequency * at as f32 / rate as f32).sin();
+            frame[0] = value;
+            frame[1] = value;
+        }
+        output.write(&tone)?;
+    }
+    output.drain()?;
+    println!("Played a two-note chime. If you didn't hear it, choose other speakers in Settings.");
+    Ok(())
+}
+
 /// List native audio devices without creating or publishing a microphone track.
 pub fn audio_devices() -> Result<()> {
     let audio = livekit::PlatformAudio::new().map_err(|_| {
