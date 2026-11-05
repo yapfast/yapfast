@@ -33,6 +33,19 @@ unsafe extern "C" {
         width: c_int,
         height: c_int,
     );
+    /// Scales `picture` into the I420 planes given, of `width` by `height`;
+    /// see `native/picture.c`.
+    fn yapfast_i420_scale(
+        picture: *const RawPicture,
+        y: *mut c_uchar,
+        y_stride: c_int,
+        u: *mut c_uchar,
+        u_stride: c_int,
+        v: *mut c_uchar,
+        v_stride: c_int,
+        width: c_int,
+        height: c_int,
+    );
 }
 
 /// An I420 picture's planes, borrowed from whoever made it.
@@ -101,14 +114,7 @@ impl<'a> I420<'a> {
     /// once and keeps for the next picture.
     pub fn to_rgba(&self, scratch: &mut Vec<u8>, rgba: &mut [u8], width: u32, height: u32) {
         assert!(rgba.len() >= width as usize * height as usize * 4);
-        // libyuv reads each plane at its stride, trusting it to be there.
-        let (w, h) = (self.width as usize, self.height as usize);
-        let rows = [h, h.div_ceil(2), h.div_ceil(2)];
-        let widths = [w, w.div_ceil(2), w.div_ceil(2)];
-        for (index, plane) in [self.y, self.u, self.v].into_iter().enumerate() {
-            let stride = self.strides[index] as usize;
-            assert!(stride >= widths[index] && plane.len() >= stride * rows[index]);
-        }
+        self.check();
         if (width, height) != (self.width, self.height) {
             let chroma = width.div_ceil(2) as usize * height.div_ceil(2) as usize;
             scratch.resize(width as usize * height as usize + 2 * chroma, 0);
@@ -125,6 +131,48 @@ impl<'a> I420<'a> {
                 width as c_int,
                 height as c_int,
             );
+        }
+    }
+
+    /// Writes the picture scaled to `width` by `height` into `planes`, one
+    /// y, u and v, whose rows are `strides` bytes apart: where a shared frame
+    /// of another size goes, in the buffer kept for the frames after it.
+    pub(crate) fn scale_into(
+        &self,
+        (y, u, v): (&mut [u8], &mut [u8], &mut [u8]),
+        (y_stride, u_stride, v_stride): (u32, u32, u32),
+        width: u32,
+        height: u32,
+    ) {
+        self.check();
+        let raw = self.raw();
+        // SAFETY: the picture's planes hold its size at its strides, as
+        // `check` says, and libyuv writes `width` by `height` of the planes
+        // given, which their sizes say they hold.
+        unsafe {
+            yapfast_i420_scale(
+                &raw,
+                y.as_mut_ptr(),
+                y_stride as c_int,
+                u.as_mut_ptr(),
+                u_stride as c_int,
+                v.as_mut_ptr(),
+                v_stride as c_int,
+                width as c_int,
+                height as c_int,
+            );
+        }
+    }
+
+    /// Checks the planes hold the picture's size at its strides, as libyuv
+    /// reads them.
+    fn check(&self) {
+        let (w, h) = (self.width as usize, self.height as usize);
+        let rows = [h, h.div_ceil(2), h.div_ceil(2)];
+        let widths = [w, w.div_ceil(2), w.div_ceil(2)];
+        for (index, plane) in [self.y, self.u, self.v].into_iter().enumerate() {
+            let stride = self.strides[index] as usize;
+            assert!(stride >= widths[index] && plane.len() >= stride * rows[index]);
         }
     }
 }

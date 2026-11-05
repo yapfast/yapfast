@@ -125,6 +125,11 @@ two differ by more than a tenth. Discord's client allows accounts without Nitro
 720p30, but trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts
 captured frames to I420 with libyuv, scales them with libyuv's filtering
 scaler, and encodes those; the preview is the same picture scaled down to 720p.
+Each goes into a buffer the capture keeps frame after frame, made again only
+when the screen or the stream changes size, so a captured frame allocates
+nothing once it has settled, and the preview scales into one buffer of its own.
+Conversion and scaling happen before the sink is locked, so the capture's
+status is never held while a frame is made.
 
 Discord shows a still of each stream, in the call and to people outside it.
 Like Discord's client, Yapfast makes one once the stream connects and the

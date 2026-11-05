@@ -1,6 +1,7 @@
-/* Showing a picture at the size it's shown: an I420 picture scaled and
- * converted to RGBA through the libyuv inside Yapfast's libwebrtc archive, into
- * buffers the caller keeps, so no frame needs a buffer of its own. */
+/* Showing a picture at the size it's shown, and sharing one at the size it's
+ * sent: an I420 picture scaled, and converted to RGBA, through the libyuv inside
+ * Yapfast's libwebrtc archive, into buffers the caller keeps, so no frame needs
+ * a buffer of its own. */
 #include "libyuv/convert_argb.h"
 #include "libyuv/scale.h"
 
@@ -39,4 +40,14 @@ void yapfast_i420_to_rgba(const struct yapfast_picture *picture, unsigned char *
   }
   /* libyuv's ABGR is R, G, B, A in memory. */
   I420ToABGR(y, y_stride, u, u_stride, v, v_stride, rgba, stride, width, height);
+}
+
+/* Scales `picture` into the I420 planes given, of `width` by `height`: a shared
+ * frame's picture, in the buffer kept for the frames that follow it. */
+void yapfast_i420_scale(const struct yapfast_picture *picture, unsigned char *y, int y_stride,
+                        unsigned char *u, int u_stride, unsigned char *v, int v_stride, int width,
+                        int height) {
+  I420Scale(picture->y, picture->y_stride, picture->u, picture->u_stride, picture->v,
+            picture->v_stride, picture->width, picture->height, y, y_stride, u, u_stride, v,
+            v_stride, width, height, kFilterBilinear);
 }

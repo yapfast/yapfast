@@ -41,6 +41,7 @@ use crate::{
     decode::Decoder,
     encode::{self, Effort, Encoder},
     frames::{Frames, Writer},
+    picture::I420,
     stream_audio,
     voice::{Resolution, StreamQuality, StreamStats},
 };
@@ -376,6 +377,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             let fps = fps.clamp(1, 60);
             let sink = Sink {
                 writer: Writer::open(&frames)?,
+                preview: vec![],
                 controls: received,
                 server: None,
                 sound: source != Source::TestPattern,
@@ -456,6 +458,9 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
 /// has a server.
 struct Sink {
     writer: Writer,
+    /// The picture the preview is scaled into, kept from one frame to the
+    /// next: at most [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`].
+    preview: Vec<u8>,
     controls: channel::Receiver<Control>,
     /// The server to send to from the next frame, which gives the stream its size.
     server: Option<StreamServer>,
@@ -538,19 +543,28 @@ fn kbps(height: u32, estimate: Option<u64>) -> u32 {
 impl Sink {
     /// Takes a frame at the size it's sent: the preview shows it, scaled
     /// down to fit, and Discord gets it once the stream has a server.
-    fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
+    fn frame(&mut self, picture: &I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
         let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-        let mut smaller =
-            (preview != (width, height)).then(|| picture.scale(preview.0 as i32, preview.1 as i32));
-        let shown = match smaller.as_mut() {
-            Some(smaller) => smaller,
-            None => &mut *picture,
+        let due = self.preview_due.is_some_and(|due| due <= Instant::now());
+        let shown = planes(picture);
+        let Sink {
+            writer,
+            preview: scratch,
+            ..
+        } = self;
+        writer.write(preview.0, preview.1, |pixels| {
+            shown.to_rgba(&mut *scratch, pixels, preview.0, preview.1);
+        });
+        // What the preview shows: the picture itself when it's that size
+        // already, or the one `to_rgba` scaled into the buffer kept for it.
+        let shown = if preview == (width, height) {
+            shown
+        } else {
+            previewed(&scratch[..], preview.0, preview.1)
         };
-        self.writer
-            .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
-        if self.preview_due.is_some_and(|due| due <= Instant::now()) && !is_black(shown) {
-            match thumbnail(shown) {
+        if due && !is_black(shown.y) {
+            match thumbnail(&shown) {
                 Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not make a preview")
@@ -731,28 +745,27 @@ impl Sink {
     }
 }
 
-/// Whether a picture is black, as a screen is before what's shared draws:
-/// Discord's client waits for one that isn't before sending a preview.
-fn is_black(picture: &I420Buffer) -> bool {
-    let (y, _, _) = picture.data();
+/// Whether a picture's luma is black, as a screen is before what's shared
+/// draws: Discord's client waits for one that isn't before sending a preview.
+fn is_black(y: &[u8]) -> bool {
     // Black's luma is 16; some of a picture of anything is brighter.
     y.iter().step_by(7).all(|&luma| luma <= 24)
 }
 
 /// A preview of a picture as Discord's client makes one: scaled down to fit
 /// 512 by 288, a JPEG as a data URI.
-fn thumbnail(picture: &mut I420Buffer) -> Result<String> {
+fn thumbnail(picture: &I420<'_>) -> Result<String> {
     use base64::Engine;
     use image::{ExtendedColorType, codecs::jpeg::JpegEncoder};
     let (width, height) = fit(
-        picture.width(),
-        picture.height(),
+        picture.width,
+        picture.height,
         THUMBNAIL_WIDTH,
         THUMBNAIL_HEIGHT,
     );
-    let small = picture.scale(width as i32, height as i32);
+    let mut scratch = vec![];
     let mut rgba = vec![0; (width * height * 4) as usize];
-    to_rgba(&small, &mut rgba);
+    picture.to_rgba(&mut scratch, &mut rgba, width, height);
     let rgb: Vec<u8> = rgba
         .chunks_exact(4)
         .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
@@ -946,7 +959,7 @@ fn test_pattern(
             width as i32,
             height as i32,
         );
-        sink.frame(&mut picture)?;
+        sink.frame(&picture)?;
         // Colour bars are all it shares.
         let _switch = sink.check(report)?;
     }
@@ -1053,22 +1066,27 @@ fn capture_screen(
         if let Some(next) = &mut switching {
             next.capture_frame();
         }
-        let seen = capture.seen();
-        if let Some(failure) = &seen.failed {
+        // The capture's status, read and let go of before anything else
+        // runs: a camera writes it from its own thread, and a report isn't
+        // its work.
+        let (size, failure) = {
+            let seen = capture.seen();
+            (seen.size, seen.failed.clone())
+        };
+        if let Some(failure) = failure {
             bail!(if reported.is_none() {
                 "Screen sharing was cancelled, or this desktop has no screen sharing dialog."
                     .to_owned()
             } else {
-                failure.clone()
+                failure
             });
         }
-        if seen.size != reported
-            && let Some((width, height)) = seen.size
+        if size != reported
+            && let Some((width, height)) = size
         {
-            reported = seen.size;
+            reported = size;
             report(Report::Sharing { width, height });
         }
-        drop(seen);
         if let Some(next) = &switching {
             let seen = next.seen();
             if let Some(failure) = &seen.failed {
@@ -1142,6 +1160,8 @@ impl Capture {
             .context("Screen sharing isn't available on this system.")?;
         let captured = Arc::new(Mutex::new(Captured::default()));
         let (into, seen) = (sink.clone(), captured.clone());
+        // The frames this capture converts and scales, kept for the next.
+        let mut scratch = Scratch::default();
         #[cfg(target_os = "linux")]
         let source = {
             let _ = source;
@@ -1156,31 +1176,27 @@ impl Capture {
             };
             Some(found.context("That screen or window is gone.")?)
         };
-        capturer.start_capture(source, move |result| {
-            let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            match result {
-                Ok(frame) => {
-                    let mut picture = picture_of(&frame);
-                    let (width, height) = (picture.width(), picture.height());
-                    let size = fit(width, height, max_width, max_height);
-                    if size != (width, height) {
-                        picture = picture.scale(size.0 as i32, size.1 as i32);
-                    }
-                    let taken = into
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut picture);
-                    match taken {
-                        Ok(()) => seen.size = Some(size),
-                        Err(error) => seen.failed = Some(format!("{error:#}")),
-                    }
-                }
-                // While the dialog is open, or between frames.
-                Err(CaptureError::Temporary) => {}
-                Err(CaptureError::Permanent) => {
-                    seen.failed
-                        .get_or_insert_with(|| "Screen sharing stopped.".into());
-                }
+        capturer.start_capture(source, move |result| match result {
+            Ok(frame) => {
+                let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
+                let size = fit(width, height, max_width, max_height);
+                to_sink(
+                    &into,
+                    &seen,
+                    &mut scratch,
+                    frame.data(),
+                    frame.stride(),
+                    (width, height),
+                    size,
+                );
+            }
+            // While the dialog is open, or between frames.
+            Err(CaptureError::Temporary) => {}
+            Err(CaptureError::Permanent) => {
+                seen.lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .failed
+                    .get_or_insert_with(|| "Screen sharing stopped.".into());
             }
         });
         Ok(Self {
@@ -1200,31 +1216,29 @@ impl Capture {
         let captured = Arc::new(Mutex::new(Captured::default()));
         let (into, seen) = (sink.clone(), captured.clone());
         let mut kept: Option<I420Buffer> = None;
+        // The picture scaled for an odd size, kept for the frame after it.
+        let mut shared: Option<I420Buffer> = None;
         let camera = crate::camera::Camera::open_at(
             Some(id),
             (max_width, max_height, fps),
             Box::new(move |frame| {
                 let size = (frame.width, frame.height);
-                if kept
-                    .as_ref()
-                    .is_none_or(|picture| (picture.width(), picture.height()) != size)
-                {
-                    kept = Some(I420Buffer::new(frame.width, frame.height));
-                }
-                let picture = kept.as_mut().expect("made above");
+                let picture = buffer(&mut kept, size.0, size.1);
                 copy_planes(frame, picture);
                 // The camera fits the stream already; an odd size, which
-                // codecs can't take, loses a row or a column.
+                // codecs can't take, loses a row or a column. Scaling into
+                // the buffer kept for it comes before the sink is locked.
                 let fitted = fit(size.0, size.1, max_width, max_height);
                 let taken = if fitted == size {
                     into.lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
                         .frame(picture)
                 } else {
-                    let mut scaled = picture.scale(fitted.0 as i32, fitted.1 as i32);
+                    let scaled = buffer(&mut shared, fitted.0, fitted.1);
+                    scale_into(&planes(picture), scaled, fitted.0, fitted.1);
                     into.lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut scaled)
+                        .frame(scaled)
                 };
                 let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 match taken {
@@ -1280,16 +1294,72 @@ fn copy_planes(frame: &crate::picture::I420<'_>, picture: &mut I420Buffer) {
     }
 }
 
-/// A captured frame as an I420 picture of its size.
-fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Buffer {
-    let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
-    let mut picture = I420Buffer::new(width, height);
+/// The buffers a capture keeps from one frame to the next: the frame as it
+/// came, converted to I420, and the picture it's scaled to for sharing. Each is
+/// made again when a frame comes at another size, so a capture holds one
+/// frame's worth of each rather than every size it has shown, and lets go of
+/// both when sharing stops.
+#[derive(Default)]
+struct Scratch {
+    full: Option<I420Buffer>,
+    shared: Option<I420Buffer>,
+}
+
+/// A captured frame on its way to the sink: converted and scaled in the
+/// buffers this capture keeps, then handed over under the sink's lock. The
+/// capture's status is noted afterwards, under its own lock: no lock is held
+/// while a frame is made, and no frame is sent while the status is held.
+fn to_sink(
+    sink: &Mutex<Sink>,
+    captured: &Mutex<Captured>,
+    scratch: &mut Scratch,
+    argb: &[u8],
+    stride: u32,
+    size: (u32, u32),
+    shared: (u32, u32),
+) {
+    let full = buffer(&mut scratch.full, size.0, size.1);
+    convert(full, argb, stride);
+    let taken = if shared == size {
+        sink.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .frame(full)
+    } else {
+        let scaled = buffer(&mut scratch.shared, shared.0, shared.1);
+        scale_into(&planes(full), scaled, shared.0, shared.1);
+        sink.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .frame(scaled)
+    };
+    let mut seen = captured
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match taken {
+        Ok(()) => seen.size = Some(shared),
+        Err(error) => seen.failed = Some(format!("{error:#}")),
+    }
+}
+
+/// The I420 buffer `kept` holds for pictures `width` by `height`, made in
+/// place of one of another size.
+fn buffer(kept: &mut Option<I420Buffer>, width: u32, height: u32) -> &mut I420Buffer {
+    let picture = kept.get_or_insert_with(|| I420Buffer::new(width, height));
+    if (picture.width(), picture.height()) != (width, height) {
+        *picture = I420Buffer::new(width, height);
+    }
+    picture
+}
+
+/// `argb` pixels, a row every `stride` bytes, as I420 in `picture`, which is
+/// `width` by `height`.
+fn convert(picture: &mut I420Buffer, argb: &[u8], stride: u32) {
+    let (width, height) = (picture.width(), picture.height());
     let (y_stride, u_stride, v_stride) = picture.strides();
     let (y, u, v) = picture.data_mut();
     // libyuv's ARGB is B, G, R, A in memory, as the capturer's frames are.
     yuv_helper::argb_to_i420(
-        frame.data(),
-        frame.stride(),
+        argb,
+        stride,
         y,
         y_stride,
         u,
@@ -1299,6 +1369,52 @@ fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Bu
         width as i32,
         height as i32,
     );
+}
+
+/// `picture`'s planes, as the libyuv helpers take them.
+fn planes(picture: &I420Buffer) -> I420<'_> {
+    let (y, u, v) = picture.data();
+    let (y_stride, u_stride, v_stride) = picture.strides();
+    I420 {
+        width: picture.width(),
+        height: picture.height(),
+        y,
+        u,
+        v,
+        strides: [y_stride, u_stride, v_stride],
+    }
+}
+
+/// `picture` scaled to `width` by `height` in `into`, which is that size: a
+/// frame scaled down for sharing needs no picture of its own.
+fn scale_into(picture: &I420<'_>, into: &mut I420Buffer, width: u32, height: u32) {
+    let strides = into.strides();
+    let (y, u, v) = into.data_mut();
+    picture.scale_into((y, u, v), strides, width, height);
+}
+
+/// The I420 picture `to_rgba` scaled into `scratch`, which is `width` by
+/// `height`'s planes.
+fn previewed(scratch: &[u8], width: u32, height: u32) -> I420<'_> {
+    let (w, h) = (width as usize, height as usize);
+    let chroma = (w.div_ceil(2), h.div_ceil(2));
+    let (y, planes) = scratch.split_at(w * h);
+    let (u, v) = planes.split_at(chroma.0 * chroma.1);
+    I420 {
+        width,
+        height,
+        y,
+        u,
+        v: &v[..chroma.0 * chroma.1],
+        strides: [width, chroma.0 as u32, chroma.0 as u32],
+    }
+}
+
+/// A captured frame as an I420 picture of its size.
+fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Buffer {
+    let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
+    let mut picture = I420Buffer::new(width, height);
+    convert(&mut picture, frame.data(), frame.stride());
     picture
 }
 
@@ -1379,7 +1495,10 @@ fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
         let mut taken = taken
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let lit = taken.0.as_ref().is_some_and(|picture| !is_black(picture));
+        let lit = taken
+            .0
+            .as_ref()
+            .is_some_and(|picture| !is_black(picture.data().0));
         if lit || taken.1 || Instant::now() >= deadline || stop.load(Ordering::Relaxed) {
             return Ok(taken.0.take());
         }
@@ -1765,6 +1884,7 @@ mod tests {
         let (_controls, received) = channel::channel();
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
             controls: received,
             server: None,
             sound: false,
@@ -1798,6 +1918,7 @@ mod tests {
         let (_controls, received) = channel::channel();
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
             controls: received,
             server: None,
             sound: false,
@@ -1817,7 +1938,7 @@ mod tests {
         y.fill(126);
         u.fill(128);
         v.fill(128);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         let (width, height, first) = frames
             .take(|width, height, pixels| (width, height, pixels[..4].to_vec()))
             .unwrap();
@@ -1835,6 +1956,7 @@ mod tests {
         let (controls, received) = channel::channel();
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
             controls: received,
             server: None,
             sound: false,
@@ -1862,6 +1984,7 @@ mod tests {
         let (_controls, received) = channel::channel();
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
             controls: received,
             server: None,
             sound: false,
@@ -1880,10 +2003,10 @@ mod tests {
         y.fill(16);
         u.fill(128);
         v.fill(128);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         assert_eq!(sink.thumbnail, None, "not while the screen is black");
         picture.data_mut().0.fill(126);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         let thumbnail = sink.thumbnail.take().expect("a preview");
         let jpeg = thumbnail
             .strip_prefix("data:image/jpeg;base64,")
@@ -1896,8 +2019,154 @@ mod tests {
             .unwrap();
         let shown = image::load_from_memory(&jpeg).unwrap();
         assert_eq!((shown.width(), shown.height()), (512, 288));
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         assert_eq!(sink.thumbnail, None, "the next one comes minutes later");
+    }
+
+    /// A capture's kept buffer holds the frame just converted, not the one
+    /// before it, and is the same buffer: a frame costs no picture of its own.
+    #[test]
+    fn a_kept_picture_holds_the_new_frame() {
+        // Two pixels by two, a row every eight bytes: black, then white.
+        let mut argb = vec![0; 2 * 2 * 4];
+        let mut kept = None;
+        let picture = buffer(&mut kept, 2, 2);
+        convert(picture, &argb, 8);
+        let (dark, address) = {
+            let held = kept.as_ref().expect("made above");
+            (held.data().0[0], held.data().0.as_ptr())
+        };
+        argb.fill(255);
+        let picture = buffer(&mut kept, 2, 2);
+        convert(picture, &argb, 8);
+        let held = kept.as_ref().expect("made above");
+        assert!(dark <= 20, "black's luma is {dark}");
+        assert!(
+            held.data().0.iter().all(|&luma| luma >= 230),
+            "white's luma is {:?}",
+            held.data().0
+        );
+        assert_eq!(address, held.data().0.as_ptr(), "the same buffer");
+    }
+
+    /// A picture scaled down for sharing lands in the buffer kept for it, at
+    /// the size shared, frame after frame, and a stream of another size gets a
+    /// buffer of its own.
+    #[test]
+    fn a_kept_scale_holds_each_new_frame() {
+        // Five by three, so both chroma planes are odd too.
+        let mut source = I420Buffer::new(5, 3);
+        let fill = |source: &mut I420Buffer, luma: u8| {
+            let (y, u, v) = source.data_mut();
+            y.fill(luma);
+            u.fill(128);
+            v.fill(128);
+        };
+        fill(&mut source, 16);
+        let mut kept = None;
+        let into = buffer(&mut kept, 4, 2);
+        scale_into(&planes(&source), into, 4, 2);
+        assert_eq!((into.width(), into.height()), (4, 2));
+        assert!(into.data().0.iter().all(|&luma| luma <= 20), "black");
+        let address = into.data().0.as_ptr();
+        fill(&mut source, 235);
+        let into = buffer(&mut kept, 4, 2);
+        scale_into(&planes(&source), into, 4, 2);
+        assert!(into.data().0.iter().all(|&luma| luma >= 230), "white");
+        assert_eq!(address, into.data().0.as_ptr(), "the same buffer");
+        let into = buffer(&mut kept, 6, 2);
+        assert_eq!((into.width(), into.height()), (6, 2));
+        assert_ne!(address, into.data().0.as_ptr(), "another buffer");
+    }
+
+    /// The preview is made anew for each frame, in the buffer kept for it: the
+    /// second frame shows, not the first.
+    #[test]
+    fn previews_each_frame_as_it_comes() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (_controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
+            controls: received,
+            server: None,
+            sound: false,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
+        {
+            let (y, u, v) = picture.data_mut();
+            y.fill(126);
+            u.fill(128);
+            v.fill(128);
+        }
+        sink.frame(&picture).unwrap();
+        let first = frames.take(|_, _, pixels| pixels[..4].to_vec()).unwrap();
+        picture.data_mut().0.fill(200);
+        sink.frame(&picture).unwrap();
+        let second = frames.take(|_, _, pixels| pixels[..4].to_vec()).unwrap();
+        assert!(
+            first[..3].iter().all(|&level| level.abs_diff(128) < 4),
+            "mid-grey: {first:?}"
+        );
+        assert!(
+            second[..3].iter().all(|&level| level > 180),
+            "the frame after it: {second:?}"
+        );
+    }
+
+    /// A frame reaches the sink while the capture's status is held elsewhere:
+    /// that status isn't what a frame waits for.
+    #[test]
+    fn a_frame_reaches_the_sink_while_its_status_is_held() {
+        let frames = Frames::create(4, 2).unwrap();
+        let (_controls, received) = channel::channel();
+        let sink = Arc::new(Mutex::new(Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
+            controls: received,
+            server: None,
+            sound: false,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        }));
+        let captured = Arc::new(Mutex::new(Captured::default()));
+        // Held as the loop holds it while it reads the capture's status.
+        let held = captured.lock().unwrap();
+        let (into, seen) = (sink.clone(), captured.clone());
+        // Four pixels by two, a row every sixteen bytes, mid-grey.
+        let argb = [128u8; 4 * 2 * 4];
+        let taking = std::thread::spawn(move || {
+            let mut scratch = Scratch::default();
+            to_sink(&into, &seen, &mut scratch, &argb, 16, (4, 2), (4, 2));
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while frames.take(|_, _, _| ()).is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "a frame waited on the capture's status"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(held);
+        taking.join().unwrap();
+        let captured = captured.lock().unwrap();
+        assert_eq!(captured.size, Some((4, 2)));
     }
 
     #[test]
