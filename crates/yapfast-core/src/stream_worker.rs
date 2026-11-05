@@ -43,7 +43,7 @@ use crate::{
     decode::{Decoder, Picture},
     encode::{self, Effort, Encoder},
     frames::{Frames, Writer},
-    picture::I420,
+    picture::{self, I420, Tone},
     stream_audio,
     voice::{Resolution, StreamQuality, StreamStats},
 };
@@ -1390,6 +1390,12 @@ impl Capture {
         let (into, seen) = (sink.clone(), captured.clone());
         // The frames this capture converts and scales, kept for the next.
         let mut scratch = Scratch::default();
+        // A screen showing HDR hands its frames over as HDR's codes, so they
+        // come through a tonemap on the way to I420; a screen showing SDR hands
+        // over what it shows, which needs none. Asked once, here: what a screen
+        // shows doesn't change under a share, and the frames say nothing of it
+        // themselves.
+        let tone = tone_of(&source);
         #[cfg(target_os = "linux")]
         let source = {
             let _ = source;
@@ -1414,8 +1420,8 @@ impl Capture {
                     &mut scratch,
                     frame.data(),
                     frame.stride(),
-                    (width, height),
-                    size,
+                    ((width, height), size),
+                    &tone,
                 );
             }
             // While the dialog is open, or between frames.
@@ -1533,21 +1539,33 @@ struct Scratch {
     shared: Option<I420Buffer>,
 }
 
+/// The tone a capture of `source` comes through: HDR's when the screen it's of
+/// shows HDR, and SDR's otherwise, which is every frame as it came. A camera
+/// and a test pattern have no screen to ask about.
+fn tone_of(source: &Source) -> Tone {
+    match source {
+        Source::Display(monitor) => picture::tone_of_screen(*monitor),
+        Source::Window(window) => picture::tone_of_window(*window),
+        _ => Tone::SDR,
+    }
+}
+
 /// A captured frame on its way to the sink: converted and scaled in the
 /// buffers this capture keeps, then handed over under the sink's lock. The
 /// capture's status is noted afterwards, under its own lock: no lock is held
-/// while a frame is made, and no frame is sent while the status is held.
+/// while a frame is made, and no frame is sent while the status is held. The
+/// two sizes are the frame's own, and the one it's shared at.
 fn to_sink(
     sink: &Mutex<Sink>,
     captured: &Mutex<Captured>,
     scratch: &mut Scratch,
     argb: &[u8],
     stride: u32,
-    size: (u32, u32),
-    shared: (u32, u32),
+    (size, shared): ((u32, u32), (u32, u32)),
+    tone: &Tone,
 ) {
     let full = buffer(&mut scratch.full, size.0, size.1);
-    convert(full, argb, stride);
+    convert(full, argb, stride, tone);
     let taken = if shared == size {
         sink.lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1579,8 +1597,13 @@ fn buffer(kept: &mut Option<I420Buffer>, width: u32, height: u32) -> &mut I420Bu
 }
 
 /// `argb` pixels, a row every `stride` bytes, as I420 in `picture`, which is
-/// `width` by `height`.
-fn convert(picture: &mut I420Buffer, argb: &[u8], stride: u32) {
+/// `width` by `height`, through `tone` where the screen they came from shows
+/// HDR and as they came where it doesn't.
+fn convert(picture: &mut I420Buffer, argb: &[u8], stride: u32, tone: &Tone) {
+    if let Some(table) = tone.table() {
+        picture::toned_into(picture, argb, stride, table);
+        return;
+    }
     let (width, height) = (picture.width(), picture.height());
     let (y_stride, u_stride, v_stride) = picture.strides();
     let (y, u, v) = picture.data_mut();
@@ -1639,10 +1662,10 @@ fn previewed(scratch: &[u8], width: u32, height: u32) -> I420<'_> {
 }
 
 /// A captured frame as an I420 picture of its size.
-fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Buffer {
+fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame, tone: &Tone) -> I420Buffer {
     let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
     let mut picture = I420Buffer::new(width, height);
-    convert(&mut picture, frame.data(), frame.stride());
+    convert(&mut picture, frame.data(), frame.stride(), tone);
     picture
 }
 
@@ -1704,13 +1727,16 @@ fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
         .into_iter()
         .find(|listed| listed.id() == id)
         .context("That screen is gone.")?;
+    // What the preview of it shows: the screen's own brightness, whether it's
+    // showing HDR or not.
+    let tone = picture::tone_of_screen(id);
     // The last picture taken, and whether capture stopped for good.
     let taken = Arc::new(Mutex::new((None::<I420Buffer>, false)));
     let into = taken.clone();
     capturer.start_capture(Some(source), move |result| {
         let mut taken = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         match result {
-            Ok(frame) => taken.0 = Some(picture_of(&frame)),
+            Ok(frame) => taken.0 = Some(picture_of(&frame, &tone)),
             Err(CaptureError::Temporary) => {}
             Err(CaptureError::Permanent) => taken.1 = true,
         }
@@ -2560,14 +2586,14 @@ mod tests {
         let mut argb = vec![0; 2 * 2 * 4];
         let mut kept = None;
         let picture = buffer(&mut kept, 2, 2);
-        convert(picture, &argb, 8);
+        convert(picture, &argb, 8, &Tone::SDR);
         let (dark, address) = {
             let held = kept.as_ref().expect("made above");
             (held.data().0[0], held.data().0.as_ptr())
         };
         argb.fill(255);
         let picture = buffer(&mut kept, 2, 2);
-        convert(picture, &argb, 8);
+        convert(picture, &argb, 8, &Tone::SDR);
         let held = kept.as_ref().expect("made above");
         assert!(dark <= 20, "black's luma is {dark}");
         assert!(
@@ -2576,6 +2602,48 @@ mod tests {
             held.data().0
         );
         assert_eq!(address, held.data().0.as_ptr(), "the same buffer");
+    }
+
+    /// A frame from a screen showing SDR reaches the encoder as libyuv made
+    /// it, byte for byte: a share of an SDR screen costs what it did, whatever
+    /// the curve for an HDR screen's frames would have been.
+    #[test]
+    fn an_sdr_frame_is_converted_as_libyuv_makes_it() {
+        // Eight pixels by four, a row every thirty-two bytes, of every colour.
+        let argb: Vec<u8> = (0..8 * 4 * 4)
+            .map(|index| (index * 7 % 251) as u8)
+            .collect();
+        let mut expected = I420Buffer::new(8, 4);
+        {
+            let (y_stride, u_stride, v_stride) = expected.strides();
+            let (y, u, v) = expected.data_mut();
+            yuv_helper::argb_to_i420(&argb, 32, y, y_stride, u, u_stride, v, v_stride, 8, 4);
+        }
+        let mut converted = I420Buffer::new(8, 4);
+        convert(&mut converted, &argb, 32, &Tone::SDR);
+        assert_eq!(converted.data().0, expected.data().0, "luma");
+        assert_eq!(converted.data().1, expected.data().1, "chroma");
+        assert_eq!(converted.data().2, expected.data().2, "chroma");
+    }
+
+    /// A frame from a screen showing HDR comes through the curve into the same
+    /// buffer and planes, with no picture of its own: the code a screen showing
+    /// HDR writes SDR's white as shows as the white an SDR screen has.
+    #[test]
+    fn an_hdr_frame_comes_through_the_curve() {
+        // Four pixels by two, a row every sixteen bytes.
+        let argb = [149u8; 4 * 2 * 4];
+        let mut picture = I420Buffer::new(4, 2);
+        convert(&mut picture, &argb, 16, &Tone::pq());
+        let (y, u, v) = picture.data();
+        assert!(
+            y.iter().all(|&luma| luma.abs_diff(209) <= 6),
+            "white's luma is {y:?}"
+        );
+        assert!(
+            u.iter().chain(v).all(|&level| level.abs_diff(128) <= 2),
+            "white has no tint: {u:?}, {v:?}"
+        );
     }
 
     /// A picture scaled down for sharing lands in the buffer kept for it, at
@@ -2684,7 +2752,15 @@ mod tests {
         let argb = [128u8; 4 * 2 * 4];
         let taking = std::thread::spawn(move || {
             let mut scratch = Scratch::default();
-            to_sink(&into, &seen, &mut scratch, &argb, 16, (4, 2), (4, 2));
+            to_sink(
+                &into,
+                &seen,
+                &mut scratch,
+                &argb,
+                16,
+                ((4, 2), (4, 2)),
+                &Tone::SDR,
+            );
         });
         let deadline = Instant::now() + Duration::from_secs(5);
         while frames.take(|_, _, _| ()).is_none() {

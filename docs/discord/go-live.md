@@ -342,7 +342,9 @@ hasn't got. A backend that was passed over says so too, and why — a codec this
 FFmpeg wasn't built with, a driver that wouldn't open, an interface the platform
 doesn't have — so a card whose encoder wasn't used never looks like nothing at
 all. The colour the stream declares is the colour its frames are: capture
-converts to limited-range I420, and the declaration says that. The format it writes is the one the encoder reports it took, NV12
+converts to limited-range I420, and the declaration says that. A screen showing HDR hands its frames over as codes of its own scale,
+so capture tonemaps them to SDR's brightness on the way — one pass, in the same
+buffer — while a screen showing SDR is converted exactly as it was. The format it writes is the one the encoder reports it took, NV12
 or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs

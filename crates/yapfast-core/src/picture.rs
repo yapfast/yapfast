@@ -11,6 +11,8 @@ use std::{
     },
 };
 
+use livekit::webrtc::{prelude::VideoBuffer, video_frame::I420Buffer};
+
 /// A picture's planes as native code lays them out; see `native/picture.c`.
 #[repr(C)]
 pub(crate) struct RawPicture {
@@ -30,6 +32,21 @@ unsafe extern "C" {
         scratch: *mut c_uchar,
         rgba: *mut c_uchar,
         stride: c_int,
+        width: c_int,
+        height: c_int,
+    );
+    /// Converts `argb` into the I420 planes given, `width` by `height`, every
+    /// channel through `tone` on the way; see `native/picture.c`.
+    fn yapfast_tone_argb_to_i420(
+        argb: *const c_uchar,
+        stride: c_int,
+        tone: *const c_uchar,
+        y: *mut c_uchar,
+        y_stride: c_int,
+        u: *mut c_uchar,
+        u_stride: c_int,
+        v: *mut c_uchar,
+        v_stride: c_int,
         width: c_int,
         height: c_int,
     );
@@ -174,6 +191,464 @@ impl<'a> I420<'a> {
             let stride = self.strides[index] as usize;
             assert!(stride >= widths[index] && plane.len() >= stride * rows[index]);
         }
+    }
+}
+
+/// What each of the 256 values a channel can take has on an SDR screen, for a
+/// capture whose frames come from a screen showing HDR: the tonemap a share
+/// needs, made once when the share starts and read for every pixel after.
+///
+/// A screen showing HDR hands its frames over as 8-bit codes with no word on
+/// what they stand for, and libyuv reads them as sRGB's, which they are not:
+/// PQ writes the white an SDR screen has as 149 of 255, so a desktop read that
+/// way comes over dull grey where its white belongs, and the light above it
+/// darker still. The table is what the codes mean, so that a share shows the
+/// brightness of the screen it came from.
+///
+/// [`Tone::SDR`] is no table at all, which leaves a share of an SDR screen on
+/// libyuv's own conversion: the frames are what they were, down to the byte,
+/// and cost what they did.
+#[derive(Clone)]
+pub struct Tone(Option<Box<[u8; 256]>>);
+
+impl Tone {
+    /// What frames from a screen showing SDR come through: nothing at all.
+    pub const SDR: Tone = Tone(None);
+
+    /// What frames from a screen showing HDR come through: PQ's codes read as
+    /// the SDR values they stand for.
+    pub fn pq() -> Tone {
+        let mut table = Box::new([0; 256]);
+        for (code, value) in table.iter_mut().enumerate() {
+            *value = sdr_code(pq_light(f64::from(code as u8) / 255.0));
+        }
+        Tone(Some(table))
+    }
+
+    /// The table this tone reads each channel of each pixel through, or none
+    /// where the frames are SDR's already.
+    pub fn table(&self) -> Option<&[u8; 256]> {
+        self.0.as_deref()
+    }
+}
+
+/// Where the straight line up to SDR white stops, as a share of the range.
+/// Everything below it is what it was, so that a desktop's greys keep their
+/// brightness, and what is left above is the room a highlight rolls off in.
+/// BT.2408 puts SDR white at about nine tenths of the signal a screen shows,
+/// which is where a knee here leaves it.
+const KNEE: f64 = 0.75;
+
+/// The white an SDR screen has, in nits: BT.2408's reference, and what a
+/// screen showing HDR means by white in the frames it hands over.
+const SDR_WHITE: f64 = 203.0;
+
+/// The brightest a screen showing HDR is taken to be, in nits: the top of the
+/// range content is mastered in. A screen that peaks lower shows less, and
+/// what it does show stays short of white rather than clipping at it.
+const HDR_PEAK: f64 = 4000.0;
+
+/// The light `code`, a PQ value from 0 to 1, stands for, in nits.
+fn pq_light(code: f64) -> f64 {
+    const M1: f64 = 2610.0 / 16384.0;
+    const M2: f64 = 2523.0 / 4096.0 * 128.0;
+    const C1: f64 = 3424.0 / 4096.0;
+    const C2: f64 = 2413.0 / 4096.0 * 32.0;
+    const C3: f64 = 2392.0 / 4096.0 * 32.0;
+    let raised = code.powf(1.0 / M2);
+    ((raised - C1).max(0.0) / (C2 - C3 * raised)).powf(1.0 / M1) * 10_000.0
+}
+
+/// The value an SDR screen would show `nits` of light as, 0 to 255.
+fn sdr_code(nits: f64) -> u8 {
+    let relative = nits / SDR_WHITE;
+    // Reinhard's shoulder over what is left of the range, reaching white where
+    // the content is mastered to peak: it rises with the light and never turns
+    // back, so brighter stays brighter and the highlights keep their order
+    // instead of flattening into one another at white.
+    let shown = if relative <= KNEE {
+        relative
+    } else {
+        let above = ((relative - KNEE) / (HDR_PEAK / SDR_WHITE - KNEE)).min(1.0);
+        KNEE + (1.0 - KNEE) * 2.0 * above / (1.0 + above)
+    };
+    (srgb(shown) * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+/// sRGB's transfer function, in reverse: the signal a linear `value` is sent
+/// as. The pixels a screen hands over are written this way, which is how libyuv
+/// reads them.
+fn srgb(value: f64) -> f64 {
+    if value <= 0.003_130_8 {
+        12.92 * value
+    } else {
+        1.055 * value.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// Sends `argb` through `tone` into `picture`: a capture's conversion where the
+/// screen it came from shows HDR, in place of libyuv's, which has no way to
+/// tonemap on the way.
+pub(crate) fn toned_into(picture: &mut I420Buffer, argb: &[u8], stride: u32, tone: &[u8; 256]) {
+    let (width, height) = (picture.width(), picture.height());
+    let (y_stride, u_stride, v_stride) = picture.strides();
+    let rows = (height as usize).div_ceil(2);
+    let (y, u, v) = picture.data_mut();
+    // SAFETY: the frame holds `height` rows of `stride` bytes, which the caller
+    // has of the capturer; the picture's planes hold its size at its strides;
+    // and the table is all 256 values a channel can take.
+    unsafe {
+        yapfast_tone_argb_to_i420(
+            argb.as_ptr(),
+            stride as c_int,
+            tone.as_ptr(),
+            y.as_mut_ptr(),
+            y_stride as c_int,
+            u.as_mut_ptr(),
+            u_stride as c_int,
+            v.as_mut_ptr(),
+            v_stride as c_int,
+            width as c_int,
+            height as c_int,
+        );
+    }
+    debug_assert_eq!(u.len(), (u_stride as usize) * rows);
+}
+
+/// The tone a capture of the screen `monitor` needs, asked of the system: a
+/// screen showing HDR hands its frames over as HDR's codes, and one that isn't
+/// hands over SDR's, which are what they look like. What the system can't
+/// answer for is taken as SDR: a share left as it is looks right, where a curve
+/// over frames that never needed one doesn't.
+#[cfg(windows)]
+pub fn tone_of_screen(monitor: u64) -> Tone {
+    if display::showing_hdr(monitor as *mut std::ffi::c_void) {
+        Tone::pq()
+    } else {
+        Tone::SDR
+    }
+}
+
+/// The tone a capture of the window `window` needs: the tone of the screen it
+/// is shown on.
+#[cfg(windows)]
+pub fn tone_of_window(window: u64) -> Tone {
+    // SAFETY: it reads no state of ours; a handle that isn't a window comes
+    // back as the nearest screen's, and one that is no screen at all as none.
+    let monitor = unsafe {
+        display::MonitorFromWindow(window as *mut std::ffi::c_void, display::NEAREST_SCREEN)
+    };
+    tone_of_screen(monitor as u64)
+}
+
+/// On Linux the system's dialog picks what is shared, and what the compositor
+/// hands over is what the screen shows: nothing to ask, and no curve.
+#[cfg(not(windows))]
+pub fn tone_of_screen(_monitor: u64) -> Tone {
+    Tone::SDR
+}
+
+/// A window's screen, which the compositor hands over as it shows it.
+#[cfg(not(windows))]
+pub fn tone_of_window(_window: u64) -> Tone {
+    Tone::SDR
+}
+
+/// Asking the system's display configuration whether a screen is showing HDR.
+///
+/// The frames themselves say nothing: a `DesktopFrame` is four bytes a pixel
+/// whatever the screen shows, and no colour space comes with it. The system is
+/// the only one that knows, so this is the only truthful word on whether a
+/// share needs a curve at all — not a guess from the pixels, which would put a
+/// curve over the frames of a screen showing SDR.
+#[cfg(windows)]
+mod display {
+    use std::{ffi::c_void, mem::size_of};
+
+    /// The system's name for a screen app is drawing on.
+    pub(super) type Monitor = *mut c_void;
+
+    /// Ask for the screen nearest the window, rather than none at all.
+    pub(super) const NEAREST_SCREEN: u32 = 2;
+
+    /// A locally unique id: which graphics adapter a target is on.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Luid {
+        low: u32,
+        high: i32,
+    }
+
+    /// A rate, as a fraction.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Rational {
+        numerator: u32,
+        denominator: u32,
+    }
+
+    /// The head of every structure the display configuration is asked for.
+    #[repr(C)]
+    struct DeviceInfoHeader {
+        kind: u32,
+        size: u32,
+        adapter: Luid,
+        target: u32,
+    }
+
+    /// What a screen is called: the name the system knows it by, beside the one
+    /// GDI knows it by, which is how a captured screen is matched to it.
+    #[repr(C)]
+    struct TargetName {
+        header: DeviceInfoHeader,
+        flags: u32,
+        output_technology: u32,
+        edid_manufacture: u16,
+        edid_product: u16,
+        connector: u32,
+        monitor_path: [u16; 128],
+        friendly_name: [u16; 64],
+        gdi_name: [u16; 32],
+    }
+
+    /// Whether a target is showing HDR: the flags, then the encoding and the
+    /// bits a channel it is showing them with.
+    #[repr(C)]
+    struct AdvancedColor {
+        header: DeviceInfoHeader,
+        value: u32,
+        encoding: u32,
+        bits_per_channel: u32,
+    }
+
+    /// The screen a path comes from.
+    #[repr(C)]
+    struct PathSource {
+        adapter: Luid,
+        id: u32,
+        mode: u32,
+        status: u32,
+    }
+
+    /// The target, or screen, that path is shown on.
+    #[repr(C)]
+    struct PathTarget {
+        adapter: Luid,
+        id: u32,
+        mode: u32,
+        output_technology: u32,
+        rotation: u32,
+        scaling: u32,
+        refresh: Rational,
+        scan_line: u32,
+        available: u32,
+        status: u32,
+    }
+
+    /// A screen, and what shows it.
+    #[repr(C)]
+    struct Path {
+        source: PathSource,
+        target: PathTarget,
+        flags: u32,
+    }
+
+    /// A screen as GDI names it: the name a captured screen is known by.
+    #[repr(C)]
+    struct MonitorInfo {
+        size: u32,
+        monitor: [i32; 4],
+        work: [i32; 4],
+        flags: u32,
+        device: [u16; 32],
+    }
+
+    // The sizes the system's own headers give these, which these must be to be
+    // read by it at all.
+    const _: () = {
+        assert!(size_of::<DeviceInfoHeader>() == 20);
+        assert!(size_of::<Path>() == 72);
+        assert!(size_of::<TargetName>() == 484);
+        assert!(size_of::<AdvancedColor>() == 32);
+        assert!(size_of::<MonitorInfo>() == 104);
+    };
+
+    const GET_TARGET_NAME: u32 = 2;
+    const GET_ADVANCED_COLOR_INFO: u32 = 9;
+    /// The screen is showing HDR now, rather than being able to.
+    const ADVANCED_COLOR_ENABLED: u32 = 0x2;
+    /// The screens that are on, not every one that ever was.
+    const ONLY_ACTIVE_PATHS: u32 = 2;
+
+    #[allow(non_snake_case)]
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        pub(super) fn MonitorFromWindow(window: *mut c_void, flags: u32) -> *mut c_void;
+        fn GetMonitorInfoW(monitor: *mut c_void, info: *mut MonitorInfo) -> i32;
+        fn GetDisplayConfigBufferSizes(flags: u32, paths: *mut u32, modes: *mut u32) -> i32;
+        fn QueryDisplayConfig(
+            flags: u32,
+            paths: *mut u32,
+            path_array: *mut Path,
+            modes: *mut u32,
+            mode_array: *mut u64,
+            topology: *mut u32,
+        ) -> i32;
+        fn DisplayConfigGetDeviceInfo(request: *mut DeviceInfoHeader) -> i32;
+    }
+
+    impl TargetName {
+        fn of(adapter: Luid, target: u32) -> Self {
+            Self {
+                header: DeviceInfoHeader {
+                    kind: GET_TARGET_NAME,
+                    size: size_of::<Self>() as u32,
+                    adapter,
+                    target,
+                },
+                flags: 0,
+                output_technology: 0,
+                edid_manufacture: 0,
+                edid_product: 0,
+                connector: 0,
+                monitor_path: [0; 128],
+                friendly_name: [0; 64],
+                gdi_name: [0; 32],
+            }
+        }
+    }
+
+    impl AdvancedColor {
+        fn of(adapter: Luid, target: u32) -> Self {
+            Self {
+                header: DeviceInfoHeader {
+                    kind: GET_ADVANCED_COLOR_INFO,
+                    size: size_of::<Self>() as u32,
+                    adapter,
+                    target,
+                },
+                value: 0,
+                encoding: 0,
+                bits_per_channel: 0,
+            }
+        }
+    }
+
+    /// Whether the screen `monitor` is showing HDR now, as the system's display
+    /// configuration says.
+    pub(super) fn showing_hdr(monitor: Monitor) -> bool {
+        let Some(device) = device_name(monitor) else {
+            return false;
+        };
+        let Some((adapter, target)) = target_showing(&device) else {
+            return false;
+        };
+        let mut info = AdvancedColor::of(adapter, target);
+        // SAFETY: the header names the structure's kind and its size, and the
+        // system writes nothing past it.
+        let asked = unsafe { DisplayConfigGetDeviceInfo(&mut info.header) };
+        asked == 0 && info.value & ADVANCED_COLOR_ENABLED != 0
+    }
+
+    /// The name GDI knows the screen `monitor` by, `\\.\DISPLAY1` and the like.
+    fn device_name(monitor: Monitor) -> Option<String> {
+        let mut info = MonitorInfo {
+            size: size_of::<MonitorInfo>() as u32,
+            monitor: [0; 4],
+            work: [0; 4],
+            flags: 0,
+            device: [0; 32],
+        };
+        // SAFETY: the size is the structure's, which is what the call reads.
+        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+            return None;
+        }
+        Some(name(&info.device))
+    }
+
+    /// The adapter and target of the path showing the screen named `device`.
+    fn target_showing(device: &str) -> Option<(Luid, u32)> {
+        let (mut paths, mut modes) = (0u32, 0u32);
+        // SAFETY: it reads nothing; it only says how long the two arrays are.
+        if unsafe { GetDisplayConfigBufferSizes(ONLY_ACTIVE_PATHS, &mut paths, &mut modes) } != 0 {
+            return None;
+        }
+        // A path is the system's structure; only the adapter and target it
+        // names are read here.
+        let mut path_array: Vec<Path> = (0..paths).map(|_| Path::empty()).collect();
+        // The modes are what the call insists on a place for, and what this
+        // never looks at: eight words are as long as one is.
+        let mut mode_array = vec![0u64; modes as usize * 8];
+        let mut topology = 0u32;
+        // SAFETY: both arrays are as long as the sizes the call asked for, and
+        // they outlive it.
+        if unsafe {
+            QueryDisplayConfig(
+                ONLY_ACTIVE_PATHS,
+                &mut paths,
+                path_array.as_mut_ptr(),
+                &mut modes,
+                mode_array.as_mut_ptr(),
+                &mut topology,
+            )
+        } != 0
+        {
+            return None;
+        }
+        for path in path_array.iter().take(paths as usize) {
+            let mut name = TargetName::of(path.target.adapter, path.target.id);
+            // SAFETY: as in `showing_hdr`: the header names the kind and size.
+            if unsafe { DisplayConfigGetDeviceInfo(&mut name.header) } != 0 {
+                continue;
+            }
+            if name_of(&name.gdi_name) == device {
+                return Some((path.target.adapter, path.target.id));
+            }
+        }
+        None
+    }
+
+    impl Path {
+        fn empty() -> Self {
+            Self {
+                source: PathSource {
+                    adapter: Luid { low: 0, high: 0 },
+                    id: 0,
+                    mode: 0,
+                    status: 0,
+                },
+                target: PathTarget {
+                    adapter: Luid { low: 0, high: 0 },
+                    id: 0,
+                    mode: 0,
+                    output_technology: 0,
+                    rotation: 0,
+                    scaling: 0,
+                    refresh: Rational {
+                        numerator: 0,
+                        denominator: 0,
+                    },
+                    scan_line: 0,
+                    available: 0,
+                    status: 0,
+                },
+                flags: 0,
+            }
+        }
+    }
+
+    /// The text of `units`, a name the system wrote as UTF-16 up to its end.
+    fn name_of(units: &[u16]) -> String {
+        let end = units
+            .iter()
+            .position(|&unit| unit == 0)
+            .unwrap_or(units.len());
+        String::from_utf16_lossy(&units[..end])
+    }
+
+    /// The same, from a GDI name whose array is the caller's.
+    fn name(units: &[u16]) -> String {
+        name_of(units)
     }
 }
 
@@ -444,6 +919,81 @@ impl Feed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PQ's code for `nits` of light, the way a screen showing HDR writes it:
+    /// what the tests below put through the table.
+    fn pq_code(nits: f64) -> u8 {
+        const M1: f64 = 2610.0 / 16384.0;
+        const M2: f64 = 2523.0 / 4096.0 * 128.0;
+        const C1: f64 = 3424.0 / 4096.0;
+        const C2: f64 = 2413.0 / 4096.0 * 32.0;
+        const C3: f64 = 2392.0 / 4096.0 * 32.0;
+        let light = nits / 10_000.0;
+        let encoded = ((C1 + C2 * light.powf(M1)) / (1.0 + C3 * light.powf(M1))).powf(M2);
+        (encoded * 255.0).round() as u8
+    }
+
+    /// A frame from a screen showing SDR comes through as it is, which is no
+    /// table at all: the conversion libyuv does is the conversion it got.
+    #[test]
+    fn an_sdr_frame_has_no_curve() {
+        assert!(Tone::SDR.table().is_none());
+        assert!(Tone::pq().table().is_some());
+    }
+
+    /// A screen showing HDR writes light of its own scale, and the grey an SDR
+    /// screen shows as 118 of 255 comes over as 105: read as sRGB's the way
+    /// libyuv reads it, that is a shade of a grey the desktop never showed.
+    /// Through the table it comes out the grey it stood for.
+    #[test]
+    fn an_hdr_mid_grey_tonemaps_to_an_sdr_mid_grey() {
+        let tone = Tone::pq();
+        let table = tone.table().expect("a curve");
+        // SDR's mid-grey is an eighth of white's light.
+        let code = pq_code(SDR_WHITE * 0.18);
+        assert!(
+            (100..=110).contains(&code),
+            "a mid-grey is written as {code}"
+        );
+        let shown = table[usize::from(code)];
+        // SDR's own mid-grey is 118 of 255, or thereabouts: an eighth of the
+        // light through sRGB's curve.
+        assert!(
+            (104..=132).contains(&shown),
+            "a mid-grey sent as {code} shows as {shown}"
+        );
+        // Read as sRGB's, a PQ code is darker than the light it stands for:
+        // the table brings it back up to the grey the desktop showed.
+        assert!(shown > code, "it comes up: {shown} of {code}");
+    }
+
+    /// A highlight above SDR white rolls off short of white instead of
+    /// clipping at it: the shape of what is bright stays, where reading the
+    /// code as sRGB's would have flattened it into white.
+    #[test]
+    fn a_highlight_rolls_off_below_white() {
+        let tone = Tone::pq();
+        let table = tone.table().expect("a curve");
+        let mid = table[usize::from(pq_code(SDR_WHITE * 0.18))];
+        let highlight = table[usize::from(pq_code(1000.0))];
+        assert!(
+            (mid..=247).contains(&highlight),
+            "a thousand nits shows as {highlight}"
+        );
+        assert!(
+            table[usize::from(pq_code(4000.0))] > highlight,
+            "brighter still is brighter"
+        );
+    }
+
+    /// The curve never turns back on itself: the frame's order of brightness is
+    /// the order it is shown in, so nothing that was apart is drawn as one.
+    #[test]
+    fn the_curve_never_turns_back() {
+        let tone = Tone::pq();
+        let table = tone.table().expect("a curve");
+        assert!(table.windows(2).all(|pair| pair[0] <= pair[1]), "{table:?}");
+    }
 
     fn first(buffer: &dyn FrameBuffer) -> u8 {
         (buffer as &dyn Any)
