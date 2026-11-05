@@ -21,12 +21,13 @@ use windows::{
         Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
         Media::{
             Audio::{
-                AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, DEVICE_STATE_ACTIVE, EDataFlow,
-                IAudioCaptureClient, IAudioClient, IAudioRenderClient, IMMDevice,
-                IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
-                WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
+                AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, AUDCLNT_BUFFERFLAGS_SILENT,
+                AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+                AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                DEVICE_STATE_ACTIVE, EDataFlow, IAudioCaptureClient, IAudioClient,
+                IAudioRenderClient, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
+                WAVEFORMATEX, WAVEFORMATEXTENSIBLE, WAVEFORMATEXTENSIBLE_0, eCapture, eConsole,
+                eRender,
             },
             KernelStreaming::{
                 KSDATAFORMAT_SUBTYPE_PCM, SPEAKER_FRONT_CENTER, SPEAKER_FRONT_LEFT,
@@ -44,7 +45,10 @@ use windows::{
     core::HSTRING,
 };
 
-use super::{Format, Step, Waited, drain_deadline, drain_must_wait, wait_step, write_step};
+use super::{
+    Format, News, Packet, Step, Waited, drain_deadline, drain_must_wait, packet_news, wait_step,
+    write_step,
+};
 use crate::voice::NAMED;
 
 /// What a stream without a queue of its own keeps queued.
@@ -435,9 +439,28 @@ pub struct Input {
     /// The end of the last packet, which the last read had no room for.
     left: Vec<u8>,
     taken: usize,
+    /// What the last packet said about the device, so a run of packets that
+    /// say it is one line in the log rather than one per packet.
+    said: Packet,
+    /// The stream's name, as the system lists it: what a line about this
+    /// microphone names.
+    name: &'static str,
     /// What ends a wait before the device answers, from the thread that
     /// stops the stream.
     stop: Option<Arc<AtomicBool>>,
+}
+
+/// Says what a recorded packet said that the one before it didn't, once per
+/// change: a device giving silence is worth knowing in a call, samples lost
+/// are worth a warning, and the sound coming back ends the run either one
+/// began. None of the three is the device stopping, which is a call that
+/// fails instead.
+fn say(name: &'static str, news: News) {
+    match news {
+        News::Silence => tracing::debug!(stream = name, "the microphone gives silence"),
+        News::Gap => tracing::warn!(stream = name, "the microphone lost samples"),
+        News::Sound => tracing::debug!(stream = name, "the microphone records again"),
+    }
 }
 
 // SAFETY: as for `Stream`.
@@ -446,7 +469,7 @@ unsafe impl Send for Input {}
 impl Input {
     pub fn open(
         microphone: Option<&str>,
-        _name: &'static str,
+        name: &'static str,
         format: Format,
         fragment: Duration,
     ) -> Result<Self> {
@@ -462,6 +485,8 @@ impl Input {
             capture,
             left,
             taken: 0,
+            said: Packet::default(),
+            name,
             stop: None,
         })
     }
@@ -500,6 +525,19 @@ impl Input {
                     .context("the microphone went away")?;
                 let length = count as usize * self.stream.format.frame_bytes();
                 let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null();
+                // Silence and a gap are what the engine says about the device
+                // without either being the device stopping: it stopped when a
+                // call fails or a wait stays quiet, and says so then and
+                // there. Each is a line here when it starts, not per packet.
+                if let Some(news) = packet_news(
+                    Packet {
+                        silent,
+                        gap: flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0,
+                    },
+                    &mut self.said,
+                ) {
+                    say(self.name, news);
+                }
                 let packet: &[u8] = if silent {
                     &[]
                 } else {

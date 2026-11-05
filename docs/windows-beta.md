@@ -86,7 +86,13 @@ wait for the device as well: writes, drains and reads wait in 100 ms slices and
 give up as soon as the stream is stopping, rather than holding their thread for
 up to two seconds. That is not a lost device, so stopping a call or dropping a
 stream reopens nothing, and a drain a stop ends drops what was queued instead of
-playing it late when the device returns. Linux still waits inside PulseAudio's
+playing it late when the device returns. A recorded packet says what the device did
+besides its samples: WASAPI flags silence from the device itself, and the samples
+the engine lost between two packets. Each is said once when a run of packets
+starts rather than once a packet, so a microphone muted at the device, or a
+stream that keeps losing samples, costs one line of log instead of thousands.
+Neither is a device that stopped, which is still a call that fails or a wait that
+stays quiet for two seconds. Linux still waits inside PulseAudio's
 own call, which the simple API has no way to cut short. Go Live's
 sound is in [Go Live on Windows](#go-live-on-windows).
 

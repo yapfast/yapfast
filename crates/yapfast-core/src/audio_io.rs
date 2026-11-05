@@ -173,6 +173,54 @@ pub(crate) fn wait_step(
     Ok(None)
 }
 
+/// What the engine said about a recorded packet besides its samples: the
+/// device had nothing to give and the packet holds silence, and samples
+/// between this packet and the one before it were lost. Neither is the device
+/// stopping, which is a call that fails or a wait that stays quiet rather
+/// than anything a packet says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) struct Packet {
+    /// The device gave silence in place of sound, as a muted microphone or a
+    /// stream with nothing at its end does.
+    pub silent: bool,
+    /// The engine lost samples between this packet and the one before it.
+    pub gap: bool,
+}
+
+/// What a packet says that the one before it didn't, each worth a line when
+/// it starts: a microphone giving silence for a minute is one fact, and so is
+/// a stream losing samples for a while, so neither costs a line a packet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) enum News {
+    /// The device has nothing to give, and the packets hold silence.
+    Silence,
+    /// Samples the engine had for the stream are gone.
+    Gap,
+    /// Samples sound again after silence or a gap.
+    Sound,
+}
+
+/// What `packet` says that `last` didn't, `last` left holding what this one
+/// said: a gap is news once however many packets follow it, silence is news
+/// once for a run of silent packets, and sound is news once when the run
+/// ends. A packet that both follows a gap and holds silence is the gap's.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn packet_news(packet: Packet, last: &mut Packet) -> Option<News> {
+    let news = if packet.gap && !last.gap {
+        Some(News::Gap)
+    } else if packet.silent && !last.silent {
+        Some(News::Silence)
+    } else if !packet.silent && !packet.gap && (last.silent || last.gap) {
+        Some(News::Sound)
+    } else {
+        None
+    };
+    *last = packet;
+    news
+}
+
 /// What a platform's write, drain or read says to its caller: a stop ended
 /// it because the stream is ending, so nothing failed and there's nothing to
 /// report. A stream that outlasts its device opens one again over an error,
@@ -463,6 +511,56 @@ mod tests {
             wait_step(false, silence, silence).is_err(),
             "an engine quiet for two seconds is gone"
         );
+    }
+
+    /// A device that gives silence says so once, however long it does: a
+    /// microphone muted at the device for a minute is one line of log, and so
+    /// is the sound coming back.
+    #[test]
+    fn a_run_of_silent_packets_is_one_line() {
+        let mut said = Packet::default();
+        let quiet = Packet {
+            silent: true,
+            gap: false,
+        };
+        assert_eq!(packet_news(quiet, &mut said), Some(News::Silence));
+        assert_eq!(packet_news(quiet, &mut said), None, "already said");
+        assert_eq!(packet_news(quiet, &mut said), None, "and still said");
+        let sound = Packet::default();
+        assert_eq!(packet_news(sound, &mut said), Some(News::Sound));
+        assert_eq!(
+            packet_news(sound, &mut said),
+            None,
+            "sound isn't news twice"
+        );
+    }
+
+    /// Samples lost are their own news: never silence, never a device that
+    /// stopped, and said once for a run of packets after the gap.
+    #[test]
+    fn lost_samples_are_not_silence() {
+        let mut said = Packet::default();
+        let gap = Packet {
+            silent: false,
+            gap: true,
+        };
+        assert_eq!(packet_news(gap, &mut said), Some(News::Gap));
+        assert_eq!(packet_news(gap, &mut said), None, "one gap, one line");
+        assert_eq!(packet_news(Packet::default(), &mut said), Some(News::Sound));
+        // A packet quiet after a gap is what follows a gap, not the same one
+        // twice: the gap is the news, and it's been said.
+        let mut said = Packet::default();
+        let both = Packet {
+            silent: true,
+            gap: true,
+        };
+        assert_eq!(packet_news(both, &mut said), Some(News::Gap));
+        let quiet = Packet {
+            silent: true,
+            gap: false,
+        };
+        assert_eq!(packet_news(quiet, &mut said), None);
+        assert_eq!(packet_news(Packet::default(), &mut said), Some(News::Sound));
     }
 
     /// A stop is what ending a stream looks like, not a device lost: what the

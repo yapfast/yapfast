@@ -346,6 +346,45 @@ mod tests {
         }
     }
 
+    /// How many stand-in streams a test has opened, so each can tell itself
+    /// from the one that came before.
+    static PLAYERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    /// A stream that holds what it's played, as the engine's queue does, and
+    /// numbers itself, so a test can see the stream a device came back with
+    /// is not the one that left.
+    struct Player {
+        number: usize,
+        /// The device it was opened on.
+        on: &'static str,
+        /// What's waiting to play, which goes with the stream that held it.
+        waiting: Vec<&'static str>,
+    }
+
+    impl Player {
+        fn play(&mut self, block: &'static str) {
+            self.waiting.push(block);
+        }
+    }
+
+    impl Stopping for Player {
+        fn stop_with(&mut self, _: &Arc<AtomicBool>) {}
+    }
+
+    /// A stand-in stream opened on a device, or on the default speakers.
+    fn player(device: Option<&str>) -> Result<Player> {
+        Ok(Player {
+            number: PLAYERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            on: open(device)?,
+            waiting: Vec::new(),
+        })
+    }
+
+    fn look_player(lasting: &mut Lasting<Player>) -> Option<&mut Player> {
+        lasting.look = Instant::now();
+        lasting.stream()
+    }
+
     /// A stop asked for once ends the waits of every stream opened after it
     /// too: a device that comes back while the call is stopping doesn't hold
     /// the thread up again.
@@ -456,5 +495,39 @@ mod tests {
         assert_eq!(look_now(&mut lasting), None);
         assert_eq!(OPENS.load(Ordering::Relaxed), 2, "tried again at once");
         assert!(lasting.look > Instant::now(), "waits before trying again");
+    }
+
+    /// A device that comes back is handed nothing from before it left: what
+    /// was queued goes with the stream that was on the device, so what plays
+    /// after a long outage is what's written after it rather than the whole
+    /// outage at once.
+    #[test]
+    fn a_device_that_comes_back_plays_nothing_from_before_it_left() {
+        let _turns = taking_turns();
+        *CONNECTED.lock().unwrap() = vec!["speakers", "headphones"];
+        let mut lasting =
+            Lasting::open(Some("headphones"), true, "Test", Box::new(player), endpoint).unwrap();
+        let first = lasting.stream().unwrap();
+        first.play("before the outage");
+        let number = first.number;
+        assert_eq!(first.on, "headphones");
+        // The headphones go, taking what they were to play with them, and the
+        // sound goes to the default in the meantime.
+        CONNECTED
+            .lock()
+            .unwrap()
+            .retain(|device| *device != "headphones");
+        lasting.lost(&anyhow::anyhow!("gone"));
+        assert!(lasting.stream.is_none(), "the queue went with the stream");
+        let meanwhile = lasting.stream().unwrap();
+        assert_eq!(meanwhile.on, "speakers");
+        assert!(meanwhile.waiting.is_empty(), "and plays only what's new");
+        // They come back: the stream opened for them is new, so nothing from
+        // before the outage is left to play in a burst.
+        CONNECTED.lock().unwrap().push("headphones");
+        let back = look_player(&mut lasting).unwrap();
+        assert_eq!(back.on, "headphones");
+        assert_ne!(back.number, number, "a new stream, not the one that left");
+        assert!(back.waiting.is_empty(), "with nothing queued on it");
     }
 }
