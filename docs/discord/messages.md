@@ -357,8 +357,9 @@ an error.
   `GET /channels/{id}/messages?limit=1&around={id}`, as Discord's client
   does, since user accounts can't ask for one message by its id. Any other
   message in the answer means the original is gone. Replies ask one after
-  another, each original once while the channel stays open; if Discord
-  doesn't answer, the line says it couldn't be loaded and still jumps there.
+  another, with one request for an original at a time; if Discord doesn't
+  answer, the line says it couldn't be loaded and still jumps there, and asks
+  again the next time the channel opens.
 - Desktop notifications follow the person's Discord settings: each channel's,
   category's or server's level (every message, mentions only or nothing),
   falling back to the server's default, with mutes leaving only mentions. DMs
