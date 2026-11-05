@@ -68,7 +68,8 @@ export { Theme, Badges, Popup, Strings, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
+export { ServerTagRow } from "server.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
@@ -241,7 +242,15 @@ export component YapfastWindow inherits Window {
     /// The account's own profile, which its card draws its banner, theme,
     /// name and badges from; empty until it's come.
     in property <ProfileData> account-profile;
+    callback open-profile-wishlist;
     callback write-profile(int, string);
+    callback choose-name-style(int, int, string);
+    callback edit-own-note;
+    callback choose-server-tag(string);
+    pure callback parse-hex(string) -> color;
+    pure callback format-hex(color) -> string;
+    pure callback key-part(string, int) -> string;
+    pure callback key-colour(string, int) -> color;
     callback pick-profile-picture(int);
     callback reset-profile-picture(int);
     callback unlock-nitro;
@@ -3678,7 +3687,7 @@ export component YapfastWindow inherits Window {
             discord-linked: root.discord-linked; has-custom-status: root.has-custom-status;
             retry-sync => { root.retry-sync(); }
             set-custom-status => { root.settings-open = false; root.open-status(); }
-            edit-profile => { root.settings-open = false; root.edit-profile(); }
+            edit-profile => { root.settings-open = false; root.account-opened(); root.edit-profile(); }
             sign-out => { root.settings-open = false; root.logout(); }
         }
         if root.settings-section == 7: AppearanceSettings {
@@ -4135,11 +4144,24 @@ export component YapfastWindow inherits Window {
     }
     profile-editor-motion := PopupMotion { open: root.profile-editor-open; }
     if profile-editor-motion.shown: ProfileEditorDialog {
+        open-link(url) => { root.open-link(url); }
         motion: profile-editor-motion.amount;
         prompt: root.profile-editor-prompt;
         name <=> root.profile-editor-name; pronouns <=> root.profile-editor-pronouns;
         bio <=> root.profile-editor-bio; colour <=> root.profile-editor-colour;
         write(field, text) => { root.write-profile(field, text); }
+        choose-name-style(font, effect, colours) => { root.choose-name-style(font, effect, colours); }
+        copy-id => { root.copy-text(root.account-user-id); }
+        open-wishlist => { root.open-profile-wishlist(); }
+        edit-note => { root.edit-own-note(); }
+        choose-tag(server) => { root.choose-server-tag(server); }
+        edit-status => { root.open-status(); }
+        has-status: root.has-custom-status; status-text: root.account-status; status-emoji: root.account-status-emoji;
+        parse-hex(text) => { return root.parse-hex(text); }
+        format-hex(colour) => { return root.format-hex(colour); }
+        key-part(key, index) => { return root.key-part(key, index); }
+        key-colour(key, index) => { return root.key-colour(key, index); }
+        presence: root.account-presence;
         pick(kind) => { root.pick-profile-picture(kind); }
         reset(kind) => { root.reset-profile-picture(kind); }
         unlock-nitro => { root.unlock-nitro(); }

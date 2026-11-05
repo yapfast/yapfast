@@ -1539,14 +1539,19 @@ impl Discord {
         member: &Value,
         profile: &Value,
     ) -> Result<()> {
-        if some(member) {
-            self.api.modify_member_me(guild, member).await?;
+        // As for the main profile, what went through is kept no longer.
+        let saved = async {
+            if some(member) {
+                self.api.modify_member_me(guild, member).await?;
+            }
+            if some(profile) {
+                self.api.modify_guild_profile(guild, profile).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_guild_profile(guild, profile).await?;
-        }
+        .await;
         self.forget_own_profile(Some(guild));
-        Ok(())
+        saved
     }
 
     /// A server's profile, for its settings' Server Profile page.
@@ -1861,18 +1866,33 @@ impl Discord {
     }
 
     /// Changes this account's main profile as Discord's client does:
-    /// `user`'s fields, its display name and avatar, go to the user, then
-    /// `profile`'s, its bio, pronouns, banner and banner colour, to its
-    /// profile, each only when it has any. USER_UPDATE follows both.
-    pub async fn save_main_profile(&self, user: &Value, profile: &Value) -> Result<()> {
-        if some(user) {
-            self.api.modify_me(user).await?;
+    /// `user`'s fields, its display name, avatar and name style, go to the
+    /// user, then `profile`'s, its bio, pronouns, banner, colour and theme,
+    /// to its profile, each only when it has any, then the server whose tag
+    /// it wears, when that changed, to its own endpoint. USER_UPDATE follows.
+    /// The kept profiles go even when a request fails, as those before it
+    /// changed what Discord has.
+    pub async fn save_main_profile(
+        &self,
+        user: &Value,
+        profile: &Value,
+        server_tag: Option<Option<&str>>,
+    ) -> Result<()> {
+        let saved = async {
+            if some(user) {
+                self.api.modify_me(user).await?;
+            }
+            if some(profile) {
+                self.api.modify_profile_me(profile).await?;
+            }
+            if let Some(server) = server_tag {
+                self.api.set_server_tag(server).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_profile_me(profile).await?;
-        }
+        .await;
         self.forget_own_profile(None);
-        Ok(())
+        saved
     }
 
     /// Drops this account's kept profiles, so they're fetched afresh: in

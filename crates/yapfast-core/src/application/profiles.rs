@@ -276,7 +276,7 @@ impl Application {
             .state
             .discord_user
             .clone()
-            .filter(|_| self.state.discord_online && !self.state.preview)
+            .filter(|_| !self.state.preview)
         else {
             return vec![];
         };
@@ -292,6 +292,9 @@ impl Application {
     fn keep_own_profile(&mut self, user: &str, profile: &Profile) {
         if self.state.discord_user.as_deref() == Some(user) {
             self.state.account_profile = Some(Arc::new(profile.clone()));
+            if let Some(editor) = self.state.profile_editor.as_mut() {
+                editor.fill_look(profile);
+            }
         }
     }
 

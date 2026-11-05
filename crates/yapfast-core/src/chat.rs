@@ -453,6 +453,8 @@ pub struct ChatServer {
     pub unavailable: bool,
     /// The address of the server's icon; see [`DiscordCommand::Pictures`].
     pub icon: Option<String>,
+    /// The tag its members can wear, if it offers one.
+    pub tag: Option<ServerTag>,
     /// The folder it sits in on the rail. A folder's servers come one after
     /// another in [`RoomIndex::servers`].
     pub folder: Option<ServerFolder>,
@@ -681,6 +683,20 @@ pub struct NameStyle {
 }
 
 impl NameStyle {
+    /// A style of `font` and `effect` in up to five of `colors`, as the
+    /// profile editor chooses one.
+    pub fn new(font: u8, effect: u8, colors: &[u32]) -> Self {
+        let mut kept = [0; 5];
+        let len = colors.len().min(5);
+        kept[..len].copy_from_slice(&colors[..len]);
+        Self {
+            font,
+            effect,
+            len: len as u8,
+            colors: kept,
+        }
+    }
+
     /// The RGB colours it asks for.
     pub fn colors(&self) -> &[u32] {
         &self.colors[..usize::from(self.len)]
@@ -3471,6 +3487,12 @@ pub struct ProfileChange {
     pub banner: Option<Option<PickedPicture>>,
     /// The main profile's banner colour, `None` for Discord's default.
     pub accent: Option<Option<u32>>,
+    /// The main profile's two theme colours, `None` for none.
+    pub theme: Option<Option<[u32; 2]>>,
+    /// The main profile's name style, `None` for none.
+    pub name_style: Option<Option<NameStyle>>,
+    /// The server whose tag the main profile wears, `None` for no tag.
+    pub primary_server: Option<Option<String>>,
 }
 
 /// A change to how the Discord account stands with someone.

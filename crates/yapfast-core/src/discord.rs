@@ -935,6 +935,7 @@ fn server_rooms(
         muted: server.marks.muted,
         unavailable: server.unavailable,
         icon: server.icon.clone(),
+        tag: server_tag(server.tag.clone()),
         // Index::update sets it, since a folder changes without its servers.
         folder: None,
         hide_muted: server.marks.notifications.hide_muted_channels,

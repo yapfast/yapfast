@@ -1719,6 +1719,20 @@ impl Api {
         .await
     }
 
+    /// Chooses the server whose tag this account wears, or none, as Discord's
+    /// profile editor saves it. USER_UPDATE follows.
+    pub async fn set_server_tag(&self, server: Option<&str>) -> Result<()> {
+        let body = serde_json::json!({
+            "identity_guild_id": server,
+            "identity_enabled": server.is_some(),
+        });
+        self.empty(with_json(
+            self.request(Method::PUT, "/users/@me/clan"),
+            &body,
+        ))
+        .await
+    }
+
     /// Changes a member's voice state, as the voice menu does: `mute` and
     /// `deaf` for the server's, and `channel_id` to move them, which with
     /// null disconnects them. Discord answers with the member, and
@@ -2704,6 +2718,71 @@ mod tests {
             assert!(error.is::<super::Stalled>(), "{error:#}");
             assert!(super::may_work_later(&error));
         }
+    }
+
+    /// What reaches the server when a tag is chosen and when it's taken off.
+    #[tokio::test]
+    async fn a_server_tag_goes_to_its_own_endpoint() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = tokio::spawn(async move {
+            let mut requests = vec![];
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut read = vec![];
+                let (head, body) = loop {
+                    let mut chunk = [0; 4096];
+                    let got = socket.read(&mut chunk).await.unwrap();
+                    read.extend_from_slice(&chunk[..got]);
+                    let text = String::from_utf8_lossy(&read).into_owned();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                        continue;
+                    };
+                    let length = head
+                        .lines()
+                        .find_map(|line| {
+                            line.to_lowercase()
+                                .strip_prefix("content-length: ")?
+                                .parse::<usize>()
+                                .ok()
+                        })
+                        .unwrap_or_default();
+                    if body.len() >= length {
+                        break (head.to_owned(), body.to_owned());
+                    }
+                };
+                socket
+                    .write_all(b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n")
+                    .await
+                    .unwrap();
+                let line = head.lines().next().unwrap().to_owned();
+                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                requests.push((line, body));
+            }
+            requests
+        });
+        let mut api = super::Api::anonymous().unwrap();
+        api.base = format!("http://{address}/api/v9");
+        api.set_server_tag(Some("9")).await.unwrap();
+        api.set_server_tag(None).await.unwrap();
+        let line = "PUT /api/v9/users/@me/clan HTTP/1.1".to_owned();
+        assert_eq!(
+            requests.await.unwrap(),
+            [
+                (
+                    line.clone(),
+                    serde_json::json!({"identity_guild_id": "9", "identity_enabled": true})
+                ),
+                (
+                    line,
+                    serde_json::json!({"identity_guild_id": null, "identity_enabled": false})
+                ),
+            ]
+        );
     }
 
     #[test]

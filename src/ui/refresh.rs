@@ -83,6 +83,11 @@ impl Reach {
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// A server's Discord id, from Yapfast's id for it.
+fn discord_server_id(id: &str) -> &str {
+    id.rsplit(':').next().unwrap_or(id)
+}
+
 impl Adapter {
     /// Browse Channels' rows whose channel's name has its search in it, each
     /// under its category's heading.
@@ -2555,7 +2560,22 @@ impl Adapter {
                 bio: written(&editor.bio, fallback.map(|fallback| &fallback.bio)),
                 created: fallback.and_then(|fallback| fallback.created.clone()),
                 joined: fallback.and_then(|fallback| fallback.joined.clone()),
-                ..Default::default()
+                theme: editor.theme().ok().flatten(),
+                style: editor.name_style(),
+                widgets: fallback
+                    .map(|fallback| fallback.widgets.clone())
+                    .unwrap_or_default(),
+                wishlist_place: fallback.and_then(|fallback| fallback.wishlist_place.clone()),
+                wishlist: editor.wishlist.clone(),
+                // What the editor doesn't change comes from the account's
+                // profile: its decoration, tag, badges and activities.
+                ..self
+                    .app
+                    .state
+                    .account_profile
+                    .as_deref()
+                    .cloned()
+                    .unwrap_or_default()
             },
             large: false,
             loading: false,
@@ -2566,6 +2586,16 @@ impl Adapter {
         let mut preview = profile_data(&mut self.pictures, &self.app.state, &view);
         // Someone's own card offers them nothing.
         preview.friend = 0;
+        // The tabs' lists stay as they are unless they changed, so a card
+        // doesn't lose its place or its pictures as this is shown again.
+        let shown = window.get_profile_editor_prompt().preview;
+        preview.widgets = same_widget_rows(&shown.widgets, preview.widgets);
+        preview.wishlist = same_list(&shown.wishlist, preview.wishlist);
+        if editor.loading() {
+            preview.board_note = "Loading the board...".into();
+        } else if editor.profile.is_none() {
+            preview.board_note = "Couldn't load the board.".into();
+        }
         if let Some(picture) = new_avatar {
             preview.picture = slint_image(picture);
         }
@@ -2603,6 +2633,24 @@ impl Adapter {
                 "Tell this server a bit about yourself",
             )
         };
+        let own = self.app.state.account_profile.as_ref();
+        // What it would wear: the choice, else what the profile has.
+        let shown_tag = match &editor.chosen_tag {
+            None => self
+                .app
+                .state
+                .account_profile
+                .as_ref()
+                .and_then(|own| own.tag.clone()),
+            Some(None) => None,
+            Some(Some(chosen)) => self
+                .app
+                .state
+                .servers
+                .iter()
+                .find(|server| discord_server_id(&server.id) == chosen)
+                .and_then(|server| server.tag.clone()),
+        };
         window.set_profile_editor_prompt(ProfileEditorPrompt {
             title: title.into(),
             detail: detail.into(),
@@ -2625,6 +2673,56 @@ impl Adapter {
             upgrade: editor.upgrade(),
             banner_shown: !main || editor.nitro(),
             colour_shown: editor.may_write(ProfileText::Colour),
+            server_tags: ModelRc::new(VecModel::from(
+                self.app
+                    .state
+                    .servers
+                    .iter()
+                    .filter_map(|server| {
+                        let tag = server.tag.as_ref()?;
+                        Some(ServerTagRow {
+                            id: discord_server_id(&server.id).into(),
+                            name: server.name.as_str().into(),
+                            icon: server.icon.as_deref().unwrap_or_default().into(),
+                            tag: tag.text.as_str().into(),
+                            badge: tag.badge.as_deref().unwrap_or_default().into(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+            tag_chosen_id: editor
+                .chosen_tag
+                .as_ref()
+                .and_then(|chosen| chosen.as_deref())
+                .unwrap_or_default()
+                .into(),
+            tag_text: shown_tag
+                .as_ref()
+                .map_or("", |tag| tag.text.as_str())
+                .into(),
+            tag_icon: shown_tag
+                .as_ref()
+                .and_then(|tag| tag.badge.as_deref())
+                .unwrap_or_default()
+                .into(),
+            look_enabled: editor.may_write(ProfileText::ThemeTop),
+            // What the account wears, though the profile switches may keep
+            // its pictures from showing.
+            decoration_set: own.is_some_and(|own| own.decoration.is_some()),
+            effect_set: own.is_some_and(|own| own.effect.is_some()),
+            // Yapfast doesn't read profile frames.
+            frame_set: false,
+            name_font_id: editor.name_font.map_or(11, |font| font as i32),
+            name_effect_id: editor.name_effect as i32,
+            name_colours_key: editor
+                .name_colours
+                .iter()
+                .map(|colour| format!("{colour:06x}"))
+                .collect::<Vec<_>>()
+                .join(",")
+                .into(),
+            theme_top_text: editor.theme_top.as_str().into(),
+            theme_bottom_text: editor.theme_bottom.as_str().into(),
             colour: colour
                 .ok()
                 .flatten()
