@@ -91,6 +91,33 @@ pub struct ReceivedFrame {
     pub keyframe: bool,
 }
 
+/// One Opus frame of a watched stream's sound as it came: its payload, its
+/// place in the sender's numbering, and when it reached Yapfast.
+#[derive(Debug)]
+pub struct ReceivedSound {
+    pub opus: Vec<u8>,
+    pub sequence: u16,
+    pub timestamp: u32,
+    pub ssrc: u32,
+    /// When it arrived, on the monotonic clock that runs across threads in
+    /// this process, which is what the player compares against.
+    pub arrived: std::time::Instant,
+}
+
+impl ReceivedSound {
+    /// `packet`'s numbering, and `opus`, its decrypted payload, which came
+    /// at `arrived`.
+    pub fn new(packet: &rtp::Packet, opus: Vec<u8>, arrived: std::time::Instant) -> Self {
+        Self {
+            opus,
+            sequence: packet.sequence,
+            timestamp: packet.timestamp,
+            ssrc: packet.ssrc,
+            arrived,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Link {
     Connecting,
@@ -295,7 +322,7 @@ pub struct SentSoFar {
 /// connection.
 pub struct StreamReceiver {
     frames: channel::Receiver<ReceivedFrame>,
-    sounds: Option<channel::Receiver<Vec<u8>>>,
+    sounds: Option<channel::Receiver<ReceivedSound>>,
     shared: Arc<Shared>,
     _stop: oneshot::Sender<()>,
 }
@@ -309,7 +336,9 @@ impl StreamReceiver {
         *lock(&shared.offers) = decodes;
         // Frames waiting to be decoded; more means decoding can't keep up.
         let (frames, receiver) = channel::sync_channel(4);
-        // Opus frames waiting to be played: 320 ms.
+        // Opus frames waiting to be played. A bound on memory, not on
+        // latency: the player takes what came on every turn, and drops what
+        // waited too long, so a full queue delays nothing by itself.
         let (sounds, heard) = channel::sync_channel(16);
         let (stop, stopped) = oneshot::channel();
         spawn("yapfast-stream-receive", shared.clone(), move |shared| {
@@ -339,9 +368,9 @@ impl StreamReceiver {
         self.frames.recv_timeout(wait).ok()
     }
 
-    /// The stream's sound, decrypted Opus frames, for a player of its own.
-    /// It ends with the connection.
-    pub fn take_sounds(&mut self) -> Option<channel::Receiver<Vec<u8>>> {
+    /// The stream's sound, decrypted Opus frames and the sender's numbering
+    /// with each, for a player of its own. It ends with the connection.
+    pub fn take_sounds(&mut self) -> Option<channel::Receiver<ReceivedSound>> {
         self.sounds.take()
     }
 
@@ -797,7 +826,7 @@ async fn receive_stream(
     // Where whole video frames and the sound's Opus frames go.
     (frames, sounds): (
         channel::SyncSender<ReceivedFrame>,
-        channel::SyncSender<Vec<u8>>,
+        channel::SyncSender<ReceivedSound>,
     ),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -915,9 +944,13 @@ async fn receive_stream(
                 }
                 if packet.payload_type == rtp::OPUS {
                     received.sounds += 1;
+                    let arrived = std::time::Instant::now();
                     match connection.dave.decrypt_opus(streamer_id, packet.payload.to_vec()) {
-                        // A full queue drops sound the player can't keep up with.
-                        Some(sound) => drop(sounds.try_send(sound)),
+                        // A full queue drops sound the player can't keep up
+                        // with; the player drops what waited too long anyway.
+                        Some(opus) => drop(sounds.try_send(ReceivedSound::new(
+                            &packet, opus, arrived,
+                        ))),
                         None => received.unheard += 1,
                     }
                     continue;

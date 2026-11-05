@@ -17,8 +17,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use yapfast_discord::{
-    opus,
-    stream_connection::{Sound, SoundSender},
+    opus, rtp,
+    stream_connection::{ReceivedSound, Sound, SoundSender},
+    voice::{QUIET, Surplus},
 };
 
 use crate::audio_io::{Heard, LastingOutput, RATE};
@@ -26,6 +27,8 @@ use crate::audio_io::{Heard, LastingOutput, RATE};
 const CHANNELS: usize = 2;
 /// Samples of every channel in one 20 ms frame.
 const FRAME: usize = RATE as usize / 50 * CHANNELS;
+/// Samples per channel in one 20 ms frame, a turn of the player.
+const SAMPLES: usize = FRAME / CHANNELS;
 /// An application's sound joins the mix once this much waits, which
 /// absorbs the system delivering it in chunks.
 const PRIMED: usize = FRAME * 2;
@@ -34,6 +37,32 @@ const PRIMED: usize = FRAME * 2;
 const BACKLOG: usize = FRAME * 10;
 /// What Discord's client gives a stream's sound.
 const BITRATE: i32 = 64_000;
+/// A player's turn: 20 ms of sound, then the next.
+const TURN: Duration = Duration::from_millis(20);
+
+// How long a watched stream's sound waits and how long it gives a packet
+// that hasn't come. Starting points to tune on a real link, not guarantees:
+// nothing has measured them against Discord's delivery yet.
+/// A stream's sound starts once this many frames wait: 60 ms.
+const START: usize = 3;
+/// With a single frame, playing starts this long after it came.
+const PRIME: Duration = Duration::from_millis(100);
+/// Frames wait at most: 200 ms, so a stall never turns into lasting delay.
+const MOST: usize = 10;
+/// A missing packet is waited for this long before its slot is concealed or
+/// dropped: 60 ms.
+const LATE: Duration = Duration::from_millis(60);
+/// Packets missing in a row after which the sender has stopped: 100 ms.
+/// Concealing stops there, and silence plays until sound comes again.
+const GONE: u8 = 5;
+/// A frame that waited in the queue longer than this came during a stall and
+/// is dropped rather than played late: 300 ms.
+const STALE: Duration = Duration::from_millis(300);
+/// The furthest a frame's timestamp may fall from where the last played one
+/// left the stream: a second, in samples. Beyond, the sender began again.
+const JUMP: i32 = 48_000;
+/// Printed at most this often: occupancy, concealment, drops.
+const LOG_EVERY: Duration = Duration::from_secs(5);
 
 /// Whether an application, by its name or program, is Yapfast or a Discord
 /// client, whose sound is a call or a stream: Yapfast's other workers, such as
@@ -240,11 +269,426 @@ fn scale(pcm: &mut [i16], volume: f32) {
     }
 }
 
+/// What happened to a frame that came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Landing {
+    InOrder,
+    /// It filled a gap the playhead hadn't reached yet.
+    Reordered,
+    /// Its slot played already, or it waited in the queue through a stall.
+    Late,
+    /// The same packet twice.
+    Duplicate,
+    /// The sender began again: another SSRC, or a timestamp far off.
+    Restart,
+}
+
+/// What made the sound a [`Turn::Play`] plays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Played {
+    /// A packet that came.
+    Frame,
+    /// Made up for a packet that didn't come: by the next packet's forward
+    /// error correction, or by Opus's own concealment.
+    Concealed,
+    /// Nothing came for long enough: silence, rather than made-up sound.
+    Silence,
+}
+
+/// What the player does with its next turn.
+#[derive(Debug, PartialEq, Eq)]
+enum Turn {
+    /// Writes `samples` per channel from [`Playout::pcm`].
+    Play { samples: usize, of: Played },
+    /// Nothing can play yet: waits at most this long for real sound.
+    Wait(Duration),
+}
+
+/// What a stream's sound did, for the log.
+#[derive(Debug, Default)]
+struct Counts {
+    /// Frames that came, and how many of those played.
+    came: u64,
+    played: u64,
+    /// Turns made up for a packet that didn't come.
+    concealed: u64,
+    /// Frames dropped: too late to play, twice, or past the bound.
+    late: u64,
+    duplicate: u64,
+    over: u64,
+    /// Times the sender began again.
+    restarts: u64,
+}
+
+/// A watched stream's sound on its way to the speakers: frames in sequence
+/// order, held a little for the ones that come late, played 20 ms a turn, and
+/// concealed while a packet is missing. It's given its clock, so a test drives
+/// it without waiting.
+///
+/// The frames it holds are network jitter buffering, separate from the ~100 ms
+/// of device buffer [`LastingOutput`] keeps.
+struct Playout {
+    decoder: opus::Decoder,
+    /// Frames in sequence order, oldest first, at most [`MOST`].
+    waiting: VecDeque<ReceivedSound>,
+    /// The sequence number to play next, while playing; none until primed.
+    next: Option<u16>,
+    /// The timestamp the next packet should hold, from the last one played.
+    expected: Option<u32>,
+    /// Where sound plays from `pcm`, for packets longer than 20 ms.
+    left: std::ops::Range<usize>,
+    /// Room for Opus's longest frame, 120 ms.
+    pcm: Vec<i16>,
+    /// The SSRC the frames came on; another is another stream, or a restart.
+    ssrc: Option<u32>,
+    /// When the first frame of a (re)start waited, and when the playhead
+    /// first found its packet missing.
+    prime: Option<Instant>,
+    hold: Option<Instant>,
+    /// Packets missing in a row.
+    missing: u8,
+    /// Frames taken a little faster than they play.
+    surplus: Surplus,
+    counts: Counts,
+}
+
+impl Playout {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            decoder: opus::Decoder::new(CHANNELS as u16)?,
+            waiting: VecDeque::with_capacity(MOST + 1),
+            next: None,
+            expected: None,
+            left: 0..0,
+            pcm: vec![0; RATE as usize / 1000 * 120 * CHANNELS],
+            ssrc: None,
+            prime: None,
+            hold: None,
+            missing: 0,
+            surplus: Surplus::default(),
+            counts: Counts::default(),
+        })
+    }
+
+    /// Queues a frame that came at `now`.
+    fn push(&mut self, frame: ReceivedSound, now: Instant) -> Landing {
+        self.counts.came += 1;
+        // Another SSRC is another stream, or the sender starting again: its
+        // sequence numbers say nothing about the old ones', so this comes
+        // before any comparison below.
+        if self.ssrc.is_some_and(|ssrc| ssrc != frame.ssrc) {
+            self.restart(frame, now);
+            return Landing::Restart;
+        }
+        self.ssrc = Some(frame.ssrc);
+        // A timestamp a second from where the last played one left the
+        // stream is a sender that began again. One that wrapped is not: read
+        // signed, its difference is small.
+        if let Some(expected) = self.expected {
+            let jump = frame.timestamp.wrapping_sub(expected) as i32;
+            if jump > JUMP || jump < -JUMP {
+                self.restart(frame, now);
+                return Landing::Restart;
+            }
+        }
+        // It waited in the queue through a stall: playing it now would only
+        // add to the delay.
+        if now.saturating_duration_since(frame.arrived) > STALE {
+            if self.next.is_some() {
+                // A stalled player starts again rather than concealing the
+                // gap it fell behind by.
+                self.reset();
+            }
+            self.counts.late += 1;
+            return Landing::Late;
+        }
+        // Its slot played already: it can never play now. One for the slot
+        // the playhead is missing is the packet the hold is waiting for, so
+        // it's queued.
+        if self
+            .next
+            .is_some_and(|next| rtp::before(frame.sequence, next))
+        {
+            self.counts.late += 1;
+            return Landing::Late;
+        }
+        self.queue(frame, now)
+    }
+
+    /// Starts the playout again with `frame`: a new SSRC, or a timestamp that
+    /// began again, leaves nothing waiting that could still play.
+    fn restart(&mut self, frame: ReceivedSound, now: Instant) {
+        self.reset();
+        self.ssrc = Some(frame.ssrc);
+        self.counts.restarts += 1;
+        self.queue(frame, now);
+    }
+
+    /// Inserts a frame in sequence order, keeping the newest [`MOST`].
+    fn queue(&mut self, frame: ReceivedSound, now: Instant) -> Landing {
+        let at = self
+            .waiting
+            .iter()
+            .rposition(|waiting| !rtp::before(frame.sequence, waiting.sequence))
+            .map_or(0, |at| at + 1);
+        if at > 0 && self.waiting[at - 1].sequence == frame.sequence {
+            self.counts.duplicate += 1;
+            return Landing::Duplicate;
+        }
+        let landing = if at == self.waiting.len() {
+            Landing::InOrder
+        } else {
+            Landing::Reordered
+        };
+        self.waiting.insert(at, frame);
+        if self.next.is_none() {
+            // A (re)start: the first frame begins the wait to play.
+            self.prime.get_or_insert(now);
+        }
+        while self.waiting.len() > MOST {
+            let gone = self.waiting.pop_front().expect("a frame over the bound");
+            self.counts.over += 1;
+            if self.next == Some(gone.sequence) {
+                // The playhead's own packet went to make room: play what's
+                // left rather than wait for sound that's gone.
+                self.next = self.waiting.front().map(|frame| frame.sequence);
+            }
+        }
+        landing
+    }
+
+    /// The next 20 ms into `self.pcm`, or how long to wait for something to
+    /// play.
+    fn next(&mut self, now: Instant) -> Turn {
+        // A packet longer than 20 ms, as music bots send, plays over as many
+        // turns as it takes.
+        if !self.left.is_empty() {
+            return self.turn(Played::Frame);
+        }
+        if self.next.is_none() {
+            // Not playing: starts once a few frames wait, or one has waited
+            // long enough that nothing more is coming.
+            let primed = self.waiting.len() >= START
+                || self
+                    .prime
+                    .is_some_and(|prime| now.saturating_duration_since(prime) >= PRIME);
+            let Some(front) = self.waiting.front().filter(|_| primed) else {
+                return Turn::Wait(self.wait_for(now));
+            };
+            self.next = Some(front.sequence);
+            self.prime = None;
+        }
+        let next = self.next.expect("playing");
+        // Packets whose slot played already can never play: they came too
+        // late to be worth the delay of waiting for them.
+        while self
+            .waiting
+            .front()
+            .is_some_and(|frame| rtp::before(frame.sequence, next))
+        {
+            self.waiting.pop_front();
+            self.counts.late += 1;
+        }
+        if self
+            .waiting
+            .front()
+            .is_some_and(|frame| frame.sequence == next)
+        {
+            self.play(next)
+        } else if self.waiting.is_empty() {
+            self.play_nothing(next)
+        } else {
+            self.play_missing(next, now)
+        }
+    }
+
+    /// Plays the playhead's packet, `next`.
+    fn play(&mut self, next: u16) -> Turn {
+        let frame = self.waiting.pop_front().expect("the playhead");
+        self.missing = 0;
+        self.hold = None;
+        self.next = Some(next.wrapping_add(1));
+        let samples = match self.decoder.decode(&frame.opus, &mut self.pcm, false) {
+            Ok(samples) => samples,
+            Err(error) => {
+                tracing::debug!(
+                    %error,
+                    sequence = frame.sequence,
+                    length = frame.opus.len(),
+                    "a stream sound frame didn't decode"
+                );
+                self.expected = Some(frame.timestamp.wrapping_add(SAMPLES as u32));
+                return self.conceal();
+            }
+        };
+        self.expected = Some(frame.timestamp.wrapping_add(samples as u32));
+        if samples == 0 {
+            return self.conceal();
+        }
+        self.counts.played += 1;
+        self.set_left(samples);
+        if self.skips(samples) {
+            // The queue had frames to spare, so this one goes unheard: that
+            // is what keeps the delay from growing.
+            self.pcm[..samples * CHANNELS].fill(0);
+            return self.turn(Played::Silence);
+        }
+        self.turn(Played::Frame)
+    }
+
+    /// The playhead's packet is missing, and nothing waits after it.
+    fn play_nothing(&mut self, next: u16) -> Turn {
+        self.hold = None;
+        self.missing = self.missing.saturating_add(1);
+        self.next = Some(next.wrapping_add(1));
+        self.expected = self
+            .expected
+            .map(|expected| expected.wrapping_add(SAMPLES as u32));
+        if self.missing >= GONE {
+            // The sender stopped, rather than a packet coming late: silence
+            // while waiting for it to start again, not made-up sound for
+            // ever.
+            self.next = None;
+            self.missing = 0;
+            self.surplus = Surplus::default();
+            return self.silence();
+        }
+        self.conceal()
+    }
+
+    /// The playhead's packet is missing, and a later one waits: gives it
+    /// [`LATE`], then makes up its 20 ms, and plays that one when its own
+    /// turn comes.
+    fn play_missing(&mut self, next: u16, now: Instant) -> Turn {
+        // Only the first gap of a run waits: the ones after it are concealed
+        // at once, so a burst of loss never waits longer than one packet.
+        if self.missing == 0 {
+            let hold = *self.hold.get_or_insert(now);
+            let waited = now.saturating_duration_since(hold);
+            if waited < LATE {
+                return Turn::Wait(LATE.saturating_sub(waited));
+            }
+        }
+        self.hold = None;
+        self.missing = self.missing.saturating_add(1);
+        self.next = Some(next.wrapping_add(1));
+        self.expected = self
+            .expected
+            .map(|expected| expected.wrapping_add(SAMPLES as u32));
+        // The packet after the missing one may carry its forward error
+        // correction. A stream's encoder needn't send any, and libopus says
+        // nothing that tells them apart, so this is opportunistic: whatever
+        // the decode leaves, that packet stays queued and plays as itself on
+        // its own turn. When the decode fails, conceal instead.
+        let mut recovered = None;
+        if let Some(frame) = self.waiting.front()
+            && frame.sequence == next.wrapping_add(1)
+        {
+            recovered = self
+                .decoder
+                .decode(&frame.opus, &mut self.pcm[..FRAME], true)
+                .ok();
+        }
+        match recovered {
+            Some(samples) if samples > 0 => {
+                self.set_left(samples);
+                self.turn(Played::Concealed)
+            }
+            _ => self.conceal(),
+        }
+    }
+
+    /// 20 ms made up for a packet that didn't come.
+    fn conceal(&mut self) -> Turn {
+        self.counts.concealed += 1;
+        match self.decoder.conceal(&mut self.pcm[..FRAME]) {
+            Ok(samples) if samples > 0 => {
+                self.set_left(samples);
+                self.turn(Played::Concealed)
+            }
+            Ok(_) => self.silence(),
+            Err(error) => {
+                tracing::debug!(%error, "couldn't conceal a stream sound frame");
+                self.silence()
+            }
+        }
+    }
+
+    /// 20 ms of silence: nothing can play.
+    fn silence(&mut self) -> Turn {
+        self.pcm[..FRAME].fill(0);
+        self.left = 0..FRAME;
+        self.turn(Played::Silence)
+    }
+
+    /// Takes the next 20 ms of `pcm`, or what's left of it, to play.
+    fn turn(&mut self, of: Played) -> Turn {
+        let start = self.left.start;
+        let end = self.left.end.min(start + FRAME).min(self.pcm.len());
+        self.left.start = end;
+        Turn::Play {
+            samples: (end - start) / CHANNELS,
+            of,
+        }
+    }
+
+    /// Limits what plays from `pcm` to the `samples` per channel the decoder
+    /// made, clamped to the room `pcm` has.
+    fn set_left(&mut self, samples: usize) {
+        self.left = 0..samples.min(self.pcm.len() / CHANNELS) * CHANNELS;
+    }
+
+    /// How long to wait for sound: until the first frame has waited
+    /// [`PRIME`], so one that came alone still plays.
+    fn wait_for(&self, now: Instant) -> Duration {
+        match self.prime {
+            Some(prime) => PRIME.saturating_sub(now.saturating_duration_since(prime)),
+            None => PRIME,
+        }
+    }
+
+    /// Counts what waits after the playhead's packet was taken, and says
+    /// whether to drop the frame it decoded to, `samples` long, for the one
+    /// after: the queue had frames to spare for a whole window.
+    fn skips(&mut self, samples: usize) -> bool {
+        self.surplus.note(self.waiting.len());
+        let following = self.next.is_some_and(|next| {
+            self.waiting
+                .front()
+                .is_some_and(|frame| frame.sequence == next)
+        });
+        // A long packet would skip more than a turn.
+        if !following || samples != SAMPLES {
+            return false;
+        }
+        let played = &self.pcm[..samples * CHANNELS];
+        let power = played
+            .iter()
+            .map(|sample| (f32::from(*sample) / 32768.0).powi(2))
+            .sum::<f32>()
+            / played.len() as f32;
+        self.surplus.skips(|| power < QUIET)
+    }
+
+    /// Forgets what waited: deafened, or a stalled player starting again.
+    fn reset(&mut self) {
+        self.waiting.clear();
+        self.next = None;
+        self.expected = None;
+        self.left = 0..0;
+        self.ssrc = None;
+        self.prime = None;
+        self.hold = None;
+        self.missing = 0;
+        self.surplus = Surplus::default();
+    }
+}
+
 impl Player {
     /// Plays `sounds` on `speakers`, or the default output, at `volume`, while
     /// `hearing` is set: being deafened silences streams too.
     pub fn start(
-        sounds: std::sync::mpsc::Receiver<Vec<u8>>,
+        sounds: std::sync::mpsc::Receiver<ReceivedSound>,
         speakers: Option<String>,
         hearing: Arc<AtomicBool>,
         volume: Arc<Volume>,
@@ -268,7 +712,7 @@ impl Drop for Player {
 }
 
 fn play(
-    sounds: std::sync::mpsc::Receiver<Vec<u8>>,
+    sounds: std::sync::mpsc::Receiver<ReceivedSound>,
     speakers: Option<String>,
     hearing: Arc<AtomicBool>,
     volume: Arc<Volume>,
@@ -279,7 +723,8 @@ fn play(
     let thread = std::thread::Builder::new()
         .name("yapfast-stream-player".into())
         .spawn(move || {
-            // About 100 ms queued, which rides out the network's jitter.
+            // About 100 ms queued: the device's own buffer, which the
+            // playout's priming and holding are separate from.
             let output = LastingOutput::<i16>::open(
                 speakers.as_deref(),
                 "Stream sound",
@@ -297,31 +742,56 @@ fn play(
                     return;
                 }
             };
-            let mut decoder = match opus::Decoder::new(2) {
-                Ok(decoder) => decoder,
+            let mut playout = match Playout::new() {
+                Ok(playout) => playout,
                 Err(error) => {
                     tracing::warn!(%error, "could not start the Opus decoder");
                     return;
                 }
             };
-            // Opus's longest frame, 120 ms.
-            let mut pcm = vec![0i16; RATE as usize / 1000 * 120 * CHANNELS];
+            let mut logged = Instant::now();
             while !stop.load(Ordering::Relaxed) {
-                let opus = match sounds.recv_timeout(Duration::from_millis(100)) {
-                    Ok(opus) => opus,
-                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                };
+                // What came since the last turn, without waiting for more.
+                for frame in sounds.try_iter() {
+                    playout.push(frame, Instant::now());
+                }
                 if !hearing.load(Ordering::Relaxed) {
+                    // Deafened: nothing is decoded or written, and nothing
+                    // waits to play late once that ends.
+                    playout.reset();
+                    if let Err(mpsc::RecvTimeoutError::Disconnected) = sounds.recv_timeout(TURN) {
+                        break;
+                    }
                     continue;
                 }
-                match decoder.decode(&opus, &mut pcm, false) {
-                    Ok(samples) => {
-                        let pcm = &mut pcm[..samples * CHANNELS];
-                        scale(pcm, volume.get());
-                        output.write(pcm);
+                match playout.next(Instant::now()) {
+                    Turn::Play { samples, of } => {
+                        let end = (samples * CHANNELS).min(playout.pcm.len());
+                        let out = &mut playout.pcm[..end];
+                        if of != Played::Silence {
+                            scale(out, volume.get());
+                        }
+                        // The device paces the turn: this waits out the
+                        // sound it queued, or, with no device, as long as
+                        // that sound would have played.
+                        output.write(out);
                     }
-                    Err(error) => tracing::debug!(%error, "a stream sound frame didn't decode"),
+                    // At most a turn, so a stop or a deafen is seen soon.
+                    Turn::Wait(wait) => {
+                        if let Err(mpsc::RecvTimeoutError::Disconnected) =
+                            sounds.recv_timeout(wait.min(TURN))
+                        {
+                            break;
+                        }
+                    }
+                }
+                if logged.elapsed() >= LOG_EVERY {
+                    logged = Instant::now();
+                    tracing::debug!(
+                        waiting = playout.waiting.len(),
+                        counts = ?playout.counts,
+                        "stream sound played"
+                    );
                 }
             }
         })
@@ -488,8 +958,13 @@ mod tests {
     #[ignore]
     fn plays_a_streams_sound_until_it_ends() {
         let (sounds, heard) = std::sync::mpsc::sync_channel(32);
-        for _ in 0..20 {
-            sounds.send(vec![0xf8, 0xff, 0xfe]).unwrap();
+        let now = Instant::now();
+        for sequence in 0..20u16 {
+            let timestamp = u32::from(sequence) * SAMPLES as u32;
+            let opus = vec![0xf8, 0xff, 0xfe];
+            sounds
+                .send(sound(sequence, timestamp, 7, opus, now))
+                .unwrap();
         }
         drop(sounds);
         let started = Instant::now();
@@ -502,6 +977,409 @@ mod tests {
         .unwrap();
         player.thread.take().unwrap().join().unwrap();
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    /// The player's turn that plays a frame that came.
+    const PLAYING: Turn = Turn::Play {
+        samples: SAMPLES,
+        of: Played::Frame,
+    };
+    /// The player's turn that makes up for a packet that didn't come.
+    const CONCEALED: Turn = Turn::Play {
+        samples: SAMPLES,
+        of: Played::Concealed,
+    };
+    /// The player's turn that plays silence.
+    const SILENT: Turn = Turn::Play {
+        samples: SAMPLES,
+        of: Played::Silence,
+    };
+
+    /// An encoder for a player's sound, as a stream's is sent: music mode.
+    fn music() -> opus::Encoder {
+        opus::Encoder::new(CHANNELS as u16, opus::Application::Audio, BITRATE).unwrap()
+    }
+
+    /// One 20 ms frame of a tone, `at` frames in, encoded.
+    fn tone(encoder: &mut opus::Encoder, at: usize) -> Vec<u8> {
+        let pcm: Vec<f32> = (0..FRAME)
+            .map(|sample| {
+                let when = (at * FRAME + sample) as f32;
+                (when * 330.0 * std::f32::consts::TAU / RATE as f32).sin() * 0.5
+            })
+            .collect();
+        let mut opus = vec![0; 4000];
+        let length = encoder.encode_float(&pcm, &mut opus).unwrap();
+        opus.truncate(length);
+        opus
+    }
+
+    /// Opus frames of a tone, 20 ms each, in order.
+    fn tones(encoder: &mut opus::Encoder, count: usize) -> Vec<Vec<u8>> {
+        (0..count).map(|at| tone(encoder, at)).collect()
+    }
+
+    /// A frame as the connection hands it to a player.
+    fn sound(
+        sequence: u16,
+        timestamp: u32,
+        ssrc: u32,
+        opus: Vec<u8>,
+        arrived: Instant,
+    ) -> ReceivedSound {
+        let packet = rtp::Packet {
+            payload_type: rtp::OPUS,
+            marker: false,
+            sequence,
+            timestamp,
+            ssrc,
+            payload: &[],
+        };
+        ReceivedSound::new(&packet, opus, arrived)
+    }
+
+    /// Pushes `count` frames of a tone, from `sequence` on, in order.
+    fn push_tones(playout: &mut Playout, opus: &[Vec<u8>], first: u16, now: Instant) {
+        for (at, frame) in opus.iter().enumerate() {
+            let sequence = first.wrapping_add(at as u16);
+            let timestamp = u32::from(sequence) * SAMPLES as u32;
+            playout.push(sound(sequence, timestamp, 7, frame.clone(), now), now);
+        }
+    }
+
+    #[test]
+    fn plays_frames_in_order_and_drops_what_comes_twice() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 4);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus, 0, now);
+        assert_eq!(playout.counts.came, 4, "all four came in order");
+        assert_eq!(playout.next(now), PLAYING, "three waiting start it");
+        // The packet it just played, again: its slot has gone.
+        assert_eq!(
+            playout.push(sound(0, 0, 7, opus[0].clone(), now), now),
+            Landing::Late
+        );
+        // And one still waiting, again: it can only play once.
+        let timestamp = 2 * SAMPLES as u32;
+        assert_eq!(
+            playout.push(sound(2, timestamp, 7, opus[2].clone(), now), now),
+            Landing::Duplicate
+        );
+        for at in 1..4 {
+            assert_eq!(playout.next(now), PLAYING, "frame {at}");
+        }
+        assert!(playout.waiting.is_empty());
+    }
+
+    #[test]
+    fn holds_a_gap_for_a_late_packet_then_conceals_it() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 5);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        assert_eq!(playout.next(now), PLAYING);
+        assert_eq!(playout.next(now), PLAYING);
+        // Packet 2 never came, and 3 and 4 did.
+        push_tones(&mut playout, &opus[3..], 3, now);
+        // Its slot waits 60 ms for it, then makes it up.
+        assert_eq!(playout.next(now), Turn::Wait(LATE));
+        assert_eq!(playout.next(now + LATE / 2), Turn::Wait(LATE / 2));
+        assert_eq!(playout.next(now + LATE), CONCEALED);
+        // Packet 3, which carried the concealment, still plays as itself.
+        assert_eq!(playout.next(now + LATE), PLAYING);
+        assert_eq!(playout.waiting.len(), 1, "packet 4 waits its turn");
+    }
+
+    #[test]
+    fn an_out_of_order_packet_fills_the_gap_it_belongs_in() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 5);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        assert_eq!(playout.next(now), PLAYING);
+        // 4 comes before 3 does.
+        let landing = playout.push(sound(4, 4 * SAMPLES as u32, 7, opus[4].clone(), now), now);
+        assert_eq!(landing, Landing::InOrder);
+        let landing = playout.push(sound(3, 3 * SAMPLES as u32, 7, opus[3].clone(), now), now);
+        assert_eq!(landing, Landing::Reordered, "it goes in front of 4");
+        for at in 1..5 {
+            assert_eq!(playout.next(now), PLAYING, "frame {at}");
+        }
+        assert!(playout.waiting.is_empty());
+    }
+
+    #[test]
+    fn a_packet_that_comes_before_its_slot_is_made_up_plays() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 5);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        assert_eq!(playout.next(now), PLAYING);
+        assert_eq!(playout.next(now), PLAYING);
+        // 2 hasn't come, and 3 and 4 have.
+        push_tones(&mut playout, &opus[3..], 3, now);
+        assert_eq!(playout.next(now), Turn::Wait(LATE), "its slot waits for it");
+        // It comes within that wait, so it plays, and 3 and 4 after it.
+        let later = now + LATE / 2;
+        let landing = playout.push(
+            sound(2, 2 * SAMPLES as u32, 7, opus[2].clone(), later),
+            later,
+        );
+        assert_eq!(landing, Landing::Reordered);
+        for at in 2..5 {
+            assert_eq!(playout.next(now + LATE), PLAYING, "frame {at}");
+        }
+        assert!(playout.waiting.is_empty());
+    }
+
+    #[test]
+    fn the_packet_after_a_gap_still_plays_after_carrying_its_concealment() {
+        // Voice mode is what turns Opus's forward error correction on, which
+        // a stream's own encoder needn't send.
+        let mut encoder =
+            opus::Encoder::new(CHANNELS as u16, opus::Application::Voice, BITRATE).unwrap();
+        let opus = tones(&mut encoder, 5);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        assert_eq!(playout.next(now), PLAYING);
+        assert_eq!(playout.next(now), PLAYING);
+        // Packet 2 is lost, and 3 and 4 came.
+        push_tones(&mut playout, &opus[3..], 3, now);
+        assert_eq!(playout.next(now), Turn::Wait(LATE));
+        assert_eq!(playout.next(now + LATE), CONCEALED);
+        assert_eq!(
+            playout.waiting.front().map(|frame| frame.sequence),
+            Some(3),
+            "the packet that carried it isn't counted as played"
+        );
+        assert_eq!(playout.next(now + LATE), PLAYING, "packet 3, as itself");
+        assert_eq!(playout.waiting.front().map(|frame| frame.sequence), Some(4));
+    }
+
+    #[test]
+    fn an_undecodable_packet_still_gets_its_own_concealed_turn() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 5);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        assert_eq!(playout.next(now), PLAYING);
+        assert_eq!(playout.next(now), PLAYING);
+        // Packet 2 is lost, and packet 3 is one libopus can't read: the try
+        // at its forward error correction fails, so 2's slot is concealed
+        // and 3 is left to play, and fail, on its own turn.
+        let garbage = vec![0xff];
+        playout.push(sound(3, 3 * SAMPLES as u32, 7, garbage, now), now);
+        assert_eq!(playout.next(now), Turn::Wait(LATE));
+        assert_eq!(playout.next(now + LATE), CONCEALED);
+        assert_eq!(
+            playout.waiting.front().map(|frame| frame.sequence),
+            Some(3),
+            "a failed decode is not swallowed"
+        );
+        assert!(
+            matches!(playout.next(now + LATE), Turn::Play { .. }),
+            "it plays, and fails, on its own turn"
+        );
+        assert!(playout.waiting.is_empty());
+        assert_eq!(playout.next, Some(4));
+        // Sound after it plays as usual.
+        let landing = playout.push(sound(4, 4 * SAMPLES as u32, 7, opus[4].clone(), now), now);
+        assert_eq!(landing, Landing::InOrder);
+        assert_eq!(playout.next(now + LATE), PLAYING);
+    }
+
+    #[test]
+    fn wraps_sequences_and_timestamps_without_starting_again() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 4);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        // The sequences wrap the u16 as the timestamps wrap the u32.
+        let sequences = [65_534u16, 65_535, 0, 1];
+        let mut timestamp = u32::MAX - 2 * SAMPLES as u32;
+        for (at, sequence) in sequences.iter().enumerate() {
+            let frame = sound(*sequence, timestamp, 7, opus[at].clone(), now);
+            assert_eq!(playout.push(frame, now), Landing::InOrder, "{sequence}");
+            timestamp = timestamp.wrapping_add(SAMPLES as u32);
+        }
+        for at in 0..4 {
+            assert_eq!(playout.next(now), PLAYING, "frame {at}");
+        }
+        assert!(playout.waiting.is_empty());
+        assert_eq!(playout.counts.restarts, 0, "a wrap is not a restart");
+    }
+
+    #[test]
+    fn starts_again_on_another_ssrc_or_a_timestamp_jump() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 8);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        for _ in 0..3 {
+            assert_eq!(playout.next(now), PLAYING);
+        }
+        // Another SSRC is another stream: what waited means nothing to it.
+        let landing = playout.push(sound(0, 0, 8, opus[3].clone(), now), now);
+        assert_eq!(landing, Landing::Restart);
+        assert_eq!(playout.next, None, "it waits to start again");
+        assert_eq!(playout.waiting.len(), 1);
+        // A sender that began again may keep its SSRC: a timestamp a second
+        // away is what says so.
+        push_tones(&mut playout, &opus[4..6], 1, now);
+        for _ in 0..3 {
+            assert_eq!(playout.next(now), PLAYING);
+        }
+        let jump = 3 * SAMPLES as u32 + 48_000 + SAMPLES as u32;
+        let landing = playout.push(sound(3, jump, 8, opus[6].clone(), now), now);
+        assert_eq!(landing, Landing::Restart);
+        assert_eq!(playout.next, None, "it waits to start again");
+    }
+
+    #[test]
+    fn goes_quiet_after_a_long_gap_and_starts_again_when_sound_comes() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 9);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        for _ in 0..3 {
+            assert_eq!(playout.next(now), PLAYING);
+        }
+        // Nothing more comes: its slot is made up for a while, then the
+        // sender has stopped, and silence plays rather than sound that isn't
+        // there.
+        for missing in 1..GONE {
+            assert_eq!(playout.next(now), CONCEALED, "{missing} packets missing");
+        }
+        assert_eq!(playout.next(now), SILENT);
+        assert_eq!(playout.next, None, "it waits to start again");
+        assert_eq!(playout.next(now), Turn::Wait(PRIME), "no sound to wait for");
+        // The sender comes back where the silence left the stream: no jump.
+        push_tones(&mut playout, &opus[3..6], 8, now);
+        assert_eq!(playout.next(now), PLAYING, "three frames start it again");
+        assert_eq!(playout.counts.restarts, 0, "silence isn't a restart");
+    }
+
+    #[test]
+    fn drops_a_frame_that_waited_too_long_and_starts_again() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 4);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..3], 0, now);
+        for _ in 0..3 {
+            assert_eq!(playout.next(now), PLAYING);
+        }
+        // A frame that waited in the queue through a stall of 300 ms.
+        let stalled = now.checked_sub(STALE + Duration::from_millis(20)).unwrap();
+        let landing = playout.push(
+            sound(3, 3 * SAMPLES as u32, 7, opus[3].clone(), stalled),
+            now,
+        );
+        assert_eq!(landing, Landing::Late);
+        assert_eq!(playout.next, None, "a stalled player starts again");
+        assert!(playout.waiting.is_empty(), "nothing old waits to replay");
+    }
+
+    #[test]
+    fn primes_on_three_frames_or_a_hundred_ms_of_one() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 3);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        assert_eq!(
+            playout.push(sound(0, 0, 7, opus[0].clone(), now), now),
+            Landing::InOrder
+        );
+        assert_eq!(
+            playout.next(now),
+            Turn::Wait(PRIME),
+            "one frame isn't enough"
+        );
+        push_tones(&mut playout, &opus[1..3], 1, now);
+        assert_eq!(playout.next(now), PLAYING, "three are");
+        // One that came alone starts once it has waited 100 ms.
+        playout.reset();
+        assert_eq!(
+            playout.push(sound(5, 0, 7, opus[0].clone(), now), now),
+            Landing::InOrder
+        );
+        assert_eq!(playout.next(now), Turn::Wait(PRIME));
+        assert_eq!(playout.next(now + PRIME / 2), Turn::Wait(PRIME / 2));
+        assert_eq!(playout.next(now + PRIME), PLAYING);
+    }
+
+    #[test]
+    fn keeps_at_most_most_frames_and_plays_the_newest() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, MOST + 5);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus, 0, now);
+        assert_eq!(playout.waiting.len(), MOST, "the oldest went");
+        assert_eq!(playout.waiting.front().map(|frame| frame.sequence), Some(5));
+        assert_eq!(playout.next(now), PLAYING);
+        assert_eq!(
+            playout.waiting.front().map(|frame| frame.sequence),
+            Some(6),
+            "and what plays is the newest ten"
+        );
+    }
+
+    #[test]
+    fn plays_a_sixty_ms_packet_over_three_turns() {
+        let mut encoder = music();
+        // A music bot passing a source's Opus through can send 60 ms packets.
+        let pcm: Vec<f32> = (0..FRAME * 3)
+            .map(|sample| (sample as f32 * 0.01).sin() * 0.25)
+            .collect();
+        let opus: Vec<Vec<u8>> = (0..START)
+            .map(|_| {
+                let mut packet = vec![0; 4000];
+                let length = encoder.encode_float(&pcm, &mut packet).unwrap();
+                packet.truncate(length);
+                packet
+            })
+            .collect();
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        for (at, frame) in opus.into_iter().enumerate() {
+            let timestamp = (at * SAMPLES * 3) as u32;
+            playout.push(sound(at as u16, timestamp, 7, frame, now), now);
+        }
+        for turn in 0..START * 3 {
+            assert_eq!(playout.next(now), PLAYING, "turn {turn}");
+            assert_eq!(
+                playout.waiting.len(),
+                START - 1 - turn / 3,
+                "a packet plays over three turns; turn {turn}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_frame_longer_than_the_room_is_clamped_to_it() {
+        let mut playout = Playout::new().unwrap();
+        let room = playout.pcm.len();
+        // More to play than `pcm` holds, which a decoder that overran its
+        // buffer would leave: the slices stop at the room there is.
+        let start = room - CHANNELS * 100;
+        playout.left = start..room + CHANNELS * 100;
+        assert_eq!(
+            playout.next(Instant::now()),
+            Turn::Play {
+                samples: 100,
+                of: Played::Frame
+            }
+        );
     }
 
     /// Samples numbered in the order they were played, so what a backlog

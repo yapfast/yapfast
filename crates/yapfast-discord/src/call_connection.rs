@@ -26,7 +26,7 @@ use crate::{
     call_video::{self, Camera, Receiving, VideoFrame},
     dave::Dave,
     opus, rtp,
-    voice::{FRAME, Listener, Surplus},
+    voice::{FRAME, Listener, QUIET, Surplus},
     voice_connection::{Closed, Connection, Identity, lock, receive, send_json},
 };
 
@@ -50,9 +50,6 @@ const START: usize = 3;
 const MOST: usize = 20;
 /// A speaker missing this many packets in a row has stopped: 100 ms.
 const GONE: u8 = 5;
-/// A decoded frame quieter than this, in mean square of full scale, can be
-/// skipped unheard: -40 dBFS.
-const QUIET: f32 = 1e-4;
 /// A speaker heard from no more in this long gives up their decoder.
 const FORGET: Duration = Duration::from_secs(10);
 /// A tick this late means the call stalled rather than woke late: its
@@ -661,11 +658,6 @@ struct Speaker {
 /// The most samples per channel an Opus packet decodes to: 120 ms.
 const LONGEST: usize = FRAME * 6;
 
-/// Whether sequence number `a` comes before `b`, across wrapping.
-fn before(a: u16, b: u16) -> bool {
-    a != b && b.wrapping_sub(a) < 0x8000
-}
-
 impl Speaker {
     fn new(user: u64) -> Result<Self> {
         Ok(Self {
@@ -683,13 +675,13 @@ impl Speaker {
 
     fn push(&mut self, sequence: u16, opus: Vec<u8>) {
         self.heard = std::time::Instant::now();
-        if self.next.is_some_and(|next| before(sequence, next)) {
+        if self.next.is_some_and(|next| rtp::before(sequence, next)) {
             return;
         }
         let at = self
             .waiting
             .iter()
-            .rposition(|(waiting, _)| !before(sequence, *waiting))
+            .rposition(|(waiting, _)| !rtp::before(sequence, *waiting))
             .map_or(0, |at| at + 1);
         if at > 0 && self.waiting[at - 1].0 == sequence {
             return;
@@ -728,7 +720,7 @@ impl Speaker {
         while self
             .waiting
             .front()
-            .is_some_and(|(sequence, _)| before(*sequence, next))
+            .is_some_and(|(sequence, _)| rtp::before(*sequence, next))
         {
             self.waiting.pop_front();
         }
@@ -946,7 +938,7 @@ mod tests {
         let mut arrivals = arrivals.into_iter().peekable();
         for tick in 0..seconds * 50 {
             while let Some((_, sequence)) = arrivals.next_if(|(at, _)| *at <= tick * 20_000) {
-                if speaker.next.is_some_and(|next| before(sequence, next)) {
+                if speaker.next.is_some_and(|next| rtp::before(sequence, next)) {
                     late += 1;
                 }
                 speaker.push(sequence, packets[usize::from(sequence) % 50].clone());

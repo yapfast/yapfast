@@ -199,10 +199,24 @@ its x86-64 assembly, without which H265 took over three times the processor
 time. Watching is possible only in the call you're in, so clicking someone
 sharing in another channel joins it first, once asked, and watches once the
 call is connected; Discord drops a watch sent before. The stream's sound, Opus
-on the streamer's audio SSRC, is DAVE-decrypted as audio and played by the
-worker through `audio_io.rs` on the call's speakers (`stream_audio::Player`),
-about 100 ms queued; being deafened silences it, which Yapfast tells the worker
-with a `hear` control. Yapfast's workers play as "Yapfast", which sharing
+on the streamer's audio SSRC, is DAVE-decrypted as audio and handed to the
+player with each frame's RTP sequence number, timestamp, SSRC and arrival time
+(`stream_connection::ReceivedSound`), so it can put the sound back in order and
+give up on what no longer matters. The player plays 20 ms a turn: frames wait
+in sequence order, at most 200 ms of them, and it starts once three wait
+(60 ms), or after 100 ms with a single one. A packet missing for 60 ms gets its
+slot made up by the next packet's forward error correction, or by Opus's
+concealment, and the packet that carried it still plays on its own turn; five
+packets missing in a row (100 ms) mean the sender has stopped, so silence plays
+and the playout starts again when sound comes. Duplicates, packets whose slot
+played, frames that waited over 300 ms in the queue, and anything past the
+queue's bound are dropped, and another SSRC or a timestamp a second away starts
+it again (`stream_audio::Playout`). It keeps about 100 ms queued on the output
+device (`audio_io.rs`), which is a device buffer apart from that network one: a
+device that disappears keeps the player ticking on silence, with a fresh buffer
+when it returns. Being deafened drops what waited, so nothing old plays on
+unmute, which Yapfast tells the worker with a `hear` control. Yapfast's workers
+play as "Yapfast", which sharing
 leaves out, so a stream you watch never reaches one you share. Watching a
 stream from Discord's own client works: H264 with DAVE. Discord's client shows
 Yapfast's stream at 1080p with its sound, without the call's.

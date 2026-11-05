@@ -544,6 +544,13 @@ pub fn parse(packet: &[u8]) -> Option<Packet<'_>> {
     })
 }
 
+/// Whether RTP sequence number `a` comes before `b`, across the wrap: of two
+/// numbers, the one less than half the sequence space behind the other is
+/// the older.
+pub fn before(a: u16, b: u16) -> bool {
+    a != b && b.wrapping_sub(a) < 0x8000
+}
+
 /// A whole received frame, as the sender encoded it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Assembled {
@@ -1536,6 +1543,23 @@ pub fn sender_reports(mut rtcp: &[u8]) -> Vec<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn orders_sequence_numbers_across_the_wrap() {
+        assert!(before(1, 2));
+        assert!(!before(2, 1));
+        assert!(!before(7, 7), "a packet is not before itself");
+        assert!(before(65_535, 0), "the wrap is a step, not a jump");
+        assert!(before(65_534, 1));
+        assert!(
+            !before(1, 65_534),
+            "and the other way round: that came later"
+        );
+        // Half the sequence space apart: whichever reading is taken, the
+        // other is as far on.
+        assert!(!before(0, 0x8000));
+        assert!(before(0x8000, 0));
+    }
 
     #[test]
     fn reads_report_blocks() {

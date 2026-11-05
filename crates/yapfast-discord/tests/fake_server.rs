@@ -17,7 +17,9 @@ use yapfast_discord::{
     service::{Discord, Live, Snapshot, Status},
     settings::CustomStatus,
     stream,
-    stream_connection::{Frame, Link, SEND_CODEC, Sound, StreamReceiver, StreamSender},
+    stream_connection::{
+        Frame, Link, ReceivedSound, SEND_CODEC, Sound, StreamReceiver, StreamSender,
+    },
     token,
     voice::{Call, Listener},
 };
@@ -356,9 +358,25 @@ fn watch_frames(
         }
     }
     assert_eq!(receiver.link(), Link::Connected);
-    let heard: Vec<Vec<u8>> = sounds.try_iter().collect();
+    let heard: Vec<ReceivedSound> = sounds.try_iter().collect();
     assert!(heard.len() >= 5, "only {} sounds arrived", heard.len());
-    assert!(heard.iter().all(|sound| sound == &[0xf8, 0xff, 0xfe]));
+    assert!(heard.iter().all(|sound| sound.opus == [0xf8, 0xff, 0xfe]));
+    // Each came with the sender's numbering: one SSRC, which is the stream's
+    // audio SSRC the fake streams on, and sequences and timestamps that move
+    // forward 20 ms of sound at a time. A full queue drops sound, so the
+    // numbering can skip; it never goes back.
+    let ssrc = heard[0].ssrc;
+    assert!(heard.iter().all(|sound| sound.ssrc == ssrc));
+    for (earlier, later) in heard.iter().zip(heard.iter().skip(1)) {
+        assert!(
+            earlier.sequence.wrapping_sub(later.sequence) > 0x8000,
+            "{} came after {}",
+            later.sequence,
+            earlier.sequence
+        );
+        let step = later.timestamp.wrapping_sub(earlier.timestamp);
+        assert!(step > 0 && step % 960 == 0, "{step} samples between frames");
+    }
     frames
 }
 

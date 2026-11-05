@@ -64,6 +64,10 @@ const SURPLUS: usize = 2;
 /// With this many to spare a frame goes quiet or not.
 const SURPLUS_MOST: usize = 5;
 
+/// A decoded frame quieter than this, in mean square of full scale, can be
+/// skipped unheard: -40 dBFS.
+pub const QUIET: f32 = 1e-4;
+
 impl Surplus {
     /// Notes how many frames wait as one is taken to play.
     pub fn note(&mut self, waiting: usize) {
