@@ -243,6 +243,11 @@ impl SwitcherShown {
     }
 }
 
+/// What a message row in the thread beside the channel takes across beside
+/// its content: the space before the avatar, the avatar and the space after
+/// it, and the space at the end, as `ThreadPanel` lays it out.
+const ASIDE_GUTTER: i32 = 16 + 40 + 16 + 16;
+
 impl Adapter {
     /// Shows what a burst of backend events can have changed.
     pub(super) fn show(&mut self, window: &YapfastWindow, reach: Reach) {
@@ -2719,6 +2724,12 @@ impl Adapter {
             Some(Compose::Edit { .. }) => "Editing your message".into(),
             None => SharedString::default(),
         });
+        // Pictures and link previews fit the panel's width beside the avatar.
+        let fit = window.get_aside_shown() as i32 - ASIDE_GUTTER;
+        if self.aside_fit != fit {
+            self.aside_fit = fit;
+            self.aside_restyle = true;
+        }
         if Arc::ptr_eq(&self.aside_messages, &aside.messages) && !self.aside_restyle {
             return;
         }
@@ -2735,7 +2746,12 @@ impl Adapter {
             &self.aside_messages,
             &aside.messages,
             &marks,
-            |message| layout.restyle(message, message_row(message, marks.revealed)),
+            |message| {
+                layout.restyle(
+                    message,
+                    message_row_within(message, marks.revealed, Some(fit)),
+                )
+            },
         );
         self.aside_messages = aside.messages.clone();
     }

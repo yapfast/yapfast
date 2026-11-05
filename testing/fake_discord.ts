@@ -136,7 +136,8 @@
 // POST /_control/embeds makes Bob post an article link, whose preview arrives
 // a moment later in a MESSAGE_UPDATE as Discord's does, a YouTube link and a
 // GIF link, and a bot post a card with fields; their pictures come from
-// /external/, standing in for Discord's media proxy.
+// /external/, standing in for Discord's media proxy. They go to #general, or
+// with ?channel=ID to that channel or thread.
 // The soundboard: GET /soundboard-default-sounds gives six of Discord's own,
 // and op 31 "Server"'s two, Bob's laugh with :talk: and Carol's applause.
 // POST /channels/{id}/send-soundboard-sound plays one in the call Alice is in,
@@ -6819,16 +6820,16 @@ function articleEmbed(origin: string) {
   };
 }
 
-function postEmbeds(origin: string) {
+function postEmbeds(origin: string, channel = GENERAL) {
   const now = Date.now();
-  const article = post(GENERAL, users.bob, `Have you seen this? ${ARTICLE}`, now);
+  const article = post(channel, users.bob, `Have you seen this? ${ARTICLE}`, now);
   dispatch("MESSAGE_CREATE", dispatched(article, origin));
   // Discord fetches the page after the message is sent, then updates it.
   setTimeout(() => {
     article.embeds = (origin) => [articleEmbed(origin)];
     dispatch("MESSAGE_UPDATE", previewUpdate(article, origin));
   }, 800);
-  const video = post(GENERAL, users.bob, "This one too https://www.youtube.com/watch?v=talk", now + 1, {
+  const video = post(channel, users.bob, "This one too https://www.youtube.com/watch?v=talk", now + 1, {
     embeds: (origin) => [
       {
         type: "video",
@@ -6844,7 +6845,7 @@ function postEmbeds(origin: string) {
     ],
   });
   dispatch("MESSAGE_CREATE", dispatched(video, origin));
-  const gif = post(GENERAL, users.bob, "https://tenor.com/view/bike-gif-1", now + 2, {
+  const gif = post(channel, users.bob, "https://tenor.com/view/bike-gif-1", now + 2, {
     embeds: (origin) => [
       {
         type: "gifv",
@@ -6856,7 +6857,7 @@ function postEmbeds(origin: string) {
     ],
   });
   dispatch("MESSAGE_CREATE", dispatched(gif, origin));
-  const card = post(GENERAL, statusBot, "", now + 3, {
+  const card = post(channel, statusBot, "", now + 3, {
     embeds: (origin) => [
       {
         type: "rich",
@@ -7998,7 +7999,7 @@ const server = Bun.serve<SocketData>({
       return new Response(message.id);
     }
     if (req.method === "POST" && path === "/_control/embeds") {
-      postEmbeds(origin);
+      postEmbeds(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("embeds posted\n");
     }
     if (req.method === "POST" && path === "/_control/gallery") {

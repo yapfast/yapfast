@@ -944,10 +944,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter.layout.write(&adapter.root);
     });
     let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_aside_resized(move |width| {
         let mut adapter = state.borrow_mut();
         adapter.layout.aside_width = Some(width);
         adapter.layout.write(&adapter.root);
+        // Its pictures and link previews fit the new width.
+        if let Some(window) = weak.upgrade()
+            && adapter.app.state.aside.is_some()
+        {
+            adapter.show_aside(&window);
+        }
     });
     let state = adapter.clone();
     window.on_gif_picker_width_chosen(move |width| {
@@ -1581,66 +1588,23 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .action(&window, Action::SelectRoom(id.into()));
         }
     });
-    let state = adapter.clone();
-    let weak = window.as_weak();
-    window.on_composer_caret(move |text, offset| {
-        let Some(window) = weak.upgrade() else { return };
-        // Choosing a suggestion moves the cursor while it's being handled.
-        let Ok(mut adapter) = state.try_borrow_mut() else {
-            return;
+    for aside in [false, true] {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        let caret = move |text: SharedString, offset: i32| {
+            let Some(window) = weak.upgrade() else { return };
+            // Choosing a suggestion moves the cursor while it's being handled.
+            let Ok(mut adapter) = state.try_borrow_mut() else {
+                return;
+            };
+            composer_caret(&mut adapter, &window, &text, offset, aside);
         };
-        // The cursor moves before the edit is reported; take the text first, so the
-        // refresh below doesn't put back the text before it.
-        if adapter.app.state.draft() != text.as_str() {
-            adapter.action(&window, Action::SetDraft(text.to_string()));
+        if aside {
+            window.on_aside_composer_caret(caret);
+        } else {
+            window.on_composer_caret(caret);
         }
-        let offset = usize::try_from(offset).ok();
-        adapter.caret = adapter.app.state.selected.clone().zip(offset);
-        // The `:name` word, unless its suggestions were closed.
-        let word = offset.and_then(|offset| emoji::query(&text, offset));
-        if word.is_none() {
-            adapter.emoji_dismissed = None;
-        }
-        let word = word
-            .filter(|(at, _)| adapter.emoji_dismissed != Some(*at))
-            .map(|(at, name)| (at, name.to_owned()));
-        if adapter.emoji_word != word {
-            adapter.emoji_word = word;
-            window.set_emoji_suggestion_index(0);
-            adapter.show_emoji_suggestions(&window);
-            // Custom emoji show their pictures once they arrive.
-            let wanted: Vec<String> = adapter
-                .app
-                .usable_emoji()
-                .into_iter()
-                .flat_map(|set| set.emoji)
-                .filter(|custom| {
-                    let key = emoji::custom_key(custom);
-                    !adapter.app.state.pictures.contains_key(&custom.picture)
-                        && adapter
-                            .models
-                            .emoji_suggestions
-                            .iter()
-                            .any(|cell| cell.key == key)
-                })
-                .map(|custom| custom.picture)
-                .collect();
-            if !wanted.is_empty() {
-                adapter.action(&window, Action::LoadPictures(wanted));
-            }
-        }
-        let found = offset.and_then(|offset| mention::query(&text, offset));
-        if found.is_none() {
-            adapter.mention_dismissed = None;
-        }
-        let found = found.filter(|(at, _)| adapter.mention_dismissed != Some(*at));
-        adapter.mention_at = found.map(|(at, _)| at);
-        let query = found.map(|(_, query)| query.to_owned());
-        if adapter.app.state.mention_query != query {
-            window.set_mention_index(0);
-            adapter.action(&window, Action::MentionQuery(query));
-        }
-    });
+    }
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_mention_chosen(move |index| {
@@ -1662,7 +1626,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             ) else {
                 return;
             };
-            let text = adapter.app.state.draft().to_owned();
+            let aside = adapter.suggesting_aside;
+            let text = adapter.composer_text(aside);
             let end = at + 1 + query.len();
             if text.get(at..end) != Some(format!("@{query}").as_str()) {
                 return;
@@ -1671,11 +1636,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let text = format!("{}{inserted}{}", &text[..at], &text[end..]);
             adapter.mention_at = None;
             adapter.action(&window, Action::MentionQuery(None));
-            adapter.action(&window, Action::SetDraft(text));
-            at + inserted.len()
+            adapter.set_composer_text(&window, aside, text);
+            (aside, at + inserted.len())
         };
-        window.invoke_place_composer_caret(i32::try_from(caret).unwrap_or(i32::MAX));
-        window.invoke_focus_composer();
+        place_composer_caret(&window, caret);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -1691,18 +1655,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let (Some(chosen), Some((at, name))) = (chosen, word) else {
                 return;
             };
-            let text = adapter.app.state.draft().to_owned();
+            let aside = adapter.suggesting_aside;
+            let text = adapter.composer_text(aside);
             let end = at + 1 + name.len();
             if text.get(at..end) != Some(format!(":{name}").as_str()) {
                 return;
             }
             let inserted = format!("{} ", emoji::composer_text(&chosen.key));
             let text = format!("{}{inserted}{}", &text[..at], &text[end..]);
-            adapter.action(&window, Action::SetDraft(text));
-            at + inserted.len()
+            adapter.set_composer_text(&window, aside, text);
+            (aside, at + inserted.len())
         };
-        window.invoke_place_composer_caret(i32::try_from(caret).unwrap_or(i32::MAX));
-        window.invoke_focus_composer();
+        place_composer_caret(&window, caret);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -2595,6 +2559,93 @@ thread_local! {
 
 /// Films with the chosen camera into the voice settings' preview, which is
 /// about 400 by 225 points.
+/// Puts the cursor at a byte offset in the channel's composer, or the
+/// thread's beside it, and the keyboard there.
+fn place_composer_caret(window: &YapfastWindow, (aside, caret): (bool, usize)) {
+    let caret = i32::try_from(caret).unwrap_or(i32::MAX);
+    if aside {
+        window.invoke_place_aside_composer_caret(caret);
+    } else {
+        window.invoke_place_composer_caret(caret);
+        window.invoke_focus_composer();
+    }
+}
+
+/// The text and cursor of the channel's composer, or of the thread's beside
+/// it with `aside`: the `:name` and `@` or `#` words it suggests for.
+fn composer_caret(
+    adapter: &mut Adapter,
+    window: &YapfastWindow,
+    text: &str,
+    offset: i32,
+    aside: bool,
+) {
+    // The cursor moves before the edit is reported; take the text first, so the
+    // refresh below doesn't put back the text before it.
+    if aside {
+        if adapter.app.state.aside_draft() != text {
+            adapter.action(window, Action::SetAsideDraft(text.to_owned()));
+        }
+    } else if adapter.app.state.draft() != text {
+        adapter.action(window, Action::SetDraft(text.to_owned()));
+    }
+    let offset = usize::try_from(offset).ok();
+    if !aside {
+        adapter.caret = adapter.app.state.selected.clone().zip(offset);
+    }
+    // Suggestions follow the composer typed in last, as do what was closed.
+    if adapter.suggesting_aside != aside {
+        adapter.suggesting_aside = aside;
+        adapter.mention_dismissed = None;
+        adapter.emoji_dismissed = None;
+        window.set_suggesting_aside(aside);
+    }
+    // The `:name` word, unless its suggestions were closed.
+    let word = offset.and_then(|offset| emoji::query(text, offset));
+    if word.is_none() {
+        adapter.emoji_dismissed = None;
+    }
+    let word = word
+        .filter(|(at, _)| adapter.emoji_dismissed != Some(*at))
+        .map(|(at, name)| (at, name.to_owned()));
+    if adapter.emoji_word != word {
+        adapter.emoji_word = word;
+        window.set_emoji_suggestion_index(0);
+        adapter.show_emoji_suggestions(window);
+        // Custom emoji show their pictures once they arrive.
+        let wanted: Vec<String> = adapter
+            .app
+            .usable_emoji()
+            .into_iter()
+            .flat_map(|set| set.emoji)
+            .filter(|custom| {
+                let key = emoji::custom_key(custom);
+                !adapter.app.state.pictures.contains_key(&custom.picture)
+                    && adapter
+                        .models
+                        .emoji_suggestions
+                        .iter()
+                        .any(|cell| cell.key == key)
+            })
+            .map(|custom| custom.picture)
+            .collect();
+        if !wanted.is_empty() {
+            adapter.action(window, Action::LoadPictures(wanted));
+        }
+    }
+    let found = offset.and_then(|offset| mention::query(text, offset));
+    if found.is_none() {
+        adapter.mention_dismissed = None;
+    }
+    let found = found.filter(|(at, _)| adapter.mention_dismissed != Some(*at));
+    adapter.mention_at = found.map(|(at, _)| at);
+    let query = found.map(|(_, query)| query.to_owned());
+    if adapter.app.state.mention_query != query {
+        window.set_mention_index(0);
+        adapter.action(window, Action::MentionQuery(query));
+    }
+}
+
 fn start_camera_test(adapter: &mut Adapter, window: &YapfastWindow) {
     let scale = window.window().scale_factor();
     let feed = yapfast_core::picture::Feed::new();

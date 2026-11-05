@@ -452,6 +452,21 @@ pub(super) fn show_message(window: &YapfastWindow, index: usize, item: &str, lit
 /// `{item}/{index}` for text and `{item}/a{index}` for attachments, and what
 /// was picked or shown on polls; see `polls`.
 pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> MessageRow {
+    message_row_within(message, revealed, None)
+}
+
+/// [`message_row`] with its pictures, and its link previews', shrunk to fit
+/// `fit` pixels beside the avatar, as the narrow thread beside a channel has.
+pub(super) fn message_row_within(
+    message: &ChatMessage,
+    revealed: &HashSet<String>,
+    fit: Option<i32>,
+) -> MessageRow {
+    let laid_out =
+        |previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool, room: Option<i32>| match room {
+            Some(room) => gallery_within(previews, covered, room.max(1)),
+            None => gallery(previews, covered),
+        };
     // Plain text shows as typed, its web addresses linked.
     // Mentions link to who they mention, which opens their card.
     // Custom emoji show as their glyphs once they have them.
@@ -500,7 +515,8 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             .collect()
     };
     let covered = |index: usize| !revealed.contains(&format!("{}/a{index}", message.item));
-    let (images, gallery_width, gallery_height) = gallery(&previews(Placement::Message), &covered);
+    let (images, gallery_width, gallery_height) =
+        laid_out(&previews(Placement::Message), &covered, fit);
     let stickers = previews(Placement::Sticker)
         .into_iter()
         .map(|(index, attachment, preview)| {
@@ -537,9 +553,18 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         .iter()
         .enumerate()
         .map(|(index, embed)| {
-            let (images, gallery_width, gallery_height) =
-                gallery(&previews(Placement::Embed(index)), &covered);
             let thumbnail = previews(Placement::Thumbnail(index)).into_iter().next();
+            // A card's padding, and its thumbnail beside the text, take from it.
+            let room = fit.map(|fit| {
+                fit - EMBED_PADDING
+                    - if thumbnail.is_some() {
+                        EMBED_THUMBNAIL
+                    } else {
+                        0
+                    }
+            });
+            let (images, gallery_width, gallery_height) =
+                laid_out(&previews(Placement::Embed(index)), &covered, room);
             let description_blocks = markdown_blocks(&embed.description);
             EmbedCard {
                 color: role_color(embed.color),
@@ -872,6 +897,11 @@ fn card_row<'a>(
 
 /// The widest a card's gallery shows, inside the card's padding.
 const CARD_GALLERY_WIDTH: i32 = 566;
+/// What a link preview's card takes across beside its pictures, as
+/// `EmbedView` in ui/messages.slint pads it: 16px each side.
+const EMBED_PADDING: i32 = 32;
+/// A card's thumbnail and the space before it, as `EmbedView` lays it out.
+const EMBED_THUMBNAIL: i32 = 96;
 
 fn card_button(
     button: &yapfast_core::chat::CardButton,
