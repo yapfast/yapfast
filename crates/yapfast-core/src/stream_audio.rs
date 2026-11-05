@@ -69,8 +69,8 @@ const STALE: Duration = Duration::from_millis(300);
 /// The furthest a frame's timestamp may fall from where the last played one
 /// left the stream: a second, in samples. Beyond, the sender began again.
 const JUMP: i32 = 48_000;
-/// Printed at most this often: what waits, and what concealment, drops and
-/// skips did.
+/// Printed at most this often: what waits, and how much of what came was
+/// lost, trimmed, skipped or stopped short.
 const LOG_EVERY: Duration = Duration::from_secs(5);
 
 /// Whether an application, by its name or program, is Yapfast or a Discord
@@ -369,20 +369,47 @@ enum Turn {
     Wait(Duration),
 }
 
-/// What a stream's sound did, for the log.
+/// Why the playhead had no packet of its own to play.
+#[derive(Clone, Copy)]
+enum Missing {
+    /// The sender's numbering skipped it while still sending: packet loss.
+    Lost,
+    /// Nothing waited at all: the playhead outran the sender, which stalled
+    /// or whose clock runs slow. Sound comes next, just after its slot.
+    Starved,
+    /// It came, and Opus couldn't read it.
+    Broken,
+    /// The queue's bound dropped it before its turn: too much sound came for
+    /// the time the queue may hold, which a sender running fast does.
+    Trimmed,
+}
+
+/// What a stream's sound did, for the log. Loss and the several ways sound
+/// goes unheard without being lost are separate, since a gap in a sender's
+/// numbering and a queue it overruns mean opposite things.
 #[derive(Debug, Default)]
 struct Counts {
     /// Frames that came, and how many of those played.
     came: u64,
     played: u64,
-    /// Turns made up for a packet that didn't come.
-    concealed: u64,
-    /// Frames dropped: too late to play, twice, or past a bound.
+    /// Turns made up for a sequence number the sender skipped while still
+    /// sending: packet loss, which a gap in its numbering is.
+    lost: u64,
+    /// Turns the playhead had nothing at all to play. A slow sender leaves
+    /// these at intervals instead of skipping numbers, so for one this grows
+    /// and `lost` doesn't.
+    starved: u64,
+    /// Turns made up for a packet that came and Opus couldn't read, which is
+    /// a codec fault rather than the link's.
+    broken: u64,
+    /// Frames a bound dropped before their turn, for the room they took or
+    /// the time they would have added to the delay. A sender running fast
+    /// meets the bound with frames still coming; a lossy one meets it never.
+    trimmed: u64,
+    /// Frames that came after their slot had played, or waited through a
+    /// stall: sound that was late, which a slow sender's is.
     late: u64,
     duplicate: u64,
-    /// Frames a full queue dropped to keep the delay it adds bounded: the
-    /// oldest one that wasn't about to play.
-    over: u64,
     /// Frames dropped unheard for the room a queue had to spare: the drift a
     /// sender running fast adds, taken a turn at a time.
     skipped: u64,
@@ -421,9 +448,11 @@ struct Playout {
     /// where it begins, not how long it plays, so what the queue holds counts
     /// the last one's length. Zero until one has decoded.
     packet: u32,
-    /// The first frame a bound dropped, whose slot the playhead conceals at
-    /// once rather than waiting [`LATE`] for sound already gone.
-    dropped: Option<u16>,
+    /// The stretch of sequence numbers a bound emptied, first to last. The
+    /// playhead conceals their slots at once rather than waiting [`LATE`] for
+    /// sound it knows is gone, and can tell that trimming from the sender's
+    /// loss.
+    dropped: Option<(u16, u16)>,
     /// Frames taken a little faster than they play.
     surplus: Surplus,
     counts: Counts,
@@ -597,17 +626,39 @@ impl Playout {
         let Some(gone) = self.waiting.remove(at) else {
             return false;
         };
-        self.counts.over += 1;
+        self.counts.trimmed += 1;
         if self
             .next
             .is_some_and(|next| rtp::before(next, gone.sequence))
         {
-            // The playhead would wait [`LATE`] for a hole a bound made
-            // itself: the first one it meets is concealed at once instead,
-            // and the ones after it are concealed without waiting anyway.
-            self.dropped.get_or_insert(gone.sequence);
+            // Widen the stretch of dropped sequence numbers: the playhead
+            // would wait [`LATE`] for a hole a bound made itself, and their
+            // slots are the queue's trimming rather than the sender's loss.
+            self.dropped = Some(match self.dropped {
+                Some((first, last)) if rtp::before(gone.sequence, first) => (gone.sequence, last),
+                Some((first, last)) if rtp::before(last, gone.sequence) => (first, gone.sequence),
+                // A burst drops the newest in order, which a stretch already
+                // covers; one inside it changes nothing.
+                Some(stretch) => stretch,
+                None => (gone.sequence, gone.sequence),
+            });
         }
         true
+    }
+
+    /// Whether the playhead's missing packet, `sequence`, is one a bound
+    /// emptied rather than one the sender lost: the queue's own doing, not
+    /// the link's. Forgets a stretch once the playhead has played past it, so
+    /// a run of loss can't hide behind an old trim.
+    fn trimmed(&mut self, sequence: u16) -> bool {
+        let Some((first, last)) = self.dropped else {
+            return false;
+        };
+        if rtp::before(last, sequence) {
+            self.dropped = None;
+            return false;
+        }
+        !rtp::before(sequence, first)
     }
 
     /// The next 20 ms into `self.pcm`, or how long to wait for something to
@@ -661,10 +712,6 @@ impl Playout {
         self.missing = 0;
         self.hold = None;
         self.next = Some(next.wrapping_add(1));
-        if self.dropped == Some(next) {
-            // A bound dropped it, and it came after all: it plays.
-            self.dropped = None;
-        }
         let samples = match self.decoder.decode(&frame.opus, &mut self.pcm, false) {
             Ok(samples) => samples,
             Err(error) => {
@@ -676,12 +723,12 @@ impl Playout {
                 );
                 self.packet = SAMPLES as u32;
                 self.expected = Some(frame.timestamp.wrapping_add(SAMPLES as u32));
-                return self.conceal();
+                return self.conceal(Missing::Broken);
             }
         };
         self.expected = Some(frame.timestamp.wrapping_add(samples as u32));
         if samples == 0 {
-            return self.conceal();
+            return self.conceal(Missing::Broken);
         }
         // How long this one plays, which the next queue bound counts.
         self.packet = samples as u32;
@@ -699,6 +746,7 @@ impl Playout {
     /// The playhead's packet is missing, and nothing waits after it.
     fn play_nothing(&mut self, next: u16) -> Turn {
         self.hold = None;
+        let trimmed = self.trimmed(next);
         self.missing = self.missing.saturating_add(1);
         self.next = Some(next.wrapping_add(1));
         self.expected = self
@@ -707,30 +755,38 @@ impl Playout {
         if self.missing >= GONE {
             // The sender stopped, rather than a packet coming late: silence
             // while waiting for it to start again, not made-up sound for
-            // ever.
+            // ever. A stretch of slots the queue's own bound emptied ends the
+            // same way, which is how a playhead far behind a fast sender gets
+            // back to the sound that's here instead of chasing what it
+            // dropped.
             self.next = None;
             self.missing = 0;
             self.surplus = Surplus::default();
-            // A hole a bound made means nothing to a stream that began again.
             self.dropped = None;
             return self.silence();
         }
-        self.conceal()
+        self.conceal(if trimmed {
+            Missing::Trimmed
+        } else {
+            Missing::Starved
+        })
     }
 
     /// The playhead's packet is missing, and a later one waits: gives it
     /// [`LATE`], then makes up its 20 ms, and plays that one when its own
     /// turn comes.
     fn play_missing(&mut self, next: u16, now: Instant) -> Turn {
-        // A bound dropped this frame, so it's gone for certain: its slot is
-        // concealed now rather than waited for.
-        let dropped = self.dropped == Some(next);
-        if dropped {
-            self.dropped = None;
-        }
+        // A bound emptied this slot, so it's gone for certain: it's concealed
+        // now rather than waited for.
+        let trimmed = self.trimmed(next);
+        let missing = if trimmed {
+            Missing::Trimmed
+        } else {
+            Missing::Lost
+        };
         // Only the first gap of a run waits: the ones after it are concealed
         // at once, so a burst of loss never waits longer than one packet.
-        if self.missing == 0 && !dropped {
+        if self.missing == 0 && !trimmed {
             let hold = *self.hold.get_or_insert(now);
             let waited = now.saturating_duration_since(hold);
             if waited < LATE {
@@ -759,16 +815,32 @@ impl Playout {
         }
         match recovered {
             Some(samples) if samples > 0 => {
+                // The next packet's error correction made the sound up, but
+                // the packet is still the one that didn't come.
+                self.note(missing);
                 self.set_left(samples);
                 self.turn(Played::Concealed)
             }
-            _ => self.conceal(),
+            _ => self.conceal(missing),
         }
     }
 
-    /// 20 ms made up for a packet that didn't come.
-    fn conceal(&mut self) -> Turn {
-        self.counts.concealed += 1;
+    /// Counts a turn the playhead filled without the packet it wanted,
+    /// `missing` saying why.
+    fn note(&mut self, missing: Missing) {
+        match missing {
+            Missing::Lost => self.counts.lost += 1,
+            Missing::Starved => self.counts.starved += 1,
+            Missing::Broken => self.counts.broken += 1,
+            // The bound counted the frame it dropped, and its slot is what
+            // that count is of.
+            Missing::Trimmed => {}
+        }
+    }
+
+    /// 20 ms made up for a packet that didn't play, `missing` saying why.
+    fn conceal(&mut self, missing: Missing) -> Turn {
+        self.note(missing);
         match self.decoder.conceal(&mut self.pcm[..FRAME]) {
             Ok(samples) if samples > 0 => {
                 self.set_left(samples);
@@ -971,13 +1043,26 @@ fn play(
                 }
                 if logged.elapsed() >= LOG_EVERY {
                     logged = Instant::now();
-                    // `held` is samples per channel, against [`MOST_SAMPLES`]:
-                    // a queue near it is a sender the playout can't keep up
-                    // with, whatever the concealments and drops say.
+                    // The queue's delay in milliseconds, against the 200
+                    // [`MOST_SAMPLES`] allows: a queue near it is a sender
+                    // the playout can't keep up with. Which counter grew says
+                    // why — `lost` is the link dropping packets, `trimmed`
+                    // and `skipped` a sender running fast, and `starved` one
+                    // running slow — so a gap in a sender's numbering is
+                    // never read as a clock that disagrees.
                     tracing::debug!(
                         waiting = playout.waiting.len(),
-                        held = playout.held(),
-                        counts = ?playout.counts,
+                        held_ms = u64::from(playout.held()) * 1_000 / u64::from(RATE),
+                        came = playout.counts.came,
+                        played = playout.counts.played,
+                        lost = playout.counts.lost,
+                        starved = playout.counts.starved,
+                        broken = playout.counts.broken,
+                        trimmed = playout.counts.trimmed,
+                        late = playout.counts.late,
+                        duplicate = playout.counts.duplicate,
+                        skipped = playout.counts.skipped,
+                        restarts = playout.counts.restarts,
                         "stream sound played"
                     );
                 }
@@ -1644,7 +1729,10 @@ mod tests {
         // the newest end: the oldest went to make room.
         assert_eq!(playout.waiting.len(), 3);
         assert_eq!(playout.waiting.front().map(|frame| frame.sequence), Some(7));
-        assert!(playout.counts.over > 0, "the bound did the dropping");
+        assert!(
+            playout.counts.trimmed > 0,
+            "the time bound did the dropping"
+        );
     }
 
     #[test]
@@ -1669,7 +1757,7 @@ mod tests {
         );
         assert!(playout.held() <= MOST_SAMPLES);
         assert!(playout.waiting.len() <= MOST);
-        assert_eq!(playout.counts.over, 5, "the five dropped are counted");
+        assert_eq!(playout.counts.trimmed, 5, "the five dropped are counted");
         // What's left plays through without a gap or a wait: nothing was
         // taken out of the middle of it.
         for sequence in 1..=MOST {
@@ -1708,7 +1796,11 @@ mod tests {
                 assert!(matches!(turn, Turn::Play { .. }), "{at}: {turn:?}");
             }
         }
-        assert!(playout.counts.over > 0, "the bound trimmed the surplus");
+        assert!(playout.counts.trimmed > 0, "the bound trimmed the surplus");
+        assert_eq!(
+            playout.counts.lost, 0,
+            "every number came, so none of this is loss"
+        );
         // What's left plays out and empties, so the delay it was held to
         // doesn't stay raised once the sender stops outrunning the player.
         for _ in 0..MOST + usize::from(GONE) {
@@ -1719,7 +1811,38 @@ mod tests {
     }
 
     #[test]
-    fn a_slow_sender_is_concealed_rather_than_queued() {
+    fn a_fast_sender_is_trimmed_and_skipped_but_not_lost() {
+        let mut encoder = music();
+        let turns = 200;
+        let opus = tones(&mut encoder, turns * 20 / 19 + 2);
+        let mut playout = Playout::new().unwrap();
+        let start = Instant::now();
+        // A sender 5 % fast: a frame every 19 ms of the 20 ms it should be.
+        // The queue fills a little each turn until its bound trims it, and
+        // the turns the queue has to spare take a quiet one unheard.
+        let mut sent = 0;
+        for turn in 0..turns {
+            let now = start + Duration::from_millis(20) * turn as u32;
+            while sent * 19 <= turn * 20 {
+                let sequence = sent as u16;
+                let timestamp = u32::from(sequence) * SAMPLES as u32;
+                playout.push(sound(sequence, timestamp, 7, opus[sent].clone(), now), now);
+                sent += 1;
+            }
+            playout.next(now);
+        }
+        assert!(playout.counts.trimmed > 0, "the bound kept the delay down");
+        assert!(playout.counts.skipped > 0, "and a spare turn went unheard");
+        assert_eq!(
+            playout.counts.lost, 0,
+            "every number came, so none of this is loss"
+        );
+        assert_eq!(playout.counts.starved, 0, "and the queue never ran dry");
+        assert_eq!(playout.counts.restarts, 0, "the sender kept its numbering");
+    }
+
+    #[test]
+    fn a_slow_sender_starves_the_playhead_rather_than_losing_packets() {
         let mut encoder = music();
         let turns = 200;
         let opus = tones(&mut encoder, turns);
@@ -1744,13 +1867,85 @@ mod tests {
                 playout.held()
             );
         }
-        assert!(playout.counts.concealed > 0, "the missing sound is made up");
-        assert_eq!(playout.counts.over, 0, "nothing arrives too fast to play");
+        assert!(playout.counts.starved > 0, "the playhead ran dry");
+        assert!(
+            playout.counts.late > 0,
+            "and the sound it outran came after its slot"
+        );
+        assert_eq!(
+            playout.counts.lost, 0,
+            "the sender skipped no number: it's slow, not lossy"
+        );
+        assert_eq!(
+            playout.counts.trimmed, 0,
+            "nothing arrives too fast to play"
+        );
         assert_eq!(playout.counts.restarts, 0, "a slow sender isn't a new one");
         assert!(
             playout.counts.played > (turns * 3 / 4) as u64,
             "and sound plays through it"
         );
+    }
+
+    #[test]
+    fn a_lossy_stream_reports_loss_and_no_trimming() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, 8);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        // Three start it, and four more play on their own turns, so the
+        // playhead is at 5 with the queue empty behind it.
+        push_tones(&mut playout, &opus[..3], 0, 7, now);
+        assert_eq!(playout.next(now), PLAYING, "three start it");
+        push_tones(&mut playout, &opus[3..5], 3, 7, now);
+        for frame in 1..5 {
+            assert_eq!(playout.next(now), PLAYING, "frame {frame}");
+        }
+        // 5 and 6 never come and 7 does: a gap in the sender's numbering
+        // with sound after it, which is what loss looks like.
+        push_tones(&mut playout, &opus[7..], 7, 7, now);
+        assert_eq!(playout.next(now), Turn::Wait(LATE), "its slot waits for it");
+        assert_eq!(playout.next(now + LATE), CONCEALED, "5 is made up");
+        assert_eq!(playout.next(now + LATE), CONCEALED, "and 6");
+        assert_eq!(playout.next(now + LATE), PLAYING, "then 7 plays");
+        assert_eq!(playout.counts.lost, 2, "both gaps are loss");
+        assert_eq!(playout.counts.trimmed, 0, "nothing came too fast to hold");
+        assert_eq!(playout.counts.starved, 0, "the playhead never ran dry");
+        assert_eq!(playout.counts.skipped, 0, "and nothing went unheard");
+        assert_eq!(playout.counts.restarts, 0, "the sender kept sending");
+    }
+
+    #[test]
+    fn a_bound_emptied_slot_is_trimming_not_loss() {
+        let mut encoder = music();
+        let opus = tones(&mut encoder, MOST * 3);
+        let mut playout = Playout::new().unwrap();
+        let now = Instant::now();
+        push_tones(&mut playout, &opus[..START], 0, 7, now);
+        assert_eq!(playout.next(now), PLAYING, "three start it");
+        // A burst from a sender that outran the playout: everything past the
+        // queue's bounds goes, and those numbers can never come again.
+        push_tones(&mut playout, &opus[START..], START as u16, 7, now);
+        assert!(playout.counts.trimmed > 0, "the bounds dropped the far end");
+        // What's left plays, and then the emptied slots are made up at
+        // once: none of them is counted as a number the sender skipped, and
+        // the run of them is what says the playout should wait for sound it
+        // can play rather than chase what its own bound threw away.
+        for frame in 1..=MOST as u16 {
+            assert_eq!(playout.next(now), PLAYING, "frame {frame}");
+        }
+        for slot in MOST + 1..MOST + usize::from(GONE) {
+            assert_eq!(playout.next(now), CONCEALED, "trimmed slot {slot}");
+        }
+        assert_eq!(playout.next(now), SILENT, "then it waits for sound");
+        assert_eq!(playout.next, None);
+        assert_eq!(
+            playout.counts.trimmed,
+            (MOST * 2 - 1) as u64,
+            "each dropped frame is counted once"
+        );
+        assert_eq!(playout.counts.lost, 0, "not one of them is the link's");
+        assert_eq!(playout.counts.starved, 0, "nor a playhead outrun");
     }
 
     #[test]
