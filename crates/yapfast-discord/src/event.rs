@@ -122,6 +122,8 @@ events! {
     UserSettingsProtoUpdate = "USER_SETTINGS_PROTO_UPDATE",
     /// Notification settings, per server or for DMs.
     UserGuildSettingsUpdate = "USER_GUILD_SETTINGS_UPDATE",
+    /// This account's sessions on every device, and what each shows it doing.
+    SessionsReplace = "SESSIONS_REPLACE",
 }
 
 impl Event {
@@ -144,6 +146,7 @@ mod tests {
             ("READY", Event::Ready),
             ("RESUMED", Event::Resumed),
             ("READY_SUPPLEMENTAL", Event::ReadySupplemental),
+            ("SESSIONS_REPLACE", Event::SessionsReplace),
             ("MESSAGE_CREATE", Event::MessageCreate),
             ("MESSAGE_UPDATE", Event::MessageUpdate),
             ("MESSAGE_DELETE", Event::MessageDelete),

@@ -2408,7 +2408,10 @@ async fn shows_profiles() {
     } = Fixture::start("shows_profiles").await;
     // Bob's profile: in the server, his server bio wins over his own; from
     // a DM, his own shows.
-    let in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    let in_server = discord
+        .profile(&guild, &bob, Default::default(), |_| {})
+        .await
+        .unwrap();
     assert_eq!(in_server.name, "Bob");
     assert_eq!(in_server.pronouns.as_deref(), Some("he/him"));
     assert_eq!(in_server.bio.as_deref(), Some("Keeps #general tidy."));
@@ -2423,7 +2426,10 @@ async fn shows_profiles() {
     assert_eq!(in_server.mutual_servers[0].id, guild);
     assert_eq!(in_server.mutual_friends.len(), 1);
     assert_eq!(in_server.mutual_friends[0].name, "Carol");
-    let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
+    let own = discord
+        .profile(PRIVATE, &bob, Default::default(), |_| {})
+        .await
+        .unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
 }
@@ -4640,7 +4646,10 @@ async fn edits_the_server_profile() {
             .as_deref()
             .is_some_and(|banner| banner.contains("/banners/"))
     );
-    let card = discord.profile(&guild, &me, |_| {}).await.unwrap();
+    let card = discord
+        .profile(&guild, &me, Default::default(), |_| {})
+        .await
+        .unwrap();
     assert_eq!(card.bio.as_deref(), Some("Here for #general."));
     assert_eq!(card.pronouns.as_deref(), Some("she/her"));
     // Empty texts and no pictures go by her main profile again.
@@ -5675,6 +5684,7 @@ async fn edits_the_main_profile_as_discords_client_does() {
         .save_main_profile(
             &serde_json::json!({"global_name": "Ally", "avatar": dot}),
             &serde_json::json!({"bio": "Hi, I'm **Ally**", "pronouns": "she/her", "accent_color": 0x5865f2}),
+            None,
         )
         .await
         .unwrap();
@@ -5696,7 +5706,11 @@ async fn edits_the_main_profile_as_discords_client_does() {
     assert_eq!(own.accent, Some(0x5865f2));
     assert!(
         discord
-            .save_main_profile(&serde_json::json!({}), &serde_json::json!({"banner": dot}))
+            .save_main_profile(
+                &serde_json::json!({}),
+                &serde_json::json!({"banner": dot}),
+                None,
+            )
             .await
             .is_err(),
         "a banner takes Nitro"
@@ -5707,6 +5721,7 @@ async fn edits_the_main_profile_as_discords_client_does() {
         .save_main_profile(
             &serde_json::json!({"global_name": "", "avatar": null}),
             &serde_json::json!({"accent_color": null}),
+            None,
         )
         .await
         .unwrap();
@@ -5724,6 +5739,33 @@ async fn edits_the_main_profile_as_discords_client_does() {
         (own.name.as_str(), own.avatar, own.accent),
         ("", None, None)
     );
+    // The server tag she wears goes to its own endpoint, and shows in the
+    // profile fetched next; none takes it off.
+    let empty = serde_json::json!({});
+    let me = discord.snapshots().borrow().user_id.clone().unwrap();
+    let tag = async || {
+        discord
+            .profile(
+                yapfast_discord::ready::PRIVATE,
+                &me,
+                Default::default(),
+                |_| {},
+            )
+            .await
+            .unwrap()
+            .tag
+            .map(|tag| tag.text)
+    };
+    discord
+        .save_main_profile(&empty, &empty, Some(Some(&fixture.guild)))
+        .await
+        .unwrap();
+    assert_eq!(tag().await.as_deref(), Some("CREW"));
+    discord
+        .save_main_profile(&empty, &empty, Some(None))
+        .await
+        .unwrap();
+    assert_eq!(tag().await, None);
     post_control(server, "/_control/profile-reset", "");
     snapshot_where(discord, renamed("Alice")).await;
 }

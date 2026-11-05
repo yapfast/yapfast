@@ -679,6 +679,9 @@ impl Session<'_> {
         let activity = activity.filter(|_| self.tracker.show_game);
         self.show_playing(activity.as_deref());
         crate::own_activity::merge(&mut presence, activity.as_deref());
+        if self.tracker.shows_here(&presence["activities"]) {
+            self.publisher.changed();
+        }
         if presence != self.shared.presence {
             self.gateway.update_presence(presence.clone()).await?;
             self.shared
@@ -761,4 +764,117 @@ fn status_left(tracker: &Tracker) -> Duration {
         .map_or(Duration::from_secs(86_400 * 365), |at| {
             Duration::from_millis(at.saturating_sub(now_ms()))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use futures_util::{SinkExt, StreamExt};
+    use serde_json::json;
+    use tokio::{net::TcpListener, net::TcpStream, time::timeout};
+    use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
+
+    use super::*;
+
+    const WAIT: Duration = Duration::from_secs(10);
+
+    async fn command(peer: &mut WebSocketStream<TcpStream>) -> Value {
+        loop {
+            let message = timeout(WAIT, peer.next()).await.unwrap().unwrap().unwrap();
+            if let Message::Text(text) = message {
+                let command: Value = serde_json::from_str(text.as_str()).unwrap();
+                if command["op"] != 1 {
+                    return command;
+                }
+            }
+        }
+    }
+
+    async fn own_names(snapshots: &mut watch::Receiver<Arc<Snapshot>>, wanted: &[&str]) {
+        timeout(
+            WAIT,
+            snapshots.wait_for(|snapshot| {
+                snapshot
+                    .own_activities
+                    .iter()
+                    .map(|activity| &*activity.name)
+                    .eq(wanted.iter().copied())
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    }
+
+    /// Over sockets, from what this session and another show to what this
+    /// account's own card shows.
+    #[tokio::test]
+    async fn its_own_card_shows_every_session() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let presence = json!({"status": "online", "since": 0, "activities": [], "afk": false});
+        let ready = json!({
+            "session_id": "mine",
+            "user": {"id": "7", "username": "me"},
+            "sessions": [{"session_id": "mine", "active": true, "activities": []}],
+        });
+        let (connected, mut peer) =
+            tokio::join!(Gateway::connect_at(&url, presence.clone()), async {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut peer = accept_async(stream).await.unwrap();
+                let hello = json!({"op": 10, "d": {"heartbeat_interval": 45_000}});
+                peer.send(Message::text(hello.to_string())).await.unwrap();
+                assert_eq!(command(&mut peer).await["op"], 2);
+                let dispatch = json!({"op": 0, "s": 1, "t": "READY", "d": ready});
+                peer.send(Message::text(dispatch.to_string()))
+                    .await
+                    .unwrap();
+                peer
+            });
+        let (gateway, ready) = connected.unwrap();
+
+        let (snapshots, mut watcher) = watch::channel(Arc::new(Snapshot::default()));
+        let (live, _) = broadcast::channel(16);
+        let names = Arc::new(RwLock::new(Names::default()));
+        let (game, activity) = watch::channel(None);
+        let (show_game, _shown) = watch::channel(true);
+        let mut shared = Shared {
+            snapshots,
+            live: live.clone(),
+            names: names.clone(),
+            api: Arc::new(Api::anonymous().unwrap()),
+            lists: MemberLists::new(vec![], live, names, Presence::Online),
+            presence,
+            activity,
+            show_game,
+            inactive: None,
+            viewing: None,
+            beside: None,
+        };
+        let (_requests, mut received) = mpsc::unbounded_channel();
+        let session = tokio::spawn(async move {
+            connected_session(gateway, ready, &mut received, &mut shared).await;
+        });
+
+        // The game this session sends shows on its own card.
+        let playing = json!({"type": 0, "name": "Here"});
+        game.send_replace(Some(Arc::new(playing.clone())));
+        own_names(&mut watcher, &["Here"]).await;
+
+        // What another device shows comes in its own event.
+        let sessions = json!([
+            {"session_id": "mine", "active": true, "activities": [playing]},
+            {"session_id": "all", "active": true, "activities": [{"type": 3, "name": "Chess"}]},
+        ]);
+        let dispatch = json!({"op": 0, "s": 2, "t": "SESSIONS_REPLACE", "d": sessions});
+        peer.send(Message::text(dispatch.to_string()))
+            .await
+            .unwrap();
+        own_names(&mut watcher, &["Here", "Chess"]).await;
+
+        // Stopping takes it off.
+        game.send_replace(None);
+        own_names(&mut watcher, &["Chess"]).await;
+
+        session.abort();
+    }
 }

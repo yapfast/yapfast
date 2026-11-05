@@ -625,8 +625,10 @@ function wireUser(user: User) {
 // banner and banner colour with PATCH /users/@me/profile, each answered
 // with USER_UPDATE. An empty display name goes by her username, and null
 // takes a picture or colour away. The banner needs Nitro, and an animated
-// avatar Nitro or Classic, here `--nitro`. GET /_control/profile shows hers,
-// and POST /_control/profile-reset puts it back as it started.
+// avatar Nitro or Classic, here `--nitro`. PUT /users/@me/clan with
+// {identity_guild_id, identity_enabled} chooses the server tag she wears,
+// "CREW" for "Server", or takes it off with null. GET /_control/profile shows
+// hers, and POST /_control/profile-reset puts it back as it started.
 const memberRoles = new Map<string, string[]>();
 const memberNicks = new Map<string, string>();
 /** Server profiles by user: avatar and banner hashes, bio and pronouns. */
@@ -6243,6 +6245,18 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     dispatch("USER_UPDATE", wire);
     return json(wire);
   }
+  if (method === "PUT" && path === "/users/@me/clan") {
+    const body: any = await req.json().catch(() => ({}));
+    const alice: any = users.alice;
+    const guild = body.identity_guild_id;
+    if (guild !== null && guild !== GUILD) return json({ message: "Unknown Guild", code: 10004 }, 404);
+    alice.primary_guild = guild === null
+      ? null
+      : { identity_guild_id: guild, identity_enabled: body.identity_enabled, tag: "CREW", badge: "crew" };
+    const wire = { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 };
+    dispatch("USER_UPDATE", wire);
+    return json(wire);
+  }
   if (method === "PATCH" && path === "/users/@me/profile") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.pronouns === "string" && body.pronouns.length > 40) return tooLong("pronouns", 40);
@@ -7652,7 +7666,7 @@ const server = Bun.serve<SocketData>({
       return Response.json({ global_name, avatar, ...aliceProfile });
     }
     if (req.method === "POST" && path === "/_control/profile-reset") {
-      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1" });
+      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1", primary_guild: null });
       Object.assign(aliceProfile, { bio: "", pronouns: "", banner: null, accent_color: null });
       dispatch("USER_UPDATE", { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 });
       return new Response("Alice's profile is as it started\n");

@@ -228,11 +228,18 @@ threads](servers.md#a-channels-list-of-threads).
 Clicking someone in a channel's member list or under a voice channel, or
 following a Discord `/users/{id}` link,
 shows their profile in a small card beside it, whose picture or name
-enlarges it into a centred one. The card leaves the dates and the roles'
-heading to the full profile, and ends in a box, "Message @name", as
-Discord's does: Enter opens or starts the DM with them and sends what it
-holds there, without touching the DM's own composer. The box shows only for
-someone Yapfast can message, never for this account;
+enlarges it into the [full profile](#the-full-profile). The card leaves the
+dates and the roles' heading to the full profile, and ends in a box, "Message
+@name", as Discord's does: Enter opens or starts the DM with them and sends what
+it holds there, without touching the DM's own composer. The box shows only for
+someone Yapfast can message, never for this account, whose own card has Edit
+Profile there, and shows no mutuals, as its full profile doesn't either. The
+line of what's mutual stacks up to three of the mutual friends' avatars, 16
+pixels each, before its words, in the list's order: Discord's client sorts
+them by how much the account talks to them, which Yapfast doesn't know. With
+none in common it has no stack; Discord's client shows server icons there,
+which Yapfast leaves out. The badges go in a pill beside the handle and pronouns,
+which shorten with "…" to leave it room;
 right-clicking a DM and choosing "Profile" opens the full one. A one-to-one
 DM shows its other person's profile in a panel on the right, with the bio in
 full and the mutual servers and friends. Mutual servers show their icon and
@@ -254,7 +261,7 @@ a list to show first opens with the id as its name while that fetch runs.
 
 The profile shows each of the person's activities as a card, as Discord's does:
 what they're playing, streaming, listening to, watching or competing in, or
-their Hang status, headed by what it is ("LISTENING TO SPOTIFY"), with its
+their Hang status, headed by what it is ("Listening to Spotify"), with its
 large picture and the small one on its corner, its details and state, and their
 party's size as "(2 of 4)". A game with a start shows how long it has run,
 "42:10 elapsed"; one with only an end, how long is left; a song with both, a
@@ -276,6 +283,220 @@ once a second, and only while a profile with one shows. Matrix members and
 one-to-one Matrix DMs get the same card with their name, Matrix ID, avatar and
 room role.
 
+A card takes the rest of its look from the profile, the server's before their
+own. `theme_colors` colours it, darkened on a dark theme, with its text picked
+to read on them; `avatar_decoration_data.asset` frames the picture, and an
+avatar or banner whose hash starts `a_` moves, each as the [profile
+switches](#profile-switches) allow; the user's
+`primary_guild` is the server tag after the name, unless `identity_enabled` is
+false. `display_name_styles` `{font_id, effect_id, colors}` draws the name, in
+one of the fonts in `ui/fonts/names`; a font Yapfast doesn't have falls back to
+the UI's typeface. The custom status is a bubble beside the picture, two lines
+until pointed at.
+
+With [Play profile effects](#profile-switches) on, a profile effect comes from
+`profile_effect.sku_id` through `GET /collectibles-products/{sku}`, once for each: `items[].effects[]`, APNG layers on
+a 450 by 880 canvas. It starts half a second after all its layers arrive, fades
+while the card is pointed at, and holds a layer that loops with no wait when its
+file says it plays a set number of times. Clicking one's own picture on a card
+opens the editor.
+
+### Profile switches
+
+Settings → Appearance → Profiles has a switch for each cosmetic that downloads
+or moves (`Cosmetics` in `application/cosmetics.rs`, `Looks` in
+`ui/theme.slint`, saved in `layout.json`). What's off is left out before
+anything is asked for: the core requests no picture for it, the card gets
+nothing of it, and the profile is fetched without asking Discord about the
+effect or frame (`DiscordCommand::Profile`'s `collectibles`). Discord's
+profile is kept without them, so turning one on shows it when the profile is
+next fetched.
+
+| Switch | Off | Starts |
+| --- | --- | --- |
+| Play profile effects (`profile_effects`) | No `/collectibles-products/` request for the effect, and none of its layers | Off |
+| Show avatar decorations and profile frames (`decorations`) | No decoration, no frame request and none of its layers | On |
+| Animate profiles (`moving_profiles`) | A moving avatar or banner comes as its PNG still, a decoration without `passthrough`, so one frame, and styled names hold still | Off |
+| Show name styles (`name_styles`) | The name in the UI's typeface and the theme's colour | On |
+| Show server tags (`server_tags`) | No tag and no badge picture | On |
+
+Effects and motion start off: they cost a decode of every frame and a redraw
+for each while a card shows, for looks alone. The others start on: a
+decoration, a frame, a tag's badge and a still banner are a picture or a few,
+decoded once, and name styles use the fonts Yapfast carries, so they ask for
+nothing.
+
+The account's menu, bottom left, is a card of its own, fetched as it opens with
+the same request as anyone's, with what the account shows it's doing, then Edit
+Profile, its status, Badges and Copy User ID.
+
+## The full profile
+
+The full profile is a window over the rest, with Discord's two parts: the
+person's card, which keeps their theme and effect, and tabs beside it. The
+card has their banner, picture, name, handle, pronouns, tag and badges, then
+Message, Add Friend when there's a friendship to offer, and the more button,
+then the bio, Member Since, Friends Since, roles and a line that opens the note's
+dialog; the note itself is only asked for there. On one's own, Edit Profile
+takes Message's place. Message closes the window and opens the DM. A window too
+narrow for both parts has the tabs under the card, and all of it scrolls.
+
+Its sizes are the client's stylesheet's: 962 wide and up to 800 tall, 48 clear
+of the window's edges, all of it under 929 wide, with the card 45.5% of the
+width, 300 to 400. A themed person's window takes on their colours, as
+`--profile-gradient-modal-background-color`: the two colours half and half, with
+the lightness held to 10% or less, or 80% or more on a light theme, so a card in
+dark colours blends into it and a bright one stands out. Without a theme the
+window is a shade darker than the card. Their Message button is the first colour
+darkened or brightened until white on it contrasts 7 to 10
+(`--profile-gradient-button-color`). A friend has a button between Message and
+the more button; it opens the same menu, where Discord's has a shorter one.
+
+With [decorations and frames](#profile-switches) on, a profile frame comes from
+the profile's `collectibles`, the item of type `profile_frame`, through `GET /collectibles-products/{sku}`: `inner_width`, the
+overflows, and `layers` of `{id, type, order, anchor}`, each a still at
+`/media/v1/collectibles-shop/{sku}/{id}/static`. The client has no moving
+version of these. It scales them so `inner_width` is the card's width and draws
+them past its edges: over the card from the front layers, behind it from the
+back, and on the full profile without a foot's. It hides them there in a window
+785 tall or less. The small card shows them too, without the room Discord leaves around it.
+
+Friends Since comes from `since` on the relationship in READY and
+RELATIONSHIP_ADD, for a friend. Dates here read as Discord writes them, "Feb 21,
+2026".
+
+The tabs, in the client's order and by its rules:
+
+| Tab | Shows when | Label |
+| --- | --- | --- |
+| Board | It's one's own, or they have widgets | Board |
+| Activity | Always | Activity |
+| Wishlist | It's one's own, or it's public and they're a friend or share a server | Wishlist |
+| Mutual friends | It isn't one's own | "3 Mutual Friends", "No Mutual Friends", or "Mutual Friends" until Discord says |
+| Mutual servers | It isn't one's own | The same, of servers |
+
+Activity lists the call they're in, from the voice states Yapfast keeps for each
+DM and channel this account sees, with Join when `can_join_voice` allows; their
+activities under "Current activity"; then under "Recent activity", from `GET
+/content-inventory/users/{id}/outbox` when the tab first opens, what they listened
+to (`extra.entries[0].media`: its `title`, first artist and `image_url`), watched
+(`extra.media_title`) and played (`extra.game_name`), each with how long ago, from
+`ended_at`, else `started_at`.
+
+The first that shows opens first, so a board comes before activity. The tabs
+don't move when one's chosen, and what's long scrolls under them. An empty
+Activity or mutual tab says what the client's does. It picks from several
+lines at random and Yapfast always says the first. It also opens on the Wishlist
+for some accounts, under an experiment, which Yapfast doesn't.
+
+Yapfast differs in two ways, both so it asks for less. The client fetches a
+wishlist when the window opens, and hides the tab if that comes back empty;
+Yapfast asks when the tab opens, and an empty one stays, with a line saying so.
+It leaves out the client's age check on the wishlist (`nsfwAllowed`), and the
+wishlist's Filter and Browse the Shop, and doesn't track new items. A private
+list or a refusal says so in a line.
+
+Other people's board and wishlist come only for the full profile, and only
+when their tab opens: `GET /games` and `GET /applications/public` for the board's
+names, read-only, once for each profile shown, and the wishlist as under [Board and
+Wishlist](#board-and-wishlist). A wishlist that failed is asked for again when
+its tab next opens. A profile that arrives after the tab opened asks then. A
+small card and the DM's panel ask for neither, and show them not at all.
+
+### Board and Wishlist
+
+The full profile's Board and Wishlist tabs show what someone has on Discord,
+read-only, one's own included. Long ones scroll under the tabs' headings. They
+never show on a card, as reading them costs requests a card shouldn't make.
+
+The Board comes with the profile: `widgets`, each `{id, data: {type, ...}}`. A
+game list's `data` holds `games: [{game_id, comment, tags}]`, read as the client
+reads them (its `Widget` record's `fromServer`), a game listed twice showing once
+and an unknown type left out. Their headings are the client's:
+
+| `type` | Heading | Shows |
+| --- | --- | --- |
+| `favorite_games` | Favorite Game | Its game and comment |
+| `current_games` | Games in Rotation | Its games |
+| `want_to_play_games` | Want to Play | Its games |
+| `played_games` | Games I Like | Its games |
+| `application` | The application's name, from `GET /applications/public` | A line that it only shows in Discord |
+| `personal` | Personal | The same line |
+| `clips_gallery` | Clips Gallery | The same line |
+
+Games are named by `GET /games?game_ids=...`, at most 20 at once as the client
+asks, when the tab first opens, and only if it has any. A game's picture
+is `media.icon`, else `media.cover`, each `{type: "hash" | "url", value}`, where
+a hash is at `/app-icons/{game}/{hash}.png`. One Discord doesn't know is an
+"Unknown game", as in the client. Tags aren't shown.
+
+The Wishlist is asked for when its tab first opens, and again if that failed:
+`GET /wishlists/{id}?source=user_profile`, which the client uses for its own
+account's and for anyone's, the first id in the profile's `wishlist_settings`
+`{id: {updated_at, visibility}}`, where visibility 0 is private. Its only other
+route Yapfast knows of, `POST /users/@me/wishlist/items`, adds an item, which
+Yapfast never sends. With no id there's nothing on it, and a 403 or 404 says it's
+private; a private list of one's own loads, and says that. An item in
+`wishlist_items` is named by `sku.name`, else `sku_name`, and pictured by what it
+is, `sku.product_line`, else the item's `sku_product_line`:
+
+| Line | What | Picture |
+| --- | --- | --- |
+| 1 | Nitro | None: the client draws its own, so the card shows a letter |
+| 7 | Avatar decoration, by `type` 0 | `/avatar-decoration-presets/{asset}.png` |
+| 7 | Profile effect, by `type` 1 | `thumbnailPreviewSrc`, else `reducedMotionSrc`, `staticFrameSrc` |
+| 7 | Nameplate, by `type` 2 | `/media/v1/collectibles-shop/{sku}/static` |
+| 7 | Profile frame, by `type` 3 | `/media/v1/collectibles-shop/{sku}/{layer}/static`, the first layer not `responsive` |
+| 7 | Bundle | `sku.preview_asset_paths.fg_static`, else the first thing in it with a picture |
+| 14 | A game's item | `/app-assets/{sku.application_id}/store/{asset}.webp`, the asset being `tenant_metadata.social_layer.card_image_asset_id`, else `thumbnail_asset_id` |
+
+A collectible's kind and `asset` are in `sku.tenant_metadata.collectibles.item`,
+else the item's `collectibles_item` or `bundle_items`. The client's card shows
+only lines 1, 7 and 14; Yapfast also shows others it can name, by the store
+picture if they have one.
+
+### Someone's badges
+
+Clicking a badge on someone's small card or full profile opens their badge
+window on that badge, unless they're a bot, whose badges keep their links; on
+one's own, it opens the account's window. The DM's panel keeps its links too. It's
+`GET /users/{id}/badges`, which lists what they own, with `GET
+/users/@me/badges` for this account's, as the client does, and it asks each time
+it opens. A profile's badge `id` maps to the window's number by the client's
+table (`profile::directory_id`).
+
+On the left are their avatar and name, shortened past 19 characters, their badges
+and View Your Badges, which opens the account's window. On the right is the
+chosen badge at the level the client picks: the one reached if owned, else the
+next, else the first. There's its art, the badge's name over the level's, or
+"Nitro" and the level for Nitro, or the badge's name alone without levels. Under
+that are "Beta" for Account Age, Streaming, Game Time and Game Variety, "{name}'s
+badge" and their `info_label`. "View yours" shows when this account owns the badge
+too, and opens its window on it, on a line of its own after three things.
+
+Then come the tiles: "Date unlocked" at the first level or "Level unlocked" past
+it, from `tier_obtained_at`, which a badge without a date leaves out, and
+rarity, the level's over the badge's. The requirement's words are this account's
+version, or the client's "You've maxed out this badge" when it has the last
+level. Then every level of theirs: dimmed and locked if not reached.
+
+A badge that can no longer be earned is marked Legacy Badge, says so to anyone
+without it, and gets one of the client's lines for a missing date, the same each
+time where the client picks at random. Its buttons open Discord's pages in the
+browser, and never give or buy anything:
+
+| Badge | Button | Page |
+| --- | --- | --- |
+| Staff | Work With Us | `/careers` |
+| Nitro | Nitro Home, or Get Nitro without it | `/store` |
+| Orbs | Orbs Shop | `/shop?tab=orbs` |
+| Quests | Quests Home | `/quest-home` |
+| Gifting | Send Gift | `/shop`; the client opens its gift dialog in place |
+
+Boosting has none, as the client's goes to settings with no page for it. The
+client also offers Nitro's Upgrade to someone on a lesser Nitro, and has newer
+layouts of this window under an experiment; Yapfast keeps to the one above.
+
 ## Editing one's main profile
 
 Edit Profile, in the account's menu bottom left, or Edit profile in My
@@ -294,33 +515,67 @@ profile's](#editing-ones-server-profile)). It reads the profile with `GET
   Profile Banner, with Change Banner and Remove Banner, in its place.
 - Bio, Markdown up to 190 characters, with what's left counted under it.
 
-Rather than Discord's form beside a preview, the editor is the large
-profile card itself, as it will show. A pencil beside the name, the
-pronouns after the username, and About Me turns each into a field in
-place, as does clicking the text; Enter, Escape or a click elsewhere on
-the card ends it. Hovering the avatar or banner darkens it under a
-pencil, and clicking it opens the file chooser, or a menu of Change and
-Remove when there's one to remove; without Nitro the banner opens the
-colour under it. A pill on the banner's corner says which profile it is.
-Once something changed, Discord's bar shows at the card's foot:
-"Careful — you have unsaved changes!", with Reset, which puts back what
-Discord has, and Save Changes. The card's top stays put as the bar or
-the colour opens.
+With Nitro, it also edits the profile's theme and the display name's style,
+and anyone may choose the server tag to wear.
 
-Discord's client checks the same Nitro as for server profiles: a banner
-takes `canUsePremiumProfileCustomization`, so `premium_type` 2, and an
-animated avatar `canUseAnimatedAvatar`, so 1 or 2. A GIF avatar without
-it says "An animated avatar takes Nitro." where the client offers Nitro;
-the rest, the bio included, is free. The client's colour picker suggests
-colours from the avatar and has an eyedropper; Yapfast takes the hex.
+The main profile's editor is laid out as Discord's: a column of what the
+profile wears on the left, the profile as it will show in the middle, and
+its Board, Activity and Wishlist tabs on the right, where the window is 880
+wide or more. Its avatar is 120 across and its banner 193 tall; a server
+profile's banner stays 210. The column lists, in Discord's order, the
+nameplate, the avatar and its decoration, the display name style, the theme
+and banner, and the profile effect and frame, each showing what's set: the
+decoration, effect and frame say they're on even when the [profile
+switches](#profile-switches) keep their pictures from showing. Yapfast has no
+windows to choose those collectibles, so their tiles open Discord's shop.
+Hide Styles folds the column away, sliding, and the Show Styles tab on the
+card's edge brings it back.
 
-Save Changes sends what changed, in up to two requests, as the client
+The name, the pronouns, the bio and the note are outlined while pointed at,
+the name with a pencil at its end, and clicking one turns it into a field in
+place; Enter, Escape or a click elsewhere on the card ends it. The note
+opens the note's dialog, as on anyone's profile. Hovering the avatar or banner
+darkens it under a pencil, and clicking it opens the file chooser, or a menu
+of Change and Remove when there's one to remove; without Nitro the banner
+opens the colour under it. The status bubble beside the avatar opens the
+custom status. Once something changed, Discord's bar shows at the card's
+foot: "Careful — you have unsaved changes!", with Reset, which puts back what
+Discord has, and Save Changes.
+
+The theme's tile has a handle for each of its two colours, top and bottom,
+each opening a colour picker of saturation, brightness and hue with the
+colour's code; one colour alone is used for both. The display name style's
+tile opens Discord's window for it: a font, an effect (Solid, Gradient, Neon,
+Toon, Pop, Gummy or Prism) and its colours, from Discord's presets or one's
+own, with the name on a profile card, a message and a member row, in light or
+dark, and Surprise Me. Its fonts are those in `ui/fonts/names`; Discord's
+Medieval isn't among them, so the window doesn't offer it. The usual font in
+Discord's usual white is no style at all. The server tag's chip beside the
+pronouns lists the servers this account is in that offer a tag, from their
+`profile` in READY, searchable, and No Server Tag.
+
+Discord's client checks the same Nitro as for server profiles: a banner, the
+theme and the name style take `canUsePremiumProfileCustomization`, so
+`premium_type` 2, and an animated avatar `canUseAnimatedAvatar`, so 1 or 2.
+A GIF avatar without it says "An animated avatar takes Nitro." where the
+client offers Nitro; the rest, the bio and the server tag included, is free.
+The client's colour picker suggests colours from the avatar and has an
+eyedropper; Yapfast's takes the hex or a point on the picker.
+
+Save Changes sends what changed, in up to three requests, as the client
 does:
 
-1. `PATCH /users/@me` with `global_name` and `avatar`. A cleared display
-   name goes as `""`.
-2. `PATCH /users/@me/profile` with `bio`, `pronouns`, `banner` and
-   `accent_color`, an integer, or `null` for the default.
+1. `PATCH /users/@me` with `global_name`, `avatar` and the name style as
+   `display_name_font_id`, `display_name_effect_id` and
+   `display_name_colors`, each `null` for none. A cleared display name goes
+   as `""`.
+2. `PATCH /users/@me/profile` with `bio`, `pronouns`, `banner`,
+   `accent_color`, an integer, or `null` for the default, and
+   `theme_colors`, the two colours.
+3. `PUT /users/@me/clan` with `identity_guild_id` and `identity_enabled`
+   for the Server Tag: the server's id and `true`, or `null` and `false`
+   for none. The client's own code has `primary_guild_id` for `PATCH
+   /users/@me` too, but its editor doesn't save the tag that way.
 
 Discord answers each with USER_UPDATE, which brings the new name and
 avatar to the account panel, messages and member lists. A picture goes
@@ -328,12 +583,34 @@ as for server profiles: the same crop and size, as a data URI, or `null`
 to remove it. The client never sends the bio, pronouns or banner to
 `/users/@me`, though Discord's docs list them there.
 
-The client's tab also has Profile Widgets, an avatar decoration, a
-nameplate, a profile effect, a frame, display name styles and, with
-Nitro, a profile theme of two colours in place of the banner colour, then
-the Server Tag and badges. Yapfast leaves them out, as it shows none of
-them. Changing the username, in My Account with the password, is left
-for later.
+Saving keeps the editor open, as Discord's does. Afterwards Yapfast asks for
+the profile again, for the editor and for the account's menu, which draws
+the tag, name style and theme from it, and drops the profiles it kept of this
+account. What was written or chosen while the save and that answer were on
+their way stays, as a change still to save; the rest takes what Discord now
+has. A save that fails part way, its first request through and a later one
+refused, shows Discord's refusal, asks for the profile in the same way and
+keeps all that's written, so what Discord took is no longer a change and
+what it refused still is. Save Changes waits until that answer comes.
+
+The client's tab also edits Profile Widgets, an avatar decoration, a
+nameplate, a profile effect, a frame and badges. Yapfast shows those but
+doesn't change them. Changing the username, in My Account with the password,
+is left for later.
+
+### The editor's tabs
+
+Board and Wishlist show what the account has on Discord, read only, as on
+[the full profile](#board-and-wishlist), the board's games named when the
+editor reads the profile and the wishlist asked for when its tab first opens,
+and again if that failed. Where Discord has its Add buttons, a line says
+adding more from Yapfast is coming soon. Activity shows what the account is
+doing, from its sessions. The `...` on the account's own activity cards, on
+its small card and in its menu, has View All Activity, which opens the
+editor on that tab, and Manage Privacy, which opens Settings → Game
+activity. The small card's menu is a popup of the window's, as popups inside
+a list's cards crashed; the account menu, itself a popup, draws its own
+inside it.
 
 ## Editing one's server profile
 
@@ -395,7 +672,9 @@ client never sends them there.
 
 Discord's editor also has a profile theme, an avatar decoration, display
 name styles, a nameplate, a profile effect and a frame, all Nitro and most
-bought from its shop. Yapfast leaves them out, as it shows none of them.
+bought from its shop. Yapfast leaves them out of the server profile's
+editor. Saving keeps it open and reads the profile back, as for the main
+profile.
 
 A member's server profile shows wherever Yapfast shows them in that server:
 their server avatar in the member list and on their messages, from their
@@ -445,6 +724,15 @@ disconnects, the one before shows again, and once none is left, the game
 detection found. The activity lasts through reconnecting to the gateway and
 is never saved. Presence updates keep to Discord's limit, as every other
 presence change does.
+
+## This account's own activities
+
+Discord's client doesn't take its own activities from a presence. It shows
+what its session sends, and the activities of the first other active session in
+READY's `sessions` and `SESSIONS_REPLACE`, without custom statuses, each
+`type:application_id:name` once, sorted as anyone's are, with one game at most.
+`Snapshot::own_activities` is that list. It fills the account's menu, its own
+profile card and its full profile's Activity tab, under Discord's headings.
 
 ## Game detection
 

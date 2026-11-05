@@ -17,6 +17,7 @@ fn owned(mfa: bool, email: bool) -> Application {
 fn account(app: &mut Application, mfa: bool, email: bool) {
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     snapshot.account = Some(yapfast_discord::service::Account {
+        username: None,
         name: "Alice".into(),
         avatar: String::new(),
         premium_type: 0,

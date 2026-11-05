@@ -107,11 +107,13 @@ impl Application {
             loading: fetch,
             kept: false,
             note: None,
+            ..Default::default()
         });
         if fetch {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
                 room,
                 user: person,
+                collectibles: self.state.cosmetics.collectibles(),
             }))]
         } else {
             vec![]
@@ -404,6 +406,11 @@ impl Application {
         snapshot: Arc<yapfast_discord::service::Snapshot>,
     ) -> Vec<Effect> {
         self.state.discord_online = snapshot.status == yapfast_discord::service::Status::Online;
+        self.state.account_id = snapshot.user_id.clone();
+        self.state.account_handle = snapshot
+            .account
+            .as_ref()
+            .and_then(|account| account.username.clone());
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
         {
@@ -457,6 +464,7 @@ impl Application {
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
+                    since: friend.since.map(yapfast_discord::message::long_date),
                 })
                 .collect();
         }
@@ -495,6 +503,9 @@ impl Application {
                 name: playing.name.clone(),
                 started_ms: playing.started_ms,
             });
+        }
+        if changed(|a, b| Arc::ptr_eq(&a.own_activities, &b.own_activities)) {
+            self.state.discord_activities = snapshot.own_activities.clone();
         }
         if changed(|a, b| Arc::ptr_eq(&a.friend_requests, &b.friend_requests)) {
             self.state.friend_requests = snapshot
@@ -565,6 +576,7 @@ impl Application {
         self.state.custom_status = None;
         self.state.discord_show_game = false;
         self.state.discord_playing = None;
+        self.state.discord_activities = Default::default();
         self.state.join_sounds.clear();
         self.state.sound_catalog = None;
         self.show_lists()
