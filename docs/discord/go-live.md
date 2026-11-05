@@ -114,7 +114,13 @@ some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
 the original sequence number before the payload (RFC 4588), and the repaired
 stream id (extension 12) in place of the stream id. An RTCP sender report goes
-out every second.
+out every second. A viewer that lost a packet asks for a whole frame with a
+picture loss indication (RTCP 206/1) or a full intra request (206/4), and
+Yapfast's streamer makes one at most every 500 ms, as a viewer may ask: every
+viewer who lost the same packet asks at once, and a keyframe is many times a
+frame, so a run of them at a rate that just dropped is lost in its turn. A
+keyframe it needs itself, after a frame was dropped or for a codec Discord
+switched to, is made at once, since nothing sent can be repaired without it.
 
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to

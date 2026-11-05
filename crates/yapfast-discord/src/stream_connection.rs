@@ -28,7 +28,9 @@ use crate::{
     voice_connection::{Connection, Identity, lock, receive, send_json},
 };
 
-/// How often a viewer may ask for a keyframe while frames are lost.
+/// How often a stream asks for a keyframe while frames are lost, and how
+/// often it makes one when asked: at most one a half second, whichever side
+/// of the stream it is.
 const KEYFRAME_REQUESTS: Duration = Duration::from_millis(500);
 /// How often a streamer sends an RTCP sender report.
 const SENDER_REPORTS: Duration = Duration::from_secs(1);
@@ -394,13 +396,24 @@ impl StreamSender {
     }
 
     /// Queues a frame. A full queue drops it and asks for a keyframe, so
-    /// viewers recover once the network catches up. A queue whose connection
-    /// has ended takes nothing and asks for nothing: the task that would read
-    /// a keyframe request has stopped.
+    /// viewers recover once the network catches up. Every frame dropped asks,
+    /// however lately a keyframe went: the frame after a drop has to be whole,
+    /// or the ones the encoder makes from it reference a picture nobody got.
+    /// A queue whose connection has ended takes nothing and asks for nothing:
+    /// the task that would read a keyframe request has stopped.
     pub fn send(&self, frame: Frame) {
         if let Err(mpsc::error::TrySendError::Full(_)) = self.frames.try_send(frame) {
             self.shared.keyframe.store(true, Ordering::Relaxed);
         }
+    }
+
+    /// Whether a frame queued now would be dropped: what an encoder asks
+    /// before it spends a frame's work on one the network can't take. The
+    /// queue is a few frames' slack against a stall, not a backlog to fill, so
+    /// a full one means waiting for it to drain and dropping the frame at its
+    /// source meanwhile.
+    pub fn backlogged(&self) -> bool {
+        self.frames.capacity() == 0
     }
 
     /// Announces a new frame size with the next frame.
@@ -638,6 +651,16 @@ async fn open(
     Ok(connection)
 }
 
+/// Whether a keyframe is made for a request that came at `now`: the first
+/// is, and then one a `KEYFRAME_REQUESTS` after the keyframe last made for
+/// one, `answered`. A viewer asks at most that often while frames are lost,
+/// and a streamer makes at most that often too, because every viewer who lost
+/// the same packet asks at once and a keyframe is many times a frame: a run of
+/// them at a rate that just dropped is lost in its turn, which asks again.
+fn keyframe_due(answered: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    answered.is_none_or(|answered| now.duration_since(answered) >= KEYFRAME_REQUESTS)
+}
+
 async fn send(
     server: &StreamServer,
     user: u64,
@@ -690,6 +713,9 @@ async fn send(
     // For RTCP sender reports: packets and payload bytes sent so far.
     let (mut packets, mut octets) = (0u32, 0u32);
     let mut reported = Instant::now() - SENDER_REPORTS;
+    // When a keyframe was last made for a viewer, which is how often one may
+    // be made; see `keyframe_due`.
+    let mut answered: Option<std::time::Instant> = None;
     // For the log: whether frames went out encrypted, and what came back.
     let mut encrypted = None;
     let mut sent = Sent::default();
@@ -834,7 +860,11 @@ async fn send(
                 if rtp::wants_keyframe(&rtcp) {
                     sent.requests += 1;
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
-                    shared.keyframe.store(true, Ordering::Relaxed);
+                    let now = std::time::Instant::now();
+                    if keyframe_due(answered, now) {
+                        answered = Some(now);
+                        shared.keyframe.store(true, Ordering::Relaxed);
+                    }
                 }
                 if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video) {
                     shared.estimate.store(estimate, Ordering::Relaxed);
@@ -1106,7 +1136,7 @@ async fn receive_stream(
     *lock(&shared.link) = Link::Connected;
 
     let mut incoming: HashMap<u32, Video> = HashMap::new();
-    let mut asked = Instant::now() - KEYFRAME_REQUESTS;
+    let mut asked: Option<std::time::Instant> = None;
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut keyframes = tokio::time::interval(KEYFRAME_REQUESTS);
@@ -1296,11 +1326,11 @@ async fn receive_stream(
         }
         // Ask for a keyframe after a loss, or when the decoder asked.
         if (lost || shared.keyframe.load(Ordering::Relaxed))
-            && asked.elapsed() >= KEYFRAME_REQUESTS
+            && keyframe_due(asked, now)
             && let Some(media) = streamer.video
         {
             shared.keyframe.store(false, Ordering::Relaxed);
-            asked = Instant::now();
+            asked = Some(now);
             received.keyframe_requests += 1;
             let mut request = rtp::picture_loss(connection.ssrc, media);
             connection.transport.seal(&mut request, rtp::RTCP_CLEAR)?;
@@ -1385,5 +1415,86 @@ mod tests {
             "250 packets, none of them in a burst of more than {BURST}"
         );
         assert_eq!(heard, sizes.len(), "sound is heard between every batch");
+    }
+
+    #[test]
+    fn answers_one_request_for_a_keyframe_a_half_second() {
+        // Viewers who lost the same packet ask together, and a rate cut loses
+        // what it sends, so requests come in runs. One keyframe a half second
+        // answers them, the first at once: a run of keyframes at a cut's rate
+        // would be lost in its turn, which asks for another.
+        let start = std::time::Instant::now();
+        let mut answered = None;
+        let mut made = vec![];
+        for at in [0u64, 1, 499, 500, 900, 1000, 1499, 1500] {
+            let now = start + Duration::from_millis(at);
+            if keyframe_due(answered, now) {
+                answered = Some(now);
+                made.push(at);
+            }
+        }
+        assert_eq!(
+            made,
+            [0, 500, 1000, 1500],
+            "one a half second, the first at once"
+        );
+        // A request a half second after the one before it is answered, so a
+        // stream keeps up with a viewer asking as often as it may.
+        let asked = start + Duration::from_millis(2000);
+        assert!(keyframe_due(Some(asked), asked + KEYFRAME_REQUESTS));
+        assert!(!keyframe_due(
+            Some(asked),
+            asked + KEYFRAME_REQUESTS - Duration::from_millis(1)
+        ));
+    }
+
+    #[test]
+    fn a_full_queue_drops_the_newest_frame_and_asks_for_a_whole_one() {
+        // The frame that doesn't fit is the one dropped, not one of those
+        // ahead of it: they are the pictures the next frames are encoded from,
+        // and nothing is encoded from a frame that never got queued. So the
+        // frame after it has to be whole, or the encoder's next frames would
+        // reference a picture no viewer received.
+        let (frames, mut queued) = mpsc::channel(4);
+        let (sounds, _heard) = mpsc::channel(8);
+        let shared = Shared::new((320, 180));
+        shared.keyframe.store(false, Ordering::Relaxed);
+        let sender = StreamSender {
+            frames,
+            sounds,
+            shared: shared.clone(),
+        };
+        let frame = |timestamp, keyframe| Frame {
+            data: Vec::new().into(),
+            codec: SEND_CODEC,
+            timestamp,
+            keyframe,
+        };
+        for at in 0..4 {
+            assert!(!sender.backlogged(), "{at} frames fit");
+            sender.send(frame(at, false));
+        }
+        assert!(
+            sender.backlogged(),
+            "four frames is as far ahead of the network as it can get"
+        );
+        assert!(
+            !shared.keyframe.load(Ordering::Relaxed),
+            "nothing dropped yet"
+        );
+        sender.send(frame(4, false));
+        assert!(
+            shared.keyframe.load(Ordering::Relaxed),
+            "the dropped frame's chain ends here"
+        );
+        let kept: Vec<u32> = std::iter::from_fn(|| queued.try_recv().ok())
+            .map(|frame| frame.timestamp)
+            .collect();
+        assert_eq!(
+            kept,
+            [0, 1, 2, 3],
+            "the newest went, not the ones before it"
+        );
+        assert!(!sender.backlogged(), "and room came back");
     }
 }
