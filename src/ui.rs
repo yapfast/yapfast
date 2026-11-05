@@ -1107,6 +1107,9 @@ fn show_motion(window: &YapfastWindow) {
         Animate::Never => false,
     };
     window.global::<Motion>().set_playing(playing);
+    // Animated emoji hold still with everything else, at once rather than at
+    // the next refresh.
+    i_slint_core::yapfast_emoji::set_playing(playing);
 }
 
 /// Where a setting's value is among its choices.

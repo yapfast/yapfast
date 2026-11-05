@@ -485,6 +485,9 @@ impl TextParagraph {
         let Some(glyph) = glyphs_it.next() else {
             return;
         };
+        // The item being drawn depends on the clock, so the next tick draws it
+        // again, as a selection's does.
+        crate::yapfast_emoji::track();
         let scale_factor = item_renderer.scale_factor().get();
         let width = frame.size().width as f32;
         if width <= 0.0 || scale_factor <= 0.0 {

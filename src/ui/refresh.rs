@@ -441,9 +441,8 @@ impl Adapter {
         // already false for it.
         let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
         self.animations.show(shown, pictures);
-        self.animations.start(pictures);
-        self.animations.drain();
-        self.animations.sync(window, playing);
+        self.animations.run(window, pictures);
+        self.animations.sync(window, playing, self.weak.clone());
     }
 
     /// The card an emoji in a message opened, built again while it is open, so

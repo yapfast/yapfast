@@ -435,19 +435,41 @@ impl Animations {
         }
     }
 
-    /// Moves the clock while playing, draws what shows a frame again, and
-    /// starts or stops the timer to suit what is on screen.
-    pub(super) fn sync(&mut self, window: &YapfastWindow, playing: bool) {
+    /// Takes what arrived from the decoders, starts what is wanted next, and
+    /// draws what shows a frame again. Called each tick and each refresh, so a
+    /// decode that finishes is seen at once rather than at the next change.
+    pub(super) fn run(&mut self, window: &YapfastWindow, pictures: &HashMap<String, Arc<Picture>>) {
+        self.start(pictures);
+        self.drain();
+        window
+            .global::<EmojiAnimations>()
+            .set_revision(i_slint_core::yapfast_emoji::revision() as i32);
+        window.window().request_redraw();
+    }
+
+    /// Sets whether the clock may move, and starts or stops the timer: it runs
+    /// while anything animates, or while frames are on their way, and it is
+    /// the clock itself that holds still when playback is off.
+    pub(super) fn sync(
+        &mut self,
+        window: &YapfastWindow,
+        playing: bool,
+        adapter: std::rc::Weak<RefCell<Adapter>>,
+    ) {
         i_slint_core::yapfast_emoji::set_playing(playing);
         self.side = frame_side(window.window().scale_factor());
-        let delay = i_slint_core::yapfast_emoji::shortest_delay().filter(|_| playing);
-        let Some(delay) = delay else {
+        let waiting = !self.decoding.is_empty()
+            || self.queue.len() > 0
+            || !i_slint_core::yapfast_emoji::is_empty();
+        if !waiting {
             self.timer.stop();
             self.interval = 0;
             return;
-        };
-        // A frame no faster than 16ms and no slower than 50 keeps the clock
-        // off a busy loop while still following a slow animation's own pace.
+        }
+        // A frame no faster than 16ms and no slower than 50 keeps the clock off
+        // a busy loop while still following a slow animation's own pace; with
+        // nothing registered yet, it only looks for what arrives.
+        let delay = i_slint_core::yapfast_emoji::shortest_delay().unwrap_or(30);
         let interval = u64::from(delay.clamp(16, 50));
         if self.timer.running() && self.interval == interval {
             return;
@@ -464,13 +486,14 @@ impl Animations {
                 let now = std::time::Instant::now();
                 let delta = now.saturating_duration_since(clock.replace(now));
                 i_slint_core::yapfast_emoji::advance(delta);
-                let Some(window) = weak.upgrade() else {
+                let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) else {
                     return;
                 };
-                window
-                    .global::<EmojiAnimations>()
-                    .set_revision(i_slint_core::yapfast_emoji::revision() as i32);
-                window.window().request_redraw();
+                let mut adapter = adapter.borrow_mut();
+                let Adapter {
+                    app, animations, ..
+                } = &mut *adapter;
+                animations.run(&window, &app.state.pictures);
             },
         );
     }

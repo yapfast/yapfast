@@ -673,6 +673,9 @@ export struct EmojiCard {
     glyph: string,
     /// Its picture, at the 48px the card draws it.
     picture: image,
+    /// A custom emoji's picture by address, asked for as the card shows it:
+    /// its still may not have arrived when the card opens.
+    picture-url: string,
     /// The name its animation is registered under, when it is a custom emoji
     /// that animates; "" draws the still alone.
     picture-key: string,
@@ -696,6 +699,16 @@ export component EmojiCardView inherits Rectangle {
     in property <EmojiCard> card;
     /// The id of the server clicked: it opens.
     callback open-server(string);
+    /// Its picture, asked for as the card shows it, as `Avatar` asks for one.
+    property <image> emoji-picture: root.card.picture-url != ""
+        ? PictureStore.picture(root.card.picture-url, PictureStore.revision)
+        : root.card.picture;
+    function request-emoji-picture() {
+        if root.card.picture-url != "" && root.emoji-picture.width == 0 {
+            PictureStore.request(root.card.picture-url);
+        }
+    }
+    changed emoji-picture => { root.request-emoji-picture(); }
     /// The emoji's own frame while its animation plays, by the name the rows
     /// register it under; empty for a still emoji.
     property <image> card-animation: root.card.picture-key == ""
@@ -708,7 +721,7 @@ export component EmojiCardView inherits Rectangle {
             PictureStore.request(root.card.server-picture-url);
         }
     }
-    init => { root.request-server-picture(); }
+    init => { root.request-emoji-picture(); root.request-server-picture(); }
     changed server-picture => { root.request-server-picture(); }
     /// How many of its members are online, then what the server is, on one
     /// line, as Discord's card has them.
@@ -732,11 +745,11 @@ export component EmojiCardView inherits Rectangle {
                     padding-top: 4px;
                     // Its frame while it animates, as the picker reads it, and
                     // the still it shows until then, or for a still emoji.
-                    if root.card-animation.width > 0 || root.card.picture.width > 0: Image {
-                        source: root.card-animation.width > 0 ? root.card-animation : root.card.picture;
+                    if root.card-animation.width > 0 || root.emoji-picture.width > 0: Image {
+                        source: root.card-animation.width > 0 ? root.card-animation : root.emoji-picture;
                         width: 48px; height: 48px; image-fit: contain;
                     }
-                    if root.card.picture.width == 0: Text {
+                    if root.card-animation.width == 0 && root.emoji-picture.width == 0: Text {
                         text: root.card.glyph; width: 48px; height: 48px;
                         horizontal-alignment: center; vertical-alignment: center; font-size: 40px;
                     }

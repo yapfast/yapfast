@@ -1252,6 +1252,9 @@ pub(super) fn emoji_card(
         name: listed
             .map_or_else(String::new, |emoji| emoji.text.clone())
             .into(),
+        picture_url: listed
+            .map_or_else(String::new, |emoji| emoji.picture.clone())
+            .into(),
         picture_key: picture_key.into(),
         picture: listed
             .map(|emoji| cached_picture(pictures, state, Some(&emoji.picture)))
