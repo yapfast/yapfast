@@ -636,6 +636,12 @@ impl Sink {
                 }
             }
         }
+        // A full queue drops the frame anyway, so the encode it would throw
+        // away is skipped; the request for a whole frame waits for the one
+        // that goes.
+        if video.sender.backlogged() {
+            return Ok(());
+        }
         let pts = self.started.elapsed().as_micros() as u64 * encode::CLOCK / 1_000_000;
         let keyframe = video.sender.take_keyframe_request();
         let codec = video.encoder.codec();
