@@ -318,7 +318,7 @@ impl MemberList {
                             .unwrap_or_default(),
                         group_icon: group
                             .as_ref()
-                            .and_then(|(id, _)| server?.role_icons.get(*id).cloned()),
+                            .and_then(|(id, _)| server?.group_role_icon(id)),
                         role_icon: server.and_then(|server| server.role_icon(&person.roles)),
                         presence: person.presence,
                         color: server.and_then(|server| server.color(&person.roles)),

@@ -184,6 +184,12 @@ pub struct Server {
     /// Its boost level, from 0 to 3, which raises everyone's upload limit
     /// in it; see [`crate::api::upload_limit`].
     pub premium_tier: u8,
+    /// Whether its boosts, or Discord, let its roles have icons: the
+    /// `ROLE_ICONS` feature, which boost level 2 gives. Discord keeps a
+    /// role's icon after a server loses it, so without this a member list
+    /// would go on drawing icons the client doesn't.
+    #[serde(default)]
+    pub role_icons_allowed: bool,
     /// 1 when its moderators need two-factor authentication, which its
     /// owner then needs to delete it or give it away.
     #[serde(default)]
@@ -1284,11 +1290,22 @@ impl Server {
     /// The picture of a member's highest role that has one, as Discord draws
     /// it by their name.
     pub fn role_icon(&self, roles: &[String]) -> Option<String> {
+        if !self.role_icons_allowed {
+            return None;
+        }
         roles
             .iter()
             .filter(|role| self.role_icons.contains_key(*role))
             .max_by_key(|role| self.role_positions.get(*role).copied().unwrap_or_default())
             .and_then(|role| self.role_icons.get(role).cloned())
+    }
+
+    /// The picture beside a role's group in a member list, while the server
+    /// may have role icons.
+    pub fn group_role_icon(&self, role: &str) -> Option<String> {
+        self.role_icons_allowed
+            .then(|| self.role_icons.get(role).cloned())
+            .flatten()
     }
 
     /// The colour Discord gives a member's name: their highest coloured role's.
@@ -1366,6 +1383,7 @@ pub fn server(guild: &Value) -> Option<Server> {
         member_count: guild["member_count"].as_u64(),
         owner_id,
         premium_tier: u8::try_from(premium_tier).unwrap_or(u8::MAX),
+        role_icons_allowed: premium_tier >= 2 || has("ROLE_ICONS"),
         mfa_level: guild["mfa_level"]
             .as_u64()
             .or_else(|| guild["properties"]["mfa_level"].as_u64())
@@ -1711,6 +1729,39 @@ mod tests {
             .map(|c| c.name.as_str())
             .collect();
         assert_eq!(names, ["Lounge", "Second"]);
+    }
+
+    #[test]
+    fn role_icons_show_only_where_the_server_may_have_them() {
+        let guild = |tier: u64, features: &[&str]| {
+            json!({
+                "id": "10",
+                "properties": {"name": "Test", "premium_tier": tier, "features": features},
+                "roles": [
+                    {"id": "10", "name": "@everyone", "permissions": "0", "position": 0},
+                    {"id": "20", "name": "Mods", "permissions": "0", "position": 2, "icon": "abc"},
+                ],
+            })
+        };
+        let mine = ["20".to_owned()];
+        for (tier, features, shown) in [
+            (0, &[][..], false),
+            (1, &["BANNER"][..], false),
+            (2, &[][..], true),
+            (3, &[][..], true),
+            (0, &["ROLE_ICONS"][..], true),
+        ] {
+            let server = server(&guild(tier, features)).unwrap();
+            assert_eq!(server.role_icon(&mine).is_some(), shown, "tier {tier}");
+            assert_eq!(server.group_role_icon("20").is_some(), shown, "tier {tier}");
+        }
+        let server = server(&guild(2, &[])).unwrap();
+        assert!(
+            server
+                .role_icon(&mine)
+                .unwrap()
+                .contains("/role-icons/20/abc.png")
+        );
     }
 
     #[test]

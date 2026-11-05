@@ -540,5 +540,8 @@ target/measure/yapfast-game-detection-probe /path/to/discord-games.json 30
 A role with an icon (`icon` on the role, from GUILD_CREATE and GUILD_ROLE_*)
 shows it 20px beside its group's name in the member list, and the highest role
 with an icon shows 16px before a member's tag in the list. The picture is
-`/role-icons/{role}/{hash}.png?size=64`. Unicode-emoji role icons and the icon
-beside a message author aren't drawn.
+`/role-icons/{role}/{hash}.png?size=64`. Only a server with the `ROLE_ICONS`
+feature, or at boost level 2 or 3, shows them: Discord keeps a role's icon when
+a server loses its boosts, and its client stops drawing it, so Yapfast does too.
+GUILD_UPDATE brings the change. Unicode-emoji role icons and the icon beside a
+message author aren't drawn.
