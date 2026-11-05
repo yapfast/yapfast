@@ -220,14 +220,18 @@ on the streamer's audio SSRC, is DAVE-decrypted as audio and handed to the
 player with each frame's RTP sequence number, timestamp, SSRC and arrival time
 (`stream_connection::ReceivedSound`), so it can put the sound back in order and
 give up on what no longer matters. The player plays 20 ms a turn: frames wait
-in sequence order, at most 200 ms of them, and it starts once three wait
+in sequence order, and the sound they hold is capped at 200 ms by their
+timestamps as well as ten frames by the room they take, so a music bot's 60 ms
+packets don't become 1.2 s of delay, and it starts once three wait
 (60 ms), or after 100 ms with a single one. A packet missing for 60 ms gets its
 slot made up by the next packet's forward error correction, or by Opus's
 concealment, and the packet that carried it still plays on its own turn; five
 packets missing in a row (100 ms) mean the sender has stopped, so silence plays
 and the playout starts again when sound comes. Duplicates, packets whose slot
 played, frames that waited over 300 ms in the queue, and anything past the
-queue's bound are dropped, and another SSRC or a timestamp a second away starts
+queue's bound are dropped — the sound that came too early goes, never the packet
+about to play — so a sender running fast has a frame a second dropped unheard
+while the queue is full, and another SSRC or a timestamp a second away starts
 it again (`stream_audio::Playout`). It keeps about 100 ms queued on the output
 device (`audio_io.rs`), which is a device buffer apart from that network one: a
 device that disappears keeps the player ticking on silence, with a fresh buffer
