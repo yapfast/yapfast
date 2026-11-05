@@ -1,5 +1,6 @@
 //! Shared client behavior. UI adapters dispatch actions and render the resulting state.
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::Arc,
@@ -22,6 +23,7 @@ mod browse;
 mod calls;
 mod channel_settings;
 mod compose;
+mod cosmetics;
 mod discord_account;
 mod forum;
 mod gifs;
@@ -53,6 +55,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
@@ -361,6 +364,33 @@ pub struct ProfileView {
     pub kept: bool,
     /// Why Discord didn't give the rest.
     pub note: Option<String>,
+    /// The full profile's Board or Wishlist tab has been opened, so a profile
+    /// that comes later is asked after in turn.
+    pub board_open: bool,
+    pub wishlist_open: bool,
+    pub activity_open: bool,
+}
+
+/// A tab on the full profile that asks Discord for more when it first opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileTab {
+    Board,
+    Activity,
+    Wishlist,
+}
+
+/// Someone's badge window.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PersonBadges {
+    pub user: String,
+    pub name: String,
+    /// The address of their avatar.
+    pub avatar: Option<String>,
+    /// The badge clicked to open it, by the window's number.
+    pub badge: Option<u64>,
+    /// What they own, once Discord says.
+    pub badges: Option<Vec<crate::chat::DirectoryBadge>>,
+    pub error: Option<String>,
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
@@ -458,6 +488,9 @@ pub struct AppState {
     /// it shows.
     pub discord_show_game: bool,
     pub discord_playing: Option<chat::Playing>,
+    /// What the Discord account shows it's doing, on this device and its
+    /// others, as its own profile shows it.
+    pub discord_activities: chat::Activities,
     /// How loud the Discord account's soundboard plays, as Discord keeps
     /// it: from 0 to 100, on its slider's curve.
     pub soundboard_volume: f32,
@@ -503,6 +536,21 @@ pub struct AppState {
     /// network gives them; a Discord-only build shows Discord's.
     pub account_name: Option<String>,
     pub account_avatar: Option<String>,
+    /// Discord's id and username for the account.
+    pub account_id: Option<String>,
+    pub account_handle: Option<String>,
+    /// The account's own profile, for its colours and banner once asked for.
+    pub account_profile: Option<Profile>,
+    /// Which of a profile's cosmetics show and are fetched.
+    pub cosmetics: Cosmetics,
+    /// The account's badge window: open, its badges once they've come, and why not.
+    pub badges_open: bool,
+    pub badges: Option<Vec<crate::chat::DirectoryBadge>>,
+    /// The badge to show first in the account's window, by the window's number.
+    pub badges_initial: Option<u64>,
+    /// Someone else's badge window.
+    pub person_badges: Option<PersonBadges>,
+    pub badges_error: Option<String>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -1416,6 +1464,21 @@ pub enum Action {
     /// Download pictures that show outside the state, such as the emoji
     /// picker's; see [`DiscordCommand::Pictures`].
     LoadPictures(Vec<String>),
+    /// Ask for the account's own profile, as its popout opens.
+    LoadOwnProfile,
+    /// A tab of the full profile opened.
+    OpenProfileTab(ProfileTab),
+    /// A badge on someone's profile was clicked, with the window's number for it.
+    ShowPersonBadges {
+        user: String,
+        badge: Option<u64>,
+    },
+    ClosePersonBadges,
+    /// From someone's badge window, to the account's, on this badge.
+    ShowOwnBadges(Option<u64>),
+    /// Open or close the account's badge window.
+    ShowBadges,
+    CloseBadges,
     Login {
         homeserver: String,
         username: String,
@@ -1879,6 +1942,10 @@ pub enum Action {
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
+    /// Which of profiles' cosmetics show, from Settings → Appearance. A
+    /// profile already open shows less at once, and more once it's fetched
+    /// again.
+    SetCosmetics(Cosmetics),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -2065,7 +2132,29 @@ fn pictures_on_screen<'a>(
     state: &'a AppState,
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
-) -> impl Iterator<Item = &'a str> {
+) -> impl Iterator<Item = Cow<'a, str>> {
+    // A profile's own pictures, as far as the profile switches let them show.
+    let cosmetics = state.cosmetics;
+    let profiles = state
+        .profile
+        .iter()
+        .chain(&state.panel_profile)
+        .flat_map(move |view| {
+            let profile = &view.profile;
+            let others = profile
+                .servers
+                .iter()
+                .flat_map(|server| [&server.icon, &server.banner])
+                .chain(profile.friends.iter().map(|friend| &friend.avatar))
+                .filter_map(Option::as_deref)
+                .map(Cow::Borrowed);
+            cosmetics
+                .avatar(profile)
+                .into_iter()
+                .chain(cosmetics.decoration(profile))
+                .chain(cosmetics.banner(profile))
+                .chain(others)
+        });
     state
         .servers
         .iter()
@@ -2221,25 +2310,6 @@ fn pictures_on_screen<'a>(
         }))
         .chain(
             state
-                .profile
-                .iter()
-                .chain(&state.panel_profile)
-                .flat_map(|view| {
-                    let profile = &view.profile;
-                    [&profile.avatar, &profile.banner]
-                        .into_iter()
-                        .chain(
-                            profile
-                                .servers
-                                .iter()
-                                .flat_map(|server| [&server.icon, &server.banner]),
-                        )
-                        .chain(profile.friends.iter().map(|friend| &friend.avatar))
-                        .filter_map(Option::as_deref)
-                }),
-        )
-        .chain(
-            state
                 .scoped_rooms()
                 .flat_map(|room| &room.people)
                 .filter_map(|person| person.avatar.as_deref()),
@@ -2292,6 +2362,8 @@ fn pictures_on_screen<'a>(
                 .flat_map(NewDm::people)
                 .filter_map(|person| person.avatar.as_deref()),
         )
+        .map(Cow::Borrowed)
+        .chain(profiles)
 }
 
 /// Discord's CDN keeps custom emoji under /emojis/.
@@ -2371,9 +2443,9 @@ impl Application {
         // Virtualized UI rows request their own avatars; this covers profiles,
         // calls and the custom emoji in nearby messages.
         for url in pictures_on_screen(state, timeline, false) {
-            if !self.requested_pictures.contains(url) {
-                self.requested_pictures.insert(url.to_owned());
-                wanted.push(url.to_owned());
+            if !self.requested_pictures.contains(&*url) {
+                self.requested_pictures.insert(url.clone().into_owned());
+                wanted.push(url.into_owned());
             }
         }
         self.pictured_timeline = self.state.messages.clone();
@@ -2382,9 +2454,9 @@ impl Application {
             && !Arc::ptr_eq(&self.pictured_aside, &aside.messages)
         {
             for url in pictures_on_screen(state, &aside.messages, false) {
-                if !self.requested_pictures.contains(url) {
-                    self.requested_pictures.insert(url.to_owned());
-                    wanted.push(url.to_owned());
+                if !self.requested_pictures.contains(&*url) {
+                    self.requested_pictures.insert(url.clone().into_owned());
+                    wanted.push(url.into_owned());
                 }
             }
             self.pictured_aside = aside.messages.clone();
@@ -2431,7 +2503,7 @@ impl Application {
                     .into_iter()
                     .flat_map(|aside| pictures_on_screen(&self.state, aside, true)),
             )
-            .map(str::to_owned)
+            .map(Cow::into_owned)
             .collect();
         let kept = |url: &String| shown.contains(url) || is_custom_emoji(url);
         self.state.pictures.retain(|url, _| kept(url));
@@ -2639,6 +2711,26 @@ impl Application {
             Action::Later => self.later(),
             Action::JumpToPresent => self.jump_to_present(),
             Action::LoadPictures(urls) => self.load_pictures(urls),
+            Action::LoadOwnProfile => self.load_own_profile(),
+            Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::ShowPersonBadges { user, badge } => self.show_person_badges(user, badge),
+            Action::ClosePersonBadges => {
+                self.state.person_badges = None;
+                vec![]
+            }
+            Action::ShowOwnBadges(badge) => {
+                self.state.person_badges = None;
+                self.state.badges_initial = badge;
+                self.show_own_badges()
+            }
+            Action::ShowBadges => {
+                self.state.badges_initial = None;
+                self.show_own_badges()
+            }
+            Action::CloseBadges => {
+                self.state.badges_open = false;
+                vec![]
+            }
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -3151,6 +3243,10 @@ impl Application {
                 self.state.sync_discord_reads = sync;
                 vec![]
             }
+            Action::SetCosmetics(cosmetics) => {
+                self.state.cosmetics = cosmetics;
+                vec![]
+            }
             Action::ShowProfile { user, large } => self.show_profile(user, large),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
@@ -3343,8 +3439,15 @@ impl Application {
                     self.state.notice = Some(message);
                 }
             }
-            Event::Profile { user, result } => self.show_fetched_profile(user, result),
-            Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
+            Event::Profile { user, result } => return self.show_fetched_profile(user, result),
+            Event::BadgeDirectory(result) => match result {
+                Ok(badges) => {
+                    self.state.badges = Some(badges);
+                    self.state.badges_error = None;
+                }
+                Err(error) => self.state.badges_error = Some(error),
+            },
+            Event::KeptProfile { user, profile } => return self.show_kept_profile(user, profile),
             Event::Members { room, members } => {
                 // A list that came stays when a later check finds none came.
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));
@@ -3448,6 +3551,10 @@ impl Application {
             Event::ServerTransferred { server, result } => self.server_transferred(server, result),
             Event::ServerPincodeSent { server, result } => self.server_pincode_sent(server, result),
             Event::OwnProfile { server, result } => self.own_profile_loaded(server, result),
+            Event::Wishlist { id, wishlist } => self.profile_wishlist_loaded(&id, &wishlist),
+            Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
+            Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
+            Event::PersonBadges { user, result } => self.person_badges_loaded(&user, result),
             Event::ProfilePicture { kind, path, result } => {
                 self.profile_picture_read(kind, path, result);
             }

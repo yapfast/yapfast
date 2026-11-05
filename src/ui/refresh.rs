@@ -292,6 +292,7 @@ impl Adapter {
         self.show_workspace(window);
         self.show_sidebar(window);
         self.show_account(window);
+        self.show_badges(window);
         // A server's search stays, with its words, in the server's channels.
         if changes.selection && self.app.state.search_shown().is_none() {
             window.set_search_text(SharedString::default());
@@ -862,6 +863,150 @@ impl Adapter {
         )));
     }
 
+    /// The account's badge window.
+    fn show_badges(&self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        window.set_badges_open(state.badges_open);
+        window.set_badges_note(
+            match (&state.badges, &state.badges_error) {
+                (None, Some(_)) => "Discord didn't share your badges.",
+                (None, None) => "Finding your badges...",
+                _ => "",
+            }
+            .into(),
+        );
+        let row = |badge: &yapfast_core::chat::DirectoryBadge| BadgeRow {
+            id: badge.id as i32,
+            // Headed as Discord heads it: the badge, and the level it's reached.
+            name: match badge.levels.iter().rev().find(|level| level.owned) {
+                Some(level) if badge.owned => format!("{} {}", badge.name, level.name),
+                _ => badge.name.clone(),
+            }
+            .to_uppercase()
+            .into(),
+            owned: badge.owned,
+            description: badge.description.as_str().into(),
+            info: badge.info.as_str().into(),
+            rarity: match badge.rarity {
+                1 => "Common",
+                2 => "Rare",
+                3 => "Epic",
+                5 => "Mythic",
+                _ => "",
+            }
+            .into(),
+            icon: badge.icon.as_str().into(),
+            art: badge.art.as_deref().unwrap_or(&badge.icon).into(),
+            unlocked: badge.unlocked.as_deref().unwrap_or_default().into(),
+            has_next: badge.next_name.is_some(),
+            next_name: badge.next_name.as_deref().unwrap_or_default().into(),
+            next_icon: badge.next_icon.as_deref().unwrap_or_default().into(),
+            current_icon: badge.icon.as_str().into(),
+            progress: if badge.span > 0 {
+                (badge.done as f32 / badge.span as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
+            helper: badge.helper.as_str().into(),
+            levels: ModelRc::new(VecModel::from(
+                badge
+                    .levels
+                    .iter()
+                    .map(|level| BadgeLevelRow {
+                        name: level.name.as_str().into(),
+                        icon: level.icon.as_str().into(),
+                        owned: level.owned,
+                        milestone: level.milestone.as_str().into(),
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+            ..Default::default()
+        };
+        let badges = state.badges.as_deref().unwrap_or_default();
+        let owned: Vec<_> = badges.iter().filter(|badge| badge.owned).map(row).collect();
+        let available: Vec<_> = badges
+            .iter()
+            .filter(|badge| !badge.owned && badge.earnable)
+            .map(row)
+            .collect();
+        let first = state
+            .badges_initial
+            .and_then(|id| {
+                badges
+                    .iter()
+                    .filter(|badge| badge.owned)
+                    .position(|badge| badge.id == id)
+            })
+            .unwrap_or(0);
+        window.set_badges_first(first as i32);
+        // Set only when they've come or changed, so the choice in the window stays.
+        if window.get_badges_owned().row_count() != owned.len()
+            || window.get_badges_available().row_count() != available.len()
+        {
+            window.set_badges_owned(ModelRc::new(VecModel::from(owned)));
+            window.set_badges_available(ModelRc::new(VecModel::from(available)));
+        }
+        self.show_person_badges(window);
+    }
+
+    /// Someone else's badge window, which shows what they own, with what this
+    /// account's own badges say of each.
+    fn show_person_badges(&self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let Some(person) = state.person_badges.as_ref() else {
+            window.set_person_badges_open(false);
+            return;
+        };
+        window.set_person_badges_name(profile::badge_window_name(&person.name).into());
+        window.set_person_badges_avatar(person.avatar.as_deref().unwrap_or_default().into());
+        window.set_person_badges_failed(person.badges.is_none() && person.error.is_some());
+        window.set_person_badges_note(
+            match (&person.badges, &person.error) {
+                (None, Some(_)) => "Oh no! Something went wrong.",
+                (None, None) => "Finding their badges...",
+                (Some(badges), _) if !badges.iter().any(|badge| badge.owned) => {
+                    "No badges to show."
+                }
+                _ => "",
+            }
+            .into(),
+        );
+        let mine = state.badges.as_deref().unwrap_or_default();
+        let badges = person.badges.as_deref().unwrap_or_default();
+        let rows: Vec<BadgeRow> = badges
+            .iter()
+            .filter(|badge| badge.owned)
+            .map(|badge| {
+                profile::person_badge_row(badge, mine.iter().find(|mine| mine.id == badge.id))
+            })
+            .collect();
+        let first = person
+            .badge
+            .and_then(|id| rows.iter().position(|row| i64::from(row.id) == id as i64))
+            .unwrap_or(0);
+        window.set_person_badges_first(first as i32);
+        // Compared so the choice in the window stays through a refresh.
+        let shown = window.get_person_badges();
+        let changed = shown.row_count() != rows.len()
+            || rows.iter().enumerate().any(|(index, row)| {
+                shown.row_data(index).is_none_or(|shown| {
+                    let levels = |row: &BadgeRow| row.levels.iter().collect::<Vec<_>>();
+                    levels(&shown) != levels(row)
+                        || BadgeRow {
+                            levels: ModelRc::default(),
+                            ..shown
+                        } != BadgeRow {
+                            levels: ModelRc::default(),
+                            ..row.clone()
+                        }
+                })
+            });
+        if changed {
+            window.set_person_badges(ModelRc::new(VecModel::from(rows)));
+        }
+        window.set_person_badges_open(true);
+    }
+
     /// The account at the bottom of the sidebar, and the notice.
     fn show_account(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
@@ -872,6 +1017,58 @@ impl Adapter {
             .unwrap_or_else(|| display_part(account));
         window.set_account(account.into());
         window.set_account_name(account_name.into());
+        window.set_account_id(state.account_id.clone().unwrap_or_default().into());
+        window.set_account_handle(state.account_handle.clone().unwrap_or_default().into());
+        let own = state.account_profile.as_ref();
+        if let Some(handle) = own
+            .map(|own| own.handle.as_str())
+            .filter(|handle| !handle.is_empty())
+        {
+            window.set_account_handle(handle.into());
+        }
+        let cosmetics = state.cosmetics;
+        let name_style = own.and_then(|own| cosmetics.name_style(own));
+        window.set_account_name_font(profile::name_font(name_style));
+        window.set_account_name_weight(profile::name_weight(name_style));
+        window.set_account_name_spacing(profile::name_spacing(name_style));
+        window.set_account_name_effect(profile::name_effect(name_style));
+        window.set_account_name_paint(profile::name_paint(name_style));
+        window.set_account_has_name_paint(profile::has_name_paint(name_style));
+        window.set_account_pronouns(own.map_or("", |own| own.pronouns.as_str()).into());
+        let tag = own.and_then(|own| cosmetics.tag(own));
+        window.set_account_tag_text(tag.map_or("", |tag| tag.text.as_str()).into());
+        window.set_account_tag_icon(
+            tag.and_then(|tag| tag.badge.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        let badges: Vec<_> = own
+            .into_iter()
+            .flat_map(|own| &own.badges)
+            .map(|badge| ProfileBadgeRow {
+                label: badge.description.clone().into(),
+                icon: badge.icon.clone().into(),
+                link: badge.link.clone().unwrap_or_default().into(),
+                directory: -1,
+            })
+            .collect();
+        window.set_account_badges(same_list(
+            &window.get_account_badges(),
+            ModelRc::new(VecModel::from(badges)),
+        ));
+        window.set_account_banner(
+            own.and_then(|own| cosmetics.banner(own))
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_account_accent(role_color(own.and_then(|own| own.accent)));
+        window.set_account_has_accent(own.is_some_and(|own| own.accent.is_some()));
+        let theme = own.and_then(|own| own.theme);
+        window.set_account_theme_top(role_color(theme.map(|[top, _]| top)));
+        window.set_account_theme_bottom(role_color(theme.map(|[_, bottom]| bottom)));
+        window.set_account_has_theme(theme.is_some());
+        window.set_account_theme_light(own.is_some_and(|own| own.theme_is_light()));
         window.set_account_initial(initial(account_name));
         window.set_account_tint(tint(account_name));
         window.set_account_picture(cached_picture(
@@ -904,6 +1101,10 @@ impl Adapter {
         window.set_show_game(state.discord_show_game);
         let playing = state.discord_playing.as_ref();
         window.set_game_activity_name(playing.map_or("", |playing| &playing.name).into());
+        window.set_account_activities(same_list(
+            &window.get_account_activities(),
+            activity_rows(&state.discord_activities),
+        ));
         window.set_discord_status(state.discord_presence.as_deref().unwrap_or("online").into());
         window.set_storage(state.storage.unwrap_or_default().into());
         window.set_notice(state.notice.as_deref().unwrap_or_default().into());
@@ -2166,6 +2367,7 @@ impl Adapter {
             loading: false,
             kept: false,
             note: None,
+            ..Default::default()
         };
         let mut preview = profile_data(&mut self.pictures, &self.app.state, &view);
         // Someone's own card offers them nothing.

@@ -1,0 +1,143 @@
+// A name in the style its owner picked: the same everywhere it shows.
+import { Motion } from "controls.slint";
+import { Looks } from "theme.slint";
+
+export global NameLetters {
+    pure callback letters(string) -> [string];
+    pure callback colour(string, string, int) -> color;
+}
+
+export struct NamePreset { key: string, c1: color, c2: color, c3: color, c4: color, c5: color }
+
+// A name drawn in a style, moving as Discord's stylesheet moves it: each effect's
+// keyframes below are its own, on the same loop, with its easing left out.
+export component StyledName inherits Rectangle {
+    in property <string> text;
+    in property <string> family;
+    in property <int> weight: 600;
+    in property <length> size: 16px;
+    in property <int> effect;
+    in property <NamePreset> paint;
+    /// What's drawn with no colours of its own picked.
+    in property <color> ink: #ffffff;
+    in property <bool> painted: true;
+    in property <length> spacing: 0px;
+    /// Whether it moves.
+    in property <bool> play: true;
+    /// The widest it may be; past that it ends in "…", as its row can't stretch.
+    in property <length> limit: 100000px;
+    property <bool> gummy: root.effect == 8;
+    property <bool> prism: root.effect == 7;
+    // Held still, each effect rests where its animation ends.
+    property <bool> moving: root.play && root.effect >= 3 && Motion.playing && Looks.moving-profiles;
+    property <float> clock: root.moving ? animation-tick() / 1ms : 3999;
+    property <float> at: Math.mod(root.clock, 4000) / 4000;
+    pure function ramp(t: float, from: float, to: float) -> float { return clamp((t - from) / (to - from), 0, 1); }
+    pure function pop-main(t: float) -> float {
+        if t < 0.18 { return -0.05 * root.ramp(t, 0, 0.18); }
+        if t < 0.35 { return -0.05 + 0.13 * root.ramp(t, 0.18, 0.35); }
+        return 0.08 * (1 - root.ramp(t, 0.35, 0.5));
+    }
+    pure function pop-shadow(t: float) -> float {
+        if t < 0.18 { return 0.08 + 0.05 * root.ramp(t, 0, 0.18); }
+        if t < 0.35 { return 0.13 * (1 - root.ramp(t, 0.18, 0.35)); }
+        return 0.08 * root.ramp(t, 0.35, 0.5);
+    }
+    pure function neon-flicker(t: float) -> float {
+        if t < 0.15 { return 0; }
+        if t < 0.16 { return root.ramp(t, 0.15, 0.16); }
+        if t < 0.18 { return 1 - root.ramp(t, 0.16, 0.18); }
+        if t < 0.20 { return 0; }
+        if t < 0.22 { return root.ramp(t, 0.20, 0.22); }
+        if t < 0.23 { return 1 - root.ramp(t, 0.22, 0.23); }
+        if t < 0.25 { return 0; }
+        if t < 0.28 { return root.ramp(t, 0.25, 0.28); }
+        return 1 - root.ramp(t, 0.28, 0.5);
+    }
+    pure function squish-x(t: float) -> float {
+        if t < 0.07 { return 1 + 0.28 * root.ramp(t, 0, 0.07); }
+        if t < 0.14 { return 1.28 - 0.46 * root.ramp(t, 0.07, 0.14); }
+        if t < 0.21 { return 0.82 + 0.28 * root.ramp(t, 0.14, 0.21); }
+        if t < 0.28 { return 1.1 - 0.14 * root.ramp(t, 0.21, 0.28); }
+        return 0.96 + 0.04 * root.ramp(t, 0.28, 0.35);
+    }
+    pure function squish-y(t: float) -> float {
+        if t < 0.07 { return 1 - 0.28 * root.ramp(t, 0, 0.07); }
+        if t < 0.14 { return 0.72 + 0.46 * root.ramp(t, 0.07, 0.14); }
+        if t < 0.21 { return 1.18 - 0.28 * root.ramp(t, 0.14, 0.21); }
+        if t < 0.28 { return 0.9 + 0.14 * root.ramp(t, 0.21, 0.28); }
+        return 1.04 - 0.04 * root.ramp(t, 0.28, 0.35);
+    }
+    // Prism's colours scroll round, so its stops are read off a moving place.
+    pure function prism-at(place: float) -> color {
+        let spot = Math.mod(place, 1) * 5;
+        let f = spot - floor(spot);
+        if spot < 1 { return root.paint.c1.mix(root.paint.c2, 1 - f); }
+        if spot < 2 { return root.paint.c2.mix(root.paint.c3, 1 - f); }
+        if spot < 3 { return root.paint.c3.mix(root.paint.c4, 1 - f); }
+        if spot < 4 { return root.paint.c4.mix(root.paint.c5, 1 - f); }
+        return root.paint.c5.mix(root.paint.c1, 1 - f);
+    }
+    property <float> prism-place: root.moving ? Math.mod(root.clock, 3000) / 3000 : 0;
+    // Toon's bands slide down its letters from 5% to 55% of the loop.
+    pure function toon-at(v: float) -> color {
+        let main = root.paint.c1;
+        let light = root.paint.c1.mix(#ffffff, 0.55);
+        if v < 0.25 { return #ffffff.mix(main, 1 - root.ramp(v, 0, 0.25)); }
+        if v < 0.45 { return main.mix(light, 1 - root.ramp(v, 0.25, 0.45)); }
+        if v < 0.55 { return light.mix(main, 1 - root.ramp(v, 0.45, 0.55)); }
+        if v < 0.75 { return main.mix(#ffffff, 1 - root.ramp(v, 0.55, 0.75)); }
+        return #ffffff.mix(light, 1 - root.ramp(v, 0.75, 1));
+    }
+    property <float> toon-place: root.ramp(root.at, 0.05, 0.55) * 0.5;
+    property <float> glow: root.moving ? abs(2 * Math.mod(root.clock, 1666) / 1666 - 1) : 0.5;
+    // Its letters aren't one text that could end in "…", so a long one is cut.
+    clip: root.gummy && letter-row.preferred-width + 2px > root.limit;
+    width: min((root.gummy ? letter-row.preferred-width : label.preferred-width) + 2px, root.limit); height: label.preferred-height;
+    if root.effect == 5: Text {
+        x: 0px; y: root.size * root.pop-shadow(root.at); width: root.width; overflow: elide;
+        text: root.text; font-family: root.family; font-size: root.size; font-weight: root.weight; letter-spacing: root.spacing; color: root.paint.c1;
+    }
+    if root.effect == 3: Text {
+        x: 0px; width: root.width; overflow: elide;
+        text: root.text; font-family: root.family; font-size: root.size; font-weight: root.weight; letter-spacing: root.spacing;
+        stroke: root.paint.c1.with-alpha(0.14 + 0.2 * root.glow); stroke-width: 5px; color: transparent;
+    }
+    if root.effect == 3: Text {
+        x: 0px; width: root.width; overflow: elide;
+        text: root.text; font-family: root.family; font-size: root.size; font-weight: root.weight; letter-spacing: root.spacing;
+        stroke: root.paint.c1.with-alpha(0.55); stroke-width: 2.5px; color: transparent;
+    }
+    if root.effect == 4: Text {
+        x: 0px; width: root.width; overflow: elide;
+        text: root.text; font-family: root.family; font-size: root.size; font-weight: root.weight; letter-spacing: root.spacing;
+        stroke: root.paint.c1.mix(#000000, 0.45); stroke-width: 2px; color: transparent;
+    }
+    letter-row := HorizontalLayout {
+        x: 0px; y: 0px; spacing: 0px;
+        for letter[index] in NameLetters.letters(root.gummy ? root.text : ""): Rectangle {
+            // Each letter squishes 50ms after the one before.
+            property <float> own: root.moving ? Math.mod(root.clock + 4000 - Math.mod(index * 50, 4000), 4000) / 4000 : 0.99;
+            width: letter-text.preferred-width; height: letter-text.preferred-height;
+            transform-scale-x: root.squish-x(self.own);
+            transform-scale-y: root.squish-y(self.own);
+            letter-text := Text {
+                text: letter; font-family: root.family; font-size: root.size; font-weight: root.weight; letter-spacing: root.spacing;
+                color: NameLetters.colour(root.paint.key, root.text, index);
+            }
+        }
+    }
+    label := Text {
+        x: 0px; y: root.effect == 5 ? root.size * root.pop-main(root.at) : 0px; width: root.width; overflow: elide;
+        visible: !root.gummy;
+        text: root.text; font-family: root.family; font-size: root.size; font-weight: root.weight; letter-spacing: root.spacing;
+        color: root.prism
+            ? @linear-gradient(90deg, root.prism-at(root.prism-place) 0%, root.prism-at(root.prism-place + 0.25) 25%, root.prism-at(root.prism-place + 0.5) 50%, root.prism-at(root.prism-place + 0.75) 75%, root.prism-at(root.prism-place + 1) 100%)
+            : root.effect == 2 ? @linear-gradient(135deg, root.paint.c1 0%, root.paint.c2 25%, root.paint.c3 50%, root.paint.c4 75%, root.paint.c5 100%)
+            : root.effect == 4 ? @linear-gradient(180deg, root.toon-at(root.toon-place) 0%, root.toon-at(root.toon-place + 0.125) 25%, root.toon-at(root.toon-place + 0.25) 50%, root.toon-at(root.toon-place + 0.375) 75%, root.toon-at(root.toon-place + 0.5) 100%)
+            : root.effect == 3 ? #ffffff.mix(root.paint.c1.mix(#ffffff, 0.5), 1 - root.neon-flicker(root.at))
+            : root.effect == 5 ? root.paint.c1.mix(#ffffff, 0.2)
+            : root.painted ? root.paint.c1 : root.ink;
+    }
+}
+

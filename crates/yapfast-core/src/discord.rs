@@ -66,6 +66,54 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
+/// An avatar's frame, which the full profile draws wider than an avatar.
+#[cfg(feature = "discord")]
+const DECORATION_SIZE: (u32, u32) = (240, 240);
+/// A profile effect's layer, as Discord makes them.
+#[cfg(feature = "discord")]
+const EFFECT_SIZE: (u32, u32) = (450, 880);
+/// A wishlist's card, which shows wider than an avatar.
+#[cfg(feature = "discord")]
+const WISHLIST_SIZE: (u32, u32) = (256, 256);
+/// A layer of a profile frame, drawn across a whole card and past it.
+#[cfg(feature = "discord")]
+const FRAME_SIZE: (u32, u32) = (900, 1200);
+/// A profile effect's layer can run longer than other pictures.
+#[cfg(feature = "discord")]
+const MAX_EFFECT_BYTES: usize = 16 * 1024 * 1024;
+
+/// The most of the picture at `url` to read.
+#[cfg(feature = "discord")]
+fn picture_limit(url: &str) -> usize {
+    if url.contains("/assets/content/") {
+        MAX_EFFECT_BYTES
+    } else {
+        MAX_PICTURE_BYTES
+    }
+}
+
+/// The most room the picture at `url` is decoded for, by what it's a picture of.
+#[cfg(feature = "discord")]
+fn picture_size(url: &str) -> (u32, u32) {
+    if url.contains("/banners/") {
+        BANNER_SIZE
+    } else if url.contains("/avatar-decoration-presets/") {
+        DECORATION_SIZE
+    } else if url.contains("/assets/content/") {
+        EFFECT_SIZE
+    } else if url.contains("/frames/")
+        || (url.contains("/media/v1/collectibles-shop/")
+            && url.ends_with("/static")
+            && url.matches('/').count() > 7)
+    {
+        FRAME_SIZE
+    } else if url.contains("/media/v1/collectibles-shop/") || url.contains("/store/") {
+        WISHLIST_SIZE
+    } else {
+        (PICTURE_SIZE, PICTURE_SIZE)
+    }
+}
+
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -1090,18 +1138,14 @@ impl Pictures {
                 self.backoff.clone(),
             );
             self.tasks.spawn(async move {
-                let data = match discord.kept_picture(&url, MAX_PICTURE_BYTES).await {
+                let data = match discord.kept_picture(&url, picture_limit(&url)).await {
                     Some(kept) => kept,
                     None => match download(&discord, &url, &turns, batch, &backoff).await {
                         Some(data) => data,
                         None => return,
                     },
                 };
-                let (width, height) = if url.contains("/banners/") {
-                    BANNER_SIZE
-                } else {
-                    (PICTURE_SIZE, PICTURE_SIZE)
-                };
+                let (width, height) = picture_size(&url);
                 let Ok(_decoding) = decodes.acquire().await else {
                     return;
                 };
@@ -1152,7 +1196,7 @@ async fn download(
         let turn = turns.take(batch).await?;
         tries += 1;
         let started = Instant::now();
-        let result = discord.download_now(url, MAX_PICTURE_BYTES).await;
+        let result = discord.download_now(url, picture_limit(url)).await;
         drop(turn);
         match result {
             Ok(data) => {

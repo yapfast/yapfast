@@ -1,3 +1,4 @@
+import { NamePreset } from "names.slint";
 import { Palette } from "std-widgets.slint";
 import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
 // The UI's typeface, Atkinson Hyperlegible Next; ExtraBold serves weight 900.
@@ -7,6 +8,17 @@ import "fonts/AtkinsonHyperlegibleNext-Medium.ttf";
 import "fonts/AtkinsonHyperlegibleNext-Bold.ttf";
 import "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf";
 import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
+// The fonts Discord members can give their names; see fonts/names/README.md.
+import "fonts/names/CherryBombOne-Regular.ttf";
+import "fonts/names/Chicle-Regular.ttf";
+import "fonts/names/MuseoModerno.ttf";
+import "fonts/names/PixelifySans.ttf";
+import "fonts/names/ZillaSlab-SemiBold.ttf";
+import "fonts/names/PlaypenSans.ttf";
+import "fonts/names/YapfastOrbit-Bold.ttf";
+import "fonts/names/NewRocker-Regular.ttf";
+import "fonts/names/Kalam-Bold.ttf";
+import "fonts/names/Sinistre-Regular.ttf";
 // The second choice, Satoshi, isn't in the repository (fonts/README.md): to
 // switch back, download it into fonts/, import these instead, set
 // `default-font-family` below to "Satoshi", and use Satoshi's metrics in
@@ -30,9 +42,9 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } fro
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
+import { ActivityRow, MemberRow, ProfileBadgeRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ProfileWindow, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
-import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
+import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, BadgesWindow, BadgeRow, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
 import { BoostPicture, BoostPrompt, EngagementPrompt, ServerProfilePrompt, ServerSettingsPrompt, ServerSettingsScreen } from "server_settings.slint";
@@ -46,16 +58,17 @@ import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
-export { Theme, Badges, Popup } from "theme.slint";
+export { Theme, Badges, Popup, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, Motion } from "controls.slint";
+export { NameLetters, NamePreset } from "names.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
-export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
+export { MemberRow, ProfileBadgeRow, ProfileEffectRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
-export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
+export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft, BadgeRow, BadgeLevelRow } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 
@@ -281,6 +294,50 @@ export component YapfastWindow inherits Window {
     in property <[MessageRow]> messages;
     in property <string> account;
     in property <string> account-name;
+    in property <string> account-id;
+    in property <string> account-handle;
+    /// The account's own profile, as its popout draws it.
+    in property <string> account-banner;
+    in property <color> account-accent;
+    in property <bool> account-has-accent;
+    in property <color> account-theme-top;
+    in property <color> account-theme-bottom;
+    in property <bool> account-has-theme;
+    in property <bool> account-theme-light;
+    in property <string> account-pronouns;
+    in property <string> account-name-font;
+    in property <int> account-name-weight;
+    in property <float> account-name-spacing;
+    in property <int> account-name-effect;
+    in property <NamePreset> account-name-paint;
+    in property <bool> account-has-name-paint;
+    in property <string> account-tag-text;
+    in property <string> account-tag-icon;
+    in property <[ProfileBadgeRow]> account-badges;
+    callback account-opened;
+    /// The account's badge window.
+    in property <bool> badges-open;
+    /// Which of its own the account's badge window shows first.
+    in property <int> badges-first;
+    /// Someone else's badge window, as BadgesWindow takes it.
+    in property <bool> person-badges-open;
+    in property <string> person-badges-name;
+    in property <string> person-badges-avatar;
+    in property <[BadgeRow]> person-badges;
+    in property <int> person-badges-first;
+    in property <string> person-badges-note;
+    in property <bool> person-badges-failed;
+    /// A badge on a profile was clicked: whose, and its number in the window.
+    callback open-person-badges(string, int);
+    callback close-person-badges;
+    callback retry-person-badges;
+    /// To the account's own badge window, on this badge if any.
+    callback view-own-badges(int);
+    in property <[BadgeRow]> badges-owned;
+    in property <[BadgeRow]> badges-available;
+    in property <string> badges-note;
+    callback open-badges;
+    callback close-badges;
     in property <string> account-initial;
     /// The Discord-only build's own status for the account's dot, as
     /// StatusDot takes it; empty to show the connection instead.
@@ -295,6 +352,8 @@ export component YapfastWindow inherits Window {
     in property <string> game-activity-name;
     in property <string> game-activity-duration;
     callback game-duration-due();
+    /// What the account shows it's doing, here and on its other devices.
+    in property <[ActivityRow]> account-activities;
     /// The address of the picture of the custom emoji in the account's status.
     in property <string> account-status-emoji;
     in property <string> storage;
@@ -629,6 +688,13 @@ export component YapfastWindow inherits Window {
         root.server-card-open = true;
     }
     callback enlarge-profile();
+    /// A tab of the full profile opened; see ProfileWindowTabs.
+    callback profile-tab-opened(int);
+    /// Join the call shown on a full profile, by its room.
+    callback join-profile-call(string);
+    /// The full profile's Message and Note, for someone by id.
+    callback message-person(string);
+    callback note-person(string);
     callback close-profile();
     /// Send someone a message in their DM from their card: who, and what.
     callback message-from-profile(string, string);
@@ -1706,6 +1772,7 @@ export component YapfastWindow inherits Window {
         root.menu-x = account-panel.absolute-position.x + 8px;
         root.menu-y = account-panel.absolute-position.y;
         root.game-duration-due();
+        root.account-opened();
         status-menu.show();
     }
     // The composer's +, where threads can start: upload a file or start one.
@@ -1736,13 +1803,27 @@ export component YapfastWindow inherits Window {
         }
     }
     status-menu := PopupWindow {
-        width: 248px; height: status-menu-content.preferred-height;
+        width: status-menu-content.card-width; height: status-menu-content.card-height;
         x: max(8px, min(root.width - self.width - 8px, root.menu-x));
         y: max(8px, root.menu-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         status-menu-content := StatusMenu {
             status: root.discord-status; has-custom-status: root.has-custom-status;
+            name: root.account-name; handle: root.account-handle; initial: root.account-initial; tint: root.account-tint;
+            picture: root.account-picture; presence: root.account-presence;
+            custom-text: root.account-status; custom-emoji: root.account-status-emoji;
+            banner: root.account-banner; accent: root.account-accent; has-accent: root.account-has-accent;
+            theme-top: root.account-theme-top; theme-bottom: root.account-theme-bottom;
+            has-theme: root.account-has-theme; theme-light: root.account-theme-light;
+            name-font: root.account-name-font; name-weight: root.account-name-weight; name-spacing: root.account-name-spacing;
+            name-effect: root.account-name-effect; name-paint: root.account-name-paint; has-name-paint: root.account-has-name-paint;
+            pronouns: root.account-pronouns; tag-text: root.account-tag-text; tag-icon: root.account-tag-icon;
+            badges: root.account-badges;
+            open-link(link) => { root.open-link(link); status-menu.close(); }
+            open-badges => { root.open-badges(); status-menu.close(); }
+            copy-id => { root.copy-text(root.account-id); status-menu.close(); }
             game-name: root.game-activity-name; game-duration: root.game-activity-duration;
+            activities: root.account-activities;
             game-duration-due => { root.game-duration-due(); }
             choose(status) => { root.set-status(status); status-menu.close(); }
             custom-status => { root.open-status(); status-menu.close(); }
@@ -3165,6 +3246,7 @@ export component YapfastWindow inherits Window {
                             data: root.panel-profile;
                             enlarge => { root.enlarge-panel-profile(); }
                             befriend => { root.befriend(root.panel-profile.id); }
+                            open-menu(x, y) => { root.open-context-menu(root.panel-profile.id, true, x, y); }
                             open-link(link) => { root.open-link(link); }
                             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
                             open-friend(id, x, y, width, height) => {
@@ -3364,6 +3446,7 @@ export component YapfastWindow inherits Window {
             save-theme => { root.save-theme(); }
             cancel-theme => { root.cancel-theme(); }
             delete-theme => { root.delete-theme(); }
+            preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 1: VoiceSettings {
             microphones: root.microphones; microphone-index <=> root.microphone-index;
@@ -3629,7 +3712,10 @@ export component YapfastWindow inherits Window {
             enlarge => { root.enlarge-profile(); }
             close => { root.close-profile(); }
             befriend => { root.befriend(root.profile.id); }
+            open-menu(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
+            open-badge(badge) => { root.open-person-badges(root.profile.id, badge); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
         }
     }
@@ -3645,18 +3731,69 @@ export component YapfastWindow inherits Window {
                 return reject;
             }
         }
-        ProfileCard {
+        ProfileWindow {
             opacity: Popup.opacity(large-profile-motion.amount); transform-scale: Popup.scale(large-profile-motion.amount);
-            large: true;
-            width: min(600px, root.width - 64px); limit: root.height - 64px;
+            room-width: parent.width; room-height: parent.height;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             data: root.profile;
             close => { root.close-profile(); }
             befriend => { root.befriend(root.profile.id); }
+            open-menu(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
+            open-badge(badge) => { root.open-person-badges(root.profile.id, badge); }
+            message => { root.message-person(root.profile.id); root.close-profile(); }
+            open-note => { root.note-person(root.profile.id); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
+            tab-opened(tab) => { root.profile-tab-opened(tab); }
+            join-call(room) => { root.close-profile(); root.join-profile-call(room); }
             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
             // In the full profile, a friend's opens full too.
             open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
+        }
+    }
+    // The account's badges, over the window.
+    badges-motion := PopupMotion { open: root.badges-open; }
+    if badges-motion.shown: Rectangle {
+        background: rgba(0, 0, 0, 0.7 * badges-motion.amount);
+        TouchArea { clicked => { root.close-badges(); } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close-badges(); return accept; }
+                return reject;
+            }
+        }
+        BadgesWindow {
+            opacity: Popup.opacity(badges-motion.amount); transform-scale: Popup.scale(badges-motion.amount);
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            owned: root.badges-owned; available: root.badges-available; note: root.badges-note;
+            first: root.badges-first;
+            close => { root.close-badges(); }
+        }
+    }
+    // Someone's badges, over the profile they were clicked on.
+    person-badges-motion := PopupMotion { open: root.person-badges-open; }
+    if person-badges-motion.shown: Rectangle {
+        background: rgba(0, 0, 0, 0.7 * person-badges-motion.amount);
+        TouchArea { clicked => { root.close-person-badges(); } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close-person-badges(); return accept; }
+                return reject;
+            }
+        }
+        BadgesWindow {
+            opacity: Popup.opacity(person-badges-motion.amount); transform-scale: Popup.scale(person-badges-motion.amount);
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            person: root.person-badges-name; person-avatar: root.person-badges-avatar;
+            owned: root.person-badges; first: root.person-badges-first;
+            note: root.person-badges-note; failed: root.person-badges-failed;
+            close => { root.close-person-badges(); }
+            retry => { root.retry-person-badges(); }
+            view-own(badge) => { root.view-own-badges(badge); }
+            // Discord's own page opens, and the windows make way as Discord's do.
+            open-link(link) => { root.close-person-badges(); root.close-profile(); root.open-link(link); }
         }
     }
     // A mutual server's card, over the profile that lists it. Clicking

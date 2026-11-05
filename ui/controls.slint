@@ -13,13 +13,16 @@ export component ActionButton inherits Rectangle {
     /// Green, as a Discord app's button for a positive action.
     in property <bool> success;
     in property <bool> small;
+    /// A themed profile's colour in place of the accent, with white on it.
+    in property <color> tint;
+    in property <bool> tinted;
     callback clicked;
     min-width: max(root.small ? 28px : 36px, content.preferred-width);
     min-height: root.small ? 28px : 36px;
     max-height: self.min-height;
     vertical-stretch: 0;
     border-radius: 6px;
-    background: !root.enabled ? (root.primary ? Theme.accent.with-alpha(0.3) : root.success ? Theme.live.with-alpha(0.3) : root.ghost ? transparent : Theme.raised)
+    background: root.tinted ? (pointer.has-hover ? root.tint.darker(0.1) : root.tint) : !root.enabled ? (root.primary ? Theme.accent.with-alpha(0.3) : root.success ? Theme.live.with-alpha(0.3) : root.ghost ? transparent : Theme.raised)
         : root.primary ? (pointer.has-hover ? Theme.accent-hover : Theme.accent)
         : root.success ? (pointer.has-hover ? Theme.live.brighter(0.1) : Theme.live)
         : root.danger ? (pointer.has-hover ? Theme.danger-hover : Theme.danger)
@@ -33,7 +36,7 @@ export component ActionButton inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     forward-focus: focus;
-    property <color> ink: !root.enabled ? (root.primary || root.success ? Theme.on-accent.with-alpha(0.6) : Theme.faint)
+    property <color> ink: root.tinted ? #ffffff : !root.enabled ? (root.primary || root.success ? Theme.on-accent.with-alpha(0.6) : Theme.faint)
         : root.primary || root.success ? Theme.on-accent : root.danger ? Theme.on-danger
         : root.ghost && !pointer.has-hover ? Theme.secondary : Theme.text;
     content := HorizontalLayout {
@@ -223,7 +226,36 @@ export component DeviceToggle inherits Rectangle {
 export global PictureStore {
     in property <int> revision;
     pure callback picture(string, int) -> image;
+    /// A moving picture's frames and how long each shows, once it has arrived.
+    pure callback frames(string, int) -> [image];
+    pure callback delays(string, int) -> [int];
+    /// How many times a moving picture says it plays; 0 for ever.
+    pure callback plays(string, int) -> int;
     callback request(string);
+}
+
+// The server tag someone wears beside their name: its little picture and letters.
+export component GuildTag inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <color> ink: Theme.secondary;
+    in property <color> plate: Theme.raised;
+    property <image> picture: PictureStore.picture(root.icon, PictureStore.revision);
+    function request() {
+        if root.icon != "" && root.picture.width == 0 {
+            PictureStore.request(root.icon);
+        }
+    }
+    init => { root.request(); }
+    changed picture => { root.request(); }
+    height: 18px; border-radius: 4px; background: root.plate;
+    accessible-role: AccessibleRole.text; accessible-label: "Server tag " + root.text;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 4px; padding-right: 5px; spacing: 3px;
+        if root.icon != "": Image { source: root.picture; width: 13px; image-fit: contain; }
+        Text { text: root.text; color: root.ink; font-size: 11px; font-weight: 700; vertical-alignment: center; }
+    }
 }
 
 // A person's picture, or a round initial in their own tint until it arrives;
@@ -347,13 +379,14 @@ export component TextField inherits Rectangle {
     in property <length> pad: 12px;
     in property <color> fill: Theme.sunken;
     in property <bool> ring: true;
+    in property <length> radius: 6px;
     /// The field has the keys.
     out property <bool> focused: input.has-focus;
     callback edited(string);
     callback accepted;
     public function focus-input() { input.focus(); }
     min-height: 40px; vertical-stretch: 0; horizontal-stretch: 1;
-    border-radius: 6px;
+    border-radius: root.radius;
     background: root.fill;
     border-width: root.ring && input.has-focus ? 1px : 0px;
     border-color: Theme.accent.with-alpha(0.8);

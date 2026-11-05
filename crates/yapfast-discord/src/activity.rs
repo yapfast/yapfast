@@ -104,6 +104,68 @@ pub fn activities(activities: &Value) -> Activities {
         .collect()
 }
 
+/// What another of this account's sessions shows: the first active session
+/// but `own` of the gateway's list, as READY's `sessions` and
+/// SESSIONS_REPLACE give it.
+pub(crate) fn elsewhere(sessions: &Value, own: Option<&str>) -> Vec<Value> {
+    sessions
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|session| session["active"] == true && session["session_id"].as_str() != own)
+        .and_then(|session| session["activities"].as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// This account's own activities as Discord's client shows them: what this
+/// session sends and what another session does, each once, in the order
+/// of anyone's, with one game at most.
+pub(crate) fn own(here: &[Value], elsewhere: &[Value]) -> Activities {
+    let rank = |activity: &Value| match activity["type"].as_u64() {
+        Some(5) => 3,
+        Some(1) => 2,
+        Some(0) => 1,
+        _ => 0,
+    };
+    let rich = |activity: &Value| {
+        ["details", "party", "secrets", "state"]
+            .iter()
+            .any(|field| !activity[*field].is_null())
+            || !activity["assets"]["large_image"].is_null()
+            || !activity["assets"]["small_text"].is_null()
+    };
+    let mut all: Vec<&Value> = here
+        .iter()
+        .chain(elsewhere.iter())
+        .filter(|activity| activity["type"] != 4)
+        .collect();
+    all.sort_by_key(|activity| {
+        (
+            std::cmp::Reverse(rank(activity)),
+            std::cmp::Reverse(rich(activity)),
+            std::cmp::Reverse(activity["created_at"].as_u64().unwrap_or(0)),
+        )
+    });
+    let mut seen = Vec::new();
+    all.retain(|activity| {
+        let key = (
+            &activity["type"],
+            &activity["application_id"],
+            &activity["name"],
+        );
+        let new = !seen.contains(&key);
+        seen.push(key);
+        new
+    });
+    let mut games = 0;
+    all.retain(|activity| {
+        games += usize::from(activity["type"] == 0);
+        activity["type"] != 0 || games == 1
+    });
+    all.into_iter().filter_map(activity).take(MOST).collect()
+}
+
 fn activity(activity: &Value) -> Option<Activity> {
     let kind = match activity["type"].as_u64()? {
         0 => Kind::Playing,
@@ -306,6 +368,43 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn own_activities_gather_this_session_and_another_as_discords_client_does() {
+        let status = json!({"type": 4, "name": "Custom Status", "state": "tea"});
+        let song = json!({"type": 2, "name": "Spotify", "details": "Here"});
+        let sessions = json!([
+            {"session_id": "mine", "active": true, "activities": [{"type": 0, "name": "Mine"}]},
+            {"session_id": "idle", "active": false, "activities": [{"type": 0, "name": "Idle"}]},
+            {"session_id": "all", "active": true, "activities": [
+                status,
+                {"type": 2, "name": "Spotify", "details": "Elsewhere"},
+                {"type": 0, "name": "Plain"},
+                {"type": 0, "name": "Rich", "details": "In a match"},
+            ]},
+            {"session_id": "phone", "active": true, "activities": [{"type": 3, "name": "Later"}]},
+        ]);
+        let other = elsewhere(&sessions, Some("mine"));
+        assert_eq!(other.len(), 4, "the first other active session");
+        let shown = own(&[status.clone(), song], &other);
+        let names: Vec<_> = shown
+            .iter()
+            .map(|activity| (activity.kind, activity.details.as_deref()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                (Kind::Playing, Some("In a match")),
+                (Kind::Listening, Some("Here")),
+            ],
+            "games first, the richest game alone, and this session's song over another's"
+        );
+        assert_eq!(elsewhere(&json!(null), None), Vec::<Value>::new());
+        assert!(
+            own(&[status], &[]).is_empty(),
+            "a custom status has its own line"
+        );
+    }
 
     #[test]
     fn reads_a_game_with_its_pictures_and_times() {

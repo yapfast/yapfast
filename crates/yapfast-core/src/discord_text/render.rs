@@ -519,8 +519,37 @@ pub(super) fn chat_profile(
     Profile {
         name: profile.name,
         avatar: Some(profile.avatar),
+        decoration: profile.decoration,
         banner: profile.banner,
         accent: profile.accent,
+        theme: profile.theme,
+        tag: profile.tag.map(chat_tag),
+        name_style: profile.name_style.map(chat_name_style),
+        effect: profile
+            .effect
+            .into_iter()
+            .map(|layer| crate::chat::EffectLayer {
+                src: layer.src,
+                start: layer.start,
+                duration: layer.duration,
+                looping: layer.looping,
+                loop_delay: layer.loop_delay,
+                x: layer.x,
+                y: layer.y,
+                width: layer.width,
+                height: layer.height,
+            })
+            .collect(),
+        badges: profile
+            .badges
+            .into_iter()
+            .map(|badge| crate::chat::ProfileBadge {
+                description: badge.description,
+                icon: badge.icon,
+                link: badge.link,
+                directory: badge.directory,
+            })
+            .collect(),
         pronouns: profile.pronouns.unwrap_or_default(),
         bio: profile
             .bio
@@ -532,8 +561,8 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(yapfast_discord::message::date(profile.created)),
-        joined: profile.joined.map(yapfast_discord::message::date),
+        created: Some(yapfast_discord::message::long_date(profile.created)),
+        joined: profile.joined.map(yapfast_discord::message::long_date),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -562,6 +591,52 @@ pub(super) fn chat_profile(
                 avatar: Some(friend.avatar),
             })
             .collect(),
+        widgets: profile
+            .widgets
+            .into_iter()
+            .map(|widget| crate::chat::ProfileWidget {
+                title: widget.title,
+                application: widget.application,
+                lists_games: widget.lists_games,
+                games: widget
+                    .games
+                    .into_iter()
+                    .map(|game| crate::chat::ProfileGame {
+                        id: game.id,
+                        name: game.name,
+                        icon: game.icon,
+                        comment: game.comment,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        wishlist_place: profile.wishlist.map(|place| crate::chat::WishlistPlace {
+            id: place.id,
+            private: place.private,
+        }),
+        wishlist: Default::default(),
+        board_asked: false,
+        board_named: false,
+        bot: profile.bot,
+        friends_since: None,
+        frame: profile.frame.map(|frame| crate::chat::ProfileFrame {
+            inner_width: frame.inner_width,
+            overflow_top: frame.overflow_top,
+            overflow_bottom: frame.overflow_bottom,
+            overflow_horizontal: frame.overflow_horizontal,
+            layers: frame
+                .layers
+                .into_iter()
+                .map(|layer| crate::chat::ProfileFrameLayer {
+                    src: layer.src,
+                    kind: layer.kind,
+                    anchor: layer.anchor,
+                    front: layer.front,
+                })
+                .collect(),
+        }),
+        recent: Vec::new(),
+        recent_asked: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
@@ -689,6 +764,21 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         activities: member.activities,
         roles: member.roles,
         timed_out_until: member.timed_out_until,
+    }
+}
+
+fn chat_name_style(style: yapfast_discord::ready::NameStyle) -> crate::chat::NameStyle {
+    crate::chat::NameStyle {
+        font: style.font,
+        effect: style.effect,
+        colors: style.colors,
+    }
+}
+
+fn chat_tag(tag: yapfast_discord::ready::ServerTag) -> crate::chat::ServerTag {
+    crate::chat::ServerTag {
+        text: tag.text,
+        badge: tag.badge,
     }
 }
 

@@ -11,7 +11,10 @@ use serde_json::{Map, Value};
 use yapfast_discord::profile::PICTURE_LIMIT;
 
 use super::{commands::NOT_DISCORD, *};
-use crate::chat::{OwnProfile, PickedPicture, Pixels, ProfileChange, ProfilePicture, file_size};
+use crate::chat::{
+    OwnProfile, PickedPicture, Pixels, ProfileChange, ProfilePicture, Wishlist, WishlistItem,
+    file_size,
+};
 
 /// The size Discord's client crops a picture to before it sends it: a
 /// square avatar, and a banner 17 by 6. One smaller goes at its own size.
@@ -57,6 +60,78 @@ pub(super) fn command(
                     }
                 };
                 let _ = events.send(Event::OwnProfile { server, result });
+            });
+        }
+        DiscordCommand::Wishlist { id } => {
+            let Ok(discord) = discord else {
+                let _ = events.send(Event::Wishlist {
+                    id,
+                    wishlist: Wishlist::Failed,
+                });
+                return None;
+            };
+            let discord = discord.clone();
+            tokio::spawn(async move {
+                let wishlist = match discord.wishlist(&id).await {
+                    Ok(items) => Wishlist::Loaded(
+                        items
+                            .into_iter()
+                            .map(|item| WishlistItem {
+                                name: item.name,
+                                picture: item.picture,
+                            })
+                            .collect(),
+                    ),
+                    Err(error) => wishlist_refusal(&error),
+                };
+                let _ = events.send(Event::Wishlist { id, wishlist });
+            });
+        }
+        // Read-only: what the board names comes from `GET /games` and the
+        // applications' public objects, as for this account's own board.
+        DiscordCommand::ProfileBoard { user, widgets } => {
+            let Ok(discord) = discord else {
+                let _ = events.send(Event::ProfileBoard { user, widgets });
+                return None;
+            };
+            let discord = discord.clone();
+            tokio::spawn(async move {
+                let mut asked: Vec<yapfast_discord::widgets::Widget> =
+                    widgets.iter().map(asked_widget).collect();
+                discord.name_widgets(&mut asked).await;
+                let widgets = widgets
+                    .into_iter()
+                    .zip(asked)
+                    .map(|(widget, named)| named_widget(widget, named))
+                    .collect();
+                let _ = events.send(Event::ProfileBoard { user, widgets });
+            });
+        }
+        DiscordCommand::ProfileRecent { user } => {
+            let Ok(discord) = discord else {
+                let recent = Vec::new();
+                let _ = events.send(Event::ProfileRecent { user, recent });
+                return None;
+            };
+            let discord = discord.clone();
+            tokio::spawn(async move {
+                let recent = match discord.recent_activity(&user).await {
+                    Ok(entries) => entries
+                        .into_iter()
+                        .map(|entry| crate::chat::RecentActivity {
+                            title: entry.title,
+                            subtitle: entry.subtitle,
+                            picture: entry.picture,
+                            music: entry.music,
+                            at: entry.at,
+                        })
+                        .collect(),
+                    Err(error) => {
+                        tracing::debug!(%error, "could not get someone's recent activity");
+                        Vec::new()
+                    }
+                };
+                let _ = events.send(Event::ProfileRecent { user, recent });
             });
         }
         DiscordCommand::ProfilePicture { kind, path } => {
@@ -115,6 +190,61 @@ fn guild(server: Option<&str>) -> Option<Option<String>> {
     match server {
         Some(server) => discord::parse_server(server).map(|guild| Some(guild.to_owned())),
         None => Some(None),
+    }
+}
+
+/// A widget as the service names it.
+fn asked_widget(widget: &crate::chat::ProfileWidget) -> yapfast_discord::widgets::Widget {
+    yapfast_discord::widgets::Widget {
+        title: widget.title.clone(),
+        application: widget.application.clone(),
+        lists_games: widget.lists_games,
+        games: widget
+            .games
+            .iter()
+            .map(|game| yapfast_discord::widgets::WidgetGame {
+                id: game.id.clone(),
+                comment: None,
+                name: game.name.clone(),
+                icon: game.icon.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// A widget with the names the service found, and the comments it was asked with.
+fn named_widget(
+    widget: crate::chat::ProfileWidget,
+    named: yapfast_discord::widgets::Widget,
+) -> crate::chat::ProfileWidget {
+    crate::chat::ProfileWidget {
+        title: named.title,
+        application: widget.application,
+        lists_games: widget.lists_games,
+        games: widget
+            .games
+            .into_iter()
+            .zip(named.games)
+            .map(|(game, named)| crate::chat::ProfileGame {
+                id: game.id,
+                name: named.name,
+                icon: named.icon,
+                comment: game.comment,
+            })
+            .collect(),
+    }
+}
+
+/// What Discord refusing a wishlist means: it's hidden from this account when
+/// it's forbidden or said not to exist, as a private one is to anyone else.
+fn wishlist_refusal(error: &anyhow::Error) -> Wishlist {
+    use yapfast_discord::api::Refused;
+    match error.downcast_ref::<Refused>() {
+        Some(Refused(status)) if matches!(status.as_u16(), 403 | 404) => Wishlist::Hidden,
+        _ => {
+            tracing::warn!(error = format!("{error:#}"), "could not fetch a wishlist");
+            Wishlist::Failed
+        }
     }
 }
 

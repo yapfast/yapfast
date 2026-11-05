@@ -15,7 +15,7 @@ use slint::{
 use yapfast_core::{
     application::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
-        ClearAfter, Compose, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
+        ClearAfter, Compose, Cosmetics, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
         MenuChoice, Navigation, NewDm, PersonAsk, Place, ProfileText, ProfileView, Relation,
         RoleInput, Search, TIMEOUT_TIMES,
     },
@@ -970,6 +970,13 @@ struct Layout {
     strip_tracking: Option<bool>,
     /// When animations play.
     animate: Animate,
+    /// The profile switches, each as [`yapfast_core::application::Cosmetics`]
+    /// starts it unless changed.
+    profile_effects: Option<bool>,
+    decorations: Option<bool>,
+    moving_profiles: Option<bool>,
+    name_styles: Option<bool>,
+    server_tags: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1186,6 +1193,18 @@ impl Layout {
             * sounds::gain(self.each_sound(sound))
     }
 
+    /// The profile switches, as saved.
+    fn cosmetics(&self) -> Cosmetics {
+        let default = Cosmetics::default();
+        Cosmetics {
+            effects: self.profile_effects.unwrap_or(default.effects),
+            decorations: self.decorations.unwrap_or(default.decorations),
+            moving: self.moving_profiles.unwrap_or(default.moving),
+            name_styles: self.name_styles.unwrap_or(default.name_styles),
+            server_tags: self.server_tags.unwrap_or(default.server_tags),
+        }
+    }
+
     fn apply(&self, window: &YapfastWindow) {
         self.apply_custom_games(window);
         window.set_show_idle(self.show_idle.unwrap_or(true));
@@ -1216,6 +1235,13 @@ impl Layout {
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
+        let cosmetics = self.cosmetics();
+        let looks = window.global::<Looks>();
+        looks.set_profile_effects(cosmetics.effects);
+        looks.set_decorations(cosmetics.decorations);
+        looks.set_moving_profiles(cosmetics.moving);
+        looks.set_name_styles(cosmetics.name_styles);
+        looks.set_server_tags(cosmetics.server_tags);
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
@@ -1777,6 +1803,7 @@ impl Adapter {
         ));
         app.dispatch(Action::ReplyPing(layout.reply_ping.unwrap_or(true)));
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
+        app.dispatch(Action::SetCosmetics(layout.cosmetics()));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
         Ok(Rc::new_cyclic(|weak| {
@@ -2572,7 +2599,7 @@ fn same_list<T: Clone + PartialEq + 'static>(old: &ModelRc<T>, new: ModelRc<T>) 
 /// The width role chips fill in the profile card and the full profile: the
 /// cards' widths less their padding.
 const PROFILE_CARD_WIDTH: f32 = 300. - 2. * 16.;
-const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
+const PROFILE_LARGE_WIDTH: f32 = 400. - 2. * 32.;
 
 /// The most custom emoji the picker fetches pictures for at once.
 const MAX_PICKER_EMOJI: usize = 600;
