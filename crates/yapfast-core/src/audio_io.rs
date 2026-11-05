@@ -97,6 +97,49 @@ fn bytes_mut<S: Sample>(samples: &mut [S]) -> &mut [u8] {
     unsafe { std::slice::from_raw_parts_mut(samples.as_mut_ptr().cast(), size_of_val(samples)) }
 }
 
+/// What the next turn of a write does: wait for the engine to play the queue
+/// it has, or fill `frames` of its room and, if the stream wasn't playing,
+/// start it once they're queued.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) enum Step {
+    Write { frames: u32, start: bool },
+    Wait,
+}
+
+/// How a write goes on with `queued` frames already waiting in a queue of
+/// `queue`, a stream `running` says whether it plays already, and
+/// `frames_left` whole frames still to write. A full queue is what makes a
+/// write wait; sound is heard as soon as any of it is queued, so the first
+/// write starts the stream however short it is.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn write_step(queued: u32, queue: u32, running: bool, frames_left: u32) -> Step {
+    let room = queue.saturating_sub(queued);
+    if room == 0 {
+        return Step::Wait;
+    }
+    let frames = room.min(frames_left);
+    Step::Write {
+        frames,
+        start: frames > 0 && !running,
+    }
+}
+
+/// How long a drain waits for `queue_frames` queued frames at `rate` to
+/// play, plus `grace` for the engine to get going: never less than the queue
+/// takes.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn drain_deadline(queue_frames: u32, rate: u32, grace: Duration) -> Duration {
+    let rate = u64::from(rate.max(1));
+    Duration::from_micros((u64::from(queue_frames) * 1_000_000).div_ceil(rate)) + grace
+}
+
+/// Whether a drain with `padding` frames waiting has any to wait for.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn drain_must_wait(padding: u32) -> bool {
+    padding > 0
+}
+
 /// Speakers Yapfast plays to, until dropped.
 pub struct Output<S: Sample> {
     stream: platform::Output,
@@ -245,6 +288,127 @@ mod tests {
         assert_eq!(video.bytes(Duration::from_millis(100)), 38_400);
         let meter = Format::of::<i16>(16_000, 1);
         assert_eq!(meter.bytes(Duration::from_millis(20)), 640);
+    }
+
+    /// A sound shorter than the queue starts the stream as it's queued, so
+    /// it plays rather than waiting for a full queue.
+    #[test]
+    fn a_short_write_starts_the_stream() {
+        assert_eq!(
+            write_step(0, 4_800, false, 240),
+            Step::Write {
+                frames: 240,
+                start: true,
+            }
+        );
+    }
+
+    /// A stream that stopped, as [`Output::drain`] stops it, starts again on
+    /// its first sound.
+    #[test]
+    fn a_write_after_drain_starts_again() {
+        assert_eq!(
+            write_step(0, 4_800, false, 960),
+            Step::Write {
+                frames: 960,
+                start: true
+            }
+        );
+        // Once it plays, only the first write started it.
+        assert_eq!(
+            write_step(0, 4_800, true, 960),
+            Step::Write {
+                frames: 960,
+                start: false
+            }
+        );
+    }
+
+    /// A write with the queue full waits, and starts a stream that isn't
+    /// playing, once, however much it still has to write.
+    #[test]
+    fn a_full_queue_waits() {
+        assert_eq!(write_step(4_800, 4_800, true, 240), Step::Wait);
+        assert_eq!(write_step(4_800, 4_800, false, 240), Step::Wait);
+        // More waiting than the queue, as an engine's buffer may hold.
+        assert_eq!(write_step(5_000, 4_800, true, 240), Step::Wait);
+        assert_eq!(
+            write_step(4_800, 4_800, false, 0),
+            Step::Wait,
+            "a full queue waits before a partial frame is even considered"
+        );
+    }
+
+    /// The bytes left over that don't make a whole frame are no frames to
+    /// write, and starting the stream has to wait for the frames there are.
+    #[test]
+    fn leftover_partial_frame_is_not_a_frame() {
+        assert_eq!(
+            write_step(0, 4_800, false, 0),
+            Step::Write {
+                frames: 0,
+                start: false
+            }
+        );
+        // Never more than the room the queue has.
+        assert_eq!(
+            write_step(4_560, 4_800, false, 480),
+            Step::Write {
+                frames: 240,
+                start: true
+            }
+        );
+    }
+
+    #[test]
+    fn drain_deadline_covers_the_queue() {
+        let grace = Duration::from_secs(1);
+        assert_eq!(
+            drain_deadline(4_800, RATE, grace),
+            Duration::from_millis(100) + grace
+        );
+        // The clamp: a queue smaller than the engine's buffer.
+        assert_eq!(
+            drain_deadline(480, RATE, grace),
+            Duration::from_millis(10) + grace
+        );
+    }
+
+    #[test]
+    fn drain_waits_only_with_padding() {
+        assert!(drain_must_wait(1));
+        assert!(!drain_must_wait(0), "nothing queued needs no wait");
+    }
+
+    /// Writes a sound shorter than the queue and hears it play without a
+    /// drain: only a stream that started as it was queued is heard.
+    #[test]
+    #[ignore = "needs Windows speakers"]
+    fn a_short_sound_plays_once_written() {
+        let mut output = Output::<f32>::open(
+            None,
+            "Test sound",
+            RATE,
+            2,
+            Some(Duration::from_millis(100)),
+        )
+        .unwrap();
+        let mut sound = vec![0f32; RATE as usize / 50 * 2];
+        for (at, pair) in sound.chunks_exact_mut(2).enumerate() {
+            pair.fill(tone(at));
+        }
+        output.write(&sound).unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        // The engine's own latency doesn't change for a stream, so what a
+        // played-out sound leaves is the same as once drained; a sound never
+        // started leaves 20 ms more.
+        let unplayed = output.latency();
+        output.drain().unwrap();
+        let played = output.latency();
+        assert!(
+            unplayed.saturating_sub(played) < Duration::from_millis(15),
+            "the sound was still queued: {unplayed:?} against {played:?} once drained"
+        );
     }
 
     /// Plays a tone on the default speakers and hears it on the default

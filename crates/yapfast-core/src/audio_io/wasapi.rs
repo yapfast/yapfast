@@ -37,7 +37,7 @@ use windows::{
     core::HSTRING,
 };
 
-use super::Format;
+use super::{Format, Step, drain_deadline, drain_must_wait, write_step};
 use crate::voice::NAMED;
 
 /// What a stream without a queue of its own keeps queued.
@@ -48,6 +48,9 @@ const RECORDING: Duration = Duration::from_millis(200);
 /// The engine signals every few milliseconds while a stream runs; this long
 /// without a signal means the device went away.
 const SILENCE_MS: u32 = 2000;
+/// How long past a drained queue the engine has to get going before the
+/// device counts as stopped.
+const DRAIN_GRACE: Duration = Duration::from_secs(1);
 
 /// Each thread that opens or uses a stream joins COM's multithreaded
 /// apartment, in which the engine's objects work from any of its threads.
@@ -108,19 +111,16 @@ fn device(id: Option<&str>, flow: EDataFlow) -> Result<IMMDevice> {
 /// The endpoint a stream for `id` would open now, by its id: the device's
 /// own while it's connected, and otherwise the default's, which Windows
 /// changes as devices come and go while streams stay where they opened.
-/// Empty if there's none.
+/// None while the system can't say, which is no news that a stream should
+/// move.
 #[cfg(feature = "discord")]
-pub fn endpoint(id: Option<&str>, output: bool) -> String {
+pub fn endpoint(id: Option<&str>, output: bool) -> Option<String> {
     let flow = if output { eRender } else { eCapture };
-    let Ok(device) = device(id, flow).or_else(|_| device(None, flow)) else {
-        return String::new();
-    };
+    let device = device(id, flow).or_else(|_| device(None, flow)).ok()?;
     // SAFETY: GetId lends a string the caller frees.
     unsafe {
-        let Ok(name) = device.GetId() else {
-            return String::new();
-        };
-        let id = name.to_string().unwrap_or_default();
+        let name = device.GetId().ok()?;
+        let id = name.to_string().ok();
         windows::Win32::System::Com::CoTaskMemFree(Some(name.0 as *const _));
         id
     }
@@ -292,44 +292,68 @@ impl Output {
     pub fn write(&mut self, bytes: &[u8]) -> Result<()> {
         com();
         let frame_bytes = self.stream.format.frame_bytes();
+        debug_assert_eq!(bytes.len() % frame_bytes, 0, "whole frames of samples");
         let mut rest = bytes;
-        while rest.len() >= frame_bytes {
-            let padding = self.stream.padding()?;
-            let room = self.queue.saturating_sub(padding);
-            if room == 0 {
-                // Full: it plays once it has all it may queue.
-                self.stream.start()?;
-                self.stream.wait()?;
-                continue;
+        loop {
+            let frames_left = (rest.len() / frame_bytes) as u32;
+            if frames_left == 0 {
+                return Ok(());
             }
-            let count = room.min((rest.len() / frame_bytes) as u32);
-            let length = count as usize * frame_bytes;
-            // SAFETY: the engine lends `count` frames of room, which we fill
-            // from the caller's samples before giving them back.
-            unsafe {
-                let buffer = self.render.GetBuffer(count)?;
-                std::ptr::copy_nonoverlapping(rest.as_ptr(), buffer, length);
-                self.render.ReleaseBuffer(count, 0)?;
+            let step = write_step(
+                self.stream.padding()?,
+                self.queue,
+                self.stream.running,
+                frames_left,
+            );
+            match step {
+                Step::Wait => {
+                    // Full: it plays what it has as it takes more.
+                    self.stream.start()?;
+                    self.stream.wait()?;
+                }
+                Step::Write { frames: 0, .. } => return Ok(()),
+                Step::Write { frames, start } => {
+                    let length = frames as usize * frame_bytes;
+                    // SAFETY: the engine lends `frames` frames of room, which
+                    // we fill from the caller's samples before giving them
+                    // back.
+                    unsafe {
+                        let buffer = self.render.GetBuffer(frames)?;
+                        std::ptr::copy_nonoverlapping(rest.as_ptr(), buffer, length);
+                        self.render.ReleaseBuffer(frames, 0)?;
+                    }
+                    rest = &rest[length..];
+                    // Heard as soon as any of it is queued, however little.
+                    if start {
+                        self.stream.start()?;
+                    }
+                }
             }
-            rest = &rest[length..];
         }
-        Ok(())
     }
 
     pub fn drain(&mut self) -> Result<()> {
         com();
-        if self.stream.padding()? == 0 {
+        // Stopped either way, so the next write starts afresh rather than
+        // playing at once or not depending on which way the queue emptied.
+        let drained = self.drain_queued();
+        self.stream.stop();
+        drained
+    }
+
+    /// Waits until the engine has played what's queued, starting it if it
+    /// isn't playing.
+    fn drain_queued(&mut self) -> Result<()> {
+        if !drain_must_wait(self.stream.padding()?) {
             return Ok(());
         }
         self.stream.start()?;
-        let deadline = Instant::now()
-            + Duration::from_secs_f64(f64::from(self.queue) / f64::from(self.stream.format.rate))
-            + Duration::from_secs(1);
-        while self.stream.padding()? > 0 {
+        let deadline =
+            Instant::now() + drain_deadline(self.queue, self.stream.format.rate, DRAIN_GRACE);
+        while drain_must_wait(self.stream.padding()?) {
             ensure!(Instant::now() < deadline, "the speakers stopped playing");
             self.stream.wait()?;
         }
-        self.stream.stop();
         Ok(())
     }
 

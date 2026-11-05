@@ -43,8 +43,8 @@ impl Input {
 }
 
 #[cfg(feature = "discord")]
-pub fn endpoint(_: Option<&str>, _: bool) -> String {
-    String::new()
+pub fn endpoint(_: Option<&str>, _: bool) -> Option<String> {
+    None
 }
 
 #[cfg(feature = "discord")]

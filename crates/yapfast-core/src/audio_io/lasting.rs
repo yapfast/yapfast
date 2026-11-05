@@ -19,8 +19,9 @@ const LOOK: Duration = Duration::from_secs(2);
 const RETRY: Duration = Duration::from_millis(500);
 
 type Open<T> = Box<dyn Fn(Option<&str>) -> Result<T> + Send>;
-/// [`platform::endpoint`], or a test's stand-in.
-type Endpoint = fn(Option<&str>, bool) -> String;
+/// [`platform::endpoint`], or a test's stand-in: where the stream should be,
+/// or none while the system can't say.
+type Endpoint = fn(Option<&str>, bool) -> Option<String>;
 
 /// A stream, the device it's for, and the endpoint it's on.
 struct Lasting<T> {
@@ -30,8 +31,8 @@ struct Lasting<T> {
     open: Open<T>,
     endpoint: Endpoint,
     stream: Option<T>,
-    /// As `endpoint` names it.
-    on: String,
+    /// As `endpoint` names it, and none while the system can't say.
+    on: Option<String>,
     /// When to look again.
     look: Instant,
 }
@@ -51,7 +52,7 @@ impl<T> Lasting<T> {
             open,
             endpoint,
             stream: None,
-            on: String::new(),
+            on: None,
             look: Instant::now() + LOOK,
         };
         let should = endpoint(device, output);
@@ -61,7 +62,7 @@ impl<T> Lasting<T> {
 
     /// Opens the device, or the default if it won't, for a stream that
     /// should be on `should`.
-    fn reopen(&mut self, should: String) -> Result<()> {
+    fn reopen(&mut self, should: Option<String>) -> Result<()> {
         // Let go of the old one first: some devices take one stream at a time.
         self.stream = None;
         let (stream, on) = match (self.open)(self.device.as_deref()) {
@@ -82,12 +83,15 @@ impl<T> Lasting<T> {
     }
 
     /// The stream to use now, after opening it again if it's gone or on
-    /// another endpoint than it should be; none while no device opens.
+    /// another endpoint than it should be; none while no device opens. An
+    /// endpoint the system can't name now is no news, so a stream that has
+    /// one stays where it is.
     fn stream(&mut self) -> Option<&mut T> {
         let now = Instant::now();
         if now >= self.look {
             let should = (self.endpoint)(self.device.as_deref(), self.output);
-            if self.stream.is_none() || should != self.on {
+            let moved = should.is_some() && should != self.on;
+            if self.stream.is_none() || moved {
                 match self.reopen(should) {
                     Ok(()) => tracing::info!(stream = self.name, "device opened again"),
                     Err(error) => tracing::debug!(
@@ -159,8 +163,10 @@ impl<S: Sample> LastingOutput<S> {
 
     /// Waits until everything queued has played.
     pub fn drain(&mut self) {
-        if let Some(stream) = self.lasting.stream.as_mut() {
-            let _ = stream.drain();
+        if let Some(stream) = self.lasting.stream() {
+            if let Err(error) = stream.drain() {
+                self.lasting.lost(&error);
+            }
         }
     }
 }
@@ -217,19 +223,34 @@ mod tests {
     /// headphones and the speakers, which are the default.
     static CONNECTED: Mutex<Vec<&str>> = Mutex::new(Vec::new());
 
+    /// Those sharing [CONNECTED] take turns, as tests run beside each other.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    fn taking_turns() -> std::sync::MutexGuard<'static, ()> {
+        ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn connected(device: &str) -> bool {
         CONNECTED.lock().unwrap().contains(&device)
     }
 
     /// The headphones while they're connected, each time anew, as
     /// PulseAudio numbers them; the default speakers otherwise.
-    fn endpoint(device: Option<&str>, _: bool) -> String {
+    fn endpoint(device: Option<&str>, _: bool) -> Option<String> {
         match device {
             Some(device) if connected(device) => {
-                format!("{device}#{}", CONNECTED.lock().unwrap().len())
+                Some(format!("{device}#{}", CONNECTED.lock().unwrap().len()))
             }
-            _ => "speakers".into(),
+            _ => Some("speakers".into()),
         }
+    }
+
+    /// A system that can't say which endpoint a stream is on, as Windows
+    /// enumeration failing for a moment does.
+    fn unknown_endpoint(_: Option<&str>, _: bool) -> Option<String> {
+        None
     }
 
     /// A stream opened on a device, or on the default speakers.
@@ -249,6 +270,7 @@ mod tests {
 
     #[test]
     fn follows_headphones_away_and_back() {
+        let _turns = taking_turns();
         *CONNECTED.lock().unwrap() = vec!["speakers", "headphones"];
         let mut lasting =
             Lasting::open(Some("headphones"), true, "Test", Box::new(open), endpoint).unwrap();
@@ -267,7 +289,7 @@ mod tests {
         // PulseAudio does, numbers them anew when they return.
         CONNECTED.lock().unwrap().push("other");
         assert_eq!(look_now(&mut lasting), Some("headphones"), "opened again");
-        assert_eq!(lasting.on, "headphones#3");
+        assert_eq!(lasting.on.as_deref(), Some("headphones#3"));
         // With nothing at all, there's no stream, and it tries again later.
         CONNECTED.lock().unwrap().clear();
         lasting.lost(&anyhow::anyhow!("gone"));
@@ -279,5 +301,51 @@ mod tests {
     fn silence_takes_as_long_as_the_samples_would() {
         assert_eq!(length(4_800, 2, 48_000), Duration::from_millis(50));
         assert_eq!(length(480, 1, 48_000), Duration::from_millis(10));
+    }
+
+    /// An endpoint the system can't name is no news: a stream that has one
+    /// stays where it is rather than reopening and dropping what it queued.
+    #[test]
+    fn an_unknown_endpoint_keeps_the_stream() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static OPENS: AtomicUsize = AtomicUsize::new(0);
+        fn counting(device: Option<&str>) -> Result<&'static str> {
+            OPENS.fetch_add(1, Ordering::Relaxed);
+            open(device)
+        }
+
+        let _turns = taking_turns();
+        *CONNECTED.lock().unwrap() = vec!["speakers"];
+        OPENS.store(0, Ordering::Relaxed);
+        let mut lasting =
+            Lasting::open(None, true, "Test", Box::new(counting), unknown_endpoint).unwrap();
+        assert_eq!(lasting.stream().copied(), Some("speakers"));
+        assert_eq!(look_now(&mut lasting), Some("speakers"), "stays");
+        assert_eq!(OPENS.load(Ordering::Relaxed), 1, "opened once");
+    }
+
+    /// An endpoint the system can't name still gets a stream retried while
+    /// there's none, which is how a lost device comes back.
+    #[test]
+    fn an_unknown_endpoint_with_no_stream_retries() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static OPENS: AtomicUsize = AtomicUsize::new(0);
+        fn counting(device: Option<&str>) -> Result<&'static str> {
+            OPENS.fetch_add(1, Ordering::Relaxed);
+            open(device)
+        }
+
+        let _turns = taking_turns();
+        *CONNECTED.lock().unwrap() = vec!["speakers"];
+        OPENS.store(0, Ordering::Relaxed);
+        let mut lasting =
+            Lasting::open(None, true, "Test", Box::new(counting), unknown_endpoint).unwrap();
+        CONNECTED.lock().unwrap().clear();
+        lasting.lost(&anyhow::anyhow!("gone"));
+        assert_eq!(look_now(&mut lasting), None);
+        assert_eq!(OPENS.load(Ordering::Relaxed), 2, "tried again at once");
+        assert!(lasting.look > Instant::now(), "waits before trying again");
     }
 }

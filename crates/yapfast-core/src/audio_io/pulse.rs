@@ -151,24 +151,18 @@ fn device(id: Option<&str>, sink: bool) -> Result<Option<String>> {
 /// The sink or source a stream for `id` would open now, by its name and
 /// index, which a device gets anew each time it comes back: the server moves
 /// a stream to another device when its own goes away, and leaves it there
-/// when that returns. Empty for the default, which streams follow anyway.
+/// when that returns. None for the default, which streams follow anyway, and
+/// while the server can't say, which is no news that a stream should move.
 #[cfg(feature = "discord")]
-pub fn endpoint(id: Option<&str>, sink: bool) -> String {
-    let Some(description) = id
+pub fn endpoint(id: Option<&str>, sink: bool) -> Option<String> {
+    let description = id
         .and_then(|id| id.strip_prefix(NAMED))
-        .filter(|description| !description.starts_with("default: "))
-    else {
-        return String::new();
-    };
+        .filter(|description| !description.starts_with("default: "))?;
     list(sink)
-        .ok()
-        .and_then(|devices| {
-            devices
-                .into_iter()
-                .find(|found| found.description == description)
-        })
+        .ok()?
+        .into_iter()
+        .find(|found| found.description == description)
         .map(|found| format!("{}#{}", found.name, found.index))
-        .unwrap_or_default()
 }
 
 /// A sink or source as the server lists it.

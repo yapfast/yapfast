@@ -79,8 +79,10 @@ thread that already did the reading or writing on Linux, copying straight
 between Yapfast's buffers and the engine's. WebRTC's Windows device module names
 each device by its endpoint id (`{0.0.0.00000000}.{…}` for speakers,
 `{0.0.1.00000000}.{…}` for microphones), so the chosen device opens directly
-by that id; none is the console default. Go Live's sound is in
-[Go Live on Windows](#go-live-on-windows).
+by that id; none is the console default. A stream plays as soon as any sound
+is queued, rather than waiting to fill its queue, and a call's stream stays
+where it is when the system can't name its endpoint for a moment. Go Live's
+sound is in [Go Live on Windows](#go-live-on-windows).
 
 Wine's capture starts 0.3–1 s after it's opened, so the first moments a
 microphone hears are lost there. Real Windows needs checking for that, along
