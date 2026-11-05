@@ -2001,6 +2001,9 @@ pub struct Application {
     /// the first message after it is still to be found, and whether the
     /// messages around it were asked for.
     read_marker: Option<(String, bool)>,
+    /// What shows is what was kept, with the newest page on its way, so the
+    /// "New" divider isn't placed yet: see [`chat::Direction::Kept`].
+    divider_waits: bool,
     /// [`AppState::seen`] is still to be checked against the selected room's
     /// timeline, once it comes.
     placing_seen: bool,

@@ -456,6 +456,11 @@ fn a_reply_on_screen_looks_its_original_up_once() {
     assert_eq!(shows(&open, 6), Some(original.clone()));
     assert_eq!(shows(&open, 7), Some(original));
     assert_eq!(shows(&open, 8), Some(Reply::Unknown { id: "2".into() }));
+    // A reply to it that comes later isn't left waiting.
+    assert!(open.live(&Live::Created(unknown("10", "1"))));
+    open.visible(["10"].map(|id| format!("d:{id}")).to_vec());
+    assert_eq!(open.originals_wanted(), ["1"]);
+    open.original("1", Err("refused".into()));
     // One that's gone says so; a failure leaves the reply as it was, unasked again.
     open.visible(["8", "9"].map(|id| format!("d:{id}")).to_vec());
     assert_eq!(open.originals_wanted(), ["2"], "not one with no id");

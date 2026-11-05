@@ -824,6 +824,7 @@ impl Application {
         self.state.first_unread = None;
         self.state.caught_up = false;
         self.read_marker = read_marker.map(|marker| (marker, false));
+        self.divider_waits = false;
         self.state.seen = seen;
         self.placing_seen = true;
         self.state.notice = None;
@@ -944,6 +945,7 @@ impl Application {
         self.focusing = false;
         self.state.first_unread = None;
         self.read_marker = None;
+        self.divider_waits = false;
         self.state.seen = None;
         self.placing_seen = false;
         self.state.notice = None;

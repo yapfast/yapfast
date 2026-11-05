@@ -93,7 +93,9 @@ An unread channel that shows nothing yet, neither kept in memory nor on
 disk, asks for the 50 around the last read one together with the newest 50,
 so it opens at the divider after one round trip rather than two. When the
 messages kept on disk reach back to the last read one, they're what shows
-around it, and only the newest page is asked for. A page around it with
+around it, at once, and only the newest page is asked for. The divider waits
+for that page, which may bring newer messages, and until then nothing reads
+the channel; offline, it goes in from what's kept. A page around it with
 fewer than half a page from it on reaches the newest message, as Discord's
 client takes it, so it shows as the newest rather than as a window.
 The open text channel lists its members on the right as Discord's sidebar
@@ -357,8 +359,9 @@ an error.
   `GET /channels/{id}/messages?limit=1&around={id}`, as Discord's client
   does, since user accounts can't ask for one message by its id. Any other
   message in the answer means the original is gone. Replies ask one after
-  another, each original once while the channel stays open; if Discord
-  doesn't answer, the line says it couldn't be loaded and still jumps there.
+  another, with one request for an original at a time; if Discord doesn't
+  answer, the line says it couldn't be loaded and still jumps there, and asks
+  again the next time the channel opens.
 - Desktop notifications follow the person's Discord settings: each channel's,
   category's or server's level (every message, mentions only or nothing),
   falling back to the server's default, with mutes leaving only mentions. DMs
