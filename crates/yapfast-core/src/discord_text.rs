@@ -80,6 +80,12 @@ pub enum Done {
         generation: u64,
         result: Result<Page, String>,
     },
+    /// The original a reply answers: none once it's gone.
+    Original {
+        room: String,
+        id: String,
+        result: Result<Option<DiscordReply>, String>,
+    },
     Sent {
         room: String,
         nonce: String,

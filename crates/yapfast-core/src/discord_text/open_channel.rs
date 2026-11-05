@@ -180,6 +180,10 @@ pub struct OpenChannel {
     pub(super) pictures: HashMap<String, Option<Arc<Picture>>>,
     pub(super) requested: HashSet<String>,
     visible: HashSet<u64>,
+    /// The originals of replies on screen that were looked up, each asked for
+    /// once while the channel stays open; true for one Discord didn't answer
+    /// for.
+    originals: HashMap<String, bool>,
     pub(super) previews: SharedPreviews,
     /// Shown messages as the timeline last showed them, by snowflake, so a
     /// change renders only the messages it changed. A message leaves when it
@@ -255,6 +259,7 @@ impl OpenChannel {
             pictures: HashMap::new(),
             requested: HashSet::new(),
             visible: HashSet::new(),
+            originals: HashMap::new(),
             previews: SharedPreviews::default(),
             rendered: HashMap::new(),
             rendered_with: Rendering::default(),
@@ -518,6 +523,7 @@ impl OpenChannel {
         self.pictures.clear();
         self.requested.clear();
         self.visible.clear();
+        self.originals.clear();
         // Rendered messages hold their previews; they render again on opening.
         self.rendered = HashMap::new();
     }
@@ -1202,6 +1208,98 @@ impl OpenChannel {
         true
     }
 
+    /// The originals to ask Discord for, of the replies on screen Discord
+    /// said nothing about. One already loaded, or deleted while the channel
+    /// was open, needs no asking.
+    pub(super) fn originals_wanted(&mut self) -> Vec<String> {
+        let wanted: HashSet<String> = self
+            .visible
+            .iter()
+            .filter_map(|order| match &self.shown.messages.get(order)?.reply {
+                Some(DiscordReply::Unknown { id })
+                    if !id.is_empty() && !self.originals.contains_key(id) =>
+                {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        wanted
+            .into_iter()
+            .filter(|id| {
+                let order = id.parse().unwrap_or_default();
+                let known = if self.deleted.contains(&order) {
+                    Some(DiscordReply::Deleted)
+                } else {
+                    self.message(order).map(DiscordReply::quoting)
+                };
+                self.originals.insert(id.clone(), false);
+                match known {
+                    Some(known) => {
+                        self.original(id, Ok(Some(known)));
+                        false
+                    }
+                    None => true,
+                }
+            })
+            .collect()
+    }
+
+    /// Asks Discord for the originals of the replies on screen, one after
+    /// another.
+    fn load_originals(&mut self, discord: &Discord, done: &UnboundedSender<Done>) {
+        // Offline, they wait for the publish that comes with Discord back.
+        if discord.snapshots().borrow().status != Status::Online {
+            return;
+        }
+        let wanted = self.originals_wanted();
+        if wanted.is_empty() {
+            return;
+        }
+        let (discord, done) = (discord.clone(), done.clone());
+        let (room, guild, channel) = (self.room.clone(), self.guild.clone(), self.channel.clone());
+        self.tasks.spawn(async move {
+            for id in wanted {
+                let result = discord
+                    .original(&guild, &channel, &id)
+                    .await
+                    .map_err(|error| error.to_string());
+                let _ = done.send(Done::Original {
+                    room: room.clone(),
+                    id,
+                    result,
+                });
+            }
+        });
+    }
+
+    /// What came of looking up an original: the replies quoting it show it,
+    /// or that it's gone. Without an answer, they say it couldn't be loaded.
+    pub(super) fn original(&mut self, id: &str, result: Result<Option<DiscordReply>, String>) {
+        let quote = match result {
+            Ok(original) => Some(original.unwrap_or(DiscordReply::Deleted)),
+            Err(error) => {
+                tracing::debug!(%error, "a reply's original didn't load");
+                self.originals.insert(id.to_owned(), true);
+                None
+            }
+        };
+        let quotes = |message: &Message| matches!(&message.reply, Some(DiscordReply::Unknown { id: original }) if original == id);
+        for run in std::iter::once(&mut self.shown).chain(self.latest.as_mut()) {
+            for (order, message) in run
+                .messages
+                .iter_mut()
+                .filter(|(_, message)| quotes(message))
+            {
+                self.rendered.remove(order);
+                if let Some(quote) = &quote {
+                    message.reply = Some(quote.clone());
+                    self.dirty = true;
+                }
+            }
+        }
+    }
+
     /// A sent message's attachment at `index`.
     pub(super) fn attachment(
         &self,
@@ -1352,6 +1450,7 @@ impl OpenChannel {
         done: &UnboundedSender<Done>,
     ) -> Vec<Arc<ChatMessage>> {
         while self.tasks.try_join_next().is_some() {}
+        self.load_originals(discord, done);
         let snapshot = discord.snapshots().borrow().clone();
         let me = snapshot.user_id.clone().unwrap_or_default();
         let server = snapshot
@@ -1596,6 +1695,17 @@ impl OpenChannel {
                 body: "The original message was deleted.".into(),
                 item: None,
             },
+            DiscordReply::Unknown { id } => Reply {
+                author: String::new(),
+                avatar: None,
+                body: if id.is_empty() || self.originals.get(id) == Some(&true) {
+                    "The original message couldn't be loaded."
+                } else {
+                    "Loading the original message..."
+                }
+                .into(),
+                item: (!id.is_empty()).then(|| format!("d:{id}")),
+            },
         });
         let timestamp = message.timestamp();
         let ordinary = message.system.is_none();
@@ -1775,8 +1885,13 @@ fn change(messages: &mut BTreeMap<u64, Message>, channel: &str, event: &Live) ->
         Live::Updated(message) if message.channel_id == channel => {
             let known = messages.get_mut(&message.order())?;
             // Updates don't always carry reactions; keep the counted ones,
-            // and a poll's votes unless it carries them.
+            // and a poll's votes unless it carries them, and the original a
+            // reply answers unless it says what became of it.
             let reactions = std::mem::take(&mut known.reactions);
+            let reply = match &message.reply {
+                Some(DiscordReply::Unknown { .. }) => known.reply.take(),
+                reply => reply.clone(),
+            };
             let poll = match &message.poll {
                 Some(poll) if !poll.counted => known.poll.take(),
                 poll => poll.clone(),
@@ -1784,6 +1899,7 @@ fn change(messages: &mut BTreeMap<u64, Message>, channel: &str, event: &Live) ->
             *known = Message {
                 reactions,
                 poll,
+                reply,
                 ..message.clone()
             };
             Some(message.order())
