@@ -200,3 +200,40 @@ Same machine, Windows 11 25H2 build 26200, from the spike in
 - A window can exclude itself and then clear it with `WDA_NONE`; a picker
   therefore has to re-read affinity during a share, not only when the list is
   built.
+
+### A decoded picture straight to the screen, without the processor
+
+Whether a decoded stream can reach Skia's GPU renderer without being copied to
+CPU memory first — spike in `spike/gpu-present/`, not committed, not shipped.
+
+**Both hops work on this machine.** A D3D11 texture created with
+`SHARED_NTHANDLE | SHARED_KEYEDMUTEX` (either flag alone fails) crosses a process
+boundary by `CreateSharedHandle` + `DuplicateHandle` and opens as both a D3D11
+and a D3D12 resource, on the same adapter only — a wrong adapter is
+`E_INVALIDARG`. A `wgpu::Texture` made from it draws through the Skia renderer via
+`slint::Image::try_from`. The vendored Slint compiles with the two
+`unstable-wgpu-30` features in 75 s, no patch.
+
+**The device does not need a rendering notifier.** `BackendSelector::
+require_wgpu_30(WGPUConfiguration::Manual{..})` hands back a device we created,
+so the texture import never touches `set_rendering_notifier`.
+
+**And the notifier would have been free anyway**: `Surface::use_partial_rendering()`
+is `false` for every surface but the software one, so on the GPU renderer there
+is no partial-rendering state for a notifier to switch off. Measured at
+3440×1440 with an image animating at 30 fps: 17.29 % CPU without a notifier
+(16.87–18.75) against 13.23 % with one (11.77–15.94) — the notifier measured
+*cheaper*, which is what "partial repainting was never active here" predicts.
+Idle was 0.00 % either way.
+
+**What it would buy**: the UI's copy-on-write of one 1280×720 RGBA picture costs
+**1.1–1.9 ms a frame**, 3–6 % CPU at 30 fps per stream. At a 480×270 tile it is a
+fifth of that.
+
+**What it would cost**: the keyed mutex does not survive the D3D12 hop
+(`IDXGIKeyedMutex` on a D3D12 resource is `E_NOINTERFACE`), proved by a D3D11
+reader without the mutex seeing zeros where a D3D12 reader saw the frame — so a
+real implementation needs fences or double buffering. The producer also becomes
+adapter-bound, and failures only appear at `OpenSharedHandle`, so a per-stream
+LUID check is the fallback gate. Note the card enumerates twice here
+(`0x1488A`, `0x2079F`), so LUIDs must be compared, not names.
