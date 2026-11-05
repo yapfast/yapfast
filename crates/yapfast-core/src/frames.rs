@@ -384,6 +384,31 @@ impl Writer {
         time_ms: u64,
         fill: impl FnOnce(&mut [u8]),
     ) {
+        self.write_timed_rendered(width, height, time_ms, |pixels| {
+            fill(pixels);
+            true
+        });
+    }
+    /// Writes a frame with `fill`, which gets its RGBA pixels and says whether
+    /// it filled them, and shows it only if it did: a picture that couldn't be
+    /// made leaves the frame before it showing, rather than a slot half of one
+    /// frame and half of another.
+    pub fn write_rendered(
+        &mut self,
+        width: u32,
+        height: u32,
+        fill: impl FnOnce(&mut [u8]) -> bool,
+    ) -> bool {
+        self.write_timed_rendered(width, height, 0, fill)
+    }
+    /// As [`Self::write_rendered`], for a frame showing at `time_ms`.
+    pub fn write_timed_rendered(
+        &mut self,
+        width: u32,
+        height: u32,
+        time_ms: u64,
+        fill: impl FnOnce(&mut [u8]) -> bool,
+    ) -> bool {
         // A frame larger than the slots grows them, as one shown in a larger
         // tile or window is; one that can't grow them is skipped, leaving the
         // frame before it showing rather than writing over the slots.
@@ -392,19 +417,22 @@ impl Writer {
                 error = format!("{error:#}"),
                 "could not grow the video frames"
             );
-            return;
+            return false;
         }
         // SAFETY: the back slot is the worker's alone until it's swapped in.
         let pixels = unsafe {
             std::slice::from_raw_parts_mut(self.mapping.slot(self.back), capacity(width, height))
         };
-        fill(pixels);
+        if !fill(pixels) {
+            return false;
+        }
         let header = self.mapping.header();
         let [w, h] = &header.sizes[self.back as usize];
         w.store(width, Ordering::Relaxed);
         h.store(height, Ordering::Relaxed);
         header.times[self.back as usize].store(time_ms, Ordering::Relaxed);
         self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
+        true
     }
 }
 

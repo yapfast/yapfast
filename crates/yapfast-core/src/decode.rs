@@ -2,6 +2,12 @@
 //! both inside libwebrtc, through native/decode.c; AV1 with libwebrtc's
 //! dav1d, through native/av1.c; and H265 with the HEVC decoder of
 //! vendor/ffmpeg-src's FFmpeg, through native/hevc.c, where it's built.
+//!
+//! A watched stream first asks the machine's own decoder, which leaves every
+//! picture in a graphics card texture and scales it to the tile on the card
+//! through native/d3d11dec.cc; the software decoders above are what reads a
+//! stream the machine's can't, so the picture a viewer sees is made either
+//! way.
 
 use std::{
     ffi::{c_int, c_uchar, c_uint},
@@ -344,6 +350,335 @@ impl Drop for Decoder {
     }
 }
 
+/// The machine's own decoder for a watched stream, which leaves every picture
+/// in a texture on the graphics card and scales it to the tile there, through
+/// native/d3d11dec.cc.
+#[cfg(d3d11dec)]
+pub struct Hardware {
+    raw: *mut Raw,
+    size: (u32, u32),
+}
+
+#[cfg(d3d11dec)]
+unsafe extern "C" {
+    /// The machine's decoder for `codec` on the graphics card, which opens
+    /// around the size given and settles the stream's own on its first frame;
+    /// null when the machine has no decoder for that codec.
+    fn yapfast_hwdec_new(codec: c_int, hint_width: c_int, hint_height: c_int) -> *mut Raw;
+    fn yapfast_hwdec_decode(
+        decoder: *mut Raw,
+        data: *const c_uchar,
+        size: usize,
+        keyframe: c_int,
+    ) -> c_int;
+    fn yapfast_hwdec_size(decoder: *const Raw, width: *mut c_int, height: *mut c_int) -> c_int;
+    fn yapfast_hwdec_rgba(
+        decoder: *mut Raw,
+        rgba: *mut c_uchar,
+        width: c_int,
+        height: c_int,
+    ) -> c_int;
+    fn yapfast_hwdec_error(decoder: *const Raw) -> *const c_uchar;
+    /// The newest picture's 8-bit planes, which only a test asks for: it
+    /// converts the decoder's own samples both ways and compares the pictures.
+    #[cfg(test)]
+    fn yapfast_hwdec_nv12(
+        decoder: *mut Raw,
+        y: *mut c_uchar,
+        y_stride: c_int,
+        u: *mut c_uchar,
+        u_stride: c_int,
+        v: *mut c_uchar,
+        v_stride: c_int,
+    ) -> c_int;
+    fn yapfast_hwdec_free(decoder: *mut Raw);
+}
+
+#[cfg(d3d11dec)]
+impl Hardware {
+    /// The machine's decoder for a stream of `codec`, if it has one that
+    /// takes it. VP8 never has: Windows' own decoders are H264, HEVC and AV1,
+    /// and the software decoder is what reads the rest.
+    pub fn new(codec: Codec) -> Result<Self> {
+        let which = match codec {
+            Codec::H264 => 0,
+            Codec::H265 => 1,
+            Codec::Av1 => 2,
+            Codec::Vp8 => bail!("the graphics card has no VP8 decoder"),
+        };
+        // SAFETY: plain values; null means no decoder for the codec or this
+        // machine, and the reason is the shim's last error.
+        let raw = unsafe { yapfast_hwdec_new(which, 0, 0) };
+        if raw.is_null() {
+            // SAFETY: the null decoder is what `error` reads the reason off.
+            let reason = unsafe { message(yapfast_hwdec_error(std::ptr::null())) };
+            bail!("no hardware decoder: {reason}");
+        }
+        Ok(Self { raw, size: (0, 0) })
+    }
+
+    /// The size of the newest picture, as the decoder made it.
+    pub fn size(&self) -> (u32, u32) {
+        self.size
+    }
+
+    /// Feeds one whole frame. True says a picture is ready to be shown, false
+    /// that the decoder kept the frame for the pictures after it.
+    pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<bool> {
+        // SAFETY: the frame outlives the call, and one thread uses the decoder
+        // at a time.
+        let decoded = unsafe {
+            yapfast_hwdec_decode(self.raw, frame.as_ptr(), frame.len(), keyframe as c_int)
+        };
+        if decoded < 0 {
+            // SAFETY: the decoder is this one's, alive for as long as it is.
+            bail!("the graphics card wouldn't decode a frame: {}", unsafe {
+                message(yapfast_hwdec_error(self.raw))
+            });
+        }
+        if decoded == 0 {
+            return Ok(false);
+        }
+        let (mut width, mut height) = (0, 0);
+        // SAFETY: both are plain integers for the call to fill in.
+        let sized = unsafe { yapfast_hwdec_size(self.raw, &mut width, &mut height) };
+        if sized == 0 || width <= 0 || height <= 0 {
+            bail!("the graphics card gave a picture with no size");
+        }
+        self.size = (width as u32, height as u32);
+        Ok(true)
+    }
+
+    /// The newest picture's planes as the decoder made them, the visible part
+    /// of them, for a test that converts one picture both ways. The watch
+    /// never asks: its pictures stay on the card.
+    #[cfg(test)]
+    pub fn nv12(&mut self) -> Result<Planes> {
+        let (width, height) = self.size;
+        let (luma_stride, chroma_stride) = (width as usize, width.div_ceil(2) as usize);
+        let mut y = vec![0; luma_stride * height as usize];
+        let mut u = vec![0; chroma_stride * height.div_ceil(2) as usize];
+        let mut v = vec![0; u.len()];
+        // SAFETY: each plane holds `height` (or half of them) rows of its
+        // stride, and one thread uses the decoder at a time.
+        let written = unsafe {
+            yapfast_hwdec_nv12(
+                self.raw,
+                y.as_mut_ptr(),
+                luma_stride as c_int,
+                u.as_mut_ptr(),
+                chroma_stride as c_int,
+                v.as_mut_ptr(),
+                chroma_stride as c_int,
+            )
+        };
+        if written < 0 {
+            // SAFETY: the decoder is this one's, alive for as long as it is.
+            bail!("the picture's planes weren't readable: {}", unsafe {
+                message(yapfast_hwdec_error(self.raw))
+            });
+        }
+        Ok(Planes {
+            width,
+            height,
+            y,
+            u,
+            v,
+        })
+    }
+
+    /// Writes the picture, in the stream's colour and scaled to `width` by
+    /// `height`, as RGBA of `width * 4` bytes a row.
+    ///
+    /// The tile written is the one the card was asked for on the call before:
+    /// reading a tile back the moment its picture was converted is a wait for
+    /// the card to finish decoding, which costs more processor time than the
+    /// whole conversion, so a tile is copied back one frame later, when the
+    /// card has long had it ready. A stream shows it a frame later than it
+    /// decodes, which no viewer sees.
+    pub fn rgba(&mut self, out: &mut [u8], width: u32, height: u32) -> Result<()> {
+        assert!(out.len() >= width as usize * height as usize * 4);
+        // SAFETY: `out` holds the picture at that size, and one thread uses
+        // the decoder at a time.
+        let written = unsafe {
+            yapfast_hwdec_rgba(self.raw, out.as_mut_ptr(), width as c_int, height as c_int)
+        };
+        if written < 0 {
+            // SAFETY: the decoder is this one's, alive for as long as it is.
+            bail!("the tile wasn't converted: {}", unsafe {
+                message(yapfast_hwdec_error(self.raw))
+            });
+        }
+        Ok(())
+    }
+}
+
+/// A message the shim wrote: a C string that lives until its next call.
+///
+/// # Safety
+/// `text` must be null or a C string the shim keeps alive for the call that
+/// asked for it, as `yapfast_hwdec_error`'s is.
+#[cfg(d3d11dec)]
+unsafe fn message(text: *const c_uchar) -> String {
+    if text.is_null() {
+        return "the machine gave no reason".into();
+    }
+    // SAFETY: as the caller promised; CStr stops at the shim's terminator.
+    unsafe { std::ffi::CStr::from_ptr(text.cast()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[cfg(d3d11dec)]
+impl Drop for Hardware {
+    fn drop(&mut self) {
+        // SAFETY: raw came from the constructor `free` belongs with, and is
+        // freed once.
+        unsafe { yapfast_hwdec_free(self.raw) };
+    }
+}
+
+// SAFETY: no library keeps thread-local state; one thread uses the decoder at a
+// time.
+#[cfg(d3d11dec)]
+unsafe impl Send for Hardware {}
+
+/// One picture's 8-bit planes, the visible part of them: a test's way of
+/// converting a decoder's own samples the way the software path does.
+#[cfg(all(d3d11dec, test))]
+pub struct Planes {
+    pub width: u32,
+    pub height: u32,
+    pub y: Vec<u8>,
+    pub u: Vec<u8>,
+    pub v: Vec<u8>,
+}
+
+/// A picture decoded for a watched stream, and where it lies: in the software
+/// decoder's planes, which the processor reads and converts, or in the texture
+/// the machine's decoder left it in, which the graphics card scales into the
+/// tile.
+pub enum Frame<'a> {
+    Software(Picture<'a>),
+    #[cfg(d3d11dec)]
+    Hardware(&'a mut Hardware),
+}
+
+impl Frame<'_> {
+    /// The picture's size, as the decoder made it.
+    pub fn size(&self) -> (u32, u32) {
+        match self {
+            Frame::Software(picture) => (picture.width, picture.height),
+            #[cfg(d3d11dec)]
+            Frame::Hardware(hardware) => hardware.size(),
+        }
+    }
+}
+
+/// A watched stream's decoder: the machine's own while it can take the stream,
+/// and the software decoder where it can't — VP8, a codec this machine has no
+/// decoder for, a 10-bit picture the card's pass has no curve for, or a
+/// session the card refused. Which one a stream gets is the machine's to say,
+/// and the stream is shown the same way either way.
+pub struct Live {
+    codec: Codec,
+    #[cfg(d3d11dec)]
+    hardware: Option<Hardware>,
+    software: Option<Decoder>,
+}
+
+impl Live {
+    /// A decoder for a newly watched stream, on the graphics card where this
+    /// machine has one that takes the codec and this build's fallback where it
+    /// hasn't.
+    pub fn new(codec: Codec) -> Result<Self> {
+        #[cfg(d3d11dec)]
+        match Hardware::new(codec) {
+            Ok(hardware) => {
+                return Ok(Self {
+                    codec,
+                    hardware: Some(hardware),
+                    software: None,
+                });
+            }
+            Err(error) => tracing::info!(
+                error = format!("{error:#}"),
+                codec = ?codec,
+                "watching this stream with the software decoder"
+            ),
+        }
+        Self::software(codec)
+    }
+
+    /// The software decoder alone, where the machine's has given up on a
+    /// stream or was never tried.
+    pub fn software(codec: Codec) -> Result<Self> {
+        Ok(Self {
+            codec,
+            #[cfg(d3d11dec)]
+            hardware: None,
+            software: Some(Decoder::new(codec)?),
+        })
+    }
+
+    pub fn codec(&self) -> Codec {
+        self.codec
+    }
+
+    /// Whether the machine's decoder is the one reading this stream, rather
+    /// than the software one.
+    #[cfg(d3d11dec)]
+    pub fn on_the_card(&self) -> bool {
+        self.hardware.is_some()
+    }
+
+    /// Whether the machine's decoder is the one reading this stream, rather
+    /// than the software one.
+    #[cfg(not(d3d11dec))]
+    pub fn on_the_card(&self) -> bool {
+        false
+    }
+
+    /// Decodes a whole frame: the picture where it lies, or none while the
+    /// decoder holds it back.
+    ///
+    /// A machine decoder that fails stops being used, and the error it leaves
+    /// says so: the caller waits for a keyframe, and the software decoder takes
+    /// the stream from there.
+    pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<Option<Frame<'_>>> {
+        #[cfg(d3d11dec)]
+        if let Some(mut hardware) = self.hardware.take() {
+            match hardware.decode(frame, keyframe) {
+                Ok(true) => {
+                    self.hardware = Some(hardware);
+                    return Ok(self.hardware.as_mut().map(Frame::Hardware));
+                }
+                Ok(false) => {
+                    self.hardware = Some(hardware);
+                    return Ok(None);
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        codec = ?self.codec,
+                        "the graphics card gave up on a stream"
+                    );
+                    self.hardware = None;
+                    return Err(error);
+                }
+            }
+        }
+        if self.software.is_none() {
+            self.software = Some(Decoder::new(self.codec)?);
+        }
+        let decoder = self
+            .software
+            .as_mut()
+            .expect("a software decoder was just made");
+        Ok(decoder.decode(frame)?.map(Frame::Software))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -477,5 +812,372 @@ mod tests {
                 first_unit(&fixture("stream-h265.h265"), 35 << 1),
             );
         }
+    }
+
+    /// A stream the card can decode is watched on the card: the decoder the
+    /// watch asks for hands back a picture that never came to the processor,
+    /// which is the path a viewer's frame takes when nothing goes wrong.
+    #[cfg(d3d11dec)]
+    #[test]
+    fn a_stream_the_card_can_decode_is_watched_on_the_card() {
+        if Hardware::new(Codec::H264).is_err() {
+            eprintln!("this machine's card has no H264 decoder");
+            return;
+        }
+        let stream = fixture("stream-h264.h264");
+        let unit = first_unit(&stream, 9);
+        let mut live = Live::new(Codec::H264).unwrap();
+        assert!(
+            live.on_the_card(),
+            "a card decoder was found and should be used"
+        );
+        match live.decode(unit, true).unwrap() {
+            Some(Frame::Hardware(hardware)) => {
+                let (width, height) = hardware.size();
+                assert_eq!((width, height), (320, 180));
+                let mut pixels = vec![0; width as usize * height as usize * 4];
+                hardware.rgba(&mut pixels, width, height).unwrap();
+                let lit = pixels.chunks_exact(4).filter(|pixel| pixel[..3] != [0; 3]);
+                assert!(lit.count() > 1000, "the picture has a picture in it");
+            }
+            _ => panic!("the card decoded a keyframe and gave no picture"),
+        }
+    }
+
+    /// The process's own kernel and user time, in milliseconds, as the
+    /// measurement method counts it: Windows charges it in 15.6 ms ticks, so a
+    /// measurement has to run long enough for the ticks to add up.
+    #[cfg(d3d11dec)]
+    fn cpu_millis() -> f64 {
+        #[repr(C)]
+        struct FileTime {
+            low: u32,
+            high: u32,
+        }
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> *mut std::ffi::c_void;
+            fn GetProcessTimes(
+                process: *mut std::ffi::c_void,
+                created: *mut FileTime,
+                exited: *mut FileTime,
+                kernel: *mut FileTime,
+                user: *mut FileTime,
+            ) -> i32;
+        }
+        let blank = || FileTime { low: 0, high: 0 };
+        let (mut created, mut exited, mut kernel, mut user) = (blank(), blank(), blank(), blank());
+        // SAFETY: plain out-parameters for the call, and the process is this one.
+        unsafe {
+            GetProcessTimes(
+                GetCurrentProcess(),
+                &mut created,
+                &mut exited,
+                &mut kernel,
+                &mut user,
+            )
+        };
+        let ticks = |time: FileTime| f64::from(time.high) * 4_294_967_296.0 + f64::from(time.low);
+        (ticks(kernel) + ticks(user)) / 10_000.0
+    }
+
+    /// This process's working set, in megabytes.
+    #[cfg(d3d11dec)]
+    fn working_set_megabytes() -> f64 {
+        #[repr(C)]
+        struct Counters {
+            size: u32,
+            page_faults: u32,
+            peak_working_set: usize,
+            working_set: usize,
+            quota_peak_paged: usize,
+            quota_paged: usize,
+            quota_peak_unpaged: usize,
+            quota_unpaged: usize,
+            pagefile: usize,
+            peak_pagefile: usize,
+        }
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> *mut std::ffi::c_void;
+            fn K32GetProcessMemoryInfo(
+                process: *mut std::ffi::c_void,
+                counters: *mut Counters,
+                size: u32,
+            ) -> i32;
+        }
+        let mut counters = Counters {
+            size: size_of::<Counters>() as u32,
+            page_faults: 0,
+            peak_working_set: 0,
+            working_set: 0,
+            quota_peak_paged: 0,
+            quota_paged: 0,
+            quota_peak_unpaged: 0,
+            quota_unpaged: 0,
+            pagefile: 0,
+            peak_pagefile: 0,
+        };
+        // SAFETY: the counters are this call's own out-parameter, sized as the
+        // call expects, for this process.
+        unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.size) };
+        counters.working_set as f64 / (1024.0 * 1024.0)
+    }
+
+    /// What a 1080p stream costs the processor a frame, before and after: the
+    /// same recording decoded and shown at a 480×270 tile through both paths —
+    /// software decode, then libyuv's conversion and scale on the processor;
+    /// the card's decode, then its video processor scaling the picture into
+    /// the tile, of which only the tile comes back.
+    ///
+    /// The recording is named by `YAPFAST_MEASURE_STREAM`, an Annex B H264
+    /// file, because the repository's fixtures are 320×180 and a tile's worth
+    /// of that measures nothing. CPU is the process's own, and four decoders
+    /// opened at the end say what a stream's session costs the process on top.
+    #[cfg(d3d11dec)]
+    #[test]
+    #[ignore = "measures a 1080p stream's cost; set YAPFAST_MEASURE_STREAM to an Annex B H264 file"]
+    fn measures_a_1080p_stream_at_a_tile() {
+        use std::time::Instant;
+        let path =
+            std::env::var("YAPFAST_MEASURE_STREAM").expect("an Annex B H264 file to measure");
+        let file = std::fs::read(&path).expect("the stream to measure");
+        // Every access unit: a new one starts at each parameter set and each
+        // slice, so that a keyframe's SPS and PPS are read with its IDR, the
+        // way a stream's first frame carries them.
+        let mut starts = vec![];
+        let mut slice_before = false;
+        let mut at = 0;
+        while let Some(found) = file[at..].windows(3).position(|window| window == [0, 0, 1]) {
+            let code = at + found;
+            let kind = file.get(code + 3).map(|byte| byte & 0x1f).unwrap_or(0);
+            let slice = matches!(kind, 1 | 5);
+            // A parameter set starts the unit a keyframe's picture comes with;
+            // a slice starts one of its own once a slice came before it.
+            if kind == 7 || (slice && slice_before) {
+                starts.push(code);
+            }
+            slice_before = slice;
+            at = code + 3;
+        }
+        let units: Vec<(usize, usize)> = starts
+            .iter()
+            .zip(starts.iter().skip(1).map(Some).chain([None]))
+            .map(|(from, to)| (*from, to.copied().unwrap_or(file.len())))
+            .collect();
+        let passes = 2;
+        let mut pixels = vec![0; 480 * 270 * 4];
+        let mut scratch = vec![];
+
+        let mut decoder = Decoder::new(Codec::H264).unwrap();
+        let mut frames = 0u32;
+        let (began, cpu) = (Instant::now(), cpu_millis());
+        for _ in 0..passes {
+            for &(from, to) in &units {
+                if let Some(picture) = decoder.decode(&file[from..to]).unwrap() {
+                    picture.i420().to_rgba(&mut scratch, &mut pixels, 480, 270);
+                    frames += 1;
+                }
+            }
+        }
+        let software = (cpu_millis() - cpu) / f64::from(frames);
+        eprintln!(
+            "software: {software:.3} ms of CPU a frame ({frames} frames, {:.0} ms wall)",
+            began.elapsed().as_secs_f64() * 1e3
+        );
+
+        // The card's decoder alone, and the same decode with the video
+        // processor's pass and the tile's way back, so that what the pass
+        // costs is the difference rather than a guess.
+        let mut hardware = Hardware::new(Codec::H264).unwrap();
+        let mut frames = 0u32;
+        let (began, cpu) = (Instant::now(), cpu_millis());
+        for _ in 0..passes {
+            for &(from, to) in &units {
+                if hardware.decode(&file[from..to], true).unwrap() {
+                    frames += 1;
+                }
+            }
+        }
+        let decoding = (cpu_millis() - cpu) / f64::from(frames);
+        eprintln!(
+            "the card, decoding only: {decoding:.3} ms of CPU a frame ({frames} frames, {:.0} ms wall)",
+            began.elapsed().as_secs_f64() * 1e3
+        );
+
+        let mut hardware = Hardware::new(Codec::H264).unwrap();
+        let mut frames = 0u32;
+        let (began, cpu) = (Instant::now(), cpu_millis());
+        for _ in 0..passes {
+            for &(from, to) in &units {
+                if hardware.decode(&file[from..to], true).unwrap() {
+                    hardware.rgba(&mut pixels, 480, 270).unwrap();
+                    frames += 1;
+                }
+            }
+        }
+        let on_the_card = (cpu_millis() - cpu) / f64::from(frames);
+        eprintln!(
+            "the card, shown at 480x270: {on_the_card:.3} ms of CPU a frame ({frames} frames, {:.0} ms wall)",
+            began.elapsed().as_secs_f64() * 1e3
+        );
+
+        // The pass's own cost with the tile it has to bring back cut to one
+        // pixel, and with only every fourth picture brought back at all: what
+        // is left is the wait for the card's pipeline, not the copy.
+        let mut hardware = Hardware::new(Codec::H264).unwrap();
+        let mut frames = 0u32;
+        let mut tiny = [0u8; 4];
+        let (began, cpu) = (Instant::now(), cpu_millis());
+        for _ in 0..passes {
+            for &(from, to) in &units {
+                if hardware.decode(&file[from..to], true).unwrap() {
+                    hardware.rgba(&mut tiny, 1, 1).unwrap();
+                    frames += 1;
+                }
+            }
+        }
+        let one_pixel = (cpu_millis() - cpu) / f64::from(frames);
+        eprintln!(
+            "the card, shown at one pixel: {one_pixel:.3} ms of CPU a frame ({frames} frames, {:.0} ms wall)",
+            began.elapsed().as_secs_f64() * 1e3
+        );
+
+        let before = working_set_megabytes();
+        let mut kept = vec![];
+        for _ in 0..4 {
+            let mut decoder = Hardware::new(Codec::H264).unwrap();
+            // A picture takes the first frames of a stream to come out of the
+            // card's low-latency decoder.
+            let mut ready = false;
+            for (index, &(from, to)) in units.iter().take(8).enumerate() {
+                ready |= decoder.decode(&file[from..to], index == 0).unwrap();
+            }
+            assert!(ready, "a keyframe and seven frames made no picture");
+            decoder.rgba(&mut pixels, 480, 270).unwrap();
+            kept.push(decoder);
+        }
+        let after = working_set_megabytes();
+        eprintln!(
+            "four 1080p decoders hold {:.0} MB of working set (the process had {before:.0} MB)",
+            after - before
+        );
+    }
+
+    /// The machine's decoder's picture in the same colours as the software
+    /// path's: one H264, HEVC and AV1 keyframe from `testing/fixtures/` is
+    /// decoded on the card, its own 8-bit planes are converted twice — by
+    /// libyuv on the processor, as `I420::to_rgba` does for the watch, and by
+    /// the video processor on the card, matrix, range, scale and channel order
+    /// in its one pass — and the two pictures are compared.
+    ///
+    /// The fixtures carry no colour metadata, so both read them as BT.601
+    /// limited, which is what the software path has always assumed for a
+    /// stream that says nothing. What is left between them is the video
+    /// processor's own 4:2:0 upsampling: it interpolates chroma with H.264's
+    /// siting where libyuv repeats it, so a chroma edge can be tens of codes
+    /// apart on a test card full of them, while every flat area matches. The
+    /// luma carries the range — a limited/full mix-up moves it by ten codes —
+    /// and a matrix or channel order a shader got wrong moves all three
+    /// channels, so the mean holds those to five codes a sample, luma to 1.5
+    /// with 95% of it within four, half the samples to one code, and the same
+    /// comparison with red and blue exchanged is required to be far worse:
+    /// the fixtures are saturated enough (a mean of 162 codes between red and
+    /// blue) that a swapped channel order could not pass.
+    #[cfg(d3d11dec)]
+    #[test]
+    fn the_card_shows_a_stream_in_the_same_colours_as_software() {
+        let units = [
+            (
+                Codec::H264,
+                first_unit(&fixture("stream-h264.h264"), 9).to_vec(),
+            ),
+            (
+                Codec::H265,
+                first_unit(&fixture("stream-h265.h265"), 35 << 1).to_vec(),
+            ),
+            (Codec::Av1, first_temporal_unit(&fixture("stream-av1.obu"))),
+        ];
+        let mut compared = 0;
+        for (codec, unit) in units {
+            let mut hardware = match Hardware::new(codec) {
+                Ok(hardware) => hardware,
+                Err(error) => {
+                    eprintln!("{codec:?} isn't decoded on this machine's card: {error:#}");
+                    continue;
+                }
+            };
+            let mut software = Decoder::new(codec).unwrap();
+            let picture = software
+                .decode(&unit)
+                .unwrap()
+                .expect("a picture from the keyframe");
+            // A keyframe's picture is there once the decoder has read the unit;
+            // the same unit read again is the same picture, so a decoder that
+            // held the first one gives it here.
+            let ready =
+                hardware.decode(&unit, true).unwrap() || hardware.decode(&unit, true).unwrap();
+            assert!(ready, "{codec:?}: the card made no picture");
+            assert_eq!(
+                hardware.size(),
+                (picture.width, picture.height),
+                "{codec:?}: the card's picture is the stream's size, without the padding its surface carries"
+            );
+            let planes = hardware.nv12().unwrap();
+            let (width, height) = (planes.width, planes.height);
+            let planes = crate::picture::I420 {
+                width,
+                height,
+                y: &planes.y,
+                u: &planes.u,
+                v: &planes.v,
+                strides: [width, width.div_ceil(2), width.div_ceil(2)],
+            };
+            let mut expected = vec![0; width as usize * height as usize * 4];
+            planes.to_rgba(&mut vec![], &mut expected, width, height);
+            let mut shown = vec![0; expected.len()];
+            hardware.rgba(&mut shown, width, height).unwrap();
+            let mut differences = Vec::with_capacity(expected.len() / 4 * 3);
+            let mut luma = Vec::with_capacity(expected.len() / 4);
+            let mut exchanged = 0u64;
+            let light = |pixel: &[u8]| {
+                (u32::from(pixel[0]) * 299 + u32::from(pixel[1]) * 587 + u32::from(pixel[2]) * 114)
+                    / 1000
+            };
+            for (want, got) in expected.chunks_exact(4).zip(shown.chunks_exact(4)) {
+                for channel in 0..3 {
+                    differences.push(u16::from(want[channel].abs_diff(got[channel])));
+                }
+                luma.push(light(want).abs_diff(light(got)));
+                exchanged +=
+                    u64::from(want[0].abs_diff(got[2])) + u64::from(want[2].abs_diff(got[0]));
+            }
+            differences.sort_unstable();
+            luma.sort_unstable();
+            let mean = differences.iter().map(|&d| u64::from(d)).sum::<u64>() as f64
+                / differences.len() as f64;
+            let median = differences[differences.len() / 2];
+            let luma_mean =
+                luma.iter().map(|&d| u64::from(d)).sum::<u64>() as f64 / luma.len() as f64;
+            let luma_95 = luma[luma.len() * 95 / 100];
+            let exchanged = exchanged as f64 / (luma.len() as f64 / 3.0 * 2.0);
+            eprintln!(
+                "{codec:?}: {mean:.2} codes a sample on average, {median} at the median,                  luma {luma_mean:.2} on average and {luma_95} at the 95th, {exchanged:.1} with red and blue exchanged"
+            );
+            assert!(mean <= 5.0, "{codec:?}: {mean:.2} codes a sample");
+            assert!(median <= 1, "{codec:?}: {median} codes at the median");
+            assert!(luma_mean <= 1.5, "{codec:?}: {luma_mean:.2} codes of luma");
+            assert!(
+                luma_95 <= 4,
+                "{codec:?}: {luma_95} codes of luma at the 95th"
+            );
+            assert!(
+                exchanged > mean * 4.0,
+                "{codec:?}: exchanging red and blue leaves {exchanged:.1} codes, so the comparison can't tell a channel order"
+            );
+            compared += 1;
+        }
+        assert!(
+            compared > 0,
+            "no codec was compared: this machine's card decodes none of them"
+        );
     }
 }

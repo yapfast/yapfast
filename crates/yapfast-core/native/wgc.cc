@@ -35,8 +35,10 @@
  *
  * What it deliberately doesn't do yet: it opens a capture and hands out frames,
  * and nothing else. No rate limiting (`IGraphicsCaptureSession2`'s
- * `MinUpdateInterval`), no cursor setting, no window capture, and nothing in
- * this crate calls it — the loop that does is the next stage; see src/wgc.rs. */
+ * `MinUpdateInterval`), no window capture, and nothing in this crate calls it —
+ * the loop that does is the next stage; see src/wgc.rs. The cursor is the one
+ * thing it does set: WGC includes it by default, and saying so explicitly is what
+ * keeps that true. */
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -198,8 +200,10 @@ struct yapfast_wgc {
 
   /* What was asked of the border and what came back, as one clause of the
    * report: a capture with the yellow indicator is still a capture, so this is
-   * said rather than failed. */
+   * said rather than failed. The pointer is reported the same way and for the
+   * same reason. */
   char border[192];
+  char pointer[160];
 
   /* Which adapter and which of its outputs this capture is on, and what they are
    * called, for the report and for a failure that has to say what was looked at. */
@@ -490,6 +494,51 @@ static void ask_borderless(yapfast_wgc *capture) {
   session3->Release();
 }
 
+/* Makes sure the mouse pointer is in the frames, and says which way that went.
+ *
+ * WGC includes the cursor unless it is told not to, so a capture built without
+ * this line already had one — the frames this file handed out before it did. It
+ * is set anyway because a default is not a contract: `IsCursorCaptureEnabled` is
+ * the thing that means "the pointer is part of the picture", and a later Windows
+ * that changed the default would turn every stream's mouse into a hole. The
+ * property lives on IGraphicsCaptureSession2, which exists from Windows 10 1803,
+ * so on anything older the question can't be asked and the default is what a
+ * capture keeps — said in the report rather than failed. */
+static void include_pointer(yapfast_wgc *capture) {
+  capture_abi::IGraphicsCaptureSession2 *session2 = NULL;
+  boolean enabled = FALSE;
+  HRESULT status;
+
+  if (!capture->session) {
+    snprintf(capture->pointer, sizeof capture->pointer,
+             "the pointer is in the capture only by Windows' default: there is no session to ask");
+    return;
+  }
+  status = capture->session->QueryInterface(IID_PPV_ARGS(&session2));
+  if (FAILED(status)) {
+    snprintf(capture->pointer, sizeof capture->pointer,
+             "the pointer is in the capture only by Windows' default: this build of Windows has "
+             "no IGraphicsCaptureSession2 (0x%08lX)",
+             (unsigned long)status);
+    return;
+  }
+  status = session2->put_IsCursorCaptureEnabled(TRUE);
+  if (FAILED(status)) {
+    snprintf(capture->pointer, sizeof capture->pointer,
+             "the pointer is in the capture only by Windows' default: "
+             "IsCursorCaptureEnabled(true) was refused (0x%08lX)",
+             (unsigned long)status);
+  } else {
+    /* Read back rather than assumed: a refused-but-S_OK put is the sort of thing
+     * that would leave a stream quietly without a cursor. */
+    session2->get_IsCursorCaptureEnabled(&enabled);
+    snprintf(capture->pointer, sizeof capture->pointer,
+             "the pointer is captured (IsCursorCaptureEnabled = %s)",
+             enabled ? "true" : "false");
+  }
+  session2->Release();
+}
+
 /* ---------------------------------------------------------------- the capture */
 
 /* The pool a capture's frames arrive in: free-threaded so that no thread owns it
@@ -619,6 +668,7 @@ extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) 
     goto failed;
   }
   ask_borderless(capture);
+  include_pointer(capture);
   /* Watched before it starts, so that an item which closes on its first frame is
    * reported as closed rather than as a capture that never produced one. */
   watch_closed(capture);
@@ -756,12 +806,12 @@ extern "C" void yapfast_wgc_describe(yapfast_wgc *capture, char *text, size_t si
     snprintf(text, size, "no capture");
     return;
   }
-  snprintf(text, size, "%s %s, %ux%u, through %s (LUID %08lX:%08lX, output %u); %s",
+  snprintf(text, size, "%s %s, %ux%u, through %s (LUID %08lX:%08lX, output %u); %s; %s",
            capture->primary ? "the primary display" : "a display",
            capture->display[0] ? capture->display : "(unnamed)", capture->width, capture->height,
            capture->card[0] ? capture->card : "(an unnamed adapter)",
            (unsigned long)capture->luid.HighPart, (unsigned long)capture->luid.LowPart,
-           capture->output, capture->border);
+           capture->output, capture->border, capture->pointer);
 }
 
 /* Stops the capture and lets everything go. A capture whose end has already come

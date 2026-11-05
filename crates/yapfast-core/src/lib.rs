@@ -42,6 +42,10 @@ pub mod discord_text;
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+/// Desktop Duplication: the compositor's own surface, turned upright and
+/// converted on the GPU, with the pointer drawn in; see src/dup.rs.
+#[cfg(dup)]
+pub mod dup;
 #[cfg(feature = "discord")]
 pub mod encode;
 #[cfg(feature = "matrix")]

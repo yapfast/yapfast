@@ -18,7 +18,9 @@ fn main() {
         "hwenc.c",
         "hevc.c",
         "d3d11enc.c",
+        "d3d11dec.cc",
         "wgc.cc",
+        "dup.cc",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -64,7 +66,9 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
+    println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
+    println!("cargo::rustc-check-cfg=cfg(dup)");
     // Windows' own capture path can hand NVENC its frames as D3D11 textures,
     // so d3d11enc.c encodes from the GPU without a frame's pixels being
     // converted or uploaded; see native/d3d11enc.c. It needs no library of
@@ -128,6 +132,52 @@ fn main() {
                 "cargo:warning=this Windows SDK has no Windows.Graphics.Capture header, so screen capture into a texture isn't built"
             );
         }
+    }
+    // Desktop Duplication, WGC's sibling: DXGI hands over the compositor's own
+    // surface, and the turn to upright, the HDR conversion and the pointer happen
+    // in one GPU pass on this side; see native/dup.cc. Built for every Windows
+    // target rather than only Go Live's, because it asks nothing of the SDK but
+    // DXGI, D3D11 and D3DCompiler, which every SDK that can build this crate
+    // already has.
+    if target_os == "windows" {
+        let mut dup = cc::Build::new();
+        // C++, for the shader source and the pointer's rules: see native/dup.cc.
+        dup.cpp(true)
+            .file("native/dup.cc")
+            .std("c++17")
+            .warnings(true);
+        use_clang_cl(&mut dup);
+        dup.compile("yapfast_dup");
+        // The device and its textures, DXGI's output and its duplication, the
+        // shader compiler that builds the one pass the frames are drawn with, and
+        // user32, which has the desktop configuration the SDR white level is read
+        // out of on an HDR screen.
+        for library in ["d3d11", "dxgi", "dxguid", "d3dcompiler", "user32"] {
+            println!("cargo:rustc-link-lib=dylib={library}");
+        }
+        println!("cargo::rustc-cfg=dup");
+    }
+    // The other end of a watched stream: the machine's own H.264, HEVC and AV1
+    // decoders hand back a D3D11 texture, and a video processor pass scales it
+    // into the tile on the card; see native/d3d11dec.cc. Built with Discord's
+    // Go Live, where a stream is watched at all, and only on Windows, whose
+    // Media Foundation is what decodes it: native/d3d11dec.cc needs the
+    // mfplat and mfuuid libraries beside the d3d11 ones above.
+    if target_os == "windows" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
+        let mut d3d11dec = cc::Build::new();
+        d3d11dec
+            .cpp(true)
+            .file("native/d3d11dec.cc")
+            .std("c++17")
+            .warnings(true);
+        use_clang_cl(&mut d3d11dec);
+        d3d11dec.compile("yapfast_d3d11dec");
+        // Media Foundation's platform and its interface ids, and ole32 for the
+        // apartment and the strings the interface list hands back.
+        for library in ["mfplat", "mfuuid", "ole32"] {
+            println!("cargo:rustc-link-lib=dylib={library}");
+        }
+        println!("cargo::rustc-cfg=d3d11dec");
     }
     if std::env::var_os("CARGO_FEATURE_DISCORD").is_none() {
         return;
