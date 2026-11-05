@@ -1264,6 +1264,17 @@ function guildOf(channel: string): { guild_id?: string } {
 }
 
 /** A message as the gateway dispatches it: with the server and the author's member. */
+/**
+ * A message as the MESSAGE_UPDATE that brings its link previews carries it.
+ * Discord's unfurler doesn't fetch the message a reply answers, so the update
+ * leaves `referenced_message` out: its state is unknown, not deleted, which
+ * only `null` means.
+ */
+function previewUpdate(message: Message, origin: string) {
+  const { referenced_message: _, ...update } = dispatched(message, origin) as Record<string, unknown>;
+  return update;
+}
+
 function dispatched(message: Message, origin: string) {
   if (privates.has(message.channel)) return wireMessage(message, origin);
   const { user: _, ...profile } = memberIn(guildOf(message.channel).guild_id, message.author);
@@ -5383,7 +5394,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       if (linked) {
         setTimeout(() => {
           message.embeds = () => [linked];
-          dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+          dispatch("MESSAGE_UPDATE", previewUpdate(message, origin));
         }, 300);
       } else if (sentGif) {
         setTimeout(() => {
@@ -5392,7 +5403,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
             type: "gifv", url: wired.url, provider: { name: "Klipy", url: "https://klipy.com" },
             thumbnail: { url: `https://static.klipy.com/${sentGif.name}.webp`, proxy_url: wired.src, width: sentGif.width, height: sentGif.height, content_type: "image/webp" },
           }];
-          dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+          dispatch("MESSAGE_UPDATE", previewUpdate(message, origin));
         }, 300);
       }
       return json(wireMessage(message, origin));
@@ -6810,7 +6821,7 @@ function postEmbeds(origin: string) {
   // Discord fetches the page after the message is sent, then updates it.
   setTimeout(() => {
     article.embeds = (origin) => [articleEmbed(origin)];
-    dispatch("MESSAGE_UPDATE", dispatched(article, origin));
+    dispatch("MESSAGE_UPDATE", previewUpdate(article, origin));
   }, 800);
   const video = post(GENERAL, users.bob, "This one too https://www.youtube.com/watch?v=talk", now + 1, {
     embeds: (origin) => [

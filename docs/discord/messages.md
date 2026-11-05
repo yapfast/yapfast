@@ -349,6 +349,10 @@ an error.
   current from RELATIONSHIP_ADD and RELATIONSHIP_REMOVE.
 - A reply's quoted line jumps to the original and highlights it for a
   moment, as described under [jumping to a message](#jumping-to-a-message).
+  It says the original was deleted only when `referenced_message` is
+  `null`. A message without the field, such as the update that brings a
+  link's preview, didn't look the original up, so an update keeps the quote
+  it had; one never seen with it says the original couldn't be loaded.
 - Desktop notifications follow the person's Discord settings: each channel's,
   category's or server's level (every message, mentions only or nothing),
   falling back to the server's default, with mutes leaving only mentions. DMs

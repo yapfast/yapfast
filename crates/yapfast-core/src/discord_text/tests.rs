@@ -390,6 +390,32 @@ fn votes_count_live_and_last_through_an_update_without_them() {
 }
 
 #[test]
+fn a_reply_keeps_its_original_through_an_update_that_leaves_it_out() {
+    use yapfast_discord::message::Reply;
+    let reply = |reply, content: &str| Message {
+        reply: Some(reply),
+        content: content.into(),
+        ..message("5", None)
+    };
+    let original = Reply::Message {
+        id: "4".into(),
+        author_id: "2".into(),
+        author: "ann".into(),
+        content: "lunch?".into(),
+    };
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.loaded(Load::Latest, shown(vec![reply(original.clone(), "a gif")]));
+    // The update that brings a link's preview doesn't say what became of the
+    // original; it's still there.
+    assert!(open.live(&Live::Updated(reply(Reply::Unknown, "a gif, previewed"))));
+    assert_eq!(open.shown.messages[&5].reply, Some(original));
+    assert_eq!(open.shown.messages[&5].content, "a gif, previewed");
+    // One that says it was deleted is believed.
+    assert!(open.live(&Live::Updated(reply(Reply::Deleted, "a gif, previewed"))));
+    assert_eq!(open.shown.messages[&5].reply, Some(Reply::Deleted));
+}
+
+#[test]
 fn messages_render_again_once_what_they_show_changes() {
     use yapfast_discord::marked::{ChannelMarks, MarkedServer, ServerMarks};
     let server = |name: &str, unread: bool| {

@@ -1596,6 +1596,12 @@ impl OpenChannel {
                 body: "The original message was deleted.".into(),
                 item: None,
             },
+            DiscordReply::Unknown => Reply {
+                author: String::new(),
+                avatar: None,
+                body: "The original message couldn't be loaded.".into(),
+                item: None,
+            },
         });
         let timestamp = message.timestamp();
         let ordinary = message.system.is_none();
@@ -1775,8 +1781,13 @@ fn change(messages: &mut BTreeMap<u64, Message>, channel: &str, event: &Live) ->
         Live::Updated(message) if message.channel_id == channel => {
             let known = messages.get_mut(&message.order())?;
             // Updates don't always carry reactions; keep the counted ones,
-            // and a poll's votes unless it carries them.
+            // and a poll's votes unless it carries them, and the original a
+            // reply answers unless it says what became of it.
             let reactions = std::mem::take(&mut known.reactions);
+            let reply = match &message.reply {
+                Some(DiscordReply::Unknown) => known.reply.take(),
+                reply => reply.clone(),
+            };
             let poll = match &message.poll {
                 Some(poll) if !poll.counted => known.poll.take(),
                 poll => poll.clone(),
@@ -1784,6 +1795,7 @@ fn change(messages: &mut BTreeMap<u64, Message>, channel: &str, event: &Live) ->
             *known = Message {
                 reactions,
                 poll,
+                reply,
                 ..message.clone()
             };
             Some(message.order())

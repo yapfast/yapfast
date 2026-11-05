@@ -277,6 +277,9 @@ pub enum Reply {
         content: String,
     },
     Deleted,
+    /// Discord didn't look the original up, as in the MESSAGE_UPDATE that
+    /// brings a link's preview: it may well still be there.
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -583,17 +586,16 @@ pub fn parse(value: &Value) -> Option<Message> {
         snapshot @ Value::Object(_) if forwarded => snapshot,
         _ => value,
     };
-    let reply = (kind == REPLY).then(|| match &value["referenced_message"] {
-        Value::Object(_) => {
-            let original = &value["referenced_message"];
-            Reply::Message {
-                id: original["id"].as_str().unwrap_or_default().into(),
-                author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
-                author: author_name(original).into(),
-                content: original["content"].as_str().unwrap_or_default().into(),
-            }
-        }
-        _ => Reply::Deleted,
+    // `null` says the original was deleted; no field at all says nothing.
+    let reply = (kind == REPLY).then(|| match value.get("referenced_message") {
+        Some(original @ Value::Object(_)) => Reply::Message {
+            id: original["id"].as_str().unwrap_or_default().into(),
+            author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
+            author: author_name(original).into(),
+            content: original["content"].as_str().unwrap_or_default().into(),
+        },
+        Some(_) => Reply::Deleted,
+        None => Reply::Unknown,
     });
     let attachments = shown["attachments"]
         .as_array()
@@ -1912,6 +1914,9 @@ mod tests {
             &json!({"id": "1", "type": 19, "author": {"id": "1"}, "referenced_message": null}),
         );
         assert_eq!(deleted.unwrap().reply, Some(Reply::Deleted));
+        // Without the field, Discord didn't look the original up.
+        let unknown = parse(&json!({"id": "1", "type": 19, "author": {"id": "1"}}));
+        assert_eq!(unknown.unwrap().reply, Some(Reply::Unknown));
     }
 
     #[test]
