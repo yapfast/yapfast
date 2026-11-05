@@ -539,6 +539,21 @@ struct Video {
     measured: (Instant, u64),
 }
 
+/// The report's encoder side: the engine and codec it runs, the size it
+/// sends, and the optional settings its driver dropped when it opened. Those
+/// names are a short string the shim wrote once, so each report copies them
+/// rather than growing with the frames.
+pub(crate) fn encoder_report(encoder: &Encoder) -> StreamStats {
+    let (width, height) = encoder.size();
+    StreamStats {
+        engine: encoder.engine().to_owned(),
+        codec: encoder.codec().name().to_owned(),
+        width,
+        height,
+        settings_dropped: encoder.configuration().settings_dropped.clone(),
+        ..StreamStats::default()
+    }
+}
 impl Video {
     /// How the stream goes out, with the kbit/s sent since it last said.
     fn sending(&mut self, fps: u32) -> StreamStats {
@@ -547,7 +562,6 @@ impl Video {
         let bits = sent.video_bytes.saturating_sub(before) * 8;
         let milliseconds = since.elapsed().as_millis().max(1) as u64;
         self.measured = (Instant::now(), sent.video_bytes);
-        let (width, height) = self.encoder.size();
         // The sound shared with the screen, while there is one: what waits to
         // be mixed is delay a viewer hears before the picture it came with.
         let sound = self
@@ -556,10 +570,6 @@ impl Video {
             .map(stream_audio::Capture::stats)
             .unwrap_or_default();
         StreamStats {
-            engine: self.encoder.engine().to_owned(),
-            codec: self.encoder.codec().name().to_owned(),
-            width,
-            height,
             fps,
             target_kbps: self.encoder.bitrate(),
             sent_kbps: (bits / milliseconds) as u32,
@@ -568,6 +578,7 @@ impl Video {
             skipped: self.skipped,
             sound_held_ms: sound.held_ms,
             sound_dropped_ms: sound.dropped_ms,
+            ..encoder_report(&self.encoder)
         }
     }
 }

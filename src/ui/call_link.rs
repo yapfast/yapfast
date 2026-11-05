@@ -61,6 +61,7 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
     if let Some(stream) = &stats.stream {
         link.set_encoder(encoder(&stream.engine).into());
         link.set_codec(stream.codec.as_str().into());
+        link.set_settings_dropped(stream.settings_dropped.as_str().into());
         link.set_picture(
             format!("{}×{} at {} fps", stream.width, stream.height, stream.fps).into(),
         );

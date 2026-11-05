@@ -115,7 +115,9 @@ means the stream stopped, and the tab goes. It also shows what a bound gave up:
 the frames a full send queue skipped rather than encoded and dropped, and the
 shared sound's queue — the longest wait before it was mixed, and the sound a
 full backlog dropped. Stopping the stream clears the call's copy of the last
-report at once, so a stream that ended never shows as live. `talks_to_the_fake_server`
+report at once, so a stream that ended never shows as live. It also names any setting the encoder's driver
+refused, when one did, so a stream never silently runs without the tuning it
+asked for. `talks_to_the_fake_server`
 checks the bytes counted and a resend.
 
 Matrix calls don't have these yet. LiveKit's SDK measures its signal

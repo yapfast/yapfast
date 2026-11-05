@@ -104,10 +104,15 @@ export global CallLink {
     /// ("NVENC on the GPU"), the codec, the size and frame rate, the
     /// bitrate sent and aimed for ("3.8 Mbit/s"), what viewers asked of it,
     /// and what a bound gave up: frames the send queue skipped, and the
-    /// shared sound waiting or dropped.
+    /// shared sound waiting or dropped. The optional settings the encoder's
+    /// driver dropped, such as a preset, are said here too while it dropped
+    /// any.
     in property <bool> streaming;
     in property <string> encoder;
     in property <string> codec;
+    /// The settings the encoder's driver didn't keep, as it named them
+    /// ("preset,tune"); empty when it kept them all, and then no row shows.
+    in property <string> settings-dropped;
     in property <string> picture;
     in property <string> sent;
     in property <string> target;
@@ -237,6 +242,9 @@ export component CallLinkCard inherits Rectangle {
             spacing: 8px;
             LinkRow { label: "Encoder:"; value: CallLink.encoder; }
             LinkRow { label: "Codec:"; value: CallLink.codec; }
+            if CallLink.settings-dropped != "": LinkRow {
+                label: "Settings the encoder dropped:"; value: CallLink.settings-dropped;
+            }
             LinkRow { label: "Resolution:"; value: CallLink.picture; }
             LinkRow { label: "Sending:"; value: CallLink.sent; }
             LinkRow { label: "Aiming for:"; value: CallLink.target; }

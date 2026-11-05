@@ -193,10 +193,11 @@ impl Tuning {
 }
 
 /// What an encoder was opened with: which engine runs, what it was asked to
-/// tune for, and what its shim says it took. Rust chooses nothing here but
-/// that ask, so this is what the stream got rather than what it wanted, and it
-/// holds for as long as the encoder does: the bitrate, which moves with the
-/// network, is [`Encoder::bitrate`].
+/// tune for, what its shim says it took, and the optional settings its driver
+/// dropped. Rust chooses nothing here but that ask, so this is what the
+/// stream got rather than what it wanted, and it holds for as long as the
+/// encoder does: the bitrate, which moves with the network, is
+/// [`Encoder::bitrate`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Configuration {
     /// Which encoder runs: "libvpx", "x264", or FFmpeg's name for a hardware
@@ -209,9 +210,14 @@ pub struct Configuration {
     /// control and its keyframe interval, such as "p4 preset, vbr rate
     /// control, keyframe every 90 frames" — and empty for the encoders on the
     /// processor, whose shims report nothing back and so claim nothing. A
-    /// driver that refused one of these said so through the `notes` warning
+    /// driver that refused one of these said so through `settings_dropped`
     /// beside it.
     pub tuning: String,
+    /// The optional settings the driver didn't keep, as its shim named them
+    /// and separated by commas ("preset,tune"); empty when it kept them all.
+    /// A handful of names, read once when the encoder opens, so the stream's
+    /// report can say them without growing or reading them again.
+    pub settings_dropped: String,
 }
 
 pub struct Encoder {
@@ -649,6 +655,7 @@ fn software_configuration(engine: &str, effort: Effort) -> Configuration {
         engine: engine.to_owned(),
         asked: format!("{effort:?} effort"),
         tuning: String::new(),
+        settings_dropped: String::new(),
     }
 }
 
@@ -689,16 +696,14 @@ fn open_hardware(
         return None;
     }
     // The settings the encoder needs made it open; the ones only better are
-    // its to drop, so the stream says which it isn't getting.
-    let mut notes = [0u8; 96];
-    // SAFETY: raw is an open encoder, and the buffer is as large as its size.
-    unsafe { yapfast_hwenc_notes(raw, notes.as_mut_ptr().cast(), notes.len()) };
-    let notes = c_text(&notes);
-    if !notes.is_empty() {
+    // its to drop, so the stream says which it isn't getting — in the log at
+    // the open, and in every report while it runs.
+    let settings_dropped = read_notes(yapfast_hwenc_notes, raw);
+    if !settings_dropped.is_empty() {
         tracing::warn!(
             engine = report.as_str(),
             ?codec,
-            ignored = notes.as_str(),
+            ignored = settings_dropped.as_str(),
             "the GPU's encoder dropped optional settings"
         );
     }
@@ -732,8 +737,24 @@ fn open_hardware(
             engine: report,
             asked: tuning.name().to_string_lossy().into_owned(),
             tuning: opened_with,
+            settings_dropped,
         },
     })
+}
+/// The optional settings an encoder's shim says its driver didn't keep, by
+/// name and separated by commas, and empty when it kept them all. Taking the
+/// shim's function as an argument lets a test stand a fake shim in its place,
+/// since no machine can make a driver drop a setting on demand.
+#[cfg(hwenc)]
+fn read_notes(
+    notes: unsafe extern "C" fn(*mut Raw, *mut std::ffi::c_char, usize),
+    encoder: *mut Raw,
+) -> String {
+    let mut written = [0u8; 96];
+    // SAFETY: encoder is an open encoder, and the buffer is as large as its
+    // size; the shim ends what it writes with a zero.
+    unsafe { notes(encoder, written.as_mut_ptr().cast(), written.len()) };
+    c_text(&written)
 }
 
 /// The text a shim wrote into `bytes`, which ends with a zero.
@@ -1218,6 +1239,7 @@ mod tests {
                 engine: "x264".into(),
                 asked: "High effort".into(),
                 tuning: String::new(),
+                settings_dropped: String::new(),
             }
         );
     }
@@ -1275,5 +1297,64 @@ mod tests {
             yapfast_hwenc_nvenc_settings(c"p7".as_ptr(), none.as_mut_ptr().cast(), none.len())
         };
         assert_eq!(found, -1);
+    }
+    /// A shim's `yapfast_hwenc_notes` for a driver that dropped the preset,
+    /// writing the names as native/hwenc.c does, and one for a driver that
+    /// kept every setting and so leaves the buffer empty.
+    #[cfg(hwenc)]
+    unsafe extern "C" fn drops_preset(_: *mut Raw, notes: *mut std::ffi::c_char, size: usize) {
+        let names = c"preset,tune";
+        let bytes = names.to_bytes_with_nul();
+        // SAFETY: the caller gives a buffer of `size` bytes, and the shim
+        // writes what fits, ending it with a zero.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), notes, bytes.len().min(size));
+        }
+    }
+    #[cfg(hwenc)]
+    unsafe extern "C" fn keeps_every_setting(
+        _: *mut Raw,
+        notes: *mut std::ffi::c_char,
+        size: usize,
+    ) {
+        if size > 0 {
+            // SAFETY: the caller gives a buffer of `size` bytes.
+            unsafe { *notes = 0 };
+        }
+    }
+    /// An encoder whose open read `notes` from a shim, as the GPU's open does
+    /// with the shim's own: x264 here, so no driver has to refuse anything.
+    #[cfg(hwenc)]
+    fn encoder_with_notes(
+        notes: unsafe extern "C" fn(*mut Raw, *mut std::ffi::c_char, usize),
+    ) -> Encoder {
+        let mut encoder = Encoder::new(Codec::H264, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        encoder.configuration.settings_dropped = read_notes(notes, std::ptr::null_mut());
+        encoder
+    }
+    /// A setting the driver dropped is not only logged: the name the shim
+    /// wrote at the open travels in the report the Stream tab shows, so a
+    /// stream says what its picture isn't getting rather than leaving it in a
+    /// log nobody reads.
+    #[cfg(hwenc)]
+    #[test]
+    fn a_dropped_setting_reaches_the_stream_report() {
+        let encoder = encoder_with_notes(drops_preset);
+        assert_eq!(
+            crate::stream_worker::encoder_report(&encoder).settings_dropped,
+            "preset,tune"
+        );
+    }
+    /// An encoder that kept every setting reports no names, so the Stream
+    /// tab's row for them is absent rather than empty.
+    #[cfg(hwenc)]
+    #[test]
+    fn an_encoder_that_dropped_nothing_reports_nothing() {
+        let encoder = encoder_with_notes(keeps_every_setting);
+        assert!(
+            crate::stream_worker::encoder_report(&encoder)
+                .settings_dropped
+                .is_empty()
+        );
     }
 }

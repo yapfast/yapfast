@@ -150,11 +150,18 @@ pub struct LinkStats {
 /// sent in the last second, and the keyframes viewers asked for and the
 /// packets resent to them since the stream started. What a bound had to
 /// give up is here too, so a stream that stutters says why: the frames a
-/// full send queue skipped, and the shared sound a backlog dropped.
+/// full send queue skipped, and the shared sound a backlog dropped. And so
+/// are the optional settings the encoder's driver dropped when it opened:
+/// they say why the picture may differ from the tuning the stream asked for.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamStats {
     pub engine: String,
     pub codec: String,
+    /// The optional settings the encoder's driver didn't keep when it
+    /// opened, as it named them ("preset,tune"); empty when it kept them
+    /// all, and then the Stream tab has no row to show for them. A handful
+    /// of names, read once at the open rather than grown per frame.
+    pub settings_dropped: String,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
