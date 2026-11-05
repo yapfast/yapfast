@@ -468,6 +468,8 @@ pub struct ChatServer {
     pub unavailable: bool,
     /// The address of the server's icon; see [`DiscordCommand::Pictures`].
     pub icon: Option<String>,
+    /// The tag its members can wear, if it offers one.
+    pub tag: Option<ServerTag>,
     /// The folder it sits in on the rail. A folder's servers come one after
     /// another in [`RoomIndex::servers`].
     pub folder: Option<ServerFolder>,
@@ -3510,6 +3512,12 @@ pub struct ProfileChange {
     pub banner: Option<Option<PickedPicture>>,
     /// The main profile's banner colour, `None` for Discord's default.
     pub accent: Option<Option<u32>>,
+    /// The main profile's two theme colours, `None` for none.
+    pub theme: Option<Option<[u32; 2]>>,
+    /// The main profile's name style, `None` for none.
+    pub name_style: Option<Option<NameStyle>>,
+    /// The server whose tag the main profile wears, `None` for no tag.
+    pub primary_server: Option<Option<String>>,
 }
 
 /// A change to how the Discord account stands with someone.

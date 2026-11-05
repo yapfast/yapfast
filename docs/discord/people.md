@@ -653,33 +653,69 @@ profile's](#editing-ones-server-profile)). It reads the profile with `GET
   Profile Banner, with Change Banner and Remove Banner, in its place.
 - Bio, Markdown up to 190 characters, with what's left counted under it.
 
-Rather than Discord's form beside a preview, the editor is the large
-profile card itself, as it will show. A pencil beside the name, the
-pronouns after the username, and About Me turns each into a field in
-place, as does clicking the text; Enter, Escape or a click elsewhere on
-the card ends it. Hovering the avatar or banner darkens it under a
-pencil, and clicking it opens the file chooser, or a menu of Change and
-Remove when there's one to remove; without Nitro the banner opens the
-colour under it. A pill on the banner's corner says which profile it is.
-Once something changed, Discord's bar shows at the card's foot:
-"Careful — you have unsaved changes!", with Reset, which puts back what
-Discord has, and Save Changes. The card's top stays put as the bar or
-the colour opens.
+With Nitro, it also edits the profile's theme and the display name's style,
+and anyone may choose the server tag to wear.
 
-Discord's client checks the same Nitro as for server profiles: a banner
-takes `canUsePremiumProfileCustomization`, so `premium_type` 2, and an
-animated avatar `canUseAnimatedAvatar`, so 1 or 2. A GIF avatar without
-it says "An animated avatar takes Nitro." where the client offers Nitro;
-the rest, the bio included, is free. The client's colour picker suggests
-colours from the avatar and has an eyedropper; Yapfast takes the hex.
+The main profile's editor is laid out as Discord's: a column of what the
+profile wears on the left, the profile as it will show in the middle, and
+its Board, Activity and Wishlist tabs on the right, where the window is 880
+wide or more. Its avatar is 120 across and its banner 193 tall; a server
+profile's banner stays 210. The column lists, in Discord's order, the
+nameplate, the avatar and its decoration, the display name style, the theme
+and banner, and the profile effect, each showing what's set: the decoration
+and effect say they're on even when the [profile
+switches](#profile-switches) keep their pictures from showing. Yapfast has no
+windows to choose those collectibles, so their tiles open Discord's shop.
+Hide Styles folds the column away, sliding, and the Show Styles tab on the
+card's edge brings it back.
 
-Save Changes sends what changed, in up to two requests, as the client
+The name, the pronouns, the bio and the note are outlined while pointed at,
+the name with a pencil at its end, and clicking one turns it into a field in
+place; Enter, Escape or a click elsewhere on the card ends it. The note
+opens the note's dialog, as on anyone's profile. Hovering the avatar or banner
+darkens it under a pencil, and clicking it opens the file chooser, or a menu
+of Change and Remove when there's one to remove; without Nitro the banner
+opens the colour under it. The status bubble beside the avatar opens the
+custom status. Once something changed, Discord's bar shows at the card's
+foot: "Careful — you have unsaved changes!", with Reset, which puts back what
+Discord has, and Save Changes.
+
+The theme's tile has a handle for each of its two colours, top and bottom,
+each opening a colour picker of saturation, brightness and hue with the
+colour's code; one colour alone is used for both. The display name style's
+tile opens Discord's window for it: a font, an effect (Solid, Gradient, Neon,
+Toon, Pop, Gummy or Prism) and its colours, from Discord's presets or one's
+own, with the name on a profile card, a message and a member row, in light or
+dark, and Surprise Me. The window draws each name as names are drawn
+everywhere else (`NameStyles` in `ui/controls.slint`, `name_style::row`), and
+offers the fonts bundled in `ui/fonts`; Medieval and Vampyre aren't among
+them, so it doesn't offer those. The usual font in
+Discord's usual white is no style at all. The server tag's chip beside the
+pronouns lists the servers this account is in that offer a tag, from their
+`profile` in READY, searchable, and No Server Tag.
+
+Discord's client checks the same Nitro as for server profiles: a banner, the
+theme and the name style take `canUsePremiumProfileCustomization`, so
+`premium_type` 2, and an animated avatar `canUseAnimatedAvatar`, so 1 or 2.
+A GIF avatar without it says "An animated avatar takes Nitro." where the
+client offers Nitro; the rest, the bio and the server tag included, is free.
+The client's colour picker suggests colours from the avatar and has an
+eyedropper; Yapfast's takes the hex or a point on the picker.
+
+Save Changes sends what changed, in up to three requests, as the client
 does:
 
-1. `PATCH /users/@me` with `global_name` and `avatar`. A cleared display
-   name goes as `""`.
-2. `PATCH /users/@me/profile` with `bio`, `pronouns`, `banner` and
-   `accent_color`, an integer, or `null` for the default.
+1. `PATCH /users/@me` with `global_name`, `avatar` and the name style as
+   `display_name_font_id`, `display_name_effect_id` and
+   `display_name_colors`, each `null` for none. A cleared display name goes
+   as `""`.
+2. `PATCH /users/@me/profile` with `bio`, `pronouns`, `banner`,
+   `accent_color`, an integer, or `null` for the default, and
+   `theme_colors`, the two colours.
+3. `PUT /users/@me/clan` with `identity_guild_id` and `identity_enabled`
+   for the Server Tag: the server's id and `true`, or `null` and `false`
+   for none. The client's own code has `primary_guild_id` for `PATCH
+   /users/@me` too, but its editor doesn't save the tag that way.
 
 Discord answers each with USER_UPDATE, which brings the new name and
 avatar to the account panel, messages and member lists. A picture goes
@@ -687,13 +723,29 @@ as for server profiles: the same crop and size, as a data URI, or `null`
 to remove it. The client never sends the bio, pronouns or banner to
 `/users/@me`, though Discord's docs list them there.
 
-The client's tab also has Profile Widgets, an avatar decoration, a
-nameplate, a profile effect, a frame, display name styles and, with
-Nitro, a profile theme of two colours in place of the banner colour, then
-the Server Tag and badges. Yapfast leaves them out: it
-[shows](#avatar-decorations-and-nameplates) what someone equips, and others' server tags
-and badges, but doesn't change it. Changing the username, in My Account with the password, is left
-for later.
+Saving keeps the editor open, as Discord's does. Afterwards Yapfast asks for
+the profile again, for the editor and for the account's card, which draws
+the tag, name style and theme from it, and drops the profiles it kept of this
+account. What was written or chosen while the save and that answer were on
+their way stays, as a change still to save; the rest takes what Discord now
+has. A save that fails part way, its first request through and a later one
+refused, shows Discord's refusal, asks for the profile in the same way and
+keeps all that's written, so what Discord took is no longer a change and
+what it refused still is. Save Changes waits until that answer comes.
+
+The client's tab also edits Profile Widgets, an avatar decoration, a
+nameplate, a profile effect, a frame and badges. Yapfast shows those but
+doesn't change them. Changing the username, in My Account with the password,
+is left for later.
+
+### The editor's tabs
+
+Board and Wishlist show what the account has on Discord, read only, as on
+[the full profile](#the-full-profiles-tabs), the board's games named when
+the editor reads the profile and the wishlist asked for when its tab first
+opens, and again if that failed. Where Discord has its Add buttons, a line
+says adding more from Yapfast is coming soon. Activity shows what the
+account's own profile lists it doing.
 
 ## Editing one's server profile
 
@@ -755,8 +807,9 @@ client never sends them there.
 
 Discord's editor also has a profile theme, an avatar decoration, display
 name styles, a nameplate, a profile effect and a frame, all Nitro and most
-bought from its shop. Yapfast leaves them out; it only
-[shows](#avatar-decorations-and-nameplates) what people equip.
+bought from its shop. Yapfast leaves them out of the server profile's
+editor; it [shows](#avatar-decorations-and-nameplates) what people equip.
+Saving keeps it open and reads the profile back, as for the main profile.
 
 A member's server profile shows wherever Yapfast shows them in that server:
 their server avatar in the member list and on their messages, from their

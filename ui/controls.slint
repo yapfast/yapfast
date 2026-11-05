@@ -510,6 +510,16 @@ export struct NameStyleRow {
     letters: [NameLetter],
 }
 
+// What the profile editor's name style window asks of the Rust side: a style
+// drawn as names are drawn everywhere else (src/ui/name_style.rs), from its
+// font, effect and colours written as hex joined by commas; one of those
+// colours; and whether a text holds a search.
+export global NameStyles {
+    pure callback row(int, int, string, string) -> [NameStyleRow];
+    pure callback stripe(string, int) -> color;
+    pure callback contains(string, string) -> bool;
+}
+
 // A name drawn with its style, as wide as its text: a line the width of the
 // name, with a row's own colour when it has no style. A few effects stack
 // the text twice, as Discord's `::before` copies do.
