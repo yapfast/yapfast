@@ -1,39 +1,27 @@
-//! Twemoji in message text: each emoji in a text gets a glyph in a colour
-//! bitmap font made from Twemoji's picture of it, as Discord's custom emoji do
-//! ([`crate::custom_emoji`]), so it wraps and selects like a letter; see
-//! [`crate::emoji_font`]. A click on one opens its card.
-//!
-//! The glyphs are batched: a pass of rows says which emoji its texts show with
-//! [`prepare`], which makes one font of the new ones, and the texts built after
-//! it draw them. An emoji Twemoji has no picture for, and one found in a text
-//! before its glyph arrived, stays the system font's.
+//! Twemoji in message text: each emoji in a text is rewritten to its glyph in the
+//! colour bitmap font `build.rs` makes of Twemoji's pictures ([`crate::twemoji`]),
+//! so it wraps and selects like a letter. One font holds every emoji, so reading
+//! one costs what drawing a letter does: Skia's glyph cache, which has a limit,
+//! and pages of the program's file that can be given back. A click on one opens
+//! its card. An emoji Twemoji has no picture for stays the system font's.
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, sync::Once};
 
-use crate::emoji_font;
+use slint::fontique_011::fontique;
 
-/// Where Twemoji's glyphs start: the top of the Supplementary Private Use Area
-/// B, counting down, so they stay clear of custom emoji's, which count up from
-/// its bottom ([`crate::custom_emoji`]).
+use crate::{emoji_font, emoji_font_tables::TWEMOJI_LAST, twemoji};
+
+/// Where Twemoji's glyphs end: they count down from the top of the Supplementary
+/// Private Use Area B, and stay clear of custom emoji's, which count up from its
+/// bottom ([`crate::custom_emoji`]).
 const FIRST: u32 = 0x10_0000;
-const LAST: u32 = 0x10_FFFD;
+const LAST: u32 = TWEMOJI_LAST;
 
 /// The link an emoji's glyph opens, then the emoji's code points in lower-case
 /// hexadecimal, such as `1f62d`, or `c/` and a custom emoji's id.
 pub const LINK: &str = "yapfast:emoji/";
 
-#[derive(Default)]
-struct Registry {
-    /// Each emoji's glyph, by the emoji itself.
-    glyphs: HashMap<String, char>,
-    /// Those found since the last font, with the glyph each gets.
-    queued: Vec<(String, char)>,
-    /// The fonts registered so far.
-    fonts: usize,
-}
-
 thread_local! {
-    static REGISTRY: RefCell<Registry> = RefCell::default();
     /// The pictures the cards showed, by the emoji.
     static CARDS: RefCell<HashMap<String, slint::Image>> = RefCell::default();
 }
@@ -87,57 +75,24 @@ pub fn target(link: &str) -> Option<Target> {
     emoji.filter(|emoji| !emoji.is_empty()).map(Target::Unicode)
 }
 
-/// Gives the emoji `bodies` show glyphs, in one font of those new, and says
-/// whether there are any: texts built after this draw them, and those built
-/// before show the system font's until they are built again.
-pub fn prepare<'a>(bodies: impl IntoIterator<Item = &'a str>) -> bool {
-    let queued = REGISTRY.with_borrow_mut(|registry| {
-        let mut found = String::new();
-        for body in bodies {
-            found.clear();
-            rewrite(body, &mut found, |emoji| {
-                queue(registry, emoji);
-                None
-            });
+/// Puts Twemoji's font in text's fallback chain. The font stays where the program
+/// holds it: nothing copies it.
+pub fn register() {
+    static REGISTERED: Once = Once::new();
+    REGISTERED.call_once(|| {
+        let font = fontique::Blob::new(std::sync::Arc::new(twemoji::FONT));
+        if !emoji_font::register_blob("Yapfast Twemoji", font) {
+            tracing::warn!("could not register a font of Twemoji");
         }
-        std::mem::take(&mut registry.queued)
     });
-    let mut glyphs: Vec<(char, Vec<u8>)> = Vec::with_capacity(queued.len());
-    let mut made: Vec<(String, char)> = Vec::with_capacity(queued.len());
-    // An emoji of one character also draws at its own code point, so text that
-    // keeps it as typed, such as the composer's, draws Twemoji's picture
-    // without being rewritten.
-    let mut also: Vec<(u32, char)> = Vec::new();
-    for (emoji, glyph) in queued {
-        let Some(png) = square_png(&emoji) else {
-            continue;
-        };
-        let mut points = emoji.chars();
-        if let (Some(point), None) = (points.next(), points.next()) {
-            also.push((point as u32, glyph));
-        }
-        glyphs.push((glyph, png));
-        made.push((emoji, glyph));
-    }
-    if glyphs.is_empty() {
-        return false;
-    }
-    let family = REGISTRY.with_borrow(|registry| format!("Yapfast Twemoji {}", registry.fonts));
-    if !emoji_font::register(&family, &glyphs, &also) {
-        tracing::warn!("could not register a font of Twemoji");
-        return false;
-    }
-    REGISTRY.with_borrow_mut(|registry| {
-        registry.fonts += 1;
-        registry.glyphs.extend(made);
-    });
-    true
 }
 
 /// `text` with each emoji that has a glyph drawn by it.
 pub fn text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    rewrite(text, &mut out, |emoji| glyph(emoji).map(String::from));
+    rewrite(text, &mut out, |emoji| {
+        twemoji::glyph(emoji).map(String::from)
+    });
     out
 }
 
@@ -146,7 +101,7 @@ pub fn text(text: &str) -> String {
 pub fn linked(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     rewrite(text, &mut out, |emoji| {
-        glyph(emoji).map(|glyph| format!("[{glyph}](<{}>)", unicode_link(emoji)))
+        twemoji::glyph(emoji).map(|glyph| format!("[{glyph}](<{}>)", unicode_link(emoji)))
     });
     out
 }
@@ -193,26 +148,6 @@ fn rewrite(text: &str, out: &mut String, mut each: impl FnMut(&str) -> Option<St
         out.push(next);
         rest = &rest[next.len_utf8()..];
     }
-}
-
-/// Gives `emoji` a glyph, for the next font.
-fn queue(registry: &mut Registry, emoji: &str) {
-    if registry.glyphs.contains_key(emoji)
-        || registry.queued.iter().any(|(known, _)| known == emoji)
-        || !crate::twemoji::has_picture(emoji)
-    {
-        return;
-    }
-    let next = LAST.saturating_sub((registry.glyphs.len() + registry.queued.len()) as u32);
-    let Some(glyph) = char::from_u32(next).filter(|_| (FIRST..=LAST).contains(&next)) else {
-        return;
-    };
-    registry.queued.push((emoji.to_owned(), glyph));
-}
-
-/// The glyph of `emoji`, once a font draws it.
-fn glyph(emoji: &str) -> Option<char> {
-    REGISTRY.with_borrow(|registry| registry.glyphs.get(emoji).copied())
 }
 
 /// Whether `character` is one of these glyphs, or a custom emoji's.
@@ -275,9 +210,8 @@ fn link_end(text: &str) -> Option<usize> {
     None
 }
 
-/// `emoji` as a PNG of the font's square, scaled up from Twemoji's 72 pixels:
-/// 22 pixels in 16 pixel text, and 48 in the large text a message of emoji
-/// alone shows.
+/// `emoji` as a PNG scaled up from Twemoji's 72 pixels, for the card that shows
+/// it larger than text does.
 fn square_png(emoji: &str) -> Option<Vec<u8>> {
     use image::{ImageEncoder, imageops};
     let side = emoji_font::SIDE;
@@ -337,9 +271,8 @@ pub(super) fn unpremultiplied(image: &image::RgbaImage) -> image::RgbaImage {
     out
 }
 
-/// `emoji`'s picture as the font draws it, at [`emoji_font::SIDE`] pixels, for
-/// a card that shows it larger than text does: it is the sharpest Twemoji
-/// gives, one upscale from its 72 pixels, so the card looks as its glyph does.
+/// `emoji`'s picture at [`emoji_font::SIDE`] pixels, for a card that shows it
+/// larger than text does: one upscale from Twemoji's 72 pixels.
 pub fn picture(emoji: &str) -> Option<slint::Image> {
     if let Some(picture) = CARDS.with_borrow(|cards| cards.get(emoji).cloned()) {
         return Some(picture);
@@ -413,15 +346,9 @@ mod tests {
 
     #[test]
     fn gives_each_emoji_one_glyph() {
-        let (first, second) = REGISTRY.with_borrow_mut(|registry| {
-            queue(registry, "😭");
-            queue(registry, "😭");
-            queue(registry, "🎉");
-            let queued = registry.queued.clone();
-            registry.queued.clear();
-            (queued[0].1, queued[1].1)
-        });
+        let (first, second) = (twemoji::glyph("😭").unwrap(), twemoji::glyph("🎉").unwrap());
         assert_ne!(first, second);
+        assert_eq!(twemoji::glyph("😭"), Some(first));
         assert!(is_glyph(first) && is_glyph(second));
         assert!(emoji_at("😭") > 0);
     }
@@ -459,29 +386,83 @@ mod tests {
         assert!(middle[0] > 240, "and still red, not dark red: {middle:?}");
     }
 
-    #[test]
-    fn a_glyph_draws_at_the_emoji_it_is_too() {
-        use skia_safe::{Data, FontMgr};
-        let png = square_png("😭").expect("a picture of the emoji");
-        let font = emoji_font::build(
-            "Alias Probe",
-            &[('\u{10FFFD}', png)],
-            &[(0x1F62D, '\u{10FFFD}')],
-        );
-        let typeface = FontMgr::new()
-            .new_from_data(Data::new_copy(&font), None)
-            .expect("Skia loads the font");
-        assert_eq!(typeface.unichar_to_glyph(0x10FFFD), 1);
-        assert_eq!(
-            typeface.unichar_to_glyph(0x1F62D),
-            1,
-            "the emoji's own code point draws it, as the composer keeps it"
-        );
-        assert_eq!(typeface.unichar_to_glyph('x' as i32), 0, "and nothing else");
+    /// The font `build.rs` makes, as Skia reads it where the program holds it.
+    fn typeface() -> skia_safe::Typeface {
+        // SAFETY: the font is in the program, and stays where it is.
+        let data = unsafe { skia_safe::Data::new_bytes(twemoji::FONT) };
+        skia_safe::FontMgr::new()
+            .new_from_data(data, None)
+            .expect("Skia loads the font")
     }
 
     #[test]
-    fn a_glyph_is_the_fonts_square() {
+    fn a_glyph_draws_at_the_emoji_it_is_too() {
+        let typeface = typeface();
+        let glyph = twemoji::glyph("😭").unwrap();
+        let drawn = typeface.unichar_to_glyph(glyph as i32);
+        assert!(drawn > 0);
+        assert_eq!(
+            typeface.unichar_to_glyph(0x1F62D),
+            drawn,
+            "the emoji's own code point draws it, as the composer keeps it"
+        );
+        assert_eq!(typeface.unichar_to_glyph('x' as i32), 0, "and nothing else");
+        // These join others, which this font can't do, so the system's font must
+        // keep them: a thumb and a skin tone would draw as two pictures here.
+        assert_eq!(typeface.unichar_to_glyph(0x1F3FD), 0, "a skin tone");
+        assert_eq!(typeface.unichar_to_glyph(0x1F1E9), 0, "half a flag");
+        assert_eq!(typeface.unichar_to_glyph(0x200D), 0, "a joiner");
+        // What needs a selector to be an emoji stays text until it has one.
+        assert_eq!(typeface.unichar_to_glyph(0x00A9), 0, "the copyright sign");
+    }
+
+    #[test]
+    fn a_sequence_has_a_glyph_of_its_own() {
+        let typeface = typeface();
+        for emoji in ["👨‍👩‍👧", "🇩🇰", "1️⃣", "👍🏽", "❤️"] {
+            let glyph = twemoji::glyph(emoji).expect(emoji);
+            assert!(typeface.unichar_to_glyph(glyph as i32) > 0, "{emoji}");
+        }
+    }
+
+    #[test]
+    fn the_font_draws_its_pictures_in_colour_at_texts_size() {
+        use skia_safe::{Color, Font, Paint, Point, image::CachingHint, surfaces};
+        let typeface = typeface();
+        let glyph = typeface.unichar_to_glyph(twemoji::glyph("🟥").unwrap() as i32);
+        let mut surface = surfaces::raster_n32_premul((64, 64)).unwrap();
+        surface.canvas().clear(Color::WHITE);
+        surface.canvas().draw_glyphs_at(
+            &[glyph],
+            &[Point::new(10.0, 40.0)][..],
+            Point::default(),
+            &Font::from_typeface(typeface, 16.0),
+            &Paint::default(),
+        );
+        let image = surface.image_snapshot();
+        let mut pixels = vec![0u8; 64 * 64 * 4];
+        assert!(image.read_pixels(
+            image.image_info(),
+            &mut pixels,
+            64 * 4,
+            (0, 0),
+            CachingHint::Allow
+        ));
+        let (red, blue) = if image.image_info().color_type() == skia_safe::ColorType::BGRA8888 {
+            (2, 0)
+        } else {
+            (0, 2)
+        };
+        let painted = pixels
+            .chunks(4)
+            .filter(|pixel| pixel[red] > 150 && pixel[1] < 90 && pixel[blue] < 90)
+            .count();
+        // 16 pixel text draws a picture 22 pixels on a side, the square most of it.
+        assert!((200..=484).contains(&painted), "{painted} red pixels");
+    }
+
+    #[test]
+    fn a_cards_picture_is_the_size_asked_for() {
         let png = square_png("⬛").expect("a picture of the black square");
         let image = image::load_from_memory(&png).unwrap().to_rgba8();
         assert_eq!(image.dimensions(), (emoji_font::SIDE, emoji_font::SIDE));

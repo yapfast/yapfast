@@ -1,15 +1,23 @@
-//! Twemoji's pictures, which Discord's client draws its emoji from, packed into
-//! the program at build time; see `vendor/twemoji/README.yapfast.md`.
+//! Twemoji's pictures, which Discord's client draws its emoji from, in a font
+//! `build.rs` makes of them for the program to carry; see
+//! `vendor/twemoji/README.yapfast.md`. The font is mapped from the program's file,
+//! so what it holds costs memory only as far as it's read, and it can be given
+//! back: message text draws it as glyphs ([`crate::emoji_text`]).
 //!
 //! A cell asks for the picture of an emoji at the size the grid draws it, and
 //! gets a decoded image back, which it keeps while it shows it: the pictures are
 //! 72px square, and drawn from there at whatever the display needs.
 
-use std::{cell::RefCell, collections::HashMap, sync::OnceLock};
+use std::{cell::RefCell, collections::HashMap};
 
-/// What `build.rs` packs: a count, then for each picture the length of its name
-/// and where its bytes start and end, then the names and the bytes.
-const PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.bin"));
+/// The font, each picture in it a glyph. A static, as a const would be a copy in
+/// the program for each place that names it.
+pub static FONT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf"));
+
+/// What finds a picture in [`FONT`]: a count, then for each picture where its name
+/// starts and how long it is, and where it starts in the font and how long it is,
+/// then the names. The names sort.
+static INDEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.index"));
 
 /// The most bytes of pictures kept, which the cache lets go of at once: a filled
 /// cell keeps its own, so letting them go costs a redraw of what comes next. A
@@ -41,6 +49,7 @@ pub fn forget() {
 }
 
 /// Whether Twemoji has a picture for `glyph`, without decoding one.
+#[cfg(test)]
 pub fn has_picture(glyph: &str) -> bool {
     picture_bytes(glyph).is_some()
 }
@@ -78,49 +87,49 @@ fn names(glyph: &str) -> [String; 2] {
 }
 
 pub(crate) fn picture_bytes(glyph: &str) -> Option<&'static [u8]> {
-    let pictures = index();
-    for name in names(glyph) {
-        if let Ok(found) = pictures.binary_search_by(|(candidate, _)| candidate.cmp(&name.as_str()))
-        {
-            return Some(pictures[found].1);
-        }
-    }
-    None
+    let (_, picture) = entry(find(glyph)?);
+    Some(picture)
 }
 
-/// What the pack holds, by name, read once.
-fn index() -> &'static [(&'static str, &'static [u8])] {
-    static PICTURES: OnceLock<Vec<(&'static str, &'static [u8])>> = OnceLock::new();
-    PICTURES.get_or_init(|| {
-        let count = u32::from_le_bytes(PACKED[0..4].try_into().expect("the pack's count")) as usize;
-        // An entry is its name's length, u16, then where its picture starts and
-        // how long it is, u32 each.
-        const ENTRY: usize = 10;
-        let names_start = 4 + count * ENTRY;
-        let mut name_at = names_start;
-        let mut read = Vec::with_capacity(count);
-        for entry in 0..count {
-            let at = 4 + entry * ENTRY;
-            let name_length =
-                u16::from_le_bytes(PACKED[at..at + 2].try_into().expect("a name's length"))
-                    as usize;
-            let picture_at = u32::from_le_bytes(
-                PACKED[at + 2..at + 6]
-                    .try_into()
-                    .expect("a picture's start"),
-            ) as usize;
-            let picture_length = u32::from_le_bytes(
-                PACKED[at + 6..at + 10]
-                    .try_into()
-                    .expect("a picture's length"),
-            ) as usize;
-            let name = std::str::from_utf8(&PACKED[name_at..name_at + name_length])
-                .expect("a picture's name");
-            read.push((name, &PACKED[picture_at..picture_at + picture_length]));
-            name_at += name_length;
+/// The code point of the glyph in [`FONT`] that draws `emoji`.
+pub fn glyph(emoji: &str) -> Option<char> {
+    char::from_u32(crate::emoji_font_tables::TWEMOJI_LAST - find(emoji)? as u32)
+}
+
+/// The place of the picture of `glyph` in the sorted list.
+fn find(glyph: &str) -> Option<usize> {
+    names(glyph).iter().find_map(|name| {
+        let (mut low, mut high) = (0, count());
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match entry(middle).0.cmp(name.as_str()) {
+                std::cmp::Ordering::Less => low = middle + 1,
+                std::cmp::Ordering::Greater => high = middle,
+                std::cmp::Ordering::Equal => return Some(middle),
+            }
         }
-        read
+        None
     })
+}
+
+fn count() -> usize {
+    u32::from_le_bytes(INDEX[0..4].try_into().expect("the index's count")) as usize
+}
+
+/// The name and the picture at `place` in the sorted list. An entry is where its
+/// name starts, u32, and how long it is, u16, then where its picture starts and
+/// how long it is, u32 each.
+fn entry(place: usize) -> (&'static str, &'static [u8]) {
+    const ENTRY: usize = 14;
+    let at = 4 + place * ENTRY;
+    let u32_at =
+        |at: usize| u32::from_le_bytes(INDEX[at..at + 4].try_into().expect("a number")) as usize;
+    let name_at = u32_at(at);
+    let name_length =
+        u16::from_le_bytes(INDEX[at + 4..at + 6].try_into().expect("a name's length")) as usize;
+    let picture_at = u32_at(at + 6);
+    let name = std::str::from_utf8(&INDEX[name_at..name_at + name_length]).expect("a name");
+    (name, &FONT[picture_at..picture_at + u32_at(at + 10)])
 }
 
 #[cfg(test)]

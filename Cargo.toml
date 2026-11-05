@@ -91,6 +91,9 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphic
 i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional = true }
 
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
+[build-dependencies]
+emojis = "0.9"
+
 [[example]]
 name = "tray_host"
 path = "testing/tray_host.rs"

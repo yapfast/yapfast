@@ -108,8 +108,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Escape returns to the composer.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
 - Emoji in message text are drawn by Twemoji's picture of them, as the picker's
-  are, in a colour bitmap font made on the fly for the ones a pass of the
-  messages shows (`src/emoji_text.rs`); see [Discord](discord/messages.md) for
+  are, in a colour bitmap font made of them when Yapfast is built
+  (`src/emoji_text.rs`); see [Discord](discord/messages.md) for
   how that font is made. A glyph whose emoji is animated has the emoji's
   current frame drawn over it as the text draws, so the text, its wrapping and
   its selection are untouched: a custom emoji moves in message text, in a

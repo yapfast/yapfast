@@ -332,18 +332,17 @@ an error.
   picture arrived gets a code point in the Supplementary Private Use Area B,
   and each batch of them a colour bitmap (CBDT) font made on the fly, which
   text falls back to after Satoshi, so they wrap and select like letters.
-  A message's Unicode emoji are drawn the same way, from Twemoji's picture of
-  them, in the top of that area, counting down so the two stay apart: a
-  refresh gives the text's emoji their glyphs before it builds the rows, one
-  font a batch, and an emoji whose glyph hasn't come yet stays the system
-  font's. Each glyph answers to the emoji's own code point as well as to the
-  one the rewrite gives it, so text that keeps an emoji as typed draws
-  Twemoji's picture too: the composer's draft is given its glyphs before the
-  composer draws it, and a `:shortcode:` sent without taking its completion
-  draws as its emoji. A picture is 22px in the 16px text, and 48px in the
-  large text a message of emoji alone shows, and it is upscaled with its alpha
-  premultiplied, as a filter that mixed straight colour would leave a line of
-  it under the emoji at text's size. A click on an emoji, custom or Unicode,
+  A message's Unicode emoji are drawn the same way, from Twemoji's pictures,
+  in the top of that area, counting down so the two stay apart. They need no
+  font at runtime: `build.rs` makes one font of all of them, which the program
+  carries and maps rather than copies, so an emoji is as cheap as a letter. An
+  emoji of one character answers to its own code point as well as to the one
+  the rewrite gives it, so text that keeps it as typed, as the composer's draft
+  does, draws Twemoji's picture too; a sequence, which this font can't join,
+  draws its picture once rewritten and the system font's until then. A
+  `:shortcode:` sent without taking its completion draws as its emoji. A
+  picture is 22px in the 16px text, and 48px in the large text a message of
+  emoji alone shows. A click on an emoji, custom or Unicode,
   opens its card: its name
   between colons, a line saying what it is, and, for a server's, the server it
   is from, which opens on a click. `GET /guilds/{guild.id}/preview` says how

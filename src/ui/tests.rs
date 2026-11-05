@@ -1104,10 +1104,9 @@ fn a_link_showing_other_text_asks_before_it_opens() {
 #[test]
 fn a_click_on_an_emoji_in_a_message_reaches_its_card() {
     use slint::platform::{PointerEventButton, WindowEvent};
-    // Twemoji's picture of the emoji becomes a glyph before the rows are
-    // built, as a refresh gives one to the emoji the messages show.
+    // The window's setup registers Twemoji's font, as the program's does.
     init_backend();
-    emoji_text::prepare(["😭"]);
+    emoji_text::register();
     let window = one_message("😭 that hurt");
     let opened = Rc::new(RefCell::new(Vec::<String>::new()));
     let record = opened.clone();

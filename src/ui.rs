@@ -281,6 +281,7 @@ fn prepare(window: &YapfastWindow) {
             .set_size(slint::PhysicalSize::new(width, height));
     }
     window.set_emoji_font(emoji::family().into());
+    emoji_text::register();
     copy_whole_messages(window);
     mark_autoscrolls(window);
 }

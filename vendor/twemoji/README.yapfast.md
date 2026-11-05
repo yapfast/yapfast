@@ -4,12 +4,10 @@ This is `assets/72x72/` from Twemoji, the emoji artwork Discord's client draws,
 as the Discord organisation keeps it: https://github.com/discord/twemoji, at
 commit `187e1b77ee80532eb584bcf62a2266942fa39cf9` (Twemoji v17.0, Unicode 17.0).
 
-Yapfast draws a picker's, a reaction's and a suggestion's emoji from these
-pictures instead of the system emoji font, so they look as Discord's do; emoji
-inside message text are still drawn by the system font, with the rest of the
-text. `src/twemoji.rs` packs them into the program at build time, and looks a
-picture up by its file name: the emoji's code points in lower-case hexadecimal,
-joined by `-`.
+Yapfast draws emoji from these pictures instead of the system emoji font, so
+they look as Discord's do. `build.rs` makes them one font the program carries,
+and `src/twemoji.rs` looks a picture up in it by its file name: the emoji's code
+points in lower-case hexadecimal, joined by `-`.
 
 ## Licence
 
@@ -24,7 +22,7 @@ MIT licence of its code, none of which is here. Attribution, as CC-BY 4.0 asks:
   `assets/72x72/`
 - **Licence:** CC-BY 4.0, https://creativecommons.org/licenses/by/4.0/
 - **Changes:** none to the pictures; the files are copied as published, and the
-  program packs them into itself instead of shipping them as files.
+  program holds them in a font instead of shipping them as files.
 
 `scripts/release_package.py` puts this licence and attribution beside the other
 dependencies' in each package's `licenses/` folder and `THIRD-PARTY.json`, under

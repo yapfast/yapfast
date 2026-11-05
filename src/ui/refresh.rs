@@ -320,19 +320,6 @@ impl Adapter {
         self.show_gifs(window);
         self.show_emoji_card(window);
         self.show_emoji_animations(window);
-        // Twemoji's pictures of the emoji a composer shows become glyphs before
-        // it draws them, as the messages' do, so what is typed or picked draws
-        // as a picture while it is still a draft.
-        {
-            let state = &self.app.state;
-            let mut drafts = [state.draft(), ""];
-            if let Some(aside) = state.aside.as_ref() {
-                drafts[1] = state.draft_in(&aside.room);
-            }
-            if emoji_text::prepare(drafts) {
-                self.restyle = true;
-            }
-        }
         self.show_composer(window);
         self.show_messages(window, &changes);
         self.show_aside(window);
@@ -3071,22 +3058,6 @@ impl Adapter {
         if pictures_arrived {
             self.pictures
                 .retain(|url, _| state.pictures.contains_key(url));
-        }
-        // Twemoji's pictures of the emoji the messages show become glyphs, a
-        // font of each batch, so the rows built below draw them as pictures.
-        if reset || messages_changed {
-            let state = &self.app.state;
-            let aside = state.aside.iter().flat_map(|aside| aside.messages.iter());
-            let bodies = || {
-                state
-                    .messages
-                    .iter()
-                    .chain(aside)
-                    .map(|message| message.body.as_str())
-            };
-            if emoji_text::prepare(bodies()) {
-                self.restyle = true;
-            }
         }
         // Custom emoji in messages whose pictures arrived get glyphs, and the
         // rows that showed them by name are built again. Those shown on their
