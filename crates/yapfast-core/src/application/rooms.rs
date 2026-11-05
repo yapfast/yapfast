@@ -206,7 +206,7 @@ impl AppState {
                 Relation::Stranger => choices.push(MenuChoice::AddFriend),
                 Relation::Incoming => choices.push(MenuChoice::AcceptFriend),
                 Relation::Outgoing => choices.push(MenuChoice::CancelFriendRequest),
-                Relation::Friend | Relation::Me => {}
+                Relation::Friend | Relation::Me | Relation::Bot => {}
             }
         }
         if !self.preview {
@@ -329,7 +329,7 @@ impl AppState {
             Relation::Stranger if !blocked => Some(MenuChoice::AddFriend),
             Relation::Incoming => Some(MenuChoice::AcceptFriend),
             Relation::Outgoing => Some(MenuChoice::CancelFriendRequest),
-            Relation::Stranger | Relation::Me => None,
+            Relation::Stranger | Relation::Me | Relation::Bot => None,
         };
         let ignore = if has(&self.discord_ignored) {
             MenuChoice::Unignore

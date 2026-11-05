@@ -78,7 +78,8 @@ The person beside the pen, in the same header, adds a friend by username: `POST
 /users/@me/relationships` with `{"username": ..., "discriminator": null}` and
 `{"location":"Add Friend"}` as the context. Discord's codes 80004 (nobody by
 that name), 80000 (they take no requests from strangers) and 80007 (already
-friends) get their own words.
+friends) get their own words. Discord refuses requests to bots and apps, so
+their menus, profile cards and DM headers offer none.
 
 Friend requests show on the requests screen, from READY's
 relationships (type 3 sent to this account, 4 sent by it) and kept current by
