@@ -403,7 +403,10 @@ fields are camelCase, as the client reads them). The layers are APNGs on the
 CDN, drawn 450 by 880 pixels and scaled to the card; they decode at that size
 (`EFFECT_SIZE`), and stay in the picture cache while their card shows. The
 backend keeps the last eight effects (`Event::ProfileEffect`); each card's
-profile points to one by SKU.
+profile points to one by SKU. A layer plays as many times as its APNG's
+`acTL` says, then holds its last frame, as a browser does, and stops
+asking for frames; a file that says 0 plays for as long as its layer
+shows.
 
 ## Display name styles
 

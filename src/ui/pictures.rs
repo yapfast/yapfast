@@ -133,6 +133,15 @@ pub(super) fn avatar_animation(url: &str) -> (ModelRc<slint::Image>, ModelRc<i32
     source.map_or_else(Default::default, |source| animation(&source))
 }
 
+/// How many times the animation at `url` plays before holding its last
+/// frame; 0 for ever, or until it has arrived.
+pub(super) fn picture_plays(url: &str) -> i32 {
+    AVATAR_SOURCES
+        .with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade))
+        .and_then(|source| source.animation.as_ref().map(|animation| animation.plays))
+        .map_or(0, |plays| i32::try_from(plays).unwrap_or(0))
+}
+
 thread_local! {
     static AVATAR_SOURCES: RefCell<HashMap<String, std::sync::Weak<Picture>>> = RefCell::default();
 }
