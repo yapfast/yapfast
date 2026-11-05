@@ -3,6 +3,8 @@
 //! frames, Discord's "rtpsize" transport encryption, and the
 //! RTCP that goes with them.
 
+use std::time::{Duration, Instant};
+
 use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInPlace};
 use anyhow::{Result, anyhow, bail};
 use chacha20poly1305::XChaCha20Poly1305;
@@ -1445,46 +1447,93 @@ pub fn bandwidth_estimate(mut rtcp: &[u8], ssrc: u32) -> Option<u64> {
     lowest
 }
 
+/// How long a kept packet is worth sending again. A viewer holds a gap for
+/// 300 ms and asks for the packet again every 80 ms in that time, so anything
+/// older than this is one it has given up on and gone for a whole frame
+/// instead. Kept generous, since a resend nobody uses costs one packet while
+/// the keyframe that replaces it costs a frame.
+const RESEND_WINDOW: Duration = Duration::from_secs(2);
+
+/// How many packets a history keeps: its slots, and so the most it can hold
+/// whatever the stream does.
+const SLOTS: usize = 2048;
+
 /// The video packets sent lately, unencrypted, to resend when a viewer
-/// reports one lost: about two seconds at 9 Mbit/s.
+/// reports one lost: about two seconds at 9 Mbit/s, and never older than
+/// `RESEND_WINDOW` however slowly they went.
 pub struct History {
-    packets: Vec<Option<(u16, Vec<u8>)>>,
+    packets: Vec<Option<Sent>>,
+    /// When the history was made, which a slot's time counts from.
+    born: Instant,
+}
+
+/// A packet kept for a viewer that reports it lost, and when it went out.
+struct Sent {
+    /// The sequence it went out with, which its slot's index names only by
+    /// its remainder.
+    sequence: u16,
+    /// The millisecond of the history's `born` it went out at.
+    at: u32,
+    packet: Vec<u8>,
 }
 
 impl Default for History {
     fn default() -> Self {
         Self {
-            packets: vec![None; 2048],
+            // Empty slots, made rather than cloned: a slot that held a
+            // packet is never copied.
+            packets: std::iter::repeat_with(|| None).take(SLOTS).collect(),
+            born: Instant::now(),
         }
     }
 }
 
 impl History {
-    /// Keeps `packet` as the slot its sequence names holds, overwriting what
-    /// that slot held in the vector it already has, so a steady stream copies
-    /// bytes instead of allocating a packet-sized vector each time.
-    pub fn remember(&mut self, packet: &[u8]) {
+    /// Keeps `packet`, sent at `now`, as the slot its sequence names,
+    /// overwriting what that slot held in the vector it already has, so a
+    /// steady stream copies bytes instead of allocating a packet-sized vector
+    /// each time.
+    pub fn remember(&mut self, packet: &[u8], now: Instant) {
         let Some(sent) = parse(packet) else {
             return;
         };
-        let at = usize::from(sent.sequence) % self.packets.len();
-        match &mut self.packets[at] {
-            Some((kept, kept_packet)) => {
+        let at = self.millis(now);
+        let slot = usize::from(sent.sequence) % self.packets.len();
+        match &mut self.packets[slot] {
+            Some(kept) => {
                 // The index alone decides which sequence a slot may hold, so
                 // the one it names has to follow the packet it keeps now.
-                *kept = sent.sequence;
-                kept_packet.clear();
-                kept_packet.extend_from_slice(packet);
+                kept.sequence = sent.sequence;
+                kept.at = at;
+                kept.packet.clear();
+                kept.packet.extend_from_slice(packet);
             }
-            empty => *empty = Some((sent.sequence, packet.to_vec())),
+            empty => {
+                *empty = Some(Sent {
+                    sequence: sent.sequence,
+                    at,
+                    packet: packet.to_vec(),
+                });
+            }
         }
     }
 
-    pub fn get(&self, sequence: u16) -> Option<&[u8]> {
-        match &self.packets[usize::from(sequence) % self.packets.len()] {
-            Some((kept, packet)) if *kept == sequence => Some(packet),
-            _ => None,
-        }
+    /// `sequence`'s packet, if it went out long enough ago for a viewer to
+    /// still be waiting for it. A slot that has since taken another packet
+    /// answers with nothing rather than with those bytes: only a sequence the
+    /// slot names is its own, and only while it is young enough to resend.
+    pub fn get(&self, sequence: u16, now: Instant) -> Option<&[u8]> {
+        let kept = self.packets[usize::from(sequence) % self.packets.len()].as_ref()?;
+        // Wrapping, as only the difference says how old the packet is and the
+        // count of milliseconds comes round again after seven weeks.
+        let age = self.millis(now).wrapping_sub(kept.at);
+        (kept.sequence == sequence && age < RESEND_WINDOW.as_millis() as u32)
+            .then_some(kept.packet.as_slice())
+    }
+
+    /// `now` counted from when the history was made, in milliseconds.
+    fn millis(&self, now: Instant) -> u32 {
+        now.duration_since(self.born).as_millis() as u32
     }
 }
 
@@ -2743,10 +2792,11 @@ mod tests {
     fn retransmits_what_viewers_report_lost() {
         let mut packetizer = Packetizer::new(77, Codec::H264);
         let mut history = History::default();
+        let sent_at = Instant::now();
         let frame = [&[0, 0, 0, 1, 0x65][..], &[9; 3000]].concat();
         let sent = packetizer.packets(&frame, 9000, false);
         for packet in &sent {
-            history.remember(packet);
+            history.remember(packet, sent_at);
         }
         let first = parse(&sent[0]).unwrap().sequence;
         // A NACK for the first packet and, by its bitmask, the third.
@@ -2758,7 +2808,7 @@ mod tests {
         assert_eq!(lost, [first, first.wrapping_add(2)]);
         assert!(nacked(&nack, 78).is_empty(), "about another stream");
         let again = packetizer
-            .retransmit(history.get(lost[1]).unwrap(), 79)
+            .retransmit(history.get(lost[1], sent_at).unwrap(), 79)
             .unwrap();
         let original = parse(&sent[2]).unwrap();
         let resent = parse(&again).unwrap();
@@ -2774,7 +2824,10 @@ mod tests {
         assert_eq!(&resent.payload[..2], &lost[1].to_be_bytes());
         assert_eq!(&resent.payload[2..], original.payload);
         assert_eq!(again[21], 0xc2, "the repaired stream id, not the stream id");
-        assert!(history.get(first.wrapping_sub(1)).is_none(), "never sent");
+        assert!(
+            history.get(first.wrapping_sub(1), sent_at).is_none(),
+            "never sent"
+        );
         assert!(packetizer.retransmit(&again, 79).is_none(), "not video");
     }
 
@@ -2797,29 +2850,37 @@ mod tests {
         let before = packet(first, 500, false, &[1; 400]);
         let after = packet(second, 900, true, &[2; 300]);
 
-        history.remember(&before);
-        let (kept, stored) = history.packets[usize::from(first) % slots]
+        history.remember(&before, Instant::now());
+        let slot = history.packets[usize::from(first) % slots]
             .as_ref()
             .expect("a slot filled");
-        assert_eq!((*kept, stored.as_slice()), (first, before.as_slice()));
-        let storage = (stored.as_ptr(), stored.capacity());
+        assert_eq!(
+            (slot.sequence, slot.packet.as_slice()),
+            (first, before.as_slice())
+        );
+        let storage = (slot.packet.as_ptr(), slot.packet.capacity());
 
-        history.remember(&after);
-        let (kept, stored) = history.packets[usize::from(second) % slots]
+        let replaced_at = Instant::now();
+        history.remember(&after, replaced_at);
+        let slot = history.packets[usize::from(second) % slots]
             .as_ref()
             .expect("the slot holds a packet still");
         assert_eq!(
-            (stored.as_ptr(), stored.capacity()),
+            (slot.packet.as_ptr(), slot.packet.capacity()),
             storage,
             "the slot's own vector, not a new one"
         );
         assert_eq!(
-            (*kept, stored.as_slice()),
+            (slot.sequence, slot.packet.as_slice()),
             (second, after.as_slice()),
             "the packet just kept, with no bytes left over from the last"
         );
-        assert_eq!(history.get(first), None, "replaced in that slot");
-        assert_eq!(history.get(second), Some(after.as_slice()));
+        assert_eq!(
+            history.get(first, replaced_at),
+            None,
+            "replaced in that slot"
+        );
+        assert_eq!(history.get(second, replaced_at), Some(after.as_slice()));
     }
 
     #[test]
@@ -2840,24 +2901,34 @@ mod tests {
             );
         }
         let slot = usize::from(sequence) % slots;
+        let sent_at = Instant::now();
 
-        history.remember(&short);
-        history.remember(&long);
-        let stored = &history.packets[slot].as_ref().expect("a slot filled").1;
+        history.remember(&short, sent_at);
+        history.remember(&long, sent_at);
+        let stored = &history.packets[slot]
+            .as_ref()
+            .expect("a slot filled")
+            .packet;
         assert_eq!(stored.as_slice(), long.as_slice(), "grown to fit");
         assert!(stored.capacity() >= long.len(), "room for the whole packet");
         let grown = stored.capacity();
 
-        history.remember(&shortest);
-        let stored = &history.packets[slot].as_ref().expect("a slot filled").1;
+        history.remember(&shortest, sent_at);
+        let stored = &history.packets[slot]
+            .as_ref()
+            .expect("a slot filled")
+            .packet;
         assert_eq!(
             stored.as_slice(),
             shortest.as_slice(),
             "cut to the shorter packet"
         );
         assert_eq!(stored.capacity(), grown, "the larger vector kept");
-        assert_eq!(history.get(long_sequence), None, "replaced");
-        assert_eq!(history.get(shortest_sequence), Some(shortest.as_slice()));
+        assert_eq!(history.get(long_sequence, sent_at), None, "replaced");
+        assert_eq!(
+            history.get(shortest_sequence, sent_at),
+            Some(shortest.as_slice())
+        );
     }
 
     #[test]
@@ -2878,24 +2949,80 @@ mod tests {
         let tail = packet(before_wrap, 1, false, &[6; 200]);
         let head = packet(after_wrap, 2, true, &[7; 200]);
 
-        history.remember(&tail);
-        assert_eq!(history.get(before_wrap), Some(tail.as_slice()));
+        let sent_at = Instant::now();
+        history.remember(&tail, sent_at);
+        assert_eq!(history.get(before_wrap, sent_at), Some(tail.as_slice()));
 
-        history.remember(&head);
-        assert_eq!(history.get(after_wrap), Some(head.as_slice()));
-        assert_eq!(history.get(before_wrap), None, "replaced in that slot");
-        assert!(history.get(1234).is_none(), "a slot nothing has filled");
+        history.remember(&head, sent_at);
+        assert_eq!(history.get(after_wrap, sent_at), Some(head.as_slice()));
+        assert_eq!(
+            history.get(before_wrap, sent_at),
+            None,
+            "replaced in that slot"
+        );
+        assert!(
+            history.get(1234, sent_at).is_none(),
+            "a slot nothing has filled"
+        );
     }
 
     #[test]
     fn rtx_history_remembers_only_parsable_packets() {
         let mut history = History::default();
-        history.remember(&[]);
-        history.remember(&[0x80, H264]);
-        history.remember(&[0x40; 20]);
+        let sent_at = Instant::now();
+        history.remember(&[], sent_at);
+        history.remember(&[0x80, H264], sent_at);
+        history.remember(&[0x40; 20], sent_at);
         assert!(
             history.packets.iter().all(|slot| slot.is_none()),
             "no slot filled, nor partly"
+        );
+    }
+
+    #[test]
+    fn an_rtx_slot_ages_out_rather_than_lasting_through_a_stall() {
+        // Nothing ages a slot but the packets that follow it, so a stream that
+        // stops sending leaves the history as it was: minutes later a viewer's
+        // NACK for one of those packets is about a packet no viewer can still
+        // be waiting for, and the uplink a recovering stream needs is not
+        // spent on it. What the slot holds is never handed out in its place.
+        let mut history = History::default();
+        let sent_at = Instant::now();
+        let stalled = sent_at + RESEND_WINDOW + Duration::from_millis(1);
+        let old = packet(200, 1, false, &[8; 300]);
+        let new = packet(same_slot(200, history.packets.len()), 2, true, &[9; 300]);
+
+        history.remember(&old, sent_at);
+        assert_eq!(history.get(200, sent_at), Some(old.as_slice()));
+        assert_eq!(
+            history.get(200, stalled),
+            None,
+            "in the history still, and too old to resend"
+        );
+
+        // The slot takes the packet the sequence numbers put in it next, with
+        // their own bytes: neither the old sequence nor the new one is ever
+        // answered with the other's packet.
+        let replaced_at = Instant::now();
+        history.remember(&new, replaced_at);
+        let kept = parse(&new).unwrap().sequence;
+        assert_eq!(history.get(200, replaced_at), None, "gone from that slot");
+        assert_eq!(history.get(kept, replaced_at), Some(new.as_slice()));
+        assert_eq!(
+            history.get(kept, replaced_at + RESEND_WINDOW),
+            None,
+            "and ages out in its turn"
+        );
+    }
+
+    #[test]
+    fn an_rtx_slot_costs_no_more_than_the_packet_alone() {
+        // What a slot keeps for ageing it is the room the tuple had spare:
+        // the store is bounded by its 2048 slots whatever the stream does.
+        assert_eq!(
+            std::mem::size_of::<Option<Sent>>(),
+            std::mem::size_of::<Option<(u16, Vec<u8>)>>(),
+            "a kept packet, its sequence and its age in a packet's worth of slot"
         );
     }
 

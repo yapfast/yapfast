@@ -145,7 +145,7 @@ impl Sending {
             .write(&mut self.plan, &payload, &mut self.out)
             .is_some()
         {
-            self.history.remember(&self.out);
+            self.history.remember(&self.out, std::time::Instant::now());
             let clear = rtp::rtp_clear_len(&self.out).unwrap_or(self.out.len());
             self.packets = self.packets.wrapping_add(1);
             self.octets = self.octets.wrapping_add((self.out.len() - clear) as u32);
@@ -173,13 +173,14 @@ impl Sending {
         if rtp::wants_keyframe(rtcp) {
             self.camera.keyframe.store(true, Ordering::Relaxed);
         }
+        let now = std::time::Instant::now();
         for lost in rtp::nacked(rtcp, connection.video)
             .into_iter()
             .take(RESENDS)
         {
             let Some(mut again) = self
                 .history
-                .get(lost)
+                .get(lost, now)
                 .and_then(|original| self.packetizer.retransmit(original, connection.rtx))
             else {
                 continue;

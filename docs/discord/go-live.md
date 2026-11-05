@@ -109,7 +109,8 @@ between batches the loop is back to poll the stream's sound, the gateway's
 heartbeats and session updates, and viewers' feedback, so a keyframe that takes
 tens of milliseconds holds none of them up. A frame partway out keeps its plan,
 its encrypted bytes and the count written; the next frame waits until it is
-whole. Yapfast keeps the last 2048 video packets, and when a viewer reports
+whole. Yapfast keeps the last 2048 video packets, none older than two seconds,
+and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
 the original sequence number before the payload (RFC 4588), and the repaired
@@ -132,8 +133,10 @@ sends them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
 and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Like Discord's client it also follows the server's bandwidth
 estimate (REMB): when that drops below the cap, the encoder aims for the
-estimate instead, though never below 500 kbit/s, and it changes only when the
-two differ by more than a tenth. Discord's client allows accounts without Nitro
+estimate instead, though never below 500 kbit/s. A fall is obeyed once the
+estimate is a tenth below the rate, a rise once a quarter above it, so a wobble
+changes nothing and a recovered path is climbed again; an estimate that stops
+coming is not followed, and the rate holds rather than leaping to the cap. Discord's client allows accounts without Nitro
 720p30, but trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts
 captured frames to I420 with libyuv, scales them with libyuv's filtering
 scaler, and encodes those. The preview — the same picture scaled down to 720p,

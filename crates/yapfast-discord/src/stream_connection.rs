@@ -56,6 +56,46 @@ pub fn max_bitrate(height: u32) -> u32 {
     if height > 720 { 9_000_000 } else { 3_500_000 }
 }
 
+/// The least kbit/s a shared screen is given, as Discord's client gives it: a
+/// path that estimates it carries less than this still gets a picture, poorer
+/// rather than gone.
+const FLOOR: u32 = 500;
+
+/// How long what Discord's server estimated the path carries speaks for it.
+/// Its estimates come as often as its viewers' receivers send them, so a
+/// stream somebody is watching never sees its estimate lapse; one that does
+/// lapse is not news about the path now, and the rate holds where it is
+/// rather than leaping to the cap that silence doesn't measure.
+const ESTIMATE_LIFE: Duration = Duration::from_secs(5);
+
+/// The kbit/s to aim for now, given the kbit/s `aimed` the encoder already
+/// holds and the bit/s Discord's server last estimated the path carries, or
+/// None to leave the encoder's rate as it is.
+///
+/// It aims for what Discord's client aims for: the estimate, though never
+/// below the floor a screen is given nor above the cap its height was
+/// announced at. What it takes to move the rate is not the same both ways. A
+/// tenth below is a path that has just lost packets, and it is obeyed at once.
+/// A quarter above is a path that has got better, and a quarter is what it
+/// takes to climb, because an estimate wandering a few percent either way
+/// would otherwise change the encoder's rate control every report it
+/// wandered. So a stream that recovers climbs again once its estimate is a
+/// quarter above the rate it holds, never waiting for a report that undoes the
+/// whole cut, and never going past what the estimate says the path carries.
+pub fn bitrate(height: u32, aimed: u32, estimate: Option<u64>) -> Option<u32> {
+    let cap = max_bitrate(height) / 1000;
+    // Nothing said about the path is not the same as a path that carries
+    // everything: with no estimate to go on, the rate stays where it is.
+    let estimate = estimate?;
+    let wanted = (estimate / 1000).clamp(u64::from(FLOOR), u64::from(cap)) as u32;
+    let margin = if wanted > aimed {
+        aimed / 4
+    } else {
+        aimed / 10
+    };
+    (wanted.abs_diff(aimed) > margin).then_some(wanted)
+}
+
 /// Op 5's speaking flags for a stream's sound: shared sound, not a
 /// microphone, as Discord's client marks it.
 const SOUNDSHARE: u8 = 2;
@@ -280,9 +320,9 @@ struct Shared {
     /// streamer for one.
     keyframe: AtomicBool,
     size: Mutex<(u32, u32)>,
-    /// Sending: the bit/s Discord's server last estimated the path carries,
-    /// or 0 before it said.
-    estimate: AtomicU64,
+    /// Sending: what Discord's server last estimated the path carries, in
+    /// bit/s, and when it said so.
+    estimate: Mutex<Option<(u64, std::time::Instant)>>,
     /// Sending: the codecs offered, most wanted first, and whether that
     /// changed since Discord was told. Receiving: the codecs decoded.
     offers: Mutex<Vec<Codec>>,
@@ -303,7 +343,7 @@ impl Shared {
             link: Mutex::new(Link::Connecting),
             keyframe: AtomicBool::new(true),
             size: Mutex::new(size),
-            estimate: AtomicU64::new(0),
+            estimate: Mutex::new(None),
             offers: Mutex::new(vec![SEND_CODEC]),
             offers_changed: AtomicBool::new(false),
             chosen: Mutex::new(None),
@@ -428,9 +468,22 @@ impl StreamSender {
     }
 
     /// The bit/s Discord's server last estimated the path carries, once it
-    /// said.
+    /// said, however long ago that was.
     pub fn bandwidth_estimate(&self) -> Option<u64> {
-        Some(self.shared.estimate.load(Ordering::Relaxed)).filter(|&estimate| estimate > 0)
+        lock(&self.shared.estimate).map(|(estimate, _)| estimate)
+    }
+
+    /// The kbit/s the encoder should aim for now, or None to leave its rate
+    /// as it is; see [`bitrate`]. What Discord's server last estimated the
+    /// path carries is what moves it, as long as the server is still saying
+    /// so: a report that stopped coming is not news about the path now, and a
+    /// rate held where it is beats one thrown back to the cap on nothing.
+    pub fn bitrate(&self, height: u32, aimed: u32) -> Option<u32> {
+        let estimate = *lock(&self.shared.estimate);
+        let said = estimate
+            .filter(|(_, said)| said.elapsed() <= ESTIMATE_LIFE)
+            .map(|(estimate, _)| estimate);
+        bitrate(height, aimed, said)
     }
 
     pub fn link(&self) -> Link {
@@ -801,6 +854,10 @@ async fn send(
                     continue;
                 };
                 let mut done = false;
+                // One turn of the loop writes a batch, so one clock read says
+                // when its packets went out; a packet's age is a coarse thing
+                // beside the window it is kept for.
+                let now = std::time::Instant::now();
                 for _ in 0..frame.batch() {
                     let Some(last) = packetizer.write(&mut plan, &frame.payload, &mut out) else {
                         done = true;
@@ -809,7 +866,7 @@ async fn send(
                     frame.sent_one();
                     // The history keeps the packet as it went, before the
                     // encryption writes over the rest of the buffer.
-                    history.remember(&out);
+                    history.remember(&out, now);
                     let clear = rtp::rtp_clear_len(&out).unwrap_or(out.len());
                     packets = packets.wrapping_add(1);
                     octets = octets.wrapping_add((out.len() - clear) as u32);
@@ -857,20 +914,22 @@ async fn send(
                         sent.said.insert(kind, said);
                     }
                 }
+                // One clock read for what this report says, and what it means
+                // is always how long ago it said it.
+                let now = std::time::Instant::now();
                 if rtp::wants_keyframe(&rtcp) {
                     sent.requests += 1;
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
-                    let now = std::time::Instant::now();
                     if keyframe_due(answered, now) {
                         answered = Some(now);
                         shared.keyframe.store(true, Ordering::Relaxed);
                     }
                 }
                 if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video) {
-                    shared.estimate.store(estimate, Ordering::Relaxed);
+                    *lock(&shared.estimate) = Some((estimate, now));
                 }
                 for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
-                    let Some(mut again) = history.get(lost).and_then(|original| packetizer.retransmit(original, rtx)) else {
+                    let Some(mut again) = history.get(lost, now).and_then(|original| packetizer.retransmit(original, rtx)) else {
                         sent.too_late += 1;
                         continue;
                     };
@@ -1496,5 +1555,156 @@ mod tests {
             "the newest went, not the ones before it"
         );
         assert!(!sender.backlogged(), "and room came back");
+    }
+
+    #[test]
+    fn aims_for_the_estimate_within_a_screen_s_floor_and_cap() {
+        // What Discord's client does with the estimate: 1080p is announced at
+        // 9 Mbit/s and 720p at 3.5, and a screen is given at least 500 even
+        // when the path says it carries less.
+        assert_eq!(
+            bitrate(1080, 9000, Some(4_000_000)),
+            Some(4000),
+            "what the path carries"
+        );
+        assert_eq!(
+            bitrate(720, 9000, Some(9_000_000)),
+            Some(3500),
+            "never past the cap for the height"
+        );
+        assert_eq!(
+            bitrate(1080, 9000, Some(100_000)),
+            Some(500),
+            "nor below a screen's floor"
+        );
+        assert_eq!(
+            bitrate(720, 500, Some(0)),
+            None,
+            "a path that says it carries nothing leaves the floor alone"
+        );
+        assert_eq!(
+            bitrate(1080, 9000, None),
+            None,
+            "nothing said about the path is no reason to move"
+        );
+    }
+
+    #[test]
+    fn follows_the_estimate_a_tenth_down_and_a_quarter_up() {
+        // A fall is obeyed as soon as it is a tenth of the rate, since a path
+        // that just lost packets is not one to keep trying; a rise waits for a
+        // quarter, since an estimate wanders by a few percent every report and
+        // following that would churn the encoder's rate control every second.
+        assert_eq!(bitrate(1080, 1000, Some(1_000_000)), None, "what it holds");
+        assert_eq!(
+            bitrate(1080, 1000, Some(900_000)),
+            None,
+            "a tenth exactly is no reason to cut"
+        );
+        assert_eq!(
+            bitrate(1080, 1000, Some(899_000)),
+            Some(899),
+            "and a tenth and a kbit/s is"
+        );
+        assert_eq!(
+            bitrate(1080, 1000, Some(1_250_000)),
+            None,
+            "a quarter exactly is no reason to climb"
+        );
+        assert_eq!(
+            bitrate(1080, 1000, Some(1_251_000)),
+            Some(1251),
+            "and a quarter and a kbit/s is"
+        );
+    }
+
+    #[test]
+    fn a_wobbling_estimate_leaves_the_encoder_alone() {
+        // An estimate that wanders either side of the rate it steered it to
+        // changes nothing: a stream nobody is hurting gets no rate changes.
+        let mut held = 2000;
+        let mut changes = 0;
+        for estimate in (1_850_000..=2_150_000).step_by(25_000) {
+            if let Some(next) = bitrate(1080, held, Some(estimate)) {
+                held = next;
+                changes += 1;
+            }
+        }
+        assert_eq!(
+            (held, changes),
+            (2000, 0),
+            "seven and a half percent either way"
+        );
+    }
+
+    #[test]
+    fn climbs_back_after_a_burst_of_loss() {
+        // A burst makes the estimate say a path carries a fraction of what it
+        // did, and the rate drops at once. The path recovers and the estimate
+        // climbs a report at a time: the rate follows it up, and does not wait
+        // for one report to come all the way back to the cap it was cut from.
+        let mut held = 9000;
+        let mut changes = vec![];
+        for estimate in [
+            300_000, 400_000, 500_000, 600_000, 700_000, 800_000, 1_000_000, 1_500_000, 2_000_000,
+        ] {
+            if let Some(next) = bitrate(1080, held, Some(estimate)) {
+                held = next;
+                changes.push(next);
+            }
+        }
+        assert_eq!(
+            changes,
+            [500, 700, 1000, 1500, 2000],
+            "the floor at once, then a quarter of the rate at a time, and the estimate never back at the cap"
+        );
+    }
+
+    #[test]
+    fn an_estimate_that_stopped_coming_holds_the_rate() {
+        // The server's estimate is what moves the rate, while the server is
+        // saying it. One low report and then silence is a share that has
+        // outlived what it measured: the encoder keeps the rate it has rather
+        // than being cut back to a number about a path nobody measured since.
+        let (frames, _queued) = mpsc::channel(4);
+        let (sounds, _heard) = mpsc::channel(8);
+        let shared = Shared::new((1920, 1080));
+        let sender = StreamSender {
+            frames,
+            sounds,
+            shared: shared.clone(),
+        };
+        assert_eq!(sender.bitrate(1080, 9000), None, "nothing said yet");
+
+        *lock(&shared.estimate) = Some((4_000_000, std::time::Instant::now()));
+        assert_eq!(
+            sender.bitrate(1080, 9000),
+            Some(4000),
+            "what the path carries"
+        );
+
+        let before = std::time::Instant::now() - ESTIMATE_LIFE - Duration::from_secs(1);
+        // The same report, while it is news, cuts the rate at once.
+        *lock(&shared.estimate) = Some((800_000, std::time::Instant::now()));
+        assert_eq!(
+            sender.bitrate(1080, 9000),
+            Some(800),
+            "what the path carries"
+        );
+        // And once it has stopped coming it is not news about the path now:
+        // the encoder keeps the rate it has, and one reopened since the report
+        // keeps the rate it opened at instead of being cut back to it.
+        *lock(&shared.estimate) = Some((800_000, before));
+        assert_eq!(
+            sender.bitrate(1080, 800),
+            None,
+            "the rate it holds is the rate it keeps"
+        );
+        assert_eq!(sender.bitrate(1080, 9000), None, "nothing said lately");
+        assert_eq!(
+            sender.bandwidth_estimate(),
+            Some(800_000),
+            "what it said, however long ago"
+        );
     }
 }

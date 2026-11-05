@@ -668,10 +668,11 @@ impl Sink {
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
-        let wanted = kbps(height, video.sender.bandwidth_estimate());
         let aimed = video.encoder.bitrate();
-        // Not on every wobble, which would churn the rate control.
-        if wanted.abs_diff(aimed) > aimed / 10 {
+        // A rate a tenth below the aim is followed at once, and one a quarter
+        // above it to climb; between the two is a wobble, and an estimate that
+        // stopped coming says nothing at all.
+        if let Some(wanted) = video.sender.bitrate(height, aimed) {
             match video.encoder.set_bitrate(wanted) {
                 Ok(()) => tracing::debug!(kbps = wanted, "following Discord's bandwidth estimate"),
                 Err(error) => {
