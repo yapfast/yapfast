@@ -29,7 +29,7 @@ use tokio::sync::mpsc;
 use yapfast_discord::{
     rtp::Codec,
     stream::StreamServer,
-    stream_connection::{self, Link, StreamReceiver, StreamSender},
+    stream_connection::{self, Link, ReceivedFrame, StreamReceiver, StreamSender},
 };
 
 use livekit::webrtc::{
@@ -38,7 +38,7 @@ use livekit::webrtc::{
 };
 
 use crate::{
-    decode::Decoder,
+    decode::{Decoder, Picture},
     encode::{self, Effort, Encoder},
     frames::{Frames, Writer},
     picture::I420,
@@ -791,6 +791,112 @@ struct Sound {
     controls: channel::Receiver<Control>,
 }
 
+/// What a watched stream's frames are decoded with, and whether the frame in
+/// hand may reach it.
+///
+/// A decoder that has just failed, or just been replaced because the stream
+/// turned to another codec, holds nothing the frames after it build on: each
+/// references a picture it never decoded, and would fail too. So the watch
+/// waits for a keyframe, as the assembler does when it had to drop frames,
+/// instead of spending a decode on every delta of a chain already broken.
+struct Decoding {
+    decoder: Option<Decoder>,
+    /// No frame reaches the decoder until a keyframe does.
+    awaiting_keyframe: bool,
+    /// The codec this build has no decoder for, so frames of it are dropped
+    /// without trying again. A watch waits through them: the stream's sound
+    /// plays on, and a streamer who turns to another codec gets pictures
+    /// back.
+    undecodable: Option<Codec>,
+    /// How a decoder is made, which a test makes fail the way a build without
+    /// a codec's decoder does.
+    make: fn(Codec) -> Result<Decoder>,
+}
+
+/// What became of a frame handed to a [`Decoding`].
+///
+/// [`Decoded::Waiting`] and [`Decoded::Held`] are frames the watch drops as
+/// they are: one before any work is done on it, the other after the decoder
+/// took it and kept it.
+enum Decoded<'a> {
+    /// A picture to show.
+    Picture(Picture<'a>),
+    Held,
+    Waiting,
+    /// The decoder couldn't use the frame, so the frames after it wait.
+    Failed(anyhow::Error),
+}
+
+impl Decoding {
+    fn new() -> Self {
+        Self {
+            decoder: None,
+            // The assembler starts a stream at a keyframe.
+            awaiting_keyframe: false,
+            undecodable: None,
+            make: Decoder::new,
+        }
+    }
+
+    /// Decodes `frame` if it should be; [`Decoded::Waiting`] says it wasn't
+    /// worth the work and the next frame may be.
+    fn decode(&mut self, frame: &ReceivedFrame) -> Decoded<'_> {
+        let codec = frame.codec;
+        if self
+            .decoder
+            .as_ref()
+            .is_some_and(|decoder| decoder.codec() != codec)
+        {
+            // Nothing one decoder held carries into another: the frames
+            // after a codec change reference pictures only the new decoder
+            // makes.
+            self.decoder = None;
+            self.awaiting_keyframe = true;
+        }
+        if self.decoder.is_none() {
+            if self.undecodable == Some(codec) {
+                return Decoded::Waiting;
+            }
+            match (self.make)(codec) {
+                Ok(decoder) => {
+                    self.decoder = Some(decoder);
+                    self.undecodable = None;
+                }
+                Err(error) => {
+                    // A codec this build can't decode ends this stream's
+                    // video, not the watch: its sound plays on, and a stream
+                    // Discord moves to a codec this build has gets pictures
+                    // again.
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        codec = ?codec,
+                        "no decoder for a watched stream"
+                    );
+                    self.undecodable = Some(codec);
+                    return Decoded::Waiting;
+                }
+            }
+        }
+        if self.awaiting_keyframe {
+            if !frame.keyframe {
+                return Decoded::Waiting;
+            }
+            self.awaiting_keyframe = false;
+        }
+        let Some(decoder) = self.decoder.as_mut() else {
+            return Decoded::Waiting;
+        };
+        match decoder.decode(&frame.data) {
+            Ok(Some(picture)) => Decoded::Picture(picture),
+            Ok(None) => Decoded::Held,
+            Err(error) => {
+                self.awaiting_keyframe = true;
+                Decoded::Failed(error)
+            }
+        }
+    }
+}
+
 /// Shows someone's stream: whole frames from the connection, decoded, then
 /// scaled down if they don't fit, and plays its sound.
 fn watch(
@@ -812,7 +918,7 @@ fn watch(
         .inspect_err(|error| tracing::warn!(error = format!("{error:#}"), "watching without sound"))
         .ok()
     });
-    let mut decoder: Option<Decoder> = None;
+    let mut decoding = Decoding::new();
     // A frame that doesn't fit scales through this, a picture of the size
     // shown; one that does goes straight into the shared frame.
     let mut scratch = vec![];
@@ -832,19 +938,10 @@ fn watch(
         let Some(frame) = receiver.next(Duration::from_millis(100)) else {
             continue;
         };
-        if decoder
-            .as_ref()
-            .is_none_or(|decoder| decoder.codec() != frame.codec)
-        {
-            decoder = Some(Decoder::new(frame.codec)?);
-        }
-        let Some(decoder) = decoder.as_mut() else {
-            continue;
-        };
-        let picture = match decoder.decode(&frame.data) {
-            Ok(Some(picture)) => picture,
-            Ok(None) => continue,
-            Err(error) => {
+        let picture = match decoding.decode(&frame) {
+            Decoded::Picture(picture) => picture,
+            Decoded::Held | Decoded::Waiting => continue,
+            Decoded::Failed(error) => {
                 failures += 1;
                 // The first of a run, and then now and again.
                 if failures == 1 || failures.is_multiple_of(100) {
@@ -2411,5 +2508,92 @@ mod tests {
                 }
             ]
         );
+    }
+
+    /// A frame that didn't decode leaves every delta after it describing a
+    /// picture the decoder never had, so the watch waits for a keyframe
+    /// instead of handing them over.
+    #[test]
+    fn a_frame_that_didnt_decode_waits_for_a_keyframe() {
+        let junk = |keyframe| ReceivedFrame {
+            codec: Codec::Vp8,
+            data: b"not video".to_vec(),
+            keyframe,
+        };
+        let mut decoding = Decoding::new();
+        // libvpx says so, and the watch is left waiting.
+        assert!(matches!(decoding.decode(&junk(false)), Decoded::Failed(_)));
+        // The deltas after it reference the frame that didn't decode.
+        assert!(matches!(decoding.decode(&junk(false)), Decoded::Waiting));
+        // A keyframe is what the decoder can start again from, whatever it
+        // holds, and the deltas after it are its own.
+        assert!(matches!(decoding.decode(&junk(true)), Decoded::Failed(_)));
+        assert!(matches!(decoding.decode(&junk(false)), Decoded::Waiting));
+    }
+
+    /// A stream that turns to another codec starts a decoder afresh, which
+    /// knows nothing of the pictures the one before it decoded.
+    #[test]
+    fn a_codec_change_waits_for_a_keyframe() {
+        let frame = |codec, keyframe| ReceivedFrame {
+            codec,
+            data: b"not video".to_vec(),
+            keyframe,
+        };
+        let mut decoding = Decoding::new();
+        assert!(matches!(
+            decoding.decode(&frame(Codec::Vp8, false)),
+            Decoded::Failed(_)
+        ));
+        assert!(matches!(
+            decoding.decode(&frame(Codec::H264, false)),
+            Decoded::Waiting
+        ));
+        assert!(
+            !matches!(decoding.decode(&frame(Codec::H264, true)), Decoded::Waiting),
+            "a keyframe reaches the new decoder"
+        );
+    }
+
+    /// A codec this build has no decoder for doesn't end the watch: the
+    /// stream's sound plays on, no frame of that codec costs another attempt,
+    /// and a codec this build decodes gets pictures back.
+    #[test]
+    fn a_codec_the_build_cant_decode_waits_for_one_it_can() {
+        use std::sync::atomic::AtomicUsize;
+        static MADE: AtomicUsize = AtomicUsize::new(0);
+        fn no_h265(codec: Codec) -> Result<Decoder> {
+            MADE.fetch_add(1, Ordering::Relaxed);
+            match codec {
+                Codec::H265 => bail!("this build of Yapfast can't decode H265"),
+                codec => Decoder::new(codec),
+            }
+        }
+        let frame = |codec, keyframe| ReceivedFrame {
+            codec,
+            data: b"not video".to_vec(),
+            keyframe,
+        };
+        let mut decoding = Decoding {
+            make: no_h265,
+            ..Decoding::new()
+        };
+        // The watch waits through the codec it can't decode, however many
+        // frames of it come, and does nothing with them.
+        assert!(matches!(
+            decoding.decode(&frame(Codec::H265, true)),
+            Decoded::Waiting
+        ));
+        assert!(matches!(
+            decoding.decode(&frame(Codec::H265, false)),
+            Decoded::Waiting
+        ));
+        assert_eq!(MADE.load(Ordering::Relaxed), 1, "no attempt a frame");
+        // A codec it does decode reaches a decoder of its own.
+        assert!(matches!(
+            decoding.decode(&frame(Codec::Vp8, false)),
+            Decoded::Failed(_)
+        ));
+        assert_eq!(MADE.load(Ordering::Relaxed), 2);
     }
 }

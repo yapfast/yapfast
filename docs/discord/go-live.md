@@ -209,7 +209,13 @@ asked for. The worker decodes with libvpx or with the FFmpeg H264 decoder in
 libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
 archive (`native/av1.c`), a picture out for each frame in, or H265 with the
 HEVC decoder of `vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which
-libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames.
+libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames. A
+frame the decoder can't use leaves the worker asking for a keyframe, at most
+every 500 ms as above, and decoding nothing until one comes, the deltas after it
+being built on a picture the decoder never had. A decoder replaced because the
+stream changed codec starts from a keyframe too. A stream in a codec this build
+has no decoder for keeps its sound playing, and gets pictures again if the
+streamer turns to one this build has.
 dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
 H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor
