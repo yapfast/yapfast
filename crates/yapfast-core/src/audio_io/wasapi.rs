@@ -1,17 +1,24 @@
 //! Sound through WASAPI in shared mode. The audio engine converts between a
 //! stream's format and the device's, and signals an event as it plays or
-//! records; reading and writing wait for it on the caller's thread, and copy
-//! straight between the caller's samples and the engine's buffer.
+//! records; reading and writing wait for it on the caller's thread, copy
+//! straight between the caller's samples and the engine's buffer, and give
+//! up within a slice when the stream that owns them stops.
 //!
 //! WebRTC's Windows device module names each device by its endpoint id, as
 //! `IMMDevice::GetId` gives it, so a device id opens the endpoint directly.
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context as _, Result, anyhow, ensure};
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0},
+        Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
         Media::{
             Audio::{
                 AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
@@ -37,7 +44,7 @@ use windows::{
     core::HSTRING,
 };
 
-use super::{Format, Step, drain_deadline, drain_must_wait, write_step};
+use super::{Format, Step, Waited, drain_deadline, drain_must_wait, wait_step, write_step};
 use crate::voice::NAMED;
 
 /// What a stream without a queue of its own keeps queued.
@@ -47,7 +54,12 @@ const DEFAULT_QUEUE: Duration = Duration::from_millis(200);
 const RECORDING: Duration = Duration::from_millis(200);
 /// The engine signals every few milliseconds while a stream runs; this long
 /// without a signal means the device went away.
-const SILENCE_MS: u32 = 2000;
+const SILENCE: Duration = Duration::from_secs(2);
+/// How long a wait for the engine lasts before it looks at the stop of the
+/// stream it waits for again: short enough that a stop is seen at once, long
+/// enough that a stream which isn't stopping wakes a few times a second
+/// rather than constantly.
+const STOP_CHECK_MS: u32 = 100;
 /// How long past a drained queue the engine has to get going before the
 /// device counts as stopped.
 const DRAIN_GRACE: Duration = Duration::from_secs(1);
@@ -243,12 +255,30 @@ impl Stream {
         unsafe { self.client.GetCurrentPadding() }.context("the device went away")
     }
 
-    /// Waits for the engine to play or record more.
-    fn wait(&self) -> Result<()> {
-        // SAFETY: the event lives as long as the stream.
-        let waited = unsafe { WaitForSingleObject(self.event, SILENCE_MS) };
-        ensure!(waited == WAIT_OBJECT_0, "the device stopped");
-        Ok(())
+    /// Waits for the engine to play or record more, or for the stop of the
+    /// stream it waits for: a slice says nothing on its own, since the
+    /// engine signals every few milliseconds while it runs, so only the
+    /// whole of [`SILENCE`] quiet is a device that went away.
+    fn wait(&self, stop: Option<&AtomicBool>) -> Result<Waited> {
+        let quiet_since = Instant::now();
+        loop {
+            // The stream ends whatever the device does, so a stop is seen
+            // without waiting for the device at all.
+            if stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+                return Ok(Waited::Cancelled);
+            }
+            // SAFETY: the event lives as long as the stream.
+            let waited = unsafe { WaitForSingleObject(self.event, STOP_CHECK_MS) };
+            ensure!(
+                waited == WAIT_OBJECT_0 || waited == WAIT_TIMEOUT,
+                "the device stopped"
+            );
+            if let Some(waited) =
+                wait_step(waited == WAIT_OBJECT_0, quiet_since.elapsed(), SILENCE)?
+            {
+                return Ok(waited);
+            }
+        }
     }
 }
 
@@ -267,6 +297,9 @@ pub struct Output {
     /// The most kept queued, in frames: what was asked, though the engine's
     /// buffer may be larger.
     queue: u32,
+    /// What ends a wait before the device answers, from the thread that
+    /// stops the stream.
+    stop: Option<Arc<AtomicBool>>,
 }
 
 impl Output {
@@ -286,10 +319,17 @@ impl Output {
             stream,
             render,
             queue,
+            stop: None,
         })
     }
 
-    pub fn write(&mut self, bytes: &[u8]) -> Result<()> {
+    /// Ends a wait for the engine as soon as `stop` is set, as the thread
+    /// that stops these speakers sets it.
+    pub fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        self.stop = Some(stop);
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) -> Result<Waited> {
         com();
         let frame_bytes = self.stream.format.frame_bytes();
         debug_assert_eq!(bytes.len() % frame_bytes, 0, "whole frames of samples");
@@ -297,7 +337,7 @@ impl Output {
         loop {
             let frames_left = (rest.len() / frame_bytes) as u32;
             if frames_left == 0 {
-                return Ok(());
+                return Ok(Waited::Signalled);
             }
             let step = write_step(
                 self.stream.padding()?,
@@ -309,9 +349,13 @@ impl Output {
                 Step::Wait => {
                     // Full: it plays what it has as it takes more.
                     self.stream.start()?;
-                    self.stream.wait()?;
+                    if self.stream.wait(self.stop.as_deref())? == Waited::Cancelled {
+                        // The stream is ending: what's left of this sound
+                        // ends with it rather than holding the stop back.
+                        return Ok(Waited::Cancelled);
+                    }
                 }
-                Step::Write { frames: 0, .. } => return Ok(()),
+                Step::Write { frames: 0, .. } => return Ok(Waited::Signalled),
                 Step::Write { frames, start } => {
                     let length = frames as usize * frame_bytes;
                     // SAFETY: the engine lends `frames` frames of room, which
@@ -332,29 +376,37 @@ impl Output {
         }
     }
 
-    pub fn drain(&mut self) -> Result<()> {
+    pub fn drain(&mut self) -> Result<Waited> {
         com();
         // Stopped either way, so the next write starts afresh rather than
         // playing at once or not depending on which way the queue emptied.
         let drained = self.drain_queued();
         self.stream.stop();
+        // A stop ends the drain with sound still queued, which nobody is
+        // waiting for any more: dropped here, so a stream that starts again
+        // after an outage plays what's new rather than what it missed.
+        if matches!(drained, Ok(Waited::Cancelled)) {
+            self.flush();
+        }
         drained
     }
 
     /// Waits until the engine has played what's queued, starting it if it
     /// isn't playing.
-    fn drain_queued(&mut self) -> Result<()> {
+    fn drain_queued(&mut self) -> Result<Waited> {
         if !drain_must_wait(self.stream.padding()?) {
-            return Ok(());
+            return Ok(Waited::Signalled);
         }
         self.stream.start()?;
         let deadline =
             Instant::now() + drain_deadline(self.queue, self.stream.format.rate, DRAIN_GRACE);
         while drain_must_wait(self.stream.padding()?) {
             ensure!(Instant::now() < deadline, "the speakers stopped playing");
-            self.stream.wait()?;
+            if self.stream.wait(self.stop.as_deref())? == Waited::Cancelled {
+                return Ok(Waited::Cancelled);
+            }
         }
-        Ok(())
+        Ok(Waited::Signalled)
     }
 
     pub fn flush(&mut self) {
@@ -383,6 +435,9 @@ pub struct Input {
     /// The end of the last packet, which the last read had no room for.
     left: Vec<u8>,
     taken: usize,
+    /// What ends a wait before the device answers, from the thread that
+    /// stops the stream.
+    stop: Option<Arc<AtomicBool>>,
 }
 
 // SAFETY: as for `Stream`.
@@ -407,10 +462,17 @@ impl Input {
             capture,
             left,
             taken: 0,
+            stop: None,
         })
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) -> Result<()> {
+    /// Ends a wait for the engine as soon as `stop` is set, as the thread
+    /// that stops this microphone sets it.
+    pub fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        self.stop = Some(stop);
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) -> Result<Waited> {
         com();
         let left = &self.left[self.taken..];
         let mut filled = left.len().min(bytes.len());
@@ -421,7 +483,12 @@ impl Input {
             let packet =
                 unsafe { self.capture.GetNextPacketSize() }.context("the microphone went away")?;
             if packet == 0 {
-                self.stream.wait()?;
+                if self.stream.wait(self.stop.as_deref())? == Waited::Cancelled {
+                    // Stopping: silence rather than the last block over
+                    // again, which the stream that's ending would hear twice.
+                    bytes[filled..].fill(0);
+                    return Ok(Waited::Cancelled);
+                }
                 continue;
             }
             let (mut data, mut count, mut flags) = (std::ptr::null_mut(), 0, 0);
@@ -458,7 +525,7 @@ impl Input {
                     .map_err(|error| anyhow!("{error}"))?;
             }
         }
-        Ok(())
+        Ok(Waited::Signalled)
     }
 }
 
@@ -482,7 +549,6 @@ mod others {
 
     use windows::{
         Win32::{
-            Foundation::WAIT_TIMEOUT,
             Media::Audio::{
                 AUDCLNT_STREAMFLAGS_LOOPBACK, AUDIOCLIENT_ACTIVATION_PARAMS,
                 AUDIOCLIENT_ACTIVATION_PARAMS_0, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
@@ -514,8 +580,6 @@ mod others {
 
     /// What a packet of other applications' sound holds at most.
     const LISTENING: Duration = Duration::from_millis(100);
-    /// How often the capture thread looks for `stop` while nothing plays.
-    const STOP_CHECK_MS: u32 = 100;
 
     pub fn others(
         _skip: fn(&str) -> bool,

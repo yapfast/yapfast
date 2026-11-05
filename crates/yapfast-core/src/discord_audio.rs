@@ -419,7 +419,9 @@ struct MeterShared {
     /// RMS dBFS, as f32 bits, held a moment so speech reads steadily.
     level: AtomicU32,
     open: AtomicBool,
-    stop: AtomicBool,
+    /// Shared with the stream it opens, so a meter that's dropped ends its
+    /// read rather than waiting out the microphone.
+    stop: Arc<AtomicBool>,
     failed: AtomicBool,
 }
 
@@ -430,7 +432,7 @@ impl GateMeter {
         let shared = Arc::new(MeterShared {
             level: AtomicU32::new(f32::NEG_INFINITY.to_bits()),
             open: AtomicBool::new(false),
-            stop: AtomicBool::new(false),
+            stop: Arc::new(AtomicBool::new(false)),
             failed: AtomicBool::new(!AVAILABLE),
         });
         let microphone = microphone.map(str::to_owned);
@@ -515,6 +517,10 @@ pub fn speakers(
                     return;
                 }
             };
+            // Stopping the call ends a wait for the speakers with it, so
+            // ending the call doesn't wait out a device that stopped
+            // answering.
+            stream.stop_with(stopped.clone());
             // The call's ticks run on the system's clock and the speakers
             // on their own, so frames come a little faster or slower than
             // they play: 50 ppm adds 90 ms in half an hour. What came while
@@ -676,8 +682,8 @@ impl Processing {
 /// Runs the microphone through a call's processing for [`GateMeter`]
 /// until it stops. The level falls 90 dB a second, as the input menu's
 /// does, and rises at once.
-fn measure(microphone: Option<&str>, shared: &MeterShared) -> Result<()> {
-    let mut stream = open_microphone(microphone)?;
+fn measure(microphone: Option<&str>, shared: &Arc<MeterShared>) -> Result<()> {
+    let mut stream = open_microphone(microphone, shared.stop.clone())?;
     let mut processing = Processing::new(None);
     let mut block = [0i16; BLOCK];
     let mut shown = f32::NEG_INFINITY;
@@ -731,7 +737,9 @@ impl CaptureRequest {
     /// chosen, and returns the one it used, or `denoiser` if the microphone
     /// didn't open.
     fn run(self, denoiser: Option<Denoiser>) -> Option<Denoiser> {
-        let mut stream = match open_microphone(self.microphone.as_deref()) {
+        // The read stops with the call, so the reverse echo it holds open is
+        // let go of at once rather than after waiting out the microphone.
+        let mut stream = match open_microphone(self.microphone.as_deref(), self.stop.clone()) {
             Ok(stream) => {
                 let _ = self.opened.send(Ok(()));
                 stream
@@ -900,15 +908,17 @@ fn processes_a_recording() {
 }
 
 /// Opens the microphone, mono in 10 ms blocks, to open again if it goes
-/// away and comes back.
-fn open_microphone(microphone: Option<&str>) -> Result<LastingInput<i16>> {
-    LastingInput::open(
+/// away and comes back, ending a read as soon as `stop` is set.
+fn open_microphone(microphone: Option<&str>, stop: Arc<AtomicBool>) -> Result<LastingInput<i16>> {
+    let mut stream = LastingInput::open(
         microphone,
         "Discord microphone",
         SAMPLE_RATE,
         1,
         Duration::from_millis(10),
-    )
+    )?;
+    stream.stop_with(stop);
+    Ok(stream)
 }
 
 #[cfg(test)]

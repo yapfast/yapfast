@@ -1,6 +1,17 @@
 //! Sound through PulseAudio, or PipeWire's PulseAudio server.
+//!
+//! A stream here blocks inside the server's own call, which the simple API
+//! this backend uses has no way in to: a write waits for the server to take
+//! it and a read for a fragment to come, so a stop is seen when they answer
+//! rather than at once, as Windows' waits now are. Cutting one short needs
+//! the asynchronous API, which this backend doesn't use yet.
 
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use libpulse_binding::{
@@ -13,7 +24,7 @@ use libpulse_binding::{
 };
 use libpulse_simple_binding::Simple;
 
-use super::Format;
+use super::{Format, Waited};
 use crate::voice::NAMED;
 
 pub struct Output(Simple);
@@ -47,13 +58,23 @@ impl Output {
         .map(Self)
     }
 
-    pub fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        self.0.write(bytes).map_err(|error| anyhow!("{error}"))
+    pub fn write(&mut self, bytes: &[u8]) -> Result<Waited> {
+        self.0
+            .write(bytes)
+            .map(|()| Waited::Signalled)
+            .map_err(|error| anyhow!("{error}"))
     }
 
-    pub fn drain(&mut self) -> Result<()> {
-        self.0.drain().map_err(|error| anyhow!("{error}"))
+    pub fn drain(&mut self) -> Result<Waited> {
+        self.0
+            .drain()
+            .map(|()| Waited::Signalled)
+            .map_err(|error| anyhow!("{error}"))
     }
+
+    /// Nothing to end: the server answers when it answers, so a Linux stream
+    /// keeps waiting inside it whatever a stop says.
+    pub fn stop_with(&mut self, _: Arc<AtomicBool>) {}
 
     pub fn flush(&mut self) {
         let _ = self.0.flush();
@@ -93,9 +114,16 @@ impl Input {
         .map(Self)
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) -> Result<()> {
-        self.0.read(bytes).map_err(|error| anyhow!("{error}"))
+    pub fn read(&mut self, bytes: &mut [u8]) -> Result<Waited> {
+        self.0
+            .read(bytes)
+            .map(|()| Waited::Signalled)
+            .map_err(|error| anyhow!("{error}"))
     }
+
+    /// Nothing to end: the server answers when it answers, so a Linux stream
+    /// keeps waiting inside it whatever a stop says.
+    pub fn stop_with(&mut self, _: Arc<AtomicBool>) {}
 }
 
 fn open(

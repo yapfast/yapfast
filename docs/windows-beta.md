@@ -81,7 +81,13 @@ each device by its endpoint id (`{0.0.0.00000000}.{…}` for speakers,
 `{0.0.1.00000000}.{…}` for microphones), so the chosen device opens directly
 by that id; none is the console default. A stream plays as soon as any sound
 is queued, rather than waiting to fill its queue, and a call's stream stays
-where it is when the system can't name its endpoint for a moment. Go Live's
+where it is when the system can't name its endpoint for a moment. A stop ends a
+wait for the device as well: writes, drains and reads wait in 100 ms slices and
+give up as soon as the stream is stopping, rather than holding their thread for
+up to two seconds. That is not a lost device, so stopping a call or dropping a
+stream reopens nothing, and a drain a stop ends drops what was queued instead of
+playing it late when the device returns. Linux still waits inside PulseAudio's
+own call, which the simple API has no way to cut short. Go Live's
 sound is in [Go Live on Windows](#go-live-on-windows).
 
 Wine's capture starts 0.3–1 s after it's opened, so the first moments a

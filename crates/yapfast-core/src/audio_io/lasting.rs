@@ -6,8 +6,14 @@
 //! the chosen device once that returns, and follows the default on Windows,
 //! whose streams stay where they opened. While no device opens at all, the
 //! stream keeps time with silence.
+//!
+//! Only a failure opens a device again: the stop that ends a stream cuts its
+//! wait short and is handed on as success, which is no device to reopen.
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, atomic::AtomicBool},
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 
@@ -23,6 +29,23 @@ type Open<T> = Box<dyn Fn(Option<&str>) -> Result<T> + Send>;
 /// or none while the system can't say.
 type Endpoint = fn(Option<&str>, bool) -> Option<String>;
 
+/// A stream whose wait for its device a stop can end.
+trait Stopping {
+    fn stop_with(&mut self, stop: &Arc<AtomicBool>);
+}
+
+impl<S: Sample> Stopping for Output<S> {
+    fn stop_with(&mut self, stop: &Arc<AtomicBool>) {
+        Output::stop_with(self, stop.clone());
+    }
+}
+
+impl<S: Sample> Stopping for Input<S> {
+    fn stop_with(&mut self, stop: &Arc<AtomicBool>) {
+        Input::stop_with(self, stop.clone());
+    }
+}
+
 /// A stream, the device it's for, and the endpoint it's on.
 struct Lasting<T> {
     device: Option<String>,
@@ -35,9 +58,13 @@ struct Lasting<T> {
     on: Option<String>,
     /// When to look again.
     look: Instant,
+    /// What ends a wait for the device before it answers, and with it the
+    /// waits of every stream opened after it: one stop ends them all, so a
+    /// stop doesn't wait out a device that stops answering.
+    stop: Option<Arc<AtomicBool>>,
 }
 
-impl<T> Lasting<T> {
+impl<T: Stopping> Lasting<T> {
     fn open(
         device: Option<&str>,
         output: bool,
@@ -54,6 +81,7 @@ impl<T> Lasting<T> {
             stream: None,
             on: None,
             look: Instant::now() + LOOK,
+            stop: None,
         };
         let should = endpoint(device, output);
         lasting.reopen(should)?;
@@ -65,7 +93,7 @@ impl<T> Lasting<T> {
     fn reopen(&mut self, should: Option<String>) -> Result<()> {
         // Let go of the old one first: some devices take one stream at a time.
         self.stream = None;
-        let (stream, on) = match (self.open)(self.device.as_deref()) {
+        let (mut stream, on) = match (self.open)(self.device.as_deref()) {
             Ok(stream) => (stream, should),
             Err(error) if self.device.is_some() => {
                 tracing::warn!(
@@ -77,9 +105,24 @@ impl<T> Lasting<T> {
             }
             Err(error) => return Err(error),
         };
+        // A stream opened after a stop was asked for stops with it too: the
+        // stop would otherwise end only the wait of the stream it was set
+        // on, and the next device would hold the thread up again.
+        if let Some(stop) = &self.stop {
+            stream.stop_with(stop);
+        }
         self.stream = Some(stream);
         self.on = on;
         Ok(())
+    }
+
+    /// Ends waits for the device as soon as `stop` is set: this stream's and
+    /// those of every stream opened after it.
+    fn stop_with(&mut self, stop: &Arc<AtomicBool>) {
+        if let Some(stream) = &mut self.stream {
+            stream.stop_with(stop);
+        }
+        self.stop = Some(stop.clone());
     }
 
     /// The stream to use now, after opening it again if it's gone or on
@@ -106,7 +149,9 @@ impl<T> Lasting<T> {
         self.stream.as_mut()
     }
 
-    /// The stream failed: it opens again at the next use.
+    /// The stream failed: it opens again at the next use. Only a failure
+    /// comes here; the stop that ends a stream is handed on as success, and
+    /// must never open a device again.
     fn lost(&mut self, error: &anyhow::Error) {
         tracing::warn!(
             error = format!("{error:#}"),
@@ -146,6 +191,13 @@ impl<S: Sample> LastingOutput<S> {
             channels,
             rate,
         })
+    }
+
+    /// Ends a wait for the speakers as soon as `stop` is set, as the thread
+    /// that stops this stream sets it: the sound it was about to play goes
+    /// with the stop, here and on every stream the device opens again into.
+    pub fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        self.lasting.stop_with(&stop);
     }
 
     /// Queues interleaved samples to play, as [`Output::write`]; while no
@@ -194,6 +246,14 @@ impl<S: Sample> LastingInput<S> {
             channels,
             rate,
         })
+    }
+
+    /// Ends a wait for the microphone as soon as `stop` is set, as the
+    /// thread that stops this stream sets it: a read ends rather than
+    /// holding the thread for a device that stopped answering, here and on
+    /// every stream the device opens again into.
+    pub fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        self.lasting.stop_with(&stop);
     }
 
     /// Fills `samples` with what the microphone hears next, as
@@ -266,6 +326,55 @@ mod tests {
     fn look_now(lasting: &mut Lasting<&'static str>) -> Option<&'static str> {
         lasting.look = Instant::now();
         lasting.stream().copied()
+    }
+
+    /// A test's stand-in stream has no device to wait for, so nothing for a
+    /// stop to end.
+    impl Stopping for &'static str {
+        fn stop_with(&mut self, _: &Arc<AtomicBool>) {}
+    }
+
+    /// A stream that keeps the stop it was opened with, so a test can see
+    /// which one it got.
+    struct Stand {
+        stop: Option<Arc<AtomicBool>>,
+    }
+
+    impl Stopping for Stand {
+        fn stop_with(&mut self, stop: &Arc<AtomicBool>) {
+            self.stop = Some(stop.clone());
+        }
+    }
+
+    /// A stop asked for once ends the waits of every stream opened after it
+    /// too: a device that comes back while the call is stopping doesn't hold
+    /// the thread up again.
+    #[test]
+    fn a_stop_ends_the_waits_of_the_streams_after_it() {
+        let _turns = taking_turns();
+        *CONNECTED.lock().unwrap() = vec!["speakers"];
+        let stand = |_: Option<&str>| Ok(Stand { stop: None });
+        let mut lasting = Lasting::open(None, true, "Test", Box::new(stand), endpoint).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        lasting.stop_with(&stop);
+        assert!(
+            lasting.stream.as_ref().unwrap().stop.is_some(),
+            "the stream that's open stops with it"
+        );
+        // The device goes away and comes back, as headphones do.
+        CONNECTED.lock().unwrap().clear();
+        lasting.lost(&anyhow::anyhow!("gone"));
+        CONNECTED.lock().unwrap().push("speakers");
+        lasting.look = Instant::now();
+        lasting.stream();
+        let opened = lasting.stream.as_ref().unwrap();
+        assert!(
+            opened
+                .stop
+                .as_ref()
+                .is_some_and(|gave| Arc::ptr_eq(gave, &stop)),
+            "the stream opened after the stop stops with it too"
+        );
     }
 
     #[test]

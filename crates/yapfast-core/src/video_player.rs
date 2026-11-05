@@ -615,6 +615,10 @@ fn decode(download: Download, sound: bool, shared: &Shared) {
 
 /// The sound thread: plays queued sound when the clock reaches it.
 fn play_sound(mut output: Output<f32>, shared: &Shared) {
+    // Stopping the video or moving in it ends a wait for the speakers with
+    // it, so the thread that shows it doesn't wait out a device that stopped
+    // answering before it can join this one.
+    output.stop_with(shared.interrupt.clone());
     // 10 ms at a time.
     let frames = RATE as usize / 100;
     let mut generation = None;

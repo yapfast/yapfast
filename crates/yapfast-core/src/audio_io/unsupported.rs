@@ -1,10 +1,13 @@
 //! Systems Yapfast has no sound backend for yet.
 
-use std::time::Duration;
+use std::{
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use anyhow::{Result, bail};
 
-use super::Format;
+use super::{Format, Waited};
 
 const UNSUPPORTED: &str = "Yapfast has no sound on this system yet.";
 
@@ -15,13 +18,16 @@ impl Output {
         bail!(UNSUPPORTED)
     }
 
-    pub fn write(&mut self, _: &[u8]) -> Result<()> {
+    pub fn write(&mut self, _: &[u8]) -> Result<Waited> {
         bail!(UNSUPPORTED)
     }
 
-    pub fn drain(&mut self) -> Result<()> {
+    pub fn drain(&mut self) -> Result<Waited> {
         bail!(UNSUPPORTED)
     }
+
+    /// Nothing here waits for a device, so there's no wait to end.
+    pub fn stop_with(&mut self, _: Arc<AtomicBool>) {}
 
     pub fn flush(&mut self) {}
 
@@ -37,9 +43,12 @@ impl Input {
         bail!(UNSUPPORTED)
     }
 
-    pub fn read(&mut self, _: &mut [u8]) -> Result<()> {
+    pub fn read(&mut self, _: &mut [u8]) -> Result<Waited> {
         bail!(UNSUPPORTED)
     }
+
+    /// Nothing here waits for a device, so there's no wait to end.
+    pub fn stop_with(&mut self, _: Arc<AtomicBool>) {}
 }
 
 #[cfg(feature = "discord")]

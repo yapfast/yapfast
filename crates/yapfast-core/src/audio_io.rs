@@ -9,14 +9,15 @@
 //! Linux goes through PulseAudio, or PipeWire's PulseAudio server, and
 //! Windows through WASAPI. Other systems have no sound here yet.
 
-use std::{marker::PhantomData, time::Duration};
 #[cfg(feature = "discord")]
+use std::thread::JoinHandle;
 use std::{
+    marker::PhantomData,
     sync::{Arc, atomic::AtomicBool},
-    thread::JoinHandle,
+    time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 
 #[cfg(target_os = "linux")]
 mod pulse;
@@ -140,6 +141,46 @@ pub(crate) fn drain_must_wait(padding: u32) -> bool {
     padding > 0
 }
 
+/// What waiting for a device found: more to play or record, or the stop the
+/// stream waits under, which ends the wait because the stream is ending
+/// rather than because the device did anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) enum Waited {
+    /// The engine played or recorded more.
+    Signalled,
+    /// The stream's stop is set: what it was about to play or record goes
+    /// with the stream, so nothing is missing.
+    Cancelled,
+}
+
+/// What one short slice of a wait for the engine leaves to do, `signalled`
+/// from the slice and `quiet` for how long the engine hasn't: none waits
+/// again, [`Waited::Signalled`] is done, and an engine quiet for all of
+/// `silence` is a device that went away rather than one playing. A device
+/// that signals every few milliseconds while it runs is only quiet for a
+/// slice when it's stopping, so the slices decide nothing on their own.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn wait_step(
+    signalled: bool,
+    quiet: Duration,
+    silence: Duration,
+) -> Result<Option<Waited>> {
+    if signalled {
+        return Ok(Some(Waited::Signalled));
+    }
+    ensure!(quiet < silence, "the device stopped");
+    Ok(None)
+}
+
+/// What a platform's write, drain or read says to its caller: a stop ended
+/// it because the stream is ending, so nothing failed and there's nothing to
+/// report. A stream that outlasts its device opens one again over an error,
+/// and a stop must never be one.
+fn ended(waited: Result<Waited>) -> Result<()> {
+    waited.map(|_| ())
+}
+
 /// Speakers Yapfast plays to, until dropped.
 pub struct Output<S: Sample> {
     stream: platform::Output,
@@ -186,14 +227,26 @@ impl<S: Sample> Output<S> {
         }
     }
 
-    /// Queues interleaved samples to play, waiting while the queue is full.
-    pub fn write(&mut self, samples: &[S]) -> Result<()> {
-        self.stream.write(bytes(samples))
+    /// Ends a wait for the device as soon as `stop` is set, as the thread
+    /// that stops this stream sets it: what the stream was about to play
+    /// goes with the stream instead of holding the thread for the device.
+    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    pub fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        self.stream.stop_with(stop);
     }
 
-    /// Waits until everything queued has played.
+    /// Queues interleaved samples to play, waiting while the queue is full.
+    /// The stop that ends the stream ends the write too, with sound nobody
+    /// waits for any more left behind, which is no error.
+    pub fn write(&mut self, samples: &[S]) -> Result<()> {
+        ended(self.stream.write(bytes(samples)))
+    }
+
+    /// Waits until everything queued has played, or until the stream's stop
+    /// ends the wait, which drops what's still queued rather than playing it
+    /// late into whatever starts next.
     pub fn drain(&mut self) -> Result<()> {
-        self.stream.drain()
+        ended(self.stream.drain())
     }
 
     /// Drops everything queued and not yet played.
@@ -233,10 +286,19 @@ impl<S: Sample> Input<S> {
         })
     }
 
+    /// Ends a wait for the microphone as soon as `stop` is set, as the
+    /// thread that stops this stream sets it: a read ends rather than
+    /// holding the thread for a device that stopped answering.
+    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    pub fn stop_with(&mut self, stop: Arc<AtomicBool>) {
+        self.stream.stop_with(stop);
+    }
+
     /// Fills `samples` with what the microphone hears next, interleaved,
-    /// waiting for it.
+    /// waiting for it; the stop that ends the stream fills the rest with
+    /// silence instead, and is no error.
     pub fn read(&mut self, samples: &mut [S]) -> Result<()> {
-        self.stream.read(bytes_mut(samples))
+        ended(self.stream.read(bytes_mut(samples)))
     }
 }
 
@@ -378,6 +440,37 @@ mod tests {
     fn drain_waits_only_with_padding() {
         assert!(drain_must_wait(1));
         assert!(!drain_must_wait(0), "nothing queued needs no wait");
+    }
+
+    /// A wait slices rather than trusting one long sleep: a slice the engine
+    /// didn't signal is nothing wrong, but the whole of `silence` quiet is a
+    /// device that went away.
+    #[test]
+    fn a_quiet_slice_waits_again() {
+        let silence = Duration::from_secs(2);
+        assert_eq!(
+            wait_step(false, Duration::from_millis(100), silence).unwrap(),
+            None
+        );
+        assert_eq!(
+            wait_step(true, Duration::from_millis(100), silence).unwrap(),
+            Some(Waited::Signalled)
+        );
+        assert!(
+            wait_step(false, silence, silence).is_err(),
+            "an engine quiet for two seconds is gone"
+        );
+    }
+
+    /// A stop is what ending a stream looks like, not a device lost: what the
+    /// platform hands back after one says nothing, so nothing that outlasts
+    /// its device has an error to open one again over.
+    #[test]
+    fn a_stopped_wait_is_no_lost_device() {
+        assert!(ended(Ok(Waited::Cancelled)).is_ok());
+        assert!(ended(Ok(Waited::Signalled)).is_ok());
+        // A device going quiet is the one failure, and it stays one.
+        assert!(ended(Err(anyhow::anyhow!("the device stopped"))).is_err());
     }
 
     /// Writes a sound shorter than the queue and hears it play without a
