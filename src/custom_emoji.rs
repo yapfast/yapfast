@@ -90,7 +90,7 @@ pub fn add<'a>(arrived: impl IntoIterator<Item = (&'a str, &'a Picture)>) -> boo
             return false;
         }
         let family = format!("Yapfast Custom Emoji {}", registry.fonts);
-        if !emoji_font::register(&family, &glyphs) {
+        if !emoji_font::register(&family, &glyphs, &[]) {
             tracing::warn!("could not register a font of custom emoji");
             return false;
         }
@@ -207,6 +207,7 @@ mod tests {
         let font = emoji_font::build(
             "Test Emoji",
             &[('\u{100000}', png.clone()), ('\u{100001}', png)],
+            &[],
         );
         let mut collection = fontique::Collection::new(fontique::CollectionOptions {
             shared: false,
@@ -227,7 +228,11 @@ mod tests {
             rgba: yapfast_core::chat::Pixels::new(4, 4, [255, 0, 0, 255].repeat(16)),
             ..Default::default()
         };
-        let font = emoji_font::build("Probe Emoji", &[('\u{100000}', square_png(&red).unwrap())]);
+        let font = emoji_font::build(
+            "Probe Emoji",
+            &[('\u{100000}', square_png(&red).unwrap())],
+            &[],
+        );
         let typeface = FontMgr::new()
             .new_from_data(Data::new_copy(&font), None)
             .expect("Skia loads the font");

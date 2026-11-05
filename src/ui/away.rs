@@ -35,6 +35,11 @@ impl Default for Away {
 }
 
 impl Adapter {
+    /// Whether nobody has used Yapfast for a while, so animation holds still.
+    pub(super) fn is_inactive(&self) -> bool {
+        self.away.inactive
+    }
+
     /// Watches for nobody using Yapfast, from now.
     pub(super) fn watch_away(&mut self) {
         self.away.last = Instant::now();

@@ -26,10 +26,11 @@ const BEARING_Y: i8 = 102;
 const ADVANCE: u8 = 140;
 
 /// Registers a font with each PNG of `glyphs`, which must be [`SIDE`] pixels
-/// square, at its code point, as `family`, and puts it first in text's fallback
-/// chain after the UI typeface. True when the font loaded.
-pub fn register(family: &str, glyphs: &[(char, Vec<u8>)]) -> bool {
-    let font = build(family, glyphs);
+/// square, at `also`'s code points mapped to a glyph's, as `family`, and puts
+/// it first in text's fallback chain after the UI typeface. True when the font
+/// loaded.
+pub fn register(family: &str, glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) -> bool {
+    let font = build(family, glyphs, also);
     let mut collection = shared_collection();
     let registered = collection.register_fonts(
         fontique::Blob::new(std::sync::Arc::new(font)),
@@ -52,15 +53,17 @@ pub fn register(family: &str, glyphs: &[(char, Vec<u8>)]) -> bool {
 }
 
 /// A font with each PNG of `glyphs`, which must be [`SIDE`] pixels square, at
-/// its code point. Glyph 0 is the empty `.notdef`.
-pub fn build(family: &str, glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
+/// `also`'s code points mapped to a glyph's: an emoji's own, so text that
+/// keeps it as typed, such as the composer's, draws its picture too. Glyph 0 is
+/// the empty `.notdef`.
+pub fn build(family: &str, glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) -> Vec<u8> {
     let count = u16::try_from(glyphs.len() + 1).expect("fewer than 65535 glyphs");
     let advance = units(i32::from(ADVANCE));
     let tables: [([u8; 4], Vec<u8>); 10] = [
         (*b"CBDT", cbdt(glyphs)),
         (*b"CBLC", cblc(glyphs)),
         (*b"OS/2", os2(advance, glyphs)),
-        (*b"cmap", cmap(glyphs)),
+        (*b"cmap", cmap(glyphs, also)),
         (*b"head", head(advance)),
         (*b"hhea", hhea(advance, count)),
         (*b"hmtx", hmtx(advance, count)),
@@ -244,7 +247,7 @@ fn os2(advance: i16, glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
 }
 
 /// Code points to glyphs, for Unicode and for Windows, in one format 12 subtable.
-fn cmap(glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
+fn cmap(glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) -> Vec<u8> {
     let mut out = Vec::new();
     put16(&mut out, 0);
     put16(&mut out, 2);
@@ -256,9 +259,17 @@ fn cmap(glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
     let mut groups: Vec<(u32, u32, u32)> = glyphs
         .iter()
         .enumerate()
-        .map(|(index, (c, _))| (*c as u32, *c as u32, index as u32 + 1))
+        .flat_map(|(index, (c, _))| {
+            let glyph = index as u32 + 1;
+            std::iter::once((*c as u32, *c as u32, glyph)).chain(
+                also.iter()
+                    .filter(move |(_, draws)| draws == c)
+                    .map(move |(point, _)| (*point, *point, glyph)),
+            )
+        })
         .collect();
     groups.sort_unstable();
+    groups.dedup();
     put16(&mut out, 12);
     put16(&mut out, 0);
     put32(&mut out, 16 + 12 * groups.len() as u32);
@@ -447,7 +458,7 @@ mod tests {
             (*b"COLR", colr),
             (*b"CPAL", cpal),
             (*b"OS/2", os2(advance, &glyphs)),
-            (*b"cmap", cmap(&glyphs)),
+            (*b"cmap", cmap(&glyphs, &[])),
             (*b"glyf", glyf),
             (*b"head", head(advance)),
             (*b"hhea", hhea(advance, 3)),
@@ -502,7 +513,7 @@ mod tests {
 
     #[test]
     fn spaces_emoji_as_wide_as_they_are_drawn() {
-        let font = build("Test", &[('\u{100000}', vec![1, 2, 3])]);
+        let font = build("Test", &[('\u{100000}', vec![1, 2, 3])], &[]);
         let hmtx = table(&font, b"hmtx");
         // 140 pixels at 100 per em: 1.4 em, then 0.02 em before the picture.
         assert_eq!(hmtx[4..8], [0x05, 0x78, 0x00, 0x14]);

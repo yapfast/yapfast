@@ -34,7 +34,12 @@ struct Registry {
 
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::default();
+    /// The pictures the cards showed, by the emoji.
+    static CARDS: RefCell<HashMap<String, slint::Image>> = RefCell::default();
 }
+
+/// The most pictures a card keeps; Discord's cards come one at a time.
+const MOST_PICTURES: usize = 32;
 
 /// The link that opens the card of the emoji with these code points.
 pub fn unicode_link(emoji: &str) -> String {
@@ -99,10 +104,18 @@ pub fn prepare<'a>(bodies: impl IntoIterator<Item = &'a str>) -> bool {
     });
     let mut glyphs: Vec<(char, Vec<u8>)> = Vec::with_capacity(queued.len());
     let mut made: Vec<(String, char)> = Vec::with_capacity(queued.len());
+    // An emoji of one character also draws at its own code point, so text that
+    // keeps it as typed, such as the composer's, draws Twemoji's picture
+    // without being rewritten.
+    let mut also: Vec<(u32, char)> = Vec::new();
     for (emoji, glyph) in queued {
         let Some(png) = square_png(&emoji) else {
             continue;
         };
+        let mut points = emoji.chars();
+        if let (Some(point), None) = (points.next(), points.next()) {
+            also.push((point as u32, glyph));
+        }
         glyphs.push((glyph, png));
         made.push((emoji, glyph));
     }
@@ -110,7 +123,7 @@ pub fn prepare<'a>(bodies: impl IntoIterator<Item = &'a str>) -> bool {
         return false;
     }
     let family = REGISTRY.with_borrow(|registry| format!("Yapfast Twemoji {}", registry.fonts));
-    if !emoji_font::register(&family, &glyphs) {
+    if !emoji_font::register(&family, &glyphs, &also) {
         tracing::warn!("could not register a font of Twemoji");
         return false;
     }
@@ -166,6 +179,16 @@ fn rewrite(text: &str, out: &mut String, mut each: impl FnMut(&str) -> Option<St
                     continue;
                 }
             }
+            // A shortcode sent unexpanded, because its completion was ignored,
+            // shows as its emoji, as Discord's client draws one.
+            if next == ':'
+                && let Some((length, emoji)) = shortcode_at(rest)
+                && let Some(replacement) = each(emoji)
+            {
+                out.push_str(&replacement);
+                rest = &rest[length..];
+                continue;
+            }
         }
         out.push(next);
         rest = &rest[next.len_utf8()..];
@@ -219,6 +242,23 @@ fn emoji_at(text: &str) -> usize {
         .unwrap_or(0)
 }
 
+/// The emoji `text` names at its start between colons, such as `:sob:`, and how
+/// many bytes that name takes.
+fn shortcode_at(text: &str) -> Option<(usize, &'static str)> {
+    let rest = text.strip_prefix(':')?;
+    let end = rest.find(':')?;
+    let name = &rest[..end];
+    let shaped = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "_-+".contains(character));
+    if !shaped {
+        return None;
+    }
+    emojis::get_by_shortcode(name).map(|emoji| (end + 2, emoji.as_str()))
+}
+
 /// The length of the Markdown link `text` starts with, when `text` starts with
 /// one, so the emoji in a link's text stay as its sender wrote them.
 fn link_end(text: &str) -> Option<usize> {
@@ -235,7 +275,9 @@ fn link_end(text: &str) -> Option<usize> {
     None
 }
 
-/// `emoji` as a PNG of the font's square, scaled up from Twemoji's 72 pixels.
+/// `emoji` as a PNG of the font's square, scaled up from Twemoji's 72 pixels:
+/// 22 pixels in 16 pixel text, and 48 in the large text a message of emoji
+/// alone shows.
 fn square_png(emoji: &str) -> Option<Vec<u8>> {
     use image::{ImageEncoder, imageops};
     let side = emoji_font::SIDE;
@@ -243,12 +285,82 @@ fn square_png(emoji: &str) -> Option<Vec<u8>> {
     let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
         .ok()?
         .into_rgba8();
-    let scaled = imageops::resize(&decoded, side, side, imageops::FilterType::CatmullRom);
+    // Scaled with its alpha premultiplied: mixed on straight colour, the
+    // filter's overshoot where a picture fades out leaves a row of its colour
+    // at an alpha too small to show alone and too wide to miss, which draws as
+    // a line of it under the emoji at text's size.
+    let scaled = imageops::resize(
+        &premultiplied(&decoded),
+        side,
+        side,
+        imageops::FilterType::CatmullRom,
+    );
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
-        .write_image(scaled.as_raw(), side, side, image::ExtendedColorType::Rgba8)
+        .write_image(
+            unpremultiplied(&scaled).as_raw(),
+            side,
+            side,
+            image::ExtendedColorType::Rgba8,
+        )
         .ok()?;
     Some(png)
+}
+
+/// `image` with each colour scaled by its alpha, as a filter may mix it: a
+/// pixel it all but erased then stays a pixel's worth of nothing.
+pub(super) fn premultiplied(image: &image::RgbaImage) -> image::RgbaImage {
+    let mut out = image.clone();
+    for pixel in out.pixels_mut() {
+        let alpha = u32::from(pixel[3]);
+        for channel in 0..3 {
+            pixel[channel] = ((u32::from(pixel[channel]) * alpha + 127) / 255) as u8;
+        }
+    }
+    out
+}
+
+/// `image` with its alpha divided out again, as a picture is stored.
+pub(super) fn unpremultiplied(image: &image::RgbaImage) -> image::RgbaImage {
+    let mut out = image.clone();
+    for pixel in out.pixels_mut() {
+        let alpha = u32::from(pixel[3]);
+        if alpha == 0 {
+            pixel.0[..3].fill(0);
+            continue;
+        }
+        for channel in 0..3 {
+            let colour = (u32::from(pixel[channel]) * 255).div_ceil(alpha);
+            pixel[channel] = u8::try_from(colour.min(255)).unwrap_or(u8::MAX);
+        }
+    }
+    out
+}
+
+/// `emoji`'s picture as the font draws it, at [`emoji_font::SIDE`] pixels, for
+/// a card that shows it larger than text does: it is the sharpest Twemoji
+/// gives, one upscale from its 72 pixels, so the card looks as its glyph does.
+pub fn picture(emoji: &str) -> Option<slint::Image> {
+    if let Some(picture) = CARDS.with_borrow(|cards| cards.get(emoji).cloned()) {
+        return Some(picture);
+    }
+    let side = emoji_font::SIDE;
+    let png = square_png(emoji)?;
+    let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .ok()?
+        .into_rgba8();
+    let picture = slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+        decoded.as_raw(),
+        side,
+        side,
+    ));
+    CARDS.with_borrow_mut(|cards| {
+        if cards.len() >= MOST_PICTURES {
+            cards.clear();
+        }
+        cards.insert(emoji.to_owned(), picture.clone());
+    });
+    Some(picture)
 }
 
 #[cfg(test)]
@@ -312,5 +424,71 @@ mod tests {
         assert_ne!(first, second);
         assert!(is_glyph(first) && is_glyph(second));
         assert!(emoji_at("😭") > 0);
+    }
+
+    #[test]
+    fn reads_the_shortcodes_a_text_names() {
+        let mut out = String::new();
+        let mut each = |emoji: &str| Some(format!("<{emoji}>", emoji = emoji));
+        rewrite(
+            "hi :sob: there :nope: 12:30: `:sob:` [:sob:](<https://a/b>) :wave:",
+            &mut out,
+            &mut each,
+        );
+        assert_eq!(
+            out,
+            "hi <😭> there :nope: 12:30: `:sob:` [:sob:](<https://a/b>) <👋>"
+        );
+    }
+
+    /// A filter mixes a picture's colour times its alpha, so what fades out
+    /// fades to nothing rather than to a darker shade of itself: mixed on
+    /// straight colour, the overshoot leaves a line of it under an emoji at
+    /// text's size.
+    #[test]
+    fn a_filter_mixes_a_pictures_alpha_with_its_colour() {
+        use image::imageops;
+        let mut image = image::RgbaImage::new(2, 1);
+        image.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        let mixed = imageops::resize(&premultiplied(&image), 3, 1, imageops::FilterType::Triangle);
+        let middle = unpremultiplied(&mixed).get_pixel(1, 0).0;
+        assert!(
+            (100..160).contains(&middle[3]),
+            "halfway to nothing is half alpha: {middle:?}"
+        );
+        assert!(middle[0] > 240, "and still red, not dark red: {middle:?}");
+    }
+
+    #[test]
+    fn a_glyph_draws_at_the_emoji_it_is_too() {
+        use skia_safe::{Data, FontMgr};
+        let png = square_png("😭").expect("a picture of the emoji");
+        let font = emoji_font::build(
+            "Alias Probe",
+            &[('\u{10FFFD}', png)],
+            &[(0x1F62D, '\u{10FFFD}')],
+        );
+        let typeface = FontMgr::new()
+            .new_from_data(Data::new_copy(&font), None)
+            .expect("Skia loads the font");
+        assert_eq!(typeface.unichar_to_glyph(0x10FFFD), 1);
+        assert_eq!(
+            typeface.unichar_to_glyph(0x1F62D),
+            1,
+            "the emoji's own code point draws it, as the composer keeps it"
+        );
+        assert_eq!(typeface.unichar_to_glyph('x' as i32), 0, "and nothing else");
+    }
+
+    #[test]
+    fn a_glyph_is_the_fonts_square() {
+        let png = square_png("⬛").expect("a picture of the black square");
+        let image = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(image.dimensions(), (emoji_font::SIDE, emoji_font::SIDE));
+        for pixel in image.pixels() {
+            if pixel[3] == 0 {
+                assert_eq!(pixel.0, [0, 0, 0, 0], "nothing shows where nothing is");
+            }
+        }
     }
 }

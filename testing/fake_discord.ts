@@ -157,6 +157,9 @@
 // emoji and sticker take that long, as a round trip to the real CDN does. POST /_control/showcase makes
 // Bob post a spoiler, custom emoji, stickers, a GIF, a spoilered picture and a reply
 // to the start of #general's history, and Alice block Dave, who then posts.
+// GET /guilds/{id}/preview answers what the card of one of its emoji shows:
+// its partial guild object, with how many members it has and how many are
+// around.
 // /gifs/trending, /gifs/trending-gifs, /gifs/search and /gifs/suggest find
 // ten GIFs, made by testing/make-gif-fixtures and served from /_gifs/; a
 // search for "nothing" finds none. GET /_control/gif-selects lists what POST
@@ -3638,7 +3641,9 @@ function streamTo(ws: Socket, key: Buffer, ssrc: number, watcher = watchers.get(
     const peer = peers.get(ws.data.ssrc!);
     try {
       if (peer) udp.send(packet, peer.port, peer.address);
-    } catch {}
+    } catch {
+      // Nothing to do: the viewer's socket is already gone.
+    }
   };
   // testing/fixtures' recording goes at 10 frames a second, as tests
   // expect; a camera at 30, and an env's video at the rate it was made at.
@@ -4713,6 +4718,30 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       dispatch("GUILD_UPDATE", { ...properties, roles: serverRoles, emojis: guild().emojis });
       return json(guildProfile());
     }
+  }
+
+  // A server's preview, as the card of one of its emoji shows it: the
+  // partial guild object with all its partial fields, counts included; see
+  // "The server has two custom emoji" above.
+  if (method === "GET" && (m = path.match(/^\/guilds\/(\d+)\/preview$/))) {
+    if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
+    const { properties } = guild();
+    const around = Object.values(users).filter(
+      (user) => (presences[user.id]?.status ?? "offline") !== "offline",
+    );
+    return json({
+      id: GUILD,
+      name: properties.name,
+      icon: properties.icon,
+      description: properties.description,
+      splash: properties.splash,
+      discovery_splash: null,
+      features: properties.features,
+      emojis: guild().emojis,
+      stickers: guild().stickers,
+      approximate_member_count: Object.keys(users).length,
+      approximate_presence_count: around.length,
+    });
   }
 
   // "Server"'s roles; see "Server"'s roles above.

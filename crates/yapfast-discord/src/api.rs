@@ -1444,6 +1444,14 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// A server's preview: its name, its icon, how many of its members are
+    /// online, and the features it lists, as Discord's client asks for a
+    /// server's card.
+    pub async fn guild_preview(&self, guild: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/preview");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// Adds a custom emoji: `image` is a data URI. Discord answers with
     /// the emoji.
     pub async fn create_emoji(&self, guild: &str, name: &str, image: &str) -> Result<Value> {

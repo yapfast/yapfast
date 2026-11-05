@@ -1900,6 +1900,16 @@ pub struct InvitePreview {
     pub online: Option<u64>,
 }
 
+/// What the card of a Discord server's emoji shows of it beyond the name and
+/// icon Yapfast already has, as `GET /guilds/{guild.id}/preview` answers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServerPreview {
+    /// How many of its members are online, when Discord counts them.
+    pub online: Option<u64>,
+    /// Discover lists it, as the features it lists say.
+    pub discoverable: bool,
+}
+
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedServer {
@@ -2496,6 +2506,12 @@ pub enum DiscordCommand {
     Emoji {
         server: String,
         action: EmojiAction,
+    },
+    /// A server's preview, for the card that an emoji of it opens: how many of
+    /// its members are online, and whether Discover lists it.
+    /// [`Event::ServerPreview`] follows.
+    ServerPreview {
+        server: String,
     },
     /// What Stickers asks of Discord; [`Event::StickersChanged`] follows.
     Stickers {
@@ -3504,6 +3520,13 @@ pub enum Event {
     ServerPaused {
         server: String,
         result: Result<(Option<u64>, Option<u64>), String>,
+    },
+    /// How many of a server's members are online, and whether Discover lists
+    /// it, as [`DiscordCommand::ServerPreview`] asked for the card of one of
+    /// its emoji; or why Discord didn't answer.
+    ServerPreview {
+        server: String,
+        result: Result<ServerPreview, String>,
     },
     /// Whether what Emoji asked of Discord went, uploading or not, and the
     /// server's emoji after it, when Discord sent them.

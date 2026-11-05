@@ -36,6 +36,7 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
     if count == 0 || first >= count {
         return;
     }
+    let mut shown: Vec<String> = Vec::new();
     for index in first..=last.min(count - 1) {
         let Some(row) = rows.row_data(index) else {
             continue;
@@ -44,6 +45,9 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
             let Some(cell) = row.cells.row_data(cell_index) else {
                 continue;
             };
+            if cell.key.contains(':') {
+                shown.push(cell.key.to_string());
+            }
             // A custom emoji draws its own picture, and a cell whose glyph is a
             // name rather than an emoji has nothing to draw.
             if cell.picture.size().width > 0 || cell.key.contains(':') || cell.glyph != cell.key {
@@ -66,6 +70,29 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
             }
         }
     }
+    // The cells on screen whose emoji animate are decoded in turn, so the grid
+    // moves without waiting for a message to show them first.
+    let shown: Vec<(String, Option<char>, String)> = adapter
+        .app
+        .usable_emoji()
+        .iter()
+        .flat_map(|set| &set.emoji)
+        .filter(|emoji| emoji.animated)
+        .map(|emoji| {
+            (
+                (
+                    emoji::custom_key(emoji),
+                    custom_emoji::glyph(&emoji.id),
+                    emoji.picture.clone(),
+                ),
+                shown.iter().any(|key| *key == emoji::custom_key(emoji)),
+            )
+        })
+        .filter(|(_, visible)| *visible)
+        .map(|(job, _)| job)
+        .collect();
+    let pictures = &adapter.app.state.pictures;
+    adapter.animations.also(shown, pictures);
 }
 
 /// The reaction keys of the custom emoji in `rows` from `first` to `last` that
@@ -142,6 +169,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window
         .global::<PictureStore>()
         .on_picture(|url, _revision| avatar_picture(url.as_str()));
+    // An animated emoji's frame, by the name the picker knows it by; a still
+    // one has none and keeps its picture.
+    window
+        .global::<EmojiAnimations>()
+        .on_frame(|key, _revision| {
+            i_slint_core::yapfast_emoji::frame_of_key(key.as_str()).unwrap_or_default()
+        });
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -1200,19 +1234,16 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
             let mut adapter = state.borrow_mut();
             let Adapter { app, pictures, .. } = &mut *adapter;
-            let server = target
-                .custom()
-                .and_then(|id| app.emoji_server(id))
-                .and_then(|server| app.state.servers.iter().find(|known| known.id == server));
-            let card = messages::emoji_card(
-                &target,
-                server.map(|server| &**server),
-                &app.state,
-                pictures,
-                window.window().scale_factor(),
-            );
+            let card = messages::emoji_card_for(app, &target, pictures);
+            let server = card.server.to_string();
             window.set_emoji_card(card);
             window.set_emoji_card_open(true);
+            // Its server's card shows how many are online, which Discord is
+            // asked for and the card builds again with once it answers.
+            adapter.emoji_card = Some(target);
+            if !server.is_empty() {
+                adapter.action(&window, Action::PreviewServer(server));
+            }
             return;
         }
         // A mention opens the person's card, or the role's members, beside the

@@ -234,7 +234,15 @@ impl LayoutWithoutLineBreaksBuilder {
                         );
                     }
                     Style::Link => {
-                        builder.push(parley::StyleProperty::Underline(true), span.range.clone());
+                        // Yapfast: an emoji's link is its picture, and a picture
+                        // has nothing to underline: the line would show across
+                        // the bottom of it.
+                        if !is_pictures(&text[span.range.clone()]) {
+                            builder.push(
+                                parley::StyleProperty::Underline(true),
+                                span.range.clone(),
+                            );
+                        }
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
                                 override_fill_color: None,
@@ -480,4 +488,14 @@ fn mention_ranges(
             })
         })
         .collect()
+}
+
+/// Yapfast: whether `text` is only emoji as Yapfast draws them, each a picture
+/// in a colour bitmap font it makes at runtime, at a code point in the
+/// Supplementary Private Use Area B.
+fn is_pictures(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|character| (0x10_0000..=0x10_FFFD).contains(&(character as u32)))
 }

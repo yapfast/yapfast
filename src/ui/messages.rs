@@ -1190,9 +1190,10 @@ pub(super) fn collapsed(message: &ChatMessage, revealed: &HashSet<String>) -> bo
 const DEFAULT_EMOJI: &str = "This is a default emoji. It can be used anywhere.";
 /// A server's emoji, in the card of one whose server this account knows.
 const SERVER_EMOJI: &str = "This emoji is from one of your servers.";
-/// A server's emoji, in the card of one whose server it doesn't: another
-/// server's, shown in a message here.
-const OTHER_EMOJI: &str = "This is a server's emoji.";
+/// A server's emoji, in the card of one whose server this account can't reach:
+/// one it never joined, or one that's gone. Its card says only this, with no
+/// count of who's online and no separator, since Discord tells it nothing.
+const OTHER_EMOJI: &str = "Invite-Only Server";
 
 /// The card a click on an emoji in a message's text opens: what the emoji is,
 /// and, for one of a server's, the server it is from.
@@ -1201,14 +1202,15 @@ pub(super) fn emoji_card(
     server: Option<&yapfast_core::chat::ChatServer>,
     state: &AppState,
     pictures: &mut HashMap<String, slint::Image>,
-    scale: f32,
 ) -> EmojiCard {
     let id = match target {
         emoji_text::Target::Unicode(emoji) => {
             return EmojiCard {
                 name: emoji::shortcode(emoji).into(),
                 glyph: emoji.as_str().into(),
-                picture: crate::twemoji::picture(emoji, emoji::CARD, scale).unwrap_or_default(),
+                // The font's own 136px rendition, so a larger card and a
+                // doubled display both draw it from more pixels than they show.
+                picture: emoji_text::picture(emoji).unwrap_or_default(),
                 description: DEFAULT_EMOJI.into(),
                 ..Default::default()
             };
@@ -1222,19 +1224,35 @@ pub(super) fn emoji_card(
         .iter()
         .flat_map(|message| &message.emoji)
         .find(|emoji| &emoji.id == id);
-    let icon = server.and_then(|server| server.icon.as_deref());
-    let (server_id, server_name, server_letter) = match server {
+    // The server its card shows: one this account is in, and can reach. One
+    // it left, or that's out of reach, shows no server at all, and says why.
+    let server = server.filter(|server| !server.unavailable);
+    let (server_id, server_name, server_letter, server_picture_url) = match server {
         Some(server) => (
             server.id.as_str().into(),
             server.name.as_str().into(),
             initial(&server.name),
+            server.icon.as_deref().unwrap_or_default().into(),
         ),
         None => Default::default(),
     };
+    // What Discord said of the server, which its card's counts and note come
+    // from; before it answers, the note follows the features Yapfast has.
+    let preview = server.and_then(|server| state.server_previews.get(&server.id));
+    let discoverable = preview.map_or_else(
+        || server.is_some_and(|server| server.community),
+        |preview| preview.discoverable,
+    );
+    // A custom emoji whose picture moves animates on its card too, by the
+    // name the rows register it under.
+    let picture_key = listed
+        .filter(|emoji| emoji.animated)
+        .map_or_else(String::new, emoji::custom_key);
     EmojiCard {
         name: listed
             .map_or_else(String::new, |emoji| emoji.text.clone())
             .into(),
+        picture_key: picture_key.into(),
         picture: listed
             .map(|emoji| cached_picture(pictures, state, Some(&emoji.picture)))
             .unwrap_or_default(),
@@ -1246,13 +1264,13 @@ pub(super) fn emoji_card(
         .into(),
         server: server_id,
         server_name,
-        server_picture: if server.is_some() {
-            cached_picture(pictures, state, icon)
-        } else {
-            slint::Image::default()
-        },
+        server_picture_url,
         server_initial: server_letter,
-        server_note: if server.is_some_and(|server| server.community) {
+        server_online: preview
+            .and_then(|preview| preview.online)
+            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .into(),
+        server_note: if discoverable {
             "Discoverable Server"
         } else {
             ""
@@ -1260,4 +1278,18 @@ pub(super) fn emoji_card(
         .into(),
         ..Default::default()
     }
+}
+
+/// The card an emoji opens, with the server the app knows it from: a custom
+/// emoji's is the one that lists it.
+pub(super) fn emoji_card_for(
+    app: &Application,
+    target: &emoji_text::Target,
+    pictures: &mut HashMap<String, slint::Image>,
+) -> EmojiCard {
+    let server = target
+        .custom()
+        .and_then(|id| app.emoji_server(id))
+        .and_then(|server| app.state.servers.iter().find(|known| known.id == server));
+    emoji_card(target, server.map(|server| &**server), &app.state, pictures)
 }

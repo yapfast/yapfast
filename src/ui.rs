@@ -43,6 +43,7 @@ mod call_link;
 mod call_timer;
 mod callbacks;
 mod channel_settings;
+mod emoji_animation;
 mod games;
 mod gifs;
 mod menus;
@@ -1593,6 +1594,12 @@ struct Adapter {
     video_cell: Cell<(u32, u32)>,
     /// Server icons and avatars already handed to Slint, by address.
     pictures: HashMap<String, slint::Image>,
+    /// The emoji the open card shows, so the card is built again as what
+    /// Discord says of its server arrives.
+    emoji_card: Option<emoji_text::Target>,
+    /// The animated emoji on screen: the frames they need and the clock they
+    /// draw from, which stops while the window is unfocused, idle or minimised.
+    animations: emoji_animation::Animations,
     /// `AppState::picture_changes` when the message rows were last built.
     pictures_seen: u64,
     /// The last jump to a message the timeline made; see `AppState::jump`.
@@ -1820,6 +1827,8 @@ impl Adapter {
                 video_quiet: Cell::new(0),
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
+                emoji_card: None,
+                animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
                 jumped: None,
                 unread_jumped: 0,
@@ -2555,6 +2564,19 @@ fn dm_detail(room: &yapfast_core::chat::ChatRoom) -> (SharedString, SharedString
 /// A count with its noun, such as "1 member" or "12 members".
 fn count_of(count: u64, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })
+}
+
+/// `count` with its thousands marked, as Discord writes "3,999".
+fn grouped(count: u64) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, digit) in digits.char_indices() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
 }
 
 /// A status on one line, as Discord shows it under a name; the profile keeps

@@ -49,9 +49,6 @@ pub const CELL: f32 = 56.0;
 /// The size a glyph is drawn at in that grid, as `EmojiPicker` in
 /// ui/messages.slint passes it.
 pub const GLYPH: f32 = 36.0;
-/// The size an emoji's card draws its picture at, as `EmojiCardView` in
-/// ui/messages.slint lays it out.
-pub const CARD: f32 = 48.0;
 const BESIDE: f32 = 64.0;
 
 /// The emoji per row of a grid showing at `width`, which follows the picker's

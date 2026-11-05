@@ -50,7 +50,7 @@ export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, Motion } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
@@ -2866,6 +2866,7 @@ export component YapfastWindow inherits Window {
                                                         if message.can-react && root.composer-enabled: HorizontalLayout {
                                                             spacing: 0px;
                                                             for cell in root.bar-reactions: EmojiButton {
+                                                                animation-key: cell.key;
                                                                 emoji: cell; font: root.emoji-font;
                                                                 clicked => { root.react(message.item, cell.key); }
                                                             }
