@@ -672,6 +672,10 @@ async fn send(
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut datagram = vec![0u8; 1500];
+    // A frame's packets, planned once, and the datagram each is written into
+    // and sealed in: the buffers keep their room from one frame to the next.
+    let mut plan = rtp::Plan::default();
+    let mut out = Vec::new();
     // For RTCP sender reports: packets and payload bytes sent so far.
     let (mut packets, mut octets) = (0u32, 0u32);
     let mut reported = Instant::now() - SENDER_REPORTS;
@@ -720,17 +724,28 @@ async fn send(
                 };
                 sent.frames += 1;
                 sent.keyframes += u32::from(frame.keyframe);
-                for (index, mut packet) in packetizer.packets(&payload, frame.timestamp, frame.keyframe).into_iter().enumerate() {
+                packetizer.plan_into(&mut plan, &payload, frame.timestamp, frame.keyframe);
+                let mut index = 0;
+                loop {
                     if index >= BURST && index % PACE == 0 {
                         tokio::time::sleep(Duration::from_millis(1)).await;
                     }
-                    history.remember(&packet);
-                    let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
+                    let Some(last) = packetizer.write(&mut plan, &payload, &mut out) else {
+                        break;
+                    };
+                    index += 1;
+                    // The history keeps the packet as it went, before the
+                    // encryption writes over the rest of the buffer.
+                    history.remember(&out);
+                    let clear = rtp::rtp_clear_len(&out).unwrap_or(out.len());
                     packets = packets.wrapping_add(1);
-                    octets = octets.wrapping_add((packet.len() - clear) as u32);
-                    connection.transport.seal(&mut packet, clear)?;
-                    connection.udp.send(&packet).await?;
-                    shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                    octets = octets.wrapping_add((out.len() - clear) as u32);
+                    connection.transport.seal(&mut out, clear)?;
+                    connection.udp.send(&out).await?;
+                    shared.video_bytes.fetch_add(out.len() as u64, Ordering::Relaxed);
+                    if last {
+                        break;
+                    }
                 }
                 if reported.elapsed() >= SENDER_REPORTS {
                     reported = Instant::now();

@@ -93,6 +93,10 @@ pub(crate) struct Sending {
     camera: Camera,
     packetizer: Packetizer,
     history: rtp::History,
+    /// A frame's packets, planned once, and the buffer each is written into
+    /// and sealed in: both keep their room from one frame to the next.
+    plan: rtp::Plan,
+    out: Vec<u8>,
     packets: u32,
     octets: u32,
     reported: Instant,
@@ -104,6 +108,8 @@ impl Sending {
             camera,
             packetizer: Packetizer::new(connection.video, SEND_CODEC),
             history: rtp::History::default(),
+            plan: rtp::Plan::default(),
+            out: Vec::new(),
             packets: 0,
             octets: 0,
             reported: Instant::now() - SENDER_REPORTS,
@@ -132,16 +138,19 @@ impl Sending {
         let Some(payload) = connection.dave.encrypt(SEND_CODEC, &frame.data) else {
             return Ok(());
         };
-        for mut packet in self
+        self.packetizer
+            .plan_into(&mut self.plan, &payload, frame.timestamp, frame.keyframe);
+        while self
             .packetizer
-            .packets(&payload, frame.timestamp, frame.keyframe)
+            .write(&mut self.plan, &payload, &mut self.out)
+            .is_some()
         {
-            self.history.remember(&packet);
-            let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
+            self.history.remember(&self.out);
+            let clear = rtp::rtp_clear_len(&self.out).unwrap_or(self.out.len());
             self.packets = self.packets.wrapping_add(1);
-            self.octets = self.octets.wrapping_add((packet.len() - clear) as u32);
-            connection.transport.seal(&mut packet, clear)?;
-            connection.udp.send(&packet).await?;
+            self.octets = self.octets.wrapping_add((self.out.len() - clear) as u32);
+            connection.transport.seal(&mut self.out, clear)?;
+            connection.udp.send(&self.out).await?;
         }
         if self.reported.elapsed() >= SENDER_REPORTS {
             self.reported = Instant::now();

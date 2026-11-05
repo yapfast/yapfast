@@ -136,32 +136,85 @@ impl Packetizer {
     /// The packets carrying `frame`, unencrypted, with `timestamp` in the
     /// 90 kHz clock. The last one has the marker bit. AV1 marks a keyframe
     /// in its first packet; the other codecs' payloads show it themselves.
+    ///
+    /// [`Self::plan`] and [`Self::write`] do the same a packet at a time,
+    /// into buffers kept from one frame to the next; this gives each packet
+    /// a vector of its own, and is for the tests and the odd packet.
     pub fn packets(&mut self, frame: &[u8], timestamp: u32, keyframe: bool) -> Vec<Vec<u8>> {
-        let payloads = match self.codec {
-            Codec::Vp8 => self.vp8_payloads(frame),
-            Codec::H264 => h264_payloads(frame),
-            Codec::H265 => h265_payloads(frame),
-            Codec::Av1 => av1_payloads(frame, keyframe),
-        };
-        let count = payloads.len();
-        let payload_type = self.codec.payload_types().0;
-        payloads
-            .into_iter()
-            .enumerate()
-            .map(|(index, payload)| {
-                let packet = self.header(
-                    payload_type,
-                    index + 1 == count,
-                    self.sequence,
-                    timestamp,
-                    self.ssrc,
-                    RID,
-                    &payload,
-                );
-                self.sequence = self.sequence.wrapping_add(1);
-                packet
-            })
-            .collect()
+        let mut plan = self.plan(frame, timestamp, keyframe);
+        let mut out = Vec::new();
+        let mut packets = Vec::with_capacity(plan.packets.len());
+        while self.write(&mut plan, frame, &mut out).is_some() {
+            packets.push(out.clone());
+        }
+        packets
+    }
+
+    /// Describes the packets `frame` goes out in, with `timestamp` in the
+    /// 90 kHz clock, as where each of their bytes comes from rather than the
+    /// bytes: a plan borrows nothing of the frame, so a send loop can hold it
+    /// across an await. Empty for a frame nothing goes out for.
+    pub fn plan(&self, frame: &[u8], timestamp: u32, keyframe: bool) -> Plan {
+        let mut plan = Plan::default();
+        self.plan_into(&mut plan, frame, timestamp, keyframe);
+        plan
+    }
+
+    /// As [`Self::plan`], into the plan the last frame used, which lends this
+    /// one's packets the room they need instead of asking for more.
+    pub fn plan_into(&self, plan: &mut Plan, frame: &[u8], timestamp: u32, keyframe: bool) {
+        plan.clear();
+        plan.payload_type = self.codec.payload_types().0;
+        plan.timestamp = timestamp;
+        match self.codec {
+            Codec::Vp8 => plan.vp8(frame, self.picture),
+            Codec::H264 => plan.h264(frame),
+            Codec::H265 => plan.h265(frame),
+            Codec::Av1 => plan.av1(frame, keyframe),
+        }
+    }
+
+    /// Writes the plan's next packet into `out`, which it empties, and says
+    /// whether that was the frame's last. None once the frame has no packets
+    /// left to write.
+    ///
+    /// The packet's header and extensions go around its payload, which is
+    /// copied once; `out` is given room for all of them and for the tag and
+    /// counter [`Transport::seal`] adds, so a packet is sealed where it was
+    /// written and a buffer that carried one frame carries the next one too.
+    pub fn write(&mut self, plan: &mut Plan, frame: &[u8], out: &mut Vec<u8>) -> Option<bool> {
+        let first = plan.packets.get(plan.next).copied()?;
+        let next = plan.next + 1;
+        plan.next = next;
+        let last = next == plan.packets.len();
+        let end = plan.packets.get(next).copied().unwrap_or(plan.chunks.len());
+        let chunks = &plan.chunks[first..end];
+        let body: usize = chunks.iter().map(|chunk| chunk.len()).sum();
+        out.clear();
+        out.reserve(HEADER + EXTENSIONS + body + TAG + 4);
+        let sequence = self.sequence;
+        self.sequence = self.sequence.wrapping_add(1);
+        self.write_header(
+            out,
+            plan.payload_type,
+            last,
+            sequence,
+            plan.timestamp,
+            self.ssrc,
+            RID,
+        );
+        for chunk in chunks {
+            match *chunk {
+                Chunk::Written { at, len } => out.extend_from_slice(&plan.written[at..at + len]),
+                Chunk::Copied { at, len } => out.extend_from_slice(&frame[at..at + len]),
+            }
+        }
+        // VP8 numbers a frame's chunks with one picture id, moving on for
+        // the next frame.
+        if last && self.codec == Codec::Vp8 {
+            self.picture = (self.picture + 1) & 0x7fff;
+        }
+        Some(last)
     }
 
     /// A packet sent before, again: on `rtx_ssrc` with the RTX payload type
@@ -204,6 +257,32 @@ impl Packetizer {
         payload: &[u8],
     ) -> Vec<u8> {
         let mut packet = Vec::with_capacity(HEADER + EXTENSIONS + payload.len() + 20);
+        self.write_header(
+            &mut packet,
+            payload_type,
+            marker,
+            sequence,
+            timestamp,
+            ssrc,
+            rid,
+        );
+        packet.extend_from_slice(payload);
+        packet
+    }
+
+    /// A packet's header and extensions, after which its payload goes, and
+    /// the next transport sequence number.
+    #[allow(clippy::too_many_arguments)]
+    fn write_header(
+        &mut self,
+        packet: &mut Vec<u8>,
+        payload_type: u8,
+        marker: bool,
+        sequence: u16,
+        timestamp: u32,
+        ssrc: u32,
+        rid: u8,
+    ) {
         // Version 2 with the extension bit.
         packet.extend_from_slice(&[0x90, u8::from(marker) << 7 | payload_type]);
         packet.extend_from_slice(&sequence.to_be_bytes());
@@ -219,91 +298,385 @@ impl Packetizer {
         extension(CONTENT_TYPE, &[1]);
         extension(rid, STREAM_RID.as_bytes());
         packet.resize(HEADER + EXTENSIONS, 0);
-        packet.extend_from_slice(payload);
         self.transport = self.transport.wrapping_add(1);
-        packet
-    }
-
-    /// VP8 payloads: each chunk after the extended payload descriptor with
-    /// a 15-bit picture id; S marks the start of the frame's first partition.
-    fn vp8_payloads(&mut self, frame: &[u8]) -> Vec<Vec<u8>> {
-        let payloads = frame
-            .chunks(CHUNK)
-            .enumerate()
-            .map(|(index, chunk)| {
-                let start = if index == 0 { 0x10 } else { 0 };
-                let mut payload = vec![0x80 | start, 0x80];
-                payload.extend_from_slice(&(0x8000 | self.picture).to_be_bytes());
-                payload.extend_from_slice(chunk);
-                payload
-            })
-            .collect();
-        self.picture = (self.picture + 1) & 0x7fff;
-        payloads
     }
 }
 
-/// H264 payloads in packetization mode 1: a NAL unit that fits goes whole,
-/// a bigger one in fragmentation units (FU-A).
-fn h264_payloads(frame: &[u8]) -> Vec<Vec<u8>> {
-    let mut payloads = vec![];
-    for unit in nal_units(frame) {
-        let Some((&header, body)) = unit.split_first() else {
-            continue;
+/// The packets one frame goes out in, for [`Packetizer::write`] to write one
+/// at a time.
+///
+/// A plan holds where each packet's bytes come from rather than the bytes, so
+/// that it borrows nothing of the frame and can wait across an await, and it
+/// keeps the room its last frame needed for the next frame's packets.
+#[derive(Default)]
+pub struct Plan {
+    /// The payload type and timestamp every packet of the frame carries.
+    payload_type: u8,
+    timestamp: u32,
+    /// Where each packet's chunks begin in `chunks`: a packet runs to the
+    /// next one's start, or to the end.
+    packets: Vec<usize>,
+    /// What each packet's payload is made of, one packet's after another's.
+    chunks: Vec<Chunk>,
+    /// The packets' own bytes, which their chunks point into: payload
+    /// descriptors, fragmentation headers, aggregation headers and lengths.
+    written: Vec<u8>,
+    /// The packet `write` gives out next.
+    next: usize,
+    /// The pieces of the AV1 packet under way.
+    pieces: Vec<Piece>,
+}
+
+impl Plan {
+    fn clear(&mut self) {
+        self.packets.clear();
+        self.chunks.clear();
+        self.written.clear();
+        self.pieces.clear();
+        self.next = 0;
+    }
+
+    /// Starts a packet whose payload begins with `bytes`.
+    fn begin(&mut self, bytes: &[u8]) {
+        self.packets.push(self.chunks.len());
+        self.literal(bytes);
+    }
+
+    /// The plan's own bytes as the packet's next run.
+    fn literal(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let at = self.written.len();
+        self.written.extend_from_slice(bytes);
+        self.chunks.push(Chunk::Written {
+            at,
+            len: bytes.len(),
+        });
+    }
+
+    /// A run of the frame as the packet's next.
+    fn copied(&mut self, at: usize, len: usize) {
+        if len > 0 {
+            self.chunks.push(Chunk::Copied { at, len });
+        }
+    }
+
+    /// VP8: each packet after the extended payload descriptor with a 15-bit
+    /// picture id; S marks the start of the frame's first partition.
+    fn vp8(&mut self, frame: &[u8], picture: u16) {
+        let mut at = 0;
+        while at < frame.len() {
+            let len = CHUNK.min(frame.len() - at);
+            let start = if at == 0 { 0x10 } else { 0 };
+            let mut descriptor = [0x80 | start, 0x80, 0, 0];
+            descriptor[2..].copy_from_slice(&(0x8000 | picture).to_be_bytes());
+            self.begin(&descriptor);
+            self.copied(at, len);
+            at += len;
+        }
+    }
+
+    /// H264 in packetization mode 1: a NAL unit that fits goes whole, a
+    /// bigger one in fragmentation units (FU-A).
+    fn h264(&mut self, frame: &[u8]) {
+        for unit in NalUnits::new(frame) {
+            if unit.len() <= CHUNK {
+                self.begin(&[]);
+                self.copied(unit.start, unit.len());
+                continue;
+            }
+            let (header, body) = (frame[unit.start], unit.start + 1);
+            let mut at = body;
+            while at < unit.end {
+                let len = (CHUNK - 2).min(unit.end - at);
+                // The indicator keeps the unit's F and NRI bits; the FU
+                // header its type, with start and end flags.
+                let mut fragment = header & 0x1f;
+                if at == body {
+                    fragment |= 0x80;
+                }
+                if at + len == unit.end {
+                    fragment |= 0x40;
+                }
+                self.begin(&[(header & 0xe0) | 28, fragment]);
+                self.copied(at, len);
+                at += len;
+            }
+        }
+    }
+
+    /// RFC 7798's payloads for an H265 access unit: each NAL unit whole when
+    /// it fits, and a larger one as fragmentation units (type 49), whose
+    /// payload header keeps the unit's F bit, layer and temporal id, and
+    /// whose FU header carries its type with start and end flags.
+    fn h265(&mut self, frame: &[u8]) {
+        for unit in NalUnits::new(frame) {
+            if unit.len() <= CHUNK {
+                self.begin(&[]);
+                self.copied(unit.start, unit.len());
+                continue;
+            }
+            let (first, second) = (frame[unit.start], frame[unit.start + 1]);
+            let kind = (first >> 1) & 0x3f;
+            let body = unit.start + 2;
+            let mut at = body;
+            while at < unit.end {
+                let len = (CHUNK - 3).min(unit.end - at);
+                let mut fragment = kind;
+                if at == body {
+                    fragment |= 0x80;
+                }
+                if at + len == unit.end {
+                    fragment |= 0x40;
+                }
+                self.begin(&[(first & 0x81) | (49 << 1), second, fragment]);
+                self.copied(at, len);
+                at += len;
+            }
+        }
+    }
+
+    /// AV1 payloads as AOM's RTP payload format lays them out: an aggregation
+    /// header, then OBU elements, each after its LEB128 length but for the
+    /// last when the packet holds three or fewer (W). An element too large
+    /// for a packet carries on in the next: Y marks the packet it continues
+    /// from, Z the one it continues in. N marks a keyframe's first packet
+    /// when it starts with the sequence header, as libwebrtc's packetizer
+    /// marks it, and receivers take a frame starting so for a keyframe. OBUs
+    /// of different temporal or spatial layers never share a packet. A
+    /// malformed frame gives no packets, so none of it goes out.
+    fn av1(&mut self, frame: &[u8], keyframe: bool) {
+        if frame.len() > MAX_FRAME {
+            tracing::warn!(size = frame.len(), "a malformed AV1 frame");
+            return;
+        }
+        // Whether the first packet starts a coded video sequence: a
+        // keyframe's does when it begins with the sequence header.
+        let (mut starts_sequence, mut first) = (keyframe, true);
+        // Each packet's pieces of elements, whether its first piece
+        // continues the last packet's and its last carries on in the next.
+        let (mut used, mut continues) = (1, false);
+        // The temporal and spatial ids of the packet's OBUs that give them.
+        let mut packet_layer = None;
+        let mut at = 0;
+        while at < frame.len() {
+            let Some((element, next)) = read_obu(frame, at) else {
+                tracing::warn!(size = frame.len(), "a malformed AV1 frame");
+                self.clear();
+                return;
+            };
+            at = next;
+            let Some(element) = element else {
+                continue;
+            };
+            if first {
+                starts_sequence &= (frame[element.at] >> 3) & 0x0f == OBU_SEQUENCE_HEADER;
+                first = false;
+            }
+            let extension = frame[element.at] & OBU_EXTENSION != 0;
+            let layer = extension.then(|| frame[element.at + 1] & 0xf8);
+            if layer.is_some() && packet_layer.is_some() && layer != packet_layer {
+                self.end_packet(frame, continues, false, starts_sequence);
+                (used, continues, packet_layer) = (1, false, None);
+            }
+            packet_layer = packet_layer.or(layer);
+            let (mut from, to) = (0, element.header + element.len);
+            loop {
+                // Room for a piece after a length of up to two bytes, which
+                // covers anything up to CHUNK.
+                if CHUNK.saturating_sub(used) < 3 {
+                    self.end_packet(frame, continues, false, starts_sequence);
+                    (used, continues, packet_layer) = (1, false, layer);
+                }
+                let take = (to - from).min(CHUNK - used - 2);
+                self.pieces.push(Piece {
+                    element,
+                    from,
+                    to: from + take,
+                });
+                used += leb128_size(take) + take;
+                from += take;
+                if from == to {
+                    break;
+                }
+                self.end_packet(frame, continues, true, starts_sequence);
+                (used, continues, packet_layer) = (1, true, layer);
+            }
+        }
+        if !self.pieces.is_empty() {
+            self.end_packet(frame, continues, false, starts_sequence);
+        }
+    }
+
+    /// Ends the packet under way: its aggregation header, then each of its
+    /// pieces after its length, the last one's left out when the packet is of
+    /// three elements or fewer.
+    fn end_packet(
+        &mut self,
+        frame: &[u8],
+        continues: bool,
+        carries_on: bool,
+        starts_sequence: bool,
+    ) {
+        let count = if self.pieces.len() <= 3 {
+            self.pieces.len()
+        } else {
+            0
         };
-        if unit.len() <= CHUNK {
-            payloads.push(unit.to_vec());
-            continue;
+        let mut header = (count as u8) << 4;
+        if continues {
+            header |= 0x80;
         }
-        let chunks: Vec<&[u8]> = body.chunks(CHUNK - 2).collect();
-        let last = chunks.len() - 1;
-        for (index, chunk) in chunks.into_iter().enumerate() {
-            // The indicator keeps the unit's F and NRI bits; the FU header
-            // its type, with start and end flags.
-            let mut fragment = header & 0x1f;
-            if index == 0 {
-                fragment |= 0x80;
+        if carries_on {
+            header |= 0x40;
+        }
+        if self.packets.is_empty() && starts_sequence {
+            header |= 0x08;
+        }
+        self.begin(&[header]);
+        for index in 0..self.pieces.len() {
+            let piece = self.pieces[index];
+            if count == 0 || index + 1 < count {
+                let at = self.written.len();
+                write_leb128(piece.to - piece.from, &mut self.written);
+                self.chunks.push(Chunk::Written {
+                    at,
+                    len: self.written.len() - at,
+                });
             }
-            if index == last {
-                fragment |= 0x40;
-            }
-            let mut payload = vec![(header & 0xe0) | 28, fragment];
-            payload.extend_from_slice(chunk);
-            payloads.push(payload);
+            self.piece(frame, piece);
+        }
+        self.pieces.clear();
+    }
+
+    /// One piece of an element: its header's first byte without the size flag
+    /// the OBU gave, the rest of its header, then the payload it reaches.
+    fn piece(&mut self, frame: &[u8], piece: Piece) {
+        let Element {
+            at, header, body, ..
+        } = piece.element;
+        let mut from = piece.from;
+        if from == 0 {
+            // Laid out as if the OBU never gave its size, so its first byte
+            // loses the flag that said it did.
+            let cleared = self.written.len();
+            self.written.push(frame[at] & !OBU_HAS_SIZE);
+            self.chunks.push(Chunk::Written {
+                at: cleared,
+                len: 1,
+            });
+            from = 1;
+        }
+        if from < header {
+            let end = piece.to.min(header);
+            self.copied(at + from, end - from);
+            from = end;
+        }
+        if from < piece.to {
+            self.copied(body + (from - header), piece.to - from);
         }
     }
-    payloads
 }
 
-/// RFC 7798's payloads for an H265 access unit: each NAL unit whole when it
-/// fits, and a larger one as fragmentation units (type 49), whose payload
-/// header keeps the unit's F bit, layer and temporal id, and whose FU header
-/// carries its type with start and end flags.
-fn h265_payloads(frame: &[u8]) -> Vec<Vec<u8>> {
-    let mut payloads = vec![];
-    for unit in nal_units(frame) {
-        if unit.len() <= CHUNK {
-            payloads.push(unit.to_vec());
-            continue;
-        }
-        let ([first, second], body) = (unit.first_chunk().copied().unwrap_or_default(), &unit[2..]);
-        let kind = (first >> 1) & 0x3f;
-        let chunks: Vec<&[u8]> = body.chunks(CHUNK - 3).collect();
-        let last = chunks.len() - 1;
-        for (index, chunk) in chunks.into_iter().enumerate() {
-            let mut fragment = kind;
-            if index == 0 {
-                fragment |= 0x80;
-            }
-            if index == last {
-                fragment |= 0x40;
-            }
-            let mut payload = vec![(first & 0x81) | (49 << 1), second, fragment];
-            payload.extend_from_slice(chunk);
-            payloads.push(payload);
+/// One run of a packet's payload.
+#[derive(Clone, Copy)]
+enum Chunk {
+    /// Bytes of the plan's own: a payload descriptor, a fragmentation header,
+    /// an aggregation header or a length.
+    Written { at: usize, len: usize },
+    /// A run of the frame, as it is.
+    Copied { at: usize, len: usize },
+}
+
+impl Chunk {
+    /// How many bytes of the packet's payload the run takes.
+    fn len(self) -> usize {
+        match self {
+            Self::Written { len, .. } | Self::Copied { len, .. } => len,
         }
     }
-    payloads
+}
+
+/// A run of one AV1 element in the packet under way, numbered in the bytes
+/// the element makes: its header first, then its payload.
+#[derive(Clone, Copy)]
+struct Piece {
+    element: Element,
+    from: usize,
+    to: usize,
+}
+
+/// The NAL units of an Annex B access unit, without their start codes. As
+/// libwebrtc finds them: a start code is 0 0 1, with at most one more zero
+/// before it, so bytes of a unit that happen to be zero stay in it.
+pub fn nal_units(frame: &[u8]) -> Vec<&[u8]> {
+    NalUnits::new(frame).map(|unit| &frame[unit]).collect()
+}
+
+/// Those units one at a time, as the ranges of the frame they take, so the
+/// packetizer plans a frame without a vector of its units.
+struct NalUnits<'a> {
+    frame: &'a [u8],
+    /// Where to look for the next start code.
+    at: usize,
+    /// The start code found but not yet a unit's: where it began, and where
+    /// the bytes after it begin.
+    found: Option<(usize, usize)>,
+}
+
+impl<'a> NalUnits<'a> {
+    fn new(frame: &'a [u8]) -> Self {
+        Self {
+            frame,
+            at: 0,
+            found: None,
+        }
+    }
+
+    /// The next start code from `at`, which moves past it.
+    fn find(&mut self) -> Option<(usize, usize)> {
+        while self.at + 3 <= self.frame.len() {
+            let at = self.at;
+            if self.frame[at..at + 3] == [0, 0, 1] {
+                let code = if at > 0 && self.frame[at - 1] == 0 {
+                    at - 1
+                } else {
+                    at
+                };
+                self.at = at + 3;
+                return Some((code, at + 3));
+            }
+            self.at = at + 1;
+        }
+        None
+    }
+}
+
+impl Iterator for NalUnits<'_> {
+    type Item = std::ops::Range<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            // The code that opens the unit, and the one that ends it.
+            let (_, start) = match self.found.take() {
+                Some(found) => found,
+                None => self.find()?,
+            };
+            let end = match self.find() {
+                Some(found) => {
+                    self.found = Some(found);
+                    found.0
+                }
+                None => self.frame.len(),
+            };
+            // Two start codes in a row make a unit of no bytes, which isn't
+            // one.
+            if end > start {
+                return Some(start..end);
+            }
+        }
+    }
 }
 
 /// AV1 OBU types the packetizer and DAVE handle apart.
@@ -315,6 +688,73 @@ const OBU_PADDING: u8 = 15;
 const OBU_EXTENSION: u8 = 0x04;
 const OBU_HAS_SIZE: u8 = 0x02;
 
+/// One OBU of an AV1 temporal unit, as the packetizer hands it on: its header
+/// without the size flag, then its payload, which the frame keeps apart from
+/// it behind the size.
+#[derive(Clone, Copy)]
+struct Element {
+    /// Where the OBU's header is in the frame, and how long the header is.
+    at: usize,
+    header: usize,
+    /// Where its payload is, and how long it is.
+    body: usize,
+    len: usize,
+}
+
+impl Element {
+    /// The element's bytes: its header without the size flag, then its
+    /// payload.
+    fn bytes(self, frame: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.header + self.len);
+        bytes.push(frame[self.at] & !OBU_HAS_SIZE);
+        bytes.extend_from_slice(&frame[self.at + 1..self.at + self.header]);
+        bytes.extend_from_slice(&frame[self.body..self.body + self.len]);
+        bytes
+    }
+}
+
+/// Reads the OBU at `from` in `frame`: the element it makes, unless its type
+/// is one the packetizer drops, and where the OBU after it begins. None for
+/// an OBU that runs past the frame or sets a bit its header keeps clear.
+fn read_obu(frame: &[u8], from: usize) -> Option<(Option<Element>, usize)> {
+    let rest = &frame[from..];
+    let &header = rest.first()?;
+    // The forbidden bit and the reserved one.
+    if header & 0x81 != 0 {
+        return None;
+    }
+    let header_size = if header & OBU_EXTENSION != 0 { 2 } else { 1 };
+    let headers = rest.get(..header_size)?;
+    // The extension's reserved bits, after the temporal and spatial ids.
+    if headers
+        .get(1)
+        .is_some_and(|extension| extension & 0x07 != 0)
+    {
+        return None;
+    }
+    let rest = &rest[header_size..];
+    let (size, used) = if header & OBU_HAS_SIZE != 0 {
+        read_leb128(rest)?
+    } else {
+        (rest.len(), 0)
+    };
+    let body = from + header_size + used;
+    if size > frame.len() - body {
+        return None;
+    }
+    let dropped = matches!(
+        (header >> 3) & 0x0f,
+        OBU_TEMPORAL_DELIMITER | OBU_TILE_LIST | OBU_PADDING
+    );
+    let element = (!dropped).then_some(Element {
+        at: from,
+        header: header_size,
+        body,
+        len: size,
+    });
+    Some((element, body + size))
+}
+
 /// The OBUs of an AV1 temporal unit, each as an OBU element: its header
 /// (and extension) without the size flag, then its payload. As libwebrtc's
 /// packetizer reads them: an OBU without a size runs to the end of the
@@ -323,128 +763,15 @@ const OBU_HAS_SIZE: u8 = 0x02;
 /// past the frame, or sets a bit its header keeps clear.
 pub fn obu_elements(frame: &[u8]) -> Option<Vec<Vec<u8>>> {
     let mut elements = vec![];
-    let mut rest = frame;
-    while let Some(&header) = rest.first() {
-        // The forbidden bit and the reserved one.
-        if header & 0x81 != 0 {
-            return None;
+    let mut at = 0;
+    while at < frame.len() {
+        let (element, next) = read_obu(frame, at)?;
+        at = next;
+        if let Some(element) = element {
+            elements.push(element.bytes(frame));
         }
-        let header_size = if header & OBU_EXTENSION != 0 { 2 } else { 1 };
-        let headers = rest.get(..header_size)?;
-        // The extension's reserved bits, after the temporal and spatial ids.
-        if headers
-            .get(1)
-            .is_some_and(|extension| extension & 0x07 != 0)
-        {
-            return None;
-        }
-        rest = &rest[header_size..];
-        let payload_size = if header & OBU_HAS_SIZE != 0 {
-            let (size, used) = read_leb128(rest)?;
-            rest = &rest[used..];
-            size
-        } else {
-            rest.len()
-        };
-        let payload = rest.get(..payload_size)?;
-        rest = &rest[payload_size..];
-        if matches!(
-            (header >> 3) & 0x0f,
-            OBU_TEMPORAL_DELIMITER | OBU_TILE_LIST | OBU_PADDING
-        ) {
-            continue;
-        }
-        let mut element = Vec::with_capacity(header_size + payload.len());
-        element.push(header & !OBU_HAS_SIZE);
-        element.extend_from_slice(&headers[1..]);
-        element.extend_from_slice(payload);
-        elements.push(element);
     }
     Some(elements)
-}
-
-/// AV1 payloads as AOM's RTP payload format lays them out: an aggregation
-/// header, then OBU elements, each after its LEB128 length but for the last
-/// when the packet holds three or fewer (W). An element too large for a
-/// packet carries on in the next: Y marks the packet it continues from, Z
-/// the one it continues in. N marks a keyframe's first packet when it
-/// starts with the sequence header, as libwebrtc's packetizer marks it, and
-/// receivers take a frame starting so for a keyframe. OBUs of different
-/// temporal or spatial layers never share a packet. A malformed frame gives
-/// no packets.
-fn av1_payloads(frame: &[u8], keyframe: bool) -> Vec<Vec<u8>> {
-    let elements = (frame.len() <= MAX_FRAME)
-        .then(|| obu_elements(frame))
-        .flatten();
-    let Some(elements) = elements else {
-        tracing::warn!(size = frame.len(), "a malformed AV1 frame");
-        return vec![];
-    };
-    // Each packet's pieces of elements, whether its first piece continues
-    // the last packet's and its last carries on in the next.
-    let mut packets: Vec<(Vec<&[u8]>, bool, bool)> = vec![];
-    let mut pieces: Vec<&[u8]> = vec![];
-    let (mut used, mut continues) = (1, false);
-    // The temporal and spatial ids of the packet's OBUs that give them.
-    let mut packet_layer = None;
-    for element in &elements {
-        let layer = (element[0] & OBU_EXTENSION != 0).then(|| element[1] & 0xf8);
-        if layer.is_some() && packet_layer.is_some() && layer != packet_layer {
-            packets.push((std::mem::take(&mut pieces), continues, false));
-            (used, continues, packet_layer) = (1, false, None);
-        }
-        packet_layer = packet_layer.or(layer);
-        let mut rest = element.as_slice();
-        loop {
-            // Room for a piece after a length of up to two bytes, which
-            // covers anything up to CHUNK.
-            if CHUNK.saturating_sub(used) < 3 {
-                packets.push((std::mem::take(&mut pieces), continues, false));
-                (used, continues, packet_layer) = (1, false, layer);
-            }
-            let take = rest.len().min(CHUNK - used - 2);
-            pieces.push(&rest[..take]);
-            used += leb128_size(take) + take;
-            rest = &rest[take..];
-            if rest.is_empty() {
-                break;
-            }
-            packets.push((std::mem::take(&mut pieces), continues, true));
-            (used, continues, packet_layer) = (1, true, layer);
-        }
-    }
-    if !pieces.is_empty() {
-        packets.push((pieces, continues, false));
-    }
-    let starts_sequence = keyframe
-        && elements
-            .first()
-            .is_some_and(|element| (element[0] >> 3) & 0x0f == OBU_SEQUENCE_HEADER);
-    packets
-        .into_iter()
-        .enumerate()
-        .map(|(index, (pieces, continues, carries_on))| {
-            let count = if pieces.len() <= 3 { pieces.len() } else { 0 };
-            let mut header = (count as u8) << 4;
-            if continues {
-                header |= 0x80;
-            }
-            if carries_on {
-                header |= 0x40;
-            }
-            if index == 0 && starts_sequence {
-                header |= 0x08;
-            }
-            let mut payload = vec![header];
-            for (at, piece) in pieces.iter().enumerate() {
-                if count == 0 || at + 1 < count {
-                    write_leb128(piece.len(), &mut payload);
-                }
-                payload.extend_from_slice(piece);
-            }
-            payload
-        })
-        .collect()
 }
 
 /// An unsigned LEB128 number and the bytes it took: at most eight, as AV1
@@ -474,36 +801,6 @@ fn write_leb128(mut value: usize, out: &mut Vec<u8>) {
 
 fn leb128_size(value: usize) -> usize {
     (usize::BITS - value.max(1).leading_zeros()).div_ceil(7) as usize
-}
-
-/// The NAL units of an Annex B access unit, without their start codes. As
-/// libwebrtc finds them: a start code is 0 0 1, with at most one more zero
-/// before it, so bytes of a unit that happen to be zero stay in it.
-pub fn nal_units(frame: &[u8]) -> Vec<&[u8]> {
-    let mut starts = vec![];
-    let mut at = 0;
-    while at + 3 <= frame.len() {
-        if frame[at..at + 3] == [0, 0, 1] {
-            let code = if at > 0 && frame[at - 1] == 0 {
-                at - 1
-            } else {
-                at
-            };
-            starts.push((code, at + 3));
-            at += 3;
-        } else {
-            at += 1;
-        }
-    }
-    starts
-        .iter()
-        .enumerate()
-        .map(|(index, &(_, start))| {
-            let end = starts.get(index + 1).map_or(frame.len(), |&(code, _)| code);
-            &frame[start..end.max(start)]
-        })
-        .filter(|unit| !unit.is_empty())
-        .collect()
 }
 
 /// A decrypted RTP packet.
@@ -1603,6 +1900,189 @@ mod tests {
         let picture = |packet: &Vec<u8>| u16::from_be_bytes([packet[30], packet[31]]) & 0x7fff;
         let next = packetizer.packets(&[1], 12000, false);
         assert_eq!(picture(&next[0]), (picture(&packets[0]) + 1) & 0x7fff);
+    }
+
+    /// A frame of each codec: whole units, units in fragments, and an AV1
+    /// frame of two elements in three packets.
+    fn sample_frames() -> [(Codec, Vec<u8>, bool); 4] {
+        let vp8 = (0..2500u32).map(|index| index as u8).collect();
+        let h264 = [
+            &[0, 0, 0, 1, 0x67, 0x42][..],
+            &[3; 40],
+            &[0, 0, 0, 1, 0x41],
+            &[7; 2500],
+        ]
+        .concat();
+        let h265 = [&[0, 0, 0, 1, 19 << 1, 0x01][..], &[5; 2400]].concat();
+        let av1 = [obu(OBU_SEQUENCE_HEADER, &[1; 11]), obu(6, &[9; 2500])].concat();
+        [
+            (Codec::Vp8, vp8, false),
+            (Codec::H264, h264, false),
+            (Codec::H265, h265, true),
+            (Codec::Av1, av1, true),
+        ]
+    }
+
+    /// What a plan writes is what `packets` gives, byte for byte, and leaves
+    /// the numbering where `packets` left it.
+    #[test]
+    fn writes_what_packets_gives_packet_for_packet() {
+        for (codec, frame, keyframe) in sample_frames() {
+            let mut collecting = Packetizer::new(5, codec);
+            let mut writing = Packetizer::new(5, codec);
+            // The same numbering from the same place, at the wrap of each.
+            for packetizer in [&mut collecting, &mut writing] {
+                packetizer.sequence = 65_532;
+                packetizer.transport = 65_533;
+                packetizer.picture = 0x7ffd;
+            }
+            let expected = collecting.packets(&frame, 9000, keyframe);
+            assert!(expected.len() > 1, "{codec:?}");
+            let mut plan = Plan::default();
+            let mut out = Vec::new();
+            writing.plan_into(&mut plan, &frame, 9000, keyframe);
+            let mut written = vec![];
+            while writing.write(&mut plan, &frame, &mut out).is_some() {
+                written.push(out.clone());
+            }
+            assert_eq!(written, expected, "{codec:?}");
+            assert_eq!(
+                (writing.sequence, writing.transport, writing.picture),
+                (
+                    collecting.sequence,
+                    collecting.transport,
+                    collecting.picture
+                ),
+                "{codec:?} numbered on as it went"
+            );
+        }
+    }
+
+    /// The buffer one frame's packets were written into carries the next
+    /// frame's too, with room for the tag and counter sealing adds, so
+    /// neither asks for a buffer of its own.
+    #[test]
+    fn keeps_the_packet_buffer_from_one_frame_to_the_next() {
+        let mut packetizer = Packetizer::new(5, Codec::Vp8);
+        let mut plan = Plan::default();
+        let mut out = Vec::new();
+        let keyframe = vec![0x10; 3 * CHUNK];
+        packetizer.plan_into(&mut plan, &keyframe, 0, false);
+        while packetizer.write(&mut plan, &keyframe, &mut out).is_some() {}
+        let (capacity, buffer) = (out.capacity(), out.as_ptr());
+        assert!(
+            capacity >= out.len() + TAG + 4,
+            "room for the tag and counter a sealed packet adds"
+        );
+        let delta = vec![0x11; 200];
+        packetizer.plan_into(&mut plan, &delta, 3000, false);
+        while packetizer.write(&mut plan, &delta, &mut out).is_some() {}
+        assert_eq!(out.capacity(), capacity, "a smaller frame asks for nothing");
+        assert_eq!(out.as_ptr(), buffer, "it went into the same buffer");
+    }
+
+    /// A malformed AV1 frame is planned as no packets, so none of it goes out
+    /// and the numbering stays where it was.
+    #[test]
+    fn writes_nothing_of_a_malformed_av1_frame() {
+        let malformed: [&[u8]; 6] = [
+            &[0x80, 0x00],       // the forbidden bit
+            &[0x0a],             // a size flag without its size
+            &[0x0a, 0x80],       // a size that never ends
+            &[0x0a, 0x02, 0xaa], // a payload past the frame
+            &[0x0c],             // an extension flag without the extension
+            &[0x0c, 0x01],       // the extension's reserved bits
+        ];
+        let mut packetizer = Packetizer::new(77, Codec::Av1);
+        let mut plan = Plan::default();
+        let mut out = Vec::new();
+        let numbered = (
+            packetizer.sequence,
+            packetizer.transport,
+            packetizer.picture,
+        );
+        let mut frames: Vec<&[u8]> = malformed.to_vec();
+        let oversized = vec![0; MAX_FRAME + 1];
+        frames.push(&oversized);
+        for frame in frames {
+            packetizer.plan_into(&mut plan, frame, 9000, true);
+            assert!(plan.packets.is_empty(), "{} bytes", frame.len());
+            assert!(
+                packetizer.write(&mut plan, frame, &mut out).is_none(),
+                "{} bytes",
+                frame.len()
+            );
+        }
+        assert!(out.is_empty(), "nothing of the frame went out");
+        assert_eq!(
+            (
+                packetizer.sequence,
+                packetizer.transport,
+                packetizer.picture
+            ),
+            numbered,
+            "the numbering stayed put"
+        );
+        // The frame after one of them goes out under its own time, from the
+        // numbering the malformed ones left.
+        let frame = obu(OBU_SEQUENCE_HEADER, &[0xaa]);
+        packetizer.plan_into(&mut plan, &frame, 12_000, true);
+        assert!(packetizer.write(&mut plan, &frame, &mut out).is_some());
+        let packet = parse(&out).unwrap();
+        assert_eq!((packet.sequence, packet.timestamp), (numbered.0, 12_000));
+        assert_eq!(packetizer.sequence, numbered.0.wrapping_add(1));
+    }
+
+    /// The marker is how a receiver knows a frame ended, so only the frame's
+    /// last packet carries it, whether the frame took one packet or many.
+    #[test]
+    fn marks_only_the_last_packet_of_a_frame() {
+        let mut packetizer = Packetizer::new(5, Codec::Vp8);
+        let mut plan = Plan::default();
+        let mut out = Vec::new();
+        for frame in [vec![1; 100], vec![2; 3 * CHUNK]] {
+            let expected = frame.chunks(CHUNK).count();
+            packetizer.plan_into(&mut plan, &frame, 0, false);
+            let mut seen = 0;
+            while let Some(last) = packetizer.write(&mut plan, &frame, &mut out) {
+                seen += 1;
+                let packet = parse(&out).unwrap();
+                assert_eq!(packet.marker, last, "the marker is the plan's word");
+                assert_eq!(last, seen == expected, "packet {seen} of {expected}");
+            }
+            assert_eq!(seen, expected);
+        }
+    }
+
+    /// A keyframe far past a datagram's worth of bytes goes in packets that
+    /// fit one, the frame bytes and the encryption Discord adds with them.
+    #[test]
+    fn splits_a_large_keyframe_into_datagrams_worth() {
+        let tile: Vec<u8> = (0..64 * 1024u32)
+            .map(|index| (index % 251) as u8 + 1)
+            .collect();
+        let frames: [(Codec, Vec<u8>); 4] = [
+            (Codec::Vp8, tile.clone()),
+            (Codec::H264, [&[0, 0, 0, 1, 0x65][..], &tile].concat()),
+            (
+                Codec::H265,
+                [&[0, 0, 0, 1, 19 << 1, 0x01][..], &tile].concat(),
+            ),
+            (Codec::Av1, obu(6, &tile)),
+        ];
+        for (codec, frame) in frames {
+            let mut packetizer = Packetizer::new(5, codec);
+            let mut plan = Plan::default();
+            let mut out = Vec::new();
+            let mut packets = 0;
+            packetizer.plan_into(&mut plan, &frame, 0, true);
+            while packetizer.write(&mut plan, &frame, &mut out).is_some() {
+                packets += 1;
+                assert!(out.len() + TAG + 4 <= 1500, "{codec:?} fills a datagram");
+            }
+            assert!(packets >= 64 * 1024 / CHUNK, "{codec:?} splits it");
+            assert!(packets <= 64 * 1024 / CHUNK + 4, "{codec:?} needs no more");
+        }
     }
 
     #[test]

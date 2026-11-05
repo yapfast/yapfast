@@ -85,7 +85,13 @@ bytes reach DAVE without a copy. The buffers start at 512 KiB, or at a
 frame's own cap where that is smaller, and double as a frame needs, up to 2
 bytes a pixel and 4 KiB more; three of those are 1.5 MiB at rest, and 12 MiB
 at 1080p only if every buffer grew to the cap. A frame beyond the three
-allocates its buffer rather than waiting for one. H264 goes as whole NAL units
+allocates its buffer rather than waiting for one. Packetizing a frame asks for
+nothing either: its packets are planned in one pass, as where each one's bytes
+come from rather than a copy of them, into a plan the next frame reuses, and
+each is written into one datagram buffer that the whole stream sends from —
+header, extensions and payload, with room after them for the encryption's tag
+and counter — and sealed where it lies. A packet's bytes are copied once, where
+a vector of its own used to be built around them. H264 goes as whole NAL units
 or FU-A fragments, H265 as whole units or FU fragments (RFC 7798), and AV1 in
 AOM's [RTP payload format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html),
 as libwebrtc's packetizer sends it: OBU elements without their size fields,
