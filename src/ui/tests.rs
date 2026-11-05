@@ -3005,15 +3005,26 @@ fn reading_the_newest_message_tells_the_application() {
     );
     window.set_window_focused(true);
 
-    // A conversation too short to scroll is read once the jump settles.
+    // A conversation too short to scroll is read as soon as the jump places
+    // its row, without waiting for the jump to let go, so leaving it at once
+    // still reads it.
     window.set_messages(ModelRc::new(VecModel::from(rows(3))));
     messages::show_message(&window, 1, "i1", false);
+    assert!(!window.invoke_reading(), "not before the row is placed");
     settle();
-    assert!(!window.invoke_reading());
+    assert!(window.invoke_reading());
+    assert_eq!(told.borrow().last(), Some(&true));
     for _ in 0..6 {
         settle();
     }
     assert!(window.invoke_reading());
+    // A jump that leaves the list at its end, as to a divider placed once the
+    // newest page came, says so again: the application asked for it, and
+    // stopped counting on the view until it hears.
+    told.borrow_mut().clear();
+    messages::show_message(&window, 1, "i1", false);
+    settle();
+    assert_eq!(told.borrow().last(), Some(&true));
 }
 
 #[test]
@@ -3738,12 +3749,23 @@ fn the_bell_and_channel_menus_offer_the_same_notification_choices() {
         submenus.row_data(0).unwrap().row_count(),
         yapfast_core::application::MUTE_TIMES.len()
     );
+    // Clicked itself, the row mutes until it's turned back on, as Discord's
+    // does; the times are its submenu's.
+    assert_eq!(
+        window.get_menu_rows().row_data(0).unwrap().click_id,
+        "mute-always"
+    );
     assert_eq!(submenus.row_data(1).unwrap().row_count(), 0);
 
     // A muted channel outside a category unmutes, and follows the server.
     window.invoke_prepare_menu("notifications:discord:10:12".into(), false);
     let shown = rows(&window);
     assert_eq!(shown[0], row("Unmute channel", "", false));
+    assert_eq!(
+        window.get_menu_rows().row_data(0).unwrap().click_id,
+        "",
+        "a click unmutes it, there being no times to offer"
+    );
     assert_eq!(shown[1], row("Use server default", "Only @mentions", false));
     assert_eq!(shown[4], row("Nothing", "", true));
     assert_eq!(window.get_menu_submenus().row_count(), 0, "no row has one");
@@ -3979,6 +4001,11 @@ fn a_discord_servers_menus_show_and_change_its_notifications() {
         submenus.row_data(1).unwrap().row_count(),
         6,
         "the mute times"
+    );
+    assert_eq!(
+        rows.row_data(1).unwrap().click_id,
+        "mute-always",
+        "clicking Mute server mutes until it's turned back on"
     );
     let levels = submenus.row_data(2).unwrap();
     assert_eq!(

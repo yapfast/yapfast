@@ -9,7 +9,7 @@ use yapfast_discord::{
     api::Span,
     client,
     member_list::{ListedMember, Presence},
-    message::Shown,
+    message::{Reply, Shown},
     notifications::{Change, Level},
     ready::{Access, Deletes, PRIVATE},
     remote_auth::{self, Step},
@@ -1539,6 +1539,56 @@ async fn reads_history_and_member_lists() {
         !general.unread && general.last_read.to_string() == newest
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_reply_looks_up_the_original_discord_left_out() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("a_reply_looks_up_the_original_discord_left_out").await;
+    let history = async || {
+        discord
+            .history(&guild, &general, Span::Latest)
+            .await
+            .unwrap()
+            .messages
+    };
+    let first = history().await.swap_remove(0);
+    let reply = control(
+        server,
+        "POST",
+        &format!("/_control/unlooked-reply?channel={general}&to={}", first.id),
+        "",
+    );
+    let replied = history()
+        .await
+        .into_iter()
+        .find(|message| message.id == reply.trim())
+        .unwrap();
+    assert_eq!(
+        replied.reply,
+        Some(Reply::Unknown {
+            id: first.id.clone()
+        })
+    );
+    let original = discord.original(&guild, &general, &first.id).await.unwrap();
+    assert!(
+        matches!(&original, Some(Reply::Message { id, content, .. })
+            if *id == first.id && *content == first.content),
+        "{original:?}"
+    );
+    // Asking around one that's gone answers with its neighbor.
+    let gone = (first.id.parse::<u64>().unwrap() - 1).to_string();
+    assert_eq!(
+        discord.original(&guild, &general, &gone).await.unwrap(),
+        None
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
