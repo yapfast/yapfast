@@ -3443,6 +3443,26 @@ async fn rings_and_befriends() {
     .await;
 }
 
+/// Erin shares no friend and no small server with Alice, so Discord counts her
+/// request a stranger's and accepts it only once the client confirms it. The
+/// fake refuses one without the confirmation, as Discord answers 80013.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn accepts_a_strangers_friend_request() {
+    let Fixture { _fake, discord, .. } = Fixture::start("accepts_a_strangers_friend_request").await;
+    let erin = snapshot_where(&discord, |snapshot| !snapshot.friend_requests.is_empty())
+        .await
+        .friend_requests[0]
+        .clone();
+    assert!(erin.name == "Erin" && erin.incoming, "{erin:?}");
+    discord.befriend(&erin.user_id).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        snapshot.friends.contains(&erin.user_id)
+    })
+    .await;
+    snapshot_where(&discord, |snapshot| snapshot.friend_requests.is_empty()).await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn shows_status_and_games() {
