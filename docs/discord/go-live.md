@@ -263,7 +263,13 @@ call is connected; Discord drops a watch sent before. The stream's sound, Opus
 on the streamer's audio SSRC, is DAVE-decrypted as audio and handed to the
 player with each frame's RTP sequence number, timestamp, SSRC and arrival time
 (`stream_connection::ReceivedSound`), so it can put the sound back in order and
-give up on what no longer matters. The player plays 20 ms a turn: frames wait
+give up on what no longer matters. The streamer's sender reports are kept beside it
+(`stream_connection::StreamClock`): each SSRC's RTP timestamp against the middle
+32 bits of its NTP time, plus the newest picture timestamp that arrived. The
+player's five-second line reads `skew_ms` and `map_age_ms` — both `None`, said
+once, when a report never came or named another SSRC — and neither the device
+buffer nor the decoder's delay is in them, so they compare the sound the player
+holds against the newest picture received. The player plays 20 ms a turn: frames wait
 in sequence order, and the sound they hold is capped at 200 ms by their
 timestamps as well as ten frames by the room they take, so a music bot's 60 ms
 packets don't become 1.2 s of delay, and it starts once three wait

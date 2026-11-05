@@ -1868,18 +1868,21 @@ pub fn report_blocks(mut rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
 }
 
 /// The sender reports in a decrypted compound RTCP packet: each sender's
-/// SSRC and the middle 32 bits of its NTP time, which a receiver report
-/// echoes.
-pub fn sender_reports(mut rtcp: &[u8]) -> Vec<(u32, u32)> {
+/// SSRC, the middle 32 bits of its NTP time, and the RTP timestamp its own
+/// clock read at that instant. A receiver report echoes the middle word for
+/// the round trip; the two words together are what places a sender's RTP
+/// clock on wall-clock time.
+pub fn sender_reports(mut rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
     let mut reports = vec![];
     while rtcp.len() >= 4 {
         let length = (usize::from(u16::from_be_bytes([rtcp[2], rtcp[3]])) + 1) * 4;
         if rtcp[1] == 200
-            && let Some(header) = rtcp.get(4..16)
+            && let Some(header) = rtcp.get(4..20)
         {
             let sender = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
             let middle = u32::from_be_bytes([header[6], header[7], header[8], header[9]]);
-            reports.push((sender, middle));
+            let rtp = u32::from_be_bytes([header[12], header[13], header[14], header[15]]);
+            reports.push((sender, middle, rtp));
         }
         rtcp = rtcp.get(length..).unwrap_or_default();
     }
@@ -2406,7 +2409,7 @@ mod tests {
         );
         let sent = sender_report(9, std::time::SystemTime::UNIX_EPOCH, 0, 0, 0);
         // 1970 in NTP time: 2208988800 seconds, no fraction.
-        assert_eq!(sender_reports(&sent), [(9, (2_208_988_800u32 << 16))]);
+        assert_eq!(sender_reports(&sent), [(9, 2_208_988_800u32 << 16, 0)]);
     }
 
     #[test]
@@ -2754,6 +2757,11 @@ mod tests {
         assert_eq!(word(8), 2_208_988_801);
         assert_eq!(word(12), 1 << 31, "half a second");
         assert_eq!((word(16), word(20), word(24)), (90_000, 12, 3400));
+        // The middle word and the RTP timestamp it was read at, together.
+        assert_eq!(
+            sender_reports(&report),
+            [(7, (2_208_988_801u32 << 16) | (1 << 15), 90_000)]
+        );
     }
 
     #[test]

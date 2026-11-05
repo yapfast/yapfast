@@ -9,7 +9,7 @@ use std::{
     ops::Deref,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
         mpsc as channel,
     },
     time::Duration,
@@ -307,6 +307,105 @@ impl ReceivedSound {
     }
 }
 
+/// One of the streamer's sender reports: the RTP timestamp its clock read at
+/// the NTP time the report names, and when the report reached Yapfast. The
+/// middle 32 bits of the NTP time are kept, as a receiver report echoes them
+/// and they are all a relative mapping needs; the whole 64 bits would say
+/// the same to the second.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SenderReport {
+    /// The middle 32 bits of the NTP time: seconds since 1900 in 16.16,
+    /// keeping the low 16 bits of the seconds and the high 16 of the
+    /// fraction, so the seconds turn over every 18 hours.
+    pub ntp: u32,
+    /// The RTP timestamp its clock carried at that instant.
+    pub rtp: u32,
+    /// When the report reached Yapfast, which says how fresh the mapping is.
+    pub heard: std::time::Instant,
+}
+
+/// The streamer's own account of its two clocks, shared by the receive
+/// thread that writes it and the player that reads it: the last sender
+/// report for its sound and for its picture, and the newest picture
+/// timestamp that came, which is the picture the sound is compared against.
+/// Reports come about once a second, so a lock costs nothing there; the
+/// newest picture is one word written per packet, with no allocation at all.
+#[derive(Default)]
+pub struct StreamClock {
+    audio: Mutex<Option<SenderReport>>,
+    video: Mutex<Option<SenderReport>>,
+    picture: AtomicU32,
+    seen_picture: AtomicBool,
+}
+
+impl StreamClock {
+    /// Where the sound's RTP timestamps sit on wall-clock time, as the
+    /// streamer last said; `None` until a report on its sound SSRC comes.
+    pub fn audio(&self) -> Option<SenderReport> {
+        *lock(&self.audio)
+    }
+
+    /// The same for the picture's clock, which its video SSRC runs on.
+    pub fn video(&self) -> Option<SenderReport> {
+        *lock(&self.video)
+    }
+
+    /// The newest picture timestamp that came, on the video clock; `None`
+    /// until a picture does.
+    pub fn picture(&self) -> Option<u32> {
+        self.seen_picture
+            .load(Ordering::Acquire)
+            .then(|| self.picture.load(Ordering::Relaxed))
+    }
+
+    /// Keeps the streamer's last report for its sound clock.
+    fn heard_audio(&self, report: SenderReport) {
+        *lock(&self.audio) = Some(report);
+    }
+
+    /// Keeps the streamer's last report for its picture clock.
+    fn heard_video(&self, report: SenderReport) {
+        *lock(&self.video) = Some(report);
+    }
+
+    /// Keeps `timestamp` as the newest picture that came.
+    fn heard_picture(&self, timestamp: u32) {
+        self.picture.store(timestamp, Ordering::Relaxed);
+        self.seen_picture.store(true, Ordering::Release);
+    }
+}
+
+/// A watched stream's sound on its way to a player, with the clock the
+/// streamer's sender reports put its sound and picture on, so the player can
+/// say how far behind the picture it plays. It ends with the connection.
+pub struct SoundReceiver {
+    sounds: channel::Receiver<ReceivedSound>,
+    clock: Arc<StreamClock>,
+}
+
+impl SoundReceiver {
+    /// `sounds` as they come, with `clock` the receive side writes into.
+    pub fn new(sounds: channel::Receiver<ReceivedSound>, clock: Arc<StreamClock>) -> Self {
+        Self { sounds, clock }
+    }
+
+    /// The sound waiting now, without waiting for more.
+    pub fn try_iter(&self) -> channel::TryIter<'_, ReceivedSound> {
+        self.sounds.try_iter()
+    }
+
+    /// The next sound, waiting at most `wait`: `Err` when none came in time
+    /// or the connection ended.
+    pub fn recv_timeout(&self, wait: Duration) -> Result<ReceivedSound, channel::RecvTimeoutError> {
+        self.sounds.recv_timeout(wait)
+    }
+
+    /// What the streamer last said about where its clocks sit.
+    pub fn clock(&self) -> Arc<StreamClock> {
+        Arc::clone(&self.clock)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Link {
     Connecting,
@@ -320,6 +419,9 @@ struct Shared {
     /// streamer for one.
     keyframe: AtomicBool,
     size: Mutex<(u32, u32)>,
+    /// Receiving: where the streamer's sender reports put its sound and
+    /// picture clocks, written by the receive thread and read by the player.
+    clock: Arc<StreamClock>,
     /// Sending: what Discord's server last estimated the path carries, in
     /// bit/s, and when it said so.
     estimate: Mutex<Option<(u64, std::time::Instant)>>,
@@ -343,6 +445,7 @@ impl Shared {
             link: Mutex::new(Link::Connecting),
             keyframe: AtomicBool::new(true),
             size: Mutex::new(size),
+            clock: Arc::new(StreamClock::default()),
             estimate: Mutex::new(None),
             offers: Mutex::new(vec![SEND_CODEC]),
             offers_changed: AtomicBool::new(false),
@@ -584,9 +687,14 @@ impl StreamReceiver {
     }
 
     /// The stream's sound, decrypted Opus frames and the sender's numbering
-    /// with each, for a player of its own. It ends with the connection.
-    pub fn take_sounds(&mut self) -> Option<channel::Receiver<ReceivedSound>> {
-        self.sounds.take()
+    /// with each, for a player of its own, and the clock the streamer's
+    /// sender reports put its sound and picture on. It ends with the
+    /// connection.
+    pub fn take_sounds(&mut self) -> Option<SoundReceiver> {
+        Some(SoundReceiver {
+            sounds: self.sounds.take()?,
+            clock: Arc::clone(&self.shared.clock),
+        })
     }
 
     /// Asks the streamer for a keyframe, as after a frame that wouldn't decode.
@@ -1078,9 +1186,12 @@ struct Sent {
     rtp_back: u32,
 }
 
-/// What the server said about the streamer's video.
+/// What the server said about the streamer's stream: its SSRCs and codec.
 #[derive(Default)]
 struct Streamer {
+    /// The SSRC its sound comes on: from op 12, or else the one the first
+    /// Opus packet came on.
+    audio: Option<u32>,
     video: Option<u32>,
     rtx: Option<u32>,
     codec: Option<Codec>,
@@ -1089,7 +1200,7 @@ struct Streamer {
 impl Streamer {
     fn learn(&mut self, op: u64, data: &Value) {
         match op {
-            // Video: the streamer's SSRCs.
+            // The streamer's SSRCs.
             12 => {
                 let ssrc = |value: &Value| {
                     value
@@ -1097,6 +1208,7 @@ impl Streamer {
                         .filter(|&ssrc| ssrc != 0)
                         .map(|ssrc| ssrc as u32)
                 };
+                self.audio = ssrc(&data["audio_ssrc"]).or(self.audio);
                 self.video = ssrc(&data["video_ssrc"]).or(self.video);
                 self.rtx = ssrc(&data["rtx_ssrc"]).or(self.rtx);
             }
@@ -1182,6 +1294,9 @@ async fn receive_stream(
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<()> {
     let mut connection = open(server, user, channel, Role::Receive, shared).await?;
+    // The streamer's clocks, for the player to compare its sound with the
+    // picture; this thread is the only writer.
+    let clock = &shared.clock;
     let mut streamer = Streamer {
         codec: connection.codec,
         ..Streamer::default()
@@ -1206,6 +1321,9 @@ async fn receive_stream(
     // The streamer's last sender report, as its NTP time's middle and when
     // it came, which receiver reports echo for the round trip.
     let mut last_report: Option<(u32, std::time::Instant)> = None;
+    // A report for an SSRC this stream doesn't use says nothing about its
+    // clocks; said once rather than once a report.
+    let mut told_other = false;
     let mut datagram = vec![0u8; 2048];
     let mut received = Received::default();
     let mut log = tokio::time::interval_at(Instant::now() + LOG_EVERY, LOG_EVERY);
@@ -1270,9 +1388,22 @@ async fn receive_stream(
                 if rtp::is_rtcp(packet) {
                     received.rtcp += 1;
                     let rtcp = connection.transport.open(packet, rtp::RTCP_CLEAR).unwrap_or_default();
-                    for (sender, middle) in rtp::sender_reports(&rtcp) {
-                        if Some(sender) == streamer.video {
-                            last_report = Some((middle, std::time::Instant::now()));
+                    for (sender, ntp, rtp) in rtp::sender_reports(&rtcp) {
+                        let heard = std::time::Instant::now();
+                        let report = SenderReport { ntp, rtp, heard };
+                        if Some(sender) == streamer.audio {
+                            clock.heard_audio(report);
+                        } else if Some(sender) == streamer.video {
+                            last_report = Some((ntp, heard));
+                            clock.heard_video(report);
+                        } else if !told_other {
+                            told_other = true;
+                            tracing::debug!(
+                                sender,
+                                audio = ?streamer.audio,
+                                video = ?streamer.video,
+                                "a sender report names an SSRC this stream doesn't use"
+                            );
                         }
                     }
                     continue;
@@ -1295,6 +1426,10 @@ async fn receive_stream(
                 }
                 if packet.payload_type == rtp::OPUS {
                     received.sounds += 1;
+                    // The streamer's sound SSRC, when op 12 didn't name one:
+                    // a sender report on it is what places its timestamps on
+                    // wall-clock time.
+                    streamer.audio.get_or_insert(packet.ssrc);
                     let arrived = std::time::Instant::now();
                     match connection.dave.decrypt_opus(streamer_id, packet.payload.to_vec()) {
                         // A full queue drops sound the player can't keep up
@@ -1324,6 +1459,10 @@ async fn receive_stream(
                 };
                 received.video += 1;
                 streamer.video.get_or_insert(held.ssrc);
+                // Every packet of a frame carries its timestamp, so the
+                // newest packet that comes is the newest picture to compare
+                // the sound against.
+                let picture = held.packet().timestamp;
                 // Packets can name any SSRC: past a few, a new one isn't
                 // given buffers of its own.
                 if incoming.len() >= MAX_SSRCS && !incoming.contains_key(&held.ssrc) {
@@ -1340,7 +1479,7 @@ async fn receive_stream(
                 }
                 let resent = Some(packet.ssrc) == streamer.rtx;
                 match video.reorder.insert(held, std::time::Instant::now()) {
-                    rtp::Arrival::New if !resent => {}
+                    rtp::Arrival::New if !resent => clock.heard_picture(picture),
                     rtp::Arrival::New | rtp::Arrival::Recovered if resent => received.recovered += 1,
                     rtp::Arrival::New | rtp::Arrival::Recovered => received.reordered += 1,
                     rtp::Arrival::Late => received.late += 1,

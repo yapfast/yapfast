@@ -20,7 +20,9 @@ use std::{
 use anyhow::{Context, Result};
 use yapfast_discord::{
     opus, rtp,
-    stream_connection::{ReceivedSound, Sound, SoundSender},
+    stream_connection::{
+        ReceivedSound, SenderReport, Sound, SoundReceiver, SoundSender, StreamClock,
+    },
     voice::{QUIET, Surplus},
 };
 
@@ -80,6 +82,12 @@ const STALE: Duration = Duration::from_millis(300);
 /// The furthest a frame's timestamp may fall from where the last played one
 /// left the stream: a second, in samples. Beyond, the sender began again.
 const JUMP: i32 = 48_000;
+/// The streamer's picture clock: RTP timestamps on a stream's video SSRC
+/// count 90 kHz ticks.
+const PICTURE_RATE: u32 = 90_000;
+/// What the NTP time kept in a sender report spans: its middle 32 bits are
+/// seconds in 16.16, so the seconds they count turn over every 18 hours.
+const NTP_TURN: f64 = 65_536.0;
 /// Printed at most this often: what waits, and how much of what came was
 /// lost, trimmed, skipped or stopped short.
 const LOG_EVERY: Duration = Duration::from_secs(5);
@@ -460,6 +468,40 @@ struct Counts {
     restarts: u64,
 }
 
+/// Where `timestamp` on `report`'s clock sits on wall-clock time, in seconds
+/// on the middle 32 bits of NTP: the report's own instant plus the ticks
+/// between its timestamp and this one, at `rate` ticks a second. Read
+/// signed, so a timestamp on the far side of the clock's wrap is a small
+/// step rather than four billion ticks.
+fn at_wall_time(report: SenderReport, timestamp: u32, rate: u32) -> f64 {
+    let ticks = timestamp.wrapping_sub(report.rtp) as i32;
+    f64::from(report.ntp) / NTP_TURN + f64::from(ticks) / f64::from(rate)
+}
+
+/// How far behind the picture the sound at `sound` is, in seconds, each a
+/// timestamp on its own clock together with the sender report that says
+/// where that clock's timestamps sit on wall-clock time: the two are only
+/// comparable once each is placed there, since 48 kHz and 90 kHz counts
+/// share no zero and no rate. `None` while either is missing, since which
+/// clock an unmapped timestamp ran on is a guess.
+fn behind(sound: Option<(SenderReport, u32)>, picture: Option<(SenderReport, u32)>) -> Option<f64> {
+    let (sound_report, sound_timestamp) = sound?;
+    let (picture_report, picture_timestamp) = picture?;
+    let sound = at_wall_time(sound_report, sound_timestamp, RATE);
+    let picture = at_wall_time(picture_report, picture_timestamp, PICTURE_RATE);
+    let mut behind = picture - sound;
+    // The NTP time kept is its middle 32 bits, so its seconds turn over
+    // every 18 hours: two reports seconds apart can sit either side of that
+    // turn. Half the turn is far more than any real skew, so a difference
+    // wider than that is the turn, not the clocks.
+    if behind > NTP_TURN / 2.0 {
+        behind -= NTP_TURN;
+    } else if behind < -NTP_TURN / 2.0 {
+        behind += NTP_TURN;
+    }
+    Some(behind)
+}
+
 /// A watched stream's sound on its way to the speakers: frames in sequence
 /// order, held a little for the ones that come late, played 20 ms a turn, and
 /// concealed while a packet is missing. It's given its clock, so a test drives
@@ -637,6 +679,20 @@ impl Playout {
         };
         let held = back.timestamp.wrapping_add(length).wrapping_sub(from) as i32;
         held.max(0) as u32
+    }
+
+    /// How far the sound at the playhead sits behind the newest picture that
+    /// came, in seconds, both placed on wall-clock time by the streamer's
+    /// sender reports: `None` while either report, the picture, or the
+    /// playhead's own timestamp is missing.
+    fn behind(&self, clock: &StreamClock) -> Option<f64> {
+        // Not playing: the playhead's timestamp says nothing about what a
+        // viewer hears, and silence is not the sound falling behind.
+        self.next?;
+        behind(
+            clock.audio().zip(self.expected),
+            clock.video().zip(clock.picture()),
+        )
     }
 
     /// Drops one frame from the end the queue is too long at, and says
@@ -984,7 +1040,7 @@ impl Player {
     /// Plays `sounds` on `speakers`, or the default output, at `volume`, while
     /// `hearing` is set: being deafened silences streams too.
     pub fn start(
-        sounds: std::sync::mpsc::Receiver<ReceivedSound>,
+        sounds: SoundReceiver,
         speakers: Option<String>,
         hearing: Arc<AtomicBool>,
         volume: Arc<Volume>,
@@ -1008,7 +1064,7 @@ impl Drop for Player {
 }
 
 fn play(
-    sounds: std::sync::mpsc::Receiver<ReceivedSound>,
+    sounds: SoundReceiver,
     speakers: Option<String>,
     hearing: Arc<AtomicBool>,
     volume: Arc<Volume>,
@@ -1016,6 +1072,7 @@ fn play(
 ) -> Result<JoinHandle<()>> {
     use std::sync::mpsc;
     let (ready, started) = mpsc::sync_channel(1);
+    let clock = sounds.clock();
     let thread = std::thread::Builder::new()
         .name("yapfast-stream-player".into())
         .spawn(move || {
@@ -1049,6 +1106,10 @@ fn play(
                 }
             };
             let mut logged = Instant::now();
+            // Whether the log has said that nothing maps the sound's clock
+            // to the picture's: said once, since a report that never comes
+            // would otherwise repeat it every five seconds.
+            let mut told_unknown = false;
             while !stop.load(Ordering::Relaxed) {
                 // What came since the last turn, without waiting for more.
                 for frame in sounds.try_iter() {
@@ -1086,16 +1147,35 @@ fn play(
                 }
                 if logged.elapsed() >= LOG_EVERY {
                     logged = Instant::now();
-                    // The queue's delay in milliseconds, against the 200
-                    // [`MOST_SAMPLES`] allows: a queue near it is a sender
-                    // the playout can't keep up with. Which counter grew says
-                    // why — `lost` is the link dropping packets, `trimmed`
-                    // and `skipped` a sender running fast, and `starved` one
-                    // running slow — so a gap in a sender's numbering is
-                    // never read as a clock that disagrees.
+                    // How far the sound at the playhead sits behind the
+                    // newest picture that came, on the wall clock the
+                    // streamer's sender reports put both on. The playhead is
+                    // not the speaker: the device holds about 100 ms more,
+                    // and the picture shows only once decoded, so this is
+                    // the stream's own skew rather than a viewer's, and the
+                    // plan's 80 ms is a bound to sanity-check it against,
+                    // not a claim. Unknown while a report, a picture or the
+                    // playhead is missing. The queue's delay in milliseconds
+                    // is against the 200 [`MOST_SAMPLES`] allows: a queue
+                    // near it is a sender the playout can't keep up with.
+                    // Which counter grew says why — `lost` is the link
+                    // dropping packets, `trimmed` and `skipped` a sender
+                    // running fast, and `starved` one running slow — so a gap
+                    // in a sender's numbering is never read as a clock that
+                    // disagrees.
+                    let behind = playout.behind(&clock);
+                    // The older of the two mappings, since the skew can be no
+                    // fresher than it.
+                    let age = [clock.audio(), clock.video()]
+                        .into_iter()
+                        .flatten()
+                        .map(|report| report.heard.elapsed())
+                        .max();
                     tracing::debug!(
                         waiting = playout.waiting.len(),
                         held_ms = u64::from(playout.held()) * 1_000 / u64::from(RATE),
+                        skew_ms = ?behind.map(|behind| (behind * 1_000.0).round() as i64),
+                        map_age_ms = ?age.map(|age| age.as_millis() as u64),
                         came = playout.counts.came,
                         played = playout.counts.played,
                         lost = playout.counts.lost,
@@ -1108,6 +1188,15 @@ fn play(
                         restarts = playout.counts.restarts,
                         "stream sound played"
                     );
+                    if behind.is_none() && playout.next.is_some() && !told_unknown {
+                        told_unknown = true;
+                        tracing::debug!(
+                            audio_report = clock.audio().is_some(),
+                            video_report = clock.video().is_some(),
+                            picture = clock.picture().is_some(),
+                            "no sender report maps this stream's sound and picture onto one clock: A/V skew is unknown"
+                        );
+                    }
                 }
             }
         })
@@ -1436,7 +1525,7 @@ mod tests {
         drop(sounds);
         let started = Instant::now();
         let mut player = Player::start(
-            heard,
+            SoundReceiver::new(heard, Arc::new(StreamClock::default())),
             None,
             Arc::new(AtomicBool::new(true)),
             Arc::new(Volume::new(1.0)),
@@ -1444,6 +1533,62 @@ mod tests {
         .unwrap();
         player.thread.take().unwrap().join().unwrap();
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    /// A sender report whose clock read `rtp` at `seconds` of NTP time.
+    fn reported(seconds: u32, rtp: u32) -> SenderReport {
+        SenderReport {
+            ntp: seconds << 16,
+            rtp,
+            heard: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn sender_reports_say_how_far_the_sound_lags_the_picture() {
+        // The streamer's sound read 4_800_000 at 100 s and its picture
+        // 9_000_000 at that same instant. A second later the sound is at
+        // 101 s; half a second after that the newest picture is at 101.5 s,
+        // so the sound plays half a second behind the picture.
+        let sound = (reported(100, 4_800_000), 4_800_000 + 48_000);
+        let picture = (reported(100, 9_000_000), 9_000_000 + 90_000 + 45_000);
+        let skew = behind(Some(sound), Some(picture)).unwrap();
+        assert!((skew - 0.5).abs() < 1e-9, "{skew}");
+        // The plan's 80 ms as a sanity bound: a picture 80 ms newer than the
+        // sound on the same wall clock reads as 0.08 s behind.
+        let picture = (reported(100, 9_000_000), 9_000_000 + 90_000 + 7_200);
+        let skew = behind(Some(sound), Some(picture)).unwrap();
+        assert!((skew - 0.08).abs() < 1e-9, "{skew}");
+    }
+
+    #[test]
+    fn sender_reports_hold_across_both_wraps() {
+        // The sound's RTP timestamp turns over between the report and the
+        // playhead: from 24_000 samples before the wrap to 24_000 samples
+        // past it is a second, not a jump of four billion ticks.
+        let sound = (
+            reported(100, u32::MAX - 23_999),
+            (u32::MAX - 23_999).wrapping_add(48_000),
+        );
+        let picture = (reported(100, 0), 90_000 + 7_200);
+        let skew = behind(Some(sound), Some(picture)).unwrap();
+        assert!((skew - 0.08).abs() < 1e-9, "{skew}");
+        // The NTP time kept is the middle 32 bits, whose seconds turn over
+        // every 18 hours: a sound at 65_535 s and a picture whose report sits
+        // just past that turn are two seconds apart, not 18 hours.
+        let sound = (reported(65_535, 4_800_000), 4_800_000);
+        let picture = (reported(0, 0), 90_000);
+        let skew = behind(Some(sound), Some(picture)).unwrap();
+        assert!((skew - 2.0).abs() < 1e-9, "{skew}");
+    }
+
+    #[test]
+    fn missing_sender_reports_leave_the_skew_unknown() {
+        let sound = (reported(100, 4_800_000), 4_800_000);
+        let picture = (reported(100, 9_000_000), 9_000_000);
+        assert_eq!(behind(None, Some(picture)), None, "no report for the sound");
+        assert_eq!(behind(Some(sound), None), None, "none for the picture");
+        assert_eq!(behind(None, None), None);
     }
 
     /// The player's turn that plays a frame that came.
