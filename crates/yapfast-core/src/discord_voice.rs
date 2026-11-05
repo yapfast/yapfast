@@ -64,6 +64,17 @@ impl Share {
         })
     }
 
+    /// Shows the preview of what's shared in the UI, or stops: the worker
+    /// makes one only while the UI displays it.
+    fn preview_shown(&mut self, shown: bool) {
+        if let Err(error) = self.worker.preview(shown) {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
     /// Uploads a preview of the stream, in place of one still uploading.
     /// A failed upload is tried again a minute later, as Discord's client
     /// does, up to three times.
@@ -626,6 +637,11 @@ pub(crate) async fn call(
                                 && let Err(error) = going.worker.switch(stream_worker::Source::Screen)
                             {
                                 tracing::warn!(error = format!("{error:#}"), "could not switch what's shared");
+                            }
+                        }
+                        Some(Command::Preview(shown)) => {
+                            if let Some(going) = share.as_mut() {
+                                going.preview_shown(shown);
                             }
                         }
                         Some(Command::StopLive) => {

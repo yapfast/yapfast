@@ -8,7 +8,9 @@
 //! input, and reads [`Report`]s back from its standard output. Once Discord
 //! has started the stream, a [`Control::Send`] line hands the worker the
 //! stream's server, and it sends the video there; a [`Control::Switch`] line
-//! shares another screen, window or camera on the same stream. A `stop` line, or
+//! shares another screen, window or camera on the same stream, and a
+//! [`Control::Preview`] line says whether the UI shows the preview, which
+//! the worker makes only while one does. A `stop` line, or
 //! closing its input, ends the job. Frames go to the UI through [`crate::frames`].
 
 use std::{
@@ -258,6 +260,9 @@ pub enum Control {
     Switch(Source),
     /// Play a watched stream's sound, or not, as being deafened changes.
     Hear(bool),
+    /// Show the shared screen in the UI's preview, or not, as the UI shows
+    /// it or stops: a preview isn't made while nothing displays it.
+    Preview(bool),
     /// Play a watched stream's or a video's sound this loud.
     Volume(f32),
     /// Play the video, from the start once it has ended.
@@ -378,6 +383,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             let sink = Sink {
                 writer: Writer::open(&frames)?,
                 preview: vec![],
+                preview_shown: false,
                 controls: received,
                 server: None,
                 sound: source != Source::TestPattern,
@@ -461,6 +467,9 @@ struct Sink {
     /// The picture the preview is scaled into, kept from one frame to the
     /// next: at most [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`].
     preview: Vec<u8>,
+    /// Whether the UI shows the preview, which it says as that changes: one
+    /// isn't made while nothing displays it.
+    preview_shown: bool,
     controls: channel::Receiver<Control>,
     /// The server to send to from the next frame, which gives the stream its size.
     server: Option<StreamServer>,
@@ -542,35 +551,41 @@ fn kbps(height: u32, estimate: Option<u64>) -> u32 {
 
 impl Sink {
     /// Takes a frame at the size it's sent: the preview shows it, scaled
-    /// down to fit, and Discord gets it once the stream has a server.
+    /// down to fit, while the UI shows a preview, and Discord gets it once
+    /// the stream has a server.
     fn frame(&mut self, picture: &I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
-        let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
         let due = self.preview_due.is_some_and(|due| due <= Instant::now());
-        let shown = planes(picture);
-        let Sink {
-            writer,
-            preview: scratch,
-            ..
-        } = self;
-        writer.write(preview.0, preview.1, |pixels| {
-            shown.to_rgba(&mut *scratch, pixels, preview.0, preview.1);
-        });
-        // What the preview shows: the picture itself when it's that size
-        // already, or the one `to_rgba` scaled into the buffer kept for it.
-        let shown = if preview == (width, height) {
-            shown
-        } else {
-            previewed(&scratch[..], preview.0, preview.1)
-        };
-        if due && !is_black(shown.y) {
-            match thumbnail(&shown) {
-                Ok(thumbnail) => self.thumbnail = Some(thumbnail),
-                Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+        // Scaling and converting the picture is the frame's own work, and
+        // nothing shows it while the UI shows no preview and none is due for
+        // Discord.
+        if self.preview_shown || due {
+            let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            let shown = planes(picture);
+            let Sink {
+                writer,
+                preview: scratch,
+                ..
+            } = self;
+            writer.write(preview.0, preview.1, |pixels| {
+                shown.to_rgba(&mut *scratch, pixels, preview.0, preview.1);
+            });
+            // What the preview shows: the picture itself when it's that size
+            // already, or the one `to_rgba` scaled into the buffer kept for it.
+            let shown = if preview == (width, height) {
+                shown
+            } else {
+                previewed(&scratch[..], preview.0, preview.1)
+            };
+            if due && !is_black(shown.y) {
+                match thumbnail(&shown) {
+                    Ok(thumbnail) => self.thumbnail = Some(thumbnail),
+                    Err(error) => {
+                        tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                    }
                 }
+                self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
             }
-            self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
         }
         if let Some(server) = self.server.take() {
             let (offers, encoder) = self.offers(width, height)?;
@@ -719,6 +734,7 @@ impl Sink {
             match control {
                 Control::Send(server) => self.server = Some(server),
                 Control::Switch(source) => switch = Some(source),
+                Control::Preview(shown) => self.preview_shown = shown,
                 _ => {}
             }
         }
@@ -1739,6 +1755,12 @@ impl Worker {
         self.control(&Control::Hear(hearing))
     }
 
+    /// Tells a sharing worker whether the UI shows the preview of what's
+    /// shared, which it makes only while one does.
+    pub fn preview(&mut self, shown: bool) -> Result<()> {
+        self.control(&Control::Preview(shown))
+    }
+
     /// Tells a watching worker how loud to play the stream's sound.
     pub fn volume(&mut self, volume: f32) -> Result<()> {
         self.control(&Control::Volume(volume))
@@ -1988,6 +2010,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_shown: false,
             controls: received,
             server: None,
             sound: false,
@@ -2022,6 +2045,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_shown: true,
             controls: received,
             server: None,
             sound: false,
@@ -2053,6 +2077,92 @@ mod tests {
         assert_eq!(first[3], 255);
     }
 
+    /// A frame is scaled and converted for the UI only while the UI shows the
+    /// preview, and the first frame after it says so has one.
+    #[test]
+    fn previews_only_while_the_ui_shows_one() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
+            preview_shown: false,
+            controls: received,
+            server: None,
+            sound: false,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
+        let (y, u, v) = picture.data_mut();
+        y.fill(126);
+        u.fill(128);
+        v.fill(128);
+        sink.frame(&picture).unwrap();
+        assert_eq!(frames.take(|_, _, _| ()), None, "nothing shows it");
+        let mut report = |_| {};
+        // A share started while the worker thought nothing watched it: the
+        // control comes, and the next frame has a picture for the UI.
+        controls.send(Control::Preview(true)).unwrap();
+        sink.check(&mut report).unwrap();
+        sink.frame(&picture).unwrap();
+        let (width, height) = frames
+            .take(|width, height, _| (width, height))
+            .expect("the frame after the control");
+        assert_eq!((width, height), (PREVIEW_WIDTH, PREVIEW_HEIGHT));
+        controls.send(Control::Preview(false)).unwrap();
+        sink.check(&mut report).unwrap();
+        sink.frame(&picture).unwrap();
+        assert_eq!(
+            frames.take(|_, _, _| ()),
+            None,
+            "and stops once nothing does"
+        );
+    }
+
+    /// Discord's preview of the stream is still made, and its clock kept, while
+    /// the UI shows no preview of it.
+    #[test]
+    fn makes_discords_preview_while_the_ui_shows_none() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (_controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            preview: vec![],
+            preview_shown: false,
+            controls: received,
+            server: None,
+            sound: false,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: Some(Instant::now()),
+            thumbnail: None,
+            lost: None,
+        };
+        let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
+        let (y, u, v) = picture.data_mut();
+        y.fill(126);
+        u.fill(128);
+        v.fill(128);
+        sink.frame(&picture).unwrap();
+        assert!(sink.thumbnail.take().is_some(), "a preview for Discord");
+        assert!(
+            sink.preview_due.is_some_and(|due| due > Instant::now()),
+            "the next one isn't due for minutes"
+        );
+    }
+
     #[test]
     fn switches_to_the_last_source_asked_for() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
@@ -2060,6 +2170,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_shown: false,
             controls: received,
             server: None,
             sound: false,
@@ -2088,6 +2199,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_shown: false,
             controls: received,
             server: None,
             sound: false,
@@ -2191,6 +2303,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_shown: true,
             controls: received,
             server: None,
             sound: false,
@@ -2235,6 +2348,7 @@ mod tests {
         let sink = Arc::new(Mutex::new(Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_shown: true,
             controls: received,
             server: None,
             sound: false,
@@ -2286,6 +2400,13 @@ mod tests {
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        // The UI shows the preview, as the app tells the worker it does.
+        writeln!(
+            feed,
+            "{}",
+            serde_json::to_string(&Control::Preview(true)).unwrap()
+        )
+        .unwrap();
         let (sender, reports) = std::sync::mpsc::channel();
         let serving = std::thread::spawn(move || {
             serve(Box::new(BufReader::new(input)), &mut |report| {
@@ -2335,6 +2456,13 @@ mod tests {
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        // The UI shows the preview, as the app tells the worker it does.
+        writeln!(
+            feed,
+            "{}",
+            serde_json::to_string(&Control::Preview(true)).unwrap()
+        )
+        .unwrap();
         let (sender, reports) = std::sync::mpsc::channel();
         let serving = std::thread::spawn(move || {
             serve(Box::new(BufReader::new(input)), &mut |report| {

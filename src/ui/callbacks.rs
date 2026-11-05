@@ -2341,10 +2341,23 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // Frames skip the application state, which would redraw far more than the pictures.
     let state = adapter.clone();
     let weak = window.as_weak();
+    // What the worker was last told about the UI showing the preview of
+    // what's shared: it's told when that changes, not with every frame.
+    let told = std::cell::Cell::new(false);
     window.on_stream_tick(move || {
         let Some(window) = weak.upgrade() else {
             return;
         };
+        // Scaling and converting a frame for the preview is only needed while
+        // the UI displays one, so the worker is told once when that changes.
+        let shown = window.get_share_preview_shown();
+        if shown != told.replace(shown) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::Preview(shown)));
+            adapter.execute(effects);
+        }
         let adapter = state.borrow();
         let voice = &adapter.app.state.voice;
         let image = |width, height, pixels: &[u8]| {

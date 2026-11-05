@@ -361,6 +361,9 @@ pub enum Command {
     /// Share the screen or window picked last in place of the one shared,
     /// keeping the stream; on Linux, what the system's dialog picks.
     SwitchLive,
+    /// Show the preview of the shared screen in the UI, or stop: the worker
+    /// makes one only while the UI displays it.
+    Preview(bool),
     StopLive,
     /// Play the soundboard sound with this id for everyone in the call.
     Soundboard(String),

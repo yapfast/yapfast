@@ -771,6 +771,13 @@ export component YapfastWindow inherits Window {
     in property <int> pip-person: -1;
     in property <int> pip-slot: -1;
     out property <bool> pip-shown: root.workspace && root.voice-active && root.pip-kind != 0 && !root.call-on-screen && !root.stage-full;
+    /// A preview of what's shared is on screen: its tile in the call's grid,
+    /// large over the whole window, or in the corner. stream-tick tells the
+    /// worker to make previews only while that's so.
+    out property <bool> share-preview-shown: root.sharing && (
+        (root.grid-shown && !root.stage-full)
+        || (root.stage-full && root.voice-active && root.call-focus == 0)
+        || (root.pip-shown && root.pip-kind == 2));
     /// Sharing a screen is offered in Discord calls.
     in property <bool> can-share;
     in property <bool> sharing;
