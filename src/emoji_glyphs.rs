@@ -29,6 +29,11 @@ thread_local! {
     static TYPEFACE: RefCell<Option<Option<skia_safe::Typeface>>> = RefCell::default();
 }
 
+/// Lets go of the pictures kept, for when nothing shows them; a cell keeps its own.
+pub fn forget() {
+    PICTURES.with_borrow_mut(HashMap::clear);
+}
+
 /// The emoji drawn at `px` logical pixels, for a display of `scale`; the picture
 /// holds the pixels that size needs, so it stays sharp on a scaled display.
 pub fn picture(glyph: &str, px: f32, scale: f32) -> Option<slint::Image> {

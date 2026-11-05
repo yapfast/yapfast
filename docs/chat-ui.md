@@ -140,10 +140,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   keep their size and their spacing as it widens, so what the width has over
   stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
   which is the artwork Discord's client uses and which the program carries
-  (`vendor/twemoji`, CC-BY 4.0), decoded once at the size the grid draws and
-  kept; drawing the system emoji font instead cost a colour font's paint graph
+  (`vendor/twemoji`, CC-BY 4.0), decoded at the size the grid draws as its row
+  shows; drawing the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
-  slowly. A code point Twemoji has no picture for, and emoji in message text,
+  slowly. A row more than eight past those shown lets go of its pictures, and
+  a picker that closes lets go of its grid, so the list costs what is near the
+  view. A code point Twemoji has no picture for, and emoji in message text,
   are still drawn by the system font. Every server's emoji show, as Discord's
   picker shows them: the ones this account may not use where it is looking —
   another server's, or an animated one without Nitro — are greyed with a lock

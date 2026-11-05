@@ -2,8 +2,8 @@
 //! the program at build time; see `vendor/twemoji/README.yapfast.md`.
 //!
 //! A cell asks for the picture of an emoji at the size the grid draws it, and
-//! gets a decoded image back, which it keeps: the pictures are 72px square, and
-//! drawn from there at whatever the display needs.
+//! gets a decoded image back, which it keeps while it shows it: the pictures are
+//! 72px square, and drawn from there at whatever the display needs.
 
 use std::{cell::RefCell, collections::HashMap, sync::OnceLock};
 
@@ -11,9 +11,10 @@ use std::{cell::RefCell, collections::HashMap, sync::OnceLock};
 /// and where its bytes start and end, then the names and the bytes.
 const PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.bin"));
 
-/// The most pictures kept, which the cache lets go of at once: a filled cell
-/// keeps its own, so letting them go costs a redraw of what comes next.
-const MOST: usize = 1024;
+/// The most bytes of pictures kept, which the cache lets go of at once: a filled
+/// cell keeps its own, so letting them go costs a redraw of what comes next. A
+/// display of twice the scale takes four times the bytes for each.
+const MOST_BYTES: u32 = 4 << 20;
 
 thread_local! {
     static PICTURES: RefCell<HashMap<(String, u32), Option<slint::Image>>> = RefCell::default();
@@ -24,7 +25,7 @@ thread_local! {
 pub fn picture(glyph: &str, px: f32, scale: f32) -> Option<slint::Image> {
     let pixels = (px * scale).round().max(1.0) as u32;
     PICTURES.with_borrow_mut(|pictures| {
-        if pictures.len() >= MOST {
+        if pictures.len() as u32 >= MOST_BYTES / (pixels * pixels * 4) {
             pictures.clear();
         }
         pictures
@@ -32,6 +33,11 @@ pub fn picture(glyph: &str, px: f32, scale: f32) -> Option<slint::Image> {
             .or_insert_with(|| decode(glyph, pixels))
             .clone()
     })
+}
+
+/// Lets go of the pictures kept, for when nothing shows them; a cell keeps its own.
+pub fn forget() {
+    PICTURES.with_borrow_mut(HashMap::clear);
 }
 
 /// Whether Twemoji has a picture for `glyph`, without decoding one.

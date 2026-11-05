@@ -1810,9 +1810,10 @@ export component YapfastWindow inherits Window {
         message-menu.show();
     }
     property <bool> picker-open: emoji-picker.is-open;
+    // A picker that opens as another closes shares the grid, so it goes with the last.
     changed picker-open => {
         if !root.picker-open {
-            root.emoji-picker-closed();
+            if !root.expressions-open { root.emoji-picker-closed(); }
             if root.react-item == "yapfast:composer" { root.focus-composer(); }
             root.react-item = "";
         }
@@ -1860,7 +1861,7 @@ export component YapfastWindow inherits Window {
     changed expressions-open => {
         if !root.expressions-open {
             root.close-gifs();
-            root.emoji-picker-closed();
+            if !root.picker-open { root.emoji-picker-closed(); }
             root.focus-composer();
             root.react-item = "";
         }

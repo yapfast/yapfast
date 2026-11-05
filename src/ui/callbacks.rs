@@ -6,6 +6,11 @@ use super::*;
 /// is about 340px tall and a row is 56px.
 const GRID_ROWS: usize = 8;
 
+/// The rows past those shown, each way, that keep their pictures once drawn, so
+/// a scroll back finds them ready. A row further off lets go of its own: a whole
+/// list of pictures is about 9 MiB, and 36 MiB on a display of twice the scale.
+const KEPT_ROWS: usize = 8;
+
 /// Fetches the pictures of the custom emoji whose rows show between `first` and
 /// `last`, and of those that have none yet. The picker brings the rest as it
 /// scrolls them into sight, since a server list can hold more emoji than fit in
@@ -31,6 +36,7 @@ fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: us
 /// colour font's paint graph for every emoji on screen; see [`crate::emoji_glyphs`].
 fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize, last: usize) {
     let scale = window.window().scale_factor();
+    let_go_of_far_glyphs(adapter, first, last);
     let rows = &adapter.models.emoji_rows;
     let count = rows.row_count();
     if count == 0 || first >= count {
@@ -66,6 +72,42 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
             }
         }
     }
+}
+
+/// Takes the pictures [`fill_shown_glyphs`] gave back from the rows over
+/// [`KEPT_ROWS`] from those shown between `first` and `last`. It looks only at the
+/// rows that may hold one, so a scroll costs what it moved past.
+fn let_go_of_far_glyphs(adapter: &mut Adapter, first: usize, last: usize) {
+    let kept = first.saturating_sub(KEPT_ROWS)..=last.saturating_add(KEPT_ROWS);
+    let (from, to) = adapter.emoji_rows_filled;
+    let rows = &adapter.models.emoji_rows;
+    for index in from..=to.min(rows.row_count().saturating_sub(1)) {
+        if kept.contains(&index) {
+            continue;
+        }
+        let Some(row) = rows.row_data(index) else {
+            continue;
+        };
+        for cell_index in 0..row.cells.row_count() {
+            let Some(cell) = row.cells.row_data(cell_index) else {
+                continue;
+            };
+            // As in filling: a custom emoji's picture isn't this one's to take.
+            if cell.picture.size().width > 0 && !cell.key.contains(':') && cell.glyph == cell.key {
+                row.cells.set_row_data(
+                    cell_index,
+                    EmojiCell {
+                        picture: Default::default(),
+                        ..cell
+                    },
+                );
+            }
+        }
+    }
+    adapter.emoji_rows_filled = (
+        from.max(*kept.start()).min(first),
+        to.min(*kept.end()).max(last),
+    );
 }
 
 /// The reaction keys of the custom emoji in `rows` from `first` to `last` that
@@ -113,6 +155,7 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
         )
     };
     update_model(&adapter.models.emoji_rows, rows);
+    adapter.emoji_rows_filled = (0, GRID_ROWS);
     // The grid shares the width it shows at among these, so its cells need the
     // count the rows were built with.
     window.set_emoji_columns(columns as i32);
@@ -1007,7 +1050,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window.on_emoji_reflow(move || {
         let Some(window) = weak.upgrade() else { return };
         let columns = emoji::columns(window.get_emoji_panel_width());
-        if columns == columns_shown.get() {
+        // A closed picker has no grid to lay out, and builds it as it opens.
+        if columns == columns_shown.get() || state.borrow().models.emoji_rows.row_count() == 0 {
             return;
         }
         columns_shown.set(columns);
@@ -1027,15 +1071,19 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    // The grid went: its cells kept the pictures they showed, and the disk cache
-    // has the rest, so the pictures held for them can go, the custom emoji ones
-    // once there were more than a wide grid shows.
+    // The grid went, and its next opening builds it again: its cells and their
+    // pictures can go, and those held for them, the custom emoji ones once there
+    // were more than a wide grid shows, since the disk cache has them. glibc would
+    // keep what that frees, so it's handed back once the grid's items have gone.
     window.on_emoji_picker_closed(move || {
         let Some(window) = weak.upgrade() else { return };
         custom_emoji::forget_images();
-        state
-            .borrow_mut()
-            .action(&window, Action::UnloadEmojiPictures);
+        crate::twemoji::forget();
+        crate::emoji_glyphs::forget();
+        let mut adapter = state.borrow_mut();
+        adapter.models.emoji_rows.set_vec(Vec::new());
+        adapter.action(&window, Action::UnloadEmojiPictures);
+        slint::Timer::single_shot(std::time::Duration::from_secs(1), trim);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
