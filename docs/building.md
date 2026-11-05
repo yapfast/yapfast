@@ -209,7 +209,9 @@ dependency in Cargo.toml:
   mipmapped pictures, uncopied fonts and pictures, and Skia's own FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows
   restores a minimized window at its old size without its pixels, which
-  partial rendering left black.
+  partial rendering left black. On Direct3D 12 it also hands each frame back
+  in the `PRESENT` state, which `Present` requires and wgpu can't see is
+  missing.
 - `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
   audio tracks and cancellable joins.
 - `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,
