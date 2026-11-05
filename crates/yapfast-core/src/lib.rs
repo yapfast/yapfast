@@ -18,6 +18,9 @@ pub mod blocks;
 #[cfg(feature = "matrix")]
 pub mod calls;
 pub mod camera;
+/// Which way a screen is captured, and the setting that decides it; see
+/// src/capture.rs.
+pub mod capture;
 pub mod chat;
 pub mod cli;
 #[cfg(feature = "discord")]

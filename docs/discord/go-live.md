@@ -159,10 +159,13 @@ or a card that won't open on the capture's device — takes the libyuv path abov
 and one log line says which ran and why. Where Windows Graphics Capture is missing or won't open, DXGI's Desktop
 Duplication fills the same kind of texture — upright, in BGRA, with the pointer
 drawn in and no border — and everything above it, the scale to the stream's size
-and the preview's readback, is identical. It is the second rung rather than the
-first: on Windows 10, where Graphics Capture cannot shed its own border, it still
-wins when it opens, because this build tells the two apart by what each reports
-rather than by refusing a capture whose border it cannot remove. Discord's still is made from the
+and the preview's readback, is identical. Which of them runs first depends on what the platform can do: Desktop
+Duplication on Windows 10, where Graphics Capture cannot shed its outline, and
+Graphics Capture from Windows 11 22H2 on, where it can. A capture that opens with
+its border still on is dropped for Duplication when Duplication can open, since
+the outline is something the person being shared with can see. Settings can name
+either rung, for a machine where another application already holds an output's
+duplication and the choice falls to the other. Discord's still is made from the
 same scaled picture, so it still refreshes while the local preview is hidden.
 
 Discord shows a still of each stream, in the call and to people outside it.

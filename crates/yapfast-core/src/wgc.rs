@@ -51,7 +51,11 @@ unsafe extern "C" {
     ) -> c_int;
     fn yapfast_wgc_content_size(capture: *mut Raw, width: *mut c_uint, height: *mut c_uint);
     fn yapfast_wgc_device(capture: *mut Raw) -> *mut c_void;
+    fn yapfast_wgc_borderless(capture: *mut Raw) -> c_int;
+    fn yapfast_wgc_can_ask_border(capture: *mut Raw) -> c_int;
+    fn yapfast_wgc_border(capture: *mut Raw, text: *mut c_char, text_size: usize);
     fn yapfast_wgc_describe(capture: *mut Raw, text: *mut c_char, text_size: usize);
+    fn yapfast_wgc_build() -> c_uint;
     fn yapfast_wgc_close(capture: *mut Raw);
 }
 
@@ -253,12 +257,51 @@ impl Capture {
     /// and output it is on, the size, and whether the border is off and what it
     /// took to turn it off. WGC's yellow indicator is a capture that works, so it
     /// is reported here rather than failed — Windows 10 has no way to remove it.
+    /// A caller deciding whether to keep this capture reads [`Capture::borderless`]
+    /// rather than this line.
     pub fn describe(&self) -> String {
         let mut line = [0u8; 384];
         // SAFETY: raw is an open capture, and the buffer is as large as its size.
         unsafe { yapfast_wgc_describe(self.raw, line.as_mut_ptr().cast(), line.len()) };
         text(&line)
     }
+
+    /// Whether the yellow border is actually off: true only when
+    /// `IsBorderRequired(false)` was asked and took. A capture on a Windows
+    /// whose session has no interface to ask, or whose request to remove the
+    /// border was refused, says false and is still a working capture.
+    pub fn borderless(&self) -> bool {
+        // SAFETY: raw is an open capture.
+        unsafe { yapfast_wgc_borderless(self.raw) != 0 }
+    }
+
+    /// Whether this build of Windows has the interface that can take the border
+    /// off at all: `IGraphicsCaptureSession3`, which exists from Windows 11
+    /// 22H2. False means no answer to [`Capture::borderless`] could have been
+    /// true, which is what a share choosing between capture ways needs to know:
+    /// a Windows 10 has nothing to ask, and Desktop Duplication draws no border.
+    pub fn can_ask_borderless(&self) -> bool {
+        // SAFETY: raw is an open capture.
+        unsafe { yapfast_wgc_can_ask_border(self.raw) != 0 }
+    }
+
+    /// The border's answer as the clause [`Capture::describe`] includes, for a
+    /// share that lets this capture go for another way and has to say why.
+    pub fn border(&self) -> String {
+        let mut clause = [0u8; 192];
+        // SAFETY: raw is an open capture, and the buffer is as large as its size.
+        unsafe { yapfast_wgc_border(self.raw, clause.as_mut_ptr().cast(), clause.len()) };
+        text(&clause)
+    }
+}
+
+/// The build number of the Windows this process runs on, from ntdll's own
+/// answer rather than the manifest-shimmed one; 0 when it can't be asked at all.
+/// It is what says whether Graphics Capture has the interface that can take its
+/// border off, before there is a capture to ask; see [`crate::capture`].
+pub fn build() -> u32 {
+    // SAFETY: the call takes nothing and answers a number.
+    unsafe { yapfast_wgc_build() }
 }
 
 impl Drop for Capture {

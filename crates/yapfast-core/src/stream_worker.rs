@@ -46,6 +46,7 @@ use livekit::webrtc::{
     video_frame::{I420Buffer, VideoBuffer},
 };
 
+use crate::capture;
 #[cfg(any(wgc, dup))]
 use crate::d3d11;
 #[cfg(dup)]
@@ -132,6 +133,12 @@ pub enum Job {
         /// Encoding on the GPU's encoder, where it has one.
         #[serde(default)]
         hardware: bool,
+        /// How a screen is captured — the setting's choice, or Auto; see
+        /// [`crate::capture`]. It travels with the job because the worker is a
+        /// process of its own: a choice made in Yapfast's process means nothing
+        /// in the one that captures.
+        #[serde(default)]
+        capture: capture::Preference,
     },
     /// Receives and decodes the stream at `server`, writing pictures that
     /// fit `width` by `height` to the frames file at `frames`.
@@ -453,7 +460,9 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             fps,
             effort,
             hardware,
+            capture: preference,
         } => {
+            crate::capture::set(preference);
             let fps = fps.clamp(1, 60);
             let sink = Sink {
                 writer: Writer::open(&frames)?,
@@ -1824,8 +1833,8 @@ fn capture_screen(
     // the line this logs, so a stream that costs more than it should says why.
     #[cfg(any(wgc, dup))]
     match card_capture(&source, &sink, (max_width, max_height)) {
-        Ok(capture) => {
-            return capture_textures(capture, sink, (max_width, max_height), stop, report);
+        Ok(chosen) => {
+            return capture_textures(chosen, sink, (max_width, max_height), stop, report);
         }
         Err(why) => tracing::info!(why = format!("{why:#}"), "sharing from the processor"),
     }
@@ -1921,8 +1930,8 @@ enum Card {
         monitor: wgc::Monitor,
     },
     /// DXGI's Desktop Duplication, which has no border and paints the pointer
-    /// into the frame itself. It is the second rung, for a machine or a build
-    /// whose Graphics Capture isn't there or won't open.
+    /// into the frame itself. It is the rung a Windows whose Graphics Capture
+    /// can't remove its border tries first, and the fallback everywhere else.
     #[cfg(dup)]
     Duplication {
         capture: dup::Capture,
@@ -1947,41 +1956,6 @@ enum Arrival {
     /// What was captured ended. This rung hands out no more frames.
     Closed,
 }
-
-/// The order the card's two capture ways are tried in, which is the whole of
-/// the fallback: Windows Graphics Capture first, because it is the one whose
-/// frames need nothing drawn into them, and Desktop Duplication second, because
-/// it is there where the first is not.
-#[cfg(any(wgc, dup))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Rung {
-    #[cfg(wgc)]
-    Graphics,
-    #[cfg(dup)]
-    Duplication,
-}
-
-#[cfg(any(wgc, dup))]
-impl Rung {
-    /// What this rung is called in the one log line that says which ran.
-    fn name(self) -> &'static str {
-        match self {
-            #[cfg(wgc)]
-            Self::Graphics => "Windows Graphics Capture",
-            #[cfg(dup)]
-            Self::Duplication => "Desktop Duplication",
-        }
-    }
-}
-
-/// The rungs in the order a share tries them.
-#[cfg(any(wgc, dup))]
-const RUNGS: &[Rung] = &[
-    #[cfg(wgc)]
-    Rung::Graphics,
-    #[cfg(dup)]
-    Rung::Duplication,
-];
 
 #[cfg(any(wgc, dup))]
 impl Card {
@@ -2050,12 +2024,35 @@ impl Card {
         }
     }
 
-    fn rung(&self) -> &'static str {
+    fn rung(&self) -> capture::Rung {
         match self {
             #[cfg(wgc)]
-            Self::Graphics { .. } => Rung::Graphics.name(),
+            Self::Graphics { .. } => capture::Rung::Graphics,
             #[cfg(dup)]
-            Self::Duplication { .. } => Rung::Duplication.name(),
+            Self::Duplication { .. } => capture::Rung::Duplication,
+        }
+    }
+
+    /// Whether this capture's border is off, for a rung that draws one: a
+    /// duplication never does, and answers `None` rather than a `true` that
+    /// would read as something it did.
+    fn borderless(&self) -> Option<bool> {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => Some(capture.borderless()),
+            #[cfg(dup)]
+            Self::Duplication { .. } => None,
+        }
+    }
+
+    /// The border's answer in the shim's own words, for the share that lets a
+    /// bordered capture go and has to say what refused it.
+    fn border(&self) -> String {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => capture.border(),
+            #[cfg(dup)]
+            Self::Duplication { .. } => String::new(),
         }
     }
 
@@ -2087,28 +2084,88 @@ impl Card {
     }
 }
 
-/// Tries each rung in [`RUNGS`] order and answers the first that opens, with
-/// the refusals of those before it in one line. That line is what a share that
-/// stays on the processor logs, and what a share that fell through to the
-/// second rung says about the first: each refusal names its rung, in the order
-/// they were tried.
+/// A capture that opened, and why it is the one sharing: the setting's choice,
+/// or what the fallbacks went through to reach it. The sentence goes into the
+/// one log line that says which rung ran, so a share that fell through, or that
+/// let a bordered capture go, says why where a reader is already looking.
 #[cfg(any(wgc, dup))]
-fn first_rung<T>(mut open: impl FnMut(Rung) -> Result<T>) -> Result<(T, String)> {
-    let mut refused = String::new();
-    for &rung in RUNGS {
-        match open(rung) {
-            Ok(opened) => return Ok((opened, refused)),
-            Err(why) => {
-                if !refused.is_empty() {
-                    refused.push_str("; ");
-                }
-                refused.push_str(rung.name());
-                refused.push_str(": ");
-                refused.push_str(&format!("{why:#}"));
-            }
-        }
+struct Chosen {
+    card: Card,
+    why: String,
+}
+
+/// Opens `rung`'s capture of `source`.
+#[cfg(any(wgc, dup))]
+fn open_rung(
+    rung: capture::Rung,
+    source: &Source,
+    sink: &Sink,
+    bounds: (u32, u32),
+) -> Result<Card> {
+    match rung {
+        #[cfg(wgc)]
+        capture::Rung::Graphics => graphics_capture(source, sink, bounds),
+        #[cfg(dup)]
+        capture::Rung::Duplication => duplication(source, sink, bounds),
+        // A rung this build doesn't carry is never in the order; the arm keeps
+        // a build with one carrier a complete match.
+        #[cfg(not(all(wgc, dup)))]
+        _ => bail!("this build of Yapfast has no {rung:?} capture"),
     }
-    bail!("{refused}")
+}
+
+/// Adds one rung's refusal to the line a share reports, in the order they were
+/// tried, naming the rung and what it said.
+#[cfg(any(wgc, dup))]
+fn refuse(into: &mut String, rung: capture::Rung, reason: &str) {
+    if !into.is_empty() {
+        into.push_str("; ");
+    }
+    into.push_str(rung.name());
+    into.push_str(": ");
+    into.push_str(reason);
+}
+
+/// Why a share captures the way it does, in the sentence its one log line
+/// carries. With nothing refused it is the choice itself — the setting's, or
+/// Auto's reading of what this Windows can do about the border. With refusals
+/// before it, it is those and the rung that came next: that is where a bordered
+/// Graphics Capture that was let go says so, in the shim's own words.
+#[cfg(any(wgc, dup))]
+fn chosen_why(
+    preference: capture::Preference,
+    platform: capture::Platform,
+    available: capture::Available,
+    rung: capture::Rung,
+    refused: &str,
+) -> String {
+    if !refused.is_empty() {
+        return format!("{refused}; {} came next", rung.name());
+    }
+    let why = match (preference, rung) {
+        (capture::Preference::GraphicsCapture, _) => {
+            "the setting asks for Windows Graphics Capture"
+        }
+        (capture::Preference::Duplication, _) => "the setting asks for Desktop Duplication",
+        // A build whose Windows SDK has no capture headers carries no Graphics
+        // Capture rung at all, which is a different reason from a Windows that
+        // has one and can't remove its border.
+        (capture::Preference::Auto, _) if !available.graphics => {
+            "this build has no Windows Graphics Capture, so Desktop Duplication captures"
+        }
+        (capture::Preference::Auto, capture::Rung::Graphics) if platform.can_remove_border() => {
+            "this build of Windows can take Graphics Capture's border off, so it comes first"
+        }
+        (capture::Preference::Auto, capture::Rung::Graphics) => {
+            "this build of Windows cannot take Graphics Capture's border off, and it is the rung \
+             there is"
+        }
+        (capture::Preference::Auto, capture::Rung::Duplication) => {
+            "this build of Windows cannot take Graphics Capture's border off, so Desktop \
+             Duplication comes first"
+        }
+    };
+    why.to_owned()
 }
 
 /// Which screen `source` is, when it is one: the display's own handle, or the
@@ -2166,8 +2223,9 @@ fn graphics_capture(
 /// The Desktop Duplication rung: DXGI hands over the compositor's own surface,
 /// and native/dup.cc turns it upright, converts it to BGRA and paints the
 /// pointer into it on the card before the loop sees it. No border is drawn and
-/// nothing is left on the screen, so this is where a screen reaches a stream on
-/// a Windows whose Graphics Capture is missing or won't open.
+/// nothing is left on the screen, so this is the rung a Windows whose Graphics
+/// Capture can't remove its border tries first, and where a screen reaches a
+/// stream on a Windows whose Graphics Capture is missing or won't open.
 ///
 /// The device is the duplication's own, made by the shim on the adapter that
 /// drives the display, because a duplication exists only on its own card's
@@ -2273,38 +2331,55 @@ fn target_of_monitor(monitor: u64) -> Result<dup::Target> {
 /// longer one of them: the session that reads the capture's texture scales it
 /// to the stream's size on the card.
 ///
-/// The card is tried in [`RUNGS`] order. Windows Graphics Capture comes first:
-/// its frames arrive with the pointer already in them and no work of ours on the
-/// way. Desktop Duplication is the second rung, for a machine or a build where
-/// that capture isn't there or won't open — an older Windows 10, or a build whose
-/// SDK has no header for it. Duplication also draws no border, which is what a
-/// Windows 10 whose Graphics Capture leaves its yellow indicator on would want;
-/// this code can't tell that from the shim's description without reading a log
-/// line, so it doesn't refuse the first rung over it. Either rung hands the loop
-/// the same borrowed BGRA texture on the device its capture made, so everything
-/// after this decision is the same.
+/// The order the two ways are tried in is [`capture::order`]'s, which is the
+/// setting's choice or, under Auto, whichever way can be borderless on this
+/// build of Windows: Desktop Duplication on a Windows whose Graphics Capture
+/// has no interface to take its border off, Graphics Capture where it does. A
+/// rung that refuses is named and the other opens; under Auto a Graphics
+/// Capture that opens with its border still on is refused the same way, once it
+/// has been let go in full, which is the case that used to leave a Windows 10
+/// share drawing a yellow outline beside a duplication that would have been
+/// clean. Either rung hands the loop the same borrowed BGRA texture on the
+/// device its capture made, so everything after this decision is the same.
 #[cfg(any(wgc, dup))]
-fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> Result<Card> {
+fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> Result<Chosen> {
     if !sink.hardware {
         bail!("the stream is set to encode on the processor");
     }
-    let (capture, refused) = first_rung(|rung| match rung {
-        #[cfg(wgc)]
-        Rung::Graphics => graphics_capture(source, sink, bounds),
-        #[cfg(dup)]
-        Rung::Duplication => duplication(source, sink, bounds),
-    })?;
-    if !refused.is_empty() {
-        // The line that otherwise says only that the card runs now also says
-        // which rung had it first and why it didn't: a share that took the
-        // fallback is worth being able to see.
-        tracing::info!(
-            why = refused.as_str(),
-            rung = capture.rung(),
-            "the card's first capture refused; sharing from the second"
-        );
+    let preference = capture::preference();
+    let platform = capture::platform();
+    let available = capture::Available {
+        graphics: cfg!(wgc),
+        duplication: cfg!(dup),
+    };
+    let rungs = capture::order(preference, platform, available);
+    let mut refused = String::new();
+    for (at, &rung) in rungs.iter().enumerate() {
+        match open_rung(rung, source, sink, bounds) {
+            Ok(card) => {
+                let next = rungs.get(at + 1).copied();
+                if capture::keeps(preference, rung, card.borderless(), next) {
+                    return Ok(Chosen {
+                        card,
+                        why: chosen_why(preference, platform, available, rung, &refused),
+                    });
+                }
+                // Auto asked for a capture that can be borderless and this one
+                // opened with its border still on. It is let go in full before
+                // the next rung opens, because a share holds one capture at a
+                // time and a duplication can't take the display while a
+                // Graphics Capture still has it.
+                let why = card.border();
+                drop(card);
+                refuse(&mut refused, rung, &why);
+            }
+            Err(why) => refuse(&mut refused, rung, &format!("{why:#}")),
+        }
     }
-    Ok(capture)
+    if refused.is_empty() {
+        bail!("this build of Yapfast has no way to capture a screen on the card");
+    }
+    bail!("{refused}")
 }
 
 /// Shares a screen from the card: each frame either capture fills a texture
@@ -2318,17 +2393,22 @@ fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> Result<Card
 /// card and read back at no more than [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`].
 #[cfg(any(wgc, dup))]
 fn capture_textures(
-    mut capture: Card,
+    chosen: Chosen,
     mut sink: Sink,
     (max_width, max_height): (u32, u32),
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
+    let Chosen {
+        card: mut capture,
+        why,
+    } = chosen;
     let (screen_width, screen_height) = capture.content_size();
     let (sent_width, sent_height) = fit(screen_width, screen_height, max_width, max_height);
     let described = capture.describe();
     tracing::info!(
-        rung = capture.rung(),
+        rung = capture.rung().name(),
+        why = why.as_str(),
         capture = described.as_str(),
         screen = format!("{screen_width}x{screen_height}"),
         stream = format!("{sent_width}x{sent_height}"),
@@ -3027,6 +3107,7 @@ impl Worker {
                 Effort::Light
             },
             hardware: HARDWARE.load(Ordering::Relaxed),
+            capture: crate::capture::preference(),
         };
         let (worker, reports) = Self::start(&job)?;
         Ok((worker, frames, reports))
@@ -3358,6 +3439,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            capture: crate::capture::Preference::Auto,
         };
         assert!(!shared.decodes(), "a shared screen only encodes");
         let glance = Job::Glance {
@@ -3742,61 +3824,118 @@ mod tests {
         );
     }
 
-    /// The card's captures are tried in the order the constant names: Graphics
-    /// Capture first, because its frames need nothing drawn into them, and
-    /// Desktop Duplication second, because it is there where the first isn't.
-    /// Each refusal carries its rung's name into the one line that reports
-    /// them, in the order they were tried, and the first rung that opens ends
-    /// the search.
+    /// The one log line says which rung ran and why: the setting's choice where
+    /// that decided, the platform's answer under Auto, and every refusal before
+    /// the rung that opened, in the order they were tried. A bordered Graphics
+    /// Capture that was let go for Duplication therefore says so in the same
+    /// line, in the shim's own words.
     #[cfg(any(wgc, dup))]
     #[test]
-    fn the_card_tries_graphics_capture_first_and_duplication_second() {
-        let mut asked = Vec::new();
-        let error = first_rung::<u8>(|rung| {
-            asked.push(rung);
-            bail!("{} refused", rung.name())
-        })
-        .expect_err("no rung opens");
-        assert_eq!(asked.as_slice(), RUNGS, "the rungs are tried in order");
-        let said = format!("{error:#}");
-        let mut after = 0;
-        for rung in RUNGS {
-            let at = said
-                .find(rung.name())
-                .unwrap_or_else(|| panic!("{} is not named in {said}", rung.name()));
-            assert!(
-                at >= after,
-                "{} is named in the order it was tried",
-                rung.name()
-            );
-            after = at;
-        }
+    fn the_chosen_rung_says_why_it_is_the_one() {
+        use crate::capture::{Available, Platform, Preference, Rung};
 
-        let mut asked = Vec::new();
-        let (opened, refused) = first_rung(|rung| {
-            asked.push(rung);
-            if asked.len() < RUNGS.len() {
-                bail!("{} refused", rung.name());
-            }
-            Ok(7)
-        })
-        .expect("the last rung opens");
-        assert_eq!(opened, 7);
+        let both = Available {
+            graphics: true,
+            duplication: true,
+        };
+
+        // The setting's own answer, on a Windows where the other way would be
+        // first under Auto.
         assert_eq!(
-            asked.as_slice(),
-            RUNGS,
-            "the search stops at the first rung that opens"
+            chosen_why(
+                Preference::GraphicsCapture,
+                Platform::new(19045),
+                both,
+                Rung::Graphics,
+                ""
+            ),
+            "the setting asks for Windows Graphics Capture"
         );
-        if RUNGS.len() > 1 {
-            assert!(
-                refused.contains(RUNGS[0].name()),
-                "the refusal before it is kept: {refused}"
-            );
-            assert!(
-                !refused.contains(RUNGS[RUNGS.len() - 1].name()),
-                "the rung that opened isn't a refusal: {refused}"
-            );
-        }
+        assert_eq!(
+            chosen_why(
+                Preference::Duplication,
+                Platform::new(22621),
+                both,
+                Rung::Duplication,
+                ""
+            ),
+            "the setting asks for Desktop Duplication"
+        );
+        // Auto reads the platform: Windows 10's Graphics Capture can't take
+        // its border off, so Duplication comes first and the line says so; on
+        // Windows 11, Graphics Capture can and does.
+        let windows_10 = chosen_why(
+            Preference::Auto,
+            Platform::new(19045),
+            both,
+            Rung::Duplication,
+            "",
+        );
+        assert!(
+            windows_10.contains("border") && windows_10.contains("Duplication"),
+            "{windows_10}"
+        );
+        let windows_11 = chosen_why(
+            Preference::Auto,
+            Platform::new(22621),
+            both,
+            Rung::Graphics,
+            "",
+        );
+        assert!(
+            windows_11.contains("border") && windows_11.contains("Graphics"),
+            "{windows_11}"
+        );
+        // A build with no Graphics Capture rung says that, rather than blaming
+        // the border on a capture it doesn't carry.
+        let duplication_only = chosen_why(
+            Preference::Auto,
+            Platform::new(22621),
+            Available {
+                graphics: false,
+                duplication: true,
+            },
+            Rung::Duplication,
+            "",
+        );
+        assert!(
+            duplication_only.contains("no Windows Graphics Capture"),
+            "{duplication_only}"
+        );
+
+        // Each refusal carries its rung's name and what it said, in the order
+        // tried, and the rung that opened is named after them.
+        let mut refused = String::new();
+        refuse(
+            &mut refused,
+            Rung::Graphics,
+            "the border is on: nothing took",
+        );
+        let said = chosen_why(
+            Preference::Auto,
+            Platform::new(22621),
+            both,
+            Rung::Duplication,
+            &refused,
+        );
+        let graphics = said
+            .find("Windows Graphics Capture: the border is on")
+            .unwrap_or_else(|| panic!("the rung that refused is named with its reason: {said}"));
+        let duplication = said
+            .find("Desktop Duplication came next")
+            .unwrap_or_else(|| panic!("the rung that opened is named: {said}"));
+        assert!(
+            graphics < duplication,
+            "in the order they were tried: {said}"
+        );
+
+        let mut both = String::new();
+        refuse(&mut both, Rung::Graphics, "no");
+        refuse(&mut both, Rung::Duplication, "no either");
+        assert_eq!(
+            both,
+            "Windows Graphics Capture: no; Desktop Duplication: no either"
+        );
     }
 
     /// A duplication takes the same displays the first rung does — the primary
@@ -3964,6 +4103,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware,
+            capture: crate::capture::Preference::Auto,
         };
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
         assert_eq!(
@@ -4619,6 +4759,7 @@ root.mainloop()
             fps: 60,
             effort: Effort::Light,
             hardware: false,
+            capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -4675,6 +4816,7 @@ root.mainloop()
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -4797,6 +4939,7 @@ root.mainloop()
                 fps: 30,
                 effort: Effort::Light,
                 hardware: false,
+                capture: crate::capture::Preference::Auto,
             };
             let (input, mut feed) = std::io::pipe().unwrap();
             writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -4849,6 +4992,7 @@ root.mainloop()
             fps: 1,
             effort: Effort::Light,
             hardware: false,
+            capture: crate::capture::Preference::Auto,
         };
         let mut reports = Vec::new();
         let input = format!("{}\n", serde_json::to_string(&gone).unwrap());

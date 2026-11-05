@@ -210,10 +210,16 @@ struct yapfast_wgc {
    * the thing captured is resized. */
   unsigned width, height;
 
-  /* What was asked of the border and what came back, as one clause of the
-   * report: a capture with the yellow indicator is still a capture, so this is
-   * said rather than failed. The pointer is reported the same way and for the
-   * same reason. */
+  /* The border's answer in the two shapes a caller decides with: `borderless`
+   * is 1 only when `IsBorderRequired(false)` was asked and took, and
+   * `can_ask_borderless` is 1 when this build of Windows has the interface that
+   * can ask at all. A caller that means to show no outline reads the first, and
+   * a caller that wants to know whether asking was ever possible reads the
+   * second; neither has to read the sentence below. A capture with the yellow
+   * indicator is still a capture, so the sentence is reported rather than
+   * failed. The pointer is reported the same way and for the same reason. */
+  int borderless;
+  int can_ask_borderless;
   char border[192];
   char pointer[160];
 
@@ -401,6 +407,29 @@ static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
 
 /* --------------------------------------------------------------- the border */
 
+/* The build number of the Windows this process runs on, which is the one fact
+ * that says whether Graphics Capture can take its border off before a capture is
+ * opened: `IGraphicsCaptureSession3` exists from Windows 11 22H2, build 22621,
+ * and a caller that chooses which way to capture has to know that before it
+ * chooses. ntdll's own call is the one that answers: the documented
+ * `GetVersionExW` is shimmed by the program's manifest, and one without it is
+ * told it runs on 6.2. Loaded by hand because ntdll is not among the libraries
+ * this file links. 0 when even that can't be asked, which reads as a Windows
+ * with no such interface. */
+static unsigned windows_build(void) {
+  typedef LONG(WINAPI * rtl_get_version)(OSVERSIONINFOW *);
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  rtl_get_version ask;
+  OSVERSIONINFOW version;
+  if (!ntdll) return 0;
+  ask = (rtl_get_version)(void *)GetProcAddress(ntdll, "RtlGetVersion");
+  if (!ask) return 0;
+  memset(&version, 0, sizeof version);
+  version.dwOSVersionInfoSize = sizeof version;
+  if (ask(&version) != 0) return 0;
+  return (unsigned)version.dwBuildNumber;
+}
+
 /* How long the access request is given before the border is left on and the
  * capture goes ahead: it answers in milliseconds here, and a capture that draws
  * the indicator for a moment at startup is better than one that fails to open
@@ -425,7 +454,8 @@ static const char *access_name(capability_abi::AppCapabilityAccessStatus status)
  * the border cannot be removed at all; an access request that is refused is a
  * managed machine, where it captures with the indicator; and
  * `put_IsBorderRequired(false)` that takes is what Windows 11 22H2 and later do.
- * None of these is a reason to refuse the capture. */
+ * None of these is a reason to refuse the capture, so the answer is kept as the
+ * two flags a caller decides with and as the sentence the report carries. */
 static void ask_borderless(yapfast_wgc *capture) {
   abi::CaptureSession3 *session3 = NULL;
   abi::CaptureAccessStatics *access = NULL;
@@ -434,6 +464,8 @@ static void ask_borderless(yapfast_wgc *capture) {
   boolean required = TRUE;
   HRESULT status;
 
+  capture->borderless = 0;
+  capture->can_ask_borderless = 0;
   if (!capture->session) {
     snprintf(capture->border, sizeof capture->border,
              "the border is on: there is no session to ask");
@@ -447,6 +479,10 @@ static void ask_borderless(yapfast_wgc *capture) {
              (unsigned long)status);
     return;
   }
+  /* From here the interface that can ask is there, whatever it answers: this is
+   * the difference between a Windows that has no way to remove the border and a
+   * Windows that has one and refused. */
+  capture->can_ask_borderless = 1;
   session3->get_IsBorderRequired(&required);
   status = WindowsCreateStringReference(
       L"Windows.Graphics.Capture.GraphicsCaptureAccess",
@@ -492,14 +528,16 @@ static void ask_borderless(yapfast_wgc *capture) {
           answer == capability_abi::AppCapabilityAccessStatus_Allowed) {
         session3->put_IsBorderRequired(FALSE);
         session3->get_IsBorderRequired(&required);
-        if (required == FALSE)
+        if (required == FALSE) {
+          capture->borderless = 1;
           snprintf(capture->border, sizeof capture->border,
                    "the border is off: RequestAccessAsync(Borderless) = Allowed and "
                    "IsBorderRequired(false) took");
-        else
+        } else {
           snprintf(capture->border, sizeof capture->border,
                    "the border is on: RequestAccessAsync(Borderless) = Allowed but "
                    "IsBorderRequired(false) was refused");
+        }
       } else {
         snprintf(capture->border, sizeof capture->border,
                  "the border is on: RequestAccessAsync(Borderless) = %s", access_name(answer));
@@ -911,6 +949,41 @@ extern "C" void yapfast_wgc_content_size(yapfast_wgc *capture, unsigned *width, 
 extern "C" void *yapfast_wgc_device(yapfast_wgc *capture) {
   return capture ? (void *)capture->device : NULL;
 }
+
+/* Whether this capture's yellow border is actually off: 1 only when
+ * IsBorderRequired(false) was asked and took, and 0 for every other answer — a
+ * Windows 10 whose session has no such interface, a managed machine that
+ * refused the request, and a capture still keeping the interface while it said
+ * no. This is what a caller decides with; the sentence `yapfast_wgc_describe`
+ * carries is for the person reading the log. */
+extern "C" int yapfast_wgc_borderless(yapfast_wgc *capture) {
+  return capture ? capture->borderless : 0;
+}
+
+/* Whether this build of Windows has the interface that can ask at all:
+ * IGraphicsCaptureSession3, from Windows 11 22H2. A capture on a build without
+ * it draws the indicator and nothing can change that, which is a difference
+ * from a machine that could ask and was refused. */
+extern "C" int yapfast_wgc_can_ask_border(yapfast_wgc *capture) {
+  return capture ? capture->can_ask_borderless : 0;
+}
+
+/* The border's answer as the clause `yapfast_wgc_describe` includes, so that a
+ * share which lets this capture go for another way can quote the reason in its
+ * own words rather than in a sentence of its own. */
+extern "C" void yapfast_wgc_border(yapfast_wgc *capture, char *text, size_t size) {
+  if (!text || !size) return;
+  if (!capture) {
+    snprintf(text, size, "no capture");
+    return;
+  }
+  snprintf(text, size, "%s", capture->border);
+}
+
+/* The build number of the Windows this process runs on, which is whether
+ * Graphics Capture has the interface that can take its border off; see
+ * `windows_build`. */
+extern "C" unsigned yapfast_wgc_build(void) { return windows_build(); }
 
 /* What this capture is and how it went, in one line: the display, the card and
  * output it is on, the size, and whether the border is off and what it took. A
