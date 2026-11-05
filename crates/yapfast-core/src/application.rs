@@ -544,6 +544,9 @@ pub struct AppState {
     /// shown name.
     pub profile_effects: Vec<Arc<crate::chat::ProfileEffect>>,
     pub account_nameplate: Option<crate::chat::Nameplate>,
+    /// The account's own Discord profile, for its card's banner, theme, name
+    /// and badges, once its card asked for it.
+    pub account_profile: Option<Arc<Profile>>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -2038,6 +2041,8 @@ pub enum Action {
     HideBlocked(bool),
     /// A tab of the full profile opened.
     OpenProfileTab(ProfileTab),
+    /// The account's card opened: ask for its own profile, which it draws from.
+    LoadOwnProfile,
     /// Which cosmetics show, from Settings → Appearance → Profiles. What's
     /// shown loses what's turned off at once; what's turned on shows as its
     /// pictures arrive, and a profile's effect once the profile is fetched
@@ -2256,6 +2261,12 @@ fn pictures_on_screen<'a>(
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
         .chain(cosmetics.decoration(state.account_decoration.as_deref()))
+        .chain(
+            state
+                .account_profile
+                .iter()
+                .filter_map(|profile| profile.banner.as_deref()),
+        )
         .chain(
             state
                 .account_nameplate
@@ -3378,6 +3389,7 @@ impl Application {
                 vec![]
             }
             Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::LoadOwnProfile => self.load_own_profile(),
             Action::SetCosmetics(cosmetics) => {
                 self.state.cosmetics = cosmetics;
                 vec![]

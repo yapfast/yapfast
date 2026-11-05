@@ -241,6 +241,9 @@ impl Application {
         user: String,
         result: Result<Profile, String>,
     ) -> Vec<Effect> {
+        if let Ok(profile) = &result {
+            self.keep_own_profile(&user, profile);
+        }
         for view in self.loading_profiles(&user) {
             view.loading = false;
             match &result {
@@ -258,11 +261,38 @@ impl Application {
     /// Fills in a profile on screen with the one kept from before, until
     /// Discord's comes.
     pub(super) fn show_kept_profile(&mut self, user: String, profile: Profile) -> Vec<Effect> {
+        self.keep_own_profile(&user, &profile);
         for view in self.loading_profiles(&user) {
             fill_profile(view, &profile);
             view.kept = true;
         }
         self.ask_open_tabs()
+    }
+
+    /// Asks for the account's own profile, which its card draws from: the
+    /// main one, outside any server.
+    pub(super) fn load_own_profile(&mut self) -> Vec<Effect> {
+        let Some(user) = self
+            .state
+            .discord_user
+            .clone()
+            .filter(|_| self.state.discord_online && !self.state.preview)
+        else {
+            return vec![];
+        };
+        let room = crate::discord::room_id(yapfast_discord::ready::PRIVATE, "0");
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
+            room,
+            user,
+            effect: false,
+        }))]
+    }
+
+    /// Keeps a profile that's the account's own for its card.
+    fn keep_own_profile(&mut self, user: &str, profile: &Profile) {
+        if self.state.discord_user.as_deref() == Some(user) {
+            self.state.account_profile = Some(Arc::new(profile.clone()));
+        }
     }
 
     /// A tab of the full profile opened: it asks Discord once for what it

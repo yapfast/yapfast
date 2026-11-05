@@ -1793,6 +1793,10 @@ struct Adapter {
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
+    /// The account's own profile its card showed last, with the count of
+    /// pictures that had arrived, so the card is built again only once
+    /// either changes.
+    account_profile_shown: Option<(Arc<yapfast_core::chat::Profile>, u64)>,
     /// What the quick switcher listed last, while it's open.
     switcher: Option<SwitcherShown>,
     /// The room ids of the rows a Discord server's channel list drags and
@@ -2102,6 +2106,7 @@ impl Adapter {
                 messages: Arc::new(Vec::new()),
                 rows: Vec::new(),
                 sidebar: None,
+                account_profile_shown: None,
                 switcher: None,
                 places: Vec::new(),
                 arranging: None,
