@@ -205,6 +205,13 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             };
             MenuRow {
                 id: choice_id(choice).into(),
+                // A mute row clicked itself mutes until it's turned back on,
+                // as Discord's does; its submenu offers the times.
+                click_id: match choice {
+                    MenuChoice::Mute | MenuChoice::MuteServer => mute_id(Muting::Always),
+                    _ => String::new(),
+                }
+                .into(),
                 text: text.into(),
                 subtitle: subtitle.into(),
                 icon: icon.clone(),
@@ -462,6 +469,14 @@ impl Notify {
         let muted = self.settings.muted;
         MenuRow {
             id: choice_id(MenuChoice::ChannelMute).into(),
+            // Clicked itself, it mutes until it's turned back on, as Discord's
+            // does; while muted it has no submenu, and a click unmutes it.
+            click_id: if muted {
+                String::new()
+            } else {
+                mute_id(Muting::Always)
+            }
+            .into(),
             text: format!("{} {}", if muted { "Unmute" } else { "Mute" }, self.kind()).into(),
             subtitle: self
                 .settings

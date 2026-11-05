@@ -3749,12 +3749,23 @@ fn the_bell_and_channel_menus_offer_the_same_notification_choices() {
         submenus.row_data(0).unwrap().row_count(),
         yapfast_core::application::MUTE_TIMES.len()
     );
+    // Clicked itself, the row mutes until it's turned back on, as Discord's
+    // does; the times are its submenu's.
+    assert_eq!(
+        window.get_menu_rows().row_data(0).unwrap().click_id,
+        "mute-always"
+    );
     assert_eq!(submenus.row_data(1).unwrap().row_count(), 0);
 
     // A muted channel outside a category unmutes, and follows the server.
     window.invoke_prepare_menu("notifications:discord:10:12".into(), false);
     let shown = rows(&window);
     assert_eq!(shown[0], row("Unmute channel", "", false));
+    assert_eq!(
+        window.get_menu_rows().row_data(0).unwrap().click_id,
+        "",
+        "a click unmutes it, there being no times to offer"
+    );
     assert_eq!(shown[1], row("Use server default", "Only @mentions", false));
     assert_eq!(shown[4], row("Nothing", "", true));
     assert_eq!(window.get_menu_submenus().row_count(), 0, "no row has one");
@@ -3990,6 +4001,11 @@ fn a_discord_servers_menus_show_and_change_its_notifications() {
         submenus.row_data(1).unwrap().row_count(),
         6,
         "the mute times"
+    );
+    assert_eq!(
+        rows.row_data(1).unwrap().click_id,
+        "mute-always",
+        "clicking Mute server mutes until it's turned back on"
     );
     let levels = submenus.row_data(2).unwrap();
     assert_eq!(
