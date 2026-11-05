@@ -257,3 +257,37 @@ measured instead, and the numbers are in `docs/measurements/README.md`:
   `--enable-d3d11va` on Windows; on this machine's UHD 770 it would buy H.264
   and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
 - GPU conversion and the Linux surface paths gain nothing further on their own.
+
+### Encoder preset, colour claim, and Opus complexity
+
+Three questions that looked like they needed a human. They were measured instead,
+in `spike/codec-evidence/` (not committed), on this machine's RTX 4090.
+
+**NVENC preset.** 1080p 30 fps at 6000 kbit/s, 300 frames, every setting held
+except the preset, three runs each:
+
+| preset | CPU ms/frame | wall ms/frame | PSNR-Y | SSIM-Y |
+| --- | --- | --- | --- | --- |
+| p1 | 0.218 | 1.52 | 46.168 | 0.994986 |
+| p2 | 0.229 | 1.53 | 46.181 | 0.995012 |
+| **p4** | 0.296 | 2.42 | **46.657** | **0.995414** |
+| p6 | 0.299 | 3.31 | 46.666 | 0.995466 |
+| p7 | 0.280 | 3.30 | 46.666 | 0.995466 |
+
+**`p4` stays.** p6 and p7 produce byte-identical bitstreams and buy 0.009 dB for
+37 % more wall time; p2 is 37 % cheaper in wall for half a dB. CPU per frame could
+not rank presets at all — two sessions inverted the order, because synchronous
+NVENC spins while the GPU works — so wall time is the cost to read.
+
+**The colour claim.** The question assumed BT.709; `hwenc.c` and `d3d11enc.c`
+declare **SMPTE 170M (BT.601) limited**, and that is what the pixels are:
+measured mean absolute error 0.33/0.33/0.41 codes through NVENC's own BGRA→NV12
+and 0.60/0.54/0.68 through libyuv. Reading them as BT.709 instead would put green
+out by up to 41 codes. Declaration and pixels agree, so there is nothing to fix;
+whether BT.601 is the *right* matrix to choose is a separate question that only
+a viewing comparison can answer.
+
+**Opus complexity.** 10 is reachable and costs nothing measurable: 4.56 ms per
+second of audio against 4.85 at complexity 9, well inside the spread. On the
+content measured it changed **no packets at all** — the bitstreams were
+byte-identical — so there is no case for moving the default off 9.
