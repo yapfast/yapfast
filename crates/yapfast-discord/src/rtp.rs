@@ -1555,10 +1555,10 @@ mod tests {
             !before(1, 65_534),
             "and the other way round: that came later"
         );
-        // Half the sequence space apart: whichever reading is taken, the
-        // other is as far on.
+        // Half the sequence space apart is too far apart either way to say
+        // which came first, so neither is before the other.
         assert!(!before(0, 0x8000));
-        assert!(before(0x8000, 0));
+        assert!(!before(0x8000, 0));
     }
 
     #[test]
