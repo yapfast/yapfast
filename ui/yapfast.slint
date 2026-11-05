@@ -2646,6 +2646,10 @@ export component YapfastWindow inherits Window {
                                                     root.jump-placed = true;
                                                     timeline.content-y = max(min(0px, timeline.height - timeline.content-height),
                                                         min(0px, (root.jump-lit ? timeline.height / 3 : 0px) - self.y - self.top));
+                                                    // The list may have been at its end before the jump and be there after,
+                                                    // so `reading-latest` needn't change, but the application stopped counting
+                                                    // on it when it asked for the jump.
+                                                    root.reading-changed(root.reading-latest);
                                                 }
                                             }
                                             // The keyboard's message stays in view, with room for the next one,

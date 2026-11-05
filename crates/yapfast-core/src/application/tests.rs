@@ -5185,6 +5185,80 @@ fn discord_messages(ids: impl IntoIterator<Item = u64>, own: &[u64]) -> Vec<Chat
 
 #[test]
 #[cfg(feature = "discord")]
+fn the_new_divider_waits_for_the_newest_page_when_kept_messages_show_first() {
+    let general = "discord:10:21";
+    let open = || {
+        let mut app = connected();
+        app.apply(unread_channel(true, 103));
+        app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+        app.dispatch(Action::SelectRoom(general.into()));
+        app.apply(window(general, chat::Direction::Kept, true));
+        app.apply(Event::Timeline {
+            room: general.into(),
+            messages: timeline(discord_messages(95..=106, &[])),
+        });
+        app
+    };
+    let newest = |app: &mut Application, ids: std::ops::RangeInclusive<u64>| {
+        app.apply(Event::Timeline {
+            room: general.into(),
+            messages: timeline(discord_messages(ids, &[])),
+        })
+    };
+    // What was kept holds unread messages, and shows at once, but newer ones
+    // may be missing: no divider yet, and the view at its end reads nothing.
+    let mut app = open();
+    assert_eq!(app.state.first_unread, None);
+    assert_eq!(app.state.unread_jump, 0);
+    assert!(app.dispatch(Action::Reading(true)).is_empty());
+    assert!(newest(&mut app, 95..=130).is_empty());
+    assert_eq!(app.state.first_unread, None, "nor as a timeline comes");
+
+    // The newest page came: the view goes to the divider, reading nothing.
+    assert!(
+        app.apply(window(general, chat::Direction::Latest, true))
+            .is_empty()
+    );
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
+    assert_eq!(app.state.unread_jump, 1);
+    assert!(!app.state.reading && !app.state.caught_up);
+    assert!(matches!(
+        app.dispatch(Action::Reading(true)).as_slice(),
+        [Effect::Backend(Command::MarkRead { room, .. })] if room == general
+    ));
+
+    // Without the newest page, it goes in from what's kept.
+    let mut app = open();
+    app.apply(Event::HistoryLoaded {
+        room: general.into(),
+        direction: chat::Direction::Latest,
+        history: chat::History::Failed,
+    });
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
+
+    // A newest page that no longer reaches the last read message asks for the
+    // messages around it, once.
+    let mut app = open();
+    let effects = newest(&mut app, 200..=249);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Around { room, .. })] if room == general
+    ));
+    assert!(
+        app.apply(window(general, chat::Direction::Latest, true))
+            .is_empty()
+    );
+    assert_eq!(app.state.first_unread, None);
+    app.apply(window(general, chat::Direction::Around, false));
+    app.apply(Event::Timeline {
+        room: general.into(),
+        messages: timeline(discord_messages(90..=115, &[])),
+    });
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn the_new_divider_marks_the_first_unread_message_until_the_channel_is_left() {
     let general = "discord:10:21";
     let mut app = connected();

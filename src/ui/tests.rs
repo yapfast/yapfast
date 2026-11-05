@@ -3018,6 +3018,13 @@ fn reading_the_newest_message_tells_the_application() {
         settle();
     }
     assert!(window.invoke_reading());
+    // A jump that leaves the list at its end, as to a divider placed once the
+    // newest page came, says so again: the application asked for it, and
+    // stopped counting on the view until it hears.
+    told.borrow_mut().clear();
+    messages::show_message(&window, 1, "i1", false);
+    settle();
+    assert_eq!(told.borrow().last(), Some(&true));
 }
 
 #[test]

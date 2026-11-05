@@ -93,7 +93,9 @@ An unread channel that shows nothing yet, neither kept in memory nor on
 disk, asks for the 50 around the last read one together with the newest 50,
 so it opens at the divider after one round trip rather than two. When the
 messages kept on disk reach back to the last read one, they're what shows
-around it, and only the newest page is asked for. A page around it with
+around it, at once, and only the newest page is asked for. The divider waits
+for that page, which may bring newer messages, and until then nothing reads
+the channel; offline, it goes in from what's kept. A page around it with
 fewer than half a page from it on reaches the newest message, as Discord's
 client takes it, so it shows as the newest rather than as a window.
 The open text channel lists its members on the right as Discord's sidebar

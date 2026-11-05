@@ -288,6 +288,12 @@ impl OpenChannel {
         self.load(discord, done, Load::Latest);
     }
 
+    /// Its latest page is still to come, so messages newer than those it
+    /// kept may be missing. Offline, what's kept is all there is for now.
+    pub(super) fn latest_due(&self, discord: &Discord) -> bool {
+        !self.synced && !matches!(discord.snapshots().borrow().status, Status::Offline(_))
+    }
+
     /// Live events may have gone by without it: offline, or behind on
     /// them. It loads its latest page again when it next opens.
     pub(super) fn missed(&mut self) {
