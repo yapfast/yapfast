@@ -873,6 +873,42 @@ async fn until<T>(
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn the_sticker_picker_lists_the_servers_own_stickers() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    // The picker asks for the server's own stickers as it opens.
+    command(
+        Command::Discord(DiscordCommand::GuildStickers {
+            server: FAKE_GUILD.into(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let listed = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = received.recv().await.expect("events go on");
+            if let Event::GuildStickers { server, result } = event
+                && server == FAKE_GUILD
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the server's stickers")
+    .expect("the fake gives the server's stickers");
+    assert!(
+        listed.iter().any(|sticker| sticker.name == "Wave"),
+        "the server's own stickers come, not only Discord's packs: {listed:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
     let discord = fake_discord().await;
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();

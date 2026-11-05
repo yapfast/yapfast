@@ -31,6 +31,12 @@
 //! - `discord-gif-home.json`: the home as Discord last answered it, with when,
 //!   so a start within [`GIF_HOME_FRESH`] shows it without asking Discord. It
 //!   is public — nobody's data — so it is not sealed.
+//! - `discord-server-stickers.json`: each server's own stickers, by its id, as
+//!   the picker last had them, so it lists them at once next time.
+//! - `discord-sticker-packs.json`: Discord's default sticker packs, as the
+//!   picker last had them and when, so it shows them at once and fetches
+//!   their pictures ahead of opening. Public — every account has the same
+//!   ones — so it is not sealed.
 //!
 //! The files name the login they belong to by a hash of the token, so another
 //! account linked meanwhile starts empty, and unlinking deletes them all.
@@ -517,6 +523,124 @@ pub enum KeptGif<'a> {
     Bytes(&'a [u8]),
 }
 
+fn sticker_packs_file() -> Option<PathBuf> {
+    Some(file()?.with_file_name("discord-sticker-packs.json"))
+}
+
+/// How long Discord's default sticker packs, as it last answered them, are
+/// shown before it is asked again: they change when it ships new ones.
+pub const STICKER_PACKS_FRESH: u64 = 24 * 60 * 60 * 1000;
+
+/// Discord's default sticker packs as the picker last had them, with when
+/// they came.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct KeptStickerPacks {
+    /// When Discord's answer came, in Unix milliseconds.
+    pub fetched: u64,
+    pub packs: Vec<crate::stickers::Collection>,
+}
+
+/// Discord's default sticker packs as the picker last had them. It reads the
+/// disk, so the async side calls it off its threads.
+pub fn sticker_packs() -> Option<KeptStickerPacks> {
+    read_packs(&sticker_packs_file()?)
+}
+
+/// [`sticker_packs`] from `file`, which a test can give it.
+fn read_packs(file: &Path) -> Option<KeptStickerPacks> {
+    serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
+}
+
+/// Keeps Discord's default sticker packs as they just came, stamped with the
+/// time, so a start shows them without asking.
+pub fn keep_sticker_packs(packs: Vec<crate::stickers::Collection>) {
+    let Some(file) = sticker_packs_file() else {
+        return;
+    };
+    write_packs(&file, packs);
+}
+
+/// [`keep_sticker_packs`] into `file`, which a test can give it.
+fn write_packs(file: &Path, packs: Vec<crate::stickers::Collection>) {
+    let kept = KeptStickerPacks {
+        fetched: now(),
+        packs,
+    };
+    let Ok(text) = serde_json::to_vec(&kept) else {
+        return;
+    };
+    if let Err(error) = write_bytes(file, &text) {
+        tracing::warn!(%error, "could not keep Discord's default sticker packs");
+    }
+}
+
+/// Whether the packs that came at `fetched` are still worth showing as they
+/// are, without asking Discord again.
+pub fn sticker_packs_are_fresh(fetched: u64) -> bool {
+    now().saturating_sub(fetched) < STICKER_PACKS_FRESH
+}
+
+fn server_stickers_file() -> Option<PathBuf> {
+    Some(file()?.with_file_name("discord-server-stickers.json"))
+}
+
+/// A server's own stickers as the picker last had them, with when they came.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct KeptServerStickers {
+    /// When Discord's answer came, in Unix milliseconds.
+    pub fetched: u64,
+    pub stickers: Vec<crate::stickers::Sticker>,
+}
+
+/// Each server's own stickers, by its id, as the picker last had them.
+type KeptServers = std::collections::HashMap<String, KeptServerStickers>;
+
+/// A server's own stickers as the picker last had them. It reads the disk, so
+/// the async side calls it off its threads.
+pub fn server_stickers(guild: &str) -> Option<KeptServerStickers> {
+    read_servers(&server_stickers_file()?)?.remove(guild)
+}
+
+/// [`server_stickers`] from `file`, which a test can give it.
+fn read_servers(file: &Path) -> Option<KeptServers> {
+    serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
+}
+
+/// Keeps a server's own stickers as they just came, stamped with the time, so
+/// the picker shows them at once next time.
+pub fn keep_server_stickers(guild: &str, stickers: Vec<crate::stickers::Sticker>) {
+    let Some(file) = server_stickers_file() else {
+        return;
+    };
+    write_server_stickers(&file, guild, stickers);
+}
+
+/// [`keep_server_stickers`] into `file`, which a test can give it.
+fn write_server_stickers(file: &Path, guild: &str, stickers: Vec<crate::stickers::Sticker>) {
+    let mut servers = read_servers(file).unwrap_or_default();
+    servers.insert(
+        guild.to_owned(),
+        KeptServerStickers {
+            fetched: now(),
+            stickers,
+        },
+    );
+    let Ok(text) = serde_json::to_vec(&servers) else {
+        return;
+    };
+    if let Err(error) = write_bytes(file, &text) {
+        tracing::warn!(%error, "could not keep a server's stickers");
+    }
+}
+
+/// This moment, in Unix milliseconds.
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or_default()
+}
+
 fn messages_directory() -> Option<PathBuf> {
     Some(file()?.with_file_name("discord-messages"))
 }
@@ -787,6 +911,12 @@ fn picture_file(url: &str) -> Option<KeptPicture> {
     } else {
         None
     }
+}
+
+/// Whether the picture at `url` is kept on disk, without reading it: what a
+/// prefetch checks before asking for one again.
+pub fn picture_is_kept(url: &str) -> bool {
+    picture_file(url).is_some_and(|kept| kept.file().is_file())
 }
 
 /// A picture kept on disk: plain, or encrypted.
@@ -1363,5 +1493,69 @@ mod tests {
         prune(&directory, u64::MAX, 2);
         assert_eq!(left(), ["e"]);
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn keeps_a_servers_stickers_by_server() {
+        let file = std::env::temp_dir().join(format!(
+            "yapfast-discord-server-stickers-{}.json",
+            std::process::id()
+        ));
+        let wave = crate::stickers::Sticker {
+            id: "10".into(),
+            name: "Wave".into(),
+            format: 1,
+        };
+        let spin = crate::stickers::Sticker {
+            id: "11".into(),
+            name: "Spin".into(),
+            format: 3,
+        };
+        write_server_stickers(&file, "1", vec![wave.clone()]);
+        write_server_stickers(&file, "2", vec![spin.clone()]);
+        // Each server keeps its own, and they read back.
+        let kept = read_servers(&file).expect("the servers read back");
+        assert_eq!(
+            kept.get("1").map(|kept| kept.stickers.clone()),
+            Some(vec![wave])
+        );
+        assert_eq!(
+            kept.get("2").map(|kept| kept.stickers.clone()),
+            Some(vec![spin])
+        );
+        // A later answer for one leaves the other as it was.
+        write_server_stickers(&file, "1", vec![]);
+        let kept = read_servers(&file).expect("the servers read back");
+        assert!(kept["1"].stickers.is_empty() && kept["2"].stickers.len() == 1);
+        std::fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn keeps_the_sticker_packs_and_tells_when_they_go_stale() {
+        let file = std::env::temp_dir().join(format!(
+            "yapfast-discord-sticker-packs-{}.json",
+            std::process::id()
+        ));
+        let packs = vec![crate::stickers::Collection {
+            id: "1".into(),
+            name: "Wumpus".into(),
+            stickers: vec![crate::stickers::Sticker {
+                id: "10".into(),
+                name: "Wave".into(),
+                format: 1,
+            }],
+        }];
+        write_packs(&file, packs.clone());
+        let kept = read_packs(&file).expect("the packs read back");
+        assert_eq!(kept.packs, packs);
+        assert!(
+            sticker_packs_are_fresh(kept.fetched),
+            "packs from a moment ago are fresh"
+        );
+        assert!(
+            !sticker_packs_are_fresh(kept.fetched.saturating_sub(STICKER_PACKS_FRESH + 1)),
+            "one from over a day ago is stale"
+        );
+        std::fs::remove_file(&file).ok();
     }
 }

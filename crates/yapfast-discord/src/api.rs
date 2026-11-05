@@ -564,6 +564,16 @@ impl Api {
             .await
     }
 
+    /// Posts a sticker, a message with nothing else, as Discord's client
+    /// does when a sticker is clicked in its picker.
+    pub async fn send_sticker(&self, channel: &str, sticker: &str, nonce: &str) -> Result<Value> {
+        let mut body = message_body("", nonce);
+        body["sticker_ids"] = json!([sticker]);
+        let path = format!("/channels/{channel}/messages");
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
     /// Sends a message of text alone from somewhere other than the
     /// composer, saying where as Discord's client does: `context_menu` for
     /// the link Invite to Server sends, `forwarding` for the message added
@@ -1509,6 +1519,12 @@ impl Api {
     pub async fn delete_emoji(&self, guild: &str, emoji: &str) -> Result<()> {
         let path = format!("/guilds/{guild}/emojis/{emoji}");
         self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// Discord's default sticker packs, as its own client offers them:
+    /// every account has them, so it takes no permission.
+    pub async fn sticker_packs(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/sticker-packs")).await
     }
 
     /// A server's stickers, each with who uploaded it.

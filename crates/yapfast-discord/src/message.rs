@@ -64,7 +64,7 @@ const FORWARDABLE_FLAGS: u64 = 1 << 0
 /// Missing sticker formats default to PNG.
 const STICKER_PNG: u64 = 1;
 /// The size Discord shows stickers at.
-const STICKER_SIZE: u32 = 160;
+use crate::stickers::MESSAGE_SIZE as STICKER_SIZE;
 
 /// The attachment flag that marks a spoiler.
 pub(crate) const IS_SPOILER: u64 = 1 << 3;

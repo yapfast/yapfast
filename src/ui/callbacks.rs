@@ -31,10 +31,73 @@ fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: us
     adapter.action(window, Action::LoadPictures(pictures));
 }
 
+/// The rail's own icons, which are unicode glyphs unless a server's icon or a
+/// custom emoji's picture came: Twemoji's, as its grid draws them, at the 32px
+/// the rail shows them.
+fn fill_rail_glyphs(window: &YapfastWindow, adapter: &Adapter) {
+    let scale = window.window().scale_factor();
+    let rail = &adapter.models.emoji_rail;
+    for index in 0..rail.row_count() {
+        let Some(section) = rail.row_data(index) else {
+            continue;
+        };
+        if section.clock {
+            continue;
+        }
+        let icon = section.icon;
+        if icon.picture.size().width > 0 || icon.key.contains(':') || icon.glyph != icon.key {
+            continue;
+        }
+        if let Some(image) = crate::twemoji::picture(&icon.glyph, emoji::RAIL_GLYPH, scale)
+            .or_else(|| crate::emoji_glyphs::picture(&icon.glyph, emoji::RAIL_GLYPH, scale))
+        {
+            rail.set_row_data(
+                index,
+                RailSection {
+                    icon: EmojiCell {
+                        picture: image,
+                        ..icon
+                    },
+                    ..section
+                },
+            );
+        }
+    }
+}
+
+/// A server's icon that came after the rail was built, drawn then.
+fn fill_rail_icons(adapter: &Adapter) {
+    let rail = &adapter.models.emoji_rail;
+    let sections = &adapter.models.emoji_sections;
+    for index in 0..rail.row_count().min(sections.row_count()) {
+        let (Some(section), Some(named)) = (rail.row_data(index), sections.row_data(index)) else {
+            continue;
+        };
+        if named.icon_url.is_empty() || section.icon.picture.size().width > 0 {
+            continue;
+        }
+        let Some(source) = adapter.app.state.pictures.get(named.icon_url.as_str()) else {
+            continue;
+        };
+        rail.set_row_data(
+            index,
+            RailSection {
+                icon: EmojiCell {
+                    picture: picture(source),
+                    ..section.icon
+                },
+                ..section
+            },
+        );
+    }
+}
+
 /// Gives the picker's grid the emoji it shows between `first` and `last` rows a
 /// picture each, drawn once, so scrolling draws a bitmap instead of walking the
 /// colour font's paint graph for every emoji on screen; see [`crate::emoji_glyphs`].
 fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize, last: usize) {
+    fill_rail_glyphs(window, adapter);
+    fill_rail_icons(adapter);
     let scale = window.window().scale_factor();
     let_go_of_far_glyphs(adapter, first, last);
     let rows = &adapter.models.emoji_rows;
@@ -164,23 +227,70 @@ pub(super) fn custom_keys_without_pictures(
     wanted
 }
 
+thread_local! {
+    /// The emoji this device keeps, by reaction key, which the picker's stars
+    /// ask about as they draw.
+    static EMOJI_FAVORITES: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::default();
+}
+
+/// The emoji this device keeps, as the picker's stars, and the grid again so
+/// its Favorites section follows.
+fn refresh_emoji_favorites(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow) {
+    let keys: Vec<String> = adapter.borrow().app.emoji_favorites().to_vec();
+    EMOJI_FAVORITES.with_borrow_mut(|set| {
+        set.clear();
+        set.extend(keys);
+    });
+    let global = window.global::<EmojiFavorites>();
+    global.set_revision(global.get_revision().wrapping_add(1));
+    let (query, columns) = (
+        window.get_emoji_query(),
+        window.get_emoji_columns().max(1) as usize,
+    );
+    show_emoji(adapter, window, query.as_str(), columns);
+}
+
 /// Gives the picker's grid the emoji `query` finds, `columns` to a row, and
 /// fetches the pictures of the custom emoji it shows.
 fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &str, columns: usize) {
     let mut adapter = adapter.borrow_mut();
-    let (rows, sections) = {
-        let custom = adapter.app.emoji_sets();
-        emoji::rows(
-            query,
-            &adapter.app.frequent_reactions(16),
-            &custom,
-            columns,
-            |set| {
-                let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
-                Some(picture(icon))
-            },
-        )
-    };
+    let custom = adapter.app.emoji_sets();
+    // Each server's icon heads its emoji in the rail, and need not be on
+    // screen anywhere else, so the ones that aren't here yet are asked for.
+    let wanted: Vec<String> = custom
+        .iter()
+        .filter_map(|set| set.icon.clone())
+        .filter(|url| !adapter.app.state.pictures.contains_key(url))
+        .collect();
+    let (rows, sections) = emoji::rows(
+        query,
+        adapter.app.emoji_favorites(),
+        &adapter.app.frequent_reactions(16),
+        &custom,
+        columns,
+        |set| {
+            let url = set.icon.clone()?;
+            let icon = adapter.app.state.pictures.get(&url)?;
+            Some((url, picture(icon)))
+        },
+    );
+    if !wanted.is_empty() {
+        adapter.action(window, Action::WantedPictures(wanted));
+    }
+    // The rail lists the same sections the grid has, at the rows they start
+    // and end at.
+    let rail: Vec<RailSection> = sections
+        .iter()
+        .map(|section| RailSection {
+            name: section.icon.name.clone(),
+            icon: section.icon.clone(),
+            clock: false,
+            top: (section.row as f32 - 0.5) * emoji::ROW_HEIGHT,
+            end: (section.end as f32 - 0.5) * emoji::ROW_HEIGHT,
+        })
+        .collect();
+    update_model(&adapter.models.emoji_rail, rail);
     update_model(&adapter.models.emoji_rows, rows);
     adapter.emoji_rows_filled = (0, GRID_ROWS);
     // The grid shares the width it shows at among these, so its cells need the
@@ -197,6 +307,41 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     super::games::bind(window, adapter);
     super::gifs::bind(window, adapter);
+    super::stickers::bind(window, adapter);
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_open_sticker(move |item, index| {
+            let Some(window) = weak.upgrade() else { return };
+            let mut adapter = state.borrow_mut();
+            let item = item.to_string();
+            let index = index.max(0) as usize;
+            adapter.sticker_card = Some((item.clone(), index));
+            let card = messages::sticker_card(&adapter.app, &item, index);
+            let server = card.server.to_string();
+            window.set_sticker_card(card);
+            window.set_sticker_card_open(true);
+            if !server.is_empty() {
+                adapter.action(&window, Action::PreviewServer(server));
+            }
+        });
+    }
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_emoji_favorite(move |key| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::FavoriteEmoji(key.into()));
+                refresh_emoji_favorites(&state, &window);
+            }
+        });
+    }
+    window
+        .global::<EmojiFavorites>()
+        .on_is_favorite(|key, _| EMOJI_FAVORITES.with_borrow(|set| set.contains(key.as_str())));
+    refresh_emoji_favorites(adapter, window);
     super::polls::bind(window, adapter);
     super::call_link::bind(window, adapter);
     super::server_settings::bind(window, adapter);

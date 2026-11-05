@@ -376,8 +376,10 @@ an error.
   of frames, letting go the least recently shown, never one on screen. An
   emoji shows its still first frame until its frames arrive, and if they
   never do.
-- Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
-  GIF ones from the media proxy. Lottie stickers render locally from the
+- Stickers show as pictures 160px square, as Discord draws them, whatever size
+  their picture came at: the 160px one the CDN gives, decoded at that size
+  rather than the timeline's preview. PNG and APNG stickers come from the CDN
+  and GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation
   playback setting as GIF stickers. Only a Lottie sticker's address
   (`ready::lottie_sticker`) decodes as Lottie; other pictures never reach
@@ -537,6 +539,53 @@ its desktop client does:
 
   The picture downloads to disk as it comes, so a full-size GIF of tens of
   megabytes takes no memory, and the thumbnail plays from its file.
+
+## Stickers
+
+A Stickers tab in the same picker, beside GIFs and Emoji, and a sticker button
+of its own between the GIF's and the emoji's. A search field heads it, as
+Discord's client's does: what it holds keeps the stickers whose names hold it,
+and Enter sends the first of them. The collections run down its left —
+Frequently Used, the open server's, then Discord's default packs — and the
+grid shows the one the rail chose under the collection's name, in columns of
+96px tiles as Discord's client draws them, 4 of them at the 498px the picker
+opens at. A click sends one. The picker's left edge drags it wider as it does
+for the GIFs and the emoji, and the grid takes another 96px column as it goes;
+the width is the same for all three tabs and comes back at the next start
+(`picker_width`).
+
+- Frequently Used lists the 8 stickers this device sent most, by how often it
+  sent them, kept in `layout.json` as the frequent reactions are. Its rail
+  button and its heading carry a clock, Yapfast's own drawing, rather than a
+  system emoji.
+- A collection's rail button is its picture, 32px: a server's icon, or a
+  pack's first sticker. A server's heading carries the same icon at 16px
+  before its name, which is written as it is named, not in capitals.
+
+- A server's own stickers are `GET /guilds/{id}/stickers`, which any member
+  may ask for. Yapfast keeps them in `discord-server-stickers.json`, by server
+  id, and shows them at once next time; past a day it asks again as the
+  picker opens. A guild object's own `stickers` seed the list when it carries
+  them, and GUILD_STICKERS_UPDATE replaces it when they change.
+- The default packs are `GET /sticker-packs`, with the sticker packs' ids,
+  names and stickers. Yapfast keeps them in `discord-sticker-packs.json`,
+  public and unsealed, and shows them at once at a start within a day of
+  Discord's answer; past that it asks again, which the snapshot asks at every
+  start and the picker asks as it opens.
+- The pictures of every sticker the picker offers — the collection buttons'
+  too — are fetched ahead into `discord-pictures/` through
+  `DiscordCommand::PrefetchPictures`, which downloads and keeps without
+  decoding or holding anything, so the tiles read them from the disk instead
+  of waiting on the CDN, and cost no memory until they show. A tile's picture
+  is decoded at 96px when it shows, a Lottie sticker's JSON with ThorVG as
+  stickers in messages are, and let go of when the picker closes or the tile
+  scrolls out of sight.
+- A click sends `POST /channels/{id}/messages` with `sticker_ids`, a message of
+  the sticker alone as Discord's client sends it; the gateway's MESSAGE_CREATE
+  shows it, as it shows a poll. A sticker that couldn't be sent says why in
+  the channel.
+- Without Nitro the picker offers only the server's own stickers, as
+  Discord's client does, and with it Discord's packs too.
 
 ## Jumping to a message
 

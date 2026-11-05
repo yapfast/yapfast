@@ -50,6 +50,7 @@ mod people;
 mod render;
 mod roles;
 mod server_settings;
+mod stickers;
 
 pub use channels::Channels;
 pub use commands::{command, finished, live};

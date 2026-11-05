@@ -1245,6 +1245,267 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
 }
 
 #[test]
+fn the_sticker_picker_lists_the_servers_stickers_above_the_packs() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let sticker = |id: &str, name: &str| yapfast_core::chat::Sticker {
+        id: id.into(),
+        name: name.into(),
+        format: 1,
+        picture: format!("https://cdn.discordapp.com/stickers/{id}.png?size=96"),
+        usable: true,
+    };
+    {
+        let mut adapter = adapter.borrow_mut();
+        let state = &mut adapter.app.state;
+        state.stickers.open = true;
+        state.stickers.server_for = Some("10".into());
+        state.stickers.servers = vec![yapfast_core::application::ServerStickers {
+            id: "10".into(),
+            name: "Server".into(),
+            stickers: vec![sticker("1", "Wave"), sticker("2", "Bounce")],
+        }];
+        state.stickers.packs = vec![yapfast_core::chat::StickerCollection {
+            id: "20".into(),
+            name: "Wumpus".into(),
+            stickers: vec![sticker("3", "Party")],
+        }];
+        adapter.show_stickers(&window);
+    }
+    let tiles = window.get_sticker_tiles();
+    let labels: Vec<String> = (0..tiles.row_count())
+        .filter_map(|row| tiles.row_data(row))
+        .map(|tile| tile.label.to_string())
+        .collect();
+    // Every collection lists: Frequently Used first, then the server's own
+    // stickers, then Discord's packs, which are Nitro's and so locked.
+    assert_eq!(
+        labels,
+        [
+            "Frequently Used",
+            "Party",
+            "Server",
+            "Wave",
+            "Bounce",
+            "Wumpus",
+            "Party"
+        ],
+        "Frequently Used first, then the server's own stickers"
+    );
+    let locked: Vec<bool> = (0..tiles.row_count())
+        .filter_map(|row| tiles.row_data(row))
+        .filter(|tile| tile.kind == 0)
+        .map(|tile| tile.usable)
+        .collect();
+    assert_eq!(
+        locked,
+        [false, true, true, false],
+        "the server's are usable here; Discord's packs need Nitro, those before them too"
+    );
+    // The rail lists the same sections the emoji picker's does, with no line
+    // between them.
+    let sections = window.get_sticker_sections();
+    let shown: Vec<(String, bool)> = (0..sections.row_count())
+        .filter_map(|row| sections.row_data(row))
+        .map(|section| (section.name.to_string(), section.clock))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("Frequently Used".to_string(), true),
+            ("Server".to_string(), false),
+            ("Wumpus".to_string(), false),
+        ],
+        "Frequently Used carries the clock, as the emoji picker's does"
+    );
+}
+
+#[test]
+fn a_servers_icon_draws_on_its_heading_and_rail_button() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let icon = "https://cdn.discordapp.com/icons/10/abc.png?size=128";
+    {
+        let mut adapter = adapter.borrow_mut();
+        let state = &mut adapter.app.state;
+        state.servers = vec![Arc::new(yapfast_core::chat::ChatServer {
+            id: yapfast_core::discord::server_id("10"),
+            name: "Server".into(),
+            channels: vec![],
+            discord: true,
+            muted: false,
+            unavailable: false,
+            icon: Some(icon.into()),
+            folder: None,
+            hide_muted: false,
+            community: false,
+            pinned: Vec::new(),
+        })];
+        state.stickers.open = true;
+        state.stickers.server_for = Some("10".into());
+        state.stickers.servers = vec![yapfast_core::application::ServerStickers {
+            id: "10".into(),
+            name: "Server".into(),
+            stickers: vec![yapfast_core::chat::Sticker {
+                id: "1".into(),
+                name: "Wave".into(),
+                format: 1,
+                picture: "https://cdn.discordapp.com/stickers/1.png?size=96".into(),
+                usable: true,
+            }],
+        }];
+        adapter.show_stickers(&window);
+    }
+    let heading_has_its_icon = |window: &YapfastWindow| {
+        let tiles = window.get_sticker_tiles();
+        (0..tiles.row_count())
+            .filter_map(|row| tiles.row_data(row))
+            .find(|tile| tile.kind == 1)
+            .is_some_and(|tile| tile.image.size().width > 0)
+    };
+    // Before it came, the heading has no icon.
+    assert!(!heading_has_its_icon(&window));
+    // Once the app's pictures carry it, the heading and the rail button draw it.
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.pictures.insert(
+            icon.into(),
+            Arc::new(Picture {
+                width: 128,
+                height: 128,
+                rgba: yapfast_core::chat::Pixels::new(128, 128, vec![255; 128 * 128 * 4]),
+                ..Default::default()
+            }),
+        );
+        adapter.show_stickers(&window);
+    }
+    assert!(
+        heading_has_its_icon(&window),
+        "the server's icon draws on its heading"
+    );
+    let sections = window.get_sticker_sections();
+    let section = sections.row_data(0).expect("the server's section");
+    assert!(
+        section.icon.picture.size().width > 0,
+        "and on its rail button"
+    );
+}
+
+#[test]
+fn a_stickers_picture_reaches_its_tile_and_the_grid_keeps_a_window() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let sticker = |id: usize| yapfast_core::chat::Sticker {
+        id: id.to_string(),
+        name: format!("Sticker {id}"),
+        format: 1,
+        picture: format!("https://cdn.discordapp.com/stickers/{id}.png?size=96"),
+        usable: true,
+    };
+    let stickers: Vec<_> = (0..80).map(sticker).collect();
+    let first = stickers[0].picture.clone();
+    {
+        let mut adapter = adapter.borrow_mut();
+        let state = &mut adapter.app.state;
+        state.stickers.open = true;
+        state.stickers.server_for = Some("10".into());
+        state.stickers.servers = vec![yapfast_core::application::ServerStickers {
+            id: "10".into(),
+            name: "Server".into(),
+            stickers,
+        }];
+        adapter.show_stickers(&window);
+    }
+    // Before the grid says how tall it is, all of it is published.
+    let all = window.get_sticker_tiles().row_count();
+    assert_eq!(all, 81, "the server's heading and its 80 stickers");
+    // Once it does, only what is in sight and a screen either side is.
+    adapter.borrow_mut().stickers_scrolled(&window, 0.0, 486.0);
+    let windowed = window.get_sticker_tiles().row_count();
+    assert!(
+        windowed < all && windowed >= 4,
+        "a window, not the whole grid: {windowed} of {all}"
+    );
+    // A picture that arrives draws on its tile, though the window did not move.
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.stickers.pictures.insert(
+            first.clone(),
+            yapfast_core::application::StickerPicture::Shown(Arc::new(Picture {
+                width: 96,
+                height: 96,
+                rgba: yapfast_core::chat::Pixels::new(96, 96, vec![255; 96 * 96 * 4]),
+                ..Default::default()
+            })),
+        );
+        adapter.show_stickers(&window);
+    }
+    let tiles = window.get_sticker_tiles();
+    assert!(
+        (0..tiles.row_count())
+            .filter_map(|row| tiles.row_data(row))
+            .any(|tile| tile.kind == 0 && tile.image.size().width > 0),
+        "the picture arrived and drew on its tile"
+    );
+}
+
+#[test]
+fn a_messages_sticker_is_160px_square() {
+    // A sticker's picture may come smaller than Discord's 160px — an old kept
+    // one, or a Lottie drawn small — but its cell is 160 square, as Discord
+    // draws it.
+    let picture = Arc::new(Picture {
+        width: 96,
+        height: 96,
+        rgba: yapfast_core::chat::Pixels::new(96, 96, vec![0; 96 * 96 * 4]),
+        ..Default::default()
+    });
+    let row = message_row_plain(&ChatMessage {
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "Wave".into(),
+            size: None,
+            image: true,
+            dimensions: Some((160, 160)),
+            preview: Some(picture),
+            preview_failed: false,
+            placement: Placement::Sticker,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        }],
+        ..Default::default()
+    });
+    let cell = row.stickers.row_data(0).expect("the sticker shows");
+    assert_eq!((cell.width, cell.height), (160, 160));
+    assert!(!cell.loading);
+}
+
+#[test]
 fn a_selection_copies_the_pictures_it_runs_through() {
     let picture = Arc::new(Picture {
         width: 40,

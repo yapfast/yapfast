@@ -188,6 +188,17 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   so the first look finds them. A drag that changed the width keeps it in
   `layout.json` (`picker_width`), and it comes back at the next start. See
   [Discord](discord/messages.md#gifs).
+- A Stickers tab in the same picker, and a sticker button of its own, on
+  Discord: a search field, then the collections down the left to jump between
+  — Frequently Used with a clock's own icon, the open server's, whose icon
+  leads its name, then Discord's default packs — and their stickers as 96px
+  tiles in the picker's columns under the collection's name, as the emoji's
+  own are. A click sends the sticker as a message of its own. Without Nitro only
+  the server's stickers show, as Discord's client offers them. Its pictures are
+  kept on disk and fetched ahead, so the tab shows them at once. The left edge
+  drags it wider as it does for the GIFs and the emoji, and the grid takes
+  another 96px column for every 104px. See
+  [Discord](discord/messages.md#stickers).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the

@@ -1896,6 +1896,56 @@ impl Discord {
         self.api.gif_select(id, query).await
     }
 
+    /// Discord's default sticker packs as Yapfast last saw them, to show
+    /// until [`Self::sticker_packs`] answers.
+    pub async fn kept_sticker_packs(&self) -> Option<cache::KeptStickerPacks> {
+        tokio::task::spawn_blocking(cache::sticker_packs)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Discord's default sticker packs, kept on disk too, for the picker's
+    /// pictures to be fetched ahead of it opening.
+    pub async fn sticker_packs(&self) -> Result<Vec<crate::stickers::Collection>> {
+        let answer = self.api.sticker_packs().await?;
+        let packs = crate::stickers::packs(&answer);
+        let kept = packs.clone();
+        let _ = tokio::task::spawn_blocking(move || cache::keep_sticker_packs(kept)).await;
+        Ok(packs)
+    }
+
+    /// A server's own stickers as Yapfast last saw them, to show until
+    /// [`Self::server_sticker_list`] answers.
+    pub async fn kept_server_stickers(&self, guild: &str) -> Option<cache::KeptServerStickers> {
+        let guild = guild.to_owned();
+        tokio::task::spawn_blocking(move || cache::server_stickers(&guild))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// A server's own stickers, at the picker's size, as `GET
+    /// /guilds/{id}/stickers` lists them; kept on disk, so the picker shows
+    /// them at once next time.
+    pub async fn server_sticker_list(&self, guild: &str) -> Result<Vec<crate::stickers::Sticker>> {
+        let answer = self.api.guild_stickers(guild).await?;
+        let stickers = crate::stickers::parse_all(&answer);
+        let (kept, guild) = (stickers.clone(), guild.to_owned());
+        let _ =
+            tokio::task::spawn_blocking(move || cache::keep_server_stickers(&guild, kept)).await;
+        Ok(stickers)
+    }
+
+    /// Posts sticker `id` in `channel`, as Discord's client does when one is
+    /// clicked in the picker. The gateway shows the message.
+    pub async fn send_sticker(&self, guild: &str, channel: &str, id: &str) -> Result<()> {
+        let nonce = crate::message::nonce();
+        let sent = self.api.send_sticker(channel, id, &nonce).await?;
+        self.write_names().learn_message(server(guild), &sent);
+        Ok(())
+    }
+
     /// The account's favourite GIFs as Yapfast last saw them, to show until
     /// [`Self::favorite_gifs`] answers.
     pub async fn kept_favorite_gifs(&self) -> Option<Vec<crate::gifs::Favorite>> {

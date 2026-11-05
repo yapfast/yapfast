@@ -45,6 +45,7 @@ mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
+mod stickers;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
@@ -91,6 +92,7 @@ pub use server_settings::{
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
+pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
     default_thread_name,
@@ -630,6 +632,8 @@ pub struct AppState {
     pub gifs: GifPicker,
     pub favorite_gifs: Option<Vec<chat::FavoriteGif>>,
     pub favorite_gifs_changed: u32,
+    /// The sticker picker, and Discord's default packs once they came.
+    pub stickers: StickerPicker,
     pub add_people: Option<AddPeople>,
     /// The selected Discord channel's topic, once the backend has said it.
     pub topic: Option<Arc<chat::Topic>>,
@@ -1548,6 +1552,22 @@ pub enum Action {
     /// Load the favourite GIFs, if they haven't, as a star is about to be
     /// used.
     LoadFavoriteGifs,
+    /// Open the sticker picker, or close it.
+    OpenStickers,
+    CloseStickers,
+    /// The pictures of the picker's tiles in sight, by their addresses.
+    StickersShown(Vec<String>),
+    /// The sticker picker's search field: the stickers whose names hold it.
+    SearchStickers(String),
+    /// Send a sticker, by its id, as a message of its own.
+    PickSticker(String),
+    /// Keep an emoji among the favorites, or let it go, by its reaction key.
+    FavoriteEmoji(String),
+    /// Pictures the picker draws that are not on screen, by address, which it
+    /// shows once they come.
+    WantedPictures(Vec<String>),
+    /// Keep a sticker among the favorites, or let it go, by its id.
+    FavoriteSticker(String),
     /// Open a message's Reactions window, by item, on the reaction `key`,
     /// or the one most reacted with.
     ShowReactions {
@@ -1999,6 +2019,9 @@ pub struct Application {
     samples: HashMap<String, Vec<Arc<ChatMessage>>>,
     /// How often this device added each reaction.
     reaction_uses: HashMap<String, u32>,
+    /// The emoji this device keeps, by reaction key, which the picker lists
+    /// first.
+    emoji_favorites: Vec<String>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
     /// Forwards sent, until each conversation they went to answers.
@@ -2021,6 +2044,8 @@ pub struct Application {
     /// held no picture at all; see [`Application::prefetch_emoji`].
     #[cfg(feature = "discord")]
     emoji_prefetched: bool,
+    /// The server icons fetched ahead, so each is fetched once.
+    server_icons_prefetched: HashSet<String>,
     /// Names searched for in the selected room, lowercased.
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
@@ -2780,6 +2805,14 @@ impl Application {
             Action::ShowPins(shown) => self.show_pins(shown),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
+            Action::OpenStickers => self.open_stickers(),
+            Action::CloseStickers => self.close_stickers(),
+            Action::StickersShown(shown) => self.stickers_shown(shown),
+            Action::SearchStickers(query) => self.search_stickers(query),
+            Action::PickSticker(id) => self.pick_sticker(id),
+            Action::FavoriteSticker(id) => self.favorite_sticker(id),
+            Action::FavoriteEmoji(key) => self.favorite_emoji(key),
+            Action::WantedPictures(urls) => self.wanted_pictures(urls),
             Action::CloseGifs => self.close_gifs(),
             Action::SearchGifs(query) => self.search_gifs(query),
             Action::ShowGifs(view) => self.show_gifs(view),
@@ -3468,6 +3501,16 @@ impl Application {
             Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
+            Event::StickerPacks(result) => return self.sticker_packs_came(result),
+            Event::KeptStickerPacks(packs) => return self.kept_sticker_packs_came(packs),
+            Event::GuildStickers { server, result } => {
+                return self.guild_stickers_came(server, result);
+            }
+            Event::KeptGuildStickers { server, stickers } => {
+                self.kept_guild_stickers_came(server, stickers);
+            }
+            Event::StickerPicture { url, picture } => self.sticker_picture_came(url, picture),
+            Event::StickerSent { room, result } => self.sticker_sent(room, result),
             Event::Reactors {
                 item,
                 key,
@@ -3965,6 +4008,50 @@ impl Application {
             }
         }
         frequent
+    }
+
+    /// Asks for the pictures a picker draws that are not on screen.
+    fn wanted_pictures(&mut self, urls: Vec<String>) -> Vec<Effect> {
+        // What the window has needs no asking; one that failed is asked for
+        // again the next time a picker lays its rail out, rather than staying
+        // missing for the session.
+        let urls: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.is_empty() && !self.state.pictures.contains_key(url))
+            .collect();
+        if urls.is_empty() {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+            urls,
+        )))]
+    }
+
+    /// The emoji this device keeps, which the picker lists first.
+    pub fn emoji_favorites(&self) -> &[String] {
+        &self.emoji_favorites
+    }
+
+    /// Restores what [`Self::emoji_favorites`] kept.
+    pub fn remember_emoji_favorites(&mut self, favorites: Vec<String>) {
+        let kept = &mut self.emoji_favorites;
+        for key in favorites {
+            if !kept.contains(&key) {
+                kept.push(key);
+            }
+        }
+    }
+
+    /// An emoji's star: keeps it among the favorites, or lets it go.
+    pub(super) fn favorite_emoji(&mut self, key: String) -> Vec<Effect> {
+        let favorites = &mut self.emoji_favorites;
+        match favorites.iter().position(|known| *known == key) {
+            Some(index) => {
+                favorites.remove(index);
+            }
+            None => favorites.push(key),
+        }
+        vec![]
     }
 
     /// How often this device added each reaction, for an adapter to keep across runs.
