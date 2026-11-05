@@ -333,6 +333,11 @@ impl Animations {
         let mut keys: Vec<String> = Vec::new();
         let mut wanted: Vec<(String, Option<char>, String)> = Vec::new();
         for (key, glyph, address) in shown {
+            // The font may have been made after the frames were kept, or made
+            // again since, so run of text that draws this emoji is named here.
+            if let Some(glyph) = glyph {
+                i_slint_core::yapfast_emoji::set_glyph(&key, glyph);
+            }
             if self.cache.get(&key).is_some()
                 || self.cache.is_still(&key)
                 || self.decoding.contains(&key)

@@ -1241,9 +1241,17 @@ fn an_emoji_card_says_how_many_of_its_servers_members_are_online() {
             discoverable: false,
         },
     );
-    let private = emoji_card(&target, Some(&server), &state, &mut pictures);
+    // A server that isn't a Community shows its count alone.
+    let mut quiet = server.clone();
+    quiet.community = false;
+    let private = emoji_card(&target, Some(&quiet), &state, &mut pictures);
     assert_eq!(private.server_online, "12 Online");
     assert_eq!(private.server_note, "");
+    // A Community keeps its note even when the preview answers without the
+    // feature, which is what Discord's own card does.
+    let noted = emoji_card(&target, Some(&server), &state, &mut pictures);
+    assert_eq!(noted.server_online, "12 Online");
+    assert_eq!(noted.server_note, "Discoverable Server");
     // A server out of reach, as in an outage, shows no server either.
     let mut away = server.clone();
     away.unavailable = true;

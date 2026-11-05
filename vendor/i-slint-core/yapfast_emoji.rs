@@ -145,6 +145,16 @@ pub fn insert(key: &str, glyph: Option<char>, animation: Rc<Animation>) {
     });
 }
 
+/// Names the glyph an emoji's frames draw, as text draws it, for one whose font
+/// was made after its frames were registered, or made again since.
+pub fn set_glyph(key: &str, glyph: char) {
+    REGISTRY.with_borrow_mut(|registered| {
+        if registered.by_key.contains_key(key) {
+            registered.by_glyph.insert(glyph, String::from(key));
+        }
+    });
+}
+
 /// Takes the emoji's animation away: its glyph and the picker's still draw
 /// again.
 pub fn remove(key: &str) {

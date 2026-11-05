@@ -326,7 +326,17 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     let weak = window.as_weak();
     slint::Timer::single_shot(Duration::ZERO, move || {
         let Some(window) = weak.upgrade() else { return };
-        FOCUSED.set(false);
+        // A window that opens focused gets no event saying so, and animation
+        // would wait for one; ask it instead.
+        let focused = {
+            use slint::winit_030::WinitWindowAccessor as _;
+            window
+                .window()
+                .with_winit_window(|winit| winit.has_focus())
+                .unwrap_or(false)
+        };
+        FOCUSED.set(focused);
+        show_motion(&window);
         // The display's own scale factor, which the zoom multiplies.
         let base = Rc::new(Cell::new(window.window().scale_factor()));
         let level = Rc::new(Cell::new(

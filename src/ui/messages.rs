@@ -1239,10 +1239,11 @@ pub(super) fn emoji_card(
     // What Discord said of the server, which its card's counts and note come
     // from; before it answers, the note follows the features Yapfast has.
     let preview = server.and_then(|server| state.server_previews.get(&server.id));
-    let discoverable = preview.map_or_else(
-        || server.is_some_and(|server| server.community),
-        |preview| preview.discoverable,
-    );
+    // Discover lists a server whose preview says so, and Yapfast keeps its own
+    // word for a Community server either way: a preview that answers without
+    // the feature would otherwise take the note away from a server that has it.
+    let discoverable = server.is_some_and(|server| server.community)
+        || preview.is_some_and(|preview| preview.discoverable);
     // A custom emoji whose picture moves animates on its card too, by the
     // name the rows register it under.
     let picture_key = listed
