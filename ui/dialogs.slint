@@ -1,8 +1,10 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Popup } from "theme.slint";
-import { ActionButton, IconButton, Avatar, TextField, MenuItem } from "controls.slint";
+import { ActionButton, IconButton, Avatar, TextField, MenuItem, StatusText, Picture, PictureStore, GuildTag } from "controls.slint";
+import { ActivityCard, ActivityClock, ActivityRow, ProfileBadge, ProfileBadgeRow } from "people.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
+import { NamePreset, StyledName } from "names.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 import { Choices } from "settings.slint";
 
@@ -566,55 +568,688 @@ component StatusOption inherits Rectangle {
     }
 }
 
-// The account's Discord status, picked from a menu over the account panel as
-// in Discord, and the ways into its custom status and its profile.
+// A row of the account popout: an icon or dot, its text, and a chevron when it
+// opens a flyout.
+component AccountRow inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    /// Instead of an icon, a status as Discord's menu draws it, cut with `under`.
+    in property <string> dot;
+    in property <color> under;
+    /// A small icon before the chevron.
+    in property <image> note;
+    in property <bool> has-note;
+    in property <bool> chevron;
+    in property <bool> open;
+    in property <color> ink;
+    in property <color> ink3;
+    callback clicked;
+    height: 46px; border-radius: 6px;
+    background: pointer.has-hover || root.open ? root.ink.with-alpha(0.08) : transparent;
+    animate background { duration: 120ms; }
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 8px; spacing: 10px;
+        if root.dot == "": Image { source: root.icon; width: 18px; image-fit: contain; colorize: root.ink3; }
+        if root.dot != "": Middle { Rectangle {
+            width: 18px; height: 14px;
+            Rectangle {
+                width: 14px; height: 14px; border-radius: 7px;
+                background: root.dot == "dnd" ? Theme.danger : root.dot == "idle" ? Theme.accent : root.dot == "online" ? Theme.live : Theme.faint;
+                clip: true;
+                if root.dot == "dnd": Rectangle { width: 9px; height: 3px; border-radius: 1.5px; background: root.under; }
+                if root.dot == "idle": Rectangle { x: 0px; y: 0px; width: 8px; height: 8px; border-radius: 4px; background: root.under; }
+                if root.dot == "offline": Rectangle { width: 6px; height: 6px; border-radius: 3px; background: root.under; }
+            }
+        } }
+        Text { text: root.text; color: root.ink; font-size: 14px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        if root.has-note: Image { source: root.note; width: 16px; image-fit: contain; colorize: root.ink3; }
+        if root.chevron: Image {
+            source: @image-url("icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: root.ink3;
+            transform-rotation: root.open ? 90deg : 0deg;
+            animate transform-rotation { duration: 180ms; easing: ease-out; }
+        }
+    }
+    pointer := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+}
+
+// What clicking your own account opens, as Discord's account popout: who you
+// are and what you're up to, then what you can do about it.
 export component StatusMenu inherits Rectangle {
     /// "online", "idle", "dnd" or "invisible".
     in property <string> status;
     in property <bool> has-custom-status;
     in property <string> game-name;
     in property <string> game-duration;
+    /// What the account shows it's doing, the game among it once it's known.
+    in property <[ActivityRow]> activities;
+    in property <string> name;
+    in property <string> handle;
+    in property <string> pronouns;
+    in property <string> tag-text;
+    in property <string> name-font;
+    in property <int> name-weight;
+    in property <float> name-spacing;
+    in property <int> name-effect;
+    in property <NamePreset> name-paint;
+    in property <bool> has-name-paint;
+    in property <string> tag-icon;
+    in property <[ProfileBadgeRow]> badges;
+    in property <string> initial;
+    in property <color> tint;
+    in property <image> picture;
+    in property <string> presence;
+    in property <string> custom-text;
+    in property <string> custom-emoji;
+    in property <string> banner;
+    in property <color> accent;
+    in property <bool> has-accent;
+    in property <color> theme-top;
+    in property <color> theme-bottom;
+    in property <bool> has-theme;
+    in property <bool> theme-light;
     /// Asks for `game-duration` again; it changes by the minute.
     callback game-duration-due;
     callback choose(string);
     callback custom-status;
     callback edit-profile;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    callback copy-id;
+    callback open-link(string);
+    callback open-badges;
+    /// The status choices show under their row.
+    property <bool> choosing;
+    out property <length> card-width: 300px;
+    out property <length> card-height: body.preferred-height;
+    property <string> status-name: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
+    property <length> banner-height: 105px;
+    // Coloured as a profile card is, whatever the app's theme.
+    property <color> ink: !root.has-theme ? Theme.text : root.theme-light ? #060607 : #ffffff;
+    property <color> ink2: !root.has-theme ? Theme.secondary : root.theme-light ? #2e3035 : #e3e5e8;
+    property <color> ink3: !root.has-theme ? Theme.muted : root.theme-light ? #4e5058 : #c4c9ce;
+    property <color> group: !root.has-theme ? Theme.sunken : root.theme-light ? #ffffff66 : #00000059;
+    property <color> divider: root.ink.with-alpha(0.1);
+    property <color> bubble: !root.has-theme ? Theme.panel : root.theme-light ? #ffffff : #232427;
+    property <color> bubble-edge: !root.has-theme ? Theme.edge : root.theme-light ? #00000026 : #404044;
+    property <color> card-top: root.theme-light ? root.theme-top : root.theme-top.mix(#000000, 0.59);
+    property <color> card-bottom: root.theme-light ? root.theme-bottom : root.theme-bottom.mix(#000000, 0.59);
+    property <color> plate: root.has-theme ? root.card-top.mix(root.card-bottom, 1 - root.banner-height / root.card-height) : Theme.raised;
+    property <image> banner-picture: PictureStore.picture(root.banner, PictureStore.revision);
+    function request-banner() {
+        if root.banner != "" && root.banner-picture.width == 0 {
+            PictureStore.request(root.banner);
+        }
+    }
+    changed banner => { root.request-banner(); }
     accessible-role: groupbox;
-    accessible-label: "Status";
+    accessible-label: root.name + "'s account";
+    // Clicks between the rows stay on the card.
+    TouchArea { }
+    init => { root.request-banner(); }
+    Rectangle {
+        x: 0px; y: 0px; width: root.card-width; height: root.card-height;
+        background: root.has-theme ? @linear-gradient(180deg, root.card-top, root.card-bottom) : Theme.raised;
+        border-radius: 12px;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        Rectangle {
+            border-radius: 12px; clip: true;
+            body := VerticalLayout {
+                spacing: 0px;
+                // The banner, or its colour, with the picture hanging over its edge.
+                Rectangle {
+                    height: root.banner-height + 46px + 4px;
+                    Rectangle {
+                        y: 0px; height: root.banner-height;
+                        background: root.has-accent ? root.accent : root.has-theme ? root.theme-top : Theme.sunken;
+                        if root.banner-picture.width > 0: Picture {
+                            width: parent.width; height: parent.height; image-fit: cover;
+                            still: root.banner-picture;
+                            frames: PictureStore.frames(root.banner, PictureStore.revision);
+                            delays: PictureStore.delays(root.banner, PictureStore.revision);
+                        }
+                    }
+                    Rectangle {
+                        x: 10px; y: root.banner-height - 46px; width: 92px; height: 92px; border-radius: 46px;
+                        background: root.plate;
+                        Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
+                        // The picture opens the editor, as Discord's does.
+                        TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            accessible-role: button;
+                            accessible-label: "Edit profile";
+                            accessible-action-default => { root.edit-profile(); }
+                            clicked => { root.edit-profile(); }
+                        }
+                        if root.presence != "": StatusDot { x: 61px; y: 61px; width: 26px; height: 26px; presence: root.presence; ring: root.plate; }
+                    }
+                    // What you're up to, a thought beside the picture: two dots and its bubble.
+                    Rectangle {
+                        x: 102px; y: root.banner-height - 22px; width: 10px; height: 10px; border-radius: 5px;
+                        background: root.bubble;
+                    }
+                    Rectangle {
+                        x: 116px; y: root.banner-height - 14px; width: 18px; height: 18px; border-radius: 9px;
+                        background: root.bubble;
+                    }
+                    Rectangle {
+                        x: 105px; y: root.banner-height - 7px; width: root.card-width - self.x - 14px; height: 53px;
+                        border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                        accessible-role: button;
+                        accessible-label: root.has-custom-status ? "Change custom status" : "Set a custom status";
+                        accessible-action-default => { root.custom-status(); }
+                        HorizontalLayout {
+                            padding-left: 13px; padding-right: 13px; padding-top: 7px; padding-bottom: 7px;
+                            StatusText {
+                                text: root.has-custom-status ? root.custom-text : "Set a custom status";
+                                emoji-url: root.has-custom-status ? root.custom-emoji : "";
+                                color: root.ink2; font-size: 14px; wrap: word-wrap; max-height: 39px;
+                            }
+                        }
+                        TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.custom-status(); } }
+                    }
+                }
+                VerticalLayout {
+                    padding: 14px; padding-top: 4px; spacing: 10px;
+                    VerticalLayout {
+                        spacing: 2px;
+                        Rectangle {
+                            preferred-width: card-name.width; min-width: 0px; height: card-name.height; clip: root.name-effect < 3;
+                            card-name := StyledName {
+                                x: 0px; y: 0px;
+                                text: root.name; family: root.name-font; size: 20px;
+                                weight: root.name-weight > 0 ? root.name-weight : 700;
+                                spacing: 20px * root.name-spacing;
+                                effect: root.name-effect;
+                                paint: root.name-paint; painted: root.has-name-paint; ink: root.ink;
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px; alignment: start;
+                            Text { text: root.handle; color: root.ink; font-size: 14px; vertical-alignment: center; }
+                            if root.pronouns != "": Text { text: "•"; color: root.ink3; font-size: 14px; vertical-alignment: center; }
+                            if root.pronouns != "": Text { text: root.pronouns; color: root.ink2; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                            if root.tag-text != "": Middle { GuildTag { text: root.tag-text; icon: root.tag-icon; ink: root.ink; plate: root.group; } }
+                            // As on a card, in their pill, with a count of any that don't fit.
+                            if root.badges.length > 0: Middle { Rectangle {
+                                height: 26px; border-radius: 8px; background: root.group;
+                                HorizontalLayout {
+                                    padding-left: 4px; padding-right: 4px; spacing: 0px;
+                                    for badge[index] in root.badges: Rectangle {
+                                        width: index < 3 ? 22px : 0px; visible: index < 3;
+                                        ProfileBadge {
+                                            width: 18px; height: 18px; info: badge;
+                                            clicked => { root.open-link(badge.link); }
+                                        }
+                                    }
+                                    if root.badges.length > 3: Text {
+                                        text: "+" + (root.badges.length - 3); color: root.ink2; font-size: 12px; vertical-alignment: center;
+                                    }
+                                }
+                            } }
+                        }
+                    }
+                    for activity in root.activities: ActivityCard {
+                        activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3; plate: root.plate;
+                        open-link(url) => { root.open-link(url); }
+                    }
+                    Timer { interval: 1s; running: root.activities.length > 0; triggered => { ActivityClock.due(); } }
+                    if root.game-name != "" && root.activities.length == 0: Rectangle {
+                        border-radius: 8px; background: root.group;
+                        VerticalLayout {
+                            padding: 10px; spacing: 2px;
+                            Text { text: root.game-name; color: root.ink; font-size: 14px; font-weight: 700; overflow: elide; }
+                            Text { text: root.game-duration == "" ? "Playing now" : "Playing for " + root.game-duration; color: root.ink3; font-size: 12px; overflow: elide; }
+                            Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
+                        }
+                    }
+                    Rectangle {
+                        border-radius: 8px; background: root.group;
+                        VerticalLayout {
+                            padding: 6px; spacing: 2px;
+                            AccountRow {
+                                text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); ink: root.ink; ink3: root.ink3;
+                                clicked => { root.edit-profile(); }
+                            }
+                            Rectangle { height: 1px; background: root.divider; }
+                            AccountRow {
+                                text: root.status-name; dot: root.status == "invisible" ? "offline" : root.status;
+                                under: !root.has-theme ? Theme.sunken : root.plate.mix(root.theme-light ? #ffffff : #000000, 0.65);
+                                has-note: root.status == "dnd"; note: @image-url("icons/bell-off.svg");
+                                chevron: true; open: root.choosing; ink: root.ink; ink3: root.ink3;
+                                clicked => { root.choosing = !root.choosing; }
+                            }
+                            if root.choosing: VerticalLayout {
+                                spacing: 2px;
+                                for option in [
+                                    { key: "online", name: "Online", note: "" },
+                                    { key: "idle", name: "Idle", note: "" },
+                                    { key: "dnd", name: "Do Not Disturb", note: "You won't get message notifications." },
+                                    { key: "invisible", name: "Invisible", note: "You'll show as offline, but can use Yapfast as usual." },
+                                ]: StatusOption {
+                                    key: option.key; name: option.name; note: option.note; checked: root.status == option.key;
+                                    clicked => { root.choose(option.key); }
+                                }
+                            }
+                            Rectangle { height: 1px; background: root.divider; }
+                            AccountRow {
+                                text: "Badges"; icon: @image-url("icons/medal.svg");
+                                chevron: true; ink: root.ink; ink3: root.ink3;
+                                clicked => { root.open-badges(); }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        border-radius: 8px; background: root.group;
+                        VerticalLayout {
+                            padding: 6px;
+                            AccountRow {
+                                text: "Copy User ID"; icon: @image-url("icons/copy.svg"); ink: root.ink; ink3: root.ink3;
+                                clicked => { root.copy-id(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // The outline lies over the banner, so it goes all the way round.
+    Rectangle {
+        x: 0px; y: 0px; width: root.card-width; height: root.card-height;
+        border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+    }
+}
+
+export struct BadgeLevelRow { name: string, icon: string, owned: bool, milestone: string }
+
+/// A badge in the account's badge window.
+export struct BadgeRow {
+    id: int, name: string, owned: bool, description: string, info: string, rarity: string,
+    icon: string, art: string, unlocked: string,
+    has-next: bool, next-name: string, next-icon: string, current-icon: string, progress: float, helper: string,
+    levels: [BadgeLevelRow],
+    /// In someone's window: the badge's name over its level's, and what the
+    /// date tile is of. Below, whether it's in beta or no longer to be had.
+    eyebrow: string, date-label: string, beta: bool, legacy: bool, gone: bool,
+    /// Its button's words and the Discord page it opens; quietly drawn once
+    /// this account has the badge.
+    action: string, action-link: string, action-quiet: bool,
+    /// This account has it too, so there's a link to its own.
+    view-yours: bool,
+}
+
+// A badge's picture, moving when it does.
+component BadgePicture inherits Picture {
+    in property <string> url;
+    still: PictureStore.picture(root.url, PictureStore.revision);
+    frames: PictureStore.frames(root.url, PictureStore.revision);
+    delays: PictureStore.delays(root.url, PictureStore.revision);
+    function request() {
+        if root.url != "" && root.still.width == 0 {
+            PictureStore.request(root.url);
+        }
+    }
+    init => { root.request(); }
+    changed url => { root.request(); }
+    image-fit: contain;
+}
+
+component BadgeCell inherits Rectangle {
+    in property <BadgeRow> badge;
+    in property <bool> chosen;
+    callback clicked;
+    width: 64px; height: 64px; border-radius: 8px;
+    background: pointer.has-hover || root.chosen ? Theme.hover : Theme.raised;
+    animate background { duration: 120ms; }
+    border-width: root.chosen ? 1px : 0px; border-color: Theme.accent;
+    transform-scale: pointer.has-hover ? 1.06 : 1;
+    animate transform-scale { duration: 120ms; easing: ease-out; }
+    accessible-role: button;
+    accessible-label: root.badge.name;
+    accessible-action-default => { root.clicked(); }
+    BadgePicture { width: 36px; height: 36px; url: root.badge.icon; }
+    pointer := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+}
+
+// A rarity as Discord's tile has it, in its pill.
+component RarityPill inherits Rectangle {
+    in property <string> rarity;
+    property <color> tone: root.rarity == "Rare" ? #6b8cff : root.rarity == "Epic" ? #b57bff : root.rarity == "Mythic" ? #ffb84d : Theme.secondary;
+    width: pill-text.preferred-width + 18px; height: 20px; border-radius: 10px;
+    background: root.tone.with-alpha(0.2); border-width: 1px; border-color: root.tone.with-alpha(0.6);
+    pill-text := Text { text: root.rarity.to-uppercase(); color: root.tone; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; }
+}
+
+// A tile under a badge's name: what, then what of.
+component BadgeTile inherits Rectangle {
+    in property <string> value;
+    in property <string> caption;
+    /// A rarity, in its pill, in place of the value.
+    in property <string> rarity;
+    height: 62px; border-radius: 10px; background: Theme.raised;
     VerticalLayout {
-        padding: 6px; spacing: 2px;
-        if root.game-name != "": VerticalLayout {
-            padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 6px; spacing: 2px;
-            Text { text: root.game-name; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
-            Text { text: root.game-duration == "" ? "Playing now" : "Playing for " + root.game-duration; color: Theme.secondary; font-size: 12px; }
-            Rectangle { height: 1px; background: Theme.line; }
-            Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
-        }
-        for option in [
-            { key: "online", name: "Online", note: "" },
-            { key: "idle", name: "Idle", note: "" },
-            { key: "dnd", name: "Do Not Disturb", note: "You won't get message notifications." },
-            { key: "invisible", name: "Invisible", note: "You'll show as offline, but can use Yapfast as usual." },
-        ]: StatusOption {
-            key: option.key; name: option.name; note: option.note; checked: root.status == option.key;
-            clicked => { root.choose(option.key); }
-        }
+        alignment: center; spacing: 4px;
+        if root.rarity == "": Text { text: root.value; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-alignment: center; }
+        if root.rarity != "": HorizontalLayout { alignment: center; RarityPill { rarity: root.rarity; } }
+        Text { text: root.caption; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
+    }
+}
+
+// Every level of someone's badge, as Discord's grid has them, the last row in
+// the middle; one not reached is dimmed and locked.
+component BadgeLevels inherits Rectangle {
+    in property <[BadgeLevelRow]> levels;
+    property <length> cell-width: self.width / 4;
+    property <length> cell-height: 72px;
+    property <int> last-start: floor((self.levels.length - 1) / 4) * 4;
+    property <int> last-count: self.levels.length - self.last-start;
+    height: ceil(self.levels.length / 4) * self.cell-height;
+    for level[index] in root.levels: VerticalLayout {
+        x: (mod(index, 4) + (index >= root.last-start ? (4 - root.last-count) / 2 : 0)) * root.cell-width;
+        y: floor(index / 4) * root.cell-height;
+        width: root.cell-width; height: root.cell-height;
+        alignment: start; spacing: 3px;
+        opacity: level.owned ? 1 : 0.55;
+        HorizontalLayout { alignment: center; BadgePicture { width: 30px; height: 30px; url: level.icon; } }
         HorizontalLayout {
-            padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px;
-            Rectangle { height: 1px; background: Theme.line; }
+            alignment: center; spacing: 3px; padding-left: 2px; padding-right: 2px;
+            if !level.owned: Image { source: @image-url("icons/lock.svg"); width: 10px; image-fit: contain; colorize: Theme.muted; }
+            Text { text: level.name; color: level.owned ? Theme.text : Theme.muted; font-size: 11px; font-weight: 600; overflow: elide; min-width: 0px; }
         }
-        MenuItem {
-            text: root.has-custom-status ? "Change custom status" : "Set a custom status";
-            icon: @image-url("icons/smile-plus.svg");
-            clicked => { root.custom-status(); }
+        if level.milestone != "": Text { text: level.milestone; color: level.owned ? Theme.secondary : Theme.muted; font-size: 11px; horizontal-alignment: center; overflow: elide; }
+    }
+}
+
+// The account's badges: those it has and those it can earn, with one in detail.
+// Given someone's name, it's their window instead, as Discord's has it: what
+// they own, and each in detail with how far they've got.
+export component BadgesWindow inherits Rectangle {
+    in property <[BadgeRow]> owned;
+    in property <[BadgeRow]> available;
+    in property <string> note;
+    /// Which of those it owns shows first.
+    in property <int> first;
+    /// Whose window it is, shortened as Discord shortens it, with the address
+    /// of their avatar; no name for this account's own.
+    in property <string> person;
+    in property <string> person-avatar;
+    /// Discord wouldn't say, so there's a way to ask again.
+    in property <bool> failed;
+    callback close;
+    callback retry;
+    /// To this account's window, on this badge if any, by its number.
+    callback view-own(int);
+    callback open-link(string);
+    in-out property <BadgeRow> chosen;
+    property <bool> someone: root.person != "";
+    property <int> shown-index;
+    property <bool> has-chosen: root.chosen.name != "";
+    property <bool> levels-open;
+    property <length> cell: 72px;
+    // Picking a badge plays its details in: they're put back without
+    // animating, then released on the next timer tick.
+    property <bool> playing;
+    property <float> art-scale: 1;
+    property <length> slide: 0px;
+    property <float> fill: 1;
+    animate art-scale { duration: root.playing ? 320ms : 0ms; easing: ease-out-back; }
+    animate slide { duration: root.playing ? 220ms : 0ms; easing: ease-out; }
+    animate fill { duration: root.playing ? 520ms : 0ms; easing: ease-out; }
+    function pick-at(index: int) {
+        root.shown-index = index;
+        root.pick(root.owned[index]);
+    }
+    function pick(badge: BadgeRow) {
+        root.playing = false;
+        root.chosen = badge;
+        root.levels-open = false;
+        root.art-scale = 0.72;
+        root.slide = 18px;
+        root.fill = 0;
+        release.running = true;
+    }
+    release := Timer {
+        interval: 16ms; running: false;
+        triggered => {
+            self.running = false;
+            root.playing = true;
+            root.art-scale = 1;
+            root.slide = 0px;
+            root.fill = 1;
         }
-        MenuItem {
-            text: "Edit Profile";
-            icon: @image-url("icons/user-pen.svg");
-            clicked => { root.edit-profile(); }
+    }
+    // The first it has shows until another's picked, and one that changes
+    // underneath shows as it now is.
+    changed owned => {
+        if root.owned.length > 0 && !root.has-chosen {
+            root.pick-at(min(root.first, root.owned.length - 1));
+        } else if root.someone && root.shown-index < root.owned.length {
+            root.chosen = root.owned[root.shown-index];
         }
+    }
+    init => { if root.owned.length > 0 { root.pick-at(min(root.first, root.owned.length - 1)); } }
+    width: 720px; height: 560px; border-radius: 12px;
+    background: Theme.sidebar; border-color: Theme.edge; border-width: 1px;
+    drop-shadow-blur: 32px; drop-shadow-color: #00000099; drop-shadow-offset-y: 8px;
+    accessible-role: groupbox;
+    accessible-label: root.someone ? root.person + "'s badges" : "Your badges";
+    // Clicks on it stay on it.
+    TouchArea { }
+    HorizontalLayout {
+        Rectangle {
+            width: 320px;
+            VerticalLayout {
+                padding: 22px; spacing: 10px; alignment: start;
+                if !root.someone: Text { text: "Your badges"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                if !root.someone: Text { text: "Browse your badges and discover new ones you can unlock."; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                if root.someone: HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Middle { Avatar { size: 24px; initial: root.person; picture-url: root.person-avatar; } }
+                    Text { text: root.person + "'s badges"; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; min-width: 0px; }
+                }
+                if root.someone: Text { text: "Explore their badges, or view your badges to find out what you can unlock next."; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+                if root.failed: HorizontalLayout {
+                    alignment: start;
+                    ActionButton { text: "Try Again"; primary: true; small: true; clicked => { root.retry(); } }
+                }
+                Rectangle {
+                    height: ceil(root.owned.length / 4) * root.cell;
+                    for badge[index] in root.owned: BadgeCell {
+                        x: mod(index, 4) * root.cell; y: floor(index / 4) * root.cell;
+                        badge: badge; chosen: root.chosen.id == badge.id && root.has-chosen;
+                        clicked => { root.pick-at(index); }
+                    }
+                }
+                if root.available.length > 0: Text { text: "Available to unlock"; color: Theme.text; font-size: 14px; font-weight: 700; }
+                Rectangle {
+                    height: ceil(root.available.length / 4) * root.cell;
+                    for badge[index] in root.available: BadgeCell {
+                        x: mod(index, 4) * root.cell; y: floor(index / 4) * root.cell;
+                        badge: badge; chosen: root.chosen.id == badge.id && root.has-chosen;
+                        clicked => { root.pick(badge); }
+                    }
+                }
+            }
+            if root.someone: VerticalLayout {
+                y: parent.height - self.height; height: 66px;
+                Rectangle { height: 1px; background: Theme.line; }
+                VerticalLayout {
+                    padding: 14px; padding-bottom: 15px;
+                    ActionButton { text: "View Your Badges"; clicked => { root.view-own(-1); } }
+                }
+            }
+        }
+        Rectangle { width: 1px; background: Theme.line; }
+        Rectangle {
+            clip: true;
+            if root.has-chosen && root.someone: person-scroll := ScrollView {
+                x: root.slide; width: parent.width;
+                content-width: self.visible-width;
+                content-height: person-detail.preferred-height;
+                person-detail := VerticalLayout {
+                    width: person-scroll.visible-width;
+                    padding: 22px; padding-top: 34px; spacing: 10px;
+                    HorizontalLayout { alignment: center; BadgePicture {
+                        width: root.chosen.art != root.chosen.icon ? 150px : 96px;
+                        height: root.chosen.art != root.chosen.icon ? 120px : 96px;
+                        url: root.chosen.art; transform-scale: root.art-scale; } }
+                    VerticalLayout {
+                        spacing: 2px;
+                        if root.chosen.eyebrow != "": Text { text: root.chosen.eyebrow; color: Theme.secondary; font-size: 14px; horizontal-alignment: center; }
+                        Text { text: root.chosen.name; color: Theme.text; font-size: 26px; font-weight: 800; font-italic: true; horizontal-alignment: center; wrap: word-wrap; }
+                    }
+                    // Its beta mark, whose it is and what they've done, with the
+                    // link to one's own after it, or under it when that's long.
+                    HorizontalLayout {
+                        alignment: center; spacing: 5px;
+                        if root.chosen.beta: Text { text: "Beta  •"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                        Middle { Avatar { size: 16px; initial: root.person; picture-url: root.person-avatar; } }
+                        Text { text: root.person + "'s badge"; color: Theme.secondary; font-size: 12px; vertical-alignment: center; }
+                        if root.chosen.info != "": Text { text: "•  " + root.chosen.info; color: Theme.secondary; font-size: 12px; vertical-alignment: center; overflow: elide; min-width: 0px; }
+                        if root.chosen.view-yours && !(root.chosen.beta && root.chosen.info != ""): Text { text: "•"; color: Theme.secondary; font-size: 12px; vertical-alignment: center; }
+                        if root.chosen.view-yours && !(root.chosen.beta && root.chosen.info != ""): Text {
+                            text: "View yours"; color: Theme.link; font-size: 12px; vertical-alignment: center;
+                            TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.view-own(root.chosen.id); } }
+                        }
+                    }
+                    if root.chosen.view-yours && root.chosen.beta && root.chosen.info != "": HorizontalLayout {
+                        alignment: center;
+                        Text {
+                            text: "View yours"; color: Theme.link; font-size: 12px;
+                            TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.view-own(root.chosen.id); } }
+                        }
+                    }
+                    if root.chosen.unlocked != "" || root.chosen.rarity != "": HorizontalLayout {
+                        padding-top: 8px; spacing: 8px;
+                        if root.chosen.unlocked != "": BadgeTile { value: root.chosen.unlocked; caption: root.chosen.date-label; }
+                        if root.chosen.rarity != "": BadgeTile { rarity: root.chosen.rarity; caption: "Rarity"; }
+                    }
+                    if root.chosen.description != "" || root.chosen.levels.length > 0 || root.chosen.gone: Rectangle {
+                        border-radius: 10px; background: Theme.raised;
+                        VerticalLayout {
+                            padding: 14px; spacing: 12px;
+                            if root.chosen.description != "": HorizontalLayout {
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center; spacing: 2px; horizontal-stretch: 1;
+                                    if root.chosen.legacy: Text { text: "Legacy Badge"; color: Theme.muted; font-size: 12px; }
+                                    Text { text: root.chosen.description; color: Theme.text; font-size: 14px; font-weight: 500; wrap: word-wrap; }
+                                }
+                                if root.chosen.action != "": Middle {
+                                    ActionButton {
+                                        text: root.chosen.action; primary: !root.chosen.action-quiet; min-height: 32px;
+                                        horizontal-stretch: 0;
+                                        clicked => { root.open-link(root.chosen.action-link); }
+                                    }
+                                }
+                            }
+                            if root.chosen.levels.length > 0: Rectangle { height: 1px; background: Theme.line; }
+                            if root.chosen.levels.length > 0: Text { text: root.person + "'s Progress"; color: Theme.secondary; font-size: 12px; font-weight: 500; }
+                            if root.chosen.levels.length > 0: BadgeLevels { levels: root.chosen.levels; }
+                            if root.chosen.gone: Text {
+                                text: "This badge is no longer available, but others are waiting. View your badges to see what you can unlock.";
+                                color: Theme.secondary; font-size: 12px; wrap: word-wrap;
+                                TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.view-own(-1); } }
+                            }
+                        }
+                    }
+                }
+            }
+            if root.has-chosen && !root.someone: ScrollView {
+                x: root.slide; width: parent.width;
+                content-height: detail.preferred-height;
+                detail := VerticalLayout {
+                    padding: 22px; padding-top: 14px; spacing: 10px;
+                    HorizontalLayout { alignment: center; BadgePicture {
+                        // Real art has clear space around it, so it's drawn larger than an
+                        // icon, which would only blur.
+                        width: root.chosen.art != root.chosen.icon ? 180px : 96px;
+                        height: root.chosen.art != root.chosen.icon ? 150px : 96px;
+                        url: root.chosen.art; transform-scale: root.art-scale; } }
+                    Text { text: root.chosen.name; color: Theme.text; font-size: 26px; font-weight: 800; font-italic: true; horizontal-alignment: center; wrap: word-wrap; }
+                    if root.chosen.info != "": Text { text: root.chosen.info; color: Theme.secondary; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        if root.chosen.unlocked != "": Rectangle {
+                            height: 58px; border-radius: 8px; background: Theme.raised;
+                            VerticalLayout {
+                                alignment: center; spacing: 2px;
+                                Text { text: root.chosen.unlocked; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-alignment: center; }
+                                Text { text: "Level unlocked"; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
+                            }
+                        }
+                        if root.chosen.rarity != "": Rectangle {
+                            height: 58px; border-radius: 8px; background: Theme.raised;
+                            VerticalLayout {
+                                alignment: center; spacing: 2px;
+                                Text {
+                                    text: root.chosen.rarity; font-size: 13px; font-weight: 700; horizontal-alignment: center;
+                                    color: root.chosen.rarity == "Rare" ? #6b8cff : root.chosen.rarity == "Epic" ? #b57bff : root.chosen.rarity == "Mythic" ? #ffb84d : Theme.secondary;
+                                }
+                                Text { text: "Rarity"; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
+                            }
+                        }
+                    }
+                    if root.chosen.description != "" || root.chosen.has-next: Rectangle {
+                        border-radius: 8px; background: Theme.raised;
+                        VerticalLayout {
+                            padding: 14px; spacing: 12px;
+                            if root.chosen.description != "": Text { text: root.chosen.description; color: Theme.text; font-size: 13px; wrap: word-wrap; }
+                            if root.chosen.has-next: HorizontalLayout {
+                                spacing: 10px;
+                                Middle { BadgePicture { width: 32px; height: 32px; url: root.chosen.current-icon; } }
+                                VerticalLayout {
+                                    spacing: 5px; alignment: center; horizontal-stretch: 1;
+                                    Text { text: "Next Level: " + root.chosen.next-name; color: Theme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                                    Rectangle {
+                                        height: 5px; border-radius: 2.5px; background: Theme.sunken;
+                                        Rectangle {
+                                            x: 0px; width: parent.width * root.chosen.progress * root.fill; height: 100%; border-radius: 2.5px; background: Theme.accent;
+                                        }
+                                    }
+                                    if root.chosen.helper != "": Text { text: root.chosen.helper; color: Theme.muted; font-size: 12px; }
+                                }
+                                Middle { BadgePicture { width: 32px; height: 32px; url: root.chosen.next-icon; } }
+                            }
+                            if root.chosen.levels.length > 0: Rectangle {
+                                height: 26px;
+                                HorizontalLayout {
+                                    spacing: 6px; alignment: center;
+                                    Text { text: root.levels-open ? "Hide levels" : "View all levels"; color: Theme.secondary; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+                                    Image {
+                                        source: @image-url("icons/chevron-right.svg"); width: 14px; image-fit: contain; colorize: Theme.secondary;
+                                        transform-rotation: root.levels-open ? 270deg : 90deg;
+                                        animate transform-rotation { duration: 180ms; easing: ease-out; }
+                                    }
+                                }
+                                TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.levels-open = !root.levels-open; } }
+                            }
+                            if root.chosen.levels.length > 0: Rectangle {
+                                clip: true;
+                                height: root.levels-open ? level-list.preferred-height : 0px;
+                                animate height { duration: 240ms; easing: ease-out; }
+                                level-list := VerticalLayout {
+                                y: 0px; width: parent.width; height: self.preferred-height;
+                                spacing: 6px;
+                                for level in root.chosen.levels: HorizontalLayout {
+                                    spacing: 10px; height: 30px;
+                                    Middle { BadgePicture { width: 26px; height: 26px; url: level.icon; opacity: level.owned ? 1 : 0.45; } }
+                                    Text { text: level.name; color: level.owned ? Theme.text : Theme.muted; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                    Text { text: level.milestone; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                                }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    IconButton {
+        x: root.width - self.width - 10px; y: 10px; height: self.width;
+        icon: @image-url("icons/x.svg"); label: "Close";
+        clicked => { root.close(); }
     }
 }
 

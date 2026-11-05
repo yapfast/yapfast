@@ -80,6 +80,9 @@ pub struct VoiceMember {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
     pub name: String,
+    /// Its username, such as `ann`, when known.
+    #[serde(default)]
+    pub username: Option<String>,
     /// The address of its avatar.
     pub avatar: String,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
@@ -184,6 +187,10 @@ pub struct Friend {
     /// The nickname this account gave them.
     #[serde(default)]
     pub nickname: Option<String>,
+    /// When they became friends, in milliseconds, as READY and
+    /// RELATIONSHIP_ADD say it in `since`.
+    #[serde(default)]
+    pub since: Option<u64>,
     /// Whether they're around and their custom status or what they're doing,
     /// when Discord says. Not saved, since it's stale by the next start.
     #[serde(skip)]
@@ -304,6 +311,10 @@ pub struct Snapshot {
     /// The game this account shows it plays now.
     #[serde(skip)]
     pub playing: Option<Arc<crate::own_activity::Playing>>,
+    /// What this account shows it's doing, here and on its other devices, as
+    /// its own profile shows it.
+    #[serde(skip)]
+    pub own_activities: crate::activity::Activities,
     /// The soundboard's volume, from 0 to 100 on the power curve of the
     /// other volumes, and the sounds that play as this account joins
     /// voice, as its settings keep them; the volume is none until they say,
@@ -668,6 +679,43 @@ pub struct Discord {
 /// many more as spam; Yapfast keeps a margin.
 const NEW_DMS: usize = 8;
 const NEW_DM_SPAN: Duration = Duration::from_secs(10 * 60);
+
+/// Profile effects' and frames' layers, by their collectible, as Discord
+/// described them; each is asked for once.
+static EFFECTS: Mutex<Option<HashMap<String, Vec<profile::EffectLayer>>>> = Mutex::new(None);
+static FRAMES: Mutex<Option<HashMap<String, Option<profile::Frame>>>> = Mutex::new(None);
+
+/// [`Discord::wear`] with only the layers already described, for a profile
+/// to show at once.
+fn wear_known(mut profile: Profile, wants: profile::Collectibles) -> Profile {
+    profile.effect = profile
+        .effect_sku
+        .as_deref()
+        .filter(|_| wants.effect)
+        .and_then(|sku| {
+            EFFECTS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_or_insert_default()
+                .get(sku)
+                .cloned()
+        })
+        .unwrap_or_default();
+    profile.frame = profile
+        .frame_sku
+        .as_deref()
+        .filter(|_| wants.frame)
+        .and_then(|sku| {
+            FRAMES
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_or_insert_default()
+                .get(sku)
+                .cloned()
+        })
+        .flatten();
+    profile
+}
 
 /// A profile fetched lately, for a user in a server.
 struct Kept {
@@ -1262,25 +1310,29 @@ impl Discord {
     /// A user's profile, in a server or with [`PRIVATE`] outside any. One
     /// fetched in the last few minutes is given again. Otherwise `kept` gets
     /// the one fetched last, if there's one, even before Yapfast started,
-    /// to show while Discord answers.
+    /// to show while Discord answers. Its effect and frame come only as
+    /// `wants` asks: what they're made of is asked of Discord once each, and
+    /// not at all for those it leaves out.
     pub async fn profile(
         &self,
         guild: &str,
         user: &str,
+        wants: profile::Collectibles,
         kept: impl FnOnce(Profile),
     ) -> Result<Profile> {
         let same = |kept: &&Kept| kept.user == user && kept.guild == guild;
         let member = self.member_face(guild, user);
-        let earlier = {
+        let (fresh, earlier) = {
             let profiles = self.lock_profiles();
             let earlier = profiles.iter().find(same);
-            if let Some(fresh) =
-                earlier.filter(|fresh| fresh.at.elapsed() < PROFILE_AGE && fresh.member == member)
-            {
-                return Ok(fresh.profile.clone());
-            }
-            earlier.map(|earlier| earlier.profile.clone())
+            let fresh = earlier
+                .filter(|fresh| fresh.at.elapsed() < PROFILE_AGE && fresh.member == member)
+                .map(|fresh| fresh.profile.clone());
+            (fresh, earlier.map(|earlier| earlier.profile.clone()))
         };
+        if let Some(fresh) = fresh {
+            return Ok(self.wear(fresh, wants).await);
+        }
         let earlier = match earlier {
             Some(earlier) => Some(earlier),
             None => {
@@ -1292,10 +1344,12 @@ impl Discord {
             }
         };
         if let Some(earlier) = earlier {
-            kept(earlier);
+            kept(wear_known(earlier, wants));
         }
         let value = self.api.profile(user, server(guild)).await?;
         self.write_names().learn_user(&value["user"]);
+        // Kept without its collectibles' layers, which [`Self::wear`] adds
+        // as each time's settings ask.
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
         {
@@ -1314,7 +1368,87 @@ impl Discord {
         }
         let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
         tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
-        Ok(profile)
+        Ok(self.wear(profile, wants).await)
+    }
+
+    /// `profile` with the effect and frame `wants` asks for, asking Discord
+    /// for those it hasn't described yet. It asks nothing for the others.
+    async fn wear(&self, mut profile: Profile, wants: profile::Collectibles) -> Profile {
+        profile.effect = match profile.effect_sku.clone().filter(|_| wants.effect) {
+            Some(sku) => self.profile_effect(&sku).await,
+            None => Vec::new(),
+        };
+        profile.frame = match profile.frame_sku.clone().filter(|_| wants.frame) {
+            Some(sku) => self.profile_frame(&sku).await,
+            None => None,
+        };
+        profile
+    }
+
+    /// The badges this account has and can earn, as its badge window lists them.
+    pub async fn badge_directory(&self) -> Result<Vec<profile::DirectoryBadge>> {
+        Ok(profile::badge_directory(&self.api.badges("@me").await?))
+    }
+
+    /// The badges someone owns, with their levels, as the client's window
+    /// asks for them.
+    pub async fn user_badges(&self, user: &str) -> Result<Vec<profile::DirectoryBadge>> {
+        Ok(profile::badge_directory(&self.api.badges(user).await?))
+    }
+
+    /// A profile frame's layers, kept once fetched as an effect's are.
+    async fn profile_frame(&self, sku: &str) -> Option<profile::Frame> {
+        let known = FRAMES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_default()
+            .get(sku)
+            .cloned();
+        if let Some(frame) = known {
+            return frame;
+        }
+        let frame = match self.api.collectible(sku).await {
+            Ok(product) => profile::frame(&product),
+            Err(error) => {
+                tracing::debug!(%error, "could not get a profile frame");
+                return None;
+            }
+        };
+        FRAMES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_default()
+            .insert(sku.to_owned(), frame.clone());
+        frame
+    }
+
+    /// What someone did lately, for their full profile's Activity tab.
+    pub async fn recent_activity(&self, user: &str) -> Result<Vec<profile::RecentEntry>> {
+        Ok(profile::recent_entries(&self.api.outbox(user).await?))
+    }
+
+    /// A profile effect's layers, asked of Discord once. A profile shows
+    /// without them if Discord doesn't say.
+    async fn profile_effect(&self, sku: &str) -> Vec<profile::EffectLayer> {
+        let known = |effects: &mut Option<HashMap<_, Vec<_>>>| {
+            effects.get_or_insert_default().get(sku).cloned()
+        };
+        if let Some(layers) = known(&mut EFFECTS.lock().unwrap_or_else(|e| e.into_inner())) {
+            return layers;
+        }
+        let layers = match self.api.collectible(sku).await {
+            Ok(product) => profile::effect_layers(&product),
+            Err(error) => {
+                tracing::debug!(%error, "could not get a profile effect");
+                return Vec::new();
+            }
+        };
+        EFFECTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_default()
+            .insert(sku.to_owned(), layers.clone());
+        layers
     }
 
     /// A member's nickname and avatar in a server, as Names knows them.
@@ -1401,6 +1535,45 @@ impl Discord {
             None => profile::parse_main(&value),
         }
         .ok_or_else(|| anyhow!("could not understand Discord's answer"))
+    }
+
+    /// Names a board's games and applications. What Discord doesn't say
+    /// stays as it is, and the board shows without it.
+    pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
+        let mut games: Vec<&str> = widgets
+            .iter()
+            .flat_map(|widget| &widget.games)
+            .map(|game| game.id.as_str())
+            .collect();
+        games.sort_unstable();
+        games.dedup();
+        let mut known = Vec::new();
+        for ids in games.chunks(crate::widgets::GAMES_AT_ONCE) {
+            match self.api.games(ids).await {
+                Ok(answer) => known.extend(crate::widgets::parse_games(&answer)),
+                Err(error) => tracing::debug!(%error, "could not get a board's games"),
+            }
+        }
+        crate::widgets::name_games(widgets, &known);
+        let applications: Vec<String> = widgets
+            .iter()
+            .filter_map(|widget| widget.application.clone())
+            .collect();
+        if applications.is_empty() {
+            return;
+        }
+        let ids: Vec<&str> = applications.iter().map(String::as_str).collect();
+        match self.api.public_applications(&ids).await {
+            Ok(answer) => crate::widgets::name_applications(widgets, &answer),
+            Err(error) => tracing::debug!(%error, "could not get a board's applications"),
+        }
+    }
+
+    /// The items on a wishlist, by the id a profile gave, as Discord's client
+    /// fetches them for either its own account or someone else.
+    pub async fn wishlist(&self, id: &str) -> Result<Vec<crate::wishlist::Item>> {
+        crate::wishlist::parse(&self.api.wishlist(id).await?)
+            .ok_or_else(|| anyhow!("could not understand Discord's answer"))
     }
 
     /// Changes this account's profile in a server as Discord's client
@@ -3179,4 +3352,41 @@ fn overwrite_body(overwrite: &ready::Overwrite) -> Value {
         "allow": overwrite.allow.to_string(),
         "deny": overwrite.deny.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_profile_wears_only_the_collectibles_wanted() {
+        let sku = "wear-test-effect";
+        let layer = profile::EffectLayer {
+            src: "https://x/effect.png".into(),
+            duration: 1000,
+            ..Default::default()
+        };
+        EFFECTS
+            .lock()
+            .unwrap()
+            .get_or_insert_default()
+            .insert(sku.into(), vec![layer.clone()]);
+        let profile = Profile {
+            effect_sku: Some(sku.into()),
+            frame_sku: Some("wear-test-frame".into()),
+            ..Default::default()
+        };
+        let off = wear_known(profile.clone(), profile::Collectibles::default());
+        assert!(off.effect.is_empty() && off.frame.is_none());
+        let on = wear_known(
+            profile,
+            profile::Collectibles {
+                effect: true,
+                frame: true,
+            },
+        );
+        assert_eq!(on.effect, [layer]);
+        // A frame nobody described yet waits for `wear` to ask.
+        assert_eq!(on.frame, None);
+    }
 }

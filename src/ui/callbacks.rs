@@ -4,6 +4,7 @@ use super::*;
 
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     super::games::bind(window, adapter);
+    super::profile::bind_activity_clock(window);
     super::gifs::bind(window, adapter);
     super::polls::bind(window, adapter);
     super::call_link::bind(window, adapter);
@@ -20,6 +21,39 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window
         .global::<PictureStore>()
         .on_picture(|url, _revision| avatar_picture(url.as_str()));
+    window
+        .global::<PictureStore>()
+        .on_frames(|url, _revision| pictures::avatar_animation(url.as_str()).0);
+    window
+        .global::<PictureStore>()
+        .on_delays(|url, _revision| pictures::avatar_animation(url.as_str()).1);
+    window
+        .global::<PictureStore>()
+        .on_plays(|url, _revision| pictures::picture_plays(url.as_str()));
+    {
+        let (state, weak) = (Rc::downgrade(adapter), window.as_weak());
+        window.on_open_badges({
+            let (state, weak) = (state.clone(), weak.clone());
+            move || {
+                if let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) {
+                    adapter.borrow_mut().action(&window, Action::ShowBadges);
+                }
+            }
+        });
+        window.on_close_badges({
+            let (state, weak) = (state.clone(), weak.clone());
+            move || {
+                if let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) {
+                    adapter.borrow_mut().action(&window, Action::CloseBadges);
+                }
+            }
+        });
+        window.on_account_opened(move || {
+            if let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) {
+                adapter.borrow_mut().action(&window, Action::LoadOwnProfile);
+            }
+        });
+    }
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -520,6 +554,88 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     bind!(on_close_channel, Action::CloseChannelDialog);
     bind!(on_edit_profile, Action::EditProfile);
+    bind!(on_close_person_badges, Action::ClosePersonBadges);
+    {
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_profile_tab_opened(move |tab| {
+            use yapfast_core::application::ProfileTab;
+            let tab = match tab {
+                0 => ProfileTab::Board,
+                1 => ProfileTab::Activity,
+                2 => ProfileTab::Wishlist,
+                _ => return,
+            };
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::OpenProfileTab(tab));
+            }
+        });
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_join_profile_call(move |room| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::RequestJoinVoice(room.into()));
+            }
+        });
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_message_person(move |user| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::MessagePerson(user.into()));
+            }
+        });
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_note_person(move |user| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::AskPerson {
+                        user: user.into(),
+                        ask: yapfast_core::application::PersonAsk::Note,
+                    },
+                );
+            }
+        });
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_open_person_badges(move |user, badge| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::ShowPersonBadges {
+                        user: user.into(),
+                        badge: u64::try_from(badge).ok(),
+                    },
+                );
+            }
+        });
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_retry_person_badges(move || {
+            if let Some(window) = weak.upgrade() {
+                let mut adapter = state.borrow_mut();
+                let Some(person) = adapter.app.state.person_badges.clone() else {
+                    return;
+                };
+                adapter.action(
+                    &window,
+                    Action::ShowPersonBadges {
+                        user: person.user,
+                        badge: person.badge,
+                    },
+                );
+            }
+        });
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_view_own_badges(move |badge| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::ShowOwnBadges(u64::try_from(badge).ok()));
+            }
+        });
+    }
     bind!(on_undo_profile, Action::UndoProfileEdits);
     bind!(on_save_profile, Action::SaveProfile);
     bind!(on_close_profile_editor, Action::CloseProfileEditor);
@@ -534,6 +650,23 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
+        window.global::<NameLetters>().on_letters(|text| {
+            let letters: Vec<SharedString> = text
+                .chars()
+                .map(|letter| letter.to_string().into())
+                .collect();
+            ModelRc::new(VecModel::from(letters))
+        });
+        window
+            .global::<NameLetters>()
+            .on_colour(|key, text, index| {
+                let at = text
+                    .chars()
+                    .take(index.max(0) as usize)
+                    .filter(|letter| !letter.is_whitespace())
+                    .count();
+                pictures::nth_key_colour(&key, at)
+            });
         window.on_write_profile(move |field, text| {
             let field = match field {
                 0 => ProfileText::Name,
@@ -1182,6 +1315,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
+        let looks = window.global::<Looks>();
+        layout.profile_effects = Some(looks.get_profile_effects());
+        layout.decorations = Some(looks.get_decorations());
+        layout.moving_profiles = Some(looks.get_moving_profiles());
+        layout.name_styles = Some(looks.get_name_styles());
+        layout.server_tags = Some(looks.get_server_tags());
+        let cosmetics = layout.cosmetics();
         show_motion(&window);
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
@@ -1242,7 +1382,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter.app.dispatch(Action::ReplyPing(reply_ping));
         adapter.app.dispatch(Action::StripTracking(strip_tracking));
         adapter.restyle = true;
-        adapter.refresh(&window);
+        // It refreshes the window, and asks for the stills the profile
+        // switches may now want.
+        adapter.action(&window, Action::SetCosmetics(cosmetics));
     });
     let state = adapter.clone();
     let weak = window.as_weak();

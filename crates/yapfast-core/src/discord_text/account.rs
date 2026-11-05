@@ -154,7 +154,59 @@ pub(super) fn command(
         }
         return None;
     }
-    if let Command::Discord(DiscordCommand::Profile { room, user }) = command {
+    if let Command::Discord(DiscordCommand::BadgeDirectory) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .badge_directory()
+                        .await
+                        .map(|badges| badges.into_iter().map(chat_badge).collect())
+                        .map_err(|error| {
+                            tracing::warn!(%error, "could not fetch Discord's badges");
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::BadgeDirectory(result));
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::BadgeDirectory(Err(error.into())));
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::PersonBadges { user }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .user_badges(&user)
+                        .await
+                        .map(|badges| badges.into_iter().map(chat_badge).collect())
+                        .map_err(|error| {
+                            tracing::warn!(%error, "could not fetch someone's badges");
+                            error.to_string()
+                        });
+                    let _ = events.send(Event::PersonBadges { user, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::PersonBadges {
+                    user,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::Profile {
+        room,
+        user,
+        collectibles,
+    }) = command
+    {
         match (discord, discord::parse_room(&room)) {
             (Ok(discord), Some((guild, _))) => {
                 let (discord, events, guild) = (discord.clone(), events.clone(), guild.to_owned());
@@ -166,7 +218,7 @@ pub(super) fn command(
                         });
                     };
                     let result = discord
-                        .profile(&guild, &user, kept)
+                        .profile(&guild, &user, collectibles, kept)
                         .await
                         .map(|profile| chat_profile(&discord, &guild, profile))
                         .map_err(|error| {
@@ -1806,6 +1858,40 @@ fn oauth_preview(
                 name: guild.name.clone(),
                 icon: guild.icon.clone(),
                 can_add: guild.can_add,
+            })
+            .collect(),
+    }
+}
+
+fn chat_badge(badge: yapfast_discord::profile::DirectoryBadge) -> crate::chat::DirectoryBadge {
+    crate::chat::DirectoryBadge {
+        id: badge.id,
+        name: badge.name,
+        owned: badge.owned,
+        earnable: badge.earnable,
+        description: badge.description,
+        info: badge.info,
+        rarity: badge.rarity,
+        icon: badge.icon,
+        art: badge.art,
+        unlocked: badge.unlocked,
+        next_name: badge.next_name,
+        next_icon: badge.next_icon,
+        done: badge.done,
+        span: badge.span,
+        helper: badge.helper,
+        level: badge.level,
+        first_level: badge.first_level,
+        level_rarity: badge.level_rarity,
+        level_art: badge.level_art,
+        levels: badge
+            .levels
+            .into_iter()
+            .map(|level| crate::chat::BadgeLevel {
+                name: level.name,
+                icon: level.icon,
+                owned: level.owned,
+                milestone: level.milestone,
             })
             .collect(),
     }

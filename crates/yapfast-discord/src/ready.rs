@@ -1391,6 +1391,70 @@ pub fn display_name(user: &Value) -> Option<&str> {
         .or_else(|| user["username"].as_str())
 }
 
+/// The server tag someone wears beside their name.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServerTag {
+    /// Its few letters, such as `GUYS`.
+    pub text: String,
+    /// The address of its little picture.
+    pub badge: Option<String>,
+}
+
+/// The tag `user` chose to wear, if any.
+pub fn server_tag(user: &Value) -> Option<ServerTag> {
+    let guild = &user["primary_guild"];
+    if guild["identity_enabled"] == false {
+        return None;
+    }
+    let text = guild["tag"]
+        .as_str()
+        .filter(|tag| !tag.is_empty())?
+        .to_owned();
+    let badge = match (guild["identity_guild_id"].as_str(), guild["badge"].as_str()) {
+        (Some(server), Some(badge)) => Some(format!(
+            "{}/guild-tag-badges/{server}/{badge}.png?size=32",
+            cdn()
+        )),
+        _ => None,
+    };
+    Some(ServerTag { text, badge })
+}
+
+/// How someone styled their display name.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NameStyle {
+    /// Discord's number for the font.
+    pub font: u32,
+    /// Discord's number for the effect: 1 solid, 2 gradient, and fancier.
+    #[serde(default)]
+    pub effect: u32,
+    /// Its colours: one solid, or a gradient's.
+    pub colors: Vec<u32>,
+}
+
+/// The style `user` gave their name, if any.
+pub fn name_style(user: &Value) -> Option<NameStyle> {
+    let style = user["display_name_styles"].as_object()?;
+    Some(NameStyle {
+        font: style
+            .get("font_id")
+            .and_then(Value::as_u64)
+            .and_then(|font| u32::try_from(font).ok())?,
+        effect: style
+            .get("effect_id")
+            .and_then(Value::as_u64)
+            .and_then(|effect| u32::try_from(effect).ok())
+            .unwrap_or(1),
+        colors: style
+            .get("colors")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|color| color.as_u64().and_then(|color| u32::try_from(color).ok()))
+            .collect(),
+    })
+}
+
 /// Discord's CDN, or the test server.
 pub(crate) fn cdn() -> &'static str {
     client::test_server().unwrap_or("https://cdn.discordapp.com")
@@ -1447,9 +1511,38 @@ pub fn avatar(user: &str, hash: Option<&str>) -> String {
     }
 }
 
+/// A user's avatar as their profile shows it: moving if it can. Lists stay
+/// with [`avatar`], which holds still.
+pub fn profile_avatar(user: &str, hash: Option<&str>) -> String {
+    match hash.filter(|hash| hash.starts_with("a_")) {
+        Some(hash) => format!("{}/avatars/{user}/{hash}.gif?size={PICTURE_SIZE}", cdn()),
+        None => avatar(user, hash),
+    }
+}
+
+/// The frame around an avatar. `passthrough` keeps it moving; without it
+/// Discord flattens it to one frame.
+pub fn avatar_decoration(asset: &str) -> String {
+    format!(
+        "{}/avatar-decoration-presets/{asset}.png?size=240&passthrough=true",
+        cdn()
+    )
+}
+
 /// A profile or server banner, at the profile card's widest.
 pub fn banner(user: &str, hash: &str) -> String {
-    format!("{}/banners/{user}/{hash}.png?size=600", cdn())
+    let format = banner_format(hash);
+    format!("{}/banners/{user}/{hash}.{format}?size=600", cdn())
+}
+
+/// A moving banner's hash starts with `a_`; asked for as a PNG, it holds still.
+fn banner_format(hash: &str) -> &'static str {
+    if hash.starts_with("a_") { "gif" } else { "png" }
+}
+
+/// A profile badge's picture.
+pub fn badge_icon(hash: &str) -> String {
+    format!("{}/badge-icons/{hash}.png", cdn())
 }
 
 /// A server's invite background, at the width its settings show it.
@@ -1473,8 +1566,9 @@ pub fn application_icon(application: &str, hash: &str) -> String {
 /// The banner a member set for one server.
 pub fn member_banner(guild: &str, user: &str, hash: &str) -> String {
     format!(
-        "{}/guilds/{guild}/users/{user}/banners/{hash}.png?size=600",
-        cdn()
+        "{}/guilds/{guild}/users/{user}/banners/{hash}.{}?size=600",
+        cdn(),
+        banner_format(hash)
     )
 }
 
@@ -1484,6 +1578,18 @@ pub fn member_avatar(guild: &str, user: &str, hash: &str) -> String {
         "{}/guilds/{guild}/users/{user}/avatars/{hash}.png?size={PICTURE_SIZE}",
         cdn()
     )
+}
+
+/// [`profile_avatar`] for the avatar a member set for one server.
+pub fn profile_member_avatar(guild: &str, user: &str, hash: &str) -> String {
+    if hash.starts_with("a_") {
+        format!(
+            "{}/guilds/{guild}/users/{user}/avatars/{hash}.gif?size={PICTURE_SIZE}",
+            cdn()
+        )
+    } else {
+        member_avatar(guild, user, hash)
+    }
 }
 
 /// MurmurHash3's 32-bit hash with seed 0, which Discord's client hashes
@@ -1522,6 +1628,61 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn name_styles_have_a_font_and_colours() {
+        let user = serde_json::json!({"display_name_styles": {
+            "font_id": 15, "effect_id": 2, "colors": [11976703, 13893375],
+        }});
+        let style = name_style(&user).unwrap();
+        assert_eq!((style.font, style.colors), (15, vec![11976703, 13893375]));
+        assert_eq!(
+            name_style(&serde_json::json!({"display_name_styles": null})),
+            None
+        );
+    }
+
+    #[test]
+    fn server_tags_need_text_and_to_be_worn() {
+        let user = |enabled| {
+            serde_json::json!({"primary_guild": {
+                "identity_enabled": enabled, "identity_guild_id": "9", "tag": "GUYS", "badge": "abc",
+            }})
+        };
+        let tag = server_tag(&user(true)).unwrap();
+        assert_eq!(tag.text, "GUYS");
+        assert!(
+            tag.badge
+                .unwrap()
+                .ends_with("/guild-tag-badges/9/abc.png?size=32")
+        );
+        assert_eq!(server_tag(&user(false)), None);
+        assert_eq!(
+            server_tag(&serde_json::json!({"primary_guild": null})),
+            None
+        );
+        assert_eq!(
+            server_tag(&serde_json::json!({"primary_guild": {"tag": ""}})),
+            None
+        );
+    }
+
+    #[test]
+    fn only_profiles_ask_for_moving_avatars() {
+        assert!(avatar("1", Some("a_abc")).ends_with("/avatars/1/a_abc.png?size=128"));
+        assert!(profile_avatar("1", Some("a_abc")).ends_with("/avatars/1/a_abc.gif?size=128"));
+        assert!(profile_avatar("1", Some("abc")).ends_with("/avatars/1/abc.png?size=128"));
+        assert!(profile_avatar("1", None).contains("/embed/avatars/"));
+        assert!(profile_member_avatar("2", "1", "a_abc").ends_with("/a_abc.gif?size=128"));
+        assert!(profile_member_avatar("2", "1", "abc").ends_with("/abc.png?size=128"));
+    }
+
+    #[test]
+    fn moving_banners_are_asked_for_as_gifs() {
+        assert!(banner("1", "a_abc").contains("/a_abc.gif?"));
+        assert!(banner("1", "abc").contains("/abc.png?"));
+        assert!(member_banner("9", "1", "a_abc").contains("/a_abc.gif?"));
+    }
 
     #[test]
     fn only_lottie_sticker_addresses_are_lottie() {

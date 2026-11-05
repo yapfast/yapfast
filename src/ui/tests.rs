@@ -105,6 +105,68 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
+fn a_card_gives_slint_nothing_the_profile_switches_leave_out() {
+    use yapfast_core::chat::{EffectLayer, NameStyle, ProfileFrame, ProfileFrameLayer, ServerTag};
+    let view = ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: "7".into(),
+            name: "Nia".into(),
+            decoration: Some("https://cdn/avatar-decoration-presets/a.png?passthrough=true".into()),
+            effect: vec![EffectLayer {
+                src: "https://cdn/effect.png".into(),
+                duration: 1000,
+                ..Default::default()
+            }],
+            frame: Some(ProfileFrame {
+                inner_width: 100,
+                layers: vec![ProfileFrameLayer {
+                    src: "https://cdn/frame".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            tag: Some(ServerTag {
+                text: "GUYS".into(),
+                badge: Some("https://cdn/guild-tag-badges/9/b.png".into()),
+            }),
+            name_style: Some(NameStyle {
+                font: 3,
+                effect: 4,
+                colors: vec![0xff0000, 0x00ff00],
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = yapfast_core::application::AppState::default();
+    state.cosmetics = Cosmetics {
+        effects: false,
+        decorations: false,
+        moving: false,
+        name_styles: false,
+        server_tags: false,
+    };
+    let mut pictures = HashMap::new();
+    let off = profile_data(&mut pictures, &state, &view);
+    assert_eq!(off.effect.row_count(), 0);
+    assert!(!off.effect_ready);
+    assert_eq!((off.frame.row_count(), off.frame_width), (0, 0));
+    assert_eq!((off.tag_text.as_str(), off.tag_icon.as_str()), ("", ""));
+    assert_eq!((off.name_effect, off.has_name_colors), (0, false));
+    state.cosmetics = Cosmetics {
+        effects: true,
+        decorations: true,
+        moving: true,
+        name_styles: true,
+        server_tags: true,
+    };
+    let on = profile_data(&mut pictures, &state, &view);
+    assert_eq!((on.effect.row_count(), on.frame.row_count()), (1, 1));
+    assert_eq!(on.tag_icon.as_str(), "https://cdn/guild-tag-badges/9/b.png");
+    assert_eq!((on.name_effect, on.has_name_colors), (4, true));
+}
+
+#[test]
 fn blank_lines_between_lines_show() {
     assert_eq!(keep_blank_lines("a\n\nb"), "a\n\u{a0}\nb");
     assert_eq!(keep_blank_lines("a\n\n\nb"), "a\n\u{a0}\n\u{a0}\nb");
@@ -3393,7 +3455,7 @@ fn a_profile_shows_activities_as_discord_cards() {
     ]));
     let rows: Vec<ActivityRow> = profile::activity_rows(&activities).iter().collect();
     let spotify = &rows[0];
-    assert_eq!(spotify.heading, "LISTENING TO SPOTIFY");
+    assert_eq!(spotify.heading, "Listening to Spotify");
     assert_eq!(
         (
             spotify.name.as_str(),

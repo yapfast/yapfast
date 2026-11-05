@@ -1,6 +1,6 @@
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
+import { Theme, Middle, Label, Tip, Popup, Looks } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
@@ -890,6 +890,8 @@ export component AppearanceSettings inherits VerticalLayout {
     in-out property <bool> system-title-bar;
     in property <bool> title-bar-choice;
     callback title-bar-toggled();
+    /// A profile switch changed; see Looks.
+    callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Appearance"; }
     if !root.editor: VerticalLayout {
@@ -924,6 +926,40 @@ export component AppearanceSettings inherits VerticalLayout {
         description: "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.";
         checked <=> root.system-title-bar;
         toggled => { root.title-bar-toggled(); }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 12px;
+        SettingsHeading { text: "PROFILES"; }
+        SettingsSwitch {
+            text: "Play profile effects";
+            description: "The animations some people put over their profile cards.";
+            checked <=> Looks.profile-effects;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show avatar decorations and profile frames";
+            description: "The pictures around people's avatars and profile cards.";
+            checked <=> Looks.decorations;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Animate profiles";
+            description: "Moving avatars, banners and decorations, and styled names that move. Off, they hold still.";
+            checked <=> Looks.moving-profiles;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show name styles";
+            description: "The fonts and colours people give their display names.";
+            checked <=> Looks.name-styles;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show server tags";
+            description: "The tag and its badge beside people's names.";
+            checked <=> Looks.server-tags;
+            toggled => { root.preferences-changed(); }
+        }
     }
     if root.editor: form := VerticalLayout {
         property <bool> confirming;

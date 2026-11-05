@@ -1655,10 +1655,18 @@ fn date_time(seconds: i64) -> String {
     local(seconds).format("%Y-%m-%d %H:%M").to_string()
 }
 
-/// A day in Unix milliseconds as profiles show it, in the local time zone: `6 Oct 2026`.
+/// A day in Unix milliseconds in the local time zone, for an embed's time: `6 Oct 2026`.
 pub fn date(ms: u64) -> String {
     local(i64::try_from(ms / 1000).unwrap_or(i64::MAX))
         .format("%-d %b %Y")
+        .to_string()
+}
+
+/// The day `ms` falls on as Discord's profiles and badges write it, such as
+/// `Aug 22, 2026`.
+pub fn long_date(ms: u64) -> String {
+    local(i64::try_from(ms / 1000).unwrap_or(i64::MAX))
+        .format("%b %-d, %Y")
         .to_string()
 }
 

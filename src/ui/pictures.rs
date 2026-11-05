@@ -114,6 +114,36 @@ pub(super) fn avatar_picture(url: &str) -> slint::Image {
     })
 }
 
+/// The colour at `at` of a style's colours, hex joined by commas, around and
+/// around; black when there are none.
+pub(super) fn nth_key_colour(key: &str, at: usize) -> slint::Color {
+    let colours: Vec<u32> = key
+        .split(',')
+        .filter_map(|hex| u32::from_str_radix(hex.trim().trim_start_matches('#'), 16).ok())
+        .collect();
+    colours
+        .get(at % colours.len().max(1))
+        .map_or_else(slint::Color::default, |rgb| {
+            slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, *rgb as u8)
+        })
+}
+
+/// [`animation`] for the picture at `url`; none until it has arrived.
+pub(super) fn avatar_animation(url: &str) -> (ModelRc<slint::Image>, ModelRc<i32>) {
+    AVATAR_SOURCES
+        .with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade))
+        .map(|source| animation(&source))
+        .unwrap_or_default()
+}
+
+/// How many times the picture at `url` plays; 0 for ever, or until it's here.
+pub(super) fn picture_plays(url: &str) -> i32 {
+    AVATAR_SOURCES
+        .with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade))
+        .and_then(|source| source.animation.as_ref().map(|animation| animation.plays))
+        .map_or(0, |plays| i32::try_from(plays).unwrap_or(0))
+}
+
 thread_local! {
     static AVATAR_SOURCES: RefCell<HashMap<String, std::sync::Weak<Picture>>> = RefCell::default();
 }
