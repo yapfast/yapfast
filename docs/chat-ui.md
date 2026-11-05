@@ -330,8 +330,9 @@ The window follows Discord's arrangement:
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
   menu also has, while Discord is connected, Invite to server where the
-  account may invite; Mute server, whose submenu
-  mutes for the DM menu's times, or Unmute server with when the mute ends;
+  account may invite; Mute server, which mutes until it's turned back on
+  when clicked itself, with the DM menu's times in its submenu, or Unmute
+  server with when the mute ends;
   Notification settings, whose submenu picks All messages, Only @mentions
   or Nothing, with the level that applies under it, and ticks Suppress
   @everyone and @here and Suppress all role @mentions; Hide muted
@@ -380,12 +381,13 @@ The window follows Discord's arrangement:
   DM stays at the top of the list, with a pin, on this device. A
   Discord DM's menu also has Add note, Add or Change friend nickname, Close DM,
   Remove friend, Ignore and Block, each undone by its opposite, and Mute, whose
-  submenu mutes for 15 minutes, 1, 3, 8 or 24 hours, or until unmuted. A
-  Discord server's text channel offers "Mute channel", with the same times,
-  or "Unmute channel", and "Notification settings", whose submenu picks which
-  messages notify; a right click on a category's heading offers the same for
-  the category. A muted
-  DM or Discord channel shows faint, and a Discord server set to hide muted
+  submenu mutes for 15 minutes, 1, 3, 8 or 24 hours, or until unmuted, and
+  which clicked itself mutes until it's turned back on. A Discord server's
+  text channel offers "Mute channel", with the same times and the same
+  click, or "Unmute channel", and "Notification settings", whose submenu
+  picks which messages notify; a right click on a category's heading offers
+  the same for the category. A muted DM or Discord channel shows faint, and a
+  Discord server set to hide muted
   channels leaves them out, but for the open one and those that mention you.
   Removing a friend and blocking ask first. Matrix links go through
   matrix.to. Arrow keys, Home and End move through the menu, Right opens a

@@ -425,6 +425,7 @@ tables are the same.
 
 | Read this | For |
 | --- | --- |
+| [Contributing](CONTRIBUTING.md) | What a pull request needs: checks, memory numbers, commit style |
 | [Development](docs/development.md) | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
 | [Architecture](docs/architecture.md) | How `yapfast-core` and the Slint client fit together |
 | [Building](docs/building.md) | Toolchain, Cargo features, checks, releases |

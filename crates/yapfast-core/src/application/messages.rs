@@ -645,7 +645,19 @@ impl Application {
             chat::Direction::Later => self.state.loading_later = false,
             // The window comes next, as a timeline.
             chat::Direction::Around if !self.focusing => return vec![],
-            chat::Direction::Around => self.focusing = false,
+            chat::Direction::Around => {
+                self.focusing = false;
+                self.divider_waits = false;
+            }
+            chat::Direction::Kept => {
+                self.focusing = false;
+                self.divider_waits = true;
+                // Should the newest page not reach the last read message, the
+                // messages around it are still to be asked for.
+                if let Some((_, asked)) = &mut self.read_marker {
+                    *asked = false;
+                }
+            }
         }
         match history {
             chat::History::Loaded { start, present } => {
@@ -656,11 +668,11 @@ impl Application {
                 chat::Direction::Earlier => self.state.history_failed = true,
                 chat::Direction::Later => self.state.later_failed = true,
                 chat::Direction::Around => self.seeking = None,
-                chat::Direction::Latest => {}
+                chat::Direction::Kept | chat::Direction::Latest => {}
             },
         }
         // What the window shows is said when it comes.
-        if direction == chat::Direction::Around {
+        if matches!(direction, chat::Direction::Around | chat::Direction::Kept) {
             return vec![];
         }
         let mut effects = self.place_unread();
@@ -672,17 +684,24 @@ impl Application {
     /// as when they were deleted, are of a kind Yapfast doesn't show or are
     /// hidden as blocked, there's no divider to wait for: the channel
     /// reads like any other once its newest message is in view, as in
-    /// Discord's client.
+    /// Discord's client. A divider that waited for them is placed now, or
+    /// without them, from what's kept.
     fn latest_loaded(&mut self, history: chat::History) -> Vec<Effect> {
+        let mut effects = if std::mem::take(&mut self.divider_waits) {
+            self.place_unread()
+        } else {
+            vec![]
+        };
         if history == chat::History::Failed
             || self.state.detached
             || self.focusing
             || self.read_marker.is_none()
         {
-            return vec![];
+            return effects;
         }
         self.read_marker = None;
-        self.read_latest()
+        effects.extend(self.read_latest());
+        effects
     }
 
     /// Brings the message being sought into view once the timeline has it.
@@ -800,6 +819,9 @@ impl Application {
                 }),
         };
         match first {
+            // Messages newer than those kept may be missing. A divider placed
+            // now would end what shows, and the view would follow past them.
+            Some(_) if self.divider_waits => self.read_marker = Some((marker, asked)),
             Some(first) => {
                 self.state.first_unread = Some(messages[first].item.clone());
                 if !jumping {

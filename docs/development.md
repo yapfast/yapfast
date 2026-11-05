@@ -24,7 +24,7 @@ scripts/check --fast
 cargo build --locked --release
 ```
 
-`scripts/check` enters the Nix shell itself; [building](building.md#checks)
+`scripts/check` enters the Nix shell itself when Nix is installed; [building](building.md#checks)
 lists what it covers.
 
 ## Try the UI without an account
