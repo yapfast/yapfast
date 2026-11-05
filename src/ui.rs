@@ -17,7 +17,7 @@ use yapfast_core::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
         ClearAfter, Compose, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
         MenuChoice, Navigation, NewDm, PersonAsk, Place, ProfileText, ProfileView, Relation,
-        RoleInput, Search, TIMEOUT_TIMES,
+        RoleInput, Search, StickerUse, TIMEOUT_TIMES,
     },
     backend::Backend,
     chat::{
@@ -57,6 +57,7 @@ mod profile;
 mod refresh;
 mod server_settings;
 mod shell;
+mod stickers;
 mod theme;
 mod tiles;
 mod title_bar;
@@ -916,6 +917,29 @@ fn allocator_stats() {
 /// The layout a person chose, such as the sidebar width, kept beside the session.
 const LAYOUT: &str = "layout.json";
 
+/// A sticker this device kept, as `layout.json` keeps it.
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct KeptSticker {
+    id: String,
+    name: String,
+    /// Discord's `format_type`, which its picture's address takes.
+    format: u64,
+    /// Its picture at the picker's tile size.
+    picture: String,
+}
+
+/// A sticker this device sent, and how often, as `layout.json` keeps it.
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct KeptStickerUse {
+    id: String,
+    name: String,
+    /// Discord's `format_type`, which its picture's address takes.
+    format: u64,
+    /// Its picture at the picker's tile size.
+    picture: String,
+    uses: u32,
+}
+
 #[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct Layout {
@@ -943,6 +967,10 @@ struct Layout {
     open_folders: std::collections::BTreeSet<String>,
     /// How often this device added each reaction, for the frequent reactions.
     reactions: HashMap<String, u32>,
+    /// The stickers this device sent, and how often, for Frequently Used.
+    sticker_uses: Vec<KeptStickerUse>,
+    /// The stickers this device keeps, for Favorites.
+    sticker_favorites: Vec<KeptSticker>,
     /// List Discord channels hidden from this account, locked.
     show_hidden_channels: bool,
     /// Reading in Yapfast marks Discord channels read on Discord; on unless turned off.
@@ -1385,6 +1413,13 @@ struct Models {
     participants: Rc<VecModel<PersonRow>>,
     /// The GIF picker's tiles.
     gif_tiles: Rc<VecModel<GifTile>>,
+    /// The sticker picker's tiles: its stickers and their collections'
+    /// headings.
+    sticker_tiles: Rc<VecModel<StickerGridTile>>,
+    /// The collections down each picker's left, which its rail jumps to: the
+    /// emoji picker's and the sticker picker's, the same rail's.
+    sticker_sections: Rc<VecModel<RailSection>>,
+    emoji_rail: Rc<VecModel<RailSection>>,
     /// Who watches this account's stream, and the one it watches, as rows of
     /// `participants`.
     share_viewers: Rc<VecModel<PersonRow>>,
@@ -1450,6 +1485,9 @@ impl Models {
         window.set_switcher_places(ModelRc::from(self.switcher_places.clone()));
         window.set_participants(ModelRc::from(self.participants.clone()));
         window.set_gif_tiles(ModelRc::from(self.gif_tiles.clone()));
+        window.set_sticker_tiles(ModelRc::from(self.sticker_tiles.clone()));
+        window.set_sticker_sections(ModelRc::from(self.sticker_sections.clone()));
+        window.set_emoji_rail_sections(ModelRc::from(self.emoji_rail.clone()));
         window.set_share_viewers(ModelRc::from(self.share_viewers.clone()));
         window.set_watch_viewers(ModelRc::from(self.watch_viewers.clone()));
         window.set_participant_frames(ModelRc::from(self.participant_frames.clone()));
@@ -1600,6 +1638,11 @@ struct Adapter {
     /// The emoji the open card shows, so the card is built again as what
     /// Discord says of its server arrives.
     emoji_card: Option<emoji_text::Target>,
+    /// Pictures a picker's tiles draw, shown together once they settle.
+    picker_due: slint::Timer,
+    /// The sticker whose card is open, by its message's item and its
+    /// attachment's index.
+    sticker_card: Option<(String, usize)>,
     /// The animated emoji on screen: the frames they need and the clock they
     /// draw from, which stops while the window is unfocused, idle or minimised.
     animations: emoji_animation::Animations,
@@ -1699,6 +1742,8 @@ struct Adapter {
     link_code: Option<(String, slint::Image)>,
     /// What the GIF picker's grid shows.
     gifs: gifs::Shown,
+    /// What the sticker picker's grid shows.
+    stickers: stickers::Shown,
     /// A Discord link handed to this start before Discord is online.
     pending_link: Option<String>,
 }
@@ -1783,6 +1828,35 @@ impl Adapter {
         layout.apply(window);
         let mut app = Application::default();
         app.remember_reaction_uses(layout.reactions.clone());
+        app.remember_sticker_favorites(
+            layout
+                .sticker_favorites
+                .iter()
+                .map(|kept| yapfast_core::chat::Sticker {
+                    id: kept.id.clone(),
+                    name: kept.name.clone(),
+                    format: kept.format,
+                    picture: kept.picture.clone(),
+                    usable: true,
+                })
+                .collect(),
+        );
+        app.remember_sticker_uses(
+            layout
+                .sticker_uses
+                .iter()
+                .map(|used| StickerUse {
+                    sticker: yapfast_core::chat::Sticker {
+                        id: used.id.clone(),
+                        name: used.name.clone(),
+                        format: used.format,
+                        picture: used.picture.clone(),
+                        usable: true,
+                    },
+                    uses: used.uses,
+                })
+                .collect(),
+        );
         app.dispatch(Action::ShowHiddenChannels(layout.show_hidden_channels));
         app.dispatch(Action::ShowProfilePanel(!layout.profile_panel_hidden));
         app.dispatch(Action::SyncDiscordReads(
@@ -1831,6 +1905,8 @@ impl Adapter {
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
                 emoji_card: None,
+                picker_due: slint::Timer::default(),
+                sticker_card: None,
                 animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
                 jumped: None,
@@ -1880,6 +1956,7 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 link_code: None,
                 gifs: gifs::Shown::default(),
+                stickers: stickers::Shown::default(),
                 pending_link: None,
             })
         }))

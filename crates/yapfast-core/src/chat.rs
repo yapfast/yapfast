@@ -1833,6 +1833,30 @@ pub struct GifCategory {
     pub src: String,
 }
 
+/// A sticker the sticker picker offers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Sticker {
+    pub id: String,
+    pub name: String,
+    /// Discord's `format_type`: 1 PNG, 2 APNG, 3 Lottie, 4 GIF.
+    pub format: u64,
+    /// Its picture's address, at the size the picker's tiles show it.
+    pub picture: String,
+    /// This account may use it where it is looking: another server's sticker
+    /// or Discord's own needs Nitro, which the picker marks with a lock.
+    pub usable: bool,
+}
+
+/// Stickers the picker lists under one heading: a server's own, or one of
+/// Discord's default packs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StickerCollection {
+    /// The pack's id, or a server's for its own stickers.
+    pub id: String,
+    pub name: String,
+    pub stickers: Vec<Sticker>,
+}
+
 /// How often a Discord server or channel was used: in all, and when lately,
 /// in Unix milliseconds, oldest first.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -2051,6 +2075,27 @@ pub enum DiscordCommand {
         width: u32,
         height: u32,
         favorite: bool,
+    },
+    /// Discord's default sticker packs, as its own client offers them;
+    /// [`Event::StickerPacks`] follows, and [`Event::KeptStickerPacks`] first
+    /// when Yapfast kept them.
+    StickerPacks,
+    /// A server's own stickers, by its id, as `GET /guilds/{id}/stickers`
+    /// lists them; [`Event::GuildStickers`] follows, and
+    /// [`Event::KeptGuildStickers`] first when Yapfast kept them.
+    GuildStickers {
+        server: String,
+    },
+    /// Download a sticker's picture and decode it for the picker's tile, a
+    /// Lottie one drawn as it animates; [`Event::StickerPicture`] follows.
+    StickerPicture {
+        url: String,
+    },
+    /// Post sticker `id` in `room` as a message of its own, as Discord's
+    /// client does; the gateway shows it.
+    SendSticker {
+        room: String,
+        id: String,
     },
     /// The members of a Discord role in the room's server, as far as they're known;
     /// [`Event::RoleMembers`] follows.
@@ -3256,6 +3301,30 @@ pub enum Event {
     GifPicture {
         url: String,
         picture: Option<Arc<Picture>>,
+    },
+    /// Discord's default sticker packs, or why they couldn't be fetched.
+    StickerPacks(Result<Vec<StickerCollection>, String>),
+    /// The default sticker packs Yapfast kept, to show until Discord's come.
+    KeptStickerPacks(Vec<StickerCollection>),
+    /// A server's own stickers, or why they couldn't be fetched.
+    GuildStickers {
+        server: String,
+        result: Result<Vec<Sticker>, String>,
+    },
+    /// A server's stickers Yapfast kept, to show until Discord's come.
+    KeptGuildStickers {
+        server: String,
+        stickers: Vec<Sticker>,
+    },
+    /// A sticker's picture for the picker's tile, or none when it failed.
+    StickerPicture {
+        url: String,
+        picture: Option<Arc<Picture>>,
+    },
+    /// A sticker was sent, or why it couldn't be.
+    StickerSent {
+        room: String,
+        result: Result<(), String>,
     },
     Voice(voice::State),
     /// A profile [`DiscordCommand::Profile`] asked for, or why Discord didn't give it.

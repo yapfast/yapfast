@@ -161,6 +161,7 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   (`vendor/twemoji`, CC-BY 4.0), decoded once at the size the grid draws and
   kept; drawing the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
+<<<<<<< HEAD
   slowly. A code point Twemoji has no picture for is still drawn by the
   system font. A cell whose custom emoji is animated keeps that still as its
   placeholder until the emoji's frames arrive, which decode at 48px times the
@@ -174,6 +175,29 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   so the first look finds them. A drag that changed the width keeps it in
   `layout.json` (`picker_width`), and it comes back at the next start. See
   [Discord](discord/messages.md#gifs).
+=======
+  slowly. A code point Twemoji has no picture for, and emoji in message text,
+  are still drawn by the system font. Every server's emoji show, as Discord's
+  picker shows them: the ones this account may not use where it is looking —
+  another server's, or an animated one without Nitro — are greyed with a lock
+  in their corner, and pressing one opens Discord's Nitro page. A start whose
+  picture cache is empty fetches all of them into it in the background, off the
+  thread that draws, decoding none and holding none, so the first look finds
+  them. A drag that changed
+  the width keeps it in `layout.json` (`picker_width`), and it comes back at
+  the next start. See [Discord](discord/messages.md#gifs).
+- A Stickers tab in the same picker, and a sticker button of its own, on
+  Discord: a search field, then the collections down the left to jump between
+  — Frequently Used with a clock's own icon, the open server's, whose icon
+  leads its name, then Discord's default packs — and their stickers as 96px
+  tiles in the picker's columns under the collection's name, as the emoji's
+  own are. A click sends the sticker as a message of its own. Without Nitro only
+  the server's stickers show, as Discord's client offers them. Its pictures are
+  kept on disk and fetched ahead, so the tab shows them at once. The left edge
+  drags it wider as it does for the GIFs and the emoji, and the grid takes
+  another 96px column for every 104px. See
+  [Discord](discord/messages.md#stickers).
+>>>>>>> 9759a20 (feat(discord): send stickers from a picker beside the GIFs and emoji)
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the

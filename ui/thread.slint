@@ -83,6 +83,7 @@ export component ThreadPanel inherits Rectangle {
     callback cancel-send(string);
     callback reveal-attachment(string, int);
     callback view-image(string, int);
+    callback open-sticker(string, int, length, length, length, length);
     callback save-attachment(string, int);
     public function focus-composer() { composer.focus-input(); }
     /// Counts up for the window to focus the composer, after a menu's Reply or Edit.
@@ -202,6 +203,7 @@ export component ThreadPanel inherits Rectangle {
                                 }
                                 open-link(link) => { root.open-link(link); }
                                 open-thread(room) => { root.open-thread(room); }
+                                open-sticker(item, index, x, y, width, height) => { root.open-sticker(item, index, x, y, width, height); }
                                 react(item, key) => { root.react(item, key); }
                                 retry(item) => { root.retry(item); }
                                 cancel-send(item) => { root.cancel-send(item); }

@@ -8882,6 +8882,419 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn server_icons_are_fetched_ahead_once_for_the_pickers_rails() {
+    use yapfast_discord::ready::Server;
+    let mut app = connected();
+    let icon = "https://cdn.discordapp.com/icons/10/abc.png?size=128".to_string();
+    let snapshot = || {
+        discord_event(yapfast_discord::service::Snapshot {
+            status: yapfast_discord::service::Status::Online,
+            servers: vec![MarkedServer::from(Server {
+                id: "10".into(),
+                name: "Test".into(),
+                icon: Some(icon.clone()),
+                ..Default::default()
+            })],
+            ..Default::default()
+        })
+    };
+    let asked = |effects: &[Effect], url: &str| {
+        effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Backend(Command::Discord(DiscordCommand::PrefetchPictures(urls)))
+                    if urls == &[url.to_owned()]
+            )
+        })
+    };
+    // The rails show every server's icon, so they are fetched ahead.
+    let first = app.apply(snapshot());
+    assert!(asked(&first, &icon), "the server's icon is fetched ahead");
+    // Each is fetched once, not on every snapshot.
+    let again = app.apply(snapshot());
+    assert!(!asked(&again, &icon));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
+    use crate::chat::{Sticker, StickerCollection};
+    use std::sync::Arc;
+    use yapfast_discord::ready::{Channel, Server};
+    let mut app = connected();
+    let at_start = app.apply(discord_event(yapfast_discord::service::Snapshot {
+        status: yapfast_discord::service::Status::Online,
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Test".into(),
+            text_channels: vec![Channel {
+                id: "21".into(),
+                name: "general".into(),
+                ..Default::default()
+            }],
+            stickers: Arc::new(vec![yapfast_discord::stickers::Sticker {
+                id: "5".into(),
+                name: "Wave".into(),
+                format: 1,
+            }]),
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom("discord:10:21".into()));
+    app.apply(Event::Timeline {
+        room: "discord:10:21".into(),
+        messages: timeline(vec![]),
+    });
+    let backend = |effects: Vec<Effect>| -> Vec<Command> {
+        effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(command) => Some(command),
+                _ => None,
+            })
+            .collect()
+    };
+    let wave = "https://cdn.discordapp.com/stickers/5.png?size=96";
+    assert!(app.state.can_pick_stickers());
+    // A start asks Discord for its default packs, and every server's own
+    // stickers, which are kept on disk and fetched ahead.
+    let at_start = backend(at_start);
+    assert!(
+        matches!(
+            at_start.as_slice(),
+            [
+                Command::Discord(DiscordCommand::StickerPacks),
+                Command::Discord(DiscordCommand::GuildStickers { server }),
+            ] if server == "10"
+        ),
+        "a start asks for the packs and the servers' stickers"
+    );
+
+    // Opening asks for the pictures of the stickers the snapshot gave, which
+    // are fetched ahead into the disk cache; the list was asked for already.
+    let asked = backend(app.dispatch(Action::OpenStickers));
+    assert!(
+        matches!(
+            asked.as_slice(),
+            [Command::Discord(DiscordCommand::PrefetchPictures(urls))]
+                if urls == &[wave.to_owned()]
+        ),
+        "the server's stickers are fetched ahead"
+    );
+
+    // Discord's list replaces what the snapshot had, and its pictures are
+    // fetched ahead.
+    let listed = backend(app.apply(Event::GuildStickers {
+        server: "10".into(),
+        result: Ok(vec![
+            Sticker {
+                id: "5".into(),
+                name: "Wave".into(),
+                format: 1,
+                picture: wave.into(),
+                usable: true,
+            },
+            Sticker {
+                id: "6".into(),
+                name: "Spin".into(),
+                format: 3,
+                picture: "https://cdn.discordapp.com/stickers/6.json".into(),
+                usable: true,
+            },
+        ]),
+    }));
+    assert!(matches!(
+        listed.as_slice(),
+        [Command::Discord(DiscordCommand::PrefetchPictures(urls))]
+            if urls == &[wave.to_owned(), "https://cdn.discordapp.com/stickers/6.json".to_owned()]
+    ));
+    assert_eq!(
+        app.state
+            .stickers
+            .servers
+            .iter()
+            .find(|server| server.id == "10")
+            .map(|server| (server.name.as_str(), server.stickers.len())),
+        Some(("Test", 2))
+    );
+
+    // The packs come, whose pictures are fetched ahead too; without Nitro
+    // only the server's stickers list.
+    let packs = vec![StickerCollection {
+        id: "1".into(),
+        name: "Wumpus".into(),
+        stickers: vec![Sticker {
+            id: "7".into(),
+            name: "Party".into(),
+            format: 1,
+            picture: "https://cdn.discordapp.com/stickers/7.png?size=96".into(),
+            usable: true,
+        }],
+    }];
+    // The packs a start kept show at once, and their pictures are fetched
+    // ahead then too; Discord's answer asks for none again.
+    let kept = backend(app.apply(Event::KeptStickerPacks(packs.clone())));
+    assert!(
+        matches!(
+            kept.as_slice(),
+            [Command::Discord(DiscordCommand::PrefetchPictures(urls))]
+                if urls == &["https://cdn.discordapp.com/stickers/7.png?size=96"]
+        ),
+        "a start fetches the kept packs' pictures ahead"
+    );
+    let fetched = backend(app.apply(Event::StickerPacks(Ok(packs.clone()))));
+    assert!(
+        fetched.is_empty(),
+        "every picture was fetched ahead already"
+    );
+    let listed: Vec<String> = app
+        .state
+        .stickers
+        .collections(false)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    // Frequently Used, every server's stickers, and Discord's packs too;
+    // without Nitro only the open server's are usable, which the picker shows
+    // locked.
+    assert_eq!(listed, ["Frequently Used", "Test", "Wumpus"]);
+    // Nothing was sent yet, so Frequently Used shows Discord's own first.
+    let seeded: Vec<String> = app
+        .state
+        .stickers
+        .collections(true)
+        .into_iter()
+        .find(|collection| collection.name == "Frequently Used")
+        .map(|collection| {
+            collection
+                .stickers
+                .iter()
+                .map(|sticker| sticker.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(seeded, ["Party"]);
+    let usable = |nitro: bool, collection: &str| {
+        app.state
+            .stickers
+            .collections(nitro)
+            .into_iter()
+            .find(|listed| listed.name == collection)
+            .is_some_and(|listed| listed.stickers.iter().all(|sticker| sticker.usable))
+    };
+    assert!(
+        usable(false, "Test"),
+        "the open server's stickers are usable"
+    );
+    assert!(!usable(false, "Wumpus"), "Discord's packs need Nitro");
+    assert!(usable(true, "Wumpus"), "which makes them usable");
+    // Before this device has sent one, Frequently Used shows Discord's own,
+    // which are Nitro's.
+    assert!(!usable(false, "Frequently Used"));
+    assert!(usable(true, "Frequently Used"));
+    let with_nitro: Vec<String> = app
+        .state
+        .stickers
+        .collections(true)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    assert_eq!(with_nitro, ["Frequently Used", "Test", "Wumpus"]);
+
+    // A tile in sight is asked for, once.
+    let shown = backend(app.dispatch(Action::StickersShown(vec![wave.to_owned()])));
+    assert!(matches!(
+        shown.as_slice(),
+        [Command::Discord(DiscordCommand::StickerPicture { url })] if url == wave
+    ));
+    assert!(backend(app.dispatch(Action::StickersShown(vec![wave.to_owned()]))).is_empty());
+    app.apply(Event::StickerPicture {
+        url: wave.to_owned(),
+        picture: None,
+    });
+    assert!(matches!(
+        app.state.stickers.pictures.get(wave),
+        Some(StickerPicture::Failed)
+    ));
+
+    // A click sends the sticker as a message of its own, and the picker
+    // closes, letting go of its pictures.
+    let sent = backend(app.dispatch(Action::PickSticker("5".into())));
+    assert!(matches!(
+        sent.as_slice(),
+        [Command::Discord(DiscordCommand::SendSticker { room, id })]
+            if room == "discord:10:21" && id == "5"
+    ));
+    assert!(!app.state.stickers.open && app.state.stickers.pictures.is_empty());
+
+    // A sticker that couldn't be sent says why in the room.
+    app.apply(Event::StickerSent {
+        room: "discord:10:21".into(),
+        result: Err("Couldn't send the sticker: no".into()),
+    });
+    assert_eq!(
+        app.state.notice.as_deref(),
+        Some("Couldn't send the sticker: no")
+    );
+
+    // Sending a sticker counts it, and Frequently Used lists it first.
+    let frequent: Vec<String> = app
+        .state
+        .stickers
+        .collections(false)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    assert_eq!(
+        frequent.first().map(String::as_str),
+        Some("Frequently Used"),
+        "the sticker sent lists under Frequently Used first"
+    );
+    assert_eq!(app.sticker_uses().len(), 1);
+    assert!(app.sticker_uses()[0].uses >= 1);
+
+    // The search keeps the stickers whose names hold it, and Enter picks the
+    // first of those.
+    app.dispatch(Action::SearchStickers("part".into()));
+    let found: Vec<(String, Vec<String>)> = app
+        .state
+        .stickers
+        .collections(true)
+        .into_iter()
+        .map(|collection| {
+            (
+                collection.name,
+                collection
+                    .stickers
+                    .iter()
+                    .map(|sticker| sticker.name.clone())
+                    .collect(),
+            )
+        })
+        .collect();
+    // Frequently Used holds the sticker this device sent, whose name the
+    // search doesn't hold; only Discord's pack's is left.
+    assert_eq!(found, [("Wumpus".to_string(), vec!["Party".to_string()])]);
+    app.dispatch(Action::SearchStickers(String::new()));
+    assert_eq!(
+        app.state.stickers.collections(true).len(),
+        3,
+        "Frequently Used, the server's stickers and the pack's"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+fn the_sticker_picker_lists_the_servers_own_stickers_from_discord() {
+    use crate::{backend::Backend, chat::Start, runtime::BackgroundRuntime};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    // The fake's server and #general.
+    let (guild, general) = ("1400000000000000100", "1400000000000000102");
+    let runtime = Arc::new(BackgroundRuntime::new().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let (backend, mut events) = Backend::start(runtime.clone(), root.path().into(), Start::Restore);
+    let mut app = Application::default();
+    // What the window does with every event and effect.
+    let send = |backend: &Backend, effects: Vec<Effect>| {
+        for effect in effects {
+            if let Effect::Backend(command) = effect {
+                let _ = backend.send(command);
+            }
+        }
+    };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !app.state.discord_online {
+        let Ok(event) = events.try_recv() else {
+            assert!(
+                Instant::now() < deadline,
+                "the fake Discord never came online"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            continue;
+        };
+        let effects = app.apply(event);
+        send(&backend, effects);
+    }
+    // Open the fake's channel, then the sticker picker as the button does.
+    for action in [
+        Action::Navigate(Navigation::Server(discord::server_id(guild))),
+        Action::SelectRoom(discord::room_id(guild, general)),
+    ] {
+        let effects = app.dispatch(action);
+        send(&backend, effects);
+    }
+    let opened = app.dispatch(Action::OpenStickers);
+    assert!(
+        opened.iter().any(|effect| matches!(
+            effect,
+            Effect::Backend(Command::Discord(DiscordCommand::GuildStickers { server }))
+                if server == guild
+        )),
+        "opening the picker asks for the server's stickers"
+    );
+    send(&backend, opened);
+    // Discord's answer, applied as the window applies it.
+    let server_stickers = |app: &Application| {
+        app.state
+            .stickers
+            .servers
+            .iter()
+            .find(|server| server.id == guild)
+            .is_none_or(|server| server.stickers.is_empty())
+    };
+    while server_stickers(&app) {
+        let Ok(event) = events.try_recv() else {
+            assert!(
+                Instant::now() < deadline,
+                "no server stickers: collections {:?}, error {:?}",
+                app.state
+                    .stickers
+                    .collections(true)
+                    .iter()
+                    .map(|collection| collection.name.clone())
+                    .collect::<Vec<_>>(),
+                app.state.stickers.error
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            continue;
+        };
+        let effects = app.apply(event);
+        send(&backend, effects);
+    }
+    let server = app
+        .state
+        .stickers
+        .servers
+        .iter()
+        .find(|server| server.id == guild)
+        .unwrap();
+    assert_eq!(server.name, "Server");
+    assert!(
+        server.stickers.iter().any(|sticker| sticker.name == "Wave"),
+        "the server's own stickers list: {:?}",
+        server.stickers
+    );
+    // The picker lists them before Discord's packs.
+    let names: Vec<String> = app
+        .state
+        .stickers
+        .collections(true)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    assert_eq!(
+        names.first().map(String::as_str),
+        Some("Server"),
+        "the server's stickers come first: {names:?}"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_forum_shows_its_posts_as_discords_client_does() {
     use chat::{ListedThread, PostStarter};
     use yapfast_discord::{

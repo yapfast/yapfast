@@ -536,7 +536,38 @@ impl Application {
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
         effects.extend(self.prefetch_emoji());
+        effects.extend(self.prefetch_server_icons());
+        // The sticker picker's default packs, their pictures fetched ahead,
+        // so it opens at once.
+        effects.extend(self.load_sticker_packs());
+        // Every server's stickers are asked for, and their pictures fetched
+        // ahead, as the snapshot names the servers, so the picker opens on
+        // them rather than downloading while it shows.
+        self.follow_sticker_server();
+        effects.extend(self.load_guild_stickers());
         effects
+    }
+
+    /// Fetches every server's icon into the disk cache ahead of the sticker
+    /// and emoji pickers, whose rails show them all: each is a small picture,
+    /// and asking for them as a picker opens leaves the rail blank meanwhile.
+    #[cfg(feature = "discord")]
+    fn prefetch_server_icons(&mut self) -> Option<Effect> {
+        let icons: Vec<String> = self
+            .discord
+            .as_ref()?
+            .servers
+            .iter()
+            .filter_map(|server| server.icon.clone())
+            .collect();
+        let icons: Vec<String> = icons
+            .into_iter()
+            .filter(|url| !url.is_empty() && self.server_icons_prefetched.insert(url.clone()))
+            .filter(|url| !yapfast_discord::cache::picture_is_kept(url))
+            .collect();
+        (!icons.is_empty()).then_some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchPictures(icons),
+        )))
     }
 
     /// Fetches the account's custom emoji pictures into the disk cache once, on
