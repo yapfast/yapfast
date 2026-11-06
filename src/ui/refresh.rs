@@ -2805,6 +2805,9 @@ impl Adapter {
         window.set_aside_start(aside.history_start);
         window.set_aside_failed(aside.history_failed);
         window.set_aside_composer_enabled(state.can_write_in(room));
+        let reacts = state.reacts_in(room);
+        window.set_aside_reactions_enabled(reacts != Reacts::None);
+        window.set_aside_new_reactions_enabled(reacts == Reacts::Any);
         window.set_aside_can_send(state.can_send_in(room));
         let draft = state.aside_draft();
         if window.get_aside_draft() != draft {
@@ -2928,6 +2931,12 @@ impl Adapter {
                     }
                 }),
         );
+        // A Discord channel may take reactions where it takes no messages.
+        let reacts = room
+            .filter(|_| state.shows_text())
+            .map_or(Reacts::None, |room| state.reacts_in(&room.id));
+        window.set_reactions_enabled(reacts != Reacts::None);
+        window.set_new_reactions_enabled(reacts == Reacts::Any);
         window.set_can_send(state.can_send());
         window.set_can_attach(state.can_attach());
         window.set_can_mark_spoilers(state.can_mark_spoilers());

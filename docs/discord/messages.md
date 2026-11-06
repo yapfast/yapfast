@@ -22,7 +22,11 @@ messages only to subscribers. Yapfast sends, replies, edits, deletes, reacts
 and sends files through Discord's cloud uploads. Mentions and timestamps show
 as text, custom emoji and stickers as pictures, every attachment shows, images
 with previews scaled by Discord's media proxy, and channels the account can't
-send in are read-only. Bots and webhooks have a BOT tag after their name. An
+send in are read-only. Reacting follows Add Reactions instead, as in Discord's
+client: a channel the account can't send in, such as an announcement channel,
+still takes reactions, and without Add Reactions it can add to a reaction
+already on a message or take its own back. A timeout, or an archived thread
+it couldn't open again, takes reacting away. Bots and webhooks have a BOT tag after their name. An
 author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
 authors' member profiles.
