@@ -6,15 +6,30 @@ use super::*;
 /// is about 340px tall and a row is 56px.
 const GRID_ROWS: usize = 8;
 
-/// The rows past those shown, each way, that keep their pictures once drawn, so
-/// a scroll back finds them ready. A row further off lets go of its own: a whole
-/// list of pictures is about 9 MiB, and 36 MiB on a display of twice the scale.
-const KEPT_ROWS: usize = 8;
+/// The rows either side of those shown that the picker makes ready: their
+/// pictures are drawn and their custom emoji's fetched before a scroll brings
+/// them into sight, so a row arrives as it draws and never fills in. A screen
+/// either way, since the grid shows [`GRID_ROWS`] of them.
+///
+/// They're kept for as long as they're ready, and a row further off lets go of
+/// its own: three screens of pictures are 5 MiB on a display of twice the
+/// scale, against the 36 MiB the whole list would take.
+const READY_ROWS: usize = GRID_ROWS;
 
-/// Fetches the pictures of the custom emoji whose rows show between `first` and
-/// `last`, and of those that have none yet. The picker brings the rest as it
-/// scrolls them into sight, since a server list can hold more emoji than fit in
-/// memory at once.
+/// The rows the picker makes ready, around those shown between `first` and
+/// `last`: a scroll into them finds them drawn, and no picture of their own to
+/// ask Discord for.
+fn ready_rows(first: usize, last: usize) -> (usize, usize) {
+    (
+        first.saturating_sub(READY_ROWS),
+        last.saturating_add(READY_ROWS),
+    )
+}
+
+/// Fetches the pictures of the custom emoji whose rows are ready between
+/// `first` and `last`, and of those that have none yet. The picker brings the
+/// rest as it scrolls them in, since a server list can hold more emoji than fit
+/// in memory at once.
 fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: usize, last: usize) {
     let wanted = custom_keys_without_pictures(&adapter.models.emoji_rows, first, last);
     if wanted.is_empty() {
@@ -194,15 +209,16 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
     adapter.animations.also(shown, pictures);
 }
 
-/// Takes the pictures [`fill_shown_glyphs`] gave back from the rows over
-/// [`KEPT_ROWS`] from those shown between `first` and `last`. It looks only at the
-/// rows that may hold one, so a scroll costs what it moved past.
+/// Takes the pictures [`fill_shown_glyphs`] gave back from the rows it did not
+/// make ready: `first` and `last` are the rows it filled, and a row outside
+/// them lets go of its own. It looks only at the rows that may hold one, so a
+/// scroll costs what it moved past.
 fn let_go_of_far_glyphs(adapter: &mut Adapter, first: usize, last: usize) {
-    let kept = first.saturating_sub(KEPT_ROWS)..=last.saturating_add(KEPT_ROWS);
     let (from, to) = adapter.emoji_rows_filled;
     let rows = &adapter.models.emoji_rows;
+    let last = last.min(rows.row_count().saturating_sub(1));
     for index in from..=to.min(rows.row_count().saturating_sub(1)) {
-        if kept.contains(&index) {
+        if (first..=last).contains(&index) {
             continue;
         }
         let Some(row) = rows.row_data(index) else {
@@ -224,10 +240,7 @@ fn let_go_of_far_glyphs(adapter: &mut Adapter, first: usize, last: usize) {
             }
         }
     }
-    adapter.emoji_rows_filled = (
-        from.max(*kept.start()).min(first),
-        to.min(*kept.end()).max(last),
-    );
+    adapter.emoji_rows_filled = (first, last);
 }
 
 /// The reaction keys of the custom emoji in `rows` from `first` to `last` that
@@ -323,7 +336,10 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
         .collect();
     update_model(&adapter.models.emoji_rail, rail);
     update_model(&adapter.models.emoji_rows, rows);
-    adapter.emoji_rows_filled = (0, GRID_ROWS);
+    // The grid opens at its top, and the rows below those it shows are made
+    // ready with them, so the first scroll finds them drawn.
+    let (first, last) = ready_rows(0, GRID_ROWS);
+    adapter.emoji_rows_filled = (first, last);
     // The grid shares the width it shows at among these, so its cells need the
     // count the rows were built with.
     window.set_emoji_columns(columns as i32);
@@ -331,8 +347,8 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     if !sections.is_empty() {
         update_model(&adapter.models.emoji_sections, sections);
     }
-    fetch_shown_pictures(&mut adapter, window, 0, GRID_ROWS);
-    fill_shown_glyphs(window, &mut adapter, 0, GRID_ROWS);
+    fetch_shown_pictures(&mut adapter, window, first, last);
+    fill_shown_glyphs(window, &mut adapter, first, last);
 }
 
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
@@ -1274,6 +1290,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         // change lays every cell out again, so each one fills the same rows.
         let (first, last) = rows_shown.get();
         if first != usize::MAX {
+            let (first, last) = ready_rows(first, last);
             let mut adapter = state.borrow_mut();
             fetch_shown_pictures(&mut adapter, &window, first, last);
             fill_shown_glyphs(&window, &mut adapter, first, last);
@@ -1306,6 +1323,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             return;
         }
         rows_reported.set((first, last));
+        // What the grid shows, and a screen either side made ready with it, so
+        // a row comes into sight drawn rather than making its picture then.
+        let (first, last) = ready_rows(first, last);
         let mut adapter = state.borrow_mut();
         fetch_shown_pictures(&mut adapter, &window, first, last);
         fill_shown_glyphs(&window, &mut adapter, first, last);

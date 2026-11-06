@@ -173,9 +173,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   (`vendor/twemoji`, CC-BY 4.0), decoded at the size the grid draws as its row
   shows; drawing the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
-  slowly. A row more than eight past those shown lets go of its pictures, and
-  a picker that closes lets go of its grid, so the list costs what is near the
-  view. A code point Twemoji has no picture for is still drawn by the
+  slowly. A screen of rows either side of those shown is drawn with them, and
+  their custom emoji's pictures fetched with them, so a scroll brings rows in
+  already drawn rather than filling them as it passes; a row a screen past
+  those shown lets go of its pictures, and a picker that closes lets go of its
+  grid, so the list costs what is near the view. A code point Twemoji has no
+  picture for is still drawn by the
   system font. A cell whose custom emoji is animated keeps that still as its
   placeholder until the emoji's frames arrive, which decode at 48px times the
   screen's scale factor, up to 96px, off the thread that draws, so a grid of

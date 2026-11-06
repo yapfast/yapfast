@@ -7545,13 +7545,15 @@ fn only_the_rows_the_picker_shows_are_drawn() {
             .filter(|cell| cell.picture.size().width > 0)
             .count()
     };
-    // The rows the grid shows carry their pictures, and those a page below are
-    // left as glyphs: a long list costs only what is looked at, and scrolling to
-    // one fills it then.
+    // The rows the grid shows carry their pictures, and a screen below them is
+    // ready too, so a scroll finds it drawn rather than filling in; beyond that
+    // a row is left as glyphs, since a long list costs only what is looked at.
     let shown: usize = (0..8.min(rows.row_count())).map(drawn_in).sum();
     assert!(shown > 20, "the rows shown are drawn: {shown}");
-    let below: usize = (12..40.min(rows.row_count())).map(drawn_in).sum();
-    assert_eq!(below, 0, "the rows a page below are not prepared");
+    let below: usize = (8..16.min(rows.row_count())).map(drawn_in).sum();
+    assert!(below > 20, "the screen below is ready: {below}");
+    let far: usize = (17..40.min(rows.row_count())).map(drawn_in).sum();
+    assert_eq!(far, 0, "the rows beyond a screen are not prepared");
 }
 
 #[test]
@@ -7581,6 +7583,9 @@ fn rows_far_from_those_the_picker_shows_let_go_of_their_pictures() {
             .sum()
     };
     assert!(drawn(0..8) > 20, "the top is drawn");
+    // The screen below the one it shows is made ready with it, so the first
+    // scroll finds what it brings into sight drawn already.
+    assert!(drawn(8..16) > 20, "the screen below is ready");
     // A short scroll keeps what it left, for a scroll back.
     window.invoke_emoji_scrolled_to(6.0 * emoji::CELL, 6.0 * emoji::CELL);
     assert!(drawn(0..4) > 10, "the rows just left keep their pictures");
@@ -7589,6 +7594,10 @@ fn rows_far_from_those_the_picker_shows_let_go_of_their_pictures() {
     window.invoke_emoji_scrolled_to(40.0 * emoji::CELL, 6.0 * emoji::CELL);
     assert_eq!(drawn(0..24), 0, "the rows far above let go");
     assert!(drawn(40..46) > 20, "the rows reached are drawn");
+    assert!(
+        drawn(32..40) > 20,
+        "and the screen above them is ready, for a scroll back"
+    );
     window.invoke_emoji_scrolled_to(100.0 * emoji::CELL, 6.0 * emoji::CELL);
     assert_eq!(drawn(40..46), 0, "a jump lets go of where it came from");
     assert!(drawn(100..106) > 20, "and draws where it went");
