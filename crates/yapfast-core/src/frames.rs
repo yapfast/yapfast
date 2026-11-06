@@ -78,6 +78,11 @@ struct Header {
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
     _reserved: u32,
+    /// The number of the newest picture the reader has taken, which only
+    /// grows: a worker about to draw into a slot again asks it whether the
+    /// reader has moved on from what was there, since a picture taken is a
+    /// picture on the screen for a frame after.
+    showing: AtomicU64,
     /// Each slot's frame size, as width and height in pixels.
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
@@ -631,6 +636,15 @@ impl Frames {
             })
         };
         let time = header.times[front.slot as usize].load(Ordering::Relaxed);
+        // The newest picture the reader has taken, which is what tells a worker
+        // drawing into a GPU slot that the reader has moved past the picture
+        // that was there.
+        if texture != 0 {
+            reading
+                .header()
+                .showing
+                .store(shared.generation.load(Ordering::Relaxed), Ordering::Release);
+        }
         Some((show(frame), time))
     }
 
@@ -889,11 +903,28 @@ impl Writer {
         true
     }
 
-    /// Publishes a picture the worker drew on the GPU, to show without a
-    /// pixel of it crossing the process boundary, and says whether it did:
-    /// `false` means the UI can't show such pictures — it looked and said so,
-    /// or it draws on another adapter — and the caller writes the frame's
-    /// pixels instead.
+    /// The slot a GPU picture goes in next, when the reader has moved on from
+    /// the one there: `None` means the UI still shows what that slot holds, and
+    /// this frame's preview is dropped rather than drawn over a picture
+    /// somebody is looking at. A slot that never held a picture is always free.
+    ///
+    /// It is the newest picture the reader has taken that answers, not the
+    /// slot's own number: a reader that takes a picture still has it on the
+    /// screen for a frame after, so a slot drawn into the moment it was taken
+    /// is one drawn over while it is looked at — which, at 60 frames a second
+    /// shown by a window redrawing 30 times a second, is every frame.
+    pub fn claim(&self) -> Option<u32> {
+        let header = self.mapping.header();
+        let slot = self.back as usize;
+        let generation = header.pictures[slot].generation.load(Ordering::Acquire);
+        let moved_on = header.showing.load(Ordering::Acquire) > generation;
+        (generation == 0 || moved_on).then_some(self.back)
+    }
+
+    /// Publishes a picture drawn on the GPU into `slot`, which
+    /// [`Self::claim`] answered, and says whether it did: `false` means the UI
+    /// can't show such pictures — it looked and said so, or it draws on
+    /// another adapter — and the caller writes the frame's pixels instead.
     ///
     /// The worker must, before calling this:
     /// * draw into a `DXGI_FORMAT_R8G8B8A8_UNORM` texture of the picture's
@@ -914,7 +945,7 @@ impl Writer {
     /// The slots still hold a frame's size, and a file whose slots are too
     /// small for this picture is not grown: a GPU picture isn't in the file,
     /// and the pixel path above grows the file for itself when it writes one.
-    pub fn publish(&mut self, drawn: &Drawn) -> bool {
+    pub fn publish_into(&mut self, slot: u32, drawn: &Drawn) -> bool {
         let header = self.mapping.header();
         // Nothing said yet is not an answer — the worker may publish before
         // the UI has had a picture to look at — but a refusal is, and so is
@@ -924,20 +955,21 @@ impl Writer {
             UI_USABLE if header.ui_luid.load(Ordering::Relaxed) == drawn.luid => {}
             _ => return false,
         }
+        debug_assert_eq!(slot, self.back, "a picture goes where it was claimed");
         header.luid.store(drawn.luid, Ordering::Relaxed);
         header.fence.store(drawn.fence, Ordering::Relaxed);
         self.published += 1;
-        let shared = &header.pictures[self.back as usize];
+        let shared = &header.pictures[slot as usize];
         shared.texture.store(drawn.texture, Ordering::Relaxed);
         shared.value.store(drawn.fence_value, Ordering::Relaxed);
         shared.generation.store(self.published, Ordering::Relaxed);
-        let [w, h] = &header.sizes[self.back as usize];
+        let [w, h] = &header.sizes[slot as usize];
         w.store(drawn.width, Ordering::Relaxed);
         h.store(drawn.height, Ordering::Relaxed);
         // A stream's pictures have no time in a file: only a video's frames
         // do, and a video's frames are pixels.
-        header.times[self.back as usize].store(0, Ordering::Relaxed);
-        self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
+        header.times[slot as usize].store(0, Ordering::Relaxed);
+        self.back = header.middle.swap(slot | FRESH, Ordering::AcqRel) & !FRESH;
         true
     }
 }
@@ -1068,7 +1100,7 @@ mod tests {
     }
 
     /// A picture the worker drew on the GPU, as it hands one to
-    /// [`Writer::publish`]: handles 512 and 1024 are no real handles, but
+    /// [`Writer::publish_into`]: handles 512 and 1024 are no real handles, but
     /// they say which texture a test published.
     fn drawn(texture: u64, width: u32, height: u32) -> Drawn {
         Drawn {
@@ -1079,6 +1111,15 @@ mod tests {
             width,
             height,
         }
+    }
+
+    /// Publishes a picture the way the worker does: into the slot the reader
+    /// has moved on from, which is what [`Writer::claim`] answers.
+    fn publish(writer: &mut Writer, drawn: &Drawn) -> bool {
+        let Some(slot) = writer.claim() else {
+            return false;
+        };
+        writer.publish_into(slot, drawn)
     }
 
     /// The picture a slot describes, as a reader reads it, and nothing when
@@ -1107,7 +1148,10 @@ mod tests {
         let mut writer = Writer::open(&path).unwrap();
         frames.unlink();
 
-        assert!(writer.publish(&drawn(9, 4, 2)), "nothing said against it");
+        assert!(
+            publish(&mut writer, &drawn(9, 4, 2)),
+            "nothing said against it"
+        );
         assert_eq!(
             picture(&frames),
             Some(Picture {
@@ -1125,7 +1169,7 @@ mod tests {
             "a picture is not pixels"
         );
 
-        writer.publish(&drawn(11, 4, 2));
+        publish(&mut writer, &drawn(11, 4, 2));
         assert_eq!(picture(&frames).map(|picture| picture.texture), Some(11));
 
         writer.write(4, 2, |pixels| pixels.fill(4));
@@ -1153,13 +1197,13 @@ mod tests {
         // The UI draws on the worker's adapter, and says so.
         assert!(frames.accept_gpu(0x1488a));
         assert!(!frames.accept_gpu(0x1488a), "said once");
-        assert!(writer.publish(&drawn(9, 4, 2)), "the same adapter");
+        assert!(publish(&mut writer, &drawn(9, 4, 2)), "the same adapter");
         assert_eq!(picture(&frames).map(|picture| picture.luid), Some(0x1488a));
 
         // It draws on another one, and the worker stops drawing for it.
         assert!(frames.accept_gpu(0x2079f));
         assert!(
-            !writer.publish(&drawn(11, 4, 2)),
+            !publish(&mut writer, &drawn(11, 4, 2)),
             "another adapter is refused before anything is opened"
         );
         writer.write(4, 2, |pixels| pixels.fill(5));
@@ -1171,7 +1215,10 @@ mod tests {
         // And once it has refused them outright, no picture is published.
         assert!(frames.refuse_gpu());
         assert!(!frames.refuse_gpu(), "refused once, logged once");
-        assert!(!writer.publish(&drawn(13, 4, 2)), "the UI can't show it");
+        assert!(
+            !publish(&mut writer, &drawn(13, 4, 2)),
+            "the UI can't show it"
+        );
         writer.write(4, 2, |pixels| pixels.fill(6));
         assert_eq!(
             frames.take(|_, _, pixels| pixels.to_vec()),
@@ -1180,6 +1227,34 @@ mod tests {
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A GPU slot is drawn into again only once the reader has moved past the
+    /// picture that was there: a picture taken is one on the screen for a frame
+    /// after, so a slot drawn into the moment it was taken is one drawn over
+    /// while it is looked at. A window that falls behind costs preview frames
+    /// and never a torn picture.
+    #[test]
+    fn a_slot_is_drawn_into_again_only_once_the_reader_moved_on() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        // The ring gives the worker two slots: the one it writes and the one
+        // the reader has.
+        for texture in 9..11 {
+            let slot = writer.claim().expect("an empty slot");
+            assert!(writer.publish_into(slot, &drawn(texture, 4, 2)));
+        }
+        // Both hold pictures nothing has taken, so the next one would go over a
+        // picture the window is showing, and the frame's preview is dropped.
+        assert_eq!(writer.claim(), None, "no picture has been taken");
+
+        let newest = picture(&frames).expect("the newest picture");
+        assert_eq!(newest.generation, 2);
+        // Moving to the newest is moving off the one before it, which is free.
+        assert!(writer.claim().is_some(), "the reader has moved on");
     }
 
     /// A picture carries the size it was drawn at and a number that only
@@ -1194,12 +1269,12 @@ mod tests {
         let mut writer = Writer::open(&path).unwrap();
         frames.unlink();
 
-        writer.publish(&drawn(9, 640, 360));
+        publish(&mut writer, &drawn(9, 640, 360));
         assert_eq!(
             picture(&frames).map(|picture| (picture.width, picture.height, picture.generation)),
             Some((640, 360, 1))
         );
-        writer.publish(&drawn(9, 1280, 720));
+        publish(&mut writer, &drawn(9, 1280, 720));
         assert_eq!(
             picture(&frames).map(|picture| (picture.width, picture.height, picture.generation)),
             Some((1280, 720, 2)),

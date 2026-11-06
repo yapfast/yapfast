@@ -70,14 +70,23 @@ pub const ARGUMENT: &str = "--stream-worker";
 /// out from the machine's cores and how many streams it's decoding at once.
 const THREADS: &str = "YAPFAST_STREAM_THREADS";
 
-/// The largest frame shared at 1080p. Discord's own client trials 1080p at
-/// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
-/// experiment); larger screens are scaled down to it.
+/// The largest frame shared at 1080p: the box a stream's picture is scaled down
+/// to fit, which turns with a screen on its side — see [`fit`]. Discord's own
+/// client trials 1080p at 30 fps for accounts without Nitro, up to 5 Mbit/s (its
+/// "frontier tuning" experiment); larger screens are scaled down to it.
 pub const SHARE_WIDTH: u32 = 1920;
 pub const SHARE_HEIGHT: u32 = 1080;
 /// The largest preview of the shared screen the UI shows.
 pub const PREVIEW_WIDTH: u32 = 1280;
 pub const PREVIEW_HEIGHT: u32 = 720;
+/// The longest edge a preview drawn on the card is scaled to. It is the
+/// stream's own picture, shown where the card drew it — the only copy that
+/// costs nothing a frame — so it is worth the stream's pixels: 1920 is the
+/// largest a 1080p share sends, and a portrait screen's 1080x1920 fits the
+/// same box stood up. A share of a larger screen sends its picture at this
+/// edge too, so the preview and the stream agree.
+#[cfg(any(wgc, dup))]
+const PREVIEW_LONG_EDGE: u32 = 1920;
 /// The largest picture shown of someone else's stream; larger ones are
 /// scaled down to it.
 pub const WATCH_WIDTH: u32 = 1920;
@@ -463,10 +472,13 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             capture: preference,
         } => {
             crate::capture::set(preference);
-            let fps = fps.clamp(1, 60);
+            // The interface offers 15, 30 and 60; a measurement may ask for
+            // more, and a stream of its own is the only thing that suffers.
+            let fps = fps.clamp(1, 240);
             let sink = Sink {
                 writer: Writer::open(&frames)?,
                 preview: vec![],
+                capture: String::new(),
                 preview_shown: false,
                 controls: received,
                 server: None,
@@ -555,6 +567,10 @@ struct Sink {
     /// The picture the preview is scaled into, kept from one frame to the
     /// next: at most [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`].
     preview: Vec<u8>,
+    /// What is captured, in the words the call's Stream tab shows: which of
+    /// the ways of capturing ran and the size of what it captures. Set once,
+    /// by the capture before it starts.
+    capture: String,
     /// Whether the UI shows the preview, which it says as that changes: one
     /// isn't made while nothing displays it.
     preview_shown: bool,
@@ -780,11 +796,12 @@ fn log_encoder(encoder: &Encoding) {
     );
 }
 
-/// The kbit/s to aim for, as Discord's client does: its cap for frames of
-/// `height` lines, or what its server estimates the path carries when
-/// that's less, but at least the 500 kbit/s it gives a screen.
-fn kbps(height: u32, estimate: Option<u64>) -> u32 {
-    let cap = stream_connection::max_bitrate(height) / 1000;
+/// The kbit/s to aim for: what a `width` by `height` picture at `fps` is worth
+/// (see [`stream_connection::max_bitrate`]), or what Discord's server estimates
+/// the path carries when that's less, but never below the 500 kbit/s a screen
+/// keeps rather than losing its picture.
+fn kbps(width: u32, height: u32, fps: u32, estimate: Option<u64>) -> u32 {
+    let cap = stream_connection::max_bitrate(width, height, fps) / 1000;
     estimate.map_or(cap, |estimate| {
         (estimate / 1000).clamp(500, u64::from(cap)) as u32
     })
@@ -893,7 +910,7 @@ impl Sink {
         if !self.preview_shown && !due {
             return Ok(());
         }
-        let (width, height) = fit(content.0, content.1, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+        let (width, height) = preview_size(content.0, content.1);
         let length = (width * height * 4) as usize;
         if pixels.len() < length {
             pixels.resize(length, 0);
@@ -940,20 +957,24 @@ impl Sink {
     #[cfg(any(wgc, dup))]
     fn share_from_card(
         &mut self,
+        slot: u32,
         tile: &mut d3d11::D3d11Encoder,
         shared: &mut d3d11::Shared,
         texture: d3d11::Texture,
     ) -> Result<bool> {
-        let (texture, fence_value) = shared.draw(tile, texture)?;
+        let (texture, fence_value) = shared.draw(slot, tile, texture)?;
         let (width, height) = shared.size();
-        Ok(self.writer.publish(&Drawn {
-            luid: shared.luid(),
-            fence: shared.fence(),
-            texture,
-            fence_value,
-            width,
-            height,
-        }))
+        Ok(self.writer.publish_into(
+            slot,
+            &Drawn {
+                luid: shared.luid(),
+                fence: shared.fence(),
+                texture,
+                fence_value,
+                width,
+                height,
+            },
+        ))
     }
 
     /// The preview, and Discord's thumbnail when one is due: the picture scaled
@@ -1078,7 +1099,10 @@ impl Sink {
         // A rate a tenth below the aim is followed at once, and one a quarter
         // above it to climb; between the two is a wobble, and an estimate that
         // stopped coming says nothing at all.
-        if let Some(wanted) = video.sender.bitrate(height, aimed) {
+        if let Some(wanted) = video
+            .sender
+            .bitrate(kbps(width, height, self.fps, None), aimed)
+        {
             match video
                 .encoder
                 .as_mut()
@@ -1139,6 +1163,13 @@ impl Sink {
     #[cfg(any(wgc, dup))]
     fn preview_wanted(&self) -> bool {
         self.preview_shown || self.preview_due.is_some_and(|due| due <= Instant::now())
+    }
+
+    /// Whether Discord's still of the stream is due, which is made from the
+    /// tile's pixels: the one reason a frame is read back into memory while the
+    /// window shows the card's own picture.
+    fn still_wanted(&self) -> bool {
+        self.preview_due.is_some_and(|due| due <= Instant::now())
     }
 
     /// Lets go of the stream's encoder, keeping the rest: the device the
@@ -1204,7 +1235,7 @@ impl Sink {
         height: u32,
         _device: Option<*mut c_void>,
     ) -> Result<Encoding> {
-        let aimed = kbps(height, None);
+        let aimed = kbps(width, height, self.fps, None);
         match self.footage {
             Footage::InMemory => Ok(Encoding::Picture(Encoder::new(
                 codec,
@@ -1267,7 +1298,12 @@ impl Sink {
             && self.streaming
             && video.measured.0.elapsed() >= SENDING_EVERY
         {
-            report(Report::Sending(video.sending(self.fps)));
+            let mut sending = video.sending(self.fps);
+            // What is captured, which is the half a person can't see from the
+            // picture: a screen shared from the card and the same screen
+            // shared from the processor look alike once they arrive.
+            sending.capture = self.capture.clone();
+            report(Report::Sending(sending));
         }
         Ok(switch)
     }
@@ -1735,7 +1771,13 @@ fn test_pattern(
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
-    let (width, height) = (width.min(640), height.min(360));
+    // Colour bars cost nothing to encode, so the pattern stays small unless a
+    // measurement asks for a size: see `YAPFAST_STREAM_MAX_BITRATE`.
+    let (width, height) = if std::env::var_os("YAPFAST_STREAM_MAX_BITRATE").is_some() {
+        (width, height)
+    } else {
+        (width.min(640), height.min(360))
+    };
     report(Report::Sharing { width, height });
     let started = Instant::now();
     let mut slot = 0u64;
@@ -1785,12 +1827,24 @@ fn bounds(resolution: Resolution) -> (u32, u32) {
 
 /// The size `width` by `height` takes when scaled down to fit `max_width`
 /// by `max_height`, keeping its shape. Codecs want even sizes.
+///
+/// The box is a landscape frame — a stream's resolution is named that way — and
+/// it turns with the picture, because a screen on its side is the same screen:
+/// a 1080x1920 display shared at 1080p is 1080x1920, where a box that stayed
+/// on its feet would leave it 606x1080 and a third of its width behind. A
+/// square box fits either way round.
 pub fn fit(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
+    let (width, height) = (width.max(1), height.max(1));
+    let (max_width, max_height) = if (width > height) == (max_width > max_height) {
+        (max_width, max_height)
+    } else {
+        (max_height, max_width)
+    };
     let scale = f64::min(
         1.0,
         f64::min(
-            f64::from(max_width) / f64::from(width.max(1)),
-            f64::from(max_height) / f64::from(height.max(1)),
+            f64::from(max_width) / f64::from(width),
+            f64::from(max_height) / f64::from(height),
         ),
     );
     let even = |value: f64| ((value as u32) & !1).max(2);
@@ -1798,6 +1852,37 @@ pub fn fit(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u3
         even(f64::from(width) * scale),
         even(f64::from(height) * scale),
     )
+}
+
+/// The size a preview of a `width` by `height` frame is carried at: the stream's
+/// own picture, scaled down to [`PREVIEW_LONG_EDGE`] at most.
+///
+/// A preview drawn on the card costs nothing a frame — it is the same scale that
+/// fills the texture the UI shows — so it keeps every pixel the stream has, a
+/// portrait screen included. The pixels read back for a stream the card can't
+/// share a picture with stop at [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`], since
+/// that copy is made on the processor for every frame it is made for.
+#[cfg(any(wgc, dup))]
+fn preview_size(width: u32, height: u32) -> (u32, u32) {
+    fit(width, height, PREVIEW_LONG_EDGE, PREVIEW_LONG_EDGE)
+}
+
+/// The frame rate a share of `width` by `height` runs at: the one asked for, or
+/// 30 above 1080 lines, where the same bits a second buy twice the picture at
+/// half the frames. A share of a screen is the one reaching 4K, and 4K at 60 is
+/// 0.018 bits a pixel at what the cap declares — the rate a 4K share is worth is
+/// its 30-frame one, so the frame rate is where the interface's 60 goes.
+pub fn sharing_fps(width: u32, height: u32, asked: u32) -> u32 {
+    // A measurement asks for the frame rate itself: see
+    // `YAPFAST_STREAM_MAX_BITRATE`.
+    if std::env::var_os("YAPFAST_STREAM_MAX_BITRATE").is_some() {
+        return asked;
+    }
+    if width > SHARE_WIDTH || height > SHARE_HEIGHT {
+        asked.min(30)
+    } else {
+        asked
+    }
 }
 
 /// Converts an I420 picture into RGBA pixels of its size.
@@ -1848,9 +1933,30 @@ struct Captured {
     failed: Option<String>,
 }
 
+/// What a share from the card hands back when its loop is done: nothing more
+/// to share, or a source the card's path can't take, which the processor's
+/// does.
+#[cfg(any(wgc, dup))]
+enum After {
+    /// The share is over: it was stopped, or what it captured closed.
+    Ended,
+    /// Share `source` next. A window or a camera isn't a screen: the card's
+    /// paths take a display, and the processor's capturer is what shares one,
+    /// so the stream goes on there.
+    Processor(Source),
+}
+
+/// Whether the card's capture paths can take `source` at all: they capture a
+/// display, where a window, a camera and a test pattern are the processor's
+/// or nobody's.
+#[cfg(any(wgc, dup))]
+fn on_the_card(source: &Source) -> bool {
+    matches!(source, Source::Screen | Source::Display(_))
+}
+
 fn capture_screen(
     source: Source,
-    sink: Sink,
+    mut sink: Sink,
     max_width: u32,
     max_height: u32,
     stop: &AtomicBool,
@@ -1864,13 +1970,32 @@ fn capture_screen(
     // without NVENC. Everything that keeps a share on the processor is named in
     // the line this logs, so a stream that costs more than it should says why.
     #[cfg(any(wgc, dup))]
-    match card_capture(&source, &sink, (max_width, max_height)) {
-        Ok(chosen) => {
-            return capture_textures(chosen, sink, (max_width, max_height), stop, report);
+    let source = {
+        let mut wanted = source;
+        loop {
+            match card_capture(&wanted, &sink, (max_width, max_height)) {
+                Ok(chosen) => {
+                    let (back, after) =
+                        capture_textures(chosen, sink, (max_width, max_height), stop, report)?;
+                    sink = back;
+                    match after {
+                        After::Ended => return Ok(()),
+                        // Another screen is opened the way this one was, with
+                        // the stream going on; a window or a camera is the
+                        // processor's, below.
+                        After::Processor(next) if on_the_card(&next) => wanted = next,
+                        After::Processor(next) => break next,
+                    }
+                }
+                Err(why) => {
+                    tracing::info!(why = format!("{why:#}"), "sharing from the processor");
+                    break wanted;
+                }
+            }
         }
-        Err(why) => tracing::info!(why = format!("{why:#}"), "sharing from the processor"),
-    }
-    let fps = sink.fps;
+    };
+    sink.capture = "the processor's capturer".to_owned();
+    let mut fps = sink.fps;
     let sink = Arc::new(Mutex::new(sink));
     let mut capture = Capture::start(source, &sink, max_width, max_height)?;
     // A screen, window or camera to share in its place, until it gives a
@@ -1902,11 +2027,14 @@ fn capture_screen(
                 failure
             });
         }
-        if size != reported
-            && let Some((width, height)) = size
-        {
-            reported = size;
-            report(Report::Sharing { width, height });
+        if let Some((width, height)) = size {
+            if size != reported {
+                reported = size;
+                report(Report::Sharing { width, height });
+            }
+            // A screen larger than 1080 lines is shared at 30 frames a second
+            // at most: see [`sharing_fps`].
+            fps = sharing_fps(width, height, fps);
         }
         if let Some(next) = &switching {
             let seen = next.seen();
@@ -2200,6 +2328,55 @@ fn chosen_why(
     why.to_owned()
 }
 
+/// The monitor Windows knows a listed screen by.
+///
+/// libwebrtc names a screen by its place in the system's own enumeration — the
+/// number a [`Source::Display`] carries is that place, `0` for the first — and
+/// the card's capture paths take the `HMONITOR` the same enumeration hands out.
+/// They are not the same number, so the place is turned back into the handle
+/// here: a picked screen was otherwise a capture of an HMONITOR that doesn't
+/// exist, which both rungs refused and left on the processor.
+#[cfg(any(wgc, dup))]
+fn monitor_of(place: u64) -> Result<u64> {
+    use windows::Win32::Foundation::{LPARAM, RECT};
+    use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
+    use windows::core::BOOL;
+
+    /// Collects each monitor the system enumerates, in its own order.
+    unsafe extern "system" fn collect(
+        monitor: HMONITOR,
+        _: HDC,
+        _: *mut RECT,
+        monitors: LPARAM,
+    ) -> BOOL {
+        // SAFETY: `monitors` is the Vec borrowed below for this call, and this
+        // borrow of it lasts the callback only.
+        let monitors = unsafe { &mut *(monitors.0 as *mut Vec<u64>) };
+        monitors.push(monitor.0 as u64);
+        true.into()
+    }
+
+    let mut monitors: Vec<u64> = Vec::new();
+    // SAFETY: the callback only appends to `monitors`, which outlives the call.
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(collect),
+            LPARAM(&mut monitors as *mut Vec<u64> as isize),
+        );
+    }
+    usize::try_from(place)
+        .ok()
+        .and_then(|place| monitors.get(place).copied())
+        .with_context(|| {
+            format!(
+                "no display is listed at place {place}, where {} are enumerated",
+                monitors.len()
+            )
+        })
+}
+
 /// Which screen `source` is, when it is one: the display's own handle, or the
 /// one the desktop starts on when nothing has been picked yet. A window or a
 /// camera is not a screen, and saying so is the reason a share of one stays on
@@ -2207,7 +2384,9 @@ fn chosen_why(
 #[cfg(wgc)]
 fn screen_of(source: &Source) -> Result<wgc::Monitor> {
     match source {
-        Source::Display(screen) => Ok(wgc::Monitor::new(*screen as usize as *mut std::ffi::c_void)),
+        Source::Display(screen) => Ok(wgc::Monitor::new(
+            monitor_of(*screen)? as usize as *mut std::ffi::c_void
+        )),
         Source::Screen => Ok(wgc::Monitor::PRIMARY),
         Source::Window(_) => bail!(
             "a window is captured on the processor: what Windows Graphics Capture \
@@ -2246,7 +2425,7 @@ fn graphics_capture(
         sent_width,
         sent_height,
         sink.fps,
-        kbps(sent_height, None),
+        kbps(sent_width, sent_height, sink.fps, None),
         d3d11::Surfaces::Ring,
     )
     .context("the card won't open an encoder on the device it captures with")?;
@@ -2280,7 +2459,7 @@ fn duplication(source: &Source, sink: &Sink, (max_width, max_height): (u32, u32)
         sent_width,
         sent_height,
         sink.fps,
-        kbps(sent_height, None),
+        kbps(sent_width, sent_height, sink.fps, None),
         d3d11::Surfaces::Ring,
     )
     .context(
@@ -2298,7 +2477,7 @@ fn duplication(source: &Source, sink: &Sink, (max_width, max_height): (u32, u32)
 fn duplication_target(source: &Source) -> Result<dup::Target> {
     match source {
         Source::Screen => dup::Target::primary(),
-        Source::Display(monitor) => target_of_monitor(*monitor),
+        Source::Display(screen) => target_of_monitor(monitor_of(*screen)?),
         Source::Window(_) => bail!(
             "a window is captured on the processor: what DXGI duplicates here is a whole display"
         ),
@@ -2432,7 +2611,7 @@ fn capture_textures(
     (max_width, max_height): (u32, u32),
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
-) -> Result<()> {
+) -> Result<(Sink, After)> {
     let Chosen {
         card: mut capture,
         why,
@@ -2448,8 +2627,15 @@ fn capture_textures(
         stream = format!("{sent_width}x{sent_height}"),
         "sharing from the card"
     );
+    // A share of a screen larger than 1080 lines runs at 30 frames a second at
+    // most: see [`sharing_fps`].
+    sink.fps = sharing_fps(sent_width, sent_height, sink.fps);
     let fps = sink.fps;
     sink.footage = Footage::OnTheCard;
+    sink.capture = format!(
+        "{} · {screen_width}×{screen_height} screen",
+        capture.rung().name()
+    );
     let started = Instant::now();
     // Only the pace of the loop matters here: a screen that drew nothing is a
     // frame skipped, not one captured twice.
@@ -2541,11 +2727,54 @@ fn capture_textures(
             report(Report::Sharing { width, height });
         }
         if let Some(source) = switched {
-            // Another screen is another capture and another encoder, and this
-            // loop holds one of each; the stream ends rather than showing a
-            // picture nobody sends, and the next share picks the other screen
-            // from the start.
-            bail!("can't switch to {source:?} while the screen is shared from the card");
+            // Another screen: another capture, and the session that encodes it
+            // and the tile's own were both built on the device the old capture
+            // made, so all three are let go before the new one opens — the
+            // capture first, because DXGI gives an output to one duplicator at
+            // a time, and the encoder before it, because a session reads on
+            // the device its capture made. What can't be opened is said, and
+            // the share carries on from the processor rather than ending: a
+            // stream that stops is worse than one on the processor.
+            if on_the_card(&source) {
+                tile = None;
+                shared = None;
+                read = None;
+                sink.let_go();
+                drop(capture);
+                match card_capture(&source, &sink, (max_width, max_height)) {
+                    Ok(next) => {
+                        let (width, height) = next.card.content_size();
+                        let (sent_width, sent_height) = fit(width, height, max_width, max_height);
+                        tracing::info!(
+                            rung = next.card.rung().name(),
+                            capture = next.card.describe().as_str(),
+                            screen = format!("{width}x{height}"),
+                            stream = format!("{sent_width}x{sent_height}"),
+                            "sharing another screen from the card"
+                        );
+                        sink.capture =
+                            format!("{} · {width}×{height} screen", next.card.rung().name());
+                        sink.fps = sharing_fps(sent_width, sent_height, sink.fps);
+                        capture = next.card;
+                        // The next frame says what is shared now, even at the
+                        // size the screen before it was.
+                        reported = None;
+                        restarts = 0;
+                    }
+                    Err(why) => {
+                        tracing::info!(
+                            why = format!("{why:#}"),
+                            "switching screens: sharing from the processor"
+                        );
+                        return Ok((sink, After::Processor(source)));
+                    }
+                }
+            } else {
+                // A window or a camera: the card's paths take a display, and
+                // the processor's capturer shares one, with the stream going
+                // on from here.
+                return Ok((sink, After::Processor(source)));
+            }
         }
         match taken {
             // A session the card took away, which a driver reset is the usual
@@ -2579,14 +2808,14 @@ fn capture_textures(
         match (wanted, tile.is_some()) {
             (true, false) => {
                 let content = capture.content_size();
-                let preview = fit(content.0, content.1, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+                let preview = preview_size(content.0, content.1);
                 match d3d11::D3d11Encoder::open_on(
                     capture.device(),
                     stream_connection::SEND_CODEC,
                     preview.0,
                     preview.1,
                     fps,
-                    kbps(preview.1, None),
+                    kbps(preview.0, preview.1, fps, None),
                     d3d11::Surfaces::One,
                 ) {
                     Ok(opened) => {
@@ -2624,8 +2853,16 @@ fn capture_textures(
             }
             _ => {}
         }
+        // A preview read back into memory is what a window that can't show the
+        // card's own picture shows, and what Discord's still is made from.
+        // While the picture itself is what the window shows, neither is
+        // written: one frame is published once, rather than the tile
+        // alternating between a texture and a smaller copy of it ten times a
+        // second.
+        let read_back = shared.is_none() || sink.still_wanted();
         if let Some(tile) = &mut tile
             && arrival == Arrival::Frame
+            && read_back
             && read.is_none_or(|last| last.elapsed() >= PREVIEW_EVERY)
         {
             read = Some(Instant::now());
@@ -2641,15 +2878,21 @@ fn capture_textures(
         }
         // The picture the UI's window shows where the card drew it: the tile's
         // own size, scaled on the card into a texture both processes hold, so a
-        // window drawn on the GPU shows it without a copy of anything. It is
-        // published after the tile's pixels, so that the newest frame is the
-        // texture and a stream whose sharing is refused keeps the pixels that
-        // went before it rather than losing the frame.
+        // window drawn on the GPU shows it without a copy of anything.
+        //
+        // The frames file's slot decides whether this frame has a picture at
+        // all: a slot is only drawn into once the window showing it has moved
+        // past what was there, so a picture a person is looking at is never
+        // written over. A frame whose slot is still being shown keeps its
+        // picture a frame longer — the stream itself is unaffected, since it
+        // encodes the capture's own texture.
         let mut withdrawn = false;
         if let (Some(tile), Some(shared)) = (tile.as_mut(), shared.as_mut())
             && arrival == Arrival::Frame
+            && let Some(slot) = sink.writer.claim()
         {
-            let taken = sink.share_from_card(tile, shared, d3d11::Texture::new(capture.texture()));
+            let taken =
+                sink.share_from_card(slot, tile, shared, d3d11::Texture::new(capture.texture()));
             match taken {
                 Ok(true) => {}
                 // The UI looked and can't show a picture from this card, or its
@@ -2670,7 +2913,7 @@ fn capture_textures(
             shared = None;
         }
     }
-    Ok(())
+    Ok((sink, After::Ended))
 }
 
 /// A capturer sending a screen's, window's or camera's frames to the sink.
@@ -3490,6 +3733,33 @@ mod tests {
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
     }
 
+    /// The box a stream fits in turns with the picture, so a screen on its side
+    /// keeps its own shape at the resolution asked for instead of being shrunk
+    /// to a landscape frame's height.
+    #[test]
+    fn a_portrait_screen_fits_the_box_stood_up() {
+        // 1080x1920 on a 1080p share: every pixel of it, not 606x1080.
+        assert_eq!(fit(1080, 1920, SHARE_WIDTH, SHARE_HEIGHT), (1080, 1920));
+        assert_eq!(fit(1080, 1920, 1280, 720), (720, 1280));
+        assert_eq!(fit(1080, 1920, 3840, 2160), (1080, 1920), "never larger");
+        // A landscape screen is fitted exactly as it was.
+        assert_eq!(fit(1920, 1080, SHARE_WIDTH, SHARE_HEIGHT), (1920, 1080));
+        assert_eq!(fit(3440, 1440, SHARE_WIDTH, SHARE_HEIGHT), (1920, 802));
+        // A square box fits either way round.
+        assert_eq!(fit(1080, 1920, 1920, 1920), (1080, 1920));
+    }
+
+    /// A preview drawn on the card is the stream's own picture, up to the 1920
+    /// its longest edge is allowed; the shape of the screen decides which edge
+    /// that is.
+    #[cfg(any(wgc, dup))]
+    #[test]
+    fn a_preview_on_the_card_keeps_the_streams_pixels() {
+        assert_eq!(preview_size(3440, 1440), (1920, 802));
+        assert_eq!(preview_size(1080, 1920), (1080, 1920));
+        assert_eq!(preview_size(1280, 720), (1280, 720), "never larger");
+    }
+
     /// Only a worker that decodes pictures takes a share of the machine's
     /// decoder threads: a watched stream and a played video do, where a shared
     /// screen only encodes and a glance only takes a picture.
@@ -3767,13 +4037,38 @@ mod tests {
         assert_eq!(slot, frame + 1, "and the loop goes on from there");
     }
 
+    /// A share is declared what its picture needs: bits per pixel per frame,
+    /// so the same quality at every size, under a ceiling that is 4K60's.
     #[test]
-    fn aims_for_discords_bitrates() {
-        assert_eq!(kbps(720, None), 3500);
-        assert_eq!(kbps(1080, None), 9000);
-        assert_eq!(kbps(1080, Some(4_000_000)), 4000, "what the path carries");
-        assert_eq!(kbps(720, Some(9_000_000)), 3500, "never past the cap");
-        assert_eq!(kbps(1080, Some(100_000)), 500, "nor below a screen's floor");
+    fn aims_for_what_the_picture_needs() {
+        // 0.07 bits a pixel a frame.
+        assert_eq!(kbps(1920, 1080, 60, None), 8_709);
+        assert_eq!(kbps(3440, 1440, 60, None), 20_805);
+        assert_eq!(kbps(3840, 2160, 60, None), 34_836);
+        // The ceiling is that 4K60, and the floor is a small picture's.
+        assert_eq!(kbps(7680, 4320, 60, None), 35_000, "never past 4K60's");
+        assert_eq!(kbps(640, 360, 30, None), 3_500, "never below a screen's");
+        // A frame rate a person picks takes its share of the bits with it.
+        assert_eq!(kbps(3840, 2160, 30, None), 17_418);
+        assert_eq!(kbps(3440, 1440, 30, None), 10_402);
+        // What the server estimates the path carries decides below the cap.
+        assert_eq!(
+            kbps(3440, 1440, 60, Some(4_000_000)),
+            4_000,
+            "what the path carries"
+        );
+        assert_eq!(
+            kbps(1920, 1080, 60, Some(9_000_000)),
+            8_709,
+            "never past the cap"
+        );
+        assert_eq!(
+            kbps(1920, 1080, 60, Some(100_000)),
+            500,
+            "nor below a screen's floor"
+        );
+        // A screen on its side is the same picture, so it is worth the same.
+        assert_eq!(kbps(1080, 1920, 30, None), kbps(1920, 1080, 30, None));
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
@@ -3785,6 +4080,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: false,
             controls: received,
             server: None,
@@ -3826,6 +4122,7 @@ mod tests {
         let sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: false,
             controls: received,
             server: None,
@@ -3880,6 +4177,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: false,
             controls: received,
             server: None,
@@ -4049,10 +4347,29 @@ mod tests {
             let said = format!("{error:#}");
             assert!(said.contains(why), "{said}");
         }
+        // A screen is named by its place in the system's enumeration, so a
+        // place no display is listed at names nothing.
         let Err(error) = duplication_target(&Source::Display(u64::MAX)) else {
-            panic!("a handle no display has named one");
+            panic!("a place no display is listed at named one");
         };
-        assert!(format!("{error:#}").contains("monitor handle"), "{error:#}");
+        assert!(
+            format!("{error:#}").contains("no display is listed"),
+            "{error:#}"
+        );
+
+        // And the place that does have one is turned into that display's own
+        // handle, which is what DXGI is asked for: screen 1 on this machine is
+        // not `HMONITOR 0x1`, which is what a share of it used to look for.
+        let listed = sources(livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Screen);
+        for source in listed {
+            let Some(monitor) = monitor_of(source.id()).ok() else {
+                panic!("a listed screen is a display: {:?}", source.id());
+            };
+            assert_ne!(monitor, source.id(), "a place is not a handle");
+            if let Err(error) = target_of_monitor(monitor) {
+                panic!("a listed display is one DXGI enumerates: {error:#}");
+            }
+        }
     }
 
     /// Whether a screen's texture and an NVENC session can be on one device, as
@@ -4080,7 +4397,7 @@ mod tests {
             sent_width,
             sent_height,
             30,
-            kbps(sent_height, None),
+            kbps(sent_width, sent_height, 30, None),
             d3d11::Surfaces::Ring,
         ) else {
             eprintln!(
@@ -4444,6 +4761,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: true,
             controls: received,
             server: None,
@@ -4486,6 +4804,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: false,
             controls: received,
             server: None,
@@ -4537,6 +4856,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: false,
             controls: received,
             server: None,
@@ -4572,6 +4892,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: false,
             controls: received,
             server: None,
@@ -4602,6 +4923,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: false,
             controls: received,
             server: None,
@@ -4749,6 +5071,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: true,
             controls: received,
             server: None,
@@ -4795,6 +5118,7 @@ root.mainloop()
         let sink = Arc::new(Mutex::new(Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            capture: String::new(),
             preview_shown: true,
             controls: received,
             server: None,

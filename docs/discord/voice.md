@@ -106,7 +106,11 @@ the encoder and where it runs ("NVENC on the GPU", "x264 on the CPU"), the
 codec Discord chose, the size and frame rate sent, the bitrate sent over
 the last second beside the one aimed for, which follows Discord's bandwidth
 estimate, and the keyframes viewers asked for and the packets resent to
-them. Discord's client shows its stream's numbers only in developer mode.
+them. It also says how the picture is captured and how large what is captured
+is — "Windows Graphics Capture · 3440×1440 screen", or "the processor's
+capturer" — which is the half of a share no packet shows: the same screen looks
+the same whether the card or the processor took it. Discord's client shows its
+stream's numbers only in developer mode.
 The stream worker reports them once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps
 the last report beside its own numbers, without refreshing the UI's state,

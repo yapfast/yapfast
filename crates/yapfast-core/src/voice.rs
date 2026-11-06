@@ -157,6 +157,12 @@ pub struct LinkStats {
 pub struct StreamStats {
     pub engine: String,
     pub codec: String,
+    /// What is captured, as the way that captured it and the size of it:
+    /// "Windows Graphics Capture · 3440×1440 screen", or "the processor's
+    /// capturer" for a screen, window or camera taken in memory. It is the
+    /// half of a share no packet shows — the picture looks the same whichever
+    /// way made it — so a share that looks wrong says which way it came.
+    pub capture: String,
     /// The optional settings the encoder's driver didn't keep when it
     /// opened, as it named them ("preset,tune"); empty when it kept them
     /// all, and then the Stream tab has no row to show for them. A handful

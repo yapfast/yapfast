@@ -61,6 +61,7 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
     if let Some(stream) = &stats.stream {
         link.set_encoder(encoder(&stream.engine).into());
         link.set_codec(stream.codec.as_str().into());
+        link.set_capture(stream.capture.as_str().into());
         link.set_settings_dropped(stream.settings_dropped.as_str().into());
         link.set_picture(
             format!("{}×{} at {} fps", stream.width, stream.height, stream.fps).into(),
@@ -78,7 +79,12 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
 /// Where the stream's encoder runs, by its name: "h264_nvenc" is NVENC on
 /// the GPU, "h264_amf" AMD's AMF, "hevc_vaapi (renderD128, radeonsi)"
 /// VA-API through Mesa's radeonsi driver, "x264" on the CPU.
+///
+/// After a slash comes the device a picture is read on — "av1_nvenc/d3d11" is
+/// NVENC on the GPU reading the capture's own Direct3D 11 device — which says
+/// where the frames come from rather than where the encoding runs.
 fn encoder(engine: &str) -> String {
+    let engine = engine.split_once('/').map_or(engine, |(engine, _)| engine);
     let (name, place) = engine.split_once(' ').unwrap_or((engine, ""));
     let driver = place
         .trim_matches(['(', ')'])
@@ -161,6 +167,9 @@ mod tests {
     #[test]
     fn says_where_the_stream_is_encoded() {
         assert_eq!(encoder("h264_nvenc"), "NVENC on the GPU");
+        // The device the pictures are read on isn't where the encoding runs.
+        assert_eq!(encoder("av1_nvenc/d3d11"), "NVENC on the GPU");
+        assert_eq!(encoder("h264_nvenc/d3d11"), "NVENC on the GPU");
         assert_eq!(encoder("av1_amf"), "AMF on the GPU");
         assert_eq!(
             encoder("hevc_vaapi (renderD128, radeonsi)"),

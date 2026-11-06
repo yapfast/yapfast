@@ -110,6 +110,10 @@ export global CallLink {
     in property <bool> streaming;
     in property <string> encoder;
     in property <string> codec;
+    /// The way the picture is captured and the size of what is captured, such
+    /// as "Windows Graphics Capture · 3440×1440 screen": the half of a share
+    /// no packet shows, so a share that looks wrong says how it was made.
+    in property <string> capture;
     /// The settings the encoder's driver didn't keep, as it named them
     /// ("preset,tune"); empty when it kept them all, and then no row shows.
     in property <string> settings-dropped;
@@ -181,7 +185,13 @@ component LinkRow inherits HorizontalLayout {
     in property <string> value;
     spacing: 4px; alignment: start;
     Text { text: root.label; color: Theme.secondary; font-size: 14px; }
-    Text { text: root.value; color: Theme.text; font-size: 14px; font-weight: 700; }
+    // A value longer than the card wraps under itself rather than being cut
+    // off mid-word, which is what "Windows Graphics Capture · 3440×1440
+    // screen" did.
+    Text {
+        text: root.value; color: Theme.text; font-size: 14px; font-weight: 700;
+        horizontal-stretch: 1; wrap: word-wrap;
+    }
 }
 
 // The call's connection in detail, as Discord's popout from its voice panel:
@@ -246,6 +256,7 @@ export component CallLinkCard inherits Rectangle {
                 label: "Settings the encoder dropped:"; value: CallLink.settings-dropped;
             }
             LinkRow { label: "Resolution:"; value: CallLink.picture; }
+            if CallLink.capture != "": LinkRow { label: "Capture:"; value: CallLink.capture; }
             LinkRow { label: "Sending:"; value: CallLink.sent; }
             LinkRow { label: "Aiming for:"; value: CallLink.target; }
             LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
@@ -1261,8 +1272,13 @@ export component ShareMenu inherits Rectangle {
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
-    /// The encoder's slower preset: a sharper picture for more CPU.
+    /// The encoder's slower preset: a sharper picture for more CPU. Presets
+    /// are the processor's encoder's to choose between; see `card-encoding`.
     in-out property <bool> pick-high-quality;
+    /// Whether the graphics card's encoder takes this share. It has one tuning,
+    /// so the row says so rather than offering a slower preset that would
+    /// change nothing.
+    in property <bool> card-encoding;
     callback go-live(int, int, int, bool);
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
@@ -1350,8 +1366,12 @@ export component ShareMenu inherits Rectangle {
             Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
         }
         if !root.switching: MenuItem {
-            text: "Higher quality"; subtitle: "Sharper, at twice the CPU";
-            checkbox: true; checked: root.pick-high-quality;
+            text: "Higher quality";
+            subtitle: root.card-encoding
+                ? "The graphics card's encoder has one setting"
+                : "Sharper, at twice the CPU";
+            checkbox: true; checked: root.pick-high-quality && !root.card-encoding;
+            disabled: root.card-encoding;
             clicked => { root.pick-high-quality = !root.pick-high-quality; }
         }
         HorizontalLayout {

@@ -1685,6 +1685,9 @@ export component YapfastWindow inherits Window {
             dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
             pick-high-quality <=> root.pick-high-quality;
+            // The card's encoder is one setting, so the menu doesn't offer a
+            // slower preset where that's what will encode the share.
+            card-encoding: root.gpu-encoding;
             go-live(source, resolution, fps, high-quality) => {
                 if root.pick-switch {
                     root.switch-live(source);

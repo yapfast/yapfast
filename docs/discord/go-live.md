@@ -50,7 +50,14 @@ While live, the voice dock's share button switches what's shared without
 ending the stream: the worker starts a second capturer (on Linux, through the
 dialog again) and keeps sending the first one's frames. When the second one
 gives a frame, it replaces the first. If the dialog is cancelled, the first
-one goes on. The encoder takes the new size on the same connection.
+one goes on. The encoder takes the new size on the same connection. A share
+that is on the card switches differently, since nothing of it is captured in
+memory: another screen is opened the way the share opened — the old capture
+first, because DXGI gives an output to one duplicator at a time, then the
+encoder session and the tile's own, which were both built on the device the
+old capture made — and the stream goes on. A window or a camera can't be
+captured on the card, so the share carries on from the processor rather than
+ending.
 `YAPFAST_STREAM_TEST_PATTERN=1` shares moving colour bars instead of a screen.
 
 A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
@@ -126,18 +133,45 @@ switched to, is made at once, since nothing sent can be repaired without it.
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to
 4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
-doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
+doesn't have, has the processor's encoder work harder on each frame — x264's or
+libvpx's slower preset for a sharper picture at the same bitrate. The graphics
+card's encoders run the one tuning `native/hwenc.c` names, so with "Encode
+streams with the GPU" on the row says that and can't be ticked: a slower preset
+there would change nothing. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
-it. Larger screens, and those of another shape, are scaled down to fit. Yapfast
-sends them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
-and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
-`max_framerate`. Like Discord's client it also follows the server's bandwidth
+it. Larger screens are scaled down to fit, and one of another shape keeps its
+shape: the box a share fits in is named landscape, and it turns with the
+picture, so a 1080x1920 display shared at 1080p goes at 1080x1920 rather than
+the 606x1080 a box left standing would leave it. Nothing is padded with black —
+the black around a share is the viewer's client's, drawn around a picture of the
+wrong shape — and nothing is cropped. Yapfast declares what the picture is
+worth: 0.07 bits per pixel per frame, floored at 3.5 Mbit/s and capped at 35
+Mbit/s (what 3840x2160 at 60 is worth), announced as op 12's `max_bitrate`
+(bps) with the frame rate and size as its `max_framerate` and `max_resolution`.
+A 1080p60 share declares 8.7 Mbit/s, a 3440x1440@60 share 20.8, and a 4K30
+share 17.4. A share above 1080 lines runs at 30 frames a second at most, since
+the same bits buy twice the picture at half the frames.
+
+Those numbers are measured here rather than copied: four-second clips at the p4
+low-latency setting a stream opens with, VMAF against the source. Busy
+3840x2160@60 scores 92.9 / 94.2 / 95.2 / 96.5 through AV1 at 15 / 25 / 35 / 50
+Mbit/s, 91.8 / 93.8 / 95.0 / 96.5 through HEVC and 91.8 / 94.1 / 94.9 / 96.2
+through H.264 at the same rates; busy 3440x1440@60 scores 93.7 / 95.3 / 96.9
+through AV1 at 9 / 20 / 35. 0.07 is where busy content reaches VMAF 95 at every
+size. A screen share is far cheaper: a 4K60 desktop scored 98 on 2.4 Mbit/s and
+a 3440x1440@60 one 98 on 5.9, so a share of a screen leaves most of its cap
+unspent.
+
+`max_bitrate` is a declaration and the voice server sends no such field back:
+Discord's reference documents no maximum, default or tier. A probe through a
+real stream had 3840x2160 declared at 60, 120 and even 200 Mbit/s, and
+7680x4320@60, and Discord refused none of it. Like Discord's client it also
+follows the server's bandwidth
 estimate (REMB): when that drops below the cap, the encoder aims for the
 estimate instead, though never below 500 kbit/s. A fall is obeyed once the
 estimate is a tenth below the rate, a rise once a quarter above it, so a wobble
 changes nothing and a recovered path is climbed again; an estimate that stops
-coming is not followed, and the rate holds rather than leaping to the cap. Discord's client allows accounts without Nitro
-720p30, but trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts
+coming is not followed, and the rate holds rather than leaping to the cap. The worker converts
 captured frames to I420 with libyuv, scales them with libyuv's filtering
 scaler, and encodes those. The preview — the same picture scaled down to 720p,
 for the share's tile and the corner — is made only while the UI shows one: the
@@ -152,9 +186,18 @@ status is never held while a frame is made. On Windows, with GPU encoding on and
 capture's own D3D11 device, no frame is converted at all: Windows Graphics
 Capture fills a BGRA texture and NVENC reads it there, the driver's video
 processor scaling it to the stream's size on the way. The preview's tile and
-Discord's still come from that same frame — scaled on the card to 1280×720 at
-most, copied into one staging texture, ten times a second while the UI shows a
-preview. Everything else — Linux, a window or a camera, the processor setting,
+Discord's still come from that same frame. The tile is the stream's own picture
+— scaled on the card into a 1920-long-edge box, which is the largest a 1080p
+share sends — drawn into the frames file's own slots: one picture for each slot,
+and a slot is only drawn into once the window showing it has taken a newer
+picture, so a picture a person is looking at is never written over. A window
+that falls behind therefore costs preview frames, never a torn picture, and the
+stream itself is untouched, since it encodes the capture's texture and not the
+tile. A picture crosses to the window as a shared texture it opens once, shown
+where the card drew it every frame, with a fence saying when the drawing
+finished. Where the two adapters can't share a texture, or the window draws in
+software, the tile is read back into one staging texture at 1280×720 at most
+instead, ten times a second while the UI shows a preview. Everything else — Linux, a window or a camera, the processor setting,
 or a card that won't open on the capture's device — takes the libyuv path above,
 and one log line says which ran and why. Where Windows Graphics Capture is missing or won't open, DXGI's Desktop
 Duplication fills the same kind of texture — upright, in BGRA, with the pointer

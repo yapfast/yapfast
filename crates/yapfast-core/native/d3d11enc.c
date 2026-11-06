@@ -2306,14 +2306,19 @@ void yapfast_d3d11enc_source_free(struct yapfast_d3d11enc_source *source) {
  * mutex Direct3D 11 requires beside an NT handle is taken for the copy and given
  * back at once, since the Direct3D 12 view of the resource has no mutex to take,
  * and the fence is what orders the two devices. */
+/* The pictures a worker draws a stream's preview into, one for each slot of the
+ * frames file: a slot is drawn into only when its reader has moved on, so the
+ * number of pictures has to match the number of slots. */
+#define SHARED_PICTURES 3
+
 struct yapfast_d3d11enc_shared {
-  ID3D11Texture2D *pictures[2];
-  IDXGIKeyedMutex *mutexes[2];
+  ID3D11Texture2D *pictures[SHARED_PICTURES];
+  IDXGIKeyedMutex *mutexes[SHARED_PICTURES];
   /* The handles, as the UI's process holds them: what is published is these and
    * never the ones this process made, which mean nothing over there. */
-  unsigned long long textures[2];
+  unsigned long long textures[SHARED_PICTURES];
   /* The fence value each texture was last written at. */
-  unsigned long long written[2];
+  unsigned long long written[SHARED_PICTURES];
   ID3D11Fence *fence;
   /* The context's signalling half: a copy is only drawn once the fence says so,
    * and only the GPU can say it. */
@@ -2322,19 +2327,13 @@ struct yapfast_d3d11enc_shared {
   unsigned long long value;
   unsigned long long luid;
   unsigned width, height;
-  unsigned next;
+  /* The picture drawn into last, which is the one a test reads back. */
+  unsigned drawn;
 };
 
 /* Freed where a share is half made, below where it is defined: a share that
  * can't be finished is let go of in the same call that tried to make it. */
 void yapfast_d3d11enc_shared_free(struct yapfast_d3d11enc_shared *s);
-
-/* Direct3D 12's fence, by its identifier, which is what a fence has to be made
- * as for a device in another process, on another API, to open it. Spelled out
- * because this is C, which has no `__uuidof`, and because including Direct3D
- * 12's header for one number would link its library for one number. */
-static const GUID fence_iid = {
-    0x8efb471d, 0x616c, 0x4f49, {0x90, 0xf7, 0x12, 0x7b, 0xb7, 0x63, 0xfa, 0x51}};
 
 /* A handle as another process holds it. A handle's value means nothing outside
  * the process that took it, so what the UI opens is a duplicate made in its
@@ -2423,7 +2422,6 @@ static int shared_texture(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_sh
 static int shared_fence(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shared *s,
                         unsigned process, char *why, size_t size) {
   ID3D11Device5 *device = NULL;
-  IUnknown *unknown = NULL;
   HANDLE handle = NULL;
   HRESULT status;
   status = e->device->lpVtbl->QueryInterface(e->device, &IID_ID3D11Device5, (void **)&device);
@@ -2431,18 +2429,18 @@ static int shared_fence(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shar
     hr_failure(why, size, "QueryInterface(ID3D11Device5) for a shared picture's fence", status);
     return -1;
   }
-  status =
-      device->lpVtbl->CreateFence(device, 0, D3D11_FENCE_FLAG_SHARED, &fence_iid, (void **)&unknown);
+  /* Made as Direct3D 11's fence, which is the only face this object has. Asked
+   * for Direct3D 12's instead, a device answers E_NOINTERFACE — measured on an
+   * RTX 4090, before and after d3d12.dll is loaded — and every stream fell back
+   * to writing pixels. Direct3D 12's half is the UI's, made by opening the
+   * handle that is shared below, so which face is asked for here decides
+   * nothing across the boundary. */
+  status = device->lpVtbl->CreateFence(device, 0, D3D11_FENCE_FLAG_SHARED, &IID_ID3D11Fence,
+                                       (void **)&s->fence);
   device->lpVtbl->Release(device);
-  if (FAILED(status) || !unknown) {
-    hr_failure(why, size, "ID3D11Device5::CreateFence", status);
-    return -1;
-  }
-  status = unknown->lpVtbl->QueryInterface(unknown, &IID_ID3D11Fence, (void **)&s->fence);
-  unknown->lpVtbl->Release(unknown);
   if (FAILED(status) || !s->fence) {
     s->fence = NULL;
-    hr_failure(why, size, "QueryInterface(ID3D11Fence) on a shared fence", status);
+    hr_failure(why, size, "ID3D11Device5::CreateFence", status);
     return -1;
   }
   status = s->fence->lpVtbl->CreateSharedHandle(s->fence, NULL, GENERIC_ALL, NULL, &handle);
@@ -2487,8 +2485,8 @@ struct yapfast_d3d11enc_shared *yapfast_d3d11enc_shared_new(
   adapter = NULL;
   s->luid = (unsigned long long)desc.AdapterLuid.LowPart |
             ((unsigned long long)(unsigned long)desc.AdapterLuid.HighPart << 32);
-  if (shared_texture(e, s, 0, process, said, sizeof said)) goto failed;
-  if (shared_texture(e, s, 1, process, said, sizeof said)) goto failed;
+  for (unsigned at = 0; at < SHARED_PICTURES; at++)
+    if (shared_texture(e, s, at, process, said, sizeof said)) goto failed;
   if (shared_fence(e, s, process, said, sizeof said)) goto failed;
   if (e->context->lpVtbl->QueryInterface(e->context, &IID_ID3D11DeviceContext4,
                                          (void **)&s->signals) != S_OK ||
@@ -2508,26 +2506,29 @@ failed:
   return nothing(e, "%s", said);
 }
 
-/* Scales `texture`'s picture into the next of the two shared ones on the GPU,
- * signals the fence with the value that says it is drawn, and answers the
- * texture's handle as the UI's process holds it and that value. Answers 1, or 0
- * with `yapfast_d3d11enc_error` saying why.
+/* Scales `texture`'s picture into shared picture `at`, signals the fence with
+ * the value that says it is drawn, and answers that texture's handle as the
+ * UI's process holds it and the value. Answers 1, or 0 with
+ * `yapfast_d3d11enc_error` saying why.
  *
- * The wait before the copy is the reuse discipline: the GPU, not the processor,
- * waits for the value this texture was last written at, so a picture the driver
- * is still filling is never written over, and the alternating pair means the one
- * the UI is showing is the one not being written. */
+ * The caller chooses the picture because it is the frames file's slot that says
+ * one may be drawn into: a slot is only drawn into once its reader has moved
+ * past the picture there, so the choice is the reader's pace and not a pairing
+ * here. The wait before the copy is the reuse discipline this side still owns:
+ * the GPU, not the processor, waits for the value this texture was last written
+ * at, so a picture the driver is still filling is never written over. */
 int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shared *s,
-                                 void *texture, unsigned subresource, unsigned long long *handle,
-                                 unsigned long long *value) {
+                                 unsigned at, void *texture, unsigned subresource,
+                                 unsigned long long *handle, unsigned long long *value) {
   ID3D11Texture2D *source = texture;
   D3D11_TEXTURE2D_DESC desc;
   NV_ENC_BUFFER_FORMAT registered;
   char why[192] = "";
-  unsigned at;
   HRESULT status;
   if (!e) return -1;
   if (!s) return fail(e, -1, "no shared picture to draw into");
+  if (at >= SHARED_PICTURES)
+    return fail(e, -1, "there is no shared picture %u of %u", at, (unsigned)SHARED_PICTURES);
   if (!source) return fail(e, -1, "the shared picture was given nothing to draw");
   source->lpVtbl->GetDesc(source, &desc);
   if (subresource >= desc.MipLevels * desc.ArraySize)
@@ -2537,7 +2538,6 @@ int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d1
                 "the texture is DXGI format %u, and a shared picture is drawn from BGRA, RGBA or "
                 "NV12",
                 (unsigned)desc.Format);
-  at = s->next;
   if (s->mutexes[at]->lpVtbl->AcquireSync(s->mutexes[at], 0, INFINITE) != S_OK)
     return fail(e, -1, "a shared picture couldn't be taken for drawing");
   status = s->signals->lpVtbl->Wait(s->signals, s->fence, s->written[at]);
@@ -2561,7 +2561,7 @@ int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d1
                 (unsigned long)status);
   }
   s->written[at] = s->value;
-  s->next = at ^ 1;
+  s->drawn = at;
   s->mutexes[at]->lpVtbl->ReleaseSync(s->mutexes[at], 0);
   *handle = s->textures[at];
   *value = s->value;
@@ -2593,7 +2593,7 @@ void yapfast_d3d11enc_shared_size(struct yapfast_d3d11enc_shared *s, unsigned *w
  * what a test reads back to see the picture the UI would show, and nothing the
  * stream path needs, which knows the handle it was answered with. */
 void *yapfast_d3d11enc_shared_picture(struct yapfast_d3d11enc_shared *s) {
-  return s ? s->pictures[s->next ^ 1] : NULL;
+  return s ? s->pictures[s->drawn] : NULL;
 }
 
 /* The textures go with the share, and the UI's handles go with the UI: a handle
@@ -2601,7 +2601,7 @@ void *yapfast_d3d11enc_shared_picture(struct yapfast_d3d11enc_shared *s) {
  * lifetime of the window showing the stream. */
 void yapfast_d3d11enc_shared_free(struct yapfast_d3d11enc_shared *s) {
   if (!s) return;
-  for (unsigned at = 0; at < 2; at++) {
+  for (unsigned at = 0; at < SHARED_PICTURES; at++) {
     if (s->mutexes[at]) s->mutexes[at]->lpVtbl->Release(s->mutexes[at]);
     if (s->pictures[at]) s->pictures[at]->lpVtbl->Release(s->pictures[at]);
   }

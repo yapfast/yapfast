@@ -159,6 +159,7 @@ unsafe extern "C" {
     fn yapfast_d3d11enc_shared_draw(
         encoder: *mut Raw,
         shared: *mut RawShared,
+        at: c_uint,
         texture: *mut c_void,
         subresource: c_uint,
         handle: *mut c_ulonglong,
@@ -927,14 +928,24 @@ impl Shared {
         self.fence
     }
 
-    /// Scales `texture` into the next of the two pictures on the GPU, in one
-    /// pass through the driver's video processor or its shader, and answers that
+    /// Scales `texture` into shared picture `at` on the GPU, in one pass
+    /// through the driver's video processor or its shader, and answers that
     /// picture's handle as the UI's process holds it with the fence value that
     /// says it is drawn.
     ///
+    /// The caller names the picture because the frames file's slot decides
+    /// which one may be drawn into: a slot is only drawn into once its reader
+    /// has moved past the picture there, so a picture a person is looking at
+    /// is never written over.
+    ///
     /// The value is signalled after the scale is queued and nothing here waits
     /// for it: the UI does, and so does the next draw into the same picture.
-    pub fn draw(&mut self, tile: &mut D3d11Encoder, texture: Texture) -> Result<(u64, u64)> {
+    pub fn draw(
+        &mut self,
+        at: u32,
+        tile: &mut D3d11Encoder,
+        texture: Texture,
+    ) -> Result<(u64, u64)> {
         let (mut handle, mut value) = (0, 0);
         // SAFETY: raw and the encoder are both open, the texture is the caller's
         // and outlives the call, and the out-pointers are two locals.
@@ -942,6 +953,7 @@ impl Shared {
             yapfast_d3d11enc_shared_draw(
                 tile.raw,
                 self.raw,
+                at,
                 texture.handle,
                 texture.subresource,
                 &mut handle,
@@ -1401,10 +1413,10 @@ mod tests {
         );
         assert_ne!(shared.fence(), 0, "the picture has no fence to wait on");
         let (first, first_value) = shared
-            .draw(&mut encoder, source.texture())
+            .draw(0, &mut encoder, source.texture())
             .expect("the first picture drawn");
         let (second, second_value) = shared
-            .draw(&mut encoder, source.texture())
+            .draw(1, &mut encoder, source.texture())
             .expect("the second picture drawn");
         assert_ne!(
             first, second,

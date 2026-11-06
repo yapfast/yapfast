@@ -53,10 +53,84 @@ const PACE: usize = 4;
 /// polled between them rather than after the whole frame.
 const STEP: Duration = Duration::from_millis(1);
 
-/// The most bit/s a stream of `height` lines may take, as Discord's client
-/// decides it: 3.5 Mbit/s up to 720p, 9 Mbit/s above. Op 12 announces it.
-pub fn max_bitrate(height: u32) -> u32 {
-    if height > 720 { 9_000_000 } else { 3_500_000 }
+/// The most bit/s a stream of `width` by `height` at `fps` may take: what the
+/// picture needs, which is bits per pixel per frame, measured here.
+///
+/// A share's quality is bits per pixel per frame and nothing else, so the
+/// declaration follows the picture rather than a step at 720 lines:
+/// [`BITS_PER_PIXEL`] times the pixels times the frames a second, floored at
+/// what a small picture is worth and capped at what the largest share the
+/// interface offers needs — 3840x2160 at 60. A 3440x1440 share at 60 then
+/// declares 20.8 Mbit/s and 1080p60 8.7, which are the rates the measurements
+/// below put at the same quality.
+///
+/// Measured here, four-second clips at the p4 low-latency setting the stream
+/// uses, VMAF against the source: busy 3840x2160@60 through AV1 scores 92.9 at
+/// 15 Mbit/s, 94.2 at 25, 95.2 at 35 and 96.5 at 50; HEVC 91.8/93.8/95.0/96.5
+/// and H.264 91.8/94.1/94.9/96.2 at the same rates. Busy 3440x1440@60 through
+/// AV1 scores 93.7 at 9 Mbit/s, 95.3 at 20 and 96.9 at 35. So 0.07 is where
+/// busy content reaches VMAF 95 at every size, and it declares 20.8 Mbit/s for
+/// the 3440x1440 case the measurement agrees with.
+///
+/// A screen share is far cheaper than that: a desktop at 3840x2160@60 scores
+/// VMAF 98 on 2.4 Mbit/s and one at 3440x1440@60 scores 98 on 5.9, so a share
+/// of a screen spends what it needs and leaves the rest of its cap unspent.
+///
+/// Discord's server takes the declaration on trust: a probe through a real
+/// stream accepted 3840x2160 at 60, 120 and even 200 Mbit/s declared, and
+/// 7680x4320@60, without refusing any of it. The declaration is therefore ours
+/// to choose, and REMB is what lowers the rate a path can't carry.
+///
+/// Neither number is a limit Discord states. The reference documents
+/// `max_bitrate` only as an optional integer, "the maximum bitrate to send in
+/// bps", footnoted "not sent by the voice server", and gives no maximum,
+/// default or tiers; its one value is the example Video (Send) payload's
+/// `9000000` at 60 fps (docs.discord.food, Voice Connections, Stream
+/// Structure). So op 12 announces a cap and the voice server takes it on trust:
+/// a path that can't carry it is held back by the server's bandwidth estimate
+/// (REMB) instead, which is what this file follows below.
+///
+/// Discord's own web client is far more modest than this: its screen-share
+/// ladder is `desktopBitrate {min: 500_000, max: 3_500_000, target: 600_000}`,
+/// a Go Live stream opens at 1280x720 with those bounds, and the overrides it
+/// computes per resolution are 3.5 or 5 Mbit/s at 1080p30 (the
+/// `2026-05-frontier-tuning` guild trial) and 9 Mbit/s for 720p60 in a tier-1
+/// guild under `2026-06-server-ladder`. So above 720 lines this is two and a
+/// half times what the client it copies would use, and that is the direction to
+/// err in: a 1080p share at 3.5 Mbit/s is soft, and the estimate still caps it.
+pub fn max_bitrate(width: u32, height: u32, fps: u32) -> u32 {
+    if let Some(bits) = declared() {
+        return bits;
+    }
+    let pixels = f64::from(width) * f64::from(height) * f64::from(fps);
+    ((pixels * BITS_PER_PIXEL) as u64).clamp(u64::from(LEAST), u64::from(MOST)) as u32
+}
+
+/// Bits per pixel per frame a share is worth: measured, see [`max_bitrate`].
+const BITS_PER_PIXEL: f64 = 0.07;
+/// The least a share is declared, so a small or still picture isn't starved by
+/// a formula: a screen's own floor is 500 kbit/s, and this is above it.
+const LEAST: u32 = 3_500_000;
+/// The most, which is 3840x2160 at 60 through [`BITS_PER_PIXEL`]: the largest
+/// share the interface offers, and the ceiling everything else scales under.
+const MOST: u32 = 35_000_000;
+
+/// The bit/s a stream declares when a measurement overrides the cap, from
+/// `YAPFAST_STREAM_MAX_BITRATE` in kbit/s: the only way to try a declaration
+/// this client doesn't ship, since op 12 is otherwise a fixed ceiling. Read
+/// once, because a stream declares it once.
+fn declared() -> Option<u32> {
+    static ONCE: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+    *ONCE.get_or_init(|| {
+        let asked = std::env::var("YAPFAST_STREAM_MAX_BITRATE").ok()?;
+        match asked.trim().parse::<u32>() {
+            Ok(kbps) => Some(kbps.saturating_mul(1000)),
+            Err(error) => {
+                tracing::warn!(asked, %error, "YAPFAST_STREAM_MAX_BITRATE is not kbit/s");
+                None
+            }
+        }
+    })
 }
 
 /// The least kbit/s a shared screen is given, as Discord's client gives it: a
@@ -76,8 +150,8 @@ const ESTIMATE_LIFE: Duration = Duration::from_secs(5);
 /// None to leave the encoder's rate as it is.
 ///
 /// It aims for what Discord's client aims for: the estimate, though never
-/// below the floor a screen is given nor above the cap its height was
-/// announced at. What it takes to move the rate is not the same both ways. A
+/// below the floor a screen is given nor above `cap`, the kbit/s the stream's
+/// picture was declared to be worth (see [`max_bitrate`]). What it takes to move the rate is not the same both ways. A
 /// tenth below is a path that has just lost packets, and it is obeyed at once.
 /// A quarter above is a path that has got better, and a quarter is what it
 /// takes to climb, because an estimate wandering a few percent either way
@@ -85,8 +159,7 @@ const ESTIMATE_LIFE: Duration = Duration::from_secs(5);
 /// wandered. So a stream that recovers climbs again once its estimate is a
 /// quarter above the rate it holds, never waiting for a report that undoes the
 /// whole cut, and never going past what the estimate says the path carries.
-pub fn bitrate(height: u32, aimed: u32, estimate: Option<u64>) -> Option<u32> {
-    let cap = max_bitrate(height) / 1000;
+pub fn bitrate(cap: u32, aimed: u32, estimate: Option<u64>) -> Option<u32> {
     // Nothing said about the path is not the same as a path that carries
     // everything: with no estimate to go on, the rate stays where it is.
     let estimate = estimate?;
@@ -633,12 +706,12 @@ impl StreamSender {
     /// path carries is what moves it, as long as the server is still saying
     /// so: a report that stopped coming is not news about the path now, and a
     /// rate held where it is beats one thrown back to the cap on nothing.
-    pub fn bitrate(&self, height: u32, aimed: u32) -> Option<u32> {
+    pub fn bitrate(&self, cap: u32, aimed: u32) -> Option<u32> {
         let estimate = *lock(&self.shared.estimate);
         let said = estimate
             .filter(|(_, said)| said.elapsed() <= ESTIMATE_LIFE)
             .map(|(estimate, _)| estimate);
-        bitrate(height, aimed, said)
+        bitrate(cap, aimed, said)
     }
 
     pub fn link(&self) -> Link {
@@ -777,7 +850,7 @@ pub(crate) fn video_attributes(
             "active": true,
             "quality": 100,
             "rtx_ssrc": rtx,
-            "max_bitrate": max_bitrate(height),
+            "max_bitrate": max_bitrate(width, height, fps),
             "max_framerate": fps,
             "max_resolution": {"type": "fixed", "width": width, "height": height},
         }],
@@ -1765,31 +1838,31 @@ mod tests {
 
     #[test]
     fn aims_for_the_estimate_within_a_screen_s_floor_and_cap() {
-        // What Discord's client does with the estimate: 1080p is announced at
-        // 9 Mbit/s and 720p at 3.5, and a screen is given at least 500 even
+        // What the estimate does within a declaration: a 1080p share declares
+        // 9 Mbit/s and a 720p one 3.5, and a screen is given at least 500 even
         // when the path says it carries less.
         assert_eq!(
-            bitrate(1080, 9000, Some(4_000_000)),
+            bitrate(9000, 9000, Some(4_000_000)),
             Some(4000),
             "what the path carries"
         );
         assert_eq!(
-            bitrate(720, 9000, Some(9_000_000)),
+            bitrate(3500, 9000, Some(9_000_000)),
             Some(3500),
             "never past the cap for the height"
         );
         assert_eq!(
-            bitrate(1080, 9000, Some(100_000)),
+            bitrate(9000, 9000, Some(100_000)),
             Some(500),
             "nor below a screen's floor"
         );
         assert_eq!(
-            bitrate(720, 500, Some(0)),
+            bitrate(3500, 500, Some(0)),
             None,
             "a path that says it carries nothing leaves the floor alone"
         );
         assert_eq!(
-            bitrate(1080, 9000, None),
+            bitrate(9000, 9000, None),
             None,
             "nothing said about the path is no reason to move"
         );
@@ -1801,24 +1874,24 @@ mod tests {
         // that just lost packets is not one to keep trying; a rise waits for a
         // quarter, since an estimate wanders by a few percent every report and
         // following that would churn the encoder's rate control every second.
-        assert_eq!(bitrate(1080, 1000, Some(1_000_000)), None, "what it holds");
+        assert_eq!(bitrate(9000, 1000, Some(1_000_000)), None, "what it holds");
         assert_eq!(
-            bitrate(1080, 1000, Some(900_000)),
+            bitrate(9000, 1000, Some(900_000)),
             None,
             "a tenth exactly is no reason to cut"
         );
         assert_eq!(
-            bitrate(1080, 1000, Some(899_000)),
+            bitrate(9000, 1000, Some(899_000)),
             Some(899),
             "and a tenth and a kbit/s is"
         );
         assert_eq!(
-            bitrate(1080, 1000, Some(1_250_000)),
+            bitrate(9000, 1000, Some(1_250_000)),
             None,
             "a quarter exactly is no reason to climb"
         );
         assert_eq!(
-            bitrate(1080, 1000, Some(1_251_000)),
+            bitrate(9000, 1000, Some(1_251_000)),
             Some(1251),
             "and a quarter and a kbit/s is"
         );
@@ -1831,7 +1904,7 @@ mod tests {
         let mut held = 2000;
         let mut changes = 0;
         for estimate in (1_850_000..=2_150_000).step_by(25_000) {
-            if let Some(next) = bitrate(1080, held, Some(estimate)) {
+            if let Some(next) = bitrate(9000, held, Some(estimate)) {
                 held = next;
                 changes += 1;
             }
@@ -1854,7 +1927,7 @@ mod tests {
         for estimate in [
             300_000, 400_000, 500_000, 600_000, 700_000, 800_000, 1_000_000, 1_500_000, 2_000_000,
         ] {
-            if let Some(next) = bitrate(1080, held, Some(estimate)) {
+            if let Some(next) = bitrate(9000, held, Some(estimate)) {
                 held = next;
                 changes.push(next);
             }
@@ -1881,11 +1954,11 @@ mod tests {
             buffers: Arc::default(),
             shared: shared.clone(),
         };
-        assert_eq!(sender.bitrate(1080, 9000), None, "nothing said yet");
+        assert_eq!(sender.bitrate(9000, 9000), None, "nothing said yet");
 
         *lock(&shared.estimate) = Some((4_000_000, std::time::Instant::now()));
         assert_eq!(
-            sender.bitrate(1080, 9000),
+            sender.bitrate(9000, 9000),
             Some(4000),
             "what the path carries"
         );
@@ -1894,7 +1967,7 @@ mod tests {
         // The same report, while it is news, cuts the rate at once.
         *lock(&shared.estimate) = Some((800_000, std::time::Instant::now()));
         assert_eq!(
-            sender.bitrate(1080, 9000),
+            sender.bitrate(9000, 9000),
             Some(800),
             "what the path carries"
         );
@@ -1907,7 +1980,7 @@ mod tests {
             None,
             "the rate it holds is the rate it keeps"
         );
-        assert_eq!(sender.bitrate(1080, 9000), None, "nothing said lately");
+        assert_eq!(sender.bitrate(9000, 9000), None, "nothing said lately");
         assert_eq!(
             sender.bandwidth_estimate(),
             Some(800_000),

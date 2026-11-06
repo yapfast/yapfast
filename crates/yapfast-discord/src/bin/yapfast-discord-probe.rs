@@ -21,6 +21,8 @@ use yapfast_discord::{
 };
 
 const USAGE: &str = "usage: yapfast-discord-probe <command>
+  go-live <guild> <channel> <width> <height> <fps> <seconds> [pattern|screen]
+                           join a voice channel, go live there, and share
   store-token              save the test account's token in the OS credential store
   whoami                   show which account the saved token belongs to
   servers                  list servers and their text and voice channels
@@ -55,6 +57,7 @@ async fn main() -> Result<()> {
             };
             join(channel, seconds).await
         }
+        Some("go-live") => share(&args).await,
         Some("forget-token") => {
             token::forget()?;
             println!("Removed the token from the OS credential store.");
@@ -143,6 +146,158 @@ async fn messages(channel_id: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Goes live in a voice channel and shares a screen or a test pattern there for
+/// `seconds`, printing what the stream worker reports each time it says how it
+/// goes out. `YAPFAST_STREAM_MAX_BITRATE` (kbit/s) sets the cap op 12 declares
+/// and the encoder aims for, which is what a measurement overrides.
+async fn share(args: &[String]) -> Result<()> {
+    let guild = args.get(1).context(USAGE)?;
+    let channel = args.get(2).context(USAGE)?;
+    let width: u32 = args.get(3).context(USAGE)?.parse().context("width")?;
+    let height: u32 = args.get(4).context(USAGE)?.parse().context("height")?;
+    let fps: u32 = args.get(5).context(USAGE)?.parse().context("fps")?;
+    let seconds: u64 = args.get(6).context(USAGE)?.parse().context("seconds")?;
+    let source = match args.get(7).map(String::as_str) {
+        Some("screen") => serde_json::json!({ "display": 0 }),
+        _ => serde_json::json!("test_pattern"),
+    };
+    let cap = std::env::var("YAPFAST_STREAM_MAX_BITRATE").unwrap_or_else(|_| "shipped".into());
+    println!("Sharing {width}x{height} at {fps} fps for {seconds} s, cap {cap} kbit/s.");
+    let discord = Discord::start(token::load()?)?;
+    online(&discord).await?;
+    println!("Joining {channel} in {guild}...");
+    let _voice = discord.join(guild, channel).await?;
+    discord.set_self(guild, channel, false, false, false);
+    // The voice state has to be in the channel before a stream can be started
+    // there.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let server = match discord.go_live(guild, channel).await {
+        Ok(server) => server,
+        Err(error) => {
+            println!("Discord refused the stream: {error:#}");
+            discord.leave(guild);
+            return Ok(());
+        }
+    };
+    println!(
+        "Stream {} of server {}.",
+        server.stream_key, server.rtc_server_id
+    );
+    let outcome = worker(&server, source, (width, height, fps), seconds).await;
+    discord.end_stream(&server.stream_key);
+    discord.leave(guild);
+    // Let the end and the leave reach Discord before the connection closes.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    outcome
+}
+
+/// Runs the stream worker the app would run, and prints its reports.
+async fn worker(
+    server: &yapfast_discord::stream::StreamServer,
+    source: serde_json::Value,
+    (width, height, fps): (u32, u32, u32),
+    seconds: u64,
+) -> Result<()> {
+    let frames = std::env::temp_dir().join(format!("yapfast-probe-{width}x{height}-{fps}.frames"));
+    make_frames(&frames, width, height)?;
+    let binary = app_binary()?;
+    let mut worker = Command::new(&binary)
+        .arg("--stream-worker")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .with_context(|| format!("could not start {}", binary.display()))?;
+    let mut input = worker.stdin.take().context("the worker's stdin")?;
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({ "share": {
+            "source": source,
+            "frames": frames,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "hardware": true,
+        }})
+    )?;
+    writeln!(input, "{}", serde_json::json!({ "send": server }))?;
+    input.flush()?;
+    let mut output = std::io::BufReader::new(worker.stdout.take().context("the worker's stdout")?);
+    let started = std::time::Instant::now();
+    let mut reports = 0;
+    let mut last = String::new();
+    while started.elapsed() < Duration::from_secs(seconds) {
+        let mut line = String::new();
+        if output.read_line(&mut line)? == 0 {
+            println!("The stream worker ended.");
+            break;
+        }
+        let Ok(report) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        if let Some(sending) = report.get("sending") {
+            reports += 1;
+            let number = |key: &str| {
+                sending
+                    .get(key)
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0)
+            };
+            println!(
+                "{:>5} s  aim {:>5} kbit/s  sent {:>5} kbit/s  skipped {:>4}  keyframes {:>3}  resent {:>4}",
+                started.elapsed().as_secs(),
+                number("target_kbps"),
+                number("sent_kbps"),
+                number("skipped"),
+                number("keyframe_requests"),
+                number("resent"),
+            );
+            last = line.trim().to_owned();
+        } else if report.get("ended").is_some() {
+            println!("The worker ended: {}", line.trim());
+        }
+    }
+    writeln!(input, "stop")?;
+    input.flush()?;
+    let _ = worker.wait();
+    println!(
+        "{reports} reports, last: {}",
+        last.chars().take(200).collect::<String>()
+    );
+    Ok(())
+}
+
+/// A frames file the stream worker can open, laid out as the UI lays one out:
+/// its magic, a slot's bytes and the slot the reader starts at, then the slots.
+fn make_frames(path: &Path, width: u32, height: u32) -> Result<()> {
+    const HEADER: u64 = 256;
+    const SLOTS: u64 = 3;
+    let capacity = u64::from(width) * u64::from(height) * 4;
+    let mut file = File::create(path)?;
+    file.set_len(HEADER + SLOTS * capacity)?;
+    file.write_all(b"TKFR")?;
+    file.write_all(&(capacity as u32).to_ne_bytes())?;
+    file.write_all(&1u32.to_ne_bytes())?;
+    Ok(())
+}
+
+/// The built app, which is the stream worker's parent everywhere else.
+fn app_binary() -> Result<std::path::PathBuf> {
+    if let Ok(named) = std::env::var("YAPFAST_BIN") {
+        return Ok(named.into());
+    }
+    for profile in ["fast", "release", "debug"] {
+        let candidate = Path::new("target")
+            .join(profile)
+            .join(format!("yapfast{}", std::env::consts::EXE_SUFFIX));
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    bail!("no built app: set YAPFAST_BIN, or build one into target/")
 }
 
 /// The first snapshot after connecting, with voice channels this account can join.
