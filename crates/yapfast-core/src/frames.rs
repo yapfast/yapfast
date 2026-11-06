@@ -29,6 +29,15 @@
 //! always was, and one whose pictures the UI can't open says so in the header
 //! and goes on with pixels from its next frame: a picture that can't be shown
 //! is a slow stream, not a blank one.
+//!
+//! A GPU slot is the worker's to draw into again only once the UI says it has
+//! finished with the picture that was there, slot by slot and generation by
+//! generation. Taking a picture is not finishing with it: the window shows it
+//! for as long as it is on screen, and the GPU may still be sampling the
+//! texture for a frame after the next one replaced it. So the reader says so
+//! itself, through [`Frames::retire`], when the rendering queue has passed the
+//! picture it took, and nothing else counts as the worker's leave to draw
+//! there.
 
 use std::{
     fs::{File, OpenOptions, TryLockError},
@@ -78,11 +87,6 @@ struct Header {
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
     _reserved: u32,
-    /// The number of the newest picture the reader has taken, which only
-    /// grows: a worker about to draw into a slot again asks it whether the
-    /// reader has moved on from what was there, since a picture taken is a
-    /// picture on the screen for a frame after.
-    showing: AtomicU64,
     /// Each slot's frame size, as width and height in pixels.
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
@@ -118,6 +122,12 @@ struct Shared {
     /// The number of the picture, which only grows: a reader compares it with
     /// the one it showed to tell a new picture from the one before it.
     generation: AtomicU64,
+    /// The newest generation of this slot the reader has finished with, which
+    /// only grows and is the reader's alone to write: a worker draws into the
+    /// slot again only once this is the generation that is there. Zero until
+    /// a reader has finished with one, and a generation of zero — a slot that
+    /// never held a picture — is the worker's from the start.
+    retired: AtomicU64,
 }
 
 const _: () = assert!(size_of::<Header>() <= HEADER);
@@ -156,6 +166,10 @@ pub struct Picture {
     pub fence_value: u64,
     /// The number of the picture, which only grows.
     pub generation: u64,
+    /// The slot it is in, which [`Frames::retire`] names it by: a picture's
+    /// generation says which picture of that slot it is, and the two together
+    /// are what the worker keeps a slot for.
+    pub slot: u32,
     /// The picture's size, in pixels.
     pub width: u32,
     pub height: u32,
@@ -631,20 +645,12 @@ impl Frames {
                 texture,
                 fence_value: shared.value.load(Ordering::Relaxed),
                 generation: shared.generation.load(Ordering::Relaxed),
+                slot: front.slot,
                 width,
                 height,
             })
         };
         let time = header.times[front.slot as usize].load(Ordering::Relaxed);
-        // The newest picture the reader has taken, which is what tells a worker
-        // drawing into a GPU slot that the reader has moved past the picture
-        // that was there.
-        if texture != 0 {
-            reading
-                .header()
-                .showing
-                .store(shared.generation.load(Ordering::Relaxed), Ordering::Release);
-        }
         Some((show(frame), time))
     }
 
@@ -675,6 +681,37 @@ impl Frames {
             Frame::Gpu(_) => None,
         })
         .and_then(|(shown, time)| shown.map(|shown| (shown, time)))
+    }
+
+    /// Says the reader has finished with slot `slot`'s picture `generation`,
+    /// which the worker may draw into again from then on: the picture is off
+    /// the screen and the rendering queue has passed it, so nothing here reads
+    /// that texture any more.
+    ///
+    /// Taking a picture is not finishing with it. A picture the reader couldn't
+    /// show — a fence that didn't arrive in time, a texture it couldn't open —
+    /// is still the one on the screen, and the slot it is in is the reader's
+    /// until the picture it replaced is off it. Says whether this was the
+    /// first time the slot heard it.
+    pub fn retire(&self, slot: u32, generation: u64) -> bool {
+        let _front = self
+            .front
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Ok(reading) = Reading::open(&self.file) else {
+            return false;
+        };
+        let shared = &reading.header().pictures[slot as usize];
+        if shared.generation.load(Ordering::Acquire) != generation {
+            // A slot the worker has drawn into since is not this picture's to
+            // retire: the worker only draws there after a retirement, so this
+            // is a retirement of something already finished with.
+            return false;
+        }
+        shared
+            .retired
+            .fetch_max(generation, Ordering::AcqRel)
+            < generation
     }
 
     /// Says the UI can show this stream's pictures from the GPU, on `luid`,
@@ -903,22 +940,22 @@ impl Writer {
         true
     }
 
-    /// The slot a GPU picture goes in next, when the reader has moved on from
+    /// The slot a GPU picture goes in next, when the reader has finished with
     /// the one there: `None` means the UI still shows what that slot holds, and
     /// this frame's preview is dropped rather than drawn over a picture
     /// somebody is looking at. A slot that never held a picture is always free.
     ///
-    /// It is the newest picture the reader has taken that answers, not the
-    /// slot's own number: a reader that takes a picture still has it on the
-    /// screen for a frame after, so a slot drawn into the moment it was taken
-    /// is one drawn over while it is looked at — which, at 60 frames a second
-    /// shown by a window redrawing 30 times a second, is every frame.
+    /// It is the reader's own record of finishing with the picture that
+    /// answers, a slot at a time: a picture taken is a picture on the screen
+    /// until the next one replaces it and the rendering queue has drawn that,
+    /// which can be a frame or more after the take — so only the reader knows,
+    /// and it says so with [`Frames::retire`].
     pub fn claim(&self) -> Option<u32> {
         let header = self.mapping.header();
-        let slot = self.back as usize;
-        let generation = header.pictures[slot].generation.load(Ordering::Acquire);
-        let moved_on = header.showing.load(Ordering::Acquire) > generation;
-        (generation == 0 || moved_on).then_some(self.back)
+        let slot = &header.pictures[self.back as usize];
+        let generation = slot.generation.load(Ordering::Acquire);
+        let retired = slot.retired.load(Ordering::Acquire);
+        (generation == 0 || retired >= generation).then_some(self.back)
     }
 
     /// Publishes a picture drawn on the GPU into `slot`, which
@@ -1160,6 +1197,7 @@ mod tests {
                 texture: 9,
                 fence_value: 18,
                 generation: 1,
+                slot: 0,
                 width: 4,
                 height: 2,
             })
@@ -1229,13 +1267,15 @@ mod tests {
         assert!(!path.exists(), "gone once both let go");
     }
 
-    /// A GPU slot is drawn into again only once the reader has moved past the
-    /// picture that was there: a picture taken is one on the screen for a frame
-    /// after, so a slot drawn into the moment it was taken is one drawn over
-    /// while it is looked at. A window that falls behind costs preview frames
-    /// and never a torn picture.
+    /// A GPU slot is drawn into again only once the reader says it has
+    /// finished with the picture that is there, slot by slot and generation by
+    /// generation. Taking a picture is not finishing with it: the window shows
+    /// it until the next one replaces it, and the GPU may still be sampling
+    /// its texture after that, so the reader's own word is what frees the slot.
+    /// A window that falls behind costs preview frames and never a torn
+    /// picture.
     #[test]
-    fn a_slot_is_drawn_into_again_only_once_the_reader_moved_on() {
+    fn a_slot_is_drawn_into_again_only_once_the_reader_finished_with_it() {
         let frames = Frames::create(4, 2).unwrap();
         let path = frames.path().unwrap();
         let mut writer = Writer::open(&path).unwrap();
@@ -1247,14 +1287,49 @@ mod tests {
             let slot = writer.claim().expect("an empty slot");
             assert!(writer.publish_into(slot, &drawn(texture, 4, 2)));
         }
-        // Both hold pictures nothing has taken, so the next one would go over a
-        // picture the window is showing, and the frame's preview is dropped.
-        assert_eq!(writer.claim(), None, "no picture has been taken");
+        // Both hold pictures nothing has finished with, so the next one would
+        // go over a picture the window may be showing: the frame's preview is
+        // dropped.
+        assert_eq!(writer.claim(), None, "nothing has been finished with");
 
         let newest = picture(&frames).expect("the newest picture");
-        assert_eq!(newest.generation, 2);
-        // Moving to the newest is moving off the one before it, which is free.
-        assert!(writer.claim().is_some(), "the reader has moved on");
+        assert_eq!((newest.slot, newest.generation), (1, 2));
+        // Taking a picture is not finishing with it: the window shows it.
+        assert_eq!(
+            writer.claim(),
+            None,
+            "a picture taken is one on the screen, not one finished with"
+        );
+
+        // Finishing with a generation a slot doesn't hold says nothing about
+        // the picture that is there, and a slot finished with twice frees
+        // nothing more.
+        assert!(
+            !frames.retire(newest.slot, newest.generation - 1),
+            "not the picture the slot holds"
+        );
+        assert_eq!(writer.claim(), None, "still the picture on the screen");
+        assert!(frames.retire(0, 1), "the reader finished with the first");
+        assert!(!frames.retire(0, 1), "finished with it once");
+        assert_eq!(writer.claim(), Some(0), "the slot it finished with");
+        assert!(writer.publish_into(0, &drawn(12, 4, 2)));
+
+        // The picture just drawn is a generation of its own, and the ring goes
+        // on to the slot that never held one, which is the worker's from the
+        // start. Only after that does it come back to a picture the reader has
+        // to finish with.
+        assert_eq!(writer.claim(), Some(2), "a slot that never held a picture");
+        assert!(writer.publish_into(2, &drawn(13, 4, 2)));
+        assert_eq!(
+            writer.claim(),
+            None,
+            "the picture in slot 0, which nobody has finished with"
+        );
+        assert!(frames.retire(0, 3), "the third picture in that slot");
+        assert_eq!(writer.claim(), Some(0));
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
     }
 
     /// A picture carries the size it was drawn at and a number that only

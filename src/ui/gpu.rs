@@ -19,13 +19,24 @@
 //! once, and goes on with pixels from its next frame: a stream that falls back
 //! costs what it costs today, and a picture that can't be shown is a slow
 //! stream rather than a blank tile.
+//!
+//! A slot is the worker's to draw into again only when this process says it has
+//! finished with the picture that was there, one slot and generation at a time.
+//! Taking a picture is not finishing with it: the window shows it until the
+//! next one replaces it, and the GPU may still be sampling its texture after
+//! that, so a lease is retired only once the window's own queue has drawn a
+//! frame without it. That is what stops a worker drawing over a picture that is
+//! on the screen, or one the renderer hasn't finished reading.
 
 use std::sync::Arc;
 
 use yapfast_core::frames::{Frame, Frames, Picture};
 
 #[cfg(windows)]
-use std::{cell::RefCell, collections::HashMap, ffi::c_void, sync::Weak};
+use std::{
+    cell::RefCell, collections::HashMap, collections::VecDeque, ffi::c_void, sync::Weak,
+    time::{Duration, Instant},
+};
 
 #[cfg(windows)]
 use anyhow::{Context as _, Result};
@@ -34,7 +45,7 @@ use slint::wgpu_30::wgpu;
 #[cfg(windows)]
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0},
+        Foundation::{CloseHandle, HANDLE},
         Graphics::Direct3D12::{ID3D12Fence, ID3D12Resource},
         System::Threading::{CreateEventW, ResetEvent, WaitForSingleObject},
     },
@@ -50,6 +61,15 @@ use windows::{
 /// next frame on: the picture before it stays up for the moment that takes,
 /// rather than a blank tile or a torn one.
 pub fn taken(frames: &Arc<Frames>) -> Option<slint::Image> {
+    // Every tick, whether or not this stream has a picture now: a stream the
+    // UI let go of, or one it refused, must not keep its pictures, its fence or
+    // its slots alive until some other stream draws one.
+    #[cfg(windows)]
+    PRESENT.with_borrow_mut(|present| {
+        if let Some(present) = present.as_mut() {
+            present.housekeeping();
+        }
+    });
     let shown: Option<std::result::Result<slint::Image, Picture>> =
         frames.take_frame(|frame| match frame {
             Frame::Pixels {
@@ -161,6 +181,34 @@ pub fn install() -> Result<slint::wgpu_30::WGPUConfiguration> {
     })
 }
 
+/// Lets go of what the UI opened for a stream that has stopped: its textures,
+/// the fence, and the slots the worker may have been holding for it. A stream
+/// that is only hidden keeps them, since it shows its pictures again next tick.
+///
+/// `key` is the address of the frames the stream read, which is what the entry
+/// is keyed by; the entry says itself whether that address is still its own, so
+/// a key that outlived its frames removes nothing.
+#[cfg(windows)]
+pub fn forget(key: usize) {
+    PRESENT.with_borrow_mut(|present| {
+        let Some(present) = present.as_mut() else {
+            return;
+        };
+        present.housekeeping();
+        if present
+            .streams
+            .get(&key)
+            .is_some_and(|stream| stream.frames.as_ptr() as usize == key)
+        {
+            present.streams.remove(&key);
+        }
+    });
+}
+
+/// Without Direct3D there is nothing opened for a stream to let go of.
+#[cfg(not(windows))]
+pub fn forget(_key: usize) {}
+
 /// Without Direct3D there is no shared texture to open, and a stream that
 /// publishes one is asked for pixels.
 #[cfg(not(windows))]
@@ -191,6 +239,13 @@ const WAIT_MS: u32 = 8;
 /// which no window should show.
 #[cfg(windows)]
 const LATE_LIMIT: u32 = 10;
+
+/// How many pictures one stream may hold a slot for at once: the one on the
+/// screen, and the one before it, which the window's queue may still be drawing
+/// when the next arrives. A third would leave the worker no free slot of its
+/// three, so the picture is passed over instead.
+#[cfg(windows)]
+const LEASES: usize = 2;
 
 /// How many textures one stream keeps open: its slots, and one more for a
 /// worker that swaps a texture out as the picture changes size. A worker
@@ -239,6 +294,24 @@ struct Stream {
     fence: Option<(u64, ID3D12Fence)>,
     /// How many pictures in a row arrived before the GPU had drawn them.
     late: u32,
+    /// The pictures this window has taken and not yet finished with, oldest
+    /// first: the worker may draw into those slots again only as they leave
+    /// this queue. The newest is the picture on the screen.
+    leases: VecDeque<Lease>,
+    /// Whether the UI has refused this stream's pictures: what was opened for
+    /// it is let go with it, rather than waiting for another stream to draw a
+    /// picture.
+    refused: bool,
+}
+
+/// A picture the window has taken: the slot it is in, and which picture of
+/// that slot it is. The worker keeps the slot for as long as this is unfinished
+/// with.
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+struct Lease {
+    slot: u32,
+    generation: u64,
 }
 
 #[cfg(windows)]
@@ -266,29 +339,38 @@ impl Present {
             return None;
         }
         let (event, luid) = (self.event, self.luid);
-        let device = &self.device;
-        let streams = &mut self.streams;
         // A stream the UI let go of leaves its address to the next one, which
         // must not inherit what was opened for it.
-        streams.retain(|_, stream| stream.frames.strong_count() > 0);
+        self.housekeeping();
+        let device = &self.device;
+        let streams = &mut self.streams;
         let key = Arc::as_ptr(frames) as usize;
-        let stream = streams.entry(key).or_insert_with(|| Stream {
-            frames: Arc::downgrade(frames),
-            textures: Vec::new(),
-            fence: None,
-            late: 0,
-        });
+        let stream = streams.entry(key).or_insert_with(|| Stream::new(frames));
         if !std::ptr::eq(stream.frames.as_ptr(), Arc::as_ptr(frames)) {
-            *stream = Stream {
-                frames: Arc::downgrade(frames),
-                textures: Vec::new(),
-                fence: None,
-                late: 0,
-            };
+            *stream = Stream::new(frames);
+        }
+        // Slots the window's queue has finished with are the worker's again,
+        // and this is where it hears it: a picture taken is on the screen until
+        // the next one replaces it and that frame has been drawn.
+        stream.retire_drawn(device, frames);
+        if stream.leases.len() >= LEASES {
+            // The queue is still drawing pictures this window has replaced: it
+            // is asked for the rest of what it was given, briefly, rather than
+            // passing over every picture from here on.
+            wait_drawn(device);
+            stream.retire_drawn(device, frames);
+            if stream.leases.len() >= LEASES {
+                // A queue that is behind by two pictures keeps the one on the
+                // screen and drops this one: a torn picture is worse than a
+                // slow one, and the worker has a slot of its own to draw the
+                // next in.
+                return None;
+            }
         }
         let texture = match stream.texture(device, &picture) {
             Ok(texture) => texture,
             Err(error) => {
+                stream.refused = true;
                 refuse(frames, error, "could not open a stream's shared texture");
                 return None;
             }
@@ -302,6 +384,7 @@ impl Present {
                     // stays up: a torn one is worse than a slow one.
                     return None;
                 }
+                stream.refused = true;
                 refuse(
                     frames,
                     format!("{} pictures in a row were not drawn yet", stream.late),
@@ -310,6 +393,7 @@ impl Present {
                 return None;
             }
             Err(error) => {
+                stream.refused = true;
                 refuse(frames, error, "could not open a stream's fence");
                 return None;
             }
@@ -319,9 +403,14 @@ impl Present {
                 // From here the worker knows which adapter to draw for, and
                 // that its pictures are shown rather than copied.
                 frames.accept_gpu(luid);
+                stream.leases.push_back(Lease {
+                    slot: picture.slot,
+                    generation: picture.generation,
+                });
                 Some(image)
             }
             Err(error) => {
+                stream.refused = true;
                 refuse(
                     frames,
                     format!("{error:?}"),
@@ -330,6 +419,16 @@ impl Present {
                 None
             }
         }
+    }
+
+    /// Lets go of what no stream is using any more: a stream the UI let go of,
+    /// and one whose pictures it refused. A stopped stream keeps the UI's
+    /// textures, its fence handle and the worker's slots for as long as a
+    /// window keeps the entry, which nothing else would ever revisit.
+    fn housekeeping(&mut self) {
+        self.streams.retain(|_, stream| {
+            !stream.refused && stream.frames.strong_count() > 0
+        });
     }
 }
 
@@ -345,6 +444,31 @@ fn refuse(frames: &Frames, reason: String, what: &str) {
 
 #[cfg(windows)]
 impl Stream {
+    fn new(frames: &Arc<Frames>) -> Self {
+        Self {
+            frames: Arc::downgrade(frames),
+            textures: Vec::new(),
+            fence: None,
+            late: 0,
+            leases: VecDeque::new(),
+            refused: false,
+        }
+    }
+
+    /// Retires the pictures the window's queue has drawn a frame without: the
+    /// worker may draw into those slots again. The newest lease is the picture
+    /// on the screen and is never retired here, and the ones before it are
+    /// retired only once the queue is empty, since until then the GPU may still
+    /// be sampling their textures.
+    fn retire_drawn(&mut self, device: &wgpu::Device, frames: &Arc<Frames>) {
+        while self.leases.len() > 1 && queue_empty(device) {
+            let Some(lease) = self.leases.pop_front() else {
+                break;
+            };
+            frames.retire(lease.slot, lease.generation);
+        }
+    }
+
     /// The texture a picture is in, opened on the window's device the first
     /// time it's seen and kept from then on.
     fn texture(
@@ -484,28 +608,105 @@ unsafe fn open_fence(
 /// holds, publishes it, and only its fence value says the GPU finished the
 /// drawing. A picture a frame behind its fence is waited for here, and one that
 /// doesn't reach its fence in time is passed over rather than shown torn.
+///
+/// The event is only a way to sleep until something may have happened: one
+/// auto-reset event is reused by every stream, and a wait that timed out leaves
+/// its notification registered, so a wake can be another picture's — or this
+/// fence's, from a value before the one asked for. The fence's own value is
+/// therefore read after every wake, and only that is an answer.
 #[cfg(windows)]
 fn wait(event: HANDLE, fence: &ID3D12Fence, value: u64) -> bool {
-    unsafe {
-        // The usual case: the worker signalled before it published, and the
-        // GPU got there while the UI was drawing the frame before this one.
-        if fence.GetCompletedValue() >= value {
-            return true;
+    let deadline = Instant::now() + Duration::from_millis(u64::from(WAIT_MS));
+    loop {
+        match drawn(fence, value) {
+            Some(drawn) => return drawn,
+            None => {}
         }
-        // A wait that timed out leaves the event set behind it, and an event
-        // already set would make this wait return at once.
-        let _ = ResetEvent(event);
-        if fence.SetEventOnCompletion(value, event).is_err() {
-            return false;
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            // The deadline is the original one, however many times a wake that
+            // wasn't this picture's cut the wait short.
+            return drawn(fence, value).unwrap_or(false);
         }
-        WaitForSingleObject(event, WAIT_MS) == WAIT_OBJECT_0
+        unsafe {
+            // An event already set would make this wait return at once, and a
+            // notification left over from a wait that timed out is not this
+            // picture's.
+            let _ = ResetEvent(event);
+            if fence.SetEventOnCompletion(value, event).is_err() {
+                return false;
+            }
+            let millis = u32::try_from(left.as_millis()).unwrap_or(u32::MAX).max(1);
+            let _ = WaitForSingleObject(event, millis);
+        }
     }
+}
+
+/// Whether the fence has reached `value`, as the fence answers it: `None` while
+/// it hasn't yet.
+#[cfg(windows)]
+fn drawn(fence: &ID3D12Fence, value: u64) -> Option<bool> {
+    // SAFETY: the fence is open on the window's device for as long as this
+    // process asks it anything.
+    let reached = unsafe { fence.GetCompletedValue() };
+    match reached {
+        // Direct3D says a device that has been removed answers with the largest
+        // value there is, which is not a picture drawn: the window shows its
+        // pixels instead until another device is made.
+        u64::MAX => Some(false),
+        reached if reached >= value => Some(true),
+        _ => None,
+    }
+}
+
+/// Whether the window's queue has drawn everything it was given: until it has,
+/// the GPU may still be sampling a texture the worker would draw into again.
+#[cfg(windows)]
+fn queue_empty(device: &wgpu::Device) -> bool {
+    match device.poll(wgpu::PollType::Poll) {
+        Ok(status) => status.is_queue_empty(),
+        // A device that can't be asked about its queue is not one to hand a
+        // slot back on: the picture before stays up.
+        Err(_) => false,
+    }
+}
+
+/// Asks the window's queue for the rest of what it was given, waiting a bounded
+/// moment for it, so that a slot is never kept because a queue never empties.
+#[cfg(windows)]
+fn wait_drawn(device: &wgpu::Device) {
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(Duration::from_millis(u64::from(WAIT_MS))),
+    });
 }
 
 #[cfg(all(windows, test))]
 mod tests {
     use super::*;
     use yapfast_core::frames::{Drawn, Writer};
+
+    /// A fence answers with the largest value there is once its device has been
+    /// removed, which is not a picture drawn: showing pixels is the fallback,
+    /// not a picture read from a device that is gone.
+    #[test]
+    fn a_removed_device_is_not_a_drawn_picture() {
+        // What `drawn` asks of the fence, without a device to remove: the two
+        // answers the fence gives, and the one that must not count as one.
+        let answer = |reached: u64, value: u64| {
+            if reached == u64::MAX {
+                Some(false)
+            } else if reached >= value {
+                Some(true)
+            } else {
+                None
+            }
+        };
+        assert_eq!(answer(u64::MAX, 7), Some(false), "device removed");
+        assert_eq!(answer(7, 7), Some(true));
+        assert_eq!(answer(8, 7), Some(true), "a value past the one asked for");
+        assert_eq!(answer(6, 7), None, "still drawing it");
+    }
 
     /// The window's own device is the one a stream's picture can be opened on,
     /// so a picture drawn for another adapter is refused before anything is

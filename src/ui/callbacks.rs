@@ -2366,13 +2366,44 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // it's told once when that changes: a stream is scaled to what shows it,
     // so a small tile costs a small frame. Zero until a tile shows one.
     let sized = std::cell::Cell::new((0u32, 0u32));
+    // And which share and which viewed stream those hints were about, by the
+    // frames each reads: a stream replaced by another, or stopped and started
+    // again, is one the cached hints say nothing about, even when nothing the
+    // window can see has changed between two ticks.
+    let keys = std::cell::Cell::new((0usize, 0usize));
     window.on_stream_tick(move || {
         let Some(window) = weak.upgrade() else {
             return;
         };
+        let (share_key, watch_key) = {
+            let adapter = state.borrow();
+            let voice = &adapter.app.state.voice;
+            identity(&voice.sharing, &voice.watching)
+        };
+        let (was_share, was_watch) = keys.replace((share_key, watch_key));
+        // What the window opened for a stream that has ended is let go of now,
+        // rather than when another stream happens to draw a picture: a stopped
+        // share is the last one as often as not.
+        if was_share != 0 && was_share != share_key {
+            gpu::forget(was_share);
+            window.set_share_frame(Default::default());
+        }
+        if was_watch != 0 && was_watch != watch_key {
+            gpu::forget(was_watch);
+            window.set_watch_frame(Default::default());
+        }
+        if watch_key != was_watch {
+            // A stream this window wasn't showing before: the hints cached for
+            // the one it replaces are sent again, since a new worker starts at
+            // a default size and assumes a window that shows it.
+            seen.set(!window.get_watching() || !on_screen(&window));
+            sized.set((0, 0));
+        }
         // Scaling and converting a frame for the preview is only needed while
         // the UI displays one, so the worker is told once when that changes.
-        let shown = window.get_share_preview_shown();
+        // A window that is hidden or minimised shows none of it, whichever tile
+        // is selected.
+        let shown = window.get_share_preview_shown() && on_screen(&window);
         if shown != told.replace(shown) {
             let mut adapter = state.borrow_mut();
             let effects = adapter
@@ -3034,6 +3065,25 @@ const PIP_HEIGHT: f32 = 180.0;
 /// it: the grid's tile, small or large, or the corner it shows in while the
 /// call is off screen. None while no tile does, as while the call is hidden,
 /// which says nothing about the size.
+/// Which share and which viewed stream a window is showing, by the frames each
+/// reads: zero for neither. The address of a stream's frames is its identity
+/// while it lasts, and another stream's is another address, so a change says
+/// the window is showing something else even when nothing else has changed.
+fn identity(
+    sharing: &Option<voice::Sharing>,
+    watching: &Option<Box<voice::Watching>>,
+) -> (usize, usize) {
+    (
+        sharing
+            .as_ref()
+            .map_or(0, |sharing| Arc::as_ptr(&sharing.frames) as usize),
+        watching
+            .as_ref()
+            .and_then(|watching| watching.frames.as_ref())
+            .map_or(0, |frames| Arc::as_ptr(frames) as usize),
+    )
+}
+
 fn watch_size(adapter: &Adapter, window: &YapfastWindow) -> Option<(u32, u32)> {
     let voice = &adapter.app.state.voice;
     let watching = voice.watching.as_ref()?.user.as_str();

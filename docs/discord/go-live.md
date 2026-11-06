@@ -189,9 +189,13 @@ processor scaling it to the stream's size on the way. The preview's tile and
 Discord's still come from that same frame. The tile is the stream's own picture
 — scaled on the card into a 1920-long-edge box, which is the largest a 1080p
 share sends — drawn into the frames file's own slots: one picture for each slot,
-and a slot is only drawn into once the window showing it has taken a newer
-picture, so a picture a person is looking at is never written over. A window
-that falls behind therefore costs preview frames, never a torn picture, and the
+and a slot is only drawn into once the window showing it has finished with the
+picture that was there — a picture taken is one on the screen until the next
+replaces it and the window's own rendering queue has drawn a frame without it,
+which the window says slot by slot and generation by generation, because only
+it knows. So a picture a person is looking at is never written over, and neither
+is one the renderer hasn't finished reading: a window that falls behind costs
+preview frames, never a torn picture, and the
 stream itself is untouched, since it encodes the capture's texture and not the
 tile. A picture crosses to the window as a shared texture it opens once, shown
 where the card drew it every frame, with a fence saying when the drawing

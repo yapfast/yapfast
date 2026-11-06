@@ -1172,6 +1172,35 @@ impl Sink {
         self.preview_due.is_some_and(|due| due <= Instant::now())
     }
 
+    /// Whether the stream needs a picture now, whatever the screen is doing: a
+    /// connection that hasn't opened yet, an encoder the card took away or a
+    /// codec Discord chose since the last frame, or a viewer whose decoder lost
+    /// its place and asked for a whole one. A stick-still desktop is otherwise
+    /// left alone: nothing here is about the preview.
+    #[cfg(any(wgc, dup))]
+    fn picture_needed(&self) -> bool {
+        let Some(video) = self.video.as_ref() else {
+            // No stream yet: the first picture is what opens it, and what a
+            // connection asks for.
+            return self.server.is_some();
+        };
+        video.encoder.is_none() || video.reopen || video.sender.keyframe_wanted()
+    }
+
+    /// Hands the next pictures to the processor's encoder, for a window, a
+    /// camera or a screen the card couldn't open. The session that read the
+    /// card's textures goes with the device that made it, and the change of
+    /// kind asks for a whole frame, so a viewer's decoder starts on the
+    /// pictures that come rather than depending on the last one the card made.
+    #[cfg(any(wgc, dup))]
+    fn to_the_processor(&mut self) {
+        self.let_go();
+        self.footage = Footage::InMemory;
+        if let Some(video) = self.video.as_mut() {
+            video.sender.force_keyframe();
+        }
+    }
+
     /// Lets go of the stream's encoder, keeping the rest: the device the
     /// encoder read on is about to go with the capture that made it, and a
     /// session that outlived its device reads memory nobody owns. The next
@@ -2663,6 +2692,12 @@ fn capture_textures(
     // How many times the session and the capture have been put back together
     // since a frame last went out.
     let mut restarts = 0u32;
+    // Whether a picture has been made since the source or the capture changed,
+    // and whether a preview became wanted since one was last made: both are
+    // demand a still desktop answers, and neither outlasts the answer.
+    let mut saw_picture = false;
+    let mut preview_pending = false;
+    let mut was_wanted = false;
     while next_frame(started, &mut slot, fps, stop).is_some() {
         // One look per stream slot, paced by `next_frame` on both rungs: a
         // duplication asked with no wait answers at once whether the desktop
@@ -2690,13 +2725,26 @@ fn capture_textures(
         // runs with nothing held at all.
         let switched = sink.check(report)?;
         let wanted = sink.preview_wanted();
+        // A preview that has just been asked for is owed a picture now, even if
+        // the screen doesn't change: waiting for the pointer to move is what a
+        // tile that came back would otherwise do.
+        if wanted && !was_wanted {
+            preview_pending = true;
+        }
+        was_wanted = wanted;
         // The UI's process, which a picture drawn here is shared into: zero
         // until it opens these frames, and a process that has gone is one
         // with nothing to show anything in.
         let ui = sink.writer.ui_process();
+        // Whether the capture's own texture still holds a picture of what is
+        // shared: a frame put one there, and a resize, a capture put back
+        // together or another source ended that. Nothing is made from a
+        // picture the texture doesn't hold, so a missing one waits for the
+        // capture rather than showing the source before it.
         let mut size = None;
         match arrival {
             Arrival::Frame => {
+                saw_picture = true;
                 let content = capture.content_size();
                 let sent = fit(content.0, content.1, max_width, max_height);
                 taken = sink.textured(
@@ -2711,10 +2759,31 @@ fn capture_textures(
             // the next frame is at the new size: `ready` opens an encoder
             // for it and tells the sender, and a session's first frame is
             // whole.
-            Arrival::Resized => tracing::info!("the screen changed size"),
+            Arrival::Resized => {
+                // What the texture held was drawn at the size before it.
+                saw_picture = false;
+                tracing::info!("the screen changed size");
+            }
             // Nothing has been drawn and nothing has moved, which is the
-            // desktop's own rate: the next pass is the next slot.
-            Arrival::Still => {}
+            // desktop's own rate: the next pass is the next slot. It is not a
+            // reason for a stream to have nothing to say, though — a viewer
+            // joining, a decoder that lost its place, a preview coming back are
+            // all served from the picture the capture last made, which is still
+            // in the capture's own texture, and only while one of those asks for
+            // it. A desktop that is neither moving nor wanted encodes nothing.
+            Arrival::Still => {
+                if saw_picture && sink.picture_needed() {
+                    let content = capture.content_size();
+                    let sent = fit(content.0, content.1, max_width, max_height);
+                    taken = sink.textured(
+                        d3d11::Texture::new(capture.texture()),
+                        content,
+                        sent,
+                        capture.device(),
+                    );
+                    size = Some(sent);
+                }
+            }
             // What was being captured ended. This capture hands out no more
             // frames, so the share ends rather than waits on one that won't
             // come.
@@ -2741,6 +2810,9 @@ fn capture_textures(
                 read = None;
                 sink.let_go();
                 drop(capture);
+                // What the old capture's texture held went with it.
+                saw_picture = false;
+                preview_pending = false;
                 match card_capture(&source, &sink, (max_width, max_height)) {
                     Ok(next) => {
                         let (width, height) = next.card.content_size();
@@ -2766,6 +2838,10 @@ fn capture_textures(
                             why = format!("{why:#}"),
                             "switching screens: sharing from the processor"
                         );
+                        // The stream goes on from the processor, and the
+                        // encoder that read the card's textures goes with the
+                        // device the capture made: see `to_the_processor`.
+                        sink.to_the_processor();
                         return Ok((sink, After::Processor(source)));
                     }
                 }
@@ -2773,6 +2849,7 @@ fn capture_textures(
                 // A window or a camera: the card's paths take a display, and
                 // the processor's capturer shares one, with the stream going
                 // on from here.
+                sink.to_the_processor();
                 return Ok((sink, After::Processor(source)));
             }
         }
@@ -2795,6 +2872,10 @@ fn capture_textures(
                 // made the device is let go of.
                 tile = None;
                 shared = None;
+                // A session the card took away is one whose picture went with
+                // it.
+                saw_picture = false;
+                preview_pending = false;
                 sink.let_go();
                 capture = capture.reopen()?;
             }
@@ -2837,6 +2918,10 @@ fn capture_textures(
                         }
                         tile = Some(opened);
                         read = Some(Instant::now());
+                        // A session that has just opened has no picture of its
+                        // own yet, so the one the capture made is what it is
+                        // owed.
+                        preview_pending = true;
                     }
                     Err(error) => tracing::warn!(
                         error = format!("{error:#}"),
@@ -2858,10 +2943,14 @@ fn capture_textures(
         // While the picture itself is what the window shows, neither is
         // written: one frame is published once, rather than the tile
         // alternating between a texture and a smaller copy of it ten times a
-        // second.
+        // second. A still desktop has a picture to read back too, whether a
+        // preview has just come back, a session has just opened for one, or
+        // Discord's still is due: those are what ask for it, and once each.
         let read_back = shared.is_none() || sink.still_wanted();
+        let mut previewed = false;
         if let Some(tile) = &mut tile
-            && arrival == Arrival::Frame
+            && saw_picture
+            && (arrival == Arrival::Frame || preview_pending || sink.still_wanted())
             && read_back
             && read.is_none_or(|last| last.elapsed() >= PREVIEW_EVERY)
         {
@@ -2872,8 +2961,11 @@ fn capture_textures(
                 capture.content_size(),
                 &mut pixels,
             );
-            if let Err(error) = taken {
-                tracing::warn!(error = format!("{error:#}"), "sharing without a preview");
+            match taken {
+                Ok(()) => previewed = true,
+                Err(error) => {
+                    tracing::warn!(error = format!("{error:#}"), "sharing without a preview")
+                }
             }
         }
         // The picture the UI's window shows where the card drew it: the tile's
@@ -2888,13 +2980,14 @@ fn capture_textures(
         // encodes the capture's own texture.
         let mut withdrawn = false;
         if let (Some(tile), Some(shared)) = (tile.as_mut(), shared.as_mut())
-            && arrival == Arrival::Frame
+            && saw_picture
+            && (arrival == Arrival::Frame || preview_pending)
             && let Some(slot) = sink.writer.claim()
         {
             let taken =
                 sink.share_from_card(slot, tile, shared, d3d11::Texture::new(capture.texture()));
             match taken {
-                Ok(true) => {}
+                Ok(true) => previewed = true,
                 // The UI looked and can't show a picture from this card, or its
                 // window draws on another one: the tile's pixels are what it
                 // shows, and the share it never opened is let go of.
@@ -2911,6 +3004,10 @@ fn capture_textures(
         if withdrawn {
             showable = false;
             shared = None;
+        }
+        // The preview that was owed has been made, whichever way it went out.
+        if previewed {
+            preview_pending = false;
         }
     }
     Ok((sink, After::Ended))

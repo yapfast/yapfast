@@ -208,7 +208,16 @@ Same machine, Windows 11 25H2 build 26200, from the spike in
 ### A decoded picture straight to the screen, without the processor
 
 Whether a decoded stream can reach Skia's GPU renderer without being copied to
-CPU memory first — spike in `.local/spike/gpu-present/`, not committed, not shipped.
+CPU memory first — spike in `.local/spike/gpu-present/`, not committed.
+
+**Since these numbers were taken, it has shipped**: `src/ui/gpu.rs` shows a
+stream's own D3D12 texture through the window's device, and
+`docs/discord/go-live.md` describes how the worker and the window hand pictures
+to each other now — shared handles, one fence per stream, and slots the window
+hands back only after its rendering queue has drawn a frame without them.
+Everything below is the spike's own record of what it measured then, not a
+description of the current code and not a fresh benchmark; the current path's
+costs are in the sections above.
 
 **Both hops work on this machine.** A D3D11 texture created with
 `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` (either flag alone fails) crosses a process
