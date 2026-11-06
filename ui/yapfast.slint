@@ -3590,13 +3590,13 @@ export component YapfastWindow inherits Window {
             save(index, executable, text) => { return root.save-game-executable(index, executable, text); }
             remove(index) => { root.remove-game-executable(index); }
         }
-        if root.settings-section == 4 && !root.discord-linked: DiscordLinkSettings {
+        if root.settings-section == 4 && !root.discord-linked && root.discord-accounts.length == 0: DiscordLinkSettings {
             link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
             link-discord => { root.link-discord(); }
             link-discord-token(token) => { root.link-discord-token(token); }
             open-discord-captcha => { root.open-discord-captcha(); }
         }
-        if root.settings-section == 4 && root.discord-linked: DiscordSettings {
+        if root.settings-section == 4 && (root.discord-linked || root.discord-accounts.length > 0): DiscordSettings {
             matrix-build: root.matrix-build;
             accounts: root.discord-accounts;
             link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
