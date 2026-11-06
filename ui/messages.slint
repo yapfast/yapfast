@@ -1,6 +1,6 @@
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, Pulse } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
@@ -1621,7 +1621,8 @@ export component HistoryEdge inherits HorizontalLayout {
         // The shimmer of the skeletons that stand in for other things loading.
         if root.loading: Rectangle {
             width: 120px; height: parent.height;
-            x: Math.mod(animation-tick() / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
+            x: Math.mod(pulse.time / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
+            pulse := Pulse { }
             background: @linear-gradient(90deg, Theme.shimmer.with-alpha(0) 0%, Theme.shimmer 50%, Theme.shimmer.with-alpha(0) 100%);
         }
         content := HorizontalLayout {

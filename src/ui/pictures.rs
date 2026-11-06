@@ -281,6 +281,31 @@ thread_local! {
     static PREVIEWS: RefCell<Previews> = RefCell::default();
 }
 
+/// The frame of an animation whose frames show for `delays` milliseconds each,
+/// `tick` steps of [`MOTION_STEP`] since Yapfast's animation clock started. A
+/// frame shows for at least a step, as no GIF's can show for less.
+pub(super) fn frame_at(delays: &ModelRc<i32>, tick: i32) -> i32 {
+    let delays: Vec<u64> = delays
+        .iter()
+        .map(|delay| u64::try_from(delay).unwrap_or(0).max(MOTION_STEP))
+        .collect();
+    let total: u64 = delays.iter().sum();
+    if total == 0 {
+        return 0;
+    }
+    let mut at = u64::try_from(tick).unwrap_or(0) * MOTION_STEP % total;
+    for (frame, delay) in delays.iter().enumerate() {
+        if at < *delay {
+            return frame as i32;
+        }
+        at -= delay;
+    }
+    0
+}
+
+/// Motion's `step`, in milliseconds.
+const MOTION_STEP: u64 = 20;
+
 /// An animation's frames for Slint and how long each shows, in milliseconds;
 /// both empty for a still picture. The frames decode as they show.
 pub(super) fn animation(picture: &Arc<Picture>) -> (ModelRc<slint::Image>, ModelRc<i32>) {
@@ -452,7 +477,12 @@ impl Model for Frames {
         if row >= self.row_count() {
             return None;
         }
-        let now = Duration::from_millis(i_slint_core::animations::current_tick().0);
+        // Untracked: the time only says when the decoder was last used, and a
+        // binding that read the animation clock would draw the window again on
+        // every frame for as long as the picture shows.
+        let now = i_slint_core::properties::evaluate_no_tracking(|| {
+            Duration::from_millis(i_slint_core::animations::current_tick().0)
+        });
         let image = {
             let mut decoding = self.decoding.borrow_mut();
             decoding.used = Some(now);

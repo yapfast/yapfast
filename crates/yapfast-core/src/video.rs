@@ -506,6 +506,17 @@ mod tests {
             ("gif-vp9-444-10bit.webm", "gif-h264-444.mp4", 3.0),
             ("gif-av1-444.mp4", "gif-h264-444.mp4", 3.0),
         ] {
+            // The Mac decodes H264 with VideoToolbox, which takes 8-bit 4:2:0
+            // only, so there the others say they can't be shown.
+            let unplayable = |name: &str| cfg!(target_os = "macos") && name.starts_with("gif-h264-");
+            if unplayable(name) {
+                assert!(crate::chat::decode_picture(&fixture(name), 32, 32).is_none(), "{name}");
+                continue;
+            }
+            if unplayable(like) {
+                frames(name);
+                continue;
+            }
             let (pictures, expected) = (frames(name), frames(like));
             assert_eq!(pictures.len(), expected.len(), "{name}");
             for (picture, expected) in pictures.iter().zip(&expected) {

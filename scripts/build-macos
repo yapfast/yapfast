@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Builds Yapfast for this Mac and puts it in target/dist/macos as Yapfast.app,
+# ready to run, plus a zip of it to send to someone.
+#
+#   scripts/build-macos              a release build, the one people run
+#   scripts/build-macos --fast       the fast profile: symbols, incremental
+#   scripts/build-macos --measure    optimised like release, symbols kept: what
+#                                    to build when something has to be profiled
+#                                    and the sample has to name the functions
+#   scripts/build-macos --dmg        also make a disk image
+#   scripts/build-macos --full       with Matrix as well as Discord
+#   scripts/build-macos --arch x86_64  for Intel Macs, or --arch arm64 for
+#                                    Apple Silicon; this Mac's by default
+#   scripts/build-macos --universal  one binary of both
+#
+# The app is signed ad hoc, so it runs on the machine that built it and, once
+# Gatekeeper is got past, on others. A download people can open without a
+# warning needs a Developer ID and notarisation, which costs $99 a year; see
+# docs/macos.md.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+profile=release
+flags=(--release)
+dmg=no
+features=desktop,discord
+native=$(uname -m)
+archs=("$native")
+while (($#)); do
+    case "$1" in
+        --fast) profile=fast; flags=(--profile fast); shift ;;
+        --measure) profile=measure; flags=(--profile measure); shift ;;
+        --dmg) dmg=yes; shift ;;
+        --full) features=desktop,discord,matrix; shift ;;
+        --arch) archs=("$2"); shift 2 ;;
+        --universal) archs=(arm64 x86_64); shift ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+# shellcheck disable=SC1091
+source scripts/macos-env.sh
+
+# Builds Yapfast for one architecture and says where its binary is. Each reads
+# its own libwebrtc from .local, fetched once, so the build scripts don't race.
+build() {
+    local arch=$1 environment=() target=()
+    scripts/fetch-libwebrtc-mac "$arch" >&2
+    environment+=(LK_CUSTOM_WEBRTC="$PWD/.local/libwebrtc-mac-${arch/x86_64/x64}-release")
+    if [[ $arch != "$native" ]]; then
+        local triple=${arch/arm64/aarch64}-apple-darwin
+        rustup target add "$triple" >/dev/null
+        target=(--target "$triple")
+    fi
+    # Intel Macs stop at macOS 26, and the 27 SDK binds some of CoreMedia's
+    # symbols to a Swift library macOS 26 doesn't export them from, so Intel
+    # builds against the 26 SDK when it's installed.
+    if [[ $arch == x86_64 ]]; then
+        for sdk in "$(dirname "$(xcrun --show-sdk-path)")"/MacOSX26*.sdk; do
+            [[ -d $sdk ]] && environment+=(SDKROOT="$sdk")
+        done
+    fi
+    echo "=== cargo build $arch --features $features ($profile)" >&2
+    # `--locked` keeps Cargo.lock's versions, which is what the Linux and
+    # Windows releases are built from.
+    env "${environment[@]}" cargo build "${flags[@]}" --locked --no-default-features \
+        --features "$features" ${target[@]+"${target[@]}"} >&2
+    echo "target/${target[1]:+${target[1]}/}$profile/yapfast"
+}
+
+binaries=()
+for arch in "${archs[@]}"; do
+    binaries+=("$(build "$arch")")
+done
+if ((${#binaries[@]} > 1)); then
+    binary="target/$profile/yapfast-universal"
+    lipo -create "${binaries[@]}" -output "$binary"
+    arch=universal
+else
+    binary=${binaries[0]}
+    arch=${archs[0]}
+fi
+
+version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+dist="target/dist/macos"
+app="$dist/Yapfast.app"
+
+echo "=== packing $app"
+rm -rf "$app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp "$binary" "$app/Contents/MacOS/Yapfast"
+cp packaging/macos/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+sed "s/@VERSION@/$version/g" packaging/macos/Info.plist >"$app/Contents/Info.plist"
+printf 'APPL????' >"$app/Contents/PkgInfo"
+
+# Ad hoc, without the hardened runtime: it would refuse the microphone and the
+# camera until each had an entitlement, and an ad-hoc signature can't have the
+# ones that matter for notarisation anyway.
+echo "=== signing ad hoc"
+codesign --force --timestamp=none --sign - "$app"
+codesign --verify --verbose=1 "$app" 2>&1 | tail -1
+
+name="Yapfast-$version-macos-$arch"
+echo "=== zipping $dist/$name.zip"
+rm -f "$dist/$name.zip"
+ditto -c -k --keepParent "$app" "$dist/$name.zip"
+
+if [[ $dmg == yes ]]; then
+    echo "=== making $dist/$name.dmg"
+    rm -f "$dist/$name.dmg"
+    stage="$dist/.dmg"
+    rm -rf "$stage"; mkdir -p "$stage"
+    cp -R "$app" "$stage/"
+    ln -sf /Applications "$stage/Applications"
+    hdiutil create -quiet -volname Yapfast -srcfolder "$stage" -ov -format UDZO "$dist/$name.dmg"
+    rm -rf "$stage"
+fi
+
+sha256sum "$dist/$name.zip" >"$dist/$name.zip.sha256" 2>/dev/null ||
+    shasum -a 256 "$dist/$name.zip" >"$dist/$name.zip.sha256"
+
+echo
+echo "built:  $app"
+echo "        $dist/$name.zip"
+echo "run it: open $app"

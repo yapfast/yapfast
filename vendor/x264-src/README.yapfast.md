@@ -11,7 +11,7 @@ command-line tool, its filters and the other processors' code are left out.
 `config.h` and `x264_config.h` configure would for Linux and Windows,
 compiles the C files with the compiler `cc` picks (clang, or clang-cl for
 Windows), and assembles the x86-64 assembly with nasm (`$NASM`, or `nasm` on
-the PATH). On other processors it builds the plain C code, without assembly.
+the PATH), as ELF, Win64 or, for an Intel Mac, Mach-O. On other processors it builds the plain C code, without assembly.
 Two settings differ from configure's: the stack alignment is 16 bytes on every
 compiler, which x264's assembly realigns for, and transparent huge pages stay
 off, which would round x264's large buffers up to 2 MiB pages.

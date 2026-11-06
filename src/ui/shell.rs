@@ -367,8 +367,8 @@ pub(super) fn launched(launch: crate::instance::Launch) {
     let _ = (window, token);
 }
 
-/// What the person chose in the tray.
-fn chosen(choice: Choice) {
+/// What the person chose in the tray, or in the Mac's menu bar.
+pub(super) fn chosen(choice: Choice) {
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
         return;
     };
@@ -379,6 +379,28 @@ fn chosen(choice: Choice) {
         Choice::Disconnect => shell.act(Action::Voice(voice::Command::Leave)),
         Choice::Quit => {
             let _ = slint::quit_event_loop();
+        }
+        Choice::Settings => {
+            // The menu bar offers Settings whether the window is open or not,
+            // so this opens it first, as clicking the Dock icon does.
+            if let Some(window) = shell.open() {
+                window.set_settings_open(true);
+            }
+        }
+        // The Dock icon brings Yapfast back once a window was closed to it.
+        // One that started in the menu bar, as starting at sign-in does, has
+        // nothing to bring back and waits for the status item instead, like
+        // the other desktops' do.
+        Choice::Reopen if shell.view.borrow().is_some() => {
+            shell.open();
+        }
+        Choice::Reopen => {}
+        Choice::Terminate => {
+            // What `run` does once the event loop returns, which it won't.
+            let mut adapter = shell.adapter.borrow_mut();
+            placement::flush(&adapter);
+            adapter.tray = None;
+            adapter.stop_backend();
         }
         Choice::Available => {
             let available = shell
@@ -414,6 +436,11 @@ impl Adapter {
         if let Some(dialog) = self.dialog.take() {
             dialog.abort();
         }
+        // Clocks that draw in the window go with it, rather than waking for one
+        // that's gone; the window that opens next starts them again.
+        self.animations.stop();
+        self.activity_clock.stop();
+        self.call_timer.pause();
         self.window = slint::Weak::default();
     }
 

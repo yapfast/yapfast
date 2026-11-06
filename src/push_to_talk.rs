@@ -146,7 +146,9 @@ pub enum Reach {
     /// Asking the desktop for it.
     Asking,
     /// In every app; with the shortcut the desktop gave it, in its own
-    /// words, when it says.
+    /// words, when it says. Only built where a global key works, so on a
+    /// system with none of them settings never reads it.
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     Everywhere(Option<String>),
     /// Only while Yapfast's window has the focus, for this reason, which
     /// the note goes on from.
@@ -265,6 +267,9 @@ impl Drop for Watcher {
     }
 }
 
+/// What a platform's watcher reports through. Only the ones that watch keys
+/// in other apps take it.
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 type Report = Arc<dyn Fn(Reach) + Send + Sync>;
 
 #[cfg(target_os = "linux")]

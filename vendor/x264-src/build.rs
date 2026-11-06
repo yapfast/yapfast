@@ -3,7 +3,8 @@
 //! with `--disable-cli --bit-depth=8 --chroma-format=420 --disable-opencl`.
 //! The configuration configure would detect is written here, for Linux and
 //! Windows; x86-64 gets x264's assembly, which nasm assembles ($NASM, or
-//! nasm on the PATH), and other processors its plain C.
+//! nasm on the PATH) for the target's object format, including an Intel Mac's,
+//! and other processors its plain C.
 
 use std::{
     env, fs,
@@ -150,10 +151,10 @@ fn build(root: &Path, include: &Path, target: &Target, per_depth: bool) -> cc::B
 fn assemble(root: &Path, out: &Path, target: &Target) -> Vec<PathBuf> {
     let nasm = env::var_os("NASM").unwrap_or_else(|| "nasm".into());
     let x86 = root.join("common/x86");
-    let format = if target.os == "windows" {
-        "win64"
-    } else {
-        "elf64"
+    let format = match target.os.as_str() {
+        "windows" => "win64",
+        "macos" => "macho64",
+        _ => "elf64",
     };
     let files =
         std::iter::once(("cpu-a.asm", false)).chain(X86_ASM.iter().map(|file| (*file, true)));
@@ -168,6 +169,11 @@ fn assemble(root: &Path, out: &Path, target: &Target) -> Vec<PathBuf> {
             .args(["-DARCH_X86_64=1", "-DSTACK_ALIGNMENT=16", "-f", format]);
         if target.os != "windows" {
             command.arg("-DPIC");
+        }
+        // Mach-O symbols carry a leading underscore, which x264's assembly
+        // adds with PREFIX, as its configure does for macOS.
+        if target.os == "macos" {
+            command.arg("-DPREFIX");
         }
         if per_depth {
             command.args(["-DBIT_DEPTH=8", "-Dprivate_prefix=x264_8"]);
