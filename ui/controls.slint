@@ -431,22 +431,53 @@ export component CallButton inherits VerticalLayout {
 
 // Whether animations play: only while Yapfast's window has the focus, as in
 // Discord, so GIFs on another screen hold still where they are.
+//
+// Every picture's animation shows the frame one clock, `tick`, is at, which
+// MotionClock advances every `step`: their frames change together, so the
+// window draws once for all of them, and every copy of one GIF shows the same
+// frame, so they share its decoder. The clock runs while an animation has
+// shown in the last second, `seen`, and stops after.
 export global Motion {
     in property <bool> playing: true;
+    in-out property <int> tick;
+    in-out property <int> seen;
+    out property <duration> step: 20ms;
+    // The frame of an animation with these delays, in milliseconds, at `tick`.
+    pure callback frame-at([int], int) -> int;
 }
 
-// A picture, or an animation's frames in turn while it shows.
+// The one clock Motion describes; the window has one.
+export component MotionClock {
+    Timer {
+        interval: Motion.step;
+        running: Motion.playing && Motion.tick - Motion.seen < 1s / Motion.step;
+        triggered => { Motion.tick += 1; }
+    }
+}
+
+// A picture, or an animation at the frame Motion's clock is at.
 export component Picture inherits Image {
     in property <image> still;
     in property <[image]> frames;
     in property <[int]> delays;
+    property <bool> animated: root.frames.length > 1;
+    property <int> tick: Motion.tick;
+    // Set only when it changes: a tick that leaves it where it was draws nothing.
     property <int> frame;
-    source: root.frames.length > 1 ? root.frames[root.frame] : root.still;
-    Timer {
-        running: root.frames.length > 1 && Motion.playing;
-        interval: max(20, root.delays[root.frame]) * 1ms;
-        triggered => { root.frame = mod(root.frame + 1, root.frames.length); }
+    source: root.animated ? root.frames[root.frame] : root.still;
+    // Keeps the clock going while this shows, and moves to the clock's frame.
+    function follow() {
+        if root.animated {
+            Motion.seen = Motion.tick;
+            let frame = Motion.frame-at(root.delays, root.tick);
+            if frame != root.frame {
+                root.frame = frame;
+            }
+        }
     }
+    init => { root.follow(); }
+    changed animated => { root.follow(); }
+    changed tick => { root.follow(); }
 }
 
 // Stands in for something on its way, such as a picture or the messages,

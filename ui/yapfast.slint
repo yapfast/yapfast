@@ -24,7 +24,7 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText } from "controls.slint";
+import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, MotionClock } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
@@ -60,6 +60,8 @@ export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 
 export component YapfastWindow inherits Window {
+    // Every picture's animation runs on this one clock; see Motion.
+    MotionClock { }
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
     /// tab's title counts them, so the taskbar shows it.
     in property <string> window-title: "Yapfast";

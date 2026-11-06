@@ -219,6 +219,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         .on_frame(|key, _revision| {
             i_slint_core::yapfast_emoji::frame_of_key(key.as_str()).unwrap_or_default()
         });
+    window
+        .global::<Motion>()
+        .on_frame_at(|delays, tick| pictures::frame_at(&delays, tick));
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
