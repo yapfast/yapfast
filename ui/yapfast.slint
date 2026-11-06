@@ -21,12 +21,12 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion, HoverDelay, Looks } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
-import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
+import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, SidebarFold, ServerMark } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
@@ -50,7 +50,7 @@ export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, EmojiAnimations, Motion } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion, Looks } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
@@ -91,6 +91,7 @@ export component YapfastWindow inherits Window {
     changed dark-theme => { Palette.color-scheme = self.dark-theme ? ColorScheme.dark : ColorScheme.light; }
     init => {
         Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light;
+        SidebarFold.amount = root.sidebar-fold;
     }
     in property <bool> workspace;
     in property <bool> preview;
@@ -147,6 +148,10 @@ export component YapfastWindow inherits Window {
     callback start-dm(int);
     callback close-new-dm;
     in property <string> sidebar-title;
+    /// The open server's initial and the address of its icon, which stand
+    /// for it at the top of the folded channel list.
+    in property <string> sidebar-initial;
+    in property <string> sidebar-picture-url;
     /// The Discord server whose name heads the sidebar and opens its menu;
     /// empty for DMs and Matrix servers. Its invite button shows when this
     /// account may invite to it.
@@ -715,6 +720,8 @@ export component YapfastWindow inherits Window {
     in property <string> voice-error;
     in property <string> voice-warning;
     in property <[PersonRow]> participants;
+    /// Someone past the first three of `participants` is streaming.
+    in property <bool> participants-live-beyond;
     /// Each participant's newest camera picture, refreshed by stream-tick.
     in property <[image]> participant-frames;
     /// The call carries camera video; this account's camera is on; someone's
@@ -1135,6 +1142,59 @@ export component YapfastWindow inherits Window {
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
     out property <length> sidebar-shown: max(180px, min(380px, root.sidebar-width));
+    // The side panels fold to a sliver until pointed at, when turned on in Appearance.
+    property <bool> fold-channels: Looks.fold-channels;
+    property <bool> fold-members: Looks.fold-members;
+    /// Pinned, a folding panel stays unrolled: the pin in its header, or
+    /// Ctrl+Shift+B for the channel list.
+    in-out property <bool> sidebar-pinned;
+    in-out property <bool> members-pinned;
+    // Unrolled from the sliver, it stays while the pointer goes back over the server rail,
+    // and folds once the pointer leaves both.
+    property <bool> sidebar-stays;
+    // Where the pointer is asks for it, past the rail, and it follows after the
+    // delays set in Appearance, so passing over it doesn't flicker.
+    property <bool> sidebar-wanted: (sidebar-hover.has-hover && (sidebar-hover.mouse-x >= 72px || root.sidebar-stays))
+        // Its edge lies just past it, so resting there to resize it keeps it.
+        || sidebar-edge.has-hover || sidebar-edge.pressed
+        // A device menu opened from it takes the pointer, but the sidebar stays.
+        || (root.sidebar-stays && (root.input-open || root.output-open || root.menu-grace));
+    sidebar-delay := HoverDelay {
+        wanted: root.sidebar-wanted;
+        open-delay: Looks.unroll-delay * 1ms; close-delay: Looks.fold-delay * 1ms;
+    }
+    // With fold-channels, the sidebar keeps a 34px sliver beside the rail and
+    // unrolls to its full width over the conversation when asked, or while the
+    // pointer is on its edge, so that the edge can still resize it.
+    out property <bool> sidebar-open: !root.fold-channels || sidebar-edge.has-hover || sidebar-edge.pressed || root.sidebar-pinned || sidebar-delay.shown;
+    // It stays until it folds, so the pointer coming back over the rail while
+    // it waits to fold keeps it.
+    changed sidebar-open => {
+        if root.sidebar-open && root.fold-channels { root.sidebar-stays = true; }
+        if !root.sidebar-open { root.sidebar-stays = false; }
+    }
+    // Once its menu closes, the sidebar waits a moment for the pointer to be seen again,
+    // as the click that closed the menu hasn't told it yet, then folds if it's away.
+    property <bool> menu-grace;
+    function release-sidebar() {
+        if !root.input-open && !root.output-open { root.menu-grace = true; }
+    }
+    Timer {
+        interval: 250ms; running: root.menu-grace;
+        triggered => {
+            root.menu-grace = false;
+            if !sidebar-hover.has-hover { root.sidebar-stays = false; }
+        }
+    }
+    changed output-open => { root.release-sidebar(); }
+    // The width the sidebar takes from the conversation.
+    out property <length> sidebar-reserved: root.fold-channels ? 34px : root.sidebar-shown;
+    property <length> sidebar-unrolled: root.sidebar-open ? root.sidebar-shown : root.sidebar-reserved;
+    animate sidebar-unrolled { duration: Looks.fold; easing: ease; }
+    // 1 while the channel list is folded to its sliver, easing as it unrolls.
+    out property <float> sidebar-fold: root.fold-channels
+        ? clamp((root.sidebar-shown - root.sidebar-unrolled) / max(1px, root.sidebar-shown - root.sidebar-reserved), 0, 1) : 0;
+    changed sidebar-fold => { SidebarFold.amount = self.sidebar-fold; }
     in property <[string]> microphones;
     in property <[string]> speakers;
     in property <[string]> cameras;
@@ -1549,7 +1609,7 @@ export component YapfastWindow inherits Window {
     changed browse-open => { Tip.text = ""; }
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
-    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? 240px : 0px) + (root.profile-docked ? 300px : 0px);
+    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? (root.fold-members ? 56px : 240px) : 0px) + (root.profile-docked ? 300px : 0px);
     // The pin and add buttons open their popovers under themselves.
     property <length> popover-x;
     property <length> popover-y;
@@ -1583,7 +1643,7 @@ export component YapfastWindow inherits Window {
     function open-settings() { input-menu.close(); output-menu.close(); root.settings-section = 1; root.settings-open = true; root.refresh-devices(); }
     property <bool> input-open: input-menu.is-open;
     property <bool> output-open: output-menu.is-open;
-    changed input-open => { root.input-level = 0; root.meter-note = ""; root.metering(root.input-open); }
+    changed input-open => { root.input-level = 0; root.meter-note = ""; root.metering(root.input-open); root.release-sidebar(); }
     Timer { interval: 50ms; running: root.input-open; triggered => { root.meter-tick(); } }
     // The Discord gate's meter runs while voice settings show it.
     property <bool> gate-metered: root.settings-open && root.settings-section == 1 && root.discord-linked && root.input-mode == 0;
@@ -1808,9 +1868,13 @@ export component YapfastWindow inherits Window {
         }
     }
     // The status menu opens above the account panel, along its left edge.
-    function open-status-menu() {
-        root.menu-x = account-panel.absolute-position.x + 8px;
-        root.menu-y = account-panel.absolute-position.y;
+    // Folded, the pill's picture stands for the panel.
+    property <bool> dock-folded: root.fold-channels && Looks.folded-dock && !root.voice-visible;
+    property <float> dock-fold: root.dock-folded ? 1 : 0;
+    animate dock-fold { duration: Looks.fold; easing: ease; }
+    function open-status-menu(x: length, y: length) {
+        root.menu-x = x + 8px;
+        root.menu-y = y;
         root.game-duration-due();
         status-menu.show();
     }
@@ -2147,188 +2211,308 @@ export component YapfastWindow inherits Window {
         spacing: 0px;
         // Navigation: the rail and the sidebar, with the voice and account dock across both.
         Rectangle {
-            width: 72px + root.sidebar-shown; background: Theme.rail;
-            VerticalLayout {
-                spacing: 0px;
-                HorizontalLayout {
-                    vertical-stretch: 1; spacing: 0px;
-                    // Server rail.
-                    ServerRail {
-                        dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
-                        matrix-build: root.matrix-build;
-                        navigate-dms => { root.navigate-dms(); }
-                        navigate-server(id) => { root.navigate-server(id); }
-                        toggle-folder(id) => { root.toggle-folder(id); }
-                        open-dm(id) => { root.open-conversation(id); }
-                        open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
-                        can-join: root.can-join-server;
-                        join-server => { root.open-join-server(); }
-                    }
-                    // Channel sidebar: a lighter sheet held by the rail and the dock.
-                    Rectangle {
-                        width: root.sidebar-shown; background: Theme.sidebar;
-                        border-top-left-radius: 10px; border-bottom-left-radius: 10px;
-                        clip: true;
-                        VerticalLayout {
-                            spacing: 0px;
+            width: 72px + root.sidebar-reserved; z: 10;
+            // Unrolled over the conversation, it casts a soft shadow on it.
+            Rectangle {
+                x: 72px + root.sidebar-unrolled; width: 12px;
+                opacity: root.fold-channels && Looks.unrolled-shadow ? 1 - root.sidebar-fold : 0;
+                visible: self.opacity > 0;
+                background: @linear-gradient(90deg, #00000059 0%, #00000000 100%);
+            }
+            // Folded, the sidebar unrolls over the conversation while the
+            // pointer is on it; its contents keep their full width throughout.
+            sidebar-hover := TouchArea {
+                x: 0px; width: 72px + root.sidebar-unrolled;
+                Rectangle {
+                    clip: true; background: Theme.rail;
+                    VerticalLayout {
+                        x: 0px; width: 72px + root.sidebar-shown;
+                        spacing: 0px;
+                        HorizontalLayout {
+                            vertical-stretch: 1; spacing: 0px;
+                            // Server rail.
+                            ServerRail {
+                                dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
+                                matrix-build: root.matrix-build;
+                                // The account pill stands over the rail's foot.
+                                reserve-bottom: root.dock-folded ? 160px : 0px;
+                                navigate-dms => { root.navigate-dms(); }
+                                navigate-server(id) => { root.navigate-server(id); }
+                                toggle-folder(id) => { root.toggle-folder(id); }
+                                open-dm(id) => { root.open-conversation(id); }
+                                open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                can-join: root.can-join-server;
+                                join-server => { root.open-join-server(); }
+                            }
+                            // Channel sidebar: a lighter sheet held by the rail and the dock.
                             Rectangle {
-                                height: 48px;
-                                if root.header-server == "": Text { x: 16px; width: parent.width - (root.dms-selected && !root.preview ? (root.discord-linked ? 88px : 56px) : 32px); text: root.sidebar-title; font-size: 16px; font-weight: 700; color: Theme.text; vertical-alignment: center; overflow: elide; }
-                                if root.header-server != "": server-header := ServerHeader {
-                                    x: 8px; y: 8px; width: parent.width - 16px - (root.header-invite ? 32px : 0px); height: 32px;
-                                    name: root.sidebar-title; open: root.header-menu-open;
-                                    clicked => { root.open-header-menu(self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
-                                }
-                                if root.header-server != "" && root.header-invite: IconButton {
-                                    x: parent.width - self.width - 10px;
-                                    icon: @image-url("icons/user-plus.svg"); label: "Invite to server"; size: 28px; glyph: 18px; tip-side: 2;
-                                    clicked => { root.open-invite(root.header-server); }
-                                }
-                                if root.dms-selected && !root.preview && root.discord-linked: IconButton {
-                                    x: parent.width - 2 * self.width - 14px;
-                                    icon: @image-url("icons/user-plus.svg"); label: "Add a friend"; size: 28px; glyph: 18px; tip-side: 2;
-                                    clicked => { root.open-add-friend(); }
-                                }
-                                if root.dms-selected && !root.preview: IconButton {
-                                    x: parent.width - self.width - 10px;
-                                    icon: @image-url("icons/square-pen.svg"); label: "New message"; size: 28px; glyph: 18px; tip-side: 2;
-                                    clicked => { root.open-new-dm(); }
-                                }
-                                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
-                            }
-                            HorizontalLayout {
-                                padding: 10px; padding-bottom: 6px;
-                                TextField {
-                                    min-height: 30px; text-size: 14px; pad: 8px; fill: Theme.sunken; ring: false;
-                                    placeholder: root.filter-placeholder; text <=> root.filter; label: root.filter-placeholder;
-                                    edited => { root.filter-edited(); }
-                                }
-                            }
-                            RoomList {
-                                rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
-                                friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
-                                browse-offered: root.browse-offered; browsing: root.browse-open;
-                                open-browse => { root.open-browse(); }
-                                voice-channel: root.voice-channel; participants: root.participants; sidebar-empty: root.sidebar-empty;
-                                select-room(id) => { root.select-room(id); }
-                                open-voice(id) => { root.open-conversation(id); }
-                                open-chat(id) => { root.open-chat(id); }
-                                open-friends => { root.open-friends(); }
-                                open-requests => { root.open-requests(); }
-                                open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
-                                open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
-                                show-voice-person(room, id) => { root.show-voice-person(room, id); }
-                                open-voice-profile(person, x, y, width, height) => {
-                                    if person.person != "" {
-                                        root.anchor(x, y, width, height, false);
-                                        root.profile-at-pointer = true;
-                                        root.show-profile(person.person);
+                                width: root.sidebar-shown; background: Theme.sidebar;
+                                border-top-left-radius: 10px; border-bottom-left-radius: 10px;
+                                clip: true;
+                                VerticalLayout {
+                                    // Folded, it moves left so its rows' icons sit in the sliver.
+                                    x: -9px * root.sidebar-fold; width: parent.width;
+                                    spacing: 0px;
+                                    sidebar-header := Rectangle {
+                                        height: 48px; opacity: 1 - root.sidebar-fold;
+                                        // The pin, at the right, keeps a folding list unrolled.
+                                        property <length> pin-room: root.fold-channels && Looks.pin-button ? 32px : 0px;
+                                        if root.header-server == "": Text { x: 16px; width: parent.width - sidebar-header.pin-room - (root.dms-selected && !root.preview ? (root.discord-linked ? 88px : 56px) : 32px); text: root.sidebar-title; font-size: 16px; font-weight: 700; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                                        if root.header-server != "": server-header := ServerHeader {
+                                            x: 8px; y: 8px; width: parent.width - 16px - sidebar-header.pin-room - (root.header-invite ? 32px : 0px); height: 32px;
+                                            name: root.sidebar-title; open: root.header-menu-open;
+                                            clicked => { root.open-header-menu(self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
+                                        }
+                                        if root.header-server != "" && root.header-invite: IconButton {
+                                            x: parent.width - sidebar-header.pin-room - self.width - 10px;
+                                            icon: @image-url("icons/user-plus.svg"); label: "Invite to server"; size: 28px; glyph: 18px; tip-side: 2;
+                                            clicked => { root.open-invite(root.header-server); }
+                                        }
+                                        if root.dms-selected && !root.preview && root.discord-linked: IconButton {
+                                            x: parent.width - sidebar-header.pin-room - 2 * self.width - 14px;
+                                            icon: @image-url("icons/user-plus.svg"); label: "Add a friend"; size: 28px; glyph: 18px; tip-side: 2;
+                                            clicked => { root.open-add-friend(); }
+                                        }
+                                        if root.dms-selected && !root.preview: IconButton {
+                                            x: parent.width - sidebar-header.pin-room - self.width - 10px;
+                                            icon: @image-url("icons/square-pen.svg"); label: "New message"; size: 28px; glyph: 18px; tip-side: 2;
+                                            clicked => { root.open-new-dm(); }
+                                        }
+                                        if sidebar-header.pin-room > 0: IconButton {
+                                            x: parent.width - self.width - 10px;
+                                            icon: root.sidebar-pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                            label: root.sidebar-pinned ? "Let it fold (Ctrl+Shift+B)" : "Keep open (Ctrl+Shift+B)";
+                                            tint: root.sidebar-pinned ? Theme.accent : Theme.secondary;
+                                            size: 28px; glyph: 16px; tip-side: 2;
+                                            clicked => { root.sidebar-pinned = !root.sidebar-pinned; }
+                                        }
+                                        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
+                                    }
+                                    HorizontalLayout {
+                                        padding: 10px; padding-bottom: 6px; opacity: 1 - root.sidebar-fold;
+                                        TextField {
+                                            min-height: 30px; text-size: 14px; pad: 8px; fill: Theme.sunken; ring: false;
+                                            placeholder: root.filter-placeholder; text <=> root.filter; label: root.filter-placeholder;
+                                            edited => { root.filter-edited(); }
+                                        }
+                                    }
+                                    RoomList {
+                                        rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
+                                        friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
+                                        browse-offered: root.browse-offered; browsing: root.browse-open;
+                                        open-browse => { root.open-browse(); }
+                                        voice-channel: root.voice-channel; participants: root.participants; participants-live-beyond: root.participants-live-beyond; sidebar-empty: root.sidebar-empty;
+                                        select-room(id) => { root.select-room(id); }
+                                        open-voice(id) => { root.open-conversation(id); }
+                                        open-chat(id) => { root.open-chat(id); }
+                                        open-friends => { root.open-friends(); }
+                                        open-requests => { root.open-requests(); }
+                                        open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                        open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
+                                        show-voice-person(room, id) => { root.show-voice-person(room, id); }
+                                        open-voice-profile(person, x, y, width, height) => {
+                                            if person.person != "" {
+                                                root.anchor(x, y, width, height, false);
+                                                root.profile-at-pointer = true;
+                                                root.show-profile(person.person);
+                                            }
+                                        }
+                                        arranging: root.room-arranging; droppable: root.room-droppable;
+                                        start-arranging(place) => { return root.start-arranging(place); }
+                                        arrange(place) => { root.arrange-room(place); }
+                                        stop-arranging => { root.stop-arranging(); }
+                                        toggle-category(category) => { root.toggle-category(category); }
+                                        open-category-menu(id, x, y) => {
+                                            if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
+                                        }
                                     }
                                 }
-                                arranging: root.room-arranging; droppable: root.room-droppable;
-                                start-arranging(place) => { return root.start-arranging(place); }
-                                arrange(place) => { root.arrange-room(place); }
-                                stop-arranging => { root.stop-arranging(); }
-                                toggle-category(category) => { root.toggle-category(category); }
-                                open-category-menu(id, x, y) => {
-                                    if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
+                                // Folded, the server's icon, or on the DM home the logo, stands
+                                // for the header, in the sliver.
+                                if root.fold-channels && Looks.folded-server: Rectangle {
+                                    x: 0px; y: 0px; width: 34px; height: 48px;
+                                    opacity: root.sidebar-fold; visible: self.opacity > 0;
+                                    if root.dms-selected: Image {
+                                        source: @image-url("icons/logo.svg"); width: 24px; height: 24px; colorize: Theme.accent;
+                                    }
+                                    if !root.dms-selected: ServerMark {
+                                        initial: root.sidebar-initial; picture-url: root.sidebar-picture-url; label: root.sidebar-title;
+                                    }
+                                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
+                                }
+                            }
+                        }
+                        // The dock spans the rail and the sidebar. Its avatar and voice icon sit on the
+                        // rail's axis, 36px from the left; names and status start at 64px.
+                        if root.voice-visible: VoiceDock {
+                            voice-status: root.voice-status; voice-time: root.voice-time; voice-detail: root.voice-detail; voice-name: root.voice-name;
+                            voice-color: root.voice-color;
+                            voice-active: root.voice-active; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
+                            voice-warning: root.voice-warning; voice-error: root.voice-error;
+                            can-share: root.can-share; sharing: root.sharing; share-live: root.share-live; share-status: root.share-status;
+                            share-watchers: root.share-viewers.length;
+                            can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
+                            can-soundboard: root.can-soundboard;
+                            leave-voice => { root.leave-voice(); }
+                            dismiss-voice-error => { root.dismiss-voice-error(); }
+                            toggle-camera => { root.toggle-camera(); }
+                            toggle-share => { root.toggle-share(); }
+                            open-share-menu(x, y) => { root.open-share-menu(x, y); }
+                            open-soundboard(x, y) => { root.open-soundboard(x, y); }
+                            open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                        }
+                        // Account panel. While the pill below stands in for it, it fades out.
+                        account-panel := Rectangle {
+                            height: 56px; background: Theme.panel;
+                            opacity: 1 - root.dock-fold; visible: root.dock-fold < 1;
+                            if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
+                            HorizontalLayout {
+                                padding-right: 8px; spacing: 2px;
+                                Rectangle {
+                                    width: 58px;
+                                    Avatar { x: 19px; y: (parent.height - self.height) / 2; size: 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
+                                    if root.account-presence != "": StatusDot {
+                                        x: 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
+                                    }
+                                    if root.account-presence == "": Rectangle {
+                                        x: 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
+                                        Rectangle {
+                                            width: 8px; height: 8px; border-radius: 4px;
+                                            background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
+                                        }
+                                    }
+                                    if root.discord-linked: TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.open-status-menu(account-panel.absolute-position.x, account-panel.absolute-position.y); }
+                                    }
+                                }
+                                // With Discord linked, the avatar and name open the status menu.
+                                Rectangle {
+                                    horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
+                                    background: account-touch.has-hover ? Theme.hover : transparent;
+                                    accessible-role: button;
+                                    accessible-enabled: root.discord-linked;
+                                    accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
+                                    accessible-action-default => { if root.discord-linked { root.open-status-menu(account-panel.absolute-position.x, account-panel.absolute-position.y); } }
+                                    VerticalLayout {
+                                        alignment: center; padding-left: 6px; padding-right: 6px;
+                                        Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                                        StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
+                                    }
+                                    account-touch := TouchArea {
+                                        enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.open-status-menu(account-panel.absolute-position.x, account-panel.absolute-position.y); }
+                                    }
+                                }
+                                DeviceToggle {
+                                    icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+                                    label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
+                                    alert: root.shown-muted;
+                                    menu-label: "Input options"; open: root.input-open;
+                                    enabled: root.voice-ready || !root.voice-active;
+                                    clicked => { root.toggle-mute(); }
+                                    menu => {
+                                        root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                        root.refresh-devices(); input-menu.show();
+                                    }
+                                }
+                                DeviceToggle {
+                                    icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+                                    label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
+                                    alert: root.shown-deafened;
+                                    menu-label: "Output options"; open: root.output-open;
+                                    enabled: root.voice-ready || !root.voice-active;
+                                    clicked => { root.toggle-deafen(); }
+                                    menu => {
+                                        root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                        root.refresh-devices(); output-menu.show();
+                                    }
+                                }
+                                if !root.preview && !root.online: IconButton {
+                                    icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
+                                    clicked => { root.retry-sync(); }
+                                }
+                                IconButton {
+                                    icon: @image-url("icons/settings.svg"); label: "Settings";
+                                    clicked => { root.settings-open = true; root.refresh-devices(); }
                                 }
                             }
                         }
                     }
-                }
-                // The dock spans the rail and the sidebar. Its avatar and voice icon sit on the
-                // rail's axis, 36px from the left; names and status start at 64px.
-                if root.voice-visible: VoiceDock {
-                    voice-status: root.voice-status; voice-time: root.voice-time; voice-detail: root.voice-detail; voice-name: root.voice-name;
-                    voice-color: root.voice-color;
-                    voice-active: root.voice-active; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
-                    voice-warning: root.voice-warning; voice-error: root.voice-error;
-                    can-share: root.can-share; sharing: root.sharing; share-live: root.share-live; share-status: root.share-status;
-                    share-watchers: root.share-viewers.length;
-                    can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
-                    can-soundboard: root.can-soundboard;
-                    leave-voice => { root.leave-voice(); }
-                    dismiss-voice-error => { root.dismiss-voice-error(); }
-                    toggle-camera => { root.toggle-camera(); }
-                    toggle-share => { root.toggle-share(); }
-                    open-share-menu(x, y) => { root.open-share-menu(x, y); }
-                    open-soundboard(x, y) => { root.open-soundboard(x, y); }
-                    open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
-                }
-                // Account panel.
-                account-panel := Rectangle {
-                    height: 56px; background: Theme.panel;
-                    if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
-                    HorizontalLayout {
-                        padding-right: 8px; spacing: 2px;
-                        Rectangle {
-                            width: 58px;
-                            Avatar { x: 19px; y: (parent.height - self.height) / 2; size: 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
-                            if root.account-presence != "": StatusDot {
-                                x: 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
-                            }
-                            if root.account-presence == "": Rectangle {
-                                x: 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
-                                Rectangle {
-                                    width: 8px; height: 8px; border-radius: 4px;
-                                    background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
+                    // With the channel list folded, the account panel stands in the rail as a
+                    // pill, top to bottom: settings, output, input and the account's picture. It
+                    // lies over the rail, so it moves nothing the pointer is on.
+                    folded-dock := Rectangle {
+                        x: 8px; y: parent.height - self.height - 8px; width: 56px; height: 208px;
+                        opacity: root.dock-fold; visible: root.dock-fold > 0;
+                        background: Theme.rail;
+                        border-radius: 10px; border-width: 1px; border-color: Theme.line;
+                        clip: true;
+                        VerticalLayout {
+                            alignment: space-around; padding-top: 6px; padding-bottom: 8px;
+                            HorizontalLayout {
+                                alignment: center;
+                                if !root.preview && !root.online: IconButton {
+                                    icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
+                                    clicked => { root.retry-sync(); }
+                                }
+                                if root.preview || root.online: IconButton {
+                                    icon: @image-url("icons/settings.svg"); label: "Settings";
+                                    clicked => { root.settings-open = true; root.refresh-devices(); }
                                 }
                             }
-                            if root.discord-linked: TouchArea {
-                                mouse-cursor: MouseCursor.pointer;
-                                clicked => { root.open-status-menu(); }
+                            // The narrow pill has no room for both carets, so each
+                            // slides out while its toggle is pointed at.
+                            HorizontalLayout {
+                                alignment: center;
+                                DeviceToggle {
+                                    caret-on-hover: true;
+                                    icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+                                    label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
+                                    alert: root.shown-deafened;
+                                    menu-label: "Output options"; open: root.output-open;
+                                    enabled: root.voice-ready || !root.voice-active;
+                                    clicked => { root.toggle-deafen(); }
+                                    menu => {
+                                        root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                        root.refresh-devices(); output-menu.show();
+                                    }
+                                }
                             }
-                        }
-                        // With Discord linked, the avatar and name open the status menu.
-                        Rectangle {
-                            horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
-                            background: account-touch.has-hover ? Theme.hover : transparent;
-                            accessible-role: button;
-                            accessible-enabled: root.discord-linked;
-                            accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
-                            accessible-action-default => { if root.discord-linked { root.open-status-menu(); } }
-                            VerticalLayout {
-                                alignment: center; padding-left: 6px; padding-right: 6px;
-                                Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
-                                StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
+                            HorizontalLayout {
+                                alignment: center;
+                                DeviceToggle {
+                                    caret-on-hover: true;
+                                    icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+                                    label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
+                                    alert: root.shown-muted;
+                                    menu-label: "Input options"; open: root.input-open;
+                                    enabled: root.voice-ready || !root.voice-active;
+                                    clicked => { root.toggle-mute(); }
+                                    menu => {
+                                        root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                        root.refresh-devices(); input-menu.show();
+                                    }
+                                }
                             }
-                            account-touch := TouchArea {
-                                enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
-                                clicked => { root.open-status-menu(); }
+                            HorizontalLayout {
+                                alignment: center;
+                                folded-account := Rectangle {
+                                    width: 40px; height: 40px;
+                                    Avatar { size: 40px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
+                                    if root.account-presence != "": StatusDot {
+                                        x: 24px; y: 24px; presence: root.account-presence; ring: Theme.rail;
+                                    }
+                                    accessible-role: button;
+                                    accessible-enabled: root.discord-linked;
+                                    accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
+                                    accessible-action-default => { if root.discord-linked { root.open-status-menu(folded-account.absolute-position.x - 8px, folded-account.absolute-position.y); } }
+                                    TouchArea {
+                                        enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.open-status-menu(folded-account.absolute-position.x - 8px, folded-account.absolute-position.y); }
+                                    }
+                                }
                             }
-                        }
-                        DeviceToggle {
-                            icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
-                            label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
-                            alert: root.shown-muted;
-                            menu-label: "Input options"; open: root.input-open;
-                            enabled: root.voice-ready || !root.voice-active;
-                            clicked => { root.toggle-mute(); }
-                            menu => {
-                                root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
-                                root.refresh-devices(); input-menu.show();
-                            }
-                        }
-                        DeviceToggle {
-                            icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
-                            label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
-                            alert: root.shown-deafened;
-                            menu-label: "Output options"; open: root.output-open;
-                            enabled: root.voice-ready || !root.voice-active;
-                            clicked => { root.toggle-deafen(); }
-                            menu => {
-                                root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
-                                root.refresh-devices(); output-menu.show();
-                            }
-                        }
-                        if !root.preview && !root.online: IconButton {
-                            icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
-                            clicked => { root.retry-sync(); }
-                        }
-                        IconButton {
-                            icon: @image-url("icons/settings.svg"); label: "Settings";
-                            clicked => { root.settings-open = true; root.refresh-devices(); }
                         }
                     }
                 }
@@ -3310,10 +3494,65 @@ export component YapfastWindow inherits Window {
                         view-image(id, index) => { root.view-image(id, index); }
                         save-attachment(id, index) => { root.save-attachment(id, index); }
                     }
-                    if root.members-docked: MemberPanel {
-                        width: 240px; rows: root.roster; note: root.roster-note; selected: root.profile-member;
-                        open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
-                        open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                    if root.members-docked: Rectangle {
+                        width: root.fold-members ? 56px : 240px; z: 10;
+                        // Folded to its avatars, the member list unrolls leftward
+                        // over the conversation while the pointer is on it.
+                        members-hover := TouchArea {
+                            // It stays open under the card of someone clicked in it, whose
+                            // click-away layer takes the pointer.
+                            property <bool> unfolded: !root.fold-members || root.members-pinned || members-delay.shown;
+                            // Once that card closes, it waits a moment for the pointer to be seen
+                            // again, as the click that closed it hasn't told it yet.
+                            property <bool> closing-grace;
+                            property <bool> card-open: root.profile-open && !root.profile-at-pointer;
+                            changed card-open => { if !self.card-open { self.closing-grace = true; } }
+                            Timer {
+                                interval: 250ms; running: parent.closing-grace;
+                                triggered => { parent.closing-grace = false; }
+                            }
+                            // The pointer asks for it, and it follows after the delays set in Appearance.
+                            members-delay := HoverDelay {
+                                wanted: members-hover.has-hover || members-hover.card-open || members-hover.closing-grace;
+                                open-delay: Looks.unroll-delay * 1ms; close-delay: Looks.fold-delay * 1ms;
+                            }
+                            property <length> unrolled: !root.fold-members ? 240px : self.unfolded ? 250px : 56px;
+                            animate unrolled { duration: Looks.fold; easing: ease; }
+                            // 1 while folded to its avatars, easing to 0 as it unrolls.
+                            property <float> fold: root.fold-members ? clamp((250px - self.unrolled) / 194px, 0, 1) : 0;
+                            x: parent.width - self.width; width: self.unrolled;
+                            // Unrolled over the conversation, it casts a soft shadow on it.
+                            Rectangle {
+                                x: -12px; width: 12px;
+                                opacity: root.fold-members && Looks.unrolled-shadow ? 1 - members-hover.fold : 0;
+                                visible: self.opacity > 0;
+                                background: @linear-gradient(270deg, #00000059 0%, #00000000 100%);
+                            }
+                            Rectangle {
+                                clip: true;
+                                MemberPanel {
+                                    x: 0px; width: root.fold-members ? 250px : 240px; fold: members-hover.fold;
+                                    rows: root.roster; note: root.roster-note; selected: root.profile-member;
+                                    // Room at the top right for the pin, beside the first heading.
+                                    pin-room: root.fold-members && Looks.pin-button ? 36px : 0px;
+                                    background: root.fold-members ? Theme.chat : Theme.sidebar;
+                                    open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
+                                    open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                                }
+                                // The pin, at the top right while unrolled, keeps it so.
+                                // Its height is its own: left to fill the panel, its face sat
+                                // halfway down and its pointer area ran the panel's length.
+                                if root.fold-members && Looks.pin-button: IconButton {
+                                    x: parent.width - self.width - 8px; y: 6px; height: self.size;
+                                    opacity: 1 - members-hover.fold; visible: self.opacity > 0;
+                                    icon: root.members-pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                    label: root.members-pinned ? "Let it fold" : "Keep open";
+                                    tint: root.members-pinned ? Theme.accent : Theme.secondary;
+                                    fill: Theme.chat; size: 28px; glyph: 16px; tip-side: 2;
+                                    clicked => { root.members-pinned = !root.members-pinned; }
+                                }
+                            }
+                        }
                     }
                     if root.profile-docked: Rectangle {
                         width: 300px;
@@ -3341,8 +3580,10 @@ export component YapfastWindow inherits Window {
         }
     }
     // The edge between sidebar and conversation resizes the sidebar. A double-click
-    // restores the default width.
-    if root.workspace: TouchArea {
+    // restores the default width. It takes the pointer only while the sidebar
+    // is unrolled, and holds it unrolled while the pointer is on it.
+    sidebar-edge := TouchArea {
+        enabled: root.workspace && root.sidebar-open;
         x: 72px + root.sidebar-shown - 4px; y: root.title-height; width: 8px; height: root.height - root.title-height;
         mouse-cursor: ew-resize;
         moved => {
@@ -3367,7 +3608,7 @@ export component YapfastWindow inherits Window {
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
-                root.aside-width = max(320px, min(800px, root.width - 72px - root.sidebar-shown - 420px, root.aside-shown - (self.mouse-x - self.pressed-x)));
+                root.aside-width = max(320px, min(800px, root.width - 72px - root.sidebar-reserved - 420px, root.aside-shown - (self.mouse-x - self.pressed-x)));
             }
         }
         pointer-event(event) => {
@@ -3389,7 +3630,7 @@ export component YapfastWindow inherits Window {
     property <bool> pip-left;
     property <bool> pip-bottom;
     if root.pip-shown: StreamPip {
-        property <length> left: 72px + root.sidebar-shown + 16px;
+        property <length> left: 72px + root.sidebar-reserved + 16px;
         property <length> right: root.width - self.width - 16px;
         property <length> top: root.title-height + 48px + 16px;
         property <length> bottom: root.height - self.height - 16px;
@@ -3505,6 +3746,7 @@ export component YapfastWindow inherits Window {
             sign-out => { root.settings-open = false; root.logout(); }
         }
         if root.settings-section == 7: AppearanceSettings {
+            preferences-changed => { root.preferences-changed(); }
             themes: root.themes; theme-id: root.theme-id;
             editor: root.theme-editor; colours: root.theme-colours;
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
@@ -3780,7 +4022,7 @@ export component YapfastWindow inherits Window {
             width: 300px; limit: root.height - root.title-height - 16px;
             x: root.profile-at-pointer
                 ? root.beside(root.anchor-x, root.anchor-width, self.width)
-                : root.width - 240px - 8px - self.width;
+                : root.width - (root.fold-members ? 250px : 240px) - 8px - self.width;
             y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : root.profile-y - 16px)));
             data: root.profile;
             enlarge => { root.enlarge-profile(); }
