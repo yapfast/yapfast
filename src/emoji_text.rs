@@ -501,8 +501,6 @@ mod tests {
                     width.abs_diff(height) <= 1,
                     "{width} wide, {height} tall at {at}"
                 );
-                // A circle's outermost pixels are few, and a cut one's many.
-                let solid = |count: usize| count * 100 / width;
                 let top = (0..SIZE).filter(|&x| alpha(x, rows[0]) > 200).count();
                 let bottom = (0..SIZE)
                     .filter(|&x| alpha(x, *rows.last().unwrap()) > 200)
@@ -511,15 +509,25 @@ mod tests {
                 let right = (0..SIZE)
                     .filter(|&y| alpha(*columns.last().unwrap(), y) > 200)
                     .count();
-                for (edge, count) in [
-                    ("top", top),
-                    ("bottom", bottom),
-                    ("left", left),
-                    ("right", right),
+                // A cut edge runs as wide as the one through the middle, and a
+                // circle's own outermost row or column is a chord: at 16 pixel
+                // text, where a picture is 22 pixels across, 9 of its 22. So the
+                // middle is the bar an edge this flat has to stay under.
+                let middle_row = (0..SIZE)
+                    .filter(|&x| alpha(x, rows[height / 2]) > 200)
+                    .count();
+                let middle_column = (0..SIZE)
+                    .filter(|&y| alpha(columns[width / 2], y) > 200)
+                    .count();
+                for (edge, count, inner) in [
+                    ("top", top, middle_row),
+                    ("bottom", bottom, middle_row),
+                    ("left", left, middle_column),
+                    ("right", right, middle_column),
                 ] {
                     assert!(
-                        solid(count) < 40,
-                        "the {edge} is flat, {count} of {width} pixels, at {at}"
+                        count * 3 < inner * 2,
+                        "the {edge} is flat, {count} of the middle's {inner} pixels, at {at}"
                     );
                 }
             }
