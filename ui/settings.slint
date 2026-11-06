@@ -1324,12 +1324,19 @@ export component GameActivitySettings inherits VerticalLayout {
     }
 }
 
+/// One locally linked Discord identity.
+export struct DiscordAccountRow { id: string, username: string, active: bool }
+
 /// Someone the Discord account blocked, in Settings.
 export struct BlockedRow { id: string, name: string, username: string, avatar-url: string, initial: string }
 
 // Settings: Discord account and channel behavior.
 export component DiscordSettings inherits VerticalLayout {
     in property <bool> matrix-build;
+    in property <[DiscordAccountRow]> accounts;
+    in property <int> account-count;
+    callback select-account(string);
+    callback remove-account(string);
     in property <bool> show-hidden-channels;
     in property <bool> sync-discord-reads;
     in property <bool> show-idle;
@@ -1347,6 +1354,28 @@ export component DiscordSettings inherits VerticalLayout {
     callback show-idle-toggled(bool);
     spacing: 16px;
     SettingsTitle { text: "Discord"; }
+    if root.accounts.length > 0: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "LINKED ACCOUNTS"; }
+        for account in root.accounts: HorizontalLayout {
+            padding: 10px; spacing: 10px; border-radius: 8px;
+            background: Theme.sidebar;
+            VerticalLayout {
+                horizontal-stretch: 1; alignment: center; spacing: 2px;
+                Text { text: account.username; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
+                Text { text: account.active ? "Currently active" : "Linked"; color: Theme.secondary; font-size: 12px; }
+            }
+            if !account.active: ActionButton {
+                text: "Switch"; small: true;
+                clicked => { root.select-account(account.id); }
+            }
+            ActionButton {
+                text: "Remove"; small: true; danger: true;
+                clicked => { root.remove-account(account.id); }
+            }
+        }
+        Label { text: "Switching accounts restarts Yapfast so the Discord connection and its data are loaded for the selected identity."; }
+    }
     if root.matrix-build: HorizontalLayout {
         spacing: 12px;
         Label { text: "Unlinking signs Yapfast out of Discord on this computer."; vertical-alignment: center; horizontal-stretch: 1; }
