@@ -87,8 +87,11 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
         .iter()
         .any(|found| found.id == id && found.voice);
     let mut group = None;
+    // Copy ID shows only with Developer Mode on, as in Discord.
+    let developer_mode = adapter.layout.developer_mode;
     let mut rows: Vec<MenuRow> = choices
         .into_iter()
+        .filter(|choice| developer_mode || *choice != MenuChoice::CopyId)
         .map(|choice| {
             let (text, icon) = match choice {
                 MenuChoice::Timeout => (format!("Time out {}", name()), &icons.timeout),

@@ -870,6 +870,30 @@ fn the_renderer_setting_is_remembered() {
 }
 
 #[test]
+fn developer_mode_is_off_until_turned_on_and_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let open = || {
+        let window = YapfastWindow::new().unwrap();
+        let adapter = Adapter::new(
+            Arc::new(BackgroundRuntime::new().unwrap()),
+            directory.path().into(),
+            &window,
+        )
+        .unwrap();
+        bind_callbacks(&window, &adapter);
+        (window, adapter)
+    };
+    let (window, _adapter) = open();
+    assert!(!window.get_developer_mode());
+    window.set_developer_mode(true);
+    window.invoke_preferences_changed();
+    assert!(Layout::read(directory.path()).developer_mode);
+    let (window, _adapter) = open();
+    assert!(window.get_developer_mode(), "on again at the next start");
+}
+
+#[test]
 fn custom_games_are_remembered_and_edited_in_place() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -1745,6 +1769,18 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     bind_callbacks(&window, &adapter);
     // Alice is Staff, below Leads; Dave, her friend, is below her.
     adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    // Copy ID waits for Developer Mode, off unless turned on, as in Discord.
+    assert!(!window.get_developer_mode());
+    window.invoke_prepare_menu("4".into(), true);
+    let texts: Vec<String> = window
+        .get_menu_rows()
+        .iter()
+        .map(|row| row.text.into())
+        .collect();
+    assert_eq!(texts.last().map(String::as_str), Some("Ban Dave"));
+    window.set_developer_mode(true);
+    window.invoke_preferences_changed();
+    assert!(Layout::read(directory.path()).developer_mode);
     window.invoke_prepare_menu("4".into(), true);
     let rows: Vec<MenuRow> = window.get_menu_rows().iter().collect();
     let texts: Vec<&str> = rows.iter().map(|row| row.text.as_str()).collect();
@@ -4412,7 +4448,6 @@ fn a_discord_servers_menus_show_and_change_its_notifications() {
             "Edit server profile",
             "Leave server",
             "Copy link",
-            "Copy ID"
         ]
     );
     let notifications = rows.row_data(2).unwrap();
@@ -4523,12 +4558,7 @@ fn discord_categories_head_their_channels_and_open_their_menus() {
         .collect();
     assert_eq!(
         texts,
-        [
-            "Mark as read",
-            "Mute category",
-            "Notification settings",
-            "Copy ID"
-        ]
+        ["Mark as read", "Mute category", "Notification settings",]
     );
 }
 
@@ -4625,7 +4655,6 @@ fn pinned_channels_leave_their_categories_for_the_top() {
             "Copy link",
             "Mute channel",
             "Notification settings",
-            "Copy ID"
         ]
     );
 }
@@ -4685,7 +4714,6 @@ fn a_community_server_lists_the_channels_followed_and_offers_following() {
             "Copy link",
             "Mute channel",
             "Notification settings",
-            "Copy ID"
         ]
     );
 }
@@ -4859,7 +4887,6 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
             "Duplicate channel",
             "Create voice channel",
             "Delete channel",
-            "Copy ID"
         ]
     );
     let delete = rows.row_data(7).unwrap();
@@ -4872,7 +4899,6 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
             "Notification settings",
             "Edit category",
             "Delete category",
-            "Copy ID"
         ]
     );
     window.invoke_prepare_menu("header:discord:10".into(), false);

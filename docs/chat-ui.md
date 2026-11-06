@@ -510,6 +510,11 @@ The window follows Discord's arrangement:
   other person's menu is the DM's own, less Mark as read and Copy link, and
   Copy ID copies theirs. Clicking an author's avatar or name, which underlines while
   pointed at, shows their card beside it.
+- Copy ID, in every menu that has it, shows only with Settings → Advanced →
+  Developer Mode on, as in Discord, where the setting shows the same "Copy …
+  ID" items. It's off unless turned on, and kept in `layout.json` on this
+  device: Discord syncs it with its appearance settings, which Yapfast
+  doesn't read.
 - A voice stage with participant tiles, a green border while someone speaks,
   and round mute, deafen and leave controls.
 

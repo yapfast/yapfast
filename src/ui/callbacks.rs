@@ -1491,6 +1491,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
         layout.close_to_tray = Some(window.get_close_to_tray());
         layout.multiple_windows = window.get_multiple_windows();
+        layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
         adapter.watch_talk_key(&window);
         let start = window.get_start_on_sign_in();

@@ -1176,7 +1176,8 @@ export component SoundSettings inherits VerticalLayout {
 
 // Settings: how Yapfast draws its window and encodes a shared screen. Slint
 // picks a renderer once per process, so a change to that waits for a
-// restart, which this offers; encoding changes from the next stream.
+// restart, which this offers; encoding changes from the next stream. Also
+// Developer Mode, which shows Copy ID in menus.
 export component AdvancedSettings inherits VerticalLayout {
     in-out property <bool> gpu-rendering;
     in-out property <bool> gpu-encoding;
@@ -1184,6 +1185,7 @@ export component AdvancedSettings inherits VerticalLayout {
     in-out property <bool> close-to-tray;
     in property <bool> tray-available;
     in-out property <bool> multiple-windows;
+    in-out property <bool> developer-mode;
     in-out property <bool> start-on-sign-in;
     in property <bool> autostart-available;
     in-out property <bool> discord-links;
@@ -1240,6 +1242,12 @@ export component AdvancedSettings inherits VerticalLayout {
         text: "Encode streams with the GPU";
         description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.";
         checked <=> root.gpu-encoding;
+        toggled => { root.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Developer Mode";
+        description: "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API.";
+        checked <=> root.developer-mode;
         toggled => { root.preferences-changed(); }
     }
     Label {

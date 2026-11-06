@@ -1078,6 +1078,9 @@ struct Layout {
     /// Starting Yapfast again on this folder starts another, rather than
     /// showing the running one's window; see [`crate::instance`].
     multiple_windows: bool,
+    /// Menus offer Copy ID, as Discord's Developer Mode does; off unless
+    /// turned on.
+    developer_mode: bool,
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
@@ -1312,6 +1315,7 @@ impl Layout {
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));
         window.set_multiple_windows(self.multiple_windows);
+        window.set_developer_mode(self.developer_mode);
         title_bar::show(window, self.system_title_bar);
         let each: Vec<i32> = Sound::ALL
             .iter()
