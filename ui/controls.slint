@@ -1498,3 +1498,22 @@ export component SensitivitySlider inherits Rectangle {
         }
     }
 }
+
+// An icon whose meaning shows on hover, as Discord's signals have it.
+export component TipIcon inherits Image {
+    in property <string> tip;
+    width: 18px; height: 18px;
+    accessible-role: image; accessible-label: root.tip;
+    TouchArea {
+        changed has-hover => {
+            if self.has-hover {
+                Tip.text = root.tip;
+                Tip.side = 0;
+                Tip.x = self.absolute-position.x + self.width / 2;
+                Tip.y = self.absolute-position.y;
+            } else if Tip.text == root.tip {
+                Tip.text = "";
+            }
+        }
+    }
+}

@@ -1051,6 +1051,7 @@ export component MessageSettings inherits VerticalLayout {
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size;
     in-out property <bool> link-previews;
+    in-out property <bool> boost-gems;
     in-out property <bool> share-typing;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
@@ -1125,6 +1126,12 @@ export component MessageSettings inherits VerticalLayout {
         text: "Show link previews";
         description: "Cards for links, videos and bots under messages. Linked pictures still show.";
         checked <=> root.link-previews;
+        toggled => { root.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Show boost gems";
+        description: "A gem by the name of each member boosting their Discord server, in the member list.";
+        checked <=> root.boost-gems;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {

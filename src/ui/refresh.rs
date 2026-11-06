@@ -1713,6 +1713,16 @@ impl Adapter {
                                 .and_then(|plate| Some(plate.colors?[1])),
                         ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
+                        boosting: member
+                            .boosting_since
+                            .map(|since| {
+                                format!(
+                                    "Server boosting since {}",
+                                    yapfast_core::clock::day(since / 1000)
+                                )
+                            })
+                            .unwrap_or_default()
+                            .into(),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
                         has_color: member.color.is_some(),

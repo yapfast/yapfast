@@ -767,6 +767,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         roles: member.roles,
         timed_out_until: member.timed_out_until,
         tag: discord::server_tag(member.tag),
+        boosting_since: member.boosting_since,
     }
 }
 
