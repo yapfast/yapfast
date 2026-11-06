@@ -527,6 +527,15 @@ struct yapfast_d3d11enc {
   char config[128];
   char tuning_text[96];
   char codecs[64];
+  /* The access unit the last frame produced, kept until Rust copies it into the
+   * buffer it holds: the driver's bitstream is mapped for the length of one
+   * call, so a unit too big for that buffer is copied here and handed over once
+   * rather than lost, which would have meant encoding the picture a second time
+   * against a reference the receiver never got. Reused from frame to frame, so
+   * it holds one frame's worth rather than a stream's. */
+  unsigned char *staged;
+  size_t staged_capacity;
+  size_t staged_size;
 };
 
 /* What went wrong, for Rust to log beside the frame it lost. */
@@ -1191,6 +1200,7 @@ void yapfast_d3d11enc_free(struct yapfast_d3d11enc *e) {
     library.functions.nvEncDestroyEncoder(e->session);
   }
   close_scale(e);
+  free(e->staged);
   if (e->context) e->context->lpVtbl->Release(e->context);
   /* Only what this encoder made: a device it was opened on belongs to the caller
    * that made it, and releasing that would take the capture source's device out
@@ -1200,25 +1210,41 @@ void yapfast_d3d11enc_free(struct yapfast_d3d11enc *e) {
   free(e);
 }
 
-/* Encodes the picture in `texture`'s `subresource` into `out`, whose time is
- * `pts` in 90 kHz units: the stream's own clock, which labels the frame's
- * packets too. `keyframe` asks for an IDR on this frame, which is what a viewer
- * who joins, or whose picture broke, waits for. Returns the access unit's size,
- * 0 when the encoder made none, -2 when it doesn't fit `capacity` (a larger
- * buffer will hold it, as native/hwenc.c says), or -1 on failure, whose reason
- * `yapfast_d3d11enc_error` gives. `out` stays the caller's: this writes it and
- * keeps no reference to it, and the only copy of a frame's bytes is this one,
- * out of the driver's mapped bitstream. */
+/* Keeps `size` bytes of `bytes`, at `at` into the staged access unit, for Rust to
+ * copy out. The buffer grows to the largest frame seen and no further, so a
+ * stream asks for memory only until its frames settle. Returns 0 when memory ran
+ * out. */
+static int stage(struct yapfast_d3d11enc *e, size_t at, const unsigned char *bytes, size_t size) {
+  if (at + size > e->staged_capacity) {
+    unsigned char *larger = realloc(e->staged, at + size);
+    if (!larger) return 0;
+    e->staged = larger;
+    e->staged_capacity = at + size;
+  }
+  memcpy(e->staged + at, bytes, size);
+  return 1;
+}
+
+/* Encodes the picture in `texture`'s `subresource`, whose time is `pts` in 90
+ * kHz units: the stream's own clock, which labels the frame's packets too.
+ * `keyframe` asks for an IDR on this frame, which is what a viewer who joins,
+ * or whose picture broke, waits for. What came out is kept for
+ * `yapfast_d3d11enc_drain` to copy into the caller's buffer: the size it
+ * reports may be larger than that buffer, which grows to hold it without the
+ * picture being encoded a second time. Returns the access unit's size, 0 when
+ * the encoder made none, or -1 on failure, whose reason
+ * `yapfast_d3d11enc_error` gives. The copy out of the driver's mapped bitstream
+ * is the one this call makes; the drain is the second and last, and the
+ * picture's pixels still never cross the processor. */
 long yapfast_d3d11enc_encode(struct yapfast_d3d11enc *e, void *texture, unsigned subresource,
-                             long long pts, int keyframe, unsigned char *out, size_t capacity,
-                             int *is_key) {
+                             long long pts, int keyframe, int *is_key) {
   NV_ENC_PIC_PARAMS picture;
   NV_ENC_LOCK_BITSTREAM locked;
   NVENCSTATUS status;
   char why[192] = "";
 
   if (!e) return -1;
-  if (!texture || !out || !is_key) return fail(e, -1, "the encoder was given nothing to encode");
+  if (!texture || !is_key) return fail(e, -1, "the encoder was given nothing to encode");
   *is_key = 0;
   struct slot *slot = NULL;
   for (size_t i = 0; i < e->held && !slot; i++)
@@ -1260,13 +1286,30 @@ long yapfast_d3d11enc_encode(struct yapfast_d3d11enc *e, void *texture, unsigned
   if (status != NV_ENC_SUCCESS)
     return fail(e, -1, "nvEncLockBitstream failed: %s (%d)", nvenc_status(status), (int)status);
   size_t size = locked.bitstreamSizeInBytes;
-  if (size > capacity) {
+  /* Whatever the last call left is this frame's to replace, copied out or not:
+   * one frame is held at a time. */
+  e->staged_size = 0;
+  if (size && !stage(e, 0, locked.bitstreamBufferPtr, size)) {
     library.functions.nvEncUnlockBitstream(e->session, locked.outputBitstream);
-    return -2;
+    return fail(e, -1, "no memory for a %zu byte frame", size);
   }
-  if (size) memcpy(out, locked.bitstreamBufferPtr, size);
+  e->staged_size = size;
   *is_key = locked.pictureType == NV_ENC_PIC_TYPE_IDR || locked.pictureType == NV_ENC_PIC_TYPE_I;
   library.functions.nvEncUnlockBitstream(e->session, locked.outputBitstream);
+  return (long)size;
+}
+
+/* Copies the access unit the last encode produced into `out`, which holds it,
+ * and gives up the copy: the buffer stays for the next frame. Rust grows its
+ * buffer to the size the encode reported before calling this once, so a frame is
+ * never encoded twice to fit one. Returns the size copied, or -1 when there is
+ * nothing to copy or `out` is too small. */
+long yapfast_d3d11enc_drain(struct yapfast_d3d11enc *e, unsigned char *out, size_t capacity) {
+  if (!e) return -1;
+  size_t size = e->staged_size;
+  if (!size || size > capacity) return -1;
+  memcpy(out, e->staged, size);
+  e->staged_size = 0;
   return (long)size;
 }
 

@@ -42,10 +42,13 @@ type Encode = unsafe extern "C" fn(
     c_longlong,
     c_ulong,
     c_int,
-    *mut c_uchar,
-    usize,
     *mut c_int,
 ) -> c_long;
+/// Copies the access unit the last encode produced into the buffer given,
+/// which must hold it, and lets the encoder give up its copy.
+type Drain = unsafe extern "C" fn(*mut Raw, *mut c_uchar, usize) -> c_long;
+/// The bytes an encoder keeps for the unit it produces, reused each frame.
+type Staging = unsafe extern "C" fn(*mut Raw) -> usize;
 type SetBitrate = unsafe extern "C" fn(*mut Raw, c_uint) -> c_int;
 type Free = unsafe extern "C" fn(*mut Raw);
 
@@ -69,10 +72,10 @@ unsafe extern "C" {
         pts: c_longlong,
         duration: c_ulong,
         keyframe: c_int,
-        out: *mut c_uchar,
-        capacity: usize,
         is_key: *mut c_int,
     ) -> c_long;
+    fn yapfast_vp8_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
+    fn yapfast_vp8_staging(encoder: *mut Raw) -> usize;
     fn yapfast_vp8_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_vp8_free(encoder: *mut Raw);
     fn yapfast_h264_new(
@@ -95,10 +98,10 @@ unsafe extern "C" {
         pts: c_longlong,
         duration: c_ulong,
         keyframe: c_int,
-        out: *mut c_uchar,
-        capacity: usize,
         is_key: *mut c_int,
     ) -> c_long;
+    fn yapfast_h264_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
+    fn yapfast_h264_staging(encoder: *mut Raw) -> usize;
     fn yapfast_h264_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_h264_free(encoder: *mut Raw);
 }
@@ -128,10 +131,10 @@ unsafe extern "C" {
         pts: c_longlong,
         duration: c_ulong,
         keyframe: c_int,
-        out: *mut c_uchar,
-        capacity: usize,
         is_key: *mut c_int,
     ) -> c_long;
+    fn yapfast_hwenc_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
+    fn yapfast_hwenc_staging(encoder: *mut Raw) -> usize;
     fn yapfast_hwenc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_hwenc_notes(encoder: *mut Raw, notes: *mut std::ffi::c_char, notes_size: usize);
     fn yapfast_hwenc_config(encoder: *mut Raw, config: *mut std::ffi::c_char, config_size: usize);
@@ -226,6 +229,11 @@ pub struct Encoder {
     effort: Effort,
     configuration: Configuration,
     encode: Encode,
+    /// Copies the unit the last encode produced out of the encoder, once the
+    /// buffer it goes in holds it.
+    drain: Drain,
+    /// The bytes the encoder keeps for the unit it produces.
+    staging: Staging,
     set_bitrate: SetBitrate,
     free: Free,
     /// The bitrate aimed for, in kbit/s.
@@ -236,11 +244,16 @@ pub struct Encoder {
     /// How many frames the GPU's encoder has answered late so far, as last
     /// read, so that a warning names each new one once.
     late: u32,
+    /// How many pictures the native encoder has been asked for: a test holds
+    /// it to one a picture, since a picture encoded twice is one referencing
+    /// the copy the receiver never got.
+    #[cfg(test)]
+    submitted: usize,
     /// The frame as I420, for [`Self::encode`]: a full-size luma plane, then
     /// two quarter-size chroma planes. Empty until it's first needed: the
     /// screen and the camera arrive as I420.
     planes: Vec<u8>,
-    /// The buffers encoded frames are written into, reused as frames are sent.
+    /// The buffers encoded frames are copied into, reused as frames are sent.
     out: Arc<Pool>,
 }
 
@@ -264,6 +277,8 @@ pub struct Frame {
 struct Opened {
     raw: *mut Raw,
     encode: Encode,
+    drain: Drain,
+    staging: Staging,
     set_bitrate: SetBitrate,
     free: Free,
     configuration: Configuration,
@@ -272,12 +287,12 @@ struct Opened {
 /// What one call of an encoder made of a frame.
 #[derive(Clone, Copy)]
 enum Written {
-    /// Its size, and whether it's a keyframe.
+    /// Its size, and whether it's a keyframe. The size may be larger than the
+    /// buffer the frame will be sent in, which grows to hold it: the encoder
+    /// keeps the frame until [`Encoder::drain_produced`] copies it out.
     Frame(usize, bool),
     /// The encoder skipped it.
     Skipped,
-    /// It didn't fit the buffer: a larger one may hold it.
-    TooSmall,
 }
 
 impl Encoder {
@@ -309,6 +324,8 @@ impl Encoder {
             effort,
             configuration: opened.configuration,
             encode: opened.encode,
+            drain: opened.drain,
+            staging: opened.staging,
             set_bitrate: opened.set_bitrate,
             free: opened.free,
             kbps,
@@ -316,6 +333,8 @@ impl Encoder {
             height,
             fps,
             late: 0,
+            #[cfg(test)]
+            submitted: 0,
             planes: Vec::new(),
             // Starts lean; a keyframe of noise is the most the pool can grow to.
             out: Arc::new(Pool::new(pixels * 2 + 4096)),
@@ -344,6 +363,8 @@ impl Encoder {
         unsafe { (self.free)(self.raw) };
         self.raw = opened.raw;
         self.encode = opened.encode;
+        self.drain = opened.drain;
+        self.staging = opened.staging;
         self.set_bitrate = opened.set_bitrate;
         self.free = opened.free;
         self.configuration = opened.configuration;
@@ -367,6 +388,22 @@ impl Encoder {
     #[cfg(test)]
     fn created(&self) -> usize {
         self.out.created()
+    }
+
+    /// How many pictures the native encoder was asked to encode: more than one
+    /// for a picture is one encoded a second time, which a test fails on.
+    #[cfg(test)]
+    fn submitted(&self) -> usize {
+        self.submitted
+    }
+
+    /// The bytes the encoder keeps to copy the unit it produced out of, reused
+    /// for the next frame: one frame's worth at most, which is what a test
+    /// holds it to rather than a growing history.
+    #[cfg(test)]
+    fn staging(&self) -> usize {
+        // SAFETY: raw came from this codec's constructor and is still live.
+        unsafe { (self.staging)(self.raw) }
     }
 
     /// Aims for `kbps` from the next frame on, without a keyframe.
@@ -453,60 +490,77 @@ impl Encoder {
         )
     }
 
-    /// Encodes three planes, each with its stride, into a buffer from the
-    /// encoder's pool: the frame, or None when the encoder skipped it. A frame
-    /// too big for the buffer grows the pool's buffers, doubling until one
-    /// holds it. When a hardware H264 encoder fails, x264 takes over from this
-    /// frame, with a keyframe, into the same buffer; H265 and AV1 have nothing
-    /// to take over.
+    /// Encodes three planes, each with its stride, and copies the access unit
+    /// the encoder produced into a buffer from the encoder's pool: the frame, or
+    /// None when the encoder skipped it. A unit too big for the buffers grows
+    /// them, doubling until one holds it, and then goes into the grown buffer
+    /// from the encoder's own copy of it. The picture is not submitted again: an
+    /// encoder that had already encoded it moved on, so a second submission
+    /// would reference a copy the receiver never got and cost the work again.
+    /// When a hardware H264 encoder fails, x264 takes over from this frame, with
+    /// a keyframe, and that submission does encode the picture a second time;
+    /// H265 and AV1 have nothing to take over.
     fn encode_planes(
         &mut self,
         planes: [(&[u8], u32); 3],
         pts: u64,
         keyframe: bool,
     ) -> Result<Option<Frame>> {
-        let mut out = self.out.checkout();
-        let mut written = self.encode_once_fallback(planes, pts, keyframe, &mut out)?;
-        loop {
-            self.note_late();
-            match written {
-                Written::TooSmall => {
-                    if !self.out.grow() {
-                        bail!(
-                            "the {:?} frame doesn't fit {} bytes",
-                            self.codec,
-                            self.out.capacity()
-                        );
-                    }
-                    out = self.out.checkout();
-                    written = self.encode_once_fallback(planes, pts, keyframe, &mut out)?;
-                }
-                Written::Frame(size, keyframe) => {
-                    out.finish(size);
-                    return Ok(Some(Frame {
-                        data: out,
-                        keyframe,
-                        // The frame was encoded at this time, whether it
-                        // took one call or, grown, two.
-                        timestamp: pts as u32,
-                    }));
-                }
-                // The skipped frame's buffer goes back to the pool.
-                Written::Skipped => return Ok(None),
+        let written = self.encode_once_fallback(planes, pts, keyframe)?;
+        self.note_late();
+        let (size, keyframe) = match written {
+            Written::Skipped => return Ok(None),
+            Written::Frame(size, keyframe) => (size, keyframe),
+        };
+        // The buffer that holds a frame is the one the pool hands out: a unit
+        // that outgrew it grows the pool first, so the copy below fits first
+        // time and the frame stays the one the encoder made.
+        while self.out.capacity() < size {
+            if !self.out.grow() {
+                bail!(
+                    "the {:?} frame doesn't fit {} bytes",
+                    self.codec,
+                    self.out.capacity()
+                );
             }
+        }
+        let mut out = self.out.checkout();
+        let copied = self.drain_produced(&mut out)?;
+        debug_assert_eq!(copied, size, "the encoder gave back another frame");
+        out.finish(copied);
+        Ok(Some(Frame {
+            data: out,
+            keyframe,
+            // The frame was encoded at this time, whatever the pool had to do
+            // to hold it: one picture, one submission.
+            timestamp: pts as u32,
+        }))
+    }
+
+    /// Copies the access unit the encoder produced into `out`, whose buffer the
+    /// pool has already grown to hold it, and lets the encoder give up its copy:
+    /// this is the drain half of encode-then-copy, and the only copy of the
+    /// frame's bytes between the encoder and the packetizer.
+    fn drain_produced(&mut self, out: &mut Encoded) -> Result<usize> {
+        let spare = out.spare();
+        // SAFETY: the buffer is at least the unit's size, which the pool was
+        // grown to before this call, and both stay put during it.
+        let copied = unsafe { (self.drain)(self.raw, spare.as_mut_ptr(), spare.len()) };
+        match copied {
+            ..0 => bail!("the {:?} encoder lost the frame it produced", self.codec),
+            copied => Ok(copied as usize),
         }
     }
 
-    /// Encodes into `out`, with x264 taking over when the GPU's H264 encoder
+    /// Encodes the planes, with x264 taking over when the GPU's H264 encoder
     /// failed.
     fn encode_once_fallback(
         &mut self,
         planes: [(&[u8], u32); 3],
         pts: u64,
         keyframe: bool,
-        out: &mut Encoded,
     ) -> Result<Written> {
-        match self.encode_once(planes, pts, keyframe, out) {
+        match self.encode_once(planes, pts, keyframe) {
             Err(error) if self.hardware() && self.codec == Codec::H264 => {
                 tracing::warn!(
                     engine = self.engine(),
@@ -516,17 +570,10 @@ impl Encoder {
                 let (codec, width, height, fps) = (self.codec, self.width, self.height, self.fps);
                 let opened = open_software(codec, width, height, fps, self.kbps, self.effort)?;
                 self.replace(opened);
-                self.encode_once(planes, pts, true, out)
+                self.encode_once(planes, pts, true)
             }
             written => written,
         }
-    }
-
-    /// The negative number the engine returns for a frame too big for its
-    /// buffer: native/vp8.c says -3, native/h264.c and native/hwenc.c say -2.
-    /// Their other negative numbers are failures.
-    fn too_small(&self) -> c_long {
-        if self.codec == Codec::Vp8 { -3 } else { -2 }
     }
 
     /// How many frames the GPU's encoder has answered late, and which
@@ -560,18 +607,24 @@ impl Encoder {
         );
     }
 
+    /// Encodes the planes, and reports what the encoder produced. What it
+    /// produced stays in the encoder, for [`Self::drain_produced`] to copy out:
+    /// no output buffer crosses this boundary, so a frame too big for the one
+    /// waiting at the other side is copied rather than encoded again.
     fn encode_once(
         &mut self,
         [(y, y_stride), (u, u_stride), (v, v_stride)]: [(&[u8], u32); 3],
         pts: u64,
         keyframe: bool,
-        out: &mut Encoded,
     ) -> Result<Written> {
         let mut is_key: c_int = 0;
-        let spare = out.spare();
+        #[cfg(test)]
+        {
+            self.submitted += 1;
+        }
         // SAFETY: the planes hold a picture of this encoder's size at these
-        // strides, and the output buffer is sized for its frames; all stay
-        // put during the call.
+        // strides, and the flag has a place of its own; all stay put during
+        // the call.
         let written = unsafe {
             (self.encode)(
                 self.raw,
@@ -584,14 +637,9 @@ impl Encoder {
                 pts as c_longlong,
                 (CLOCK / u64::from(self.fps)) as c_ulong,
                 c_int::from(keyframe),
-                spare.as_mut_ptr(),
-                spare.len(),
                 &mut is_key,
             )
         };
-        if written == self.too_small() {
-            return Ok(Written::TooSmall);
-        }
         match written {
             ..0 => bail!("{:?} encoding failed ({written})", self.codec),
             0 => Ok(Written::Skipped),
@@ -615,6 +663,8 @@ fn open_software(
         Codec::Vp8 => Opened {
             raw: unsafe { yapfast_vp8_new(width, height, fps, kbps, threads) },
             encode: yapfast_vp8_encode,
+            drain: yapfast_vp8_drain,
+            staging: yapfast_vp8_staging,
             set_bitrate: yapfast_vp8_set_bitrate,
             free: yapfast_vp8_free,
             configuration: software_configuration("libvpx", effort),
@@ -622,6 +672,8 @@ fn open_software(
         Codec::H264 => Opened {
             raw: unsafe { yapfast_h264_new(width, height, fps, kbps, threads, effort as c_uint) },
             encode: yapfast_h264_encode,
+            drain: yapfast_h264_drain,
+            staging: yapfast_h264_staging,
             set_bitrate: yapfast_h264_set_bitrate,
             free: yapfast_h264_free,
             configuration: software_configuration("x264", effort),
@@ -731,6 +783,8 @@ fn open_hardware(
     Some(Opened {
         raw,
         encode: yapfast_hwenc_encode,
+        drain: yapfast_hwenc_drain,
+        staging: yapfast_hwenc_staging,
         set_bitrate: yapfast_hwenc_set_bitrate,
         free: yapfast_hwenc_free,
         configuration: Configuration {
@@ -782,7 +836,13 @@ impl Drop for Encoder {
 mod tests {
     use super::*;
     use crate::decode::Decoder;
-    use std::{collections::VecDeque, sync::Arc};
+    use std::{
+        collections::VecDeque,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        },
+    };
 
     // The settings native/hwenc.c opens NVENC with for the tuning named, and
     // whether the stream can't do without each: the list the open reads, so a
@@ -918,13 +978,24 @@ mod tests {
     /// A frame too big for the lean buffer grows the pool's buffer, is
     /// encoded into it, and leaves the pool at the size that held it. The
     /// shim is a stand-in, since no real encoder here makes a 700 KiB frame
-    /// on demand: it answers like native/h264.c and native/hwenc.c do for a
-    /// frame that doesn't fit, and writes the frame once it does.
+    /// A frame too big for the lean buffer grows the pool's buffer, is copied
+    /// into it from the encoder's own copy, and leaves the pool at the size
+    /// that held it. The shim is a stand-in, since no real encoder here makes a
+    /// 700 KiB frame on demand: it answers the size it produced, as
+    /// native/h264.c and native/hwenc.c now do, and hands that frame over once.
     #[test]
     fn a_frame_too_big_for_the_lean_buffer_grows_the_pool() {
         const BULKY: usize = 700 * 1024;
+        // What each encoder call did: a picture this size is one submission and
+        // one copy, so a submitted count above the pictures encoded is a frame
+        // encoded twice.
+        static SUBMITTED: AtomicUsize = AtomicUsize::new(0);
+        static DRAINED: AtomicUsize = AtomicUsize::new(0);
 
-        unsafe extern "C" fn refuses_until_bulky(
+        // Produces a frame bigger than the pool's opening buffer, and keeps it
+        // the way a real shim does: the size says how big it is, not whether it
+        // fits.
+        unsafe extern "C" fn produces_bulky(
             _encoder: *mut Raw,
             _y: *const c_uchar,
             _y_stride: c_int,
@@ -935,41 +1006,212 @@ mod tests {
             _pts: c_longlong,
             _duration: c_ulong,
             _keyframe: c_int,
-            out: *mut c_uchar,
-            capacity: usize,
             is_key: *mut c_int,
         ) -> c_long {
+            SUBMITTED.fetch_add(1, AtomicOrdering::Relaxed);
+            // SAFETY: the caller gives a place for the flag.
+            unsafe { *is_key = 1 };
+            BULKY as c_long
+        }
+
+        // Hands the frame it kept to a buffer that holds it.
+        unsafe extern "C" fn drains_bulky(
+            _encoder: *mut Raw,
+            out: *mut c_uchar,
+            capacity: usize,
+        ) -> c_long {
             if capacity < BULKY {
-                return -2;
+                return -1;
             }
-            // SAFETY: the caller gave a buffer of `capacity` bytes, at least
-            // BULKY here, and a place for the flag.
-            unsafe {
-                std::ptr::write_bytes(out, 0xab, BULKY);
-                *is_key = 1;
-            }
+            // SAFETY: the caller gives a buffer of `capacity` bytes, at least
+            // BULKY here.
+            unsafe { std::ptr::write_bytes(out, 0xab, BULKY) };
+            DRAINED.fetch_add(1, AtomicOrdering::Relaxed);
             BULKY as c_long
         }
 
         let mut encoder =
             Encoder::new(Codec::H264, 1280, 720, 30, 500, Effort::Light, false).unwrap();
         assert_eq!(encoder.out.capacity(), 512 * 1024);
-        encoder.encode = refuses_until_bulky;
+        encoder.encode = produces_bulky;
+        encoder.drain = drains_bulky;
         let rgba = vec![0u8; 1280 * 720 * 4];
         let frame = encoder.encode(&rgba, 0, true).unwrap().unwrap();
         assert_eq!(frame.data.len(), BULKY);
         assert!(frame.keyframe);
         assert!(frame.data.iter().all(|&byte| byte == 0xab));
-        // The frame that didn't fit was encoded again at the same time: one
-        // frame out, at the time it was captured, not a frame later.
+        // The frame that outgrew the pool was produced once and copied once:
+        // one frame out, at the time it was captured, not a frame later.
         assert_eq!(frame.timestamp, 0);
+        assert_eq!(SUBMITTED.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(DRAINED.load(AtomicOrdering::Relaxed), 1);
         assert_eq!(encoder.out.capacity(), 1024 * 1024);
         drop(frame);
         // The grown buffer came back, and is the one the next frame uses.
         let again = encoder.encode(&rgba, 3000, false).unwrap().unwrap();
         assert_eq!(again.data.len(), BULKY);
         assert_eq!(again.timestamp, 3000);
-        assert_eq!(encoder.created(), 2);
+        // The buffer is taken at the size that holds the frame, so the pool never
+        // made one of the size it outgrew: one buffer, not two.
+        assert_eq!(encoder.created(), 1);
+        assert_eq!(
+            SUBMITTED.load(AtomicOrdering::Relaxed),
+            2,
+            "two pictures were encoded, whatever the pool had to do"
+        );
+    }
+
+    /// A frame that outgrows the pool is copied out of the encoder, not encoded
+    /// again: every access unit decodes in order, one submission went in for each
+    /// picture, and the encoder keeps one frame's worth of memory for the copy
+    /// rather than a growing history of them.
+    ///
+    /// The pool's opening buffer is 512 KiB, so a frame has to be bigger than
+    /// that to provoke the growth a stream sees when a picture of a hard scene
+    /// arrives; a keyframe of noise at a high rate is. The frame after the
+    /// keyframe then goes through a pool at its opening size, which is where the
+    /// old code encoded that picture a second time. A second submission would be
+    /// an inter frame referencing the copy the receiver never got, which is what
+    /// decoding every access unit says isn't happening.
+    #[test]
+    fn a_frame_that_outgrows_the_pool_is_copied_not_encoded_again() {
+        const FRAMES: u64 = 10;
+        // 1080p at a rate a screen of noise can fill, so a frame of it is larger
+        // than the pool's opening 512 KiB.
+        const WIDTH: u32 = 1920;
+        const HEIGHT: u32 = 1080;
+        const KBPS: u32 = 200_000;
+        // What a pool hands out before a frame grows it.
+        const OPENING: usize = 512 * 1024;
+        for (codec, hardware) in [
+            (Codec::Vp8, false),
+            (Codec::H264, false),
+            (Codec::H264, true),
+        ] {
+            let mut encoder =
+                match Encoder::new(codec, WIDTH, HEIGHT, 30, KBPS, Effort::Light, hardware) {
+                    Ok(encoder) => encoder,
+                    Err(why) => {
+                        eprintln!("no {codec:?} encoder here (hardware {hardware}): {why:#}");
+                        continue;
+                    }
+                };
+            if hardware && !encoder.hardware() {
+                eprintln!(
+                    "no GPU encoder for {codec:?} here: the open fell back to {}",
+                    encoder.engine()
+                );
+                continue;
+            }
+            eprintln!("outgrowing the pool on {}", encoder.engine());
+            assert_eq!(encoder.out.capacity(), OPENING);
+            // A picture that changes every frame, so the encoder has bits to
+            // spend and a delta frame can outgrow a buffer as a keyframe of a
+            // harsh scene does.
+            let mut rgba = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+            let paint = |rgba: &mut [u8], frame: u64| {
+                let mut state =
+                    0x9e37_79b9_7f4a_7c15u64 ^ frame.wrapping_mul(0x2545_f491_4f6c_dd1d);
+                for pixel in rgba.chunks_exact_mut(4) {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    pixel.copy_from_slice(&[
+                        state as u8,
+                        (state >> 8) as u8,
+                        (state >> 16) as u8,
+                        255,
+                    ]);
+                }
+            };
+
+            // The keyframe goes through the pool the encoder opened with, and
+            // succeeds: it is the picture the pool may grow to hold.
+            paint(&mut rgba, 0);
+            let keyframe = encoder.encode(&rgba, 0, true).unwrap().unwrap();
+            assert!(
+                keyframe.keyframe,
+                "{codec:?}: the first frame isn't a keyframe"
+            );
+            assert_eq!(encoder.submitted(), 1);
+            let mut frames = vec![keyframe];
+
+            // From here a frame meets the pool at its opening size: the case a
+            // stream hits when the picture after a keyframe is bigger than the
+            // buffer waiting for it.
+            encoder.out = Arc::new(Pool::new((WIDTH * HEIGHT * 2 + 4096) as usize));
+            assert_eq!(encoder.out.capacity(), OPENING);
+            for frame in 1..FRAMES {
+                paint(&mut rgba, frame);
+                let pts = frame * 3000;
+                let encoded = encoder
+                    .encode(&rgba, pts, false)
+                    .unwrap_or_else(|why| panic!("{codec:?} lost frame {frame}: {why:#}"))
+                    .unwrap_or_else(|| panic!("{codec:?} made no frame for {frame}"));
+                assert_eq!(
+                    encoded.timestamp, pts as u32,
+                    "{codec:?}: another frame's time"
+                );
+                frames.push(encoded);
+                // One picture, one submission: the encoder's state moved on with
+                // the first, so a retry would be a second picture referencing a
+                // frame that was never sent.
+                assert_eq!(
+                    encoder.submitted() as u64,
+                    frame + 1,
+                    "{codec:?} submitted the picture at {pts} more than once"
+                );
+            }
+            // Each frame after the keyframe is larger than the buffer the pool
+            // had at its opening size, or nothing about growth was proved here.
+            let grown = encoder.out.capacity();
+            let smallest = frames[1..]
+                .iter()
+                .map(|frame| frame.data.len())
+                .min()
+                .unwrap();
+            assert!(
+                smallest > OPENING,
+                "{codec:?}: a frame of {smallest} bytes fits the pool's opening buffer, so the \
+                 pool never had to grow and nothing was proved"
+            );
+            assert!(
+                grown >= smallest,
+                "{codec:?}: a {smallest} byte frame in a {grown} byte pool"
+            );
+
+            // Every access unit decodes, in order: a frame encoded twice would
+            // have referenced the copy the receiver never got.
+            let mut decoder = Decoder::new(codec).unwrap();
+            let mut shown = 0;
+            for (at, frame) in frames.iter().enumerate() {
+                let picture = decoder
+                    .decode(&frame.data)
+                    .unwrap_or_else(|why| panic!("{codec:?}: frame {at} doesn't decode: {why:#}"));
+                if picture.is_some() {
+                    shown += 1;
+                }
+            }
+            assert_eq!(
+                shown as u64, FRAMES,
+                "{codec:?}: {shown} pictures from {FRAMES} frames"
+            );
+            // The copy's buffer is one frame's worth: as big as the largest frame
+            // produced, not the sum of them, and no larger than the most a frame
+            // of this size can need.
+            let largest = frames.iter().map(|frame| frame.data.len()).max().unwrap();
+            assert_eq!(
+                encoder.staging(),
+                largest,
+                "{codec:?} keeps {} bytes for its frame to be copied out of",
+                encoder.staging()
+            );
+            assert!(
+                encoder.staging() <= (WIDTH * HEIGHT * 2 + 4096) as usize,
+                "{codec:?} keeps {} bytes, more than a frame of this size can need",
+                encoder.staging()
+            );
+        }
     }
 
     /// Thirty frames in a row, with three alive at once, stay within the

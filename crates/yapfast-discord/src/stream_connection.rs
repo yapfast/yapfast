@@ -314,6 +314,13 @@ impl Pool {
         if capacity >= self.max {
             return false;
         }
+        // The idle buffers of the size this leaves are ones the pool will never
+        // hand out again: a checkout drops one it has outgrown, so they would sit
+        // under the stack's new top for the rest of the stream, held for nothing.
+        // Growing is the one moment they are all in one place to give back, so it
+        // is where they go; a buffer still out is dropped by `Encoded`'s own size
+        // check when it comes back.
+        lock(&self.idle).clear();
         self.capacity
             .store((capacity * 2).min(self.max), Ordering::Relaxed);
         true
@@ -693,6 +700,21 @@ impl StreamSender {
     /// dropped frames, or when a viewer asked for one.
     pub fn take_keyframe_request(&self) -> bool {
         self.shared.keyframe.swap(false, Ordering::Relaxed)
+    }
+
+    /// Whether a keyframe is waiting to be made, without taking the request:
+    /// what a desktop that isn't changing asks to know whether it is worth
+    /// producing a picture at all, before it produces one.
+    pub fn keyframe_wanted(&self) -> bool {
+        self.shared.keyframe.load(Ordering::Relaxed)
+    }
+
+    /// Makes the next frame a whole one, without waiting for a decoder to ask:
+    /// what a stream says when the pictures themselves change kind, as from the
+    /// card's textures to the processor's, so a viewer's decoder starts on the
+    /// new ones rather than depending on the last of the old.
+    pub fn force_keyframe(&self) {
+        self.shared.keyframe.store(true, Ordering::Relaxed);
     }
 
     /// The bit/s Discord's server last estimated the path carries, once it
@@ -1986,5 +2008,56 @@ mod tests {
             Some(800_000),
             "what it said, however long ago"
         );
+    }
+
+    /// Growing the pool gives back the idle buffers of the size it leaves.
+    ///
+    /// Three idle buffers are the most the pool keeps, one each for a frame
+    /// being encoded, one queued and one being sent. A checkout discards an idle
+    /// buffer the size it has outgrown, but only the one at the top of the stack:
+    /// once a new-size buffer is back, serial checkouts cycle it and never reach
+    /// the smaller ones underneath. Growing is where they are all in hand, so it
+    /// is where they go, and the memory is counted here rather than the buffers.
+    #[test]
+    fn growing_the_pool_gives_back_the_buffers_it_outgrew() {
+        const OLD: usize = 512 * 1024;
+        let pool = Arc::new(Pool::new(4 * OLD));
+        assert_eq!(pool.capacity(), OLD);
+        // What the pool holds while it is idle: the bytes of every buffer it
+        // could hand out, which is the number a stream's memory is about.
+        let idle_bytes = || -> usize { lock(&pool.idle).iter().map(Vec::capacity).sum() };
+        assert_eq!(idle_bytes(), 0, "nothing allocated yet");
+
+        let held: Vec<Encoded> = (0..BUFFERS).map(|_| pool.checkout()).collect();
+        drop(held);
+        assert_eq!(idle_bytes(), BUFFERS * OLD, "three idle buffers");
+
+        assert!(pool.grow());
+        assert_eq!(pool.capacity(), 2 * OLD);
+        // The three buffers of the size it left are gone rather than stranded
+        // under the new top of the stack.
+        assert_eq!(idle_bytes(), 0, "idle buffers of the size the pool outgrew");
+
+        // One buffer checked out and returned, frame after frame: the pool hands
+        // the same one back, and what it holds between frames is that one buffer
+        // at the size it hands out now.
+        let mut live = 0;
+        for frame in 0..10 {
+            let mut buffer = pool.checkout();
+            live = buffer.spare().len();
+            buffer.finish(4);
+            assert_eq!(live, 2 * OLD, "frame {frame} was encoded into {live} bytes");
+            drop(buffer);
+            assert_eq!(
+                idle_bytes(),
+                2 * OLD,
+                "frame {frame} left the idle pool holding {} bytes",
+                idle_bytes()
+            );
+        }
+        // Two buffers allocated in all: the three of the old size, freed by the
+        // growth, and the one the frames after it go through.
+        assert_eq!(pool.created(), BUFFERS + 1);
+        assert!(live > OLD, "the pool grew rather than kept the old size");
     }
 }

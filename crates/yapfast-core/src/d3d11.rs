@@ -112,10 +112,11 @@ unsafe extern "C" {
         subresource: c_uint,
         pts: c_longlong,
         keyframe: c_int,
-        out: *mut c_uchar,
-        capacity: usize,
         is_key: *mut c_int,
     ) -> c_long;
+    /// Copies the access unit the last encode produced into the buffer given,
+    /// which must hold it, and lets the encoder give up its copy.
+    fn yapfast_d3d11enc_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
     fn yapfast_d3d11enc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_d3d11enc_scale(
         encoder: *mut Raw,
@@ -760,60 +761,62 @@ impl D3d11Encoder {
     }
 
     /// Encodes `texture`'s picture, shown at `pts` in [`CLOCK`](
-    /// crate::encode::CLOCK) units. None when the encoder made no packet. A frame
-    /// too big for the buffer grows the pool's buffers, doubling until one holds
-    /// it, and is encoded again at the same time.
+    /// crate::encode::CLOCK) units. None when the encoder made no packet. The
+    /// frame the encoder produced is copied into a buffer of the pool's, which
+    /// grows to hold it first if it has to: the picture is not submitted again,
+    /// since the encoder has already encoded it and moved on.
     pub fn encode_texture(
         &mut self,
         texture: Texture,
         pts: u64,
         keyframe: bool,
     ) -> Result<Option<Frame>> {
-        let mut out = self.out.checkout();
-        loop {
-            let mut is_key: c_int = 0;
-            let spare = out.spare();
-            // SAFETY: the texture is the caller's and lives as long as the call,
-            // the buffer is as large as its size, and the flag has a place of its
-            // own; all stay put during the call.
-            let written = unsafe {
-                yapfast_d3d11enc_encode(
-                    self.raw,
-                    texture.handle,
-                    texture.subresource,
-                    pts as c_longlong,
-                    c_int::from(keyframe),
-                    spare.as_mut_ptr(),
-                    spare.len(),
-                    &mut is_key,
-                )
-            };
-            match written {
-                // -2 is the shim's "won't fit", as native/hwenc.c says it.
-                -2 => {
-                    if !self.out.grow() {
-                        bail!(
-                            "the {:?} frame doesn't fit {} bytes",
-                            self.codec,
-                            self.out.capacity()
-                        );
-                    }
-                    out = self.out.checkout();
-                }
-                ..0 => bail!("{:?} encoding failed: {}", self.codec, self.error()),
-                0 => return Ok(None),
-                size => {
-                    out.finish(size as usize);
-                    return Ok(Some(Frame {
-                        data: out,
-                        keyframe: is_key != 0,
-                        // The frame was encoded at this time, whether it took one
-                        // call or, grown, two.
-                        timestamp: pts as u32,
-                    }));
-                }
+        let mut is_key: c_int = 0;
+        // SAFETY: the texture is the caller's and lives as long as the call,
+        // and the flag has a place of its own; both stay put during the call.
+        let written = unsafe {
+            yapfast_d3d11enc_encode(
+                self.raw,
+                texture.handle,
+                texture.subresource,
+                pts as c_longlong,
+                c_int::from(keyframe),
+                &mut is_key,
+            )
+        };
+        let size = match written {
+            ..0 => bail!("{:?} encoding failed: {}", self.codec, self.error()),
+            0 => return Ok(None),
+            size => size as usize,
+        };
+        // The buffer that holds a frame is the one the pool hands out: a frame
+        // that outgrew it grows the pool first, so the copy below fits and the
+        // frame stays the one the encoder made.
+        while self.out.capacity() < size {
+            if !self.out.grow() {
+                bail!(
+                    "the {:?} frame doesn't fit {} bytes",
+                    self.codec,
+                    self.out.capacity()
+                );
             }
         }
+        let mut out = self.out.checkout();
+        let spare = out.spare();
+        // SAFETY: the buffer is at least the unit's size, which the pool was
+        // grown to before this call, and both stay put during it.
+        let copied = unsafe { yapfast_d3d11enc_drain(self.raw, spare.as_mut_ptr(), spare.len()) };
+        if copied < 0 {
+            bail!("the {:?} encoder lost the frame it produced", self.codec);
+        }
+        out.finish(copied as usize);
+        Ok(Some(Frame {
+            data: out,
+            keyframe: is_key != 0,
+            // The frame was encoded at this time, whatever the pool had to do
+            // to hold it: one picture, one submission.
+            timestamp: pts as u32,
+        }))
     }
 
     /// Draws frames for this encoder to read — a stand-in for the capture
