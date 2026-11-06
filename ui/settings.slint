@@ -1342,6 +1342,7 @@ export component DiscordSettings inherits VerticalLayout {
     callback link-discord-token(string);
     callback open-discord-captcha;
     callback cancel-discord-link;
+    callback restart-app;
     callback select-account(string);
     callback remove-account(string);
     private property <bool> adding-account;
@@ -1391,7 +1392,7 @@ export component DiscordSettings inherits VerticalLayout {
         }
         ActionButton {
             text: "Restart to apply account"; icon: @image-url("icons/refresh-cw.svg"); ghost: true;
-            clicked => { root.cancel-discord-link(); }
+            clicked => { root.restart-app(); }
         }
         Rectangle { horizontal-stretch: 1; }
     }
