@@ -651,6 +651,41 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_discord_captcha, Action::OpenDiscordCaptcha);
     bind!(on_cancel_discord_link, Action::CancelDiscordLink);
     bind!(on_unlink_discord, Action::UnlinkDiscord);
+    {
+        let weak = window.as_weak();
+        window.on_select_discord_account(move |id| {
+            match yapfast_discord::accounts::select(id.as_str()) {
+                Ok(()) => {
+                    if let Some(window) = weak.upgrade() {
+                        window.invoke_restart();
+                    }
+                }
+                Err(error) => tracing::warn!(%error, "could not switch Discord account"),
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_remove_discord_account(move |id| {
+            let was_active = yapfast_discord::accounts::active()
+                .ok()
+                .flatten()
+                .as_deref() == Some(id.as_str());
+            match yapfast_discord::accounts::remove(id.as_str()) {
+                Ok(()) => {
+                    if let Some(window) = weak.upgrade() {
+                        if was_active {
+                            window.invoke_restart();
+                        } else {
+                            adapter.borrow_mut().refresh(&window);
+                        }
+                    }
+                }
+                Err(error) => tracing::warn!(%error, "could not remove Discord account"),
+            }
+        });
+    }
     bind!(on_close_add_friend, Action::CloseAddFriend);
     bind!(on_close_person, Action::ClosePersonDialog);
     bind!(on_close_invite, Action::CloseInvite);
