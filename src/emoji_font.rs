@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use slint::fontique_011::{fontique, shared_collection};
+use slint::fontique_012::{fontique, shared_collection};
 
 pub use crate::emoji_font_tables::{SIDE, build};
 

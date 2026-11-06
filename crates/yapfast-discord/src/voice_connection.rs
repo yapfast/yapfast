@@ -19,6 +19,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 use crate::{
     dave::{Dave, Out},
     rtp::{Codec, Transport},
+    websocket,
 };
 
 /// The voice gateway version Discord's clients use, as Discord-video-stream
@@ -248,7 +249,7 @@ impl Connection {
     /// knowing `known` are in the call.
     pub async fn open(identity: &Identity, codecs: Value, known: &[u64]) -> Result<Self> {
         let url = gateway_url(&identity.endpoint)?;
-        let (mut ws, _) = timeout(HANDSHAKE, tokio_tungstenite::connect_async(url.as_str()))
+        let (mut ws, _) = timeout(HANDSHAKE, websocket::connect(url.as_str()))
             .await
             .context("the voice server didn't answer")??;
         send_json(
@@ -394,7 +395,7 @@ impl Connection {
     pub async fn resume(&mut self, identity: &Identity) -> Result<()> {
         let url = gateway_url(&identity.endpoint)?;
         let resumed = async {
-            let (mut ws, _) = tokio_tungstenite::connect_async(url.as_str()).await?;
+            let (mut ws, _) = websocket::connect(url.as_str()).await?;
             send_json(
                 &mut ws,
                 7,

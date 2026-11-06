@@ -882,7 +882,7 @@ export component EmojiPicker inherits Rectangle {
     }
     background: root.bare ? transparent : Theme.raised; border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
     border-radius: root.bare ? 0px : 10px;
-    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: root.bare ? transparent : #00000080; drop-shadow-offset-y: 8px;
     clip: true;
     FocusScope {
         key-pressed(event) => {
