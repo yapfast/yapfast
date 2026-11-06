@@ -31,7 +31,7 @@ export component LivePill inherits Rectangle {
     background: root.clickable && live-touch.has-hover ? Theme.danger-hover : Theme.danger;
     accessible-role: button; accessible-enabled: root.clickable; accessible-label: root.clickable ? root.label : "Live";
     accessible-action-default => { if root.clickable { root.clicked(); } }
-    live-text := Text { text: "LIVE"; color: Theme.on-danger; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; }
+    live-text := Text { text: "LIVE"; color: Theme.on-danger; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
     live-touch := TouchArea {
         enabled: root.clickable; mouse-cursor: root.clickable ? MouseCursor.pointer : MouseCursor.default;
         clicked => { root.clicked(); }
@@ -53,7 +53,7 @@ export component ViewerStack inherits Rectangle {
     accessible-role: text; accessible-label: root.names;
     Image { x: 8px; width: 16px; height: 16px; source: @image-url("icons/eye.svg"); colorize: #ffffff; }
     count := Text {
-        x: 28px; text: root.viewers.length; color: #ffffff; font-size: 13px; font-weight: 700;
+        x: 28px; text: root.viewers.length; color: #ffffff; font-size: 13px; font-weight: 600;
     }
     for viewer[index] in root.viewers: Rectangle {
         visible: index < 3;
@@ -64,7 +64,7 @@ export component ViewerStack inherits Rectangle {
     more := Text {
         visible: root.viewers.length > 3;
         x: 28px + count.preferred-width + 6px + root.pictures + 4px;
-        text: "+" + (root.viewers.length - 3); color: #ffffff; font-size: 13px; font-weight: 700;
+        text: "+" + (root.viewers.length - 3); color: #ffffff; font-size: 13px; font-weight: 600;
     }
     TouchArea {
         changed has-hover => {
@@ -159,7 +159,7 @@ component LinkTab inherits Rectangle {
     accessible-role: tab; accessible-label: root.text; accessible-item-selected: root.on;
     accessible-action-default => { root.clicked(); }
     tab-text := Text {
-        y: 0; text: root.text; font-size: 14px; font-weight: 700;
+        y: 0; text: root.text; font-size: 14px; font-weight: 600;
         color: root.on || tab-touch.has-hover ? Theme.text : Theme.muted;
     }
     Rectangle { y: parent.height - 2px; height: 2px; background: root.on ? Theme.accent : transparent; }
@@ -172,7 +172,7 @@ component LinkRow inherits HorizontalLayout {
     in property <string> value;
     spacing: 4px; alignment: start;
     Text { text: root.label; color: Theme.secondary; font-size: 14px; }
-    Text { text: root.value; color: Theme.text; font-size: 14px; font-weight: 700; }
+    Text { text: root.value; color: Theme.text; font-size: 14px; font-weight: 600; }
 }
 
 // The call's connection in detail, as Discord's popout from its voice panel:
@@ -196,7 +196,7 @@ export component CallLinkCard inherits Rectangle {
     Timer { interval: 1s; running: true; triggered => { CallLink.read(); } }
     Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
     link-content := VerticalLayout {
-        padding: 16px; spacing: 10px;
+        padding: 16px; spacing: 12px;
         if CallLink.code.length > 0 || CallLink.streaming: HorizontalLayout {
             spacing: 16px; alignment: start;
             LinkTab { text: "Connection"; on: root.shown == 0; clicked => { root.tab = 0; } }
@@ -244,8 +244,8 @@ export component CallLinkCard inherits Rectangle {
             }
         }
         if root.shown == 1: VerticalLayout {
-            spacing: 10px;
-            Text { text: "Voice Privacy Code"; color: Theme.text; font-size: 15px; font-weight: 700; }
+            spacing: 12px;
+            Text { text: "Voice Privacy Code"; color: Theme.text; font-size: 15px; font-weight: 600; }
             Text {
                 text: "A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers.";
                 color: Theme.secondary; font-size: 13px; wrap: word-wrap;
@@ -253,12 +253,12 @@ export component CallLinkCard inherits Rectangle {
             Rectangle {
                 height: code-rows.preferred-height; border-radius: 6px; background: Theme.sunken;
                 code-rows := VerticalLayout {
-                    padding: 10px; spacing: 6px;
+                    padding: 12px; spacing: 8px;
                     for row in [0, 1]: HorizontalLayout {
                         for column in [0, 1, 2]: Text {
                             horizontal-stretch: 1; horizontal-alignment: center;
                             text: CallLink.code[row * 3 + column]; color: Theme.text;
-                            font-size: 18px; font-weight: 700;
+                            font-size: 18px; font-weight: 600;
                         }
                     }
                 }
@@ -288,7 +288,7 @@ export component CallLinkCard inherits Rectangle {
                 Image { source: @image-url("icons/lock.svg"); width: 16px; colorize: Theme.live; image-fit: contain; }
                 Text {
                     text: CallLink.end-to-end ? "End-to-end encrypted" : "Secure connection";
-                    color: Theme.live; font-size: 13px; font-weight: 700; vertical-alignment: center;
+                    color: Theme.live; font-size: 13px; font-weight: 600; vertical-alignment: center;
                 }
             }
         }
@@ -368,7 +368,7 @@ export component VoiceDock inherits Rectangle {
     callback open-call-link(length, length, length, length);
     background: Theme.panel;
     VerticalLayout {
-        padding-top: 10px; padding-bottom: 8px; padding-right: 8px; spacing: 6px;
+        padding-top: 12px; padding-bottom: 8px; padding-right: 8px; spacing: 8px;
         HorizontalLayout {
             spacing: 0px;
             Rectangle {
@@ -388,8 +388,8 @@ export component VoiceDock inherits Rectangle {
                 status-text := VerticalLayout {
                     alignment: center;
                     HorizontalLayout {
-                        spacing: 6px;
-                        Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 700; overflow: elide; }
+                        spacing: 8px;
+                        Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 600; overflow: elide; }
                         if root.voice-time != "": Text {
                             text: root.voice-time; color: Theme.muted; font-size: 13px; vertical-alignment: center;
                             accessible-label: "Call time " + root.voice-time;
@@ -418,7 +418,7 @@ export component VoiceDock inherits Rectangle {
             }
             VerticalLayout {
                 alignment: center; horizontal-stretch: 1;
-                Text { text: "Your screen"; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
+                Text { text: "Your screen"; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
                 Text {
                     text: !root.share-live ? root.share-status
                         : root.share-watchers > 0 ? "Streaming to " + root.voice-name + " · " + root.share-watchers + " watching"
@@ -464,7 +464,7 @@ export component VoiceDock inherits Rectangle {
             Text { text: root.voice-error; color: Theme.text; font-size: 14px; wrap: word-wrap; }
         }
         if !root.voice-active: HorizontalLayout {
-            padding-left: 54px;
+            padding-left: 56px;
             ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismiss-voice-error(); } }
             Rectangle { horizontal-stretch: 1; }
         }
@@ -512,7 +512,7 @@ export component JoinVoice inherits VerticalLayout {
     in property <bool> voice-active;
     in property <bool> can-join;
     callback join-voice;
-    padding: 32px; spacing: 14px; alignment: center;
+    padding: 32px; spacing: 16px; alignment: center;
     HorizontalLayout {
         alignment: center;
         Rectangle {
@@ -520,11 +520,11 @@ export component JoinVoice inherits VerticalLayout {
             Image { source: @image-url("icons/volume-2.svg"); width: 38px; height: 38px; colorize: Theme.secondary; }
         }
     }
-    Text { text: root.room-name; color: Theme.text; font-size: 26px; font-weight: 900; horizontal-alignment: center; overflow: elide; }
+    Text { text: root.room-name; color: Theme.text; font-size: 26px; font-weight: 600; horizontal-alignment: center; overflow: elide; }
     Text { text: root.voice-description; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
     if !root.preview && !root.call-encrypted: Text { text: "This channel is unencrypted. Yapfast only joins encrypted voice channels."; color: Theme.accent; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
     HorizontalLayout {
-        alignment: center; padding-top: 6px;
+        alignment: center; padding-top: 8px;
         ActionButton { min-height: 42px; text: root.voice-active ? "Switch voice channel" : "Join voice"; primary: true; enabled: root.can-join; clicked => { root.join-voice(); } }
     }
 }
@@ -588,7 +588,7 @@ export component StreamPip inherits Rectangle {
             background: @linear-gradient(180deg, #00000000 55%, #000000b0 100%);
             Text {
                 x: 12px; y: parent.height - 34px; width: parent.width - 60px; height: 24px;
-                text: root.title; color: #ffffff; font-size: 14px; font-weight: 700;
+                text: root.title; color: #ffffff; font-size: 14px; font-weight: 600;
                 vertical-alignment: center; overflow: elide;
             }
             if root.stop-label != "": IconButton {
@@ -670,9 +670,9 @@ component TileChip inherits Rectangle {
     width: min(root.tile-width - 20px, chip.preferred-width); height: 26px;
     border-radius: 6px; background: #000000a6;
     chip := HorizontalLayout {
-        padding-left: 8px; padding-right: 8px; spacing: 6px;
+        padding-left: 8px; padding-right: 8px; spacing: 8px;
         @children
-        Text { text: root.name; color: #ffffff; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+        Text { text: root.name; color: #ffffff; font-size: 14px; font-weight: 600; vertical-alignment: center; overflow: elide; }
         if root.live: Middle { LivePill { } }
         if root.note != "": Text { text: root.note; color: Theme.accent; font-size: 13px; vertical-alignment: center; overflow: elide; }
     }
@@ -825,7 +825,7 @@ export component ParticipantGrid inherits Flickable {
         full-screen(on) => { root.full-screen(on); }
         Image { width: parent.width; height: parent.height; source: root.share-frame; image-fit: contain; }
         if root.share-frame.width == 0: VerticalLayout {
-            alignment: center; spacing: 10px;
+            alignment: center; spacing: 12px;
             // Black in every theme, as a stream's stage.
             Image { height: 34px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
             Text { text: root.share-status; color: #b5b8c1; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
@@ -858,14 +858,14 @@ export component ParticipantGrid inherits Flickable {
         full-screen(on) => { root.full-screen(on); }
         if stream.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
         if !stream.watched: VerticalLayout {
-            alignment: center; spacing: 10px;
+            alignment: center; spacing: 12px;
             Image { height: 30px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
             HorizontalLayout {
                 alignment: center;
                 Rectangle {
                     height: 26px; width: stream-label.preferred-width + 20px; border-radius: 13px;
                     background: Theme.danger;
-                    stream-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 700; }
+                    stream-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 600; }
                 }
             }
         }
@@ -917,7 +917,7 @@ export component ParticipantGrid inherits Flickable {
             x: 10px; y: 10px; height: 26px;
             width: starting-label.preferred-width + 20px; border-radius: 13px;
             background: #000000a6; opacity: (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg));
-            starting-label := Text { text: "Starting camera..."; color: #ffffff; font-size: 13px; font-weight: 700; }
+            starting-label := Text { text: "Starting camera..."; color: #ffffff; font-size: 13px; font-weight: 600; }
         }
         if tile.streams-here && !tile.watched: Rectangle {
             x: parent.width - self.width - 10px; y: 10px; height: 26px;
@@ -925,7 +925,7 @@ export component ParticipantGrid inherits Flickable {
             background: Theme.danger;
             accessible-role: button; accessible-label: "Watch " + person.name + "'s stream";
             accessible-action-default => { root.watch-stream(person.id); }
-            watch-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 700; }
+            watch-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 600; }
         }
         TileChip {
             tile-width: parent.width; tile-height: parent.height;
@@ -1036,7 +1036,7 @@ export component IncomingCall inherits Rectangle {
     // Clicks on the card never reach what's under it.
     TouchArea { }
     incoming-content := VerticalLayout {
-        padding: 20px; spacing: 10px;
+        padding: 20px; spacing: 12px;
         HorizontalLayout {
             alignment: center;
             Rectangle {
@@ -1052,10 +1052,10 @@ export component IncomingCall inherits Rectangle {
                 }
             }
         }
-        Text { text: root.incoming-name; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-alignment: center; overflow: elide; }
+        Text { text: root.incoming-name; color: Theme.text; font-size: 18px; font-weight: 600; horizontal-alignment: center; overflow: elide; }
         Text { text: root.incoming-detail; color: Theme.secondary; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
         HorizontalLayout {
-            alignment: center; spacing: 20px; padding-top: 6px;
+            alignment: center; spacing: 20px; padding-top: 8px;
             CallButton {
                 icon: @image-url("icons/phone-off.svg"); label: "Decline"; fill: Theme.danger;
                 clicked => { root.answer-call(root.incoming-room, false); }
@@ -1106,9 +1106,9 @@ export component SwitchDialog inherits Rectangle {
                 return reject;
             }
             switch-content := VerticalLayout {
-                padding: 20px; spacing: 18px;
+                padding: 20px; spacing: 20px;
                 HorizontalLayout {
-                    spacing: 14px;
+                    spacing: 16px;
                     VerticalLayout {
                         alignment: start;
                         Rectangle {
@@ -1117,8 +1117,8 @@ export component SwitchDialog inherits Rectangle {
                         }
                     }
                     VerticalLayout {
-                        spacing: 6px; horizontal-stretch: 1;
-                        Text { text: root.joins ? "Watch stream?" : "Switch voice channel?"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                        spacing: 8px; horizontal-stretch: 1;
+                        Text { text: root.joins ? "Watch stream?" : "Switch voice channel?"; color: Theme.text; font-size: 18px; font-weight: 600; }
                         Text { text: root.switch-text; color: Theme.secondary; font-size: 15px; wrap: word-wrap; }
                     }
                 }
@@ -1141,9 +1141,9 @@ export component InputLevel inherits VerticalLayout {
     /// Why the level can't be shown, if it can't.
     in property <string> meter-note;
     padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; spacing: 8px;
-    Text { text: "INPUT LEVEL"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+    Text { text: "INPUT LEVEL"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
     HorizontalLayout {
-        height: 10px; spacing: 3px;
+        height: 10px; spacing: 4px;
         accessible-role: progress-indicator;
         accessible-label: "Input level";
         accessible-value: round(root.input-level * 100) + "%" + (root.muted ? ", muted" : "");
@@ -1193,7 +1193,7 @@ component ScreenCard inherits Rectangle {
         }
         Text {
             text: root.text; color: root.checked || pointer.has-hover ? Theme.text : Theme.secondary;
-            font-size: 13px; font-weight: root.checked ? 700 : 400;
+            font-size: 13px; font-weight: root.checked ? 600 : 400;
             horizontal-alignment: center; overflow: elide;
         }
     }
@@ -1237,10 +1237,10 @@ export component ShareMenu inherits Rectangle {
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     VerticalLayout {
-        padding: 6px; spacing: 2px;
+        padding: 8px; spacing: 4px;
         if root.screens.length > 0: HorizontalLayout {
             padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
-            Text { text: "SCREENS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "SCREENS"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
         }
         // Two to a row; one alone sits in the middle.
         if root.screens.length > 0: Rectangle {
@@ -1258,7 +1258,7 @@ export component ShareMenu inherits Rectangle {
         }
         if root.windows.length > 0: HorizontalLayout {
             padding-left: 8px; padding-top: root.screens.length > 0 ? 8px : 4px; padding-bottom: 4px;
-            Text { text: "WINDOWS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "WINDOWS"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
         }
         if root.windows.length > 0: ScrollView {
             // Five before the list scrolls.
@@ -1272,7 +1272,7 @@ export component ShareMenu inherits Rectangle {
         }
         if root.asks-dialog: HorizontalLayout {
             padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
-            Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
         }
         if root.asks-dialog: MenuItem {
             text: "Screen or window"; subtitle: "Picked in the system's dialog";
@@ -1281,7 +1281,7 @@ export component ShareMenu inherits Rectangle {
         }
         if root.cameras.length > 0: HorizontalLayout {
             padding-left: 8px; padding-top: root.dialog-index > 0 || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
-            Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
         }
         if root.cameras.length > 0: ScrollView {
             // Five before the list scrolls.
@@ -1295,10 +1295,10 @@ export component ShareMenu inherits Rectangle {
         }
         if !root.switching: HorizontalLayout {
             padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
-            Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
         }
         if !root.switching: VerticalLayout {
-            spacing: 2px;
+            spacing: 4px;
             for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
                 text: choice; checked: index == root.pick-resolution;
                 clicked => { root.pick-resolution = index; }
@@ -1306,10 +1306,10 @@ export component ShareMenu inherits Rectangle {
         }
         if !root.switching: HorizontalLayout {
             padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
-            Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
         }
         if !root.switching: VerticalLayout {
-            spacing: 2px;
+            spacing: 4px;
             for fps in [15, 30, 60]: MenuItem {
                 text: fps + " fps"; checked: fps == root.pick-fps;
                 clicked => { root.pick-fps = fps; }
@@ -1317,7 +1317,7 @@ export component ShareMenu inherits Rectangle {
         }
         if !root.switching: HorizontalLayout {
             padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
-            Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
         }
         if !root.switching: MenuItem {
             text: "Higher quality"; subtitle: "Sharper, at twice the CPU";
@@ -1351,7 +1351,7 @@ export component VolumeMenu inherits Rectangle {
     accessible-role: groupbox; accessible-label: root.volume-name + "'s volume";
     volume-content := VerticalLayout {
         padding: 12px; spacing: 12px;
-        Text { text: root.volume-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+        Text { text: root.volume-name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
         VolumeSlider {
             label: "User volume";
             value <=> root.voice-volume;
@@ -1390,7 +1390,7 @@ component SoundButton inherits Rectangle {
     accessible-role: button; accessible-label: root.verb + " " + root.sound.name; accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     HorizontalLayout {
-        padding-left: 10px; padding-right: 10px; spacing: 8px;
+        padding-left: 12px; padding-right: 12px; spacing: 8px;
         opacity: root.enabled ? 1 : 0.5;
         if root.sound.emoji.glyph != "": EmojiFace {
             emoji: root.sound.emoji; font: root.emoji-font; side: 18px; width: 18px;
@@ -1460,21 +1460,21 @@ export component Soundboard inherits Rectangle {
     }
     VerticalLayout {
         top := VerticalLayout {
-            padding: 14px; padding-bottom: 4px; spacing: 4px;
-            Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 700; }
+            padding: 16px; padding-bottom: 4px; spacing: 4px;
+            Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 600; }
             if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
             if root.rows.length == 0: Text { text: "Loading sounds..."; color: Theme.muted; font-size: 13px; }
         }
         ListView {
             vertical-stretch: 1;
             for row in root.rows: VerticalLayout {
-                height: root.row-height; padding-left: 10px; padding-right: 10px;
+                height: root.row-height; padding-left: 12px; padding-right: 12px;
                 if row.heading != "": Text {
-                    text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+                    text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
                     vertical-alignment: bottom; overflow: elide; height: root.row-height - 8px;
                 }
                 if row.heading == "": HorizontalLayout {
-                    spacing: root.gap; padding-top: 3px; padding-bottom: 3px; alignment: start;
+                    spacing: root.gap; padding-top: 4px; padding-bottom: 4px; alignment: start;
                     for sound in row.sounds: SoundButton {
                         width: (root.width - 20px - 2 * root.gap) / 3;
                         sound: sound; emoji-font: root.emoji-font; enabled: root.note == "";

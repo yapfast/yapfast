@@ -70,11 +70,11 @@ export component MfaDialog inherits Rectangle {
             content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Multi-Factor Authentication"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    Text { text: "Multi-Factor Authentication"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     IconButton { icon: @image-url("icons/x.svg"); label: "Cancel"; size: 28px; glyph: 18px; clicked => { root.cancel(); } }
                 }
                 if root.prompt.listing: VerticalLayout {
-                    spacing: 2px;
+                    spacing: 4px;
                     Label { text: "Choose how to confirm it's you."; }
                     for choice in root.prompt.choices: MenuItem {
                         text: choice.text;

@@ -9,11 +9,11 @@ import { Soundboard, SoundRow } from "voice.slint";
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
 export component SettingsTitle inherits Text {
-    color: Theme.text; font-size: 20px; font-weight: 700;
+    color: Theme.text; font-size: 20px; font-weight: 600;
 }
 
 export component SettingsHeading inherits Text {
-    color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+    color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
 }
 
 // A marigold switch, with its label beside it and what it does below. A click on
@@ -60,7 +60,7 @@ export component SettingsSwitch inherits Rectangle {
                 }
             }
             HorizontalLayout {
-                spacing: 6px; alignment: start; horizontal-stretch: 1;
+                spacing: 8px; alignment: start; horizontal-stretch: 1;
                 Text {
                     text: root.text; color: root.enabled ? Theme.text : Theme.muted; font-size: 15px;
                     vertical-alignment: center; wrap: word-wrap;
@@ -137,7 +137,7 @@ export component Choices inherits Rectangle {
     accessible-role: groupbox;
     accessible-label: root.label;
     HorizontalLayout {
-        padding: 3px; spacing: 3px;
+        padding: 4px; spacing: 4px;
         for option[index] in root.options: Rectangle {
             border-radius: 6px;
             background: index == root.current ? Theme.active : choice.has-hover ? Theme.hover : transparent;
@@ -148,7 +148,7 @@ export component Choices inherits Rectangle {
             Text {
                 text: option; font-size: 14px;
                 color: index == root.current ? Theme.text : Theme.secondary;
-                font-weight: index == root.current ? 700 : 500;
+                font-weight: index == root.current ? 600 : 500;
             }
             choice := TouchArea {
                 mouse-cursor: MouseCursor.pointer;
@@ -252,10 +252,10 @@ export component SettingsFrame inherits Rectangle {
                 HorizontalLayout {
                     alignment: end;
                     VerticalLayout {
-                        width: 232px; padding: 16px; padding-top: 56px; spacing: 2px; alignment: start;
+                        width: 232px; padding: 16px; padding-top: 56px; spacing: 4px; alignment: start;
                         for row[index] in root.rows: VerticalLayout {
                             if row.heading && row.text != "": HorizontalLayout {
-                                padding-left: 8px; padding-bottom: 6px; padding-top: index == 0 ? 0px : 16px;
+                                padding-left: 8px; padding-bottom: 8px; padding-top: index == 0 ? 0px : 16px;
                                 SettingsHeading { text: row.text; overflow: elide; }
                             }
                             if row.heading && row.text == "": VerticalLayout {
@@ -285,7 +285,7 @@ export component SettingsFrame inherits Rectangle {
                     }
                 }
                 VerticalLayout {
-                    x: parent.width - 80px; y: 48px; width: 56px; height: self.preferred-height; spacing: 6px;
+                    x: parent.width - 80px; y: 48px; width: 56px; height: self.preferred-height; spacing: 8px;
                     HorizontalLayout {
                         alignment: center;
                         IconButton {
@@ -293,7 +293,7 @@ export component SettingsFrame inherits Rectangle {
                             fill: Theme.raised; clicked => { root.close(); }
                         }
                     }
-                    Text { text: "ESC"; color: Theme.muted; font-size: 12px; font-weight: 700; horizontal-alignment: center; }
+                    Text { text: "ESC"; color: Theme.muted; font-size: 12px; font-weight: 600; horizontal-alignment: center; }
                 }
             }
         }
@@ -398,8 +398,8 @@ export component AccountSettings inherits VerticalLayout {
             padding: 16px; spacing: 16px;
             Middle { Avatar { size: 64px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; } }
             VerticalLayout {
-                alignment: center; spacing: 2px; horizontal-stretch: 1;
-                Text { text: root.account-name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                alignment: center; spacing: 4px; horizontal-stretch: 1;
+                Text { text: root.account-name; color: Theme.text; font-size: 20px; font-weight: 600; overflow: elide; }
                 StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
             }
         }
@@ -548,7 +548,7 @@ export component VoiceSettings inherits VerticalLayout {
                 if root.camera-testing: Image { width: parent.width; height: parent.height; source: root.camera-preview; image-fit: contain; }
                 // Black in every theme, as a camera's picture.
                 if !root.camera-testing || root.camera-preview.width == 0: VerticalLayout {
-                    alignment: center; spacing: 10px; padding: 12px;
+                    alignment: center; spacing: 12px; padding: 12px;
                     Image { height: 30px; source: @image-url("icons/video.svg"); image-fit: contain; colorize: #b5b8c1; }
                     Text {
                         text: root.camera-note != "" ? root.camera-note : root.camera-testing ? "Starting your camera..." : "Your camera is off.";
@@ -802,10 +802,10 @@ component ThemeTile inherits Rectangle {
         }
     }
     HorizontalLayout {
-        x: 10px; y: preview.y + preview.height + 6px; width: parent.width - 20px - (root.card.custom ? 26px : 0px); height: 24px; spacing: 6px;
+        x: 10px; y: preview.y + preview.height + 6px; width: parent.width - 20px - (root.card.custom ? 26px : 0px); height: 24px; spacing: 8px;
         Text {
             text: root.card.name; color: root.current ? Theme.text : Theme.secondary; font-size: 14px;
-            font-weight: root.current ? 700 : 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            font-weight: root.current ? 600 : 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
         }
         if root.current: Image {
             width: 16px; source: @image-url("icons/check.svg"); colorize: Theme.accent; image-fit: contain;
@@ -836,7 +836,7 @@ component ThemeTile inherits Rectangle {
 component ThemeColourRow inherits HorizontalLayout {
     in property <ThemeColour> colour;
     callback edited(string);
-    spacing: 10px;
+    spacing: 12px;
     Middle {
         Rectangle {
             width: 28px; height: 28px; border-radius: 6px; background: root.colour.colour;
@@ -1015,10 +1015,10 @@ export component MessageSettings inherits VerticalLayout {
             padding: 16px; spacing: 16px;
             VerticalLayout { alignment: start; Avatar { initial: "S"; tint: #c0679a; } }
             VerticalLayout {
-                spacing: 3px; horizontal-stretch: 1;
+                spacing: 4px; horizontal-stretch: 1;
                 HorizontalLayout {
                     spacing: 8px;
-                    Text { text: "Sam"; color: Theme.text; font-size: root.message-font-size; font-weight: 700; }
+                    Text { text: "Sam"; color: Theme.text; font-size: root.message-font-size; font-weight: 600; }
                     Text { text: (root.twelve-hour-clock ? "9:41" : "21:41") + (root.clock-seconds ? ":05" : "") + (root.twelve-hour-clock ? " PM" : ""); color: Theme.muted; font-size: root.message-font-size - 3px; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                 }
@@ -1391,7 +1391,7 @@ export component DiscordSettings inherits VerticalLayout {
                 }
             }
             VerticalLayout {
-                alignment: center; spacing: 2px;
+                alignment: center; spacing: 4px;
                 Text { text: "Blocked accounts"; color: Theme.text; font-size: 16px; font-weight: 600; }
                 Text { text: root.blocked.length + (root.blocked.length == 1 ? " account" : " accounts"); color: Theme.secondary; font-size: 14px; }
             }
@@ -1399,12 +1399,12 @@ export component DiscordSettings inherits VerticalLayout {
         VerticalLayout {
             for person[index] in root.blocked: VerticalLayout {
                 if index < root.blocked-shown: HorizontalLayout {
-                    padding-top: 6px; padding-bottom: 6px; spacing: 12px;
+                    padding-top: 8px; padding-bottom: 8px; spacing: 12px;
                     Middle { Avatar { size: 40px; initial: person.initial; picture-url: person.avatar-url; } }
                     Middle {
                         horizontal-stretch: 1;
                         VerticalLayout {
-                            spacing: 2px;
+                            spacing: 4px;
                             Text { text: person.name; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
                             if person.username != "": Text { text: person.username; color: Theme.secondary; font-size: 14px; overflow: elide; }
                         }

@@ -17,7 +17,7 @@ export component StagedTile inherits Rectangle {
     accessible-role: groupbox;
     accessible-label: root.file.name + ", " + root.file.size + (root.file.spoiler ? ", spoiler" : "");
     VerticalLayout {
-        padding: 6px; spacing: 2px;
+        padding: 8px; spacing: 4px;
         Rectangle {
             height: 86px; border-radius: 6px; clip: true; background: Theme.sidebar;
             if root.file.has-picture: Image { width: parent.width; height: parent.height; source: root.file.picture; image-fit: cover; }
@@ -233,7 +233,7 @@ export component SuggestionFrame inherits Rectangle {
 }
 
 component SuggestionHeading inherits Text {
-    color: Theme.muted; font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+    color: Theme.muted; font-size: 11px; font-weight: 600; letter-spacing: 0.4px;
     height: 24px; vertical-alignment: center;
 }
 
@@ -245,9 +245,9 @@ export component MentionList inherits SuggestionFrame {
     callback mention-chosen(int);
     height: suggestions.preferred-height;
     suggestions := VerticalLayout {
-        padding: 6px; spacing: 0px;
+        padding: 8px; spacing: 0px;
         for mention[index] in root.mentions: VerticalLayout {
-            if mention.heading != "": HorizontalLayout { padding-left: 6px; SuggestionHeading { text: mention.heading; } }
+            if mention.heading != "": HorizontalLayout { padding-left: 8px; SuggestionHeading { text: mention.heading; } }
             Rectangle {
                 height: 36px; border-radius: 6px;
                 background: index == root.mention-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
@@ -256,14 +256,14 @@ export component MentionList inherits SuggestionFrame {
                     clicked => { root.mention-chosen(index); }
                 }
                 HorizontalLayout {
-                    padding-left: 8px; padding-right: 10px; spacing: 10px;
+                    padding-left: 8px; padding-right: 12px; spacing: 12px;
                     VerticalLayout {
                         alignment: center;
                         if !mention.group: Avatar { size: 24px; initial: mention.initial; tint: mention.tint; picture: mention.picture; }
                         if mention.group: Rectangle {
                             width: 24px; height: 24px; border-radius: 12px;
                             background: (mention.has-color ? mention.color : Theme.muted).with-alpha(0.2);
-                            if !mention.voice: Text { text: mention.sigil; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 700; }
+                            if !mention.voice: Text { text: mention.sigil; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 600; }
                             if mention.voice: Image { source: @image-url("icons/volume-2.svg"); width: 14px; height: 14px; colorize: Theme.secondary; }
                         }
                     }
@@ -292,8 +292,8 @@ export component EmojiSuggestions inherits SuggestionFrame {
     callback emoji-chosen(int);
     height: suggestions.preferred-height;
     suggestions := VerticalLayout {
-        padding: 6px; spacing: 0px;
-        HorizontalLayout { padding-left: 6px; SuggestionHeading { text: "EMOJI MATCHING :" + root.query; } }
+        padding: 8px; spacing: 0px;
+        HorizontalLayout { padding-left: 8px; SuggestionHeading { text: "EMOJI MATCHING :" + root.query; } }
         for cell[index] in root.emoji: Rectangle {
             height: 36px; border-radius: 6px;
             background: index == root.emoji-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
@@ -302,7 +302,7 @@ export component EmojiSuggestions inherits SuggestionFrame {
                 clicked => { root.emoji-chosen(index); }
             }
             HorizontalLayout {
-                padding-left: 8px; padding-right: 10px; spacing: 10px;
+                padding-left: 8px; padding-right: 12px; spacing: 12px;
                 EmojiFace { emoji: cell; font: root.emoji-font; side: 20px; width: 24px; }
                 Text {
                     text: cell.name; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
@@ -322,11 +322,11 @@ export component RequestBar inherits Rectangle {
     callback ignore-request;
     background: Theme.field; border-radius: 10px;
     HorizontalLayout {
-        padding: 12px; padding-left: 16px; spacing: 10px;
+        padding: 12px; padding-left: 16px; spacing: 12px;
         VerticalLayout {
-            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            alignment: center; spacing: 4px; horizontal-stretch: 1;
             // One line each: a wrapped line would spill over the hint below.
-            Text { text: root.request-title; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+            Text { text: root.request-title; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
             Text { text: "Accept to reply. Ignoring removes it without telling them."; color: Theme.secondary; font-size: 14px; overflow: elide; }
         }
         Middle { ActionButton { text: "Ignore"; label: "Ignore the message request"; clicked => { root.ignore-request(); } } }

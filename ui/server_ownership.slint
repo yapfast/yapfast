@@ -51,8 +51,8 @@ component OwnershipFrame inherits Rectangle {
             accessible-role: groupbox; accessible-label: root.page.title;
             TouchArea { }
             box := VerticalLayout {
-                padding: 16px; spacing: 14px;
-                Text { text: root.page.title; color: Theme.text; font-size: 20px; font-weight: 700; wrap: word-wrap; }
+                padding: 16px; spacing: 16px;
+                Text { text: root.page.title; color: Theme.text; font-size: 20px; font-weight: 600; wrap: word-wrap; }
                 @children
             }
         }
@@ -70,7 +70,7 @@ export component DeleteServerDialog inherits Rectangle {
         cancel => { root.act(2, ""); }
         StyledText { text: root.page.text; default-color: Theme.secondary; default-font-size: 15px; }
         if root.page.by-name: VerticalLayout {
-            spacing: 6px;
+            spacing: 8px;
             SettingsHeading { text: "ENTER SERVER NAME"; }
             TextField {
                 label: "Enter server name"; enabled: !root.page.sending;
@@ -130,9 +130,9 @@ export component TransferOwnershipDialog inherits Rectangle {
             accessible-label: "Acknowledge the transfer";
             accessible-action-default => { root.act(3, ""); }
             acknowledgement := HorizontalLayout {
-                spacing: 10px;
+                spacing: 12px;
                 VerticalLayout {
-                    alignment: start; padding-top: 2px;
+                    alignment: start; padding-top: 4px;
                     Rectangle {
                         width: 18px; height: 18px; border-radius: 4px;
                         background: root.page.agreed ? Theme.accent : transparent;
@@ -153,7 +153,7 @@ export component TransferOwnershipDialog inherits Rectangle {
             color: Theme.secondary; font-size: 15px; wrap: word-wrap;
         }
         if root.page.code: VerticalLayout {
-            spacing: 6px;
+            spacing: 8px;
             SettingsHeading { text: "VERIFICATION CODE"; }
             TextField {
                 label: "Verification Code"; enabled: !root.page.sending;

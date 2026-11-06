@@ -114,7 +114,7 @@ component SafetyChoices inherits VerticalLayout {
         accessible-action-default => { if choice.usable { root.choose(option.value); } }
         area := TouchArea { enabled: choice.usable; clicked => { root.choose(option.value); } }
         line := HorizontalLayout {
-            padding: 10px; spacing: 12px;
+            padding: 12px; spacing: 12px;
             Middle {
                 Rectangle {
                     width: 20px; height: 20px; border-radius: 10px;
@@ -123,7 +123,7 @@ component SafetyChoices inherits VerticalLayout {
                 }
             }
             VerticalLayout {
-                spacing: 2px; horizontal-stretch: 1;
+                spacing: 4px; horizontal-stretch: 1;
                 Text {
                     text: option.title; font-size: 15px; font-weight: 600;
                     color: option.color.alpha > 0 ? option.color : Theme.text;
@@ -210,7 +210,7 @@ export component BansSection inherits VerticalLayout {
     }
     if root.page.rows.length == 0 && !root.page.fetching: VerticalLayout {
         alignment: center; spacing: 8px; vertical-stretch: 1;
-        Text { text: "No Bans"; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: "No Bans"; color: Theme.text; font-size: 17px; font-weight: 600; horizontal-alignment: center; }
         Text { text: "You haven't banned anybody...\nbut if and when you must, do not hesitate!"; color: Theme.secondary; font-size: 14px; horizontal-alignment: center; }
     }
     if root.page.rows.length == 0 && root.page.fetching: Label { text: "Loading..."; vertical-stretch: 1; }
@@ -228,7 +228,7 @@ export component BansSection inherits VerticalLayout {
                 Middle {
                     horizontal-stretch: 1;
                     VerticalLayout {
-                        spacing: 2px;
+                        spacing: 4px;
                         Text { text: ban.name; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
                         if ban.username != "": Text { text: ban.username; color: Theme.secondary; font-size: 14px; overflow: elide; }
                     }
@@ -271,7 +271,7 @@ export component BanDialog inherits Rectangle {
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: root.page.open-name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                Text { text: root.page.open-name; color: Theme.text; font-size: 20px; font-weight: 600; overflow: elide; }
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Ban Reason"; color: Theme.text; font-size: 15px; font-weight: 500; }
@@ -299,7 +299,7 @@ component AuditFilter inherits VerticalLayout {
     in property <bool> enabled;
     callback choose(int);
     spacing: 4px; width: 230px;
-    Text { text: root.label; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+    Text { text: root.label; color: Theme.secondary; font-size: 12px; font-weight: 600; }
     Picker {
         model: root.options; chosen: root.chosen; enabled: root.enabled;
         accessible-label: root.label;
@@ -337,7 +337,7 @@ export component AuditLogSection inherits VerticalLayout {
         alignment: center; spacing: 8px; vertical-stretch: 1;
         Text {
             text: root.page.failed ? "This is Awkward" : "No Logs Yet";
-            color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center;
+            color: Theme.text; font-size: 17px; font-weight: 600; horizontal-alignment: center;
         }
         Text {
             text: root.page.failed ? "We broke something. Come back later." : "Once moderators begin moderating, you can moderate the moderation here.";
@@ -372,7 +372,7 @@ export component AuditLogSection inherits VerticalLayout {
                             padding: 12px; spacing: 12px;
                             Middle { Avatar { size: 40px; initial: row.initial; picture-url: row.avatar-url; } }
                             VerticalLayout {
-                                alignment: center; spacing: 2px; horizontal-stretch: 1;
+                                alignment: center; spacing: 4px; horizontal-stretch: 1;
                                 StyledText { text: row.title; default-color: Theme.secondary; default-font-size: 15px; max-lines: 1; }
                                 Text { text: row.time; color: Theme.muted; font-size: 13px; overflow: elide; }
                             }
@@ -393,7 +393,7 @@ export component AuditLogSection inherits VerticalLayout {
                     if open: VerticalLayout {
                         padding: 12px; spacing: 4px;
                         for line in root.page.lines: HorizontalLayout {
-                            spacing: 6px;
+                            spacing: 8px;
                             padding-left: line.number == "" ? 52px : 0px;
                             if line.number != "": Text {
                                 text: line.number + "—"; font-size: 14px; font-weight: 600;

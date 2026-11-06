@@ -139,11 +139,13 @@ export component RailItem inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <bool> lit: root.selected || pointer.has-hover;
+    // The B2 signature: a 4px marigold edge-pill for unread and selected,
+    // as on the rail; hover alone stays a plain light pill.
     Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
-        background: Theme.text;
+        background: root.selected || root.unread ? Theme.accent : Theme.text;
         animate height { duration: 160ms; easing: ease-out; }
     }
     // A picture only changes shape when lit, as in Discord.
@@ -161,7 +163,7 @@ export component RailItem inherits Rectangle {
             colorize: root.lit ? Theme.on-accent : root.icon-color;
         }
         if root.icon.width == 0 && root.shown-picture.width == 0: Text {
-            text: root.initial; font-size: 17px; font-weight: 700;
+            text: root.initial; font-size: 17px; font-weight: 600;
             color: root.lit ? Theme.on-accent : Theme.text;
         }
         // The focus ring, drawn over the picture.
@@ -186,7 +188,7 @@ export component RailItem inherits Rectangle {
         Rectangle {
             width: parent.width - 6px; height: parent.height - 6px; border-radius: self.height / 2;
             background: Theme.danger;
-            badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 12px; font-weight: 700; }
+            badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 12px; font-weight: 600; }
         }
     }
     focus := FocusScope {
@@ -249,11 +251,12 @@ component FolderItem inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     accessible-action-expand => { root.clicked(); }
     forward-focus: focus;
+    // The B2 signature: a 4px marigold edge-pill for unread and selected.
     Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
-        background: Theme.text;
+        background: root.selected || root.unread ? Theme.accent : Theme.text;
         animate height { duration: 160ms; easing: ease-out; }
     }
     tile := Rectangle {
@@ -288,7 +291,7 @@ component FolderItem inherits Rectangle {
         Rectangle {
             width: parent.width - 6px; height: parent.height - 6px; border-radius: self.height / 2;
             background: Theme.danger;
-            badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 12px; font-weight: 700; }
+            badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 12px; font-weight: 600; }
         }
     }
     focus := FocusScope {
@@ -435,10 +438,16 @@ export component ChannelRow inherits Rectangle {
     forward-focus: focus;
     property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
     // Unread activity is marked at the sidebar's edge, as on the server rail.
+    // The B2 signature: unread and selected both carry a 4px marigold
+    // edge-pill here, so a selected row is not read off its fill alone.
     if root.unread && !root.selected: Rectangle {
         // A thread sits further in, past the line from its channel.
         x: root.thread ? -36px : -8px; y: (parent.height - self.height) / 2; width: 4px; height: 8px;
-        border-top-right-radius: 4px; border-bottom-right-radius: 4px; background: Theme.text;
+        border-top-right-radius: 4px; border-bottom-right-radius: 4px; background: Theme.accent;
+    }
+    if root.selected: Rectangle {
+        x: root.thread ? -36px : -8px; y: (parent.height - self.height) / 2; width: 4px; height: 20px;
+        border-top-right-radius: 4px; border-bottom-right-radius: 4px; background: Theme.accent;
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -502,7 +511,7 @@ export component ChannelRow inherits Rectangle {
                 VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     Text {
-                        text: root.text; color: root.ink; font-size: 16px; font-weight: root.unread || root.selected ? 700 : 500;
+                        text: root.text; color: root.ink; font-size: 16px; font-weight: root.unread || root.selected ? 600 : 500;
                         vertical-alignment: center; overflow: elide;
                     }
                     // Their voice channel in full when nothing else is said here,
@@ -533,7 +542,7 @@ export component ChannelRow inherits Rectangle {
                 if root.badge != "": Middle {
                     Rectangle {
                         width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
-                        badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
+                        badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 11px; font-weight: 600; }
                     }
                 }
                 // A voice channel's chat opens without joining it, from a
@@ -601,13 +610,13 @@ component CategoryHeading inherits Rectangle {
     forward-focus: focus;
     property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
     HorizontalLayout {
-        padding-left: 2px; spacing: 2px;
+        padding-left: 4px; spacing: 4px;
         Image {
             source: root.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
             width: 12px; image-fit: contain; colorize: root.ink;
         }
         Text {
-            text: root.text; color: root.ink; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+            text: root.text; color: root.ink; font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
         }
     }
@@ -680,9 +689,9 @@ export component ServerHeader inherits Rectangle {
         }
     }
     HorizontalLayout {
-        padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: start;
+        padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
         Text {
-            text: root.name; font-size: 16px; font-weight: 700; color: Theme.text;
+            text: root.name; font-size: 16px; font-weight: 600; color: Theme.text;
             vertical-alignment: center; overflow: elide;
         }
         Image {
@@ -803,7 +812,7 @@ component DmScreenLinks inherits VerticalLayout {
     in property <string> requests-badge;
     callback open-friends;
     callback open-requests;
-    padding-top: 6px; padding-bottom: 6px; spacing: 2px;
+    padding-top: 8px; padding-bottom: 8px; spacing: 4px;
     ChannelRow {
         text: "Friends";
         icon: @image-url("icons/users.svg");
@@ -824,7 +833,7 @@ component DmScreenLinks inherits VerticalLayout {
 component BrowseLink inherits VerticalLayout {
     in property <bool> browsing;
     callback open-browse;
-    padding-top: 6px; padding-bottom: 6px;
+    padding-top: 8px; padding-bottom: 8px;
     ChannelRow {
         text: "Browse channels";
         icon: @image-url("icons/hash.svg");
@@ -942,7 +951,7 @@ export component RoomList inherits Rectangle {
     VerticalLayout {
         // With no rooms the list is empty; what it would start with shows above it.
         if root.rooms.length == 0 && (root.screens || root.browse-offered || root.sidebar-empty != ""): VerticalLayout {
-            padding-left: 8px; padding-right: 8px; spacing: 2px;
+            padding-left: 8px; padding-right: 8px; spacing: 4px;
             if root.screens: DmScreenLinks {
                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                 open-friends => { root.open-friends(); }
@@ -959,8 +968,8 @@ export component RoomList inherits Rectangle {
             vertical-stretch: 1;
             for room[index] in root.rooms: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
-                padding-bottom: index == root.rooms.length - 1 ? 12px : 2px;
-                spacing: 2px;
+                padding-bottom: index == root.rooms.length - 1 ? 12px : 4px;
+                spacing: 4px;
                 if index == 0 && root.screens: DmScreenLinks {
                     friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                     open-friends => { root.open-friends(); }
@@ -979,7 +988,7 @@ export component RoomList inherits Rectangle {
                 if room.heading != "" && room.pinned && !room.direct: HorizontalLayout {
                     height: 36px; padding-left: 16px;
                     Text {
-                        text: room.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+                        text: room.heading; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
                         vertical-alignment: center; overflow: elide; accessible-role: text;
                     }
                 }
@@ -1168,7 +1177,7 @@ export component RoomList inherits Rectangle {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; speaking: person.speaking; } }
                             Text {
-                                text: person.name; font-size: 15px; font-weight: person.speaking ? 700 : 500;
+                                text: person.name; font-size: 15px; font-weight: person.speaking ? 600 : 500;
                                 color: person.speaking ? Theme.text : person.connected ? Theme.secondary : Theme.muted;
                                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                             }
@@ -1205,13 +1214,13 @@ export component RoomList inherits Rectangle {
         border-radius: root.dragged-category ? 4px : 6px;
         background: Theme.active; opacity: 0.6;
         if root.dragged-category: HorizontalLayout {
-            padding-left: 2px; spacing: 2px;
+            padding-left: 4px; spacing: 4px;
             Image {
                 source: root.dragged-row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
                 width: 12px; image-fit: contain; colorize: Theme.secondary;
             }
             Text {
-                text: root.dragged-row.heading; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+                text: root.dragged-row.heading; color: Theme.secondary; font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
             }
         }

@@ -115,7 +115,7 @@ component ThreeStateLine inherits VerticalLayout {
     HorizontalLayout {
         spacing: 12px;
         HorizontalLayout {
-            spacing: 6px; alignment: start; horizontal-stretch: 1;
+            spacing: 8px; alignment: start; horizontal-stretch: 1;
             Text {
                 text: root.permission.title; font-size: 15px; vertical-alignment: center; wrap: word-wrap;
                 color: root.enabled && root.permission.lock-text == "" ? Theme.text : Theme.muted;
@@ -222,7 +222,7 @@ component PermissionsSection inherits VerticalLayout {
     if root.prompt.sync != 0: Rectangle {
         border-radius: 6px; background: Theme.raised; height: sync.preferred-height;
         sync := HorizontalLayout {
-            padding: 10px; padding-left: 12px; spacing: 12px;
+            padding: 12px; padding-left: 12px; spacing: 12px;
             Text {
                 text: (root.prompt.sync == 1 ? "Permissions synced with category: " : "Permissions not synced with category: ") + root.prompt.category;
                 color: Theme.secondary; font-size: 14px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1;
@@ -236,7 +236,7 @@ component PermissionsSection inherits VerticalLayout {
     Rectangle {
         border-radius: 8px; background: Theme.raised; height: private.preferred-height;
         private := HorizontalLayout {
-            padding: 14px;
+            padding: 16px;
             SettingsSwitch {
                 text: root.prompt.private-title; description: root.prompt.private-text;
                 checked: root.prompt.private; controlled: true;
@@ -253,7 +253,7 @@ component PermissionsSection inherits VerticalLayout {
             width: 180px; spacing: 4px;
             HorizontalLayout {
                 height: 28px;
-                Text { text: "ROLES/MEMBERS"; color: Theme.muted; font-size: 12px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: "ROLES/MEMBERS"; color: Theme.muted; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                 IconButton {
                     icon: @image-url("icons/circle-plus.svg"); label: "Add a role or member"; size: 28px; glyph: 16px;
                     enabled: root.prompt.may-edit && !root.prompt.saving;
@@ -333,7 +333,7 @@ component OverwriteConfirmDialog inherits Rectangle {
                     text: root.prompt.confirm == 1 ? "Delete Permission Settings"
                         : root.prompt.confirm == 2 ? "Sync permissions?"
                         : "Pretty sure you don't want to do this";
-                    color: Theme.text; font-size: 20px; font-weight: 700; wrap: word-wrap;
+                    color: Theme.text; font-size: 20px; font-weight: 600; wrap: word-wrap;
                 }
                 Text {
                     text: root.prompt.confirm == 1
@@ -383,7 +383,7 @@ component AddOverwriteDialog inherits Rectangle {
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: "Add:"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Add:"; color: Theme.text; font-size: 20px; font-weight: 600; }
                 TextField {
                     placeholder: "Role/Member"; label: "Role or member"; text-size: 14px;
                     init => { self.focus-input(); }
@@ -401,7 +401,7 @@ component AddOverwriteDialog inherits Rectangle {
                             accessible-role: button; accessible-label: role.name;
                             role-area := TouchArea { clicked => { root.role(role.id); } }
                             HorizontalLayout {
-                                padding-left: 8px; spacing: 10px;
+                                padding-left: 8px; spacing: 12px;
                                 Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: role.color; } }
                                 Text { text: role.name; color: Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; }
                             }
@@ -413,12 +413,12 @@ component AddOverwriteDialog inherits Rectangle {
                             accessible-role: button; accessible-label: member.name;
                             member-area := TouchArea { clicked => { root.member(member.id); } }
                             HorizontalLayout {
-                                padding-left: 6px; spacing: 10px;
+                                padding-left: 8px; spacing: 12px;
                                 Middle { Avatar { size: 26px; initial: member.initial; picture-url: member.avatar-url; } }
                                 Middle {
                                     horizontal-stretch: 1;
                                     HorizontalLayout {
-                                        spacing: 6px; alignment: start;
+                                        spacing: 8px; alignment: start;
                                         Text { text: member.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                                         Text { text: member.username; color: Theme.muted; font-size: 14px; overflow: elide; }
                                     }

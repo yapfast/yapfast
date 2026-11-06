@@ -41,11 +41,11 @@ export component MemberPanel inherits Rectangle {
             for member[index] in root.rows: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
                 padding-top: index == 0 ? 8px : 0px;
-                padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
-                spacing: 2px;
+                padding-bottom: index == root.rows.length - 1 ? 12px : 4px;
+                spacing: 4px;
                 if member.heading != "": HorizontalLayout {
                     padding-left: 8px; height: 36px;
-                    Text { text: member.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center; }
+                    Text { text: member.heading; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; vertical-alignment: center; }
                 }
                 Rectangle {
                   height: 42px; border-radius: 6px;
@@ -75,7 +75,7 @@ export component MemberPanel inherits Rectangle {
                     VerticalLayout {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
-                            alignment: start; spacing: 6px;
+                            alignment: start; spacing: 8px;
                             Text {
                                 text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500; overflow: elide;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
@@ -159,7 +159,7 @@ export struct ProfileData {
 }
 
 export component ProfileHeading inherits Text {
-    color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+    color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
 }
 
 // An activity's picture: square with rounded corners, asked for as it shows.
@@ -217,14 +217,14 @@ export component ActivityCard inherits VerticalLayout {
             }
         }
         VerticalLayout {
-            alignment: center; spacing: 2px; horizontal-stretch: 1;
-            if root.activity.link == "": StatusText { text: root.activity.name; emoji-url: root.activity.name-emoji; color: Theme.text; font-size: 14px; font-weight: 700; }
+            alignment: center; spacing: 4px; horizontal-stretch: 1;
+            if root.activity.link == "": StatusText { text: root.activity.name; emoji-url: root.activity.name-emoji; color: Theme.text; font-size: 14px; font-weight: 600; }
             // A song's title opens its page, as in Discord.
             if root.activity.link != "": HorizontalLayout {
                 alignment: start;
                 Text {
                     text: root.activity.name; color: title-pointer.has-hover ? Theme.link : Theme.text;
-                    font-size: 14px; font-weight: 700; overflow: elide;
+                    font-size: 14px; font-weight: 600; overflow: elide;
                     accessible-role: button;
                     accessible-label: "Open " + root.activity.name;
                     accessible-action-default => { root.open-link(root.activity.link); }
@@ -296,26 +296,26 @@ export component ServerCard inherits Rectangle {
                         width: 64px; height: 64px; border-radius: 18px; clip: true;
                         background: root.server.picture.width > 0 ? transparent : Theme.raised;
                         if root.server.picture.width == 0: Text {
-                            text: root.server.initial; color: Theme.text; font-size: 24px; font-weight: 700;
+                            text: root.server.initial; color: Theme.text; font-size: 24px; font-weight: 600;
                         }
                         if root.server.picture.width > 0: Image { source: root.server.picture; width: 64px; height: 64px; image-fit: cover; }
                     }
                 }
             }
             VerticalLayout {
-                padding-left: 16px; padding-right: 16px; spacing: 14px;
+                padding-left: 16px; padding-right: 16px; spacing: 16px;
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: root.server.name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                    Text { text: root.server.name; color: Theme.text; font-size: 20px; font-weight: 600; overflow: elide; }
                     HorizontalLayout {
-                        spacing: 14px; alignment: start;
+                        spacing: 16px; alignment: start;
                         if root.server.members != "": HorizontalLayout {
-                            spacing: 6px;
+                            spacing: 8px;
                             Middle { Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.faint; } }
                             Text { text: root.server.members; color: Theme.secondary; font-size: 13px; }
                         }
                         HorizontalLayout {
-                            spacing: 6px;
+                            spacing: 8px;
                             Middle { Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.faint; } }
                             Text { text: root.server.channels; color: Theme.secondary; font-size: 13px; }
                         }
@@ -367,7 +367,7 @@ export component ProfileListRow inherits Rectangle {
                     border-radius: 10px; clip: true;
                     background: root.picture.width > 0 ? transparent : Theme.raised;
                     if root.picture.width == 0: Text {
-                        text: root.initial; color: Theme.text; font-size: 13px; font-weight: 700;
+                        text: root.initial; color: Theme.text; font-size: 13px; font-weight: 600;
                         horizontal-alignment: center; vertical-alignment: center;
                     }
                     if root.picture.width > 0: Image { source: root.picture; width: 32px; height: 32px; image-fit: cover; }
@@ -465,9 +465,9 @@ export component ProfileCard inherits Rectangle {
                 VerticalLayout {
                     padding-left: root.pad; padding-right: root.pad; spacing: 16px;
                     VerticalLayout {
-                        spacing: 2px;
+                        spacing: 4px;
                         Text {
-                            text: root.data.name; color: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 700;
+                            text: root.data.name; color: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 600;
                             overflow: elide;
                             if !root.large && !root.preview: TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                         }
@@ -490,7 +490,7 @@ export component ProfileCard inherits Rectangle {
                         open-link(url) => { root.open-link(url); }
                     }
                     if root.data.has-bio: VerticalLayout {
-                        spacing: 6px;
+                        spacing: 8px;
                         ProfileHeading { text: "ABOUT ME"; }
                         // The card shows the start; the full profile shows it all.
                         // A fixed height, since the text would otherwise stretch it past its limit.
@@ -507,7 +507,7 @@ export component ProfileCard inherits Rectangle {
                     }
                     // The card leaves the dates to the full profile.
                     if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
-                        spacing: 6px;
+                        spacing: 8px;
                         ProfileHeading { text: "MEMBER SINCE"; }
                         HorizontalLayout {
                             spacing: 24px; alignment: start;
@@ -522,7 +522,7 @@ export component ProfileCard inherits Rectangle {
                         }
                     }
                     if (root.large ? root.data.role-rows-large : root.data.role-rows).length > 0: VerticalLayout {
-                        spacing: 6px;
+                        spacing: 8px;
                         // The card's chips speak for themselves.
                         if root.full: ProfileHeading { text: "ROLES"; }
                         for row in (root.large ? root.data.role-rows-large : root.data.role-rows): HorizontalLayout {
@@ -530,7 +530,7 @@ export component ProfileCard inherits Rectangle {
                             for role in row.roles: Rectangle {
                                 height: 24px; border-radius: 4px; background: Theme.raised;
                                 HorizontalLayout {
-                                    padding-left: 8px; padding-right: 8px; spacing: 6px;
+                                    padding-left: 8px; padding-right: 8px; spacing: 8px;
                                     Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: role.has-color ? role.color : Theme.faint; } }
                                     Text { text: role.name; color: Theme.secondary; font-size: 13px; font-weight: 500; vertical-alignment: center; }
                                 }
@@ -538,7 +538,7 @@ export component ProfileCard inherits Rectangle {
                         }
                     }
                     if root.full && root.data.servers.length > 0: VerticalLayout {
-                        spacing: 6px;
+                        spacing: 8px;
                         ProfileHeading { text: "MUTUAL SERVERS — " + root.data.servers.length; }
                         VerticalLayout {
                             spacing: 0px;
@@ -551,7 +551,7 @@ export component ProfileCard inherits Rectangle {
                         }
                     }
                     if root.full && root.data.friends.length > 0: VerticalLayout {
-                        spacing: 6px;
+                        spacing: 8px;
                         ProfileHeading { text: "MUTUAL FRIENDS — " + root.data.friends.length; }
                         VerticalLayout {
                             spacing: 0px;
@@ -618,7 +618,7 @@ export component RoleCard inherits Rectangle {
         HorizontalLayout {
             spacing: 8px; padding-bottom: 4px;
             Middle { Rectangle { width: 12px; height: 12px; border-radius: 6px; background: root.role-has-color ? root.role-color : Theme.muted; } }
-            Text { text: "@" + root.role-name; color: root.role-has-color ? root.role-color : Theme.text; font-size: 16px; font-weight: 700; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+            Text { text: "@" + root.role-name; color: root.role-has-color ? root.role-color : Theme.text; font-size: 16px; font-weight: 600; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
         }
         if root.role-note != "": Label { text: root.role-note; }
         ScrollView {
@@ -632,7 +632,7 @@ export component RoleCard inherits Rectangle {
                     accessible-label: member.name;
                     accessible-action-default => { root.choose-member(member.id); }
                     HorizontalLayout {
-                        padding-left: 6px; padding-right: 6px; spacing: 10px;
+                        padding-left: 8px; padding-right: 8px; spacing: 12px;
                         Middle { Avatar { size: 28px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; } }
                         Text { text: member.name; color: member.has-color ? member.color : Theme.text; font-size: 15px; font-weight: 500; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
                     }

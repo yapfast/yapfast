@@ -1824,7 +1824,7 @@ export component YapfastWindow inherits Window {
             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             plus-content := VerticalLayout {
-                padding: 6px; spacing: 2px;
+                padding: 8px; spacing: 4px;
                 MenuItem {
                     text: "Upload a File"; icon: @image-url("icons/file.svg"); disabled: !root.can-attach;
                     clicked => { if root.can-attach { plus-menu.close(); root.attach(); } }
@@ -2173,7 +2173,7 @@ export component YapfastWindow inherits Window {
                             spacing: 0px;
                             Rectangle {
                                 height: 48px;
-                                if root.header-server == "": Text { x: 16px; width: parent.width - (root.dms-selected && !root.preview ? (root.discord-linked ? 88px : 56px) : 32px); text: root.sidebar-title; font-size: 16px; font-weight: 700; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                                if root.header-server == "": Text { x: 16px; width: parent.width - (root.dms-selected && !root.preview ? (root.discord-linked ? 88px : 56px) : 32px); text: root.sidebar-title; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; overflow: elide; }
                                 if root.header-server != "": server-header := ServerHeader {
                                     x: 8px; y: 8px; width: parent.width - 16px - (root.header-invite ? 32px : 0px); height: 32px;
                                     name: root.sidebar-title; open: root.header-menu-open;
@@ -2197,7 +2197,7 @@ export component YapfastWindow inherits Window {
                                 Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
                             }
                             HorizontalLayout {
-                                padding: 10px; padding-bottom: 6px;
+                                padding: 12px; padding-bottom: 8px;
                                 TextField {
                                     min-height: 30px; text-size: 14px; pad: 8px; fill: Theme.sunken; ring: false;
                                     placeholder: root.filter-placeholder; text <=> root.filter; label: root.filter-placeholder;
@@ -2261,7 +2261,7 @@ export component YapfastWindow inherits Window {
                     height: 56px; background: Theme.panel;
                     if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
                     HorizontalLayout {
-                        padding-right: 8px; spacing: 2px;
+                        padding-right: 8px; spacing: 4px;
                         Rectangle {
                             width: 58px;
                             Avatar { x: 19px; y: (parent.height - self.height) / 2; size: 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
@@ -2289,8 +2289,8 @@ export component YapfastWindow inherits Window {
                             accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
                             accessible-action-default => { if root.discord-linked { root.open-status-menu(); } }
                             VerticalLayout {
-                                alignment: center; padding-left: 6px; padding-right: 6px;
-                                Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                                alignment: center; padding-left: 8px; padding-right: 8px;
+                                Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                                 StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
                             }
                             account-touch := TouchArea {
@@ -2342,7 +2342,7 @@ export component YapfastWindow inherits Window {
                 Rectangle {
                     height: 48px;
                     HorizontalLayout {
-                        padding-left: 16px; padding-right: 16px; spacing: 10px;
+                        padding-left: 16px; padding-right: 16px; spacing: 12px;
                         if root.room-direct: Middle {
                             Rectangle {
                                 width: 26px; height: 26px;
@@ -2358,7 +2358,7 @@ export component YapfastWindow inherits Window {
                             width: 22px; image-fit: contain; colorize: Theme.muted;
                         }
                         if root.room-parent != "" && root.room-selected: parent-name := Text {
-                            text: root.room-parent; font-size: 16px; font-weight: 700; vertical-alignment: center;
+                            text: root.room-parent; font-size: 16px; font-weight: 600; vertical-alignment: center;
                             color: parent-touch.has-hover ? Theme.text : Theme.secondary;
                             accessible-role: button; accessible-label: "Back to " + root.room-parent;
                             accessible-action-default => { root.select-room(root.room-parent-id); }
@@ -2375,7 +2375,7 @@ export component YapfastWindow inherits Window {
                         Text {
                             text: root.room-selected ? root.room-name : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.browse-open ? "Browse Channels" : root.sidebar-title;
                             color: root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
-                            font-size: 16px; font-weight: 700; overflow: elide; vertical-alignment: center;
+                            font-size: 16px; font-weight: 600; overflow: elide; vertical-alignment: center;
                             // The name gives way to what follows it, and fills the bar when nothing does.
                             horizontal-stretch: (root.room-has-activity && root.room-direct) || root.friends-open || root.has-topic ? 0 : 1;
                         }
@@ -2412,7 +2412,7 @@ export component YapfastWindow inherits Window {
                                     height: 24px; border-radius: 12px; background: Theme.raised;
                                     accessible-role: text; accessible-label: "Status: " + root.room-activity;
                                     HorizontalLayout {
-                                        padding-left: 10px; padding-right: 10px;
+                                        padding-left: 12px; padding-right: 12px;
                                         Middle {
                                             StatusText {
                                                 text: root.room-activity; emoji-url: root.room-activity-emoji;
@@ -2570,7 +2570,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {
-                            spacing: 6px;
+                            spacing: 8px;
                             Image { source: @image-url("icons/users.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
                             Text { text: root.members; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                         }
@@ -2584,7 +2584,7 @@ export component YapfastWindow inherits Window {
                         if root.preview: Rectangle {
                             min-height: preview-content.preferred-height; background: Theme.raised; vertical-stretch: 0;
                             preview-content := HorizontalLayout {
-                                padding-left: 16px; padding-right: 16px; padding-top: 7px; padding-bottom: 7px; spacing: 10px;
+                                padding-left: 16px; padding-right: 16px; padding-top: 8px; padding-bottom: 8px; spacing: 12px;
                                 Image { source: @image-url("icons/triangle-alert.svg"); width: 16px; image-fit: contain; colorize: Theme.accent; }
                                 Text {
                                     text: "Local preview: sample data. Nothing leaves this computer.";
@@ -2847,7 +2847,7 @@ export component YapfastWindow inherits Window {
                                                     }
                                                 }
                                                 col := VerticalLayout {
-                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? 14px : 1px;
+                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? 16px : 1px;
                                                     // The last row leaves room for the bar over a window's end.
                                                     padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : 1px;
                                                     spacing: 0px;
@@ -2863,17 +2863,17 @@ export component YapfastWindow inherits Window {
                                                     // the first unread message, in the middle of one line, the
                                                     // date and "New" together when both are here.
                                                     if message.day != "" || message.unread-start: HorizontalLayout {
-                                                        padding-left: 16px; padding-right: 16px; padding-bottom: 6px; spacing: 10px; height: 26px;
+                                                        padding-left: 16px; padding-right: 16px; padding-bottom: 8px; spacing: 12px; height: 26px;
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
-                                                        if message.day != "": Text { text: message.day; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
-                                                        if message.day != "" && message.unread-start: Text { text: "·"; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
+                                                        if message.day != "": Text { text: message.day; color: Theme.muted; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+                                                        if message.day != "" && message.unread-start: Text { text: "·"; color: Theme.muted; font-size: 13px; font-weight: 600; vertical-alignment: center; }
                                                         if message.unread-start: Rectangle {
                                                             width: new-text.preferred-width + 10px;
                                                             accessible-role: text; accessible-label: "New messages start here";
                                                             Rectangle {
                                                                 height: 18px; border-radius: 4px; background: Theme.accent;
                                                                 new-text := Text {
-                                                                    text: "New"; color: Theme.on-accent; font-size: 12px; font-weight: 800;
+                                                                    text: "New"; color: Theme.on-accent; font-size: 12px; font-weight: 600;
                                                                     horizontal-alignment: center; vertical-alignment: center;
                                                                 }
                                                             }
@@ -2925,10 +2925,10 @@ export component YapfastWindow inherits Window {
                                                 background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                                                 drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
                                                 actions := HorizontalLayout {
-                                                    padding: 3px; spacing: 0px;
+                                                    padding: 4px; spacing: 0px;
                                                     if root.confirm-delete == message.item: HorizontalLayout {
                                                         spacing: 4px; padding-left: 8px;
-                                                        Text { text: "Delete for everyone?"; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                                                        Text { text: "Delete for everyone?"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
                                                         ActionButton { text: "Delete"; danger: true; small: true; clicked => { root.confirm-delete-message(); } }
                                                         ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { root.cancel-delete(); } }
                                                     }
@@ -3070,7 +3070,7 @@ export component YapfastWindow inherits Window {
                                 height: 36px; background: Theme.sidebar;
                                 border-top-left-radius: 10px; border-top-right-radius: 10px;
                                 HorizontalLayout {
-                                    padding-left: 14px; padding-right: 4px; spacing: 8px;
+                                    padding-left: 16px; padding-right: 4px; spacing: 8px;
                                     Image { source: root.is-editing ? @image-url("icons/pencil.svg") : @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                     if !root.is-editing: VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
@@ -3091,7 +3091,7 @@ export component YapfastWindow inherits Window {
                                         height: 152px;
                                         content-width: max(self.width, staged-row.preferred-width);
                                         staged-row := HorizontalLayout {
-                                            padding: 10px; padding-bottom: 2px; spacing: 8px; alignment: start;
+                                            padding: 12px; padding-bottom: 4px; spacing: 8px; alignment: start;
                                             for file[index] in root.staged: StagedTile {
                                                 file: file; can-spoil: root.can-mark-spoilers;
                                                 remove => { root.unstage(index); }
@@ -3100,7 +3100,7 @@ export component YapfastWindow inherits Window {
                                         }
                                     }
                                     HorizontalLayout {
-                                        padding-left: 10px; padding-right: 8px; spacing: 6px;
+                                        padding-left: 12px; padding-right: 8px; spacing: 8px;
                                         // The buttons stay on the last line as the composer grows.
                                         VerticalLayout {
                                             alignment: end; padding-bottom: 8px;
@@ -3202,7 +3202,7 @@ export component YapfastWindow inherits Window {
                             // A hint under the field when there is one; otherwise as much
                             // room below it as beside it.
                             if root.composer-hint != "": HorizontalLayout {
-                                height: 22px; spacing: 6px; padding-left: 4px;
+                                height: 22px; spacing: 8px; padding-left: 4px;
                                 if root.room-encrypted || root.preview: Image { source: @image-url("icons/lock.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
                                 Text { text: root.composer-hint; color: Theme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             }
@@ -4078,7 +4078,7 @@ export component YapfastWindow inherits Window {
         border-radius: 18px; background: Theme.tooltip;
         drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
         accessible-role: text; accessible-label: "Zoom " + root.zoom-note;
-        zoom-text := Text { text: root.zoom-note; color: Theme.text; font-size: 15px; font-weight: 700; }
+        zoom-text := Text { text: root.zoom-note; color: Theme.text; font-size: 15px; font-weight: 600; }
     }
     // Who reacted, over the reaction the pointer stays on: its emoji, then
     // the names, wrapping. Clicking it opens the Reactions window there.
@@ -4153,14 +4153,14 @@ export component YapfastWindow inherits Window {
                 if root.dragging: HorizontalLayout {
                     alignment: center;
                     Text { text: "Upload to "; color: Theme.on-accent; font-size: 20px; font-weight: 400; }
-                    Text { text: root.drop-destination; color: Theme.on-accent; font-size: 20px; font-weight: 700; overflow: elide; }
+                    Text { text: root.drop-destination; color: Theme.on-accent; font-size: 20px; font-weight: 600; overflow: elide; }
                 }
                 if root.dragging: Text {
                     text: "You can add comments before uploading.";
                     color: Theme.on-accent; font-size: 15px; horizontal-alignment: center; wrap: word-wrap;
                 }
                 if !root.dragging: Text {
-                    text: root.drop-refusal; color: Theme.on-accent; font-size: 20px; font-weight: 700;
+                    text: root.drop-refusal; color: Theme.on-accent; font-size: 20px; font-weight: 600;
                     horizontal-alignment: center; wrap: word-wrap;
                 }
                 if !root.dragging: Text {
@@ -4216,7 +4216,7 @@ export component YapfastWindow inherits Window {
         width: self.w; height: self.h;
         border-radius: 6px; background: Theme.tooltip;
         drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
-        tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 700; }
+        tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 600; }
     }
     if Autoscroll.shown: AutoscrollMarker {}
 }

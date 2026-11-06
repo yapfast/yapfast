@@ -129,7 +129,7 @@ export component GifPicker inherits VerticalLayout {
                 clicked => { root.back(); }
             }
             if root.view == 1: Text {
-                text: "Trending GIFs"; color: Theme.text; font-size: 16px; font-weight: 700;
+                text: "Trending GIFs"; color: Theme.text; font-size: 16px; font-weight: 600;
                 vertical-alignment: center; horizontal-stretch: 1;
             }
             // Out of sight in Trending, where typing still searches.
@@ -186,7 +186,7 @@ export component GifPicker inherits VerticalLayout {
                         animate background { duration: Theme.quick; }
                     }
                     HorizontalLayout {
-                        alignment: center; spacing: 6px;
+                        alignment: center; spacing: 8px;
                         if tile.kind == 1: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/star-filled.svg"); colorize: #ffffff; }
                         if tile.kind == 2: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/trending-up.svg"); colorize: #ffffff; }
                         Text {
@@ -205,7 +205,7 @@ export component GifPicker inherits VerticalLayout {
         footer := VerticalLayout {
             visible: root.suggestions.length > 0;
             x: 12px; y: root.note != "" ? 96px : root.grid-height + 4px; width: parent.width - 24px; height: self.preferred-height;
-            spacing: 10px;
+            spacing: 12px;
             Text {
                 text: "Your perfect GIF is in another castle. Try the suggested keywords below!";
                 color: Theme.secondary; font-size: 14px; wrap: word-wrap; horizontal-alignment: center;

@@ -140,9 +140,9 @@ export component ReactionToggle inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     chip := HorizontalLayout {
-        padding-left: 8px; padding-right: 9px; spacing: 6px;
+        padding-left: 8px; padding-right: 8px; spacing: 8px;
         Text { text: root.label; font-family: root.emoji-font; font-size: 16px; vertical-alignment: center; }
-        Text { text: root.count; color: root.mine ? Theme.accent : Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+        Text { text: root.count; color: root.mine ? Theme.accent : Theme.secondary; font-size: 14px; font-weight: 600; vertical-alignment: center; }
     }
     property <bool> tip-shown: root.item != "" && ReactionHover.item == root.item && ReactionHover.key == root.key;
     pointer := TouchArea {
@@ -233,7 +233,7 @@ component VideoControls inherits Rectangle {
     property <bool> show-time: root.width >= root.fixed + (root.show-mute ? 34px : 0px) + clock.preferred-width + 6px;
     clock := Text { visible: false; text: VideoPlayer.time; font-size: 12px; }
     HorizontalLayout {
-        padding-left: 4px; padding-right: 6px; spacing: 6px;
+        padding-left: 4px; padding-right: 8px; spacing: 8px;
         Middle {
             IconButton {
                 size: 28px; glyph: 16px; tint: #ffffff; tip-side: 0;
@@ -510,7 +510,7 @@ export component PollView inherits HorizontalLayout {
         accessible-label: "Poll: " + root.poll.question;
         VerticalLayout {
             padding: 16px; spacing: 8px;
-            Text { text: root.poll.question; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+            Text { text: root.poll.question; color: Theme.text; font-size: 17px; font-weight: 600; wrap: word-wrap; }
             if root.poll.prompt != "": Text { text: root.poll.prompt; color: Theme.muted; font-size: 13px; }
             for answer in root.poll.answers: Rectangle {
                 property <bool> clickable: root.poll.interactive && (root.poll.results || root.poll.can-pick);
@@ -529,14 +529,14 @@ export component PollView inherits HorizontalLayout {
                     background: answer.leading ? Theme.accent-soft : Theme.overlay.with-alpha(0.06);
                 }
                 HorizontalLayout {
-                    padding-left: 12px; padding-right: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 10px;
+                    padding-left: 12px; padding-right: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 12px;
                     if answer.emoji != "": Text { text: answer.emoji; font-family: root.emoji-font; font-size: 20px; vertical-alignment: center; }
                     answer-text := Text { text: answer.text; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
                     if root.poll.results && answer.picked: Middle {
                         Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.accent; accessible-label: "You voted for this answer"; }
                     }
                     if root.poll.results: Text { text: answer.votes; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
-                    if root.poll.results: Text { text: answer.percent + "%"; color: Theme.text; font-size: 15px; font-weight: 700; min-width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+                    if root.poll.results: Text { text: answer.percent + "%"; color: Theme.text; font-size: 15px; font-weight: 600; min-width: 44px; horizontal-alignment: right; vertical-alignment: center; }
                     // A radio button, or for several answers a checkbox.
                     if !root.poll.results: Middle {
                         Rectangle {
@@ -740,7 +740,7 @@ export component EmojiCardView inherits Rectangle {
         // padding: 88px when the lines come to 36px.
         Rectangle {
             HorizontalLayout {
-                padding: 16px; spacing: 10px;
+                padding: 16px; spacing: 12px;
                 VerticalLayout {
                     padding-top: 4px;
                     // Its frame while it animates, as the picker reads it, and
@@ -805,13 +805,13 @@ export component EmojiCardView inherits Rectangle {
                                     source: root.server-picture; width: 32px; height: 32px; image-fit: cover;
                                 }
                                 if root.server-picture.width == 0: Text {
-                                    text: root.card.server-initial; font-size: 14px; font-weight: 700;
+                                    text: root.card.server-initial; font-size: 14px; font-weight: 600;
                                     color: Theme.text; horizontal-alignment: center; vertical-alignment: center;
                                 }
                             }
                         }
                         VerticalLayout {
-                            spacing: 2px;
+                            spacing: 4px;
                             Text {
                                 min-width: 0px; height: 20px;
                                 text: root.card.server-name; font-size: 16px; font-weight: 600;
@@ -892,7 +892,7 @@ export component EmojiPicker inherits Rectangle {
         VerticalLayout {
             spacing: 0px;
             HorizontalLayout {
-                padding: 10px; padding-bottom: 6px;
+                padding: 12px; padding-bottom: 8px;
                 // The picker's contents are created each time it opens.
                 picker-field := TextField {
                     init => { self.focus-input(); }
@@ -933,7 +933,7 @@ export component EmojiPicker inherits Rectangle {
                             height: root.row-height; padding-left: 8px; padding-right: 8px;
                             if row.heading != "": HorizontalLayout {
                                 padding-left: 4px; padding-bottom: 4px;
-                                Text { text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: bottom; }
+                                Text { text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; vertical-alignment: bottom; }
                             }
                             if row.cells.length > 0: HorizontalLayout {
                                 alignment: start;
@@ -961,7 +961,7 @@ export component EmojiPicker inherits Rectangle {
             Rectangle {
                 height: 48px; background: Theme.panel;
                 HorizontalLayout {
-                    padding-left: 14px; padding-right: 14px; spacing: 10px;
+                    padding-left: 16px; padding-right: 16px; spacing: 12px;
                     if root.emoji-hover.glyph != "": EmojiFace {
                         emoji: root.emoji-hover; font: root.emoji-font; side: 26px; width: 30px;
                     }
@@ -970,7 +970,7 @@ export component EmojiPicker inherits Rectangle {
                             : root.react-item == "yapfast:status" ? "Pick an emoji for your status."
                             : root.react-item == "yapfast:composer" ? "Pick an emoji for your message." : "Pick an emoji to react with.";
                         color: root.emoji-hover.glyph != "" ? Theme.text : Theme.muted; font-size: 15px;
-                        font-weight: root.emoji-hover.glyph != "" ? 700 : 400;
+                        font-weight: root.emoji-hover.glyph != "" ? 600 : 400;
                         vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                     }
                 }
@@ -1023,7 +1023,7 @@ export component MessageMenu inherits Rectangle {
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     menu-content := VerticalLayout {
-        padding: 6px; spacing: 2px;
+        padding: 8px; spacing: 4px;
         if root.menu-can-react: HorizontalLayout {
             spacing: 4px; padding-bottom: 4px;
             for cell in root.menu-reactions: EmojiButton {
@@ -1228,9 +1228,9 @@ export component ThreadChip inherits HorizontalLayout {
         accessible-label: "Thread " + root.name + (root.detail != "" ? ", " + root.detail : "");
         accessible-action-default => { root.clicked(); }
         chip := HorizontalLayout {
-            padding: 8px; padding-left: 12px; padding-right: 12px; spacing: 10px;
+            padding: 8px; padding-left: 12px; padding-right: 12px; spacing: 12px;
             Image { source: @image-url("icons/thread.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
-            Text { text: root.name; color: Theme.text; font-weight: 700; overflow: elide; vertical-alignment: center; }
+            Text { text: root.name; color: Theme.text; font-weight: 600; overflow: elide; vertical-alignment: center; }
             if root.detail != "": Text {
                 text: root.detail; color: Theme.link; font-size: 14px; vertical-alignment: center;
                 horizontal-stretch: 1;
@@ -1258,7 +1258,7 @@ export component BotTag inherits Rectangle {
     width: tag-text.preferred-width + 8px; height: 16px; border-radius: 4px;
     background: #5865f2;
     accessible-role: text; accessible-label: "Bot";
-    tag-text := Text { text: "BOT"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+    tag-text := Text { text: "BOT"; color: #ffffff; font-size: 10px; font-weight: 600; letter-spacing: 0.3px; }
 }
 
 // A block of text: a heading or subtext at its size, or fenced code in its
@@ -1369,7 +1369,7 @@ export component EmbedView inherits HorizontalLayout {
                 for row in root.embed.field-rows: HorizontalLayout {
                     spacing: 8px;
                     for field in row.fields: VerticalLayout {
-                        spacing: 2px; horizontal-stretch: 1;
+                        spacing: 4px; horizontal-stretch: 1;
                         StyledText { text: field.name; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
                         if field.value-blocks.length == 0: StyledText {
                             text: field.value; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
@@ -1576,7 +1576,7 @@ export component CardView inherits HorizontalLayout {
 
 // What to do when no conversation is chosen.
 export component NoConversation inherits VerticalLayout {
-    padding: 32px; spacing: 10px; alignment: center;
+    padding: 32px; spacing: 12px; alignment: center;
     HorizontalLayout {
         alignment: center;
         Rectangle {
@@ -1584,7 +1584,7 @@ export component NoConversation inherits VerticalLayout {
             Image { source: @image-url("icons/message-circle.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
         }
     }
-    Text { text: "Pick a conversation"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+    Text { text: "Pick a conversation"; color: Theme.text; font-size: 22px; font-weight: 600; horizontal-alignment: center; }
     Text { text: "Choose a DM or a server channel on the left."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
 }
 
@@ -1625,7 +1625,7 @@ export component HistoryEdge inherits HorizontalLayout {
             background: @linear-gradient(90deg, Theme.shimmer.with-alpha(0) 0%, Theme.shimmer 50%, Theme.shimmer.with-alpha(0) 100%);
         }
         content := HorizontalLayout {
-            padding-left: 12px; padding-right: 14px; spacing: 6px;
+            padding-left: 12px; padding-right: 16px; spacing: 8px;
             Image {
                 source: root.failed ? @image-url("icons/triangle-alert.svg") : @image-url("icons/history.svg");
                 width: 16px; image-fit: contain; colorize: root.failed ? Theme.danger : Theme.secondary;
@@ -1653,8 +1653,8 @@ export component UnreadBar inherits Rectangle {
     accessible-label: root.label + ". Jump to the first unread message";
     accessible-action-default => { root.jump(); }
     content := HorizontalLayout {
-        padding-left: 14px; padding-right: 10px; spacing: 8px;
-        Text { text: root.label; color: Theme.on-accent; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+        padding-left: 16px; padding-right: 12px; spacing: 8px;
+        Text { text: root.label; color: Theme.on-accent; font-size: 14px; font-weight: 600; vertical-alignment: center; }
         Image {
             source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
             colorize: Theme.on-accent; transform-rotation: root.above ? 180deg : 0deg;
@@ -1674,14 +1674,14 @@ export component PresentBar inherits Rectangle {
     accessible-label: "You're viewing older messages. Jump to present";
     accessible-action-default => { root.jump(); }
     HorizontalLayout {
-        padding-left: 14px; padding-right: 12px; spacing: 8px;
+        padding-left: 16px; padding-right: 12px; spacing: 8px;
         Text {
             text: "You're viewing older messages"; color: Theme.secondary; font-size: 14px; font-weight: 500;
             vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
         }
         Text {
             text: "Jump to present"; color: touch.has-hover ? Theme.accent-hover : Theme.accent;
-            font-size: 14px; font-weight: 700; vertical-alignment: center;
+            font-size: 14px; font-weight: 600; vertical-alignment: center;
         }
         Image {
             source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
@@ -1710,7 +1710,7 @@ export component ConversationStart inherits VerticalLayout {
     }
     Text {
         text: !root.room-ready ? "Loading conversation..." : root.room-direct || root.room-thread ? root.room-name : "Welcome to #" + root.room-name;
-        color: Theme.text; font-size: root.room-ready ? 28px : 18px; font-weight: 900; wrap: word-wrap;
+        color: Theme.text; font-size: root.room-ready ? 28px : 18px; font-weight: 600; wrap: word-wrap;
     }
     if root.room-ready: Text {
         text: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
@@ -1835,7 +1835,7 @@ export component ImageViewer inherits Rectangle {
             y: 0px; height: 64px; padding-left: 20px; padding-right: 12px; spacing: 8px;
             VerticalLayout {
                 alignment: center; horizontal-stretch: 1;
-                Text { text: root.viewer-name; color: #ffffff; font-size: 15px; font-weight: 700; overflow: elide; }
+                Text { text: root.viewer-name; color: #ffffff; font-size: 15px; font-weight: 600; overflow: elide; }
                 if root.viewer-position != "": Text { text: root.viewer-position; color: #ffffffb3; font-size: 13px; }
             }
             if !root.preview: Middle {
@@ -1958,7 +1958,7 @@ export component VideoViewer inherits Rectangle {
             y: 0px; height: 64px; padding-left: 20px; padding-right: 12px; spacing: 8px;
             VerticalLayout {
                 alignment: center; horizontal-stretch: 1;
-                Text { text: VideoPlayer.name; color: #ffffff; font-size: 15px; font-weight: 700; overflow: elide; }
+                Text { text: VideoPlayer.name; color: #ffffff; font-size: 15px; font-weight: 600; overflow: elide; }
             }
             if !root.preview: Middle {
                 IconButton {
@@ -2009,7 +2009,7 @@ export component MessageContent inherits VerticalLayout {
     callback save-attachment(string, int);
     callback media-menu(string, int, bool, length, length);
     HorizontalLayout {
-        padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
+        padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 4px; padding-bottom: 4px; spacing: 16px;
         Rectangle {
             width: 40px;
             min-height: message.first && message.notice == "" ? (message.has-reply ? 64px : 40px) : 0px;
@@ -2055,7 +2055,7 @@ export component MessageContent inherits VerticalLayout {
             }
         }
         VerticalLayout {
-            spacing: 3px; horizontal-stretch: 1;
+            spacing: 4px; horizontal-stretch: 1;
             // Clicking the quote jumps to the message it quotes.
             if message.has-reply: Rectangle {
                 height: 22px;
@@ -2064,9 +2064,9 @@ export component MessageContent inherits VerticalLayout {
                 accessible-label: "Jump to the original message: " + message.reply-body;
                 accessible-action-default => { if message.reply-item != "" { root.jump-to(message.reply-item); } }
                 HorizontalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     if message.reply-author != "": Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
-                    if message.reply-author != "": Text { text: message.reply-author; color: Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                    if message.reply-author != "": Text { text: message.reply-author; color: Theme.secondary; font-size: 14px; font-weight: 600; vertical-alignment: center; }
                     Text {
                         text: message.reply-body; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                         color: reply-touch.has-hover ? Theme.text : Theme.muted;
@@ -2172,7 +2172,7 @@ export component MessageContent inherits VerticalLayout {
                 clicked => { root.open-thread(message.thread-room); }
             }
             if message.reactions.length > 0: HorizontalLayout {
-                spacing: 6px; alignment: start; padding-top: 4px;
+                spacing: 8px; alignment: start; padding-top: 4px;
                 for reaction in message.reactions: ReactionToggle {
                     item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
                     enabled: message.can-react && root.composer-enabled;

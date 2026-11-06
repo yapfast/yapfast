@@ -142,7 +142,7 @@ export component FoundCard inherits Rectangle {
                 Avatar { size: 36px; initial: root.found.initial; tint: root.found.tint; picture-url: root.found.picture-url; }
             }
             VerticalLayout {
-                spacing: 2px; horizontal-stretch: 1;
+                spacing: 4px; horizontal-stretch: 1;
                 HorizontalLayout {
                     spacing: 8px; padding-right: 52px;
                     Text {
@@ -188,7 +188,7 @@ export component FoundCard inherits Rectangle {
                 // Clicks go through to the card here too.
                 if root.found.has-poll: PollView { poll: root.found.poll; item: root.found.item; }
                 if root.found.files != "": HorizontalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     Middle { Image { source: @image-url("icons/file.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
                     Text { text: root.found.files; color: Theme.muted; font-size: 13px; overflow: elide; horizontal-stretch: 1; }
                 }
@@ -221,11 +221,11 @@ component Popover inherits Rectangle {
         Rectangle {
             height: root.detail != "" ? 64px : 48px; background: Theme.panel;
             HorizontalLayout {
-                padding-left: 16px; padding-right: 10px; spacing: 10px;
+                padding-left: 16px; padding-right: 12px; spacing: 12px;
                 Middle { Image { source: root.icon; width: 20px; height: 20px; colorize: Theme.secondary; } }
                 VerticalLayout {
-                    alignment: center; horizontal-stretch: 1; spacing: 2px;
-                    Text { text: root.heading; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                    alignment: center; horizontal-stretch: 1; spacing: 4px;
+                    Text { text: root.heading; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
                     if root.detail != "": Text { text: root.detail; color: Theme.muted; font-size: 13px; overflow: elide; }
                 }
                 Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
@@ -289,7 +289,7 @@ component ThreadEntry inherits Rectangle {
         + (root.entry.room != "" ? 80px : 0px);
     if root.entry.heading != "": Text {
         x: 16px; y: root.first ? 8px : 40px; height: 24px; width: root.width - 32px;
-        text: root.entry.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
+        text: root.entry.heading; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.4px;
         vertical-alignment: center; overflow: elide;
     }
     if root.entry.room != "": Rectangle {
@@ -310,9 +310,9 @@ component ThreadEntry inherits Rectangle {
         HorizontalLayout {
             padding-left: 16px; padding-right: 16px; spacing: 16px;
             VerticalLayout {
-                alignment: center; spacing: 6px; horizontal-stretch: 1;
+                alignment: center; spacing: 8px; horizontal-stretch: 1;
                 HorizontalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     if root.entry.private: Middle { Image { source: @image-url("icons/lock.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
                     Text { text: root.entry.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; horizontal-stretch: 1; }
                 }
@@ -340,7 +340,7 @@ component ThreadEntry inherits Rectangle {
                 }
             }
             if root.entry.members != "": HorizontalLayout {
-                spacing: 6px; horizontal-stretch: 0;
+                spacing: 8px; horizontal-stretch: 0;
                 Middle {
                     Rectangle {
                         width: root.entry.member-pictures.length == 0 ? 0px : 12px * root.entry.member-pictures.length + 8px;
@@ -404,9 +404,9 @@ export component ThreadsPopover inherits Rectangle {
         Rectangle {
             height: 48px; background: Theme.panel;
             HorizontalLayout {
-                padding-left: 16px; padding-right: 10px; spacing: 10px;
+                padding-left: 16px; padding-right: 12px; spacing: 12px;
                 Middle { Image { source: @image-url("icons/thread.svg"); width: 20px; height: 20px; colorize: Theme.secondary; } }
-                Middle { Text { text: "Threads"; color: Theme.text; font-size: 16px; font-weight: 700; } }
+                Middle { Text { text: "Threads"; color: Theme.text; font-size: 16px; font-weight: 600; } }
                 if root.searchable: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
                 if root.searchable: Middle {
                     HeaderSearch {
@@ -431,7 +431,7 @@ export component ThreadsPopover inherits Rectangle {
         if root.note == "" && root.empty: VerticalLayout {
             padding: 32px; spacing: 8px; vertical-stretch: 1; alignment: center;
             Image { source: @image-url("icons/thread.svg"); height: 48px; image-fit: contain; colorize: Theme.faint; }
-            Text { text: "There are no threads."; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
+            Text { text: "There are no threads."; color: Theme.text; font-size: 17px; font-weight: 600; horizontal-alignment: center; }
             Text {
                 text: "Stay focused on a conversation with a thread - a temporary text channel.";
                 color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center;
@@ -550,7 +550,7 @@ export component AddPeoplePopover inherits Rectangle {
                 ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
-                        spacing: 2px; alignment: start;
+                        spacing: 4px; alignment: start;
                         for person in root.people: Rectangle {
                             property <bool> can-choose: !root.adding && (person.chosen || root.chosen < root.room);
                             height: 44px; border-radius: 6px;
@@ -623,8 +623,8 @@ export component SearchPanel inherits Rectangle {
         Rectangle {
             height: 48px;
             HorizontalLayout {
-                padding-left: 16px; padding-right: 10px; spacing: 10px;
-                Text { text: root.heading; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                padding-left: 16px; padding-right: 12px; spacing: 12px;
+                Text { text: root.heading; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close search"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
@@ -635,12 +635,12 @@ export component SearchPanel inherits Rectangle {
             VerticalLayout {
                 padding: 12px; spacing: 8px; alignment: start;
                 for found in root.results: VerticalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     // The channel a run of results is in, as Discord heads them.
                     if found.heading != "": HorizontalLayout {
-                        padding-top: 6px; spacing: 4px;
+                        padding-top: 8px; spacing: 4px;
                         Middle { Image { source: @image-url("icons/hash.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
-                        Text { text: found.heading; color: Theme.secondary; font-size: 13px; font-weight: 700; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+                        Text { text: found.heading; color: Theme.secondary; font-size: 13px; font-weight: 600; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
                     }
                     FoundCard {
                         found: found;

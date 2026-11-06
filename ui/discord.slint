@@ -46,7 +46,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
             background: Theme.danger.with-alpha(0.1); border-radius: 8px;
             border-width: 1px; border-color: Theme.danger.with-alpha(0.35);
             warning := HorizontalLayout {
-                padding: 12px; spacing: 10px;
+                padding: 12px; spacing: 12px;
                 VerticalLayout {
                     alignment: start;
                     Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; height: 18px; colorize: Theme.danger; }
@@ -71,7 +71,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
         }
         if root.token-open: VerticalLayout {
             spacing: 8px;
-            Text { text: "TOKEN"; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: "TOKEN"; color: Theme.secondary; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
             HorizontalLayout {
                 spacing: 8px;
                 TextField {
@@ -90,7 +90,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
     if root.phase == 6: Text { text: "Checking the token..."; color: Theme.secondary; font-size: 15px; wrap: word-wrap; }
     if root.phase == 5: VerticalLayout {
         spacing: 8px;
-        Text { text: "Solve the captcha in your browser"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+        Text { text: "Solve the captcha in your browser"; color: Theme.text; font-size: 17px; font-weight: 600; wrap: word-wrap; }
         Text {
             text: "Discord wants to check you're a person before it links your account. Yapfast opened the check in your browser; linking finishes once it's solved.";
             color: Theme.secondary; font-size: 14px; wrap: word-wrap;
@@ -116,14 +116,14 @@ export component DiscordLinkPanel inherits VerticalLayout {
                     alignment: center;
                     Image { source: @image-url("icons/check.svg"); width: 40px; height: 40px; colorize: Theme.live; }
                 }
-                Text { text: "Scanned"; color: Theme.text; font-size: 15px; font-weight: 700; horizontal-alignment: center; }
+                Text { text: "Scanned"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
             }
         }
         VerticalLayout {
             alignment: center; spacing: 8px; horizontal-stretch: 1;
             Text {
                 text: root.phase == 3 ? "Confirm on your phone" : "Scan it with the Discord app";
-                color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap;
+                color: Theme.text; font-size: 17px; font-weight: 600; wrap: word-wrap;
             }
             Text {
                 text: root.phase == 3

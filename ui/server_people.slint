@@ -121,7 +121,7 @@ component RoleChip inherits HorizontalLayout {
     if root.name != "": Rectangle {
         height: 24px; border-radius: 4px; background: Theme.overlay.with-alpha(0.08);
         HorizontalLayout {
-            padding-left: 6px; padding-right: 8px; spacing: 4px;
+            padding-left: 8px; padding-right: 8px; spacing: 4px;
             Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: root.color; } }
             Text { text: root.name; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; }
         }
@@ -154,7 +154,7 @@ export component MembersSection inherits VerticalLayout {
         spacing: 12px;
         Middle {
             horizontal-stretch: 1;
-            Text { text: root.page.searched ? "Search Results" : "Recent Members"; color: Theme.text; font-size: 16px; font-weight: 700; }
+            Text { text: root.page.searched ? "Search Results" : "Recent Members"; color: Theme.text; font-size: 16px; font-weight: 600; }
         }
         TextField {
             width: 190px; horizontal-stretch: 0; text-size: 14px;
@@ -182,7 +182,7 @@ export component MembersSection inherits VerticalLayout {
             { text: "SIGNALS", grow: 1.5 },
         ]: Text {
             visible: column.grow > 0;
-            text: column.text; color: Theme.secondary; font-size: 11px; font-weight: 700; overflow: elide;
+            text: column.text; color: Theme.secondary; font-size: 11px; font-weight: 600; overflow: elide;
             preferred-width: 0px; min-width: 0px; horizontal-stretch: column.grow;
         }
         Rectangle { width: 32px; }
@@ -211,7 +211,7 @@ export component MembersSection inherits VerticalLayout {
             HorizontalLayout {
                 padding-left: 8px; padding-right: 8px; spacing: 8px;
                 HorizontalLayout {
-                    spacing: 10px; horizontal-stretch: 4; preferred-width: 0px; min-width: 0px;
+                    spacing: 12px; horizontal-stretch: 4; preferred-width: 0px; min-width: 0px;
                     Middle { Avatar { size: 32px; initial: member.initial; picture-url: member.avatar-url; } }
                     Middle {
                         horizontal-stretch: 1;
@@ -235,7 +235,7 @@ export component MembersSection inherits VerticalLayout {
                 }
                 Middle { preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; RoleChip { name: member.role; color: member.role-color; more: member.more-roles; } }
                 HorizontalLayout {
-                    preferred-width: 0px; min-width: 0px; horizontal-stretch: 1.5; spacing: 2px; alignment: start;
+                    preferred-width: 0px; min-width: 0px; horizontal-stretch: 1.5; spacing: 4px; alignment: start;
                     if member.unusual-dms: Middle { TipIcon { source: @image-url("icons/message-circle.svg"); colorize: Theme.muted; tip: "Sent excessive DMs to non-friend server members in last 24 hrs"; } }
                     if member.timed-out != "": Middle { TipIcon { source: @image-url("icons/clock.svg"); colorize: Theme.danger; tip: member.timed-out; } }
                     if member.spammer: Middle { TipIcon { source: @image-url("icons/triangle-alert.svg"); colorize: Theme.danger; tip: "Engaged in suspected spam activity"; } }
@@ -333,7 +333,7 @@ export component InvitesSection inherits VerticalLayout {
             { text: "EXPIRES", grow: 2 },
             { text: "ROLES", grow: 2 },
         ]: Text {
-            text: column.text; color: Theme.secondary; font-size: 12px; font-weight: 700;
+            text: column.text; color: Theme.secondary; font-size: 12px; font-weight: 600;
             preferred-width: 0px; min-width: 0px; horizontal-stretch: column.grow;
         }
         Rectangle { width: 32px; }
@@ -348,7 +348,7 @@ export component InvitesSection inherits VerticalLayout {
             HorizontalLayout {
                 padding-left: 8px; padding-right: 8px; spacing: 8px;
                 HorizontalLayout {
-                    spacing: 10px; horizontal-stretch: 4; preferred-width: 0px; min-width: 0px;
+                    spacing: 12px; horizontal-stretch: 4; preferred-width: 0px; min-width: 0px;
                     Middle { Avatar { size: 24px; initial: invite.initial; picture-url: invite.avatar-url; } }
                     Middle {
                         horizontal-stretch: 1;
@@ -401,8 +401,8 @@ export component SecurityActionsDialog inherits Rectangle {
             accessible-role: groupbox; accessible-label: "Security Actions";
             TouchArea { }
             box := VerticalLayout {
-                padding: 16px; spacing: 14px;
-                Text { text: "Security Actions"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                padding: 16px; spacing: 16px;
+                Text { text: "Security Actions"; color: Theme.text; font-size: 20px; font-weight: 600; }
                 VerticalLayout {
                     ComboBox {
                         model: ["1 hour", "2 hours", "4 hours", "6 hours", "12 hours", "24 hours"];

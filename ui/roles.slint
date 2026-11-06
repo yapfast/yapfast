@@ -161,7 +161,7 @@ component RoleListRow inherits Rectangle {
         background: pointer.has-hover ? Theme.overlay.with-alpha(0.05) : transparent;
         pointer := TouchArea { clicked => { root.open(); } }
         HorizontalLayout {
-            padding-left: 4px; padding-right: 8px; spacing: 10px;
+            padding-left: 4px; padding-right: 8px; spacing: 12px;
             // The handle: two columns of three dots.
             handle := Rectangle {
                 width: 20px;
@@ -216,7 +216,7 @@ component RoleListRow inherits Rectangle {
                     if root.role.badge != "": Middle {
                         Rectangle {
                             height: 16px; width: badge.preferred-width + 8px; border-radius: 3px; background: Theme.accent;
-                            badge := Text { text: root.role.badge; color: #ffffff; font-size: 10px; font-weight: 700; }
+                            badge := Text { text: root.role.badge; color: #ffffff; font-size: 10px; font-weight: 600; }
                         }
                     }
                 }
@@ -251,7 +251,7 @@ component RoleListRow inherits Rectangle {
         Rectangle {
             background: Theme.raised; border-radius: 6px; drop-shadow-blur: 12px; drop-shadow-color: #00000066;
             VerticalLayout {
-                padding: 6px; spacing: 2px;
+                padding: 8px; spacing: 4px;
                 for item[index] in [
                     { text: "Move Up", danger: false, enabled: root.may-drag && !root.role.locked && root.role.index > root.first-movable },
                     { text: "Move Down", danger: false, enabled: root.may-drag && !root.role.locked && root.role.index < root.count - 1 },
@@ -305,12 +305,12 @@ component RoleMemberLine inherits Rectangle {
     callback remove;
     height: 44px;
     HorizontalLayout {
-        spacing: 10px; padding-right: 4px;
+        spacing: 12px; padding-right: 4px;
         Middle { Avatar { size: 32px; initial: root.member.initial; picture-url: root.member.avatar-url; } }
         Middle {
             horizontal-stretch: 1;
             HorizontalLayout {
-                spacing: 6px; alignment: start;
+                spacing: 8px; alignment: start;
                 Text { text: root.member.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                 Text { text: root.member.username; color: Theme.muted; font-size: 14px; overflow: elide; }
             }
@@ -375,7 +375,7 @@ export component RolesSection inherits VerticalLayout {
                 Middle {
                     horizontal-stretch: 1;
                     VerticalLayout {
-                        spacing: 2px;
+                        spacing: 4px;
                         Text { text: "Default Permissions"; color: Theme.text; font-size: 15px; font-weight: 600; }
                         Text { text: root.page.everyone-name + " • applies to all server members"; color: Theme.secondary; font-size: 13px; }
                     }
@@ -398,7 +398,7 @@ export component RolesSection inherits VerticalLayout {
         VerticalLayout {
             spacing: 0px;
             HorizontalLayout {
-                padding-left: 4px; padding-right: 8px; padding-bottom: 6px; spacing: 10px;
+                padding-left: 4px; padding-right: 8px; padding-bottom: 8px; spacing: 12px;
                 Rectangle { width: 20px; }
                 SettingsHeading { text: root.page.heading; horizontal-stretch: 1; }
                 SettingsHeading { text: "MEMBERS"; width: 80px + 32px + 32px + 20px; }
@@ -457,7 +457,7 @@ export component RolesSection inherits VerticalLayout {
                 SettingsHeading { text: "ROLE COLOR"; }
                 Label { text: "Members use the color of the highest role they have on the roles list."; }
                 HorizontalLayout {
-                    spacing: 10px; alignment: start;
+                    spacing: 12px; alignment: start;
                     // Discord's default, then its colours in two rows.
                     Rectangle {
                         width: 66px; height: 50px; border-radius: 4px; background: #99aab5;
@@ -466,9 +466,9 @@ export component RolesSection inherits VerticalLayout {
                         TouchArea { enabled: root.editable; clicked => { root.color(-1); } }
                     }
                     VerticalLayout {
-                        spacing: 10px;
+                        spacing: 12px;
                         HorizontalLayout {
-                            spacing: 10px;
+                            spacing: 12px;
                             for swatch[index] in root.page.bright: Rectangle {
                                 width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
                                 accessible-role: button; accessible-label: "Color " + (index + 1);
@@ -477,7 +477,7 @@ export component RolesSection inherits VerticalLayout {
                             }
                         }
                         HorizontalLayout {
-                            spacing: 10px;
+                            spacing: 12px;
                             for swatch[index] in root.page.dark: Rectangle {
                                 width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
                                 accessible-role: button; accessible-label: "Color " + (index + 11);
@@ -597,7 +597,7 @@ export component RolesSection inherits VerticalLayout {
             ListView {
                 vertical-stretch: 1; min-height: 120px;
                 for row in root.page.permissions: VerticalLayout {
-                    spacing: 6px; padding-right: 12px; padding-top: row.heading ? 16px : 4px; padding-bottom: row.heading ? 8px : 0px;
+                    spacing: 8px; padding-right: 12px; padding-top: row.heading ? 16px : 4px; padding-bottom: row.heading ? 8px : 0px;
                     if row.heading: SettingsHeading { text: row.title; }
                     if !row.heading: VerticalLayout {
                         spacing: 4px; padding-bottom: 12px;
@@ -607,7 +607,7 @@ export component RolesSection inherits VerticalLayout {
                             locked-tip: root.page.locked ? root.page.notice : row.lock-text;
                             toggled => { root.permission(row.bit); }
                         }
-                        if row.warning != "": Text { text: row.warning; color: Theme.text; font-size: 14px; font-weight: 700; wrap: word-wrap; }
+                        if row.warning != "": Text { text: row.warning; color: Theme.text; font-size: 14px; font-weight: 600; wrap: word-wrap; }
                         Rectangle { height: 1px; background: Theme.line; }
                     }
                 }
@@ -661,7 +661,7 @@ export component RoleConfirmDialog inherits Rectangle {
                 padding: 16px; spacing: 12px;
                 Text {
                     text: root.page.confirm == 1 ? "Delete Role" : "Remove member";
-                    color: Theme.text; font-size: 20px; font-weight: 700;
+                    color: Theme.text; font-size: 20px; font-weight: 600;
                 }
                 Text {
                     text: root.page.confirm == 1
@@ -705,7 +705,7 @@ export component AddMembersDialog inherits Rectangle {
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: "Add members"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Add members"; color: Theme.text; font-size: 20px; font-weight: 600; }
                 Text { text: "Select up to 30 members to add to role " + root.role-name; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                 field := TextField {
                     placeholder: "Search members"; label: "Search members"; text-size: 14px;
@@ -723,7 +723,7 @@ export component AddMembersDialog inherits Rectangle {
                             accessible-role: checkbox; accessible-label: member.name; accessible-checked: member.chosen;
                             area := TouchArea { clicked => { root.pick(member.id); } }
                             HorizontalLayout {
-                                padding-left: 6px; padding-right: 6px; spacing: 10px;
+                                padding-left: 8px; padding-right: 8px; spacing: 12px;
                                 Middle {
                                     Rectangle {
                                         width: 18px; height: 18px; border-radius: 4px;
@@ -736,7 +736,7 @@ export component AddMembersDialog inherits Rectangle {
                                 Middle {
                                     horizontal-stretch: 1;
                                     HorizontalLayout {
-                                        spacing: 6px; alignment: start;
+                                        spacing: 8px; alignment: start;
                                         Text { text: member.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                                         Text { text: member.username; color: Theme.muted; font-size: 14px; overflow: elide; }
                                     }

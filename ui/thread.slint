@@ -152,9 +152,9 @@ export component ThreadPanel inherits Rectangle {
         Rectangle {
             height: 48px;
             HorizontalLayout {
-                padding-left: 16px; padding-right: 10px; spacing: 8px;
+                padding-left: 16px; padding-right: 12px; spacing: 8px;
                 Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
-                Text { text: root.name; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Text { text: root.name; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 Middle {
                     IconButton {
                         icon: @image-url("icons/ellipsis.svg"); label: "More"; size: 28px; glyph: 18px; tip-side: 2;
@@ -201,7 +201,7 @@ export component ThreadPanel inherits Rectangle {
                             }
                         }
                         col := VerticalLayout {
-                            padding-top: message.day != "" ? 12px : message.first ? 14px : 1px;
+                            padding-top: message.day != "" ? 12px : message.first ? 16px : 1px;
                             padding-bottom: index == root.messages.length - 1 ? 20px : 1px;
                             spacing: 0px;
                             if index == 0: HistoryEdge {
@@ -210,9 +210,9 @@ export component ThreadPanel inherits Rectangle {
                                 earlier => { root.earlier(); }
                             }
                             if message.day != "": HorizontalLayout {
-                                padding-left: 16px; padding-right: 16px; padding-bottom: 6px; spacing: 10px; height: 26px;
+                                padding-left: 16px; padding-right: 16px; padding-bottom: 8px; spacing: 12px; height: 26px;
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
-                                Text { text: message.day; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
+                                Text { text: message.day; color: Theme.muted; font-size: 13px; font-weight: 600; vertical-alignment: center; }
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
                             }
                             MessageContent {
@@ -250,10 +250,10 @@ export component ThreadPanel inherits Rectangle {
                         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                         drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
                         actions := HorizontalLayout {
-                            padding: 3px; spacing: 0px;
+                            padding: 4px; spacing: 0px;
                             if root.confirm-delete == message.item: HorizontalLayout {
                                 spacing: 4px; padding-left: 8px;
-                                Text { text: "Delete for everyone?"; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                                Text { text: "Delete for everyone?"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
                                 ActionButton { text: "Delete"; danger: true; small: true; clicked => { root.confirm-delete-message(); } }
                                 ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { root.cancel-delete(); } }
                             }
@@ -298,7 +298,7 @@ export component ThreadPanel inherits Rectangle {
                 height: 36px; background: Theme.sidebar;
                 border-top-left-radius: 10px; border-top-right-radius: 10px;
                 HorizontalLayout {
-                    padding-left: 14px; padding-right: 4px; spacing: 8px;
+                    padding-left: 16px; padding-right: 4px; spacing: 8px;
                     Image { source: root.is-editing ? @image-url("icons/pencil.svg") : @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                     if !root.is-editing: VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
@@ -318,7 +318,7 @@ export component ThreadPanel inherits Rectangle {
                         height: 152px;
                         content-width: max(self.width, staged-row.preferred-width);
                         staged-row := HorizontalLayout {
-                            padding: 10px; padding-bottom: 2px; spacing: 8px; alignment: LayoutAlignment.start;
+                            padding: 12px; padding-bottom: 4px; spacing: 8px; alignment: LayoutAlignment.start;
                             for file[index] in root.staged: StagedTile {
                                 file: file; can-spoil: root.can-mark-spoilers;
                                 remove => { root.unstage(index); }
@@ -327,7 +327,7 @@ export component ThreadPanel inherits Rectangle {
                         }
                     }
                     HorizontalLayout {
-                        padding-left: 8px; padding-right: 8px; spacing: 6px;
+                        padding-left: 8px; padding-right: 8px; spacing: 8px;
                         VerticalLayout {
                             alignment: end; padding-bottom: 8px;
                             IconButton {
@@ -426,9 +426,9 @@ export component NewThreadPanel inherits Rectangle {
         Rectangle {
             height: 48px;
             HorizontalLayout {
-                padding-left: 16px; padding-right: 10px; spacing: 10px;
+                padding-left: 16px; padding-right: 12px; spacing: 12px;
                 Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
-                Text { text: "New Thread"; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Text { text: "New Thread"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
@@ -444,7 +444,7 @@ export component NewThreadPanel inherits Rectangle {
                 spacing: 8px;
                 Text {
                     text: root.from-message ? "THREAD NAME (OPTIONAL)" : "THREAD NAME";
-                    color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+                    color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
                 }
                 name-field := TextField {
                     text <=> root.name; placeholder: root.name-placeholder; label: "Thread Name";
@@ -468,7 +468,7 @@ export component NewThreadPanel inherits Rectangle {
             Rectangle {
                 min-height: 48px; background: Theme.field; border-radius: 10px;
                 HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; spacing: 6px;
+                    padding-left: 8px; padding-right: 8px; spacing: 8px;
                     composer := Composer {
                         text <=> root.body; enabled: !root.starting; label: "First message";
                         placeholder: "Enter a message to start the conversation!";
@@ -500,11 +500,11 @@ export component NewThreadPanel inherits Rectangle {
             height: ask.preferred-height;
             background: Theme.sidebar; border-radius: 10px; border-width: 1px; border-color: Theme.edge;
             ask := VerticalLayout {
-                padding: 16px; spacing: 10px;
-                Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                padding: 16px; spacing: 12px;
+                Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 600; wrap: word-wrap; }
                 Text { text: "Any changes you made will be lost if you exit now."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
-                    alignment: end; spacing: 8px; padding-top: 6px;
+                    alignment: end; spacing: 8px; padding-top: 8px;
                     ActionButton { text: "Back to editing"; ghost: true; clicked => { root.stay(); } }
                     ActionButton { text: "Exit"; danger: true; clicked => { root.leave(); } }
                 }

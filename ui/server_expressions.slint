@@ -102,7 +102,7 @@ export component EmojiSection inherits VerticalLayout {
     }
     if root.page.rows.length == 0: VerticalLayout {
         alignment: center; vertical-stretch: 1; spacing: 8px;
-        Text { text: "No Emoji"; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: "No Emoji"; color: Theme.text; font-size: 17px; font-weight: 600; horizontal-alignment: center; }
         Text { text: "Get the party started by uploading an emoji"; color: Theme.secondary; font-size: 15px; horizontal-alignment: center; }
     }
     if root.page.rows.length > 0: ListView {
@@ -115,18 +115,18 @@ export component EmojiSection inherits VerticalLayout {
             if row.heading != "": VerticalLayout {
                 padding-top: 16px; padding-left: 8px; padding-right: 8px; spacing: 8px;
                 HorizontalLayout {
-                    spacing: 6px; alignment: start;
-                    Text { text: row.heading; color: Theme.text; font-size: 16px; font-weight: 700; }
+                    spacing: 8px; alignment: start;
+                    Text { text: row.heading; color: Theme.text; font-size: 16px; font-weight: 600; }
                     Text { text: "– " + row.slots; color: Theme.secondary; font-size: 16px; }
                 }
                 HorizontalLayout {
                     spacing: 16px;
-                    Text { width: 48px; text: "IMAGE"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                    Text { width: 48px; text: "IMAGE"; color: Theme.secondary; font-size: 12px; font-weight: 600; }
                     HorizontalLayout {
                         preferred-width: 0px; min-width: 0px; horizontal-stretch: 1; padding-left: 8px;
-                        Text { text: "NAME"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                        Text { text: "NAME"; color: Theme.secondary; font-size: 12px; font-weight: 600; }
                     }
-                    Text { preferred-width: 0px; min-width: 0px; horizontal-stretch: 1; text: "UPLOADED BY"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                    Text { preferred-width: 0px; min-width: 0px; horizontal-stretch: 1; text: "UPLOADED BY"; color: Theme.secondary; font-size: 12px; font-weight: 600; }
                     Rectangle { width: 32px; }
                 }
             }
@@ -192,8 +192,8 @@ export component EmojiUploadDialog inherits Rectangle {
             accessible-role: groupbox; accessible-label: "Upload Emoji";
             TouchArea { }
             box := VerticalLayout {
-                padding: 16px; spacing: 14px;
-                Text { text: "Upload Emoji"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                padding: 16px; spacing: 16px;
+                Text { text: "Upload Emoji"; color: Theme.text; font-size: 20px; font-weight: 600; }
                 Rectangle {
                     height: 144px; border-radius: 8px; background: Theme.sunken;
                     HorizontalLayout {
@@ -204,7 +204,7 @@ export component EmojiUploadDialog inherits Rectangle {
                     }
                 }
                 VerticalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     SettingsHeading { text: "NAME"; }
                     name := TextField {
                         text: root.page.name; label: "Emoji name"; enabled: !root.page.saving;
@@ -239,14 +239,14 @@ component StickerTileView inherits Rectangle {
     accessible-role: groupbox; accessible-label: root.tile.name;
     hover := TouchArea { }
     VerticalLayout {
-        padding: 10px; spacing: 6px;
+        padding: 12px; spacing: 8px;
         HorizontalLayout { alignment: center; UrlPicture { width: 80px; height: 80px; url: root.tile.picture-url; accessible-role: image; accessible-label: root.tile.name; } }
         Text { text: root.tile.name; color: Theme.text; font-size: 14px; font-weight: 600; horizontal-alignment: center; overflow: elide; }
         Text { text: root.tile.uploader; color: Theme.secondary; font-size: 12px; horizontal-alignment: center; overflow: elide; }
     }
     if root.tile.may-change: HorizontalLayout {
         x: parent.width - self.preferred-width - 4px; y: 4px; width: self.preferred-width; height: 28px;
-        spacing: 2px;
+        spacing: 4px;
         opacity: hover.has-hover || edit.hovered || delete.hovered ? 1 : 0;
         edit := IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; size: 28px; glyph: 16px; fill: Theme.raised; clicked => { root.edit(); } }
         delete := IconButton { icon: @image-url("icons/x.svg"); label: "Delete"; size: 28px; glyph: 16px; danger: true; fill: Theme.raised; clicked => { root.delete(); } }
@@ -272,7 +272,7 @@ export component StickersSection inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 8px;
                 if !card.unlocked: Middle { Image { source: @image-url("icons/lock.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
-                Text { text: card.title; color: Theme.text; font-size: 16px; font-weight: 700; vertical-alignment: center; }
+                Text { text: card.title; color: Theme.text; font-size: 16px; font-weight: 600; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
                 Text { text: card.status; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
             }
@@ -337,8 +337,8 @@ export component StickerDialog inherits Rectangle {
             accessible-role: groupbox; accessible-label: "Upload Sticker";
             TouchArea { }
             box := VerticalLayout {
-                padding: 16px; spacing: 14px;
-                Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                padding: 16px; spacing: 16px;
+                Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: 20px; font-weight: 600; }
                 Rectangle {
                     height: 180px; border-radius: 8px; background: Theme.sunken;
                     if root.page.preview-url != "": UrlPicture { width: 160px; height: 160px; url: root.page.preview-url; accessible-role: image; accessible-label: "Preview"; }
@@ -347,7 +347,7 @@ export component StickerDialog inherits Rectangle {
                 }
                 // An edit can't change the file.
                 if !root.page.editing: VerticalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     SettingsHeading { text: "FILE"; }
                     HorizontalLayout {
                         spacing: 8px;
@@ -362,7 +362,7 @@ export component StickerDialog inherits Rectangle {
                     }
                 }
                 VerticalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     SettingsHeading { text: "RELATED EMOJI"; }
                     tags := TextField {
                         text: root.page.tags; label: "Related Emoji"; placeholder: "Type or paste an emoji"; enabled: !root.page.saving;
@@ -371,7 +371,7 @@ export component StickerDialog inherits Rectangle {
                     }
                 }
                 VerticalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     SettingsHeading { text: "STICKER NAME"; }
                     name := TextField {
                         text: root.page.name; label: "Sticker Name"; placeholder: "e.g.: cat hug"; enabled: !root.page.saving;
@@ -380,7 +380,7 @@ export component StickerDialog inherits Rectangle {
                     }
                 }
                 VerticalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     SettingsHeading { text: "DESCRIPTION"; }
                     description := TextField {
                         text: root.page.description; label: "Description"; enabled: !root.page.saving;

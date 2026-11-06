@@ -60,7 +60,7 @@ export component StatusDialog inherits Rectangle {
             status-content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Set a custom status"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: "Set a custom status"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-status(); } }
                 }
                 HorizontalLayout {
@@ -101,7 +101,7 @@ export component StatusDialog inherits Rectangle {
                         accepted => { root.save-status(); }
                     }
                 }
-                Text { text: "CLEAR AFTER"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                Text { text: "CLEAR AFTER"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
                 Choices {
                     label: "Clear after"; options: ["Never", "30 min", "1 hour", "4 hours", "Today"];
                     current <=> root.status-clear-after;
@@ -158,7 +158,7 @@ export component NewDmDialog inherits Rectangle {
             VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "New message"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: "New message"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-new-dm(); } }
                 }
                 TextField {
@@ -170,7 +170,7 @@ export component NewDmDialog inherits Rectangle {
                 ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
-                        spacing: 2px; alignment: start;
+                        spacing: 4px; alignment: start;
                         for person[index] in root.new-dm-people: Rectangle {
                             height: 48px; border-radius: 6px;
                             background: person-touch.has-hover && !root.new-dm-starting ? Theme.hover : transparent;
@@ -254,8 +254,8 @@ export component ForwardDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     VerticalLayout {
-                        spacing: 2px; horizontal-stretch: 1;
-                        Text { text: "Forward To"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                        spacing: 4px; horizontal-stretch: 1;
+                        Text { text: "Forward To"; color: Theme.text; font-size: 18px; font-weight: 600; }
                         Text {
                             text: root.forward-chosen < root.forward-limit ? "Select where you want to share this message." : "Maximum " + root.forward-limit + " places at once.";
                             color: Theme.secondary; font-size: 14px; overflow: elide;
@@ -272,7 +272,7 @@ export component ForwardDialog inherits Rectangle {
                 ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
-                        spacing: 2px; alignment: start;
+                        spacing: 4px; alignment: start;
                         for target in root.forward-targets: Rectangle {
                             property <bool> can-choose: target.chosen || root.forward-chosen < root.forward-limit;
                             height: 48px; border-radius: 6px;
@@ -318,7 +318,7 @@ export component ForwardDialog inherits Rectangle {
                 }
                 // The message, as a quote.
                 HorizontalLayout {
-                    spacing: 10px;
+                    spacing: 12px;
                     Rectangle { width: 3px; border-radius: 1.5px; background: Theme.line; }
                     Text { text: root.forward-preview; color: Theme.secondary; font-size: 15px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
                 }
@@ -412,7 +412,7 @@ export component QuickSwitcher inherits Rectangle {
                     }
                 }
                 if root.switcher-query == "" && root.switcher-places.length > 0: Text {
-                    text: "PREVIOUS CHANNELS"; color: Theme.muted; font-size: 12px; font-weight: 700;
+                    text: "PREVIOUS CHANNELS"; color: Theme.muted; font-size: 12px; font-weight: 600;
                 }
                 list := ScrollView {
                     vertical-stretch: 1;
@@ -430,7 +430,7 @@ export component QuickSwitcher inherits Rectangle {
                                 clicked => { root.switch-to(place.id); }
                             }
                             HorizontalLayout {
-                                padding-left: 8px; padding-right: 8px; spacing: 10px;
+                                padding-left: 8px; padding-right: 8px; spacing: 12px;
                                 if place.avatar: Middle { Avatar { size: 24px; initial: place.initial; tint: place.tint; picture-url: place.picture-url; } }
                                 if !place.avatar: Middle {
                                     Image { source: place.icon; width: 20px; height: 20px; colorize: Theme.faint; }
@@ -438,7 +438,7 @@ export component QuickSwitcher inherits Rectangle {
                                 Text {
                                     text: place.name; vertical-alignment: center; overflow: elide;
                                     color: place.unread || index == root.current ? Theme.text : Theme.secondary;
-                                    font-size: 16px; font-weight: place.unread ? 700 : 500;
+                                    font-size: 16px; font-weight: place.unread ? 600 : 500;
                                 }
                                 Text {
                                     text: place.place; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
@@ -447,7 +447,7 @@ export component QuickSwitcher inherits Rectangle {
                                 if place.badge != "": Middle {
                                     Rectangle {
                                         width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
-                                        badge-text := Text { text: place.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
+                                        badge-text := Text { text: place.badge; color: Theme.on-danger; font-size: 11px; font-weight: 600; }
                                     }
                                 }
                             }
@@ -495,9 +495,9 @@ export component LeavingDialog inherits Rectangle {
             }
             content := VerticalLayout {
                 padding: 20px; spacing: 12px;
-                Text { text: "Leaving Yapfast"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                Text { text: "Leaving Yapfast"; color: Theme.text; font-size: 18px; font-weight: 600; }
                 Text { text: "This link goes to"; color: Theme.secondary; font-size: 15px; }
-                Text { text: root.site; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                Text { text: root.site; color: Theme.text; font-size: 17px; font-weight: 600; wrap: word-wrap; }
                 Rectangle {
                     background: Theme.sunken; border-radius: 6px;
                     height: link-text.preferred-height + 16px;
@@ -536,7 +536,7 @@ component StatusOption inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     content := HorizontalLayout {
-        padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 10px;
+        padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 8px; spacing: 12px;
         Middle {
             StatusDot {
                 presence: root.key == "invisible" ? "offline" : root.key;
@@ -544,9 +544,9 @@ component StatusOption inherits Rectangle {
             }
         }
         VerticalLayout {
-            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            alignment: center; spacing: 4px; horizontal-stretch: 1;
             Text {
-                text: root.name; font-size: 15px; font-weight: root.checked ? 700 : 400;
+                text: root.name; font-size: 15px; font-weight: root.checked ? 600 : 400;
                 color: root.checked || pointer.has-hover ? Theme.text : Theme.secondary;
             }
             if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
@@ -584,10 +584,10 @@ export component StatusMenu inherits Rectangle {
     accessible-role: groupbox;
     accessible-label: "Status";
     VerticalLayout {
-        padding: 6px; spacing: 2px;
+        padding: 8px; spacing: 4px;
         if root.game-name != "": VerticalLayout {
-            padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 6px; spacing: 2px;
-            Text { text: root.game-name; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
+            padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 8px; spacing: 4px;
+            Text { text: root.game-name; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
             Text { text: root.game-duration == "" ? "Playing now" : "Playing for " + root.game-duration; color: Theme.secondary; font-size: 12px; }
             Rectangle { height: 1px; background: Theme.line; }
             Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
@@ -670,15 +670,15 @@ export component PersonDialog inherits Rectangle {
             person-content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.text != "": Label { text: root.prompt.text; }
                 if root.prompt.options.length > 0: VerticalLayout {
-                    spacing: 2px;
+                    spacing: 4px;
                     Text {
                         text: root.prompt.options-heading; color: Theme.muted;
-                        font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+                        font-size: 12px; font-weight: 600; letter-spacing: 0.6px;
                     }
                     for option[index] in root.prompt.options: MenuItem {
                         text: option; checked: index == root.prompt.chosen;
@@ -763,7 +763,7 @@ export component ReactionsDialog inherits Rectangle {
                 padding-top: 16px; spacing: 0px;
                 HorizontalLayout {
                     padding-left: 24px; padding-right: 16px; padding-bottom: 12px;
-                    Text { text: root.voters ? "Votes" : "Reactions"; color: Theme.text; font-size: 20px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: root.voters ? "Votes" : "Reactions"; color: Theme.text; font-size: 20px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-reactions(); } }
                 }
                 Rectangle { height: 1px; background: Theme.line; }
@@ -790,7 +790,7 @@ export component ReactionsDialog inherits Rectangle {
                                             padding-left: 4px; padding-right: 8px; spacing: 8px;
                                             if !root.voters || pill.label != "": Text { text: pill.label; font-family: root.emoji-font; font-size: 20px; width: 24px; horizontal-alignment: center; vertical-alignment: center; }
                                             if root.voters: Text { text: pill.name; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                                            Text { text: pill.count; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                                            Text { text: pill.count; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
                                         }
                                         pill-touch := TouchArea {
                                             mouse-cursor: MouseCursor.pointer;
@@ -814,7 +814,7 @@ export component ReactionsDialog inherits Rectangle {
                                 // Holds the row, its X button among it, so it stays hovered over that.
                                 person-touch := TouchArea {
                                     HorizontalLayout {
-                                        padding-left: 16px; padding-right: 16px; spacing: 10px;
+                                        padding-left: 16px; padding-right: 16px; spacing: 12px;
                                         Middle { Avatar { size: 32px; initial: person.initial; tint: person.tint; picture-url: person.avatar; } }
                                         VerticalLayout {
                                             alignment: center; horizontal-stretch: 1;
@@ -909,7 +909,7 @@ export component PollDialog inherits Rectangle {
                 padding: 20px; spacing: 0px;
                 head := HorizontalLayout {
                     padding-bottom: 12px;
-                    Text { text: "Create a Poll"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: "Create a Poll"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
@@ -917,7 +917,7 @@ export component PollDialog inherits Rectangle {
                     form := VerticalLayout {
                         spacing: 8px; alignment: start;
                         HorizontalLayout {
-                            Text { text: "QUESTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; horizontal-stretch: 1; }
+                            Text { text: "QUESTION"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; horizontal-stretch: 1; }
                             Text { text: root.question-count; color: Theme.muted; font-size: 12px; }
                         }
                         TextField {
@@ -926,7 +926,7 @@ export component PollDialog inherits Rectangle {
                             placeholder: "What question do you want to ask?"; label: "Question"; text <=> root.question;
                             edited(text) => { root.question-edited(text); }
                         }
-                        Text { text: "ANSWERS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                        Text { text: "ANSWERS"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
                         for answer[index] in root.answers: HorizontalLayout {
                             spacing: 8px;
                             Rectangle {
@@ -978,7 +978,7 @@ export component PollDialog inherits Rectangle {
                                 clicked => { root.add-answer(); }
                             }
                         }
-                        Text { text: "DURATION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                        Text { text: "DURATION"; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
                         Choices {
                             label: "Duration"; options: ["1 hour", "4 hours", "8 hours", "1 day", "3 days", "1 week", "2 weeks"];
                             max-width: 460px; current: root.duration;
@@ -991,7 +991,7 @@ export component PollDialog inherits Rectangle {
                             accessible-label: "Allow Multiple Answers";
                             accessible-action-default => { root.set-multiselect(!root.multiselect); }
                             HorizontalLayout {
-                                spacing: 10px; padding-top: 4px;
+                                spacing: 12px; padding-top: 4px;
                                 Middle {
                                     Rectangle {
                                         width: 20px; height: 20px; border-radius: 5px;

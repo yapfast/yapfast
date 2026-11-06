@@ -61,7 +61,7 @@ component BrowseItem inherits Rectangle {
             Image { source: root.channel.icon; width: 20px; height: 20px; image-fit: contain; colorize: Theme.muted; }
         }
         VerticalLayout {
-            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            alignment: center; spacing: 4px; horizontal-stretch: 1;
             Text {
                 text: root.channel.name; font-size: 15px; font-weight: 600; overflow: elide;
                 color: root.channel.by-category ? Theme.muted : Theme.text;
@@ -120,11 +120,11 @@ export component BrowseScreen inherits Rectangle {
             vertical-stretch: 1;
             for row[index] in root.rows: VerticalLayout {
                 padding-top: row.category && index > 0 ? 16px : 0px;
-                padding-bottom: index == root.rows.length - 1 ? 16px : 2px;
+                padding-bottom: index == root.rows.length - 1 ? 16px : 4px;
                 if row.category: HorizontalLayout {
                     padding-left: 12px; padding-right: 12px; height: 44px; spacing: 12px;
                     Text {
-                        text: row.name; font-size: 17px; font-weight: 700; color: Theme.text;
+                        text: row.name; font-size: 17px; font-weight: 600; color: Theme.text;
                         vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                         accessible-role: text;
                     }

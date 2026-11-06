@@ -47,7 +47,7 @@ component RequestMessage inherits Rectangle {
         background: Theme.accent;
     }
     content := HorizontalLayout {
-        padding: 10px; padding-left: 12px; spacing: 10px;
+        padding: 12px; padding-left: 12px; spacing: 12px;
         Image {
             source: @image-url("icons/message-circle.svg"); width: 16px; height: 16px; y: 12px;
             colorize: root.unread ? Theme.accent : Theme.muted;
@@ -61,10 +61,10 @@ component RequestMessage inherits Rectangle {
         VerticalLayout {
             alignment: start; spacing: 4px;
             HorizontalLayout {
-                spacing: 6px; alignment: end;
+                spacing: 8px; alignment: end;
                 if root.unread: Rectangle {
                     width: new-text.preferred-width + 10px; height: 16px; y: 2px; border-radius: 4px; background: Theme.accent;
-                    new-text := Text { text: "New"; color: Theme.on-accent; font-size: 11px; font-weight: 700; }
+                    new-text := Text { text: "New"; color: Theme.on-accent; font-size: 11px; font-weight: 600; }
                 }
                 if root.time != "": Text { text: root.time; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Image {
@@ -98,7 +98,7 @@ export component RequestItem inherits Rectangle {
     accessible-label: root.request.name + ", " + root.about;
     pointer := TouchArea { }
     layout := HorizontalLayout {
-        padding: 10px; spacing: 12px;
+        padding: 12px; spacing: 12px;
         VerticalLayout {
             alignment: start;
             Avatar {
@@ -114,7 +114,7 @@ export component RequestItem inherits Rectangle {
                     alignment: center; spacing: 1px; horizontal-stretch: 1;
                     Text {
                         text: root.request.name; color: Theme.text; font-size: 16px;
-                        font-weight: root.request.unread || root.request.friend == 1 ? 700 : 500; overflow: elide;
+                        font-weight: root.request.unread || root.request.friend == 1 ? 600 : 500; overflow: elide;
                     }
                     Text { text: root.about; color: root.spam ? Theme.loud : Theme.muted; font-size: 13px; overflow: elide; }
                 }
@@ -145,7 +145,7 @@ export component RequestItem inherits Rectangle {
 export component RequestsHeading inherits HorizontalLayout {
     in property <string> text;
     padding-left: 8px; height: 36px;
-    Text { text: root.text; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center; }
+    Text { text: root.text; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; vertical-alignment: center; }
 }
 
 export struct FriendRow {
@@ -191,7 +191,7 @@ export component FriendItem inherits Rectangle {
         // The row's contents sit in its pointer area, so the buttons in
         // them take their own clicks while the row stays hovered.
         HorizontalLayout {
-            padding-left: 10px; padding-right: 10px; spacing: 12px;
+            padding-left: 12px; padding-right: 12px; spacing: 12px;
             Middle {
                 Rectangle {
                     width: 32px; height: 32px;
@@ -201,7 +201,7 @@ export component FriendItem inherits Rectangle {
             }
             VerticalLayout {
                 alignment: center; spacing: 1px; horizontal-stretch: 1;
-                Text { text: root.friend.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                Text { text: root.friend.name; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
                 // The voice channel they're in, as in Discord's Active Now: in
                 // full in place of "Online", or as a speaker before their status.
                 if root.in-voice && !root.has-activity: HorizontalLayout {
@@ -247,7 +247,7 @@ export component FriendsScreen inherits Rectangle {
     /// A friend's menu was asked for: their id, and where in the window.
     callback open-friend-menu(string, length, length);
     if root.total == 0: VerticalLayout {
-        padding: 32px; spacing: 10px; alignment: center;
+        padding: 32px; spacing: 12px; alignment: center;
         HorizontalLayout {
             alignment: center;
             Rectangle {
@@ -255,7 +255,7 @@ export component FriendsScreen inherits Rectangle {
                 Image { source: @image-url("icons/users.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
             }
         }
-        Text { text: "No friends yet"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: "No friends yet"; color: Theme.text; font-size: 22px; font-weight: 600; horizontal-alignment: center; }
         Text { text: "Add someone with their Discord username."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
         HorizontalLayout {
             alignment: center;
@@ -334,7 +334,7 @@ export component RequestsScreen inherits Rectangle {
     property <bool> empty: root.incoming.length == 0 && root.sent.length == 0 && root.spam.length == 0;
     property <bool> spam-open;
     if root.empty: VerticalLayout {
-        padding: 32px; spacing: 10px; alignment: center;
+        padding: 32px; spacing: 12px; alignment: center;
         HorizontalLayout {
             alignment: center;
             Rectangle {
@@ -342,12 +342,12 @@ export component RequestsScreen inherits Rectangle {
                 Image { source: @image-url("icons/inbox.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
             }
         }
-        Text { text: "No requests"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: "No requests"; color: Theme.text; font-size: 22px; font-weight: 600; horizontal-alignment: center; }
         Text { text: "Friend requests and messages from people you don't know show up here."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
     }
     if !root.empty: ScrollView {
         VerticalLayout {
-            padding: 16px; padding-top: 8px; spacing: 2px; alignment: start;
+            padding: 16px; padding-top: 8px; spacing: 4px; alignment: start;
             if root.incoming.length > 0: RequestsHeading { text: "REQUESTS — " + root.incoming.length; }
             for request in root.incoming: RequestItem {
                 request: request;
@@ -371,7 +371,7 @@ export component RequestsScreen inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 8px; spacing: 4px; alignment: start;
                     Text {
-                        text: "SPAM — " + root.spam.length; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center;
+                        text: "SPAM — " + root.spam.length; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; vertical-alignment: center;
                         color: spam-touch.has-hover ? Theme.secondary : Theme.muted;
                     }
                     Image {
@@ -383,7 +383,7 @@ export component RequestsScreen inherits Rectangle {
                 }
             }
             if root.spam-open: VerticalLayout {
-                spacing: 2px;
+                spacing: 4px;
                 for request in root.spam: RequestItem {
                     request: request; spam: true;
                     accept => { root.accept(request.id); }
@@ -424,7 +424,7 @@ export component AddFriendDialog inherits Rectangle {
             add-friend-content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Add a friend"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: "Add a friend"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-add-friend(); } }
                 }
                 Label { text: "Send someone a friend request on Discord with their username."; }
