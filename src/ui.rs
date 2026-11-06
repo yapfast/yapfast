@@ -1643,7 +1643,7 @@ struct Adapter {
     /// Where the `@` of the word being mentioned is in the composer text.
     mention_at: Option<usize>,
     /// What the composer's mentions were last coloured for.
-    mentions_marked: Option<refresh::MentionsMarked>,
+    mentions_marked: [Option<refresh::MentionsMarked>; i_slint_core::yapfast_marks::SLOTS],
     /// Suggestions for the `@` here were closed with Escape; they stay closed until
     /// the cursor leaves the word.
     mention_dismissed: Option<usize>,
@@ -1886,7 +1886,7 @@ impl Adapter {
                 aside_rows: Vec::new(),
                 aside_restyle: false,
                 mention_at: None,
-                mentions_marked: None,
+                mentions_marked: [None, None],
                 mention_dismissed: None,
                 emoji_word: None,
                 emoji_dismissed: None,

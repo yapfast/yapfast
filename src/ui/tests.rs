@@ -405,6 +405,9 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
     window.invoke_mention_chosen(0);
     assert_eq!(adapter.borrow().app.state.aside_draft(), "hey @Carol ");
     assert_eq!(adapter.borrow().app.state.draft(), "");
+    // It's marked as the channel's composer marks its own.
+    let marks = i_slint_core::yapfast_marks::marks_of("hey @Carol ").expect("marked");
+    assert_eq!(marks[0].0, 4..10);
     // `:name` too.
     window.invoke_aside_composer_caret("hey @Carol :pizz".into(), 16);
     assert!(window.get_emoji_suggestions().row_count() > 0);

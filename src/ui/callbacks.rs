@@ -2826,8 +2826,6 @@ thread_local! {
     static SHAREABLE: RefCell<Vec<yapfast_core::stream_worker::Source>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Films with the chosen camera into the voice settings' preview, which is
-/// about 400 by 225 points.
 /// Puts the cursor at a byte offset in the channel's composer, or the
 /// thread's beside it, and the keyboard there.
 fn place_composer_caret(window: &YapfastWindow, (aside, caret): (bool, usize)) {
@@ -2915,6 +2913,8 @@ fn composer_caret(
     }
 }
 
+/// Films with the chosen camera into the voice settings' preview, which is
+/// about 400 by 225 points.
 fn start_camera_test(adapter: &mut Adapter, window: &YapfastWindow) {
     let scale = window.window().scale_factor();
     let feed = yapfast_core::picture::Feed::new();

@@ -406,9 +406,10 @@ THREAD_STARTER_MESSAGE (type 21), shows the message it was started from.
 Clicking a chip opens the thread beside the channel, as Discord does, in place
 of the member list: its messages, its history and a composer of its own, which
 replies, edits and reacts as the timeline does, and takes files from its + and
-pastes as the channel's does. Its composer suggests people and roles for `@`
-and emoji for `:name` as the channel's does, from the channel's members, in
-the same list just above it; the composer typed in last has them. Its
+pastes as the channel's does. Its composer suggests people and roles for `@`,
+channels for `#` and emoji for `:name` as the channel's does, from the
+channel's members, in the same list just above it; the composer typed in last
+has them, and it highlights what it mentions. Its
 pictures and link previews shrink to fit its width, worked out again once it's
 resized. Files dragged over it go with its message, and
 the card saying where moves over it; the rest of the window takes them for the
