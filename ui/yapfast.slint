@@ -29,7 +29,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, DiscordAccountRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -365,6 +365,9 @@ export component YapfastWindow inherits Window {
     callback open-discord-captcha;
     callback cancel-discord-link;
     callback unlink-discord;
+    in property <[DiscordAccountRow]> discord-accounts;
+    callback select-discord-account(string);
+    callback remove-discord-account(string);
     in-out property <bool> show-hidden-channels;
     callback show-hidden-channels-toggled(bool);
     /// A link in a message was clicked.
@@ -3594,6 +3597,9 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 4 && root.discord-linked: DiscordSettings {
             matrix-build: root.matrix-build;
+            accounts: root.discord-accounts;
+            select-account(id) => { root.select-discord-account(id); }
+            remove-account(id) => { root.remove-discord-account(id); }
             show-hidden-channels: root.show-hidden-channels; sync-discord-reads: root.sync-discord-reads;
             show-idle: root.show-idle;
             unlink-discord => { root.unlink-discord(); }
