@@ -12,19 +12,19 @@
 ; The full preview defines Edition and FileSuffix; the Discord release neither.
 ; Both share the AppId, so installing one replaces the other.
 #ifdef Edition
-  #define DisplayName "Yapfast (" + Edition + ")"
+  #define DisplayName "RatFast (" + Edition + ")"
 #else
-  #define DisplayName "Yapfast"
+  #define DisplayName "RatFast"
   #define FileSuffix ""
 #endif
 
 [Setup]
 ; Windows knows an installed Yapfast by this; never change it.
 AppId={{19FF8D53-8D7E-4E66-91BB-E2F5BE307E9A}
-AppName=Yapfast
+AppName=RatFast
 AppVersion={#AppVersion}
 AppVerName={#DisplayName} {#AppVersion}
-AppPublisher=Yapfast
+AppPublisher=RatFast
 AppPublisherURL=https://yapfast.com
 AppSupportURL=https://github.com/yapfast/yapfast/issues
 AppUpdatesURL=https://github.com/yapfast/yapfast/releases
@@ -55,7 +55,7 @@ LicenseFile={#LicenseFile}
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
-english.StartOnSignIn=Start Yapfast automatically when Windows starts
+english.StartOnSignIn=Start RatFast automatically when Windows starts
 english.StartOnSignInGroup=Startup:
 
 [Tasks]
@@ -67,15 +67,15 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#SourceDir}\*"; Excludes: "README.txt"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Yapfast"; Filename: "{app}\yapfast.exe"
-Name: "{autodesktop}\Yapfast"; Filename: "{app}\yapfast.exe"; Tasks: desktopicon
+Name: "{autoprograms}\RatFast"; Filename: "{app}\yapfast.exe"
+Name: "{autodesktop}\RatFast"; Filename: "{app}\yapfast.exe"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Yapfast"; ValueData: """{app}\yapfast.exe"" --background"; Tasks: startonsignin
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RatFast"; ValueData: """{app}\yapfast.exe"" --background"; Tasks: startonsignin
 ; Chosen here, it starts even if Task Manager had turned it off before.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "Yapfast"; Flags: deletevalue dontcreatekey; Tasks: startonsignin
-; Yapfast's own links open here; claiming Discord's stays the person's choice.
-Root: HKCU; Subkey: "Software\Classes\yapfast"; ValueType: string; ValueName: ""; ValueData: "URL:Yapfast Protocol"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "RatFast"; Flags: deletevalue dontcreatekey; Tasks: startonsignin
+; RatFast's own links open here; claiming Discord's stays the person's choice.
+Root: HKCU; Subkey: "Software\Classes\yapfast"; ValueType: string; ValueName: ""; ValueData: "URL:RatFast Protocol"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\yapfast"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\yapfast\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\yapfast.exe"",0"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\yapfast\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\yapfast.exe"" --open-link ""%1"""; Flags: uninsdeletekey
@@ -84,8 +84,8 @@ Root: HKCU; Subkey: "Software\Classes\yapfast\shell\open\command"; ValueType: st
 Root: HKCU; Subkey: "Software\Yapfast"; Flags: uninsdeletekeyifempty dontcreatekey
 Root: HKCU; Subkey: "Software\Yapfast\DiscordProtocol"; Flags: uninsdeletekey dontcreatekey
 ; Uninstalling stops starting at sign-in, however it was turned on.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "RatFast"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "RatFast"; Flags: uninsdeletevalue dontcreatekey
 
 [Run]
 Filename: "{app}\yapfast.exe"; Description: "{cm:LaunchProgram,Yapfast}"; Flags: nowait postinstall skipifsilent
