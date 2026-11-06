@@ -660,6 +660,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     }
     bind_item!(on_request_delete, Action::RequestDelete);
+    bind_item!(on_delete_now, Action::DeleteNow);
     bind_item!(on_pin_message, Action::PinMessage);
     bind_item!(on_retry, Action::Retry);
     bind_item!(on_cancel_send, Action::CancelSend);

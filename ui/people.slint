@@ -238,6 +238,18 @@ export component ProfileHeading inherits Text {
 
 // One of someone's activities on their profile, as Discord's card shows it:
 // its pictures, its lines, and how long it's run or how far it's got.
+// A time that changes each second, placed by hand so that the layouts around it
+// don't read its text: they would lay out the whole profile again each second,
+// and repaint its banner and scrollbars with it.
+component ActivityTime inherits Rectangle {
+    in property <string> text;
+    height: 16px;
+    Text {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        text: root.text; color: Theme.muted; font-size: 12px;
+    }
+}
+
 export component ActivityCard inherits VerticalLayout {
     in property <ActivityRow> activity;
     callback open-link(string);
@@ -288,11 +300,10 @@ export component ActivityCard inherits VerticalLayout {
             }
             if root.activity.details != "": Text { text: root.activity.details; color: Theme.secondary; font-size: 13px; overflow: elide; }
             if root.activity.state != "": Text { text: root.activity.state; color: Theme.secondary; font-size: 13px; overflow: elide; }
-            if root.timed && !root.bar: Text {
+            if root.timed && !root.bar: ActivityTime {
                 text: root.activity.start > 0
                     ? root.clock(max(0, ActivityClock.now - root.activity.start)) + " elapsed"
                     : root.clock(max(0, root.activity.end - ActivityClock.now)) + " left";
-                color: Theme.muted; font-size: 12px;
             }
         }
     }
@@ -306,7 +317,7 @@ export component ActivityCard inherits VerticalLayout {
             }
         }
         HorizontalLayout {
-            Text { text: root.clock(root.played); color: Theme.muted; font-size: 12px; }
+            ActivityTime { text: root.clock(root.played); }
             Text { text: root.clock(root.length); color: Theme.muted; font-size: 12px; horizontal-alignment: right; }
         }
     }
@@ -492,7 +503,7 @@ export component ProfileCard inherits Rectangle {
     height: min(body.preferred-height, root.limit);
     background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : root.plain-ground;
     border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
-    drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
+    drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: root.docked ? transparent : #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s profile";
     // Clicks on the card stay on it, instead of closing it.

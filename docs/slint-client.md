@@ -98,7 +98,7 @@ nix-shell --impure testing/display/shell.nix --run 'scripts/run-framework-isolat
 ```
 
 The Nix shells supply checksum-pinned native inputs. Linux uses the upstream
-Skia 0.153.3 archive. Windows builds the same pinned Skia source and
+Skia 0.157.0 archive. Windows builds the same pinned Skia source and
 dependencies with `/MT`, matching WebRTC's static release runtime; the [Windows
 guide](windows-beta.md) covers that build. Both libraries define
 `jpeg_natural_order`, so the Skia archive preparation privately renames that
