@@ -1385,7 +1385,7 @@ export component DiscordSettings inherits VerticalLayout {
         }
         Label { text: "Switching accounts restarts Yapfast so the Discord connection and its data are loaded for the selected identity."; }
     }
-    if root.accounts.length > 0: HorizontalLayout {
+    HorizontalLayout {
         ActionButton {
             text: "Add another account"; icon: @image-url("icons/user.svg");
             clicked => { root.adding-account = true; root.link-discord(); }
