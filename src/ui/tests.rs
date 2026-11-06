@@ -610,11 +610,14 @@ fn the_renderer_setting_is_remembered() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    // Software unless chosen.
-    assert!(!window.get_gpu_rendering());
-    window.set_gpu_rendering(true);
+    // The platform's default unless chosen.
+    assert_eq!(window.get_gpu_rendering(), crate::graphics::GPU_BY_DEFAULT);
+    window.set_gpu_rendering(!crate::graphics::GPU_BY_DEFAULT);
     window.invoke_preferences_changed();
-    assert!(Layout::read(directory.path()).gpu_rendering);
+    assert_eq!(
+        Layout::read(directory.path()).gpu_rendering,
+        Some(!crate::graphics::GPU_BY_DEFAULT)
+    );
 }
 
 #[test]

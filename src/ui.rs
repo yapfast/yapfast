@@ -109,9 +109,13 @@ pub fn run(
                 crate::instance::Start::Handed => return Ok(Exit::Closed),
             }
         };
-        let plan = graphics::plan(renderer, layout.gpu_rendering, gpu_failure);
+        let plan = graphics::plan(
+            renderer,
+            layout.gpu_rendering.unwrap_or(graphics::GPU_BY_DEFAULT),
+            gpu_failure,
+        );
         if plan.forget_gpu {
-            layout.gpu_rendering = false;
+            layout.gpu_rendering = Some(false);
             layout.write(&root);
         }
         title_bar::choose(layout.system_title_bar);
@@ -127,6 +131,12 @@ pub fn run(
         graphics::Renderer::Gpu if cfg!(windows) => (
             selector.renderer_name("skia".into()).require_d3d(),
             "skia-direct3d",
+        ),
+        // The Mac draws it with Skia's Metal backend, not OpenGL, which macOS
+        // only emulates on top of Metal.
+        graphics::Renderer::Gpu if cfg!(target_os = "macos") => (
+            selector.renderer_name("skia".into()).require_metal(),
+            "skia-metal",
         ),
         graphics::Renderer::Gpu => (selector.renderer_name("skia-opengl".into()), "skia-opengl"),
         graphics::Renderer::Software => (
@@ -1041,8 +1051,9 @@ struct Layout {
     adjust_each_sound: bool,
     /// Each sound's own volume as a percentage up to 100%, if it isn't 100%.
     each_sound: std::collections::BTreeMap<Sound, u8>,
-    /// Yapfast draws with Skia GPU from its next start; see [`graphics`].
-    gpu_rendering: bool,
+    /// Yapfast draws with Skia GPU from its next start; unset, it does on the
+    /// Mac and not elsewhere. See [`graphics`].
+    gpu_rendering: Option<bool>,
     /// Screen sharing encodes on the GPU where it has an encoder; on unless
     /// turned off.
     gpu_encoding: Option<bool>,
@@ -1283,7 +1294,7 @@ impl Layout {
         window.set_sound_set(choice(&SoundSet::ALL, self.sound_set));
         window.set_sound_volume(self.sound_volume.unwrap_or(DEFAULT_SOUND_VOLUME).into());
         window.set_adjust_each_sound(self.adjust_each_sound);
-        window.set_gpu_rendering(self.gpu_rendering);
+        window.set_gpu_rendering(self.gpu_rendering.unwrap_or(graphics::GPU_BY_DEFAULT));
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
