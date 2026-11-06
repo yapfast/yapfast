@@ -1683,6 +1683,107 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn peeking_shows_the_newest_messages_and_keeps_nothing() {
+    let discord = fake_discord().await;
+    let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let room = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
+    let peek = |room: &str| {
+        Command::Discord(DiscordCommand::Peek {
+            room: room.to_owned(),
+        })
+    };
+    let peeked = |event: &Event| match event {
+        Event::Peeked { result, .. } => Some(result.clone()),
+        _ => None,
+    };
+    // Not kept: Discord is asked, and nothing of it stays.
+    command(peek(&room), Ok(&discord), &mut channels, &done, &events);
+    let asked = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = received.recv().await.expect("events go on");
+            if let Some(result) = peeked(&event) {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord")
+    .unwrap();
+    assert!(!asked.is_empty() && asked.len() <= crate::chat::PEEK_MESSAGES);
+    assert!(
+        asked
+            .windows(2)
+            .all(|pair| pair[0].timestamp <= pair[1].timestamp)
+    );
+    assert!(channels.open.is_none() && channels.recent.is_empty());
+
+    // Opened, then closed: the channel kept follows live events, so its
+    // newest messages answer at once, the same.
+    command(
+        Command::Open(room.clone()),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    until(
+        &discord,
+        &mut channels,
+        &done,
+        &mut finished,
+        &mut received,
+        |event| {
+            matches!(
+                event,
+                Event::HistoryLoaded {
+                    direction: Direction::Latest,
+                    ..
+                }
+            )
+            .then_some(())
+        },
+    )
+    .await;
+    command(
+        Command::CloseRoom,
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    while received.try_recv().is_ok() {}
+    command(peek(&room), Ok(&discord), &mut channels, &done, &events);
+    let Ok(Event::Peeked {
+        result: Ok(kept), ..
+    }) = received.try_recv()
+    else {
+        panic!("a kept channel answers at once");
+    };
+    assert!(!kept.is_empty() && kept.len() <= crate::chat::PEEK_MESSAGES);
+    assert!(
+        kept.windows(2)
+            .all(|pair| pair[0].timestamp <= pair[1].timestamp)
+    );
+    assert_eq!(channels.recent.len(), 1, "it stays as it was");
+
+    // Only Discord's rooms are peeked at.
+    command(
+        peek("!room:example.org"),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    assert!(matches!(
+        received.try_recv(),
+        Ok(Event::Peeked { result: Err(_), .. })
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn a_server_channels_pins_and_search_show_its_members() {
     let discord = fake_discord().await;
     let (done, _finished) = tokio::sync::mpsc::unbounded_channel();

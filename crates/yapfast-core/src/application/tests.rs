@@ -6269,6 +6269,101 @@ fn leaving_a_group_dm_asks_first_and_may_tell_no_one() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn peeking_at_a_dm_neither_opens_nor_reads_it() {
+    use yapfast_discord::service::Conversation;
+    let mut app = discord_dms(vec![Conversation {
+        id: "32".into(),
+        name: "Ben".into(),
+        person: Some("3".into()),
+        people: 2,
+        unread: true,
+        mentions: 2,
+        ..Default::default()
+    }]);
+    let (open, peeked) = ("discord:@me:30".to_owned(), "discord:@me:32".to_owned());
+    app.dispatch(Action::SelectRoom(open.clone()));
+    app.dispatch(Action::Reading(true));
+    let unread = |app: &Application| {
+        let room = app
+            .state
+            .rooms
+            .iter()
+            .find(|room| room.id == peeked)
+            .unwrap();
+        (room.unread, room.mentions)
+    };
+    let before = unread(&app);
+    assert_eq!(before.1, 2);
+    // Only the messages are asked for: nothing opens, and nothing is read.
+    assert!(matches!(
+        app.dispatch(Action::Peek(Some(peeked.clone()))).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Peek { room }))] if *room == peeked
+    ));
+    assert_eq!(
+        app.state.peek.as_ref().unwrap().messages,
+        None,
+        "on their way"
+    );
+    assert!(
+        app.dispatch(Action::Peek(Some(peeked.clone()))).is_empty(),
+        "asked for once"
+    );
+    let effects = app.apply(Event::Peeked {
+        room: peeked.clone(),
+        result: Ok(vec![message("d:8", false), message("d:9", false)]),
+    });
+    assert!(
+        !effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Backend(Command::MarkRead { .. } | Command::Open(_))
+        )),
+        "nothing opens or reads"
+    );
+    let shown = app.state.peek.as_ref().unwrap().messages.clone();
+    assert_eq!(shown.unwrap().unwrap()[1].item, "d:9");
+    assert_eq!(app.state.selected.as_deref(), Some(open.as_str()));
+    assert!(
+        app.state
+            .messages
+            .iter()
+            .all(|message| message.item != "d:9")
+    );
+    // Reading the open DM meanwhile reads only it.
+    let effects = app.dispatch(Action::Reading(true));
+    assert!(
+        !effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Backend(Command::MarkRead { room, .. }) if *room == peeked
+        )),
+        "the DM peeked at isn't read"
+    );
+    assert_eq!(unread(&app), before, "still unread, its mentions counted");
+
+    // Closing it lets go of its messages; ones still on their way go too.
+    app.dispatch(Action::Peek(None));
+    assert!(app.state.peek.is_none());
+    app.apply(Event::Peeked {
+        room: peeked.clone(),
+        result: Ok(vec![message("d:9", false)]),
+    });
+    assert!(app.state.peek.is_none());
+    // Only a Discord room is asked for, and not a forum.
+    assert!(
+        app.dispatch(Action::Peek(Some("!m:example.org".into())))
+            .is_empty()
+    );
+    assert!(app.state.peek.is_none());
+    let mut forum = ChatRoom::clone(&app.state.rooms[0]);
+    forum.forum = true;
+    let id = forum.id.clone();
+    app.state.rooms.push(Arc::new(forum));
+    assert!(app.dispatch(Action::Peek(Some(id))).is_empty());
+    assert!(app.state.peek.is_none());
+    assert_eq!(unread(&app), before);
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_dms_pins_load_when_shown_and_close_with_the_conversation() {
     let mut app = discord_dms(vec![]);
     let dm = "discord:@me:30".to_owned();

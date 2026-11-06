@@ -69,6 +69,12 @@ impl Keys {
         self.shift
     }
 
+    /// Alt is held, without Ctrl or Shift, as far as the window knows:
+    /// losing the focus lets go of it, since it may be let go elsewhere.
+    pub fn alt_only(&self) -> bool {
+        self.alt && !self.control && !self.shift
+    }
+
     pub fn event(&mut self, event: &WindowEvent) -> Outcome {
         match event {
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -255,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_counts_alone_without_alt_or_shift_and_both_let_go_with_the_focus() {
+    fn ctrl_and_alt_count_alone_and_shift_and_alt_let_go_with_the_focus() {
         use slint::winit_030::winit::keyboard::ModifiersState;
         let mut keys = Keys::default();
         let modifiers = |state: ModifiersState| WindowEvent::ModifiersChanged(state.into());
@@ -264,10 +270,14 @@ mod tests {
         keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
         assert!(!keys.control_only() && keys.shift());
         keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::ALT));
-        assert!(!keys.control_only() && !keys.shift());
-        keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
+        assert!(!keys.control_only() && !keys.shift() && !keys.alt_only());
+        keys.event(&modifiers(ModifiersState::ALT));
+        assert!(keys.alt_only());
         keys.event(&WindowEvent::Focused(false));
         assert!(!keys.control_only());
+        assert!(!keys.alt_only(), "Alt may be let go elsewhere too");
+        keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
+        keys.event(&WindowEvent::Focused(false));
         assert!(!keys.shift(), "Shift may be let go elsewhere too");
     }
 

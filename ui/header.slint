@@ -277,6 +277,56 @@ export component PinsPopover inherits Rectangle {
     }
 }
 
+// A room's newest messages, peeked at from the channel list while Alt is
+// held, without opening it or marking it read. The newest is at the bottom,
+// as the room shows it; older ones that don't fit are cut off at the top.
+// It takes no pointer: the pointer stays on the row it peeks at.
+export component PeekPopover inherits Rectangle {
+    in property <string> heading;
+    in property <[FoundRow]> rows;
+    /// Said instead of the messages: while they load, when they fail, or
+    /// when there are none.
+    in property <string> note;
+    /// How tall it would be to show every message.
+    out property <length> fit: 57px + (root.note != "" ? 56px : list.preferred-height);
+    width: 380px;
+    background: Theme.sidebar;
+    border-color: Theme.edge; border-width: 1px; border-radius: 10px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000066; drop-shadow-offset-y: 8px;
+    clip: true;
+    accessible-role: groupbox;
+    accessible-label: root.heading + ", not marked as read";
+    VerticalLayout {
+        Rectangle {
+            height: 56px; background: Theme.panel;
+            HorizontalLayout {
+                padding-left: 16px; padding-right: 16px; spacing: 10px;
+                Middle { Image { source: @image-url("icons/eye.svg"); width: 18px; height: 18px; colorize: Theme.secondary; } }
+                VerticalLayout {
+                    alignment: center; horizontal-stretch: 1; spacing: 2px;
+                    Text { text: root.heading; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                    Text { text: "Not marked as read"; color: Theme.muted; font-size: 12px; overflow: elide; }
+                }
+            }
+            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
+        }
+        if root.note != "": HorizontalLayout {
+            padding: 16px;
+            Text { text: root.note; color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
+        }
+        Rectangle {
+            vertical-stretch: 1; clip: true;
+            visible: root.note == "";
+            list := VerticalLayout {
+                y: min(0px, parent.height - self.preferred-height);
+                height: self.preferred-height;
+                padding: 10px; spacing: 6px;
+                for row in root.rows: FoundCard { found: row; }
+            }
+        }
+    }
+}
+
 // A thread in a channel's list of threads, as a card: its name, then its
 // newest message, or who started an archived one, and when it was last
 // active, and on the right a few of those in it. Clicking opens it; with
