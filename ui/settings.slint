@@ -1388,7 +1388,7 @@ export component DiscordSettings inherits VerticalLayout {
     HorizontalLayout {
         ActionButton {
             text: "Add another account"; icon: @image-url("icons/user.svg");
-            clicked => { root.adding-account = true; root.link-discord(); }
+            clicked => { root.adding-account = true; }
         }
         ActionButton {
             text: "Restart to apply account"; icon: @image-url("icons/refresh-cw.svg"); ghost: true;
@@ -1396,7 +1396,7 @@ export component DiscordSettings inherits VerticalLayout {
         }
         Rectangle { horizontal-stretch: 1; }
     }
-    if root.adding-account && root.link-phase != 0: VerticalLayout {
+    if root.adding-account: VerticalLayout {
         spacing: 8px;
         DiscordLinkPanel {
             phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
