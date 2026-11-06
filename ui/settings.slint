@@ -1372,7 +1372,7 @@ export component DiscordSettings inherits VerticalLayout {
             VerticalLayout {
                 horizontal-stretch: 1; alignment: center; spacing: 2px;
                 Text { text: account.username; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
-                Text { text: account.active ? "Currently active" : "Linked"; color: Theme.secondary; font-size: 12px; }
+                Text { text: account.active ? "Selected for next start" : "Linked"; color: Theme.secondary; font-size: 12px; }
             }
             if !account.active: ActionButton {
                 text: "Switch"; small: true;
