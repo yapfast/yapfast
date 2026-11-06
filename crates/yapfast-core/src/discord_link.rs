@@ -53,23 +53,31 @@ async fn save_account(token: String) -> anyhow::Result<()> {
     let api = Api::new(token.clone())?;
     api.learn_build_number().await;
     let user = api.me().await?;
+    let mut legacy_migrated = false;
 
     if yapfast_discord::accounts::active()?.is_none()
         && let Ok(previous) = token::load()
-        && previous != token
-        && let Ok(previous_api) = Api::new(previous.clone())
     {
-        previous_api.learn_build_number().await;
-        if let Ok(previous_user) = previous_api.me().await {
-            yapfast_discord::accounts::save(
-                &previous_user.id,
-                &previous_user.username,
-                &previous,
-            )?;
+        if previous == token {
+            legacy_migrated = true;
+        } else if let Ok(previous_api) = Api::new(previous.clone()) {
+            previous_api.learn_build_number().await;
+            if let Ok(previous_user) = previous_api.me().await {
+                yapfast_discord::accounts::save(
+                    &previous_user.id,
+                    &previous_user.username,
+                    &previous,
+                )?;
+                legacy_migrated = true;
+            }
         }
     }
 
-    yapfast_discord::accounts::save(&user.id, &user.username, &token)
+    yapfast_discord::accounts::save(&user.id, &user.username, &token)?;
+    if legacy_migrated {
+        token::forget_legacy()?;
+    }
+    Ok(())
 }
 
 /// Links the account a pasted token belongs to, once Discord accepts it.
