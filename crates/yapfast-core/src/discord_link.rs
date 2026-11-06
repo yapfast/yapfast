@@ -46,19 +46,39 @@ pub fn start(
     (task, progress)
 }
 
+/// Validates a newly linked identity and persists it. If this is the first
+/// account added after upgrading from the legacy single-token store, preserve
+/// that existing login as another entry before selecting the new one.
+async fn save_account(token: String) -> anyhow::Result<()> {
+    let api = Api::new(token.clone())?;
+    api.learn_build_number().await;
+    let user = api.me().await?;
+
+    if yapfast_discord::accounts::active()?.is_none()
+        && let Ok(previous) = token::load()
+        && previous != token
+        && let Ok(previous_api) = Api::new(previous.clone())
+    {
+        previous_api.learn_build_number().await;
+        if let Ok(previous_user) = previous_api.me().await {
+            yapfast_discord::accounts::save(
+                &previous_user.id,
+                &previous_user.username,
+                &previous,
+            )?;
+        }
+    }
+
+    yapfast_discord::accounts::save(&user.id, &user.username, &token)
+}
+
 /// Links the account a pasted token belongs to, once Discord accepts it.
 async fn with_token(token: String, progress: impl Fn(Progress)) {
     let token = match token::clean(&token) {
         Ok(token) => token,
         Err(error) => return progress(Progress::Failed(error.to_string())),
     };
-    let checked = async {
-        let api = Api::new(token.clone())?;
-        api.learn_build_number().await;
-        let user = api.me().await?;
-        yapfast_discord::accounts::save(&user.id, &user.username, &token)
-    };
-    progress(match checked.await {
+    progress(match save_account(token).await {
         Ok(()) => Progress::Linked,
         Err(error) => match error.downcast_ref::<Refused>() {
             Some(Refused(status)) if status.as_u16() == 401 => {
@@ -86,15 +106,7 @@ async fn run(progress: impl Fn(Progress)) {
     })
     .await;
     let linked = match linked {
-        Ok(login) => {
-            let checked = async {
-                let api = Api::new(login.clone())?;
-                api.learn_build_number().await;
-                let user = api.me().await?;
-                yapfast_discord::accounts::save(&user.id, &user.username, &login)
-            }.await;
-            checked.map_err(|error| error)
-        }
+        Ok(login) => save_account(login).await
         Err(error) => Err(error),
     };
     progress(match linked {
