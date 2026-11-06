@@ -1180,6 +1180,9 @@ export component SoundSettings inherits VerticalLayout {
 export component AdvancedSettings inherits VerticalLayout {
     in-out property <bool> gpu-rendering;
     in-out property <bool> gpu-encoding;
+    /// How a share captures a screen: 0 Automatic, 1 Windows Graphics Capture,
+    /// 2 Desktop Duplication.
+    in-out property <int> capture-preference;
     in property <bool> gpu-running;
     in-out property <bool> close-to-tray;
     in property <bool> tray-available;
@@ -1241,6 +1244,17 @@ export component AdvancedSettings inherits VerticalLayout {
         description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.";
         checked <=> root.gpu-encoding;
         toggled => { root.preferences-changed(); }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "HOW SHARES CAPTURE THE SCREEN"; }
+        Choices {
+            label: "Screen capture method"; options: ["Automatic", "Windows Graphics Capture", "Desktop Duplication"];
+            max-width: 520px;
+            current <=> root.capture-preference;
+            chosen => { root.preferences-changed(); }
+        }
+        Label { text: "Automatic is whichever of the two draws no border here: Duplication on Windows 10, Graphics Capture on Windows 11. Choosing one tries it first, and the other keeps as the fallback. A share going on keeps the way it started."; }
     }
     Label {
         text: "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).";

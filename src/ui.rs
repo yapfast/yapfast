@@ -1091,6 +1091,10 @@ struct Layout {
     /// Screen sharing encodes on the GPU where it has an encoder; on unless
     /// turned off.
     gpu_encoding: Option<bool>,
+    /// Which way a share captures its screen, and in what order the ways are
+    /// tried; whichever can be borderless here unless changed. See
+    /// [`yapfast_core::capture`].
+    capture: yapfast_core::capture::Preference,
     /// The theme chosen, by its id; Yap unless chosen.
     theme: Option<String>,
     /// The person's own themes, in the order Appearance shows them.
@@ -1120,6 +1124,13 @@ const STRENGTHS: [yapfast_core::noise::Strength; 3] = [
     yapfast_core::noise::Strength::Full,
     yapfast_core::noise::Strength::Medium,
     yapfast_core::noise::Strength::Light,
+];
+
+/// How a share captures a screen, in the order the setting shows them.
+const CAPTURES: [yapfast_core::capture::Preference; 3] = [
+    yapfast_core::capture::Preference::Auto,
+    yapfast_core::capture::Preference::GraphicsCapture,
+    yapfast_core::capture::Preference::Duplication,
 ];
 
 /// How calls decide when to send the microphone, as Discord's Input Mode.
@@ -1332,6 +1343,10 @@ impl Layout {
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
+        // Before any share opens, which is what asks: a capture already
+        // running keeps the way it started with.
+        window.set_capture_preference(choice(&CAPTURES, self.capture));
+        yapfast_core::capture::set(self.capture);
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));
         window.set_multiple_windows(self.multiple_windows);
         title_bar::show(window, self.system_title_bar);

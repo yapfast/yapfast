@@ -502,7 +502,7 @@ fn wait(event: HANDLE, fence: &ID3D12Fence, value: u64) -> bool {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, test))]
 mod tests {
     use super::*;
     use yapfast_core::frames::{Drawn, Writer};

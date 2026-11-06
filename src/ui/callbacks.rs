@@ -1502,6 +1502,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.gpu_encoding = Some(window.get_gpu_encoding());
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
+        layout.capture = chosen(&CAPTURES, window.get_capture_preference());
+        yapfast_core::capture::set(layout.capture);
         layout.close_to_tray = Some(window.get_close_to_tray());
         layout.multiple_windows = window.get_multiple_windows();
         adapter.layout.write(&adapter.root);
