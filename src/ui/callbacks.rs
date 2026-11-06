@@ -655,7 +655,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     {
         let weak = window.as_weak();
         window.on_select_discord_account(move |id| {
-            match yapfast_discord::accounts::select(id.as_str()) {
+            match yapfast_core::discord::select_account(id.as_str()) {
                 Ok(()) => {
                     if let Some(window) = weak.upgrade() {
                         window.invoke_restart();
@@ -670,11 +670,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let adapter = adapter.clone();
         let weak = window.as_weak();
         window.on_remove_discord_account(move |id| {
-            let was_active = yapfast_discord::accounts::active()
+            let was_active = yapfast_core::discord::active_account()
                 .ok()
                 .flatten()
                 .as_deref() == Some(id.as_str());
-            match yapfast_discord::accounts::remove(id.as_str()) {
+            match yapfast_core::discord::remove_account(id.as_str()) {
                 Ok(()) => {
                     if let Some(window) = weak.upgrade() {
                         if was_active {
