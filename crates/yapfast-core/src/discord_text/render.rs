@@ -339,6 +339,7 @@ pub(super) fn custom_emoji(message: &Message) -> Vec<CustomEmoji> {
                 text: key.clone(),
                 id: id.to_owned(),
                 animated: false,
+                usable: true,
                 picture: yapfast_discord::ready::custom_emoji(
                     id,
                     false,
@@ -356,13 +357,16 @@ fn emoji_in(content: &str) -> Vec<CustomEmoji> {
         .into_iter()
         .map(|emoji| CustomEmoji {
             text: format!(":{}:", emoji.name),
+            // Its address says whether it moves, which is how its frames come:
+            // Discord serves an animated emoji as a GIF and a still one as a PNG.
             picture: yapfast_discord::ready::custom_emoji(
                 &emoji.id,
-                false,
+                emoji.animated,
                 crate::chat::EMOJI_PICTURE_SIZE,
             ),
             id: emoji.id,
             animated: emoji.animated,
+            usable: true,
         })
         .collect()
 }
@@ -713,4 +717,29 @@ pub(super) fn publish(
 /// The Discord message id of a sent message's timeline item.
 pub(super) fn sent_id(item: &str) -> Option<&str> {
     item.strip_prefix("d:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Discord serves an animated emoji as a GIF and a still one as a PNG, so
+    /// the address is what gives Yapfast an animation to draw at all.
+    #[test]
+    fn an_animated_emoji_is_asked_for_as_a_gif() {
+        let moving = emoji_in("hi <a:party:7>");
+        assert!(moving[0].animated);
+        assert!(
+            moving[0].picture.contains("/emojis/7.gif"),
+            "{}",
+            moving[0].picture
+        );
+        let still = emoji_in("hi <:talk:8>");
+        assert!(!still[0].animated);
+        assert!(
+            still[0].picture.contains("/emojis/8.png"),
+            "{}",
+            still[0].picture
+        );
+    }
 }

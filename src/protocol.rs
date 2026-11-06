@@ -183,11 +183,16 @@ mod windows {
     /// The registered command line, with the link last, after
     /// `--open-link`. Windows puts the link in as it comes, quotes
     /// included, so whatever it splits into follows the marker, where
-    /// Yapfast reads no option.
+    /// Yapfast reads no option. The program comes first, quoted as Windows
+    /// names one.
     fn command_line(command: &[String]) -> String {
         let mut line: Vec<String> = command
             .iter()
-            .map(|argument| crate::autostart::windows_argument(argument))
+            .enumerate()
+            .map(|(at, argument)| match at {
+                0 => crate::autostart::windows_program(argument),
+                _ => crate::autostart::windows_argument(argument),
+            })
             .collect();
         line.extend([crate::OPEN_LINK.to_owned(), "\"%1\"".to_owned()]);
         line.join(" ")

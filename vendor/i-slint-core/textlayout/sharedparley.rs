@@ -204,10 +204,11 @@ pub fn draw_text(
             let render = if text_overflow == TextOverflow::Clip || clip_overflowing_first_line {
                 item_renderer.save_state();
 
-                item_renderer.combine_clip(
-                    LogicalRect::new(LogicalPoint::default(), size),
-                    LogicalBorderRadius::zero(),
-                )
+                // Yapfast: an emoji in a `StyledText` is taller than its line, as Discord's
+                // are, so the first and last lines' are let past the box rather than cut.
+                let clip = LogicalRect::new(LogicalPoint::default(), size);
+                let clip = if text.is_markdown() { clip.inflate(4., 4.) } else { clip };
+                item_renderer.combine_clip(clip, LogicalBorderRadius::zero())
             } else {
                 true
             };
@@ -461,8 +462,10 @@ pub fn draw_text_input(
         |layout| {
             item_renderer.save_state();
 
+            // Yapfast: as in `draw_text`, an emoji is taller than its line. Only up and
+            // down, as a field scrolls long text past its sides.
             let render = item_renderer.combine_clip(
-                LogicalRect::new(LogicalPoint::default(), size),
+                LogicalRect::new(LogicalPoint::default(), size).inflate(0., 4.),
                 LogicalBorderRadius::zero(),
             );
 

@@ -1177,10 +1177,16 @@ impl Games {
     ];
 
     fn new() -> Games {
-        // In /tmp, as a socket's path must stay under 108 bytes.
+        // As short a path as a socket's may be, which must stay under 108
+        // bytes: /tmp, and on Windows the system's temporary directory, the
+        // shortest there is.
+        #[cfg(not(windows))]
+        let base = std::path::PathBuf::from("/tmp");
+        #[cfg(windows)]
+        let base = std::env::temp_dir();
         let directory = tempfile::Builder::new()
             .prefix("yapfast-rpc")
-            .tempdir_in("/tmp")
+            .tempdir_in(base)
             .unwrap();
         let paths = [
             directory.path().to_owned(),
@@ -2426,6 +2432,35 @@ async fn shows_profiles() {
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn previews_a_server_for_the_card_of_its_emoji() {
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        ..
+    } = Fixture::start("previews_a_server_for_the_card_of_its_emoji").await;
+    let preview = discord.guild_preview(&guild).await.unwrap();
+    assert_eq!(preview.guild, guild);
+    assert_eq!(preview.name, "Server");
+    assert!(
+        preview
+            .icon
+            .is_some_and(|icon| icon.contains(&format!("/icons/{guild}/")))
+    );
+    assert_eq!(preview.members, Some(4), "Alice, Bob, Carol and Dave");
+    assert_eq!(preview.online, Some(3), "Dave is offline");
+    assert!(
+        !preview.discoverable,
+        "the fake's server lists no DISCOVERABLE"
+    );
+    assert!(
+        discord.guild_preview("1400000000000000999").await.is_err(),
+        "not one of Alice's servers"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

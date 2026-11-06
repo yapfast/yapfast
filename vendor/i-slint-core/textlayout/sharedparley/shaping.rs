@@ -234,7 +234,15 @@ impl LayoutWithoutLineBreaksBuilder {
                         );
                     }
                     Style::Link => {
-                        builder.push(parley::StyleProperty::Underline(true), span.range.clone());
+                        // Yapfast: an emoji's link is its picture, and a picture
+                        // has nothing to underline: the line would show across
+                        // the bottom of it.
+                        if !is_pictures(&text[span.range.clone()]) {
+                            builder.push(
+                                parley::StyleProperty::Underline(true),
+                                span.range.clone(),
+                            );
+                        }
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
                                 override_fill_color: None,
@@ -326,7 +334,22 @@ pub(super) fn create_text_paragraphs(
             });
             let layout = layout_builder.build(font_context, text, formatting, Some(link_color));
 
-            TextParagraph { range, y: PhysicalLength::default(), layout, links, code_ranges, mentions }
+            // Yapfast: the glyphs an animation may stand in for, found while the
+            // text is at hand rather than in every draw.
+            let pictures = text
+                .char_indices()
+                .filter(|(_, character)| (0x10_0000..=0x10_FFFD).contains(&(*character as u32)))
+                .map(|(at, character)| (at..at + character.len_utf8(), character))
+                .collect();
+            TextParagraph {
+                pictures,
+                range,
+                y: PhysicalLength::default(),
+                layout,
+                links,
+                code_ranges,
+                mentions,
+            }
         };
 
     let mut paragraphs = Vec::with_capacity(1);
@@ -448,6 +471,10 @@ pub(super) fn shape_paragraphs(
 }
 
 pub(super) struct TextParagraph {
+    /// Yapfast: the runs that are one emoji glyph, each with the glyph it
+    /// draws, in the order they come. Kept instead of the text itself, which
+    /// would copy every message into its layout.
+    pub(super) pictures: alloc::vec::Vec<(Range<usize>, char)>,
     pub(super) range: Range<usize>,
     pub(super) y: PhysicalLength,
     pub(super) layout: parley::Layout<Brush>,
@@ -480,4 +507,14 @@ fn mention_ranges(
             })
         })
         .collect()
+}
+
+/// Yapfast: whether `text` is only emoji as Yapfast draws them, each a picture
+/// in a colour bitmap font it makes at runtime, at a code point in the
+/// Supplementary Private Use Area B.
+fn is_pictures(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|character| (0x10_0000..=0x10_FFFD).contains(&(character as u32)))
 }

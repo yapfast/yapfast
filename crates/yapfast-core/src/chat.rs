@@ -863,6 +863,11 @@ pub struct CustomEmoji {
     pub text: String,
     pub id: String,
     pub animated: bool,
+    /// Whether this account may use it in the room it is looking at: Nitro
+    /// reaches every server's, and animated ones; without it, only the room's
+    /// own server's still ones. The emoji picker shows the others greyed, as
+    /// Discord's does.
+    pub usable: bool,
     /// The address of its picture; see [`DiscordCommand::Pictures`].
     pub picture: String,
 }
@@ -890,6 +895,8 @@ pub const EMOJI_PICTURE_SIZE: u32 = 64;
 /// A server's custom emoji that this account may use where it's writing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmojiSet {
+    /// The server, by its server id.
+    pub id: String,
     pub server: String,
     /// The address of the server's icon; see [`ChatServer::icon`].
     pub icon: Option<String>,
@@ -1896,6 +1903,16 @@ pub struct InvitePreview {
     pub online: Option<u64>,
 }
 
+/// What the card of a Discord server's emoji shows of it beyond the name and
+/// icon Yapfast already has, as `GET /guilds/{guild.id}/preview` answers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServerPreview {
+    /// How many of its members are online, when Discord counts them.
+    pub online: Option<u64>,
+    /// Discover lists it, as the features it lists say.
+    pub discoverable: bool,
+}
+
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedServer {
@@ -2005,6 +2022,10 @@ pub struct OAuthPreview {
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Downloads these pictures for the disk cache alone, decoding none and
+    /// holding none in memory: what a start prefetches so that the picker's
+    /// first look finds its emoji kept. See [`Pictures::prefetch`].
+    PrefetchPictures(Vec<String>),
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -2499,6 +2520,12 @@ pub enum DiscordCommand {
     Emoji {
         server: String,
         action: EmojiAction,
+    },
+    /// A server's preview, for the card that an emoji of it opens: how many of
+    /// its members are online, and whether Discover lists it.
+    /// [`Event::ServerPreview`] follows.
+    ServerPreview {
+        server: String,
     },
     /// What Stickers asks of Discord; [`Event::StickersChanged`] follows.
     Stickers {
@@ -3507,6 +3534,13 @@ pub enum Event {
     ServerPaused {
         server: String,
         result: Result<(Option<u64>, Option<u64>), String>,
+    },
+    /// How many of a server's members are online, and whether Discover lists
+    /// it, as [`DiscordCommand::ServerPreview`] asked for the card of one of
+    /// its emoji; or why Discord didn't answer.
+    ServerPreview {
+        server: String,
+        result: Result<ServerPreview, String>,
     },
     /// Whether what Emoji asked of Discord went, uploading or not, and the
     /// server's emoji after it, when Discord sent them.
@@ -4622,6 +4656,7 @@ mod tests {
     #[test]
     fn sends_custom_emoji_in_discords_form() {
         let emoji = |name: &str, id: &str, animated| CustomEmoji {
+            usable: true,
             text: format!(":{name}:"),
             id: id.into(),
             animated,

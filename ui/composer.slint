@@ -84,6 +84,9 @@ export component Composer inherits Rectangle {
     public function focus-input() { input.focus(); }
     public function place-caret(offset: int) { input.set-selection-offsets(offset, offset); }
     property <length> pad: 12px;
+    // Room above and below the text inside the part that scrolls and clips it, as an
+    // emoji is taller than its line.
+    property <length> overhang: 4px;
     property <length> line: root.text-size * 1.5;
     // Where the menu opens: the pointer, from the composer's corner.
     property <length> menu-x;
@@ -107,7 +110,8 @@ export component Composer inherits Rectangle {
         vertical-alignment: center; overflow: elide;
     }
     FocusScope {
-        x: 6px; y: root.pad; width: root.width - 12px; height: root.height - 2 * root.pad;
+        x: 6px; y: root.pad - root.overhang; width: root.width - 12px;
+        height: root.height - 2 * root.pad + 2 * root.overhang;
         capture-key-pressed(event) => {
             if root.suggesting {
                 if event.text == Key.UpArrow { root.suggestion-moved(-1); return accept; }
@@ -147,12 +151,13 @@ export component Composer inherits Rectangle {
             }
         }
         flick := Flickable {
-            content-height: input.height;
+            content-height: input.height + 2 * root.overhang;
             // Mouse presses go to the field, or with the right button past it.
             mouse-drag-pan-enabled: false;
             input := TextInput {
+                y: root.overhang;
                 width: flick.width;
-                height: max(flick.height, self.preferred-height);
+                height: max(flick.height - 2 * root.overhang, self.preferred-height);
                 text <=> root.text;
                 enabled: root.enabled;
                 single-line: false;
@@ -167,8 +172,8 @@ export component Composer inherits Rectangle {
                     root.caret(self.text, self.cursor-position-byte-offset);
                     if position.y + flick.content-y < 0px {
                         flick.content-y = -position.y;
-                    } else if position.y + root.line + flick.content-y > flick.height {
-                        flick.content-y = flick.height - position.y - root.line;
+                    } else if position.y + root.line + 2 * root.overhang + flick.content-y > flick.height {
+                        flick.content-y = flick.height - position.y - root.line - 2 * root.overhang;
                     }
                 }
             }

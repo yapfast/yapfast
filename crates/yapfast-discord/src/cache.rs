@@ -256,6 +256,19 @@ pub fn favorite_gifs() -> Option<Vec<crate::gifs::Favorite>> {
     crate::gifs::read_favorites(&settings)
 }
 
+/// How many pictures this login has kept, for telling a start that has never
+/// shown one from one whose cache was filled before.
+pub fn pictures_kept() -> usize {
+    pictures().map(|folder| kept_in(&folder)).unwrap_or(0)
+}
+
+/// The files `folder` holds, which is none that isn't there.
+fn kept_in(folder: &std::path::Path) -> usize {
+    std::fs::read_dir(folder)
+        .map(|entries| entries.filter_map(Result::ok).count())
+        .unwrap_or(0)
+}
+
 /// Keeps the favourite GIFs for this login, as [`favorite_gifs`] reads them.
 pub fn keep_favorite_gifs(favorites: &[crate::gifs::Favorite]) {
     let Some(file) = favorite_gifs_file() else {

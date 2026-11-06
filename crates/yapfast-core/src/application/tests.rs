@@ -4975,6 +4975,7 @@ fn custom_emoji_are_requested_only_for_nearby_messages_and_stale_views_are_ignor
                 text: ":test:".into(),
                 id: index.to_string(),
                 animated: false,
+                usable: true,
             }],
             ..message(&format!("e:${index}"), false)
         })
@@ -5754,6 +5755,98 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         ..Default::default()
     }));
     app
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_emoji_names_the_server_that_lists_it() {
+    use yapfast_discord::ready::{Emoji, Server};
+    use yapfast_discord::service::{Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![marked(
+            Server {
+                id: "10".into(),
+                name: "Test".into(),
+                emojis: Arc::new(vec![Emoji {
+                    id: "77".into(),
+                    name: "gg".into(),
+                    animated: false,
+                    available: true,
+                }]),
+                ..Default::default()
+            },
+            &[],
+        )],
+        ..Default::default()
+    }));
+    // The server's id as the rail and navigation name it, not Discord's own.
+    let server = app.emoji_server("77").expect("the server that lists it");
+    assert_eq!(server, "discord:10");
+    assert!(app.state.servers.iter().any(|listed| listed.id == server));
+    assert_eq!(app.emoji_server("78"), None, "no server lists it");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_servers_card_asks_for_what_it_shows_once() {
+    use yapfast_discord::ready::Server;
+    use yapfast_discord::service::{Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![marked(
+            Server {
+                id: "10".into(),
+                name: "Test".into(),
+                ..Default::default()
+            },
+            &[],
+        )],
+        ..Default::default()
+    }));
+    let asked = |effects: &[Effect]| -> Vec<String> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::ServerPreview { server })) => {
+                    Some(server.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        asked(&app.dispatch(Action::PreviewServer("discord:10".into()))),
+        ["discord:10"]
+    );
+    assert!(
+        app.state.server_previews.is_empty(),
+        "nothing shows until Discord answers"
+    );
+    app.apply(Event::ServerPreview {
+        server: "discord:10".into(),
+        result: Ok(chat::ServerPreview {
+            online: Some(3999),
+            discoverable: true,
+        }),
+    });
+    let preview = app
+        .state
+        .server_previews
+        .get("discord:10")
+        .expect("what Discord said");
+    assert_eq!(preview.online, Some(3999));
+    assert!(preview.discoverable);
+    assert!(
+        asked(&app.dispatch(Action::PreviewServer("discord:10".into()))).is_empty(),
+        "the server's answer stands"
+    );
+    assert!(
+        asked(&app.dispatch(Action::PreviewServer("friends".into()))).is_empty(),
+        "only Discord's servers have one"
+    );
 }
 
 #[test]

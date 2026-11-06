@@ -226,6 +226,14 @@ export global PictureStore {
     callback request(string);
 }
 
+// Animated emoji's frames, drawn in place of a still while they play; see
+// `yapfast_emoji` in the Slint core. `revision` moves with the shared
+// clock, so a tick draws the cells that read it again.
+export global EmojiAnimations {
+    in property <int> revision;
+    pure callback frame(string, int) -> image;
+}
+
 // A person's picture, or a round initial in their own tint until it arrives;
 // optionally ringed while they speak.
 export component Avatar inherits Rectangle {
