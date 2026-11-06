@@ -20,8 +20,13 @@
  *     HDR desktop to SDR for the caller, so the same texture format encodes
  *     correctly on an HDR screen, where Desktop Duplication hands over scRGB
  *     half-floats that NVENC misreads.
- *   - the capture is per monitor, by HMONITOR, and not per desktop: a caller
- *     with several screens says which.
+ *   - the capture is of one display, by HMONITOR, or of one window, by HWND, and
+ *     not of a desktop: a caller with several screens says which, and a caller
+ *     that means a window says which window. The two are different doors into
+ *     Windows Graphics Capture (`CreateForMonitor` and `CreateForWindow`), and
+ *     nothing here turns one into the other: a window's handle is never read as
+ *     a monitor's, and a window that can't be captured fails by name rather
+ *     than capturing the screen it sits on.
  *
  * Ownership, which is the whole memory story of this file: `yapfast_wgc_frame`
  * hands back an `ID3D11Texture2D` that belongs to the frame pool, and the caller
@@ -42,12 +47,19 @@
  * the display's own adapter can be used this way, and `yapfast_wgc_open_on` says
  * so by name when the one handed in doesn't.
  *
+ * A window is also three things a display isn't, and `yapfast_wgc_frame` asks
+ * about them before it touches the pool: the window can be gone, minimised, or
+ * out of every capture by its own display affinity. The first and last end the
+ * capture — the pool still holds the moment before, and handing that over again
+ * is stale or protected content, which is the one thing a caller must never keep
+ * sending — while a minimised window is answered as nothing new, since the
+ * compositor has no picture of it to give.
+ *
  * What it deliberately doesn't do yet: it opens a capture and hands out frames,
  * and nothing else. No rate limiting (`IGraphicsCaptureSession2`'s
- * `MinUpdateInterval`), no window capture, and nothing in this crate calls it —
- * the loop that does is the next stage; see src/wgc.rs. The cursor is the one
- * thing it does set: WGC includes it by default, and saying so explicitly is what
- * keeps that true. */
+ * `MinUpdateInterval`), and nothing in this crate calls it — the loop that does is
+ * the next stage; see src/wgc.rs. The cursor is the one thing it does set: WGC
+ * includes it by default, and saying so explicitly is what keeps that true. */
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -210,6 +222,21 @@ struct yapfast_wgc {
    * the thing captured is resized. */
   unsigned width, height;
 
+  /* Whether the item is of a window rather than a display, and which window: a
+   * window capture has an identity of its own to ask about on every frame, where
+   * a display has nothing to ask. The name is written once, when the capture is
+   * opened, because a report is read once and a retitled window is still the same
+   * window. */
+  int is_window;
+  HWND window;
+  char window_title[96];
+  char window_class[48];
+
+  /* Why the capture ended, when it did: `yapfast_wgc_frame` answers
+   * YAPFAST_WGC_CLOSED from more than one cause, and a caller that stops a share
+   * has to be able to say which. Empty while the capture still runs. */
+  char ending[192];
+
   /* The border's answer in the two shapes a caller decides with: `borderless`
    * is 1 only when `IsBorderRequired(false)` was asked and took, and
    * `can_ask_borderless` is 1 when this build of Windows has the interface that
@@ -323,8 +350,11 @@ static void watch_closed(yapfast_wgc *capture) {
  * DXGI lists.
  *
  * `monitor` of NULL means the primary display, so a caller that only wants to see
- * the thing work doesn't have to enumerate anything. */
-static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
+ * the thing work doesn't have to enumerate anything.
+ *
+ * `what` names the thing in the failure, since the same search answers for a
+ * display a caller named and for the display the window it named is on. */
+static int adapter_for_monitor(HMONITOR monitor, const char *what, IDXGIAdapter1 **adapter_out,
                                DXGI_OUTPUT_DESC *output_out, LUID *luid_out, unsigned *index_out,
                                char *card, size_t card_size, char *display, size_t display_size,
                                HMONITOR *resolved_out, int *primary, char *why, size_t size) {
@@ -412,8 +442,9 @@ static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
      * than the absence of an adapter it could have found. */
     if (!why || !size || !why[0]) {
       say(why, size,
-          "no adapter drives the display being captured (HMONITOR %p); the adapters here drive %s",
-          (void *)monitor, seen[0] ? seen : "nothing");
+          "no adapter drives %s (HMONITOR %p); the adapters here drive %s",
+          what ? what : "the display being captured", (void *)monitor,
+          seen[0] ? seen : "nothing");
     }
     return -1;
   }
@@ -664,14 +695,97 @@ static HRESULT device_adapter(ID3D11Device *device, IDXGIAdapter1 **adapter_out,
   return S_OK;
 }
 
+/* ---------------------------------------------------------------- the window */
+
+/* The affinity a window is hidden from every application's capture with. Windows
+ * 10 2004 added it, and a protected window — a password manager, a DRM player —
+ * is what sets it. The number is spelled out because an SDK older than the
+ * Windows it builds for has no name for it. */
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
+
+/* Whether `window` has taken itself out of every capture. Asked before each
+ * frame rather than once at the open, because a window can exclude itself while
+ * it is being captured, and that is exactly the case a caller has to stop for:
+ * the compositor keeps its last picture of the window and refreshes it with
+ * nothing, so continuing to ask would send the same stale content forever. A
+ * window whose affinity the system won't report is not evidence of exclusion, so
+ * it reads as no — `WDA_MONITOR` is left alone too, since that one still
+ * composites a picture, black or not, which the caller can see is black. */
+static int excluded_from_capture(HWND window) {
+  DWORD affinity = 0;
+  if (!GetWindowDisplayAffinity(window, &affinity)) return 0;
+  return affinity == WDA_EXCLUDEFROMCAPTURE;
+}
+
+/* Refuses a window that Windows can't make a capture item of, in a sentence
+ * rather than in the status `CreateForWindow` would answer with, because the
+ * caller chose this window and being given a different picture instead is worse
+ * than being told: a handle for nothing, a handle whose window has closed, a
+ * child window (whose item would be of its top-level window, not of it), and the
+ * desktop, which is a display and is captured as one. */
+static int validate_window(HWND window, char *why, size_t size) {
+  HWND root;
+
+  if (!window) {
+    say(why, size,
+        "no window to capture: a window capture needs that window's own handle, which is not the "
+        "desktop and not the primary display");
+    return -1;
+  }
+  if (!IsWindow(window)) {
+    say(why, size,
+        "window %p is not a window any more: it has closed, or that handle is not one this "
+        "desktop hands out (IsWindow said no)",
+        (void *)window);
+    return -1;
+  }
+  if (window == GetDesktopWindow() || window == GetShellWindow()) {
+    say(why, size,
+        "window %p is the desktop, which is captured as a display rather than as a window",
+        (void *)window);
+    return -1;
+  }
+  /* The item `CreateForWindow` makes of a child window is its top-level window's,
+   * so a child asked for by handle would arrive as somebody's whole application:
+   * refused by name instead, with the window that would have been captured. */
+  root = GetAncestor(window, GA_ROOT);
+  if (root && root != window) {
+    say(why, size,
+        "window %p is not a top-level window: its top-level window is %p, and that is what a "
+        "capture of it would be of",
+        (void *)window, (void *)root);
+    return -1;
+  }
+  return 0;
+}
+
+/* What the window is called, for the one line a share logs: asked once, when the
+ * capture is opened, since that line is written once and a retitled window is
+ * still the same window. */
+static void name_window(yapfast_wgc *capture) {
+  WCHAR title[128];
+  WCHAR name[64];
+
+  title[0] = 0;
+  name[0] = 0;
+  if (GetWindowTextW(capture->window, title, ARRAYSIZE(title)) > 0)
+    snprintf(capture->window_title, sizeof capture->window_title, "%ls", title);
+  if (GetClassNameW(capture->window, name, ARRAYSIZE(name)) > 0)
+    snprintf(capture->window_class, sizeof capture->window_class, "%ls", name);
+}
+
 /* Opens a capture of `monitor`, an HMONITOR, or of the primary display when it is
- * NULL, and starts it: the device (made here, or the one handed in), the frame
- * pool on it, the session, the request that it draw no border, and the
- * subscription to the item ending. NULL with `why` filled in when anything
- * refused. */
-static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t size) {
+ * NULL, or of `target` as a window when `want_window` is set, and starts it: the
+ * device (made here, or the one handed in), the frame pool on it, the session,
+ * the request that it draw no border, and the subscription to the item ending.
+ * NULL with `why` filled in when anything refused. */
+static yapfast_wgc *open_capture(void *given, int want_window, void *target, char *why,
+                                 size_t size) {
   yapfast_wgc *capture = NULL;
   DXGI_OUTPUT_DESC output;
+  HMONITOR monitor = (HMONITOR)target;
   HMONITOR resolved = NULL;
   ABI::Windows::Graphics::SizeInt32 content;
   IDXGIDevice *dxgi_device = NULL;
@@ -684,6 +798,9 @@ static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t s
   HRESULT status;
 
   if (why && size) why[0] = 0;
+  /* The window is checked before Windows Graphics Capture is started, so that a
+   * handle for nothing costs a sentence rather than a device and a pool. */
+  if (want_window && validate_window((HWND)target, why, size)) return NULL;
   /* WinRT has to be started in this process before any of its classes can be
    * activated. Multi-threaded, because the pool is free-threaded and frames are
    * polled from whichever thread the capture lives on; RPC_E_CHANGED_MODE means
@@ -699,10 +816,30 @@ static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t s
     say(why, size, "no memory for a capture");
     return NULL;
   }
-  if (adapter_for_monitor((HMONITOR)monitor, &capture->adapter, &output, &capture->luid,
-                          &capture->output, capture->card, sizeof capture->card,
-                          capture->display, sizeof capture->display, &resolved, &capture->primary,
-                          why, size))
+  capture->is_window = want_window;
+  capture->window = want_window ? (HWND)target : NULL;
+  if (capture->is_window) {
+    /* A window is composited on the adapter that drives the display it mostly
+     * sits on, so that display answers which card to make the device on — the
+     * same question a display's own capture asks, which is why the search is the
+     * same one. `MONITOR_DEFAULTTOPRIMARY` is what Windows answers for a window
+     * that is over no screen at all, a move in progress say: the composition is
+     * still the primary's card's, and asking again per frame would only turn a
+     * moment into an error. */
+    name_window(capture);
+    monitor = MonitorFromWindow(capture->window, MONITOR_DEFAULTTOPRIMARY);
+    if (!monitor) {
+      say(why, size, "the display the window is on: MonitorFromWindow(%p) found none",
+          (void *)capture->window);
+      goto failed;
+    }
+  }
+  if (adapter_for_monitor(
+          monitor,
+          want_window ? "the display the window is on" : "the display being captured",
+          &capture->adapter, &output, &capture->luid, &capture->output, capture->card,
+          sizeof capture->card, capture->display, sizeof capture->display, &resolved,
+          &capture->primary, why, size))
     goto failed;
   /* BGRA_SUPPORT is what Windows Graphics Capture requires of the device it hands
    * BGRA frames to, so it is asked for rather than fallen back from. A device the
@@ -782,8 +919,8 @@ static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t s
     goto failed;
   }
   /* The activation factory itself carries the interop interface: this is the door
-   * that turns a monitor's handle into a capture item, and it is not part of the
-   * WinRT projection. */
+   * that turns a handle into a capture item, and it is not part of the WinRT
+   * projection. */
   status = RoGetActivationFactory(name, __uuidof(abi::ItemInterop), (void **)&interop);
   if (FAILED(status)) {
     say(why, size,
@@ -792,10 +929,20 @@ static yapfast_wgc *open_capture(void *given, void *monitor, char *why, size_t s
         (unsigned long)status);
     goto failed;
   }
-  status = interop->CreateForMonitor(resolved, IID_PPV_ARGS(&capture->item));
+  /* The door the target goes through, and the only place the two kinds are told
+   * apart: a display's HMONITOR through CreateForMonitor, a window's HWND through
+   * CreateForWindow. Nothing here tries the other door when one refuses, since a
+   * window is not a display and the screen behind it is not what was asked for. */
+  if (want_window)
+    status = interop->CreateForWindow(capture->window, IID_PPV_ARGS(&capture->item));
+  else
+    status = interop->CreateForMonitor(resolved, IID_PPV_ARGS(&capture->item));
   interop->Release();
   if (FAILED(status)) {
-    refused(why, size, "IGraphicsCaptureItemInterop::CreateForMonitor", status);
+    refused(why, size,
+            want_window ? "IGraphicsCaptureItemInterop::CreateForWindow"
+                        : "IGraphicsCaptureItemInterop::CreateForMonitor",
+            status);
     goto failed;
   }
   capture->item->get_Size(&content);
@@ -840,7 +987,7 @@ failed:
 /* Opens a capture of `monitor` with a device of its own, made on the adapter
  * that drives that display. NULL with `why` filled in when anything refused. */
 extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) {
-  return open_capture(NULL, monitor, why, size);
+  return open_capture(NULL, 0, monitor, why, size);
 }
 
 /* Opens a capture of `monitor` on `device`, a D3D11 device the caller already
@@ -855,7 +1002,26 @@ extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) 
  * or as a frame that encodes as noise. NULL with `why` filled in when anything
  * refused. */
 extern "C" yapfast_wgc *yapfast_wgc_open_on(void *device, void *monitor, char *why, size_t size) {
-  return open_capture(device, monitor, why, size);
+  return open_capture(device, 0, monitor, why, size);
+}
+
+/* Opens a capture of one window, `window` being that window's own HWND, with a
+ * device made on the adapter that drives the display the window is composited
+ * on. The window is checked first: one that has gone, one that isn't a top-level
+ * window, and the desktop itself are each refused with the reason in `why`, since
+ * a caller that asked for one window must never be handed a picture of its
+ * screen. NULL with `why` filled in when anything refused. */
+extern "C" yapfast_wgc *yapfast_wgc_open_window(void *window, char *why, size_t size) {
+  return open_capture(NULL, 1, window, why, size);
+}
+
+/* Opens a capture of one window on `device`, borrowed exactly as
+ * `yapfast_wgc_open_on` borrows it and checked the same way: a device made on
+ * another card than the window's display is refused by name rather than copying
+ * every frame between cards. The window is checked the same way as above. */
+extern "C" yapfast_wgc *yapfast_wgc_open_window_on(void *device, void *window, char *why,
+                                                  size_t size) {
+  return open_capture(device, 1, window, why, size);
 }
 
 /* The next frame, if the compositor has made one. */
@@ -888,8 +1054,38 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
     capture->frame = NULL;
   }
   if (ended(capture)) {
-    say(why, size, "the capture is over: what was being captured closed");
+    snprintf(capture->ending, sizeof capture->ending, "%s",
+             capture->is_window ? "the window closed" : "the display capture ended");
+    say(why, size, "the capture is over: %s", capture->ending);
     return YAPFAST_WGC_CLOSED;
+  }
+  if (capture->is_window) {
+    /* Three questions a display has no answer to, asked before the pool is
+     * touched. A window that is gone and a window that has excluded itself both
+     * end the capture, because the pool still holds the last picture from before
+     * and handing that over again is the stale or protected content this exists to
+     * stop refreshing; a minimised window composites nothing, so it is answered as
+     * nothing new, which the caller sleeps on. These are three cheap window calls
+     * per frame and only on this path; the display path asks nothing.
+     */
+    if (!IsWindow(capture->window)) {
+      snprintf(capture->ending, sizeof capture->ending,
+               "the window closed: window %p is not a window any more",
+               (void *)capture->window);
+      say(why, size, "the capture is over: %s", capture->ending);
+      return YAPFAST_WGC_CLOSED;
+    }
+    if (excluded_from_capture(capture->window)) {
+      snprintf(capture->ending, sizeof capture->ending,
+               "the window is out of every capture (WDA_EXCLUDEFROMCAPTURE), so no picture of "
+               "it can be had while it stays set that way");
+      say(why, size, "the capture is over: %s", capture->ending);
+      return YAPFAST_WGC_CLOSED;
+    }
+    /* Asked before the pool, not after: a compositor that thinks a minimised
+     * window is still worth a frame hands over a thumbnail at the window's own
+     * size, which reads as a resize per frame and rebuilds the pool for it. */
+    if (IsIconic(capture->window)) return YAPFAST_WGC_IDLE;
   }
   status = capture->pool->TryGetNextFrame(&frame);
   if (FAILED(status)) {
@@ -898,14 +1094,24 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
   }
   if (!frame) return YAPFAST_WGC_IDLE;
   status = frame->get_ContentSize(&content);
-  if (FAILED(status) || content.Width <= 0 || content.Height <= 0) {
+  if (FAILED(status)) {
     frame->Release();
-    say(why, size, "a frame's ContentSize is %ldx%ld (0x%08lX)", (long)content.Width,
-        (long)content.Height, (unsigned long)status);
+    refused(why, size, "a frame's ContentSize", status);
+    return YAPFAST_WGC_FAILED;
+  }
+  if (content.Width <= 0 || content.Height <= 0) {
+    frame->Release();
+    /* A window caught between sizes, or on its way down, reports an empty picture
+     * for a moment: nothing to hand over, and no damage either. A display has no
+     * such moment, so an empty frame there is still worth saying. */
+    if (capture->is_window) return YAPFAST_WGC_IDLE;
+    say(why, size, "a frame's ContentSize is %ldx%ld", (long)content.Width,
+        (long)content.Height);
     return YAPFAST_WGC_FAILED;
   }
   if ((unsigned)content.Width != capture->width || (unsigned)content.Height != capture->height) {
-    /* The thing captured was resized, and the pool still holds buffers at the old
+    /* The thing captured was resized — a window dragged to a new size, or a
+     * display whose mode changed — and the pool still holds buffers at the old
      * size: it is recreated at the new one, and the frame that reported the change
      * is dropped, since a caller reading it would be reading a texture at
      * dimensions its encoder has already been given. Recreate rather than a new
@@ -1009,14 +1215,43 @@ extern "C" void yapfast_wgc_border(yapfast_wgc *capture, char *text, size_t size
  * `windows_build`. */
 extern "C" unsigned yapfast_wgc_build(void) { return windows_build(); }
 
-/* What this capture is and how it went, in one line: the display, the card and
- * output it is on, the size, and whether the border is off and what it took. A
- * capture that draws the indicator is still a capture, so the border's answer is
- * reported here rather than failed. */
+/* Why the capture ended, when it did, as the sentence `yapfast_wgc_frame` wrote
+ * for the YAPFAST_WGC_CLOSED it answered. Both answers mean the same thing to a
+ * caller — stop, drop this capture — but a share that says why it stopped has to
+ * tell a window its owner closed from a window that left every capture on
+ * purpose, and they are different things to a person reading the log. Empty while
+ * the capture still runs. */
+extern "C" void yapfast_wgc_ending(yapfast_wgc *capture, char *text, size_t size) {
+  if (!text || !size) return;
+  if (!capture) {
+    snprintf(text, size, "no capture");
+    return;
+  }
+  snprintf(text, size, "%s", capture->ending);
+}
+
+/* What this capture is and how it went, in one line: which display or which
+ * window, the card and output it is on, the size, and whether the border is off
+ * and what it took. A capture that draws the indicator is still a capture, so the
+ * border's answer is reported here rather than failed, and a window's item is
+ * exactly as subject to it as a display's. */
 extern "C" void yapfast_wgc_describe(yapfast_wgc *capture, char *text, size_t size) {
   if (!text || !size) return;
   if (!capture) {
     snprintf(text, size, "no capture");
+    return;
+  }
+  if (capture->is_window) {
+    snprintf(text, size,
+             "the window \"%s\" (class %s, window %p) on %s, %ux%u, through %s (LUID "
+             "%08lX:%08lX, output %u); %s; %s",
+             capture->window_title[0] ? capture->window_title : "(untitled)",
+             capture->window_class[0] ? capture->window_class : "(an unnamed class)",
+             (void *)capture->window,
+             capture->display[0] ? capture->display : "(an unnamed display)", capture->width,
+             capture->height, capture->card[0] ? capture->card : "(an unnamed adapter)",
+             (unsigned long)capture->luid.HighPart, (unsigned long)capture->luid.LowPart,
+             capture->output, capture->border, capture->pointer);
     return;
   }
   snprintf(text, size, "%s %s, %ux%u, through %s (LUID %08lX:%08lX, output %u); %s; %s",
