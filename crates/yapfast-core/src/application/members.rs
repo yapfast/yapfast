@@ -232,6 +232,11 @@ impl Application {
         if in_voice && !self.move_targets(place, user).is_empty() {
             choices.push(MenuChoice::MoveTo);
         }
+        // Beside a channel, as Discord's opens it; first of the
+        // moderation, as in Discord's menu.
+        if state.server_settings.is_none() && self.may_mod_view(place) {
+            choices.push(MenuChoice::ModView);
+        }
         if in_voice {
             if self.may(place, Permission::MuteMembers) {
                 choices.push(MenuChoice::ServerMute);
@@ -340,7 +345,7 @@ impl Application {
     /// Whether a member is an administrator, or the owner, whom Discord
     /// doesn't let anyone time out.
     #[cfg(feature = "discord")]
-    fn is_admin(&self, place: &str, user: &str) -> bool {
+    pub(super) fn is_admin(&self, place: &str, user: &str) -> bool {
         use yapfast_discord::ready::permission::ADMINISTRATOR;
         let roles = self.member_roles(place, user);
         self.discord_place(place).is_some_and(|(server, _, _)| {
@@ -477,9 +482,10 @@ impl Application {
             let name = name
                 .or_else(|| self.state.person(&user).map(|person| person.name))
                 .unwrap_or_else(|| "this member".into());
-            let text = match ask {
-                PersonAsk::ServerNickname => nickname.unwrap_or_default(),
-                _ => String::new(),
+            let (choice, text) = match (ask, &self.last_ban) {
+                (PersonAsk::ServerNickname, _) => (0, nickname.unwrap_or_default()),
+                (PersonAsk::Ban, Some((choice, reason))) => (*choice, reason.clone()),
+                _ => (0, String::new()),
             };
             self.state.person_dialog = Some(PersonDialog {
                 user,
@@ -489,7 +495,7 @@ impl Application {
                 saving: false,
                 error: None,
                 server: Some(discord::server_id(&guild)),
-                choice: 0,
+                choice,
             });
         }
         #[cfg(not(feature = "discord"))]
@@ -513,6 +519,14 @@ impl Application {
                 MemberChange::Timeout { until_ms: None, .. } => {
                     self.may_moderate(&place, &user, Permission::Moderate)
                         && self.timed_out(&place, &user)
+                }
+                // Mod View's quick timeouts, which skip the dialog.
+                MemberChange::Timeout {
+                    until_ms: Some(_), ..
+                } => {
+                    self.may_moderate(&place, &user, Permission::Moderate)
+                        && !self.is_admin(&place, &user)
+                        && !self.timed_out(&place, &user)
                 }
                 MemberChange::ServerMute(_) => {
                     self.voice_person(&place, &user).is_some()

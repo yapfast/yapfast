@@ -229,6 +229,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     super::polls::bind(window, adapter);
     super::call_link::bind(window, adapter);
     super::server_settings::bind(window, adapter);
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_mod_view_act(move |what, text, number| {
+            if let Some(window) = weak.upgrade() {
+                super::mod_view::mod_view_act(&mut state.borrow_mut(), &window, what, text, number);
+            }
+        });
+    }
     super::channel_settings::bind(window, adapter);
     super::title_bar::bind(window, adapter);
     // UI bindings can request images while refresh borrows the adapter.

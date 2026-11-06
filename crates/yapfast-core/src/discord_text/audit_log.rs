@@ -50,6 +50,7 @@ pub(super) async fn page(
             query.before.as_deref(),
             query.user.as_deref(),
             query.action,
+            query.target.as_deref(),
         )
         .await
         .map(|log| parse(&log))

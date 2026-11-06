@@ -92,8 +92,8 @@ pub const THREAD_PAGE: u32 = 25;
 /// batch this full may have more after it.
 pub const BANS_PAGE: usize = 1000;
 
-/// What a members search gave: Discord's answer, or the seconds to wait
-/// while it indexes the server.
+/// What a members or message tabs search gave: Discord's answer, or the
+/// seconds to wait while it indexes the server.
 #[derive(Debug)]
 pub enum MembersSearch {
     Found(Value),
@@ -1449,8 +1449,12 @@ impl Api {
         before: Option<&str>,
         user: Option<&str>,
         action: Option<u16>,
+        target: Option<&str>,
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/audit-logs?limit={AUDIT_PAGE}");
+        if let Some(target) = target {
+            path.push_str(&format!("&target_id={}", encode(target)));
+        }
         if let Some(before) = before {
             path.push_str(&format!("&before={}", encode(before)));
         }
@@ -1468,9 +1472,24 @@ impl Api {
     /// answers 202 while it indexes the server, with how many seconds to
     /// wait before asking again.
     pub async fn search_members(&self, guild: &str, body: &Value) -> Result<MembersSearch> {
-        let path = format!("/guilds/{guild}/members-search");
+        self.indexed(&format!("/guilds/{guild}/members-search"), body)
+            .await
+    }
+
+    /// How many messages someone sent in a server, as Mod View counts
+    /// them: `body` is Discord's `messages/search/tabs` query, with a tab
+    /// each for messages, links and media. Discord answers 202 while it
+    /// indexes the server, as for [`Self::search_members`].
+    pub async fn search_tabs(&self, guild: &str, body: &Value) -> Result<MembersSearch> {
+        self.indexed(&format!("/guilds/{guild}/messages/search/tabs"), body)
+            .await
+    }
+
+    /// A search Discord answers with 202 and how many seconds to wait
+    /// while it indexes the server.
+    async fn indexed(&self, path: &str, body: &Value) -> Result<MembersSearch> {
         let response = self
-            .execute(with_json(self.request(Method::POST, &path), body))
+            .execute(with_json(self.request(Method::POST, path), body))
             .await?;
         let indexing = response.status() == StatusCode::ACCEPTED;
         let body = response

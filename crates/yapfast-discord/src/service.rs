@@ -1614,8 +1614,20 @@ impl Discord {
         before: Option<&str>,
         user: Option<&str>,
         action: Option<u16>,
+        target: Option<&str>,
     ) -> Result<Value> {
-        self.api.audit_log(guild, before, user, action).await
+        self.api
+            .audit_log(guild, before, user, action, target)
+            .await
+    }
+
+    /// Mod View's counts; see [`crate::api::Api::search_tabs`].
+    pub async fn search_tabs(
+        &self,
+        guild: &str,
+        body: &Value,
+    ) -> Result<crate::api::MembersSearch> {
+        self.api.search_tabs(guild, body).await
     }
 
     /// A chunk of Members' search; see [`crate::api::Api::search_members`].

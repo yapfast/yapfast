@@ -267,7 +267,8 @@ fn filters_and_older_pages_ask_discord_and_drop_what_came_too_late() {
         AuditQuery {
             before: None,
             user: Some("5".into()),
-            action: None
+            action: None,
+            target: None,
         }
     );
     assert!(page(&app).rows.is_empty() && page(&app).fetching());

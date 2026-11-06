@@ -107,7 +107,10 @@
 // a time, and GET /guilds/{id}/messages/search a server's, in the channels
 // channel_id names or in all of them; both take author_id, mentions, has
 // (has=poll among them), min_id, max_id and pinned too. The first search of each DM or server
-// answers 202, as Discord's does while it indexes it.
+// answers 202, as Discord's does while it indexes it. POST
+// /guilds/{id}/messages/search/tabs counts Mod View's messages, links and
+// media tabs, each by author_id, has and attachment_extension; GET
+// /_control/search-tabs lists the bodies it was sent.
 // POST /_control/typing makes Bob start typing in #general, or with ?dm in
 // his DM; GET /_control/typed lists the channels Alice said she was typing in.
 // GET /channels/{id}/messages takes `before`, `after` or `around` a snowflake,
@@ -796,7 +799,8 @@ const auditLog: { action: string; user: string; reason: string | null }[] = [];
  *  by Bob and Alice from before the run, then each kick, ban, unban,
  *  timeout and server settings change Alice makes. GET
  *  /guilds/{id}/audit-logs lists it newest first, 50 at a time, with
- *  `before`, `user_id` and `action_type`, as Audit Log asks, and the users
+ *  `before`, `user_id` and `action_type`, as Audit Log asks, or
+ *  `target_id`, as Mod View's Moderator Action Log does, and the users
  *  it names. POST /_control/audit-entries with `{"count": n}` adds n of
  *  Bob's message deletions, for paging; POST /_control/audit-reset puts
  *  back the seeded entries alone. */
@@ -1710,6 +1714,8 @@ function searchFilter(url: URL): (message: Message) => boolean {
     (!max || BigInt(message.id) < BigInt(max)) &&
     (pinned === null || (pins.get(message.channel)?.some((pin) => pin.message.id === message.id) ?? false) === (pinned === "true"));
 }
+/** The bodies of Mod View's POST /guilds/{id}/messages/search/tabs. */
+const tabSearches: unknown[] = [];
 // DMs searched once, which Discord has indexed.
 const indexed = new Set<string>();
 const readBob = post(DM_BOB, users.alice, "Yes, bringing snacks", DM_START + 180_000);
@@ -5240,7 +5246,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         },
         join_source_type: source[0],
         source_invite_code: source[1],
-        inviter_id: null,
+        // Carol's invite, which she made.
+        inviter_id: source[1] === "carol1" ? users.carol.id : null,
         integration_type: null,
       })),
       page_result_count: page.length,
@@ -6222,6 +6229,43 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     });
   }
 
+  // Mod View's counts: POST /guilds/{id}/messages/search/tabs runs each
+  // of `tabs` (author_id, has and attachment_extension) over the server's
+  // channels and answers each tab's total_results and its first `limit`
+  // messages. The first search of the server answers 202 like GET's. Each
+  // body sent is kept for GET /_control/search-tabs.
+  if (method === "POST" && (m = path.match(/^\/guilds\/(\d+)\/messages\/search\/tabs$/))) {
+    const guild = m[1]!;
+    const channels = [...messages.keys()].filter((id) => !privates.has(id) && guildOf(id).guild_id === guild);
+    if (!channels.length) return notFound("Unknown Guild", 10004);
+    const body: any = await req.json().catch(() => ({}));
+    tabSearches.push(body);
+    if (!indexed.has(guild)) {
+      indexed.add(guild);
+      return json({ message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 0 }, 202);
+    }
+    const all = channels
+      .flatMap((id) => messages.get(id)!)
+      .filter((message) => message.type === 0 || message.type === 19)
+      .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1));
+    const tabs: Record<string, unknown> = {};
+    for (const [name, tab] of Object.entries<any>(body.tabs ?? {})) {
+      const query = new URL("http://fake/");
+      for (const id of tab.author_id ?? []) query.searchParams.append("author_id", id);
+      for (const what of tab.has ?? []) query.searchParams.append("has", what);
+      const extensions: string[] = tab.attachment_extension ?? [];
+      const found = all
+        .filter(searchFilter(query))
+        .filter((message) => !extensions.length || message.files.some((file) => extensions.includes(file.filename.split(".").pop()!.toLowerCase())));
+      const limit = Math.min(Math.max(Number(tab.limit) || 25, 1), 25);
+      tabs[name] = {
+        messages: found.slice(0, limit).map((message) => [{ ...wireMessage(message, origin), guild_id: guild }]),
+        channels: [], cursor: {}, total_results: found.length, time_spent_ms: 1,
+      };
+    }
+    return json({ analytics_id: "fake", doing_deep_historical_index: false, tabs });
+  }
+
   // Each message request's latest message, for the requests list: 1 to 25
   // channel_ids, repeated. A channel that isn't a request is left out.
   if (method === "GET" && path === "/users/@me/message-requests/supplemental-data") {
@@ -6735,10 +6779,12 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const before = query.get("before");
     const user = query.get("user_id");
     const action = query.get("action_type");
+    const target = query.get("target_id");
     const found = auditEntries
       .filter((entry) => before === null || BigInt(entry.id) < BigInt(before))
       .filter((entry) => user === null || entry.user_id === user)
       .filter((entry) => action === null || entry.action_type === Number(action))
+      .filter((entry) => target === null || entry.target_id === target)
       .reverse()
       .slice(0, limit);
     const named = new Set(found.flatMap((entry) => [entry.user_id, entry.target_id]));
@@ -8266,6 +8312,7 @@ const server = Bun.serve<SocketData>({
       return new Response("changed\n");
     }
     if (path === "/_control/audit-log") return Response.json(auditLog);
+    if (path === "/_control/search-tabs") return Response.json(tabSearches);
     if (req.method === "POST" && path === "/_control/audit-entries") {
       const body: any = await req.json().catch(() => ({}));
       const count = Number(body.count) || 0;

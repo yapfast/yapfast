@@ -5624,7 +5624,10 @@ async fn moderates_as_discords_client_does() {
             .map(|entry| entry["action_type"].as_u64().unwrap())
             .collect()
     };
-    let log = discord.audit_log(guild, None, None, None).await.unwrap();
+    let log = discord
+        .audit_log(guild, None, None, None, None)
+        .await
+        .unwrap();
     let newest = &log["audit_log_entries"][0];
     assert_eq!(
         (newest["action_type"].as_u64(), newest["target_id"].as_str()),
@@ -5639,7 +5642,7 @@ async fn moderates_as_discords_client_does() {
     // By Bob, and by action.
     let bob = "1400000000000000002";
     let by_bob = discord
-        .audit_log(guild, None, Some(bob), None)
+        .audit_log(guild, None, Some(bob), None, None)
         .await
         .unwrap();
     assert_eq!(actions(&by_bob), [24, 24, 22, 22, 13, 1]);
@@ -5651,25 +5654,68 @@ async fn moderates_as_discords_client_does() {
             .any(|user| user["id"] == bob && user["username"] == "bob")
     );
     let bans = discord
-        .audit_log(guild, None, None, Some(22))
+        .audit_log(guild, None, None, Some(22), None)
         .await
         .unwrap();
     assert!(actions(&bans).iter().all(|action| *action == 22));
     // Fifty at a time, from before the last.
     post_control(server, "/_control/audit-entries", r#"{"count": 60}"#);
     let first = discord
-        .audit_log(guild, None, Some(bob), None)
+        .audit_log(guild, None, Some(bob), None, None)
         .await
         .unwrap();
     assert_eq!(actions(&first).len(), 50);
     let last = first["audit_log_entries"][49]["id"].as_str().unwrap();
     let next = discord
-        .audit_log(guild, Some(last), Some(bob), None)
+        .audit_log(guild, Some(last), Some(bob), None, None)
         .await
         .unwrap();
     assert_eq!(actions(&next).len(), 16);
     post_control(server, "/_control/audit-reset", "");
     post_control(server, "/_control/members-reset", "");
+}
+
+/// What Mod View asks about a member: their counts of messages, links and
+/// media from the server's message search tabs, and the audit log about
+/// them.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn counts_and_logs_a_member_as_mod_view_does() {
+    let fixture = Fixture::start("counts_and_logs_a_member_as_mod_view_does").await;
+    let (discord, server, guild) = (&fixture.discord, fixture.server, fixture.guild.as_str());
+    use yapfast_discord::{
+        api::MembersSearch,
+        server_settings::{activity_tabs, parse_activity},
+    };
+    let body = activity_tabs(&fixture.bob);
+    // The server's first search waits while Discord indexes it.
+    assert!(matches!(
+        discord.search_tabs(guild, &body).await.unwrap(),
+        MembersSearch::Indexing(_)
+    ));
+    let MembersSearch::Found(found) = discord.search_tabs(guild, &body).await.unwrap() else {
+        panic!("still indexing");
+    };
+    let [messages, links, media] = parse_activity(&found);
+    // As many as the server's search finds by him.
+    let searched = discord.search(guild, None, "from:bob", 0).await.unwrap();
+    assert_eq!(messages, u64::from(searched.total));
+    assert!(messages > 0 && links <= messages && media <= messages);
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/search-tabs", "")).unwrap();
+    assert_eq!(sent.as_array().unwrap().last(), Some(&body));
+    assert_eq!(body["tabs"]["links"]["has"], serde_json::json!(["link"]));
+    assert_eq!(body["track_exact_total_hits"], true);
+
+    // The audit log about something: only what was done to it.
+    let general = fixture.general.as_str();
+    let log = discord
+        .audit_log(guild, None, None, None, Some(general))
+        .await
+        .unwrap();
+    let entries = log["audit_log_entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    assert!(entries.iter().all(|entry| entry["target_id"] == general));
 }
 
 /// Members and Invites in Server Settings, as Discord's client asks for
@@ -5706,6 +5752,8 @@ async fn lists_members_and_invites_as_discords_client_does() {
         (5, Some("carol1"))
     );
     assert!(found[1].unusual_dms_until > 0 && found[0].unusual_dms_until == 0);
+    // Carol joined by her own invite, which names her as the inviter.
+    assert_eq!(found[1].inviter.as_ref(), Some(&found[1].user.id));
     // By name or id, and in another order.
     let carol = found[1].user.id.clone();
     let (found, _) = search(json!({"or_query": {}, "and_query": {

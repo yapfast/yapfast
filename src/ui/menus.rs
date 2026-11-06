@@ -1,7 +1,9 @@
 //! The menus a right click opens: what they offer, and the choices made.
 
 use yapfast_core::{
-    application::{ChannelAsk, MUTE_TIMES, MenuChoice, OwnershipInput, network_id, network_link},
+    application::{
+        ChannelAsk, MUTE_TIMES, MenuChoice, ModViewInput, OwnershipInput, network_id, network_link,
+    },
     chat::{
         ChannelKind, MemberChange, Muting, NotificationChange, Notifications, NotifyLevel,
         RelationshipChange,
@@ -198,6 +200,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 MenuChoice::ServerMute
                 | MenuChoice::ServerDeafen
                 | MenuChoice::Disconnect
+                | MenuChoice::ModView
                 | MenuChoice::Timeout
                 | MenuChoice::RemoveTimeout
                 | MenuChoice::Kick
@@ -385,6 +388,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::Mention => ("Mention", &icons.mention),
         MenuChoice::ServerNickname => ("Change nickname", &icons.rename),
         MenuChoice::Roles => ("Roles", &icons.roles),
+        MenuChoice::ModView => ("Open in Mod View", &icons.roles),
         MenuChoice::RemoveTimeout => ("Remove timeout", &icons.timeout),
         MenuChoice::Timeout => ("Time out", &icons.timeout),
         MenuChoice::Kick => ("Kick", &icons.kick),
@@ -985,6 +989,12 @@ pub(super) fn choose(
             None
         }
         MenuChoice::ServerNickname => ask_member(PersonAsk::ServerNickname),
+        MenuChoice::ModView => place.clone().map(|place| {
+            Action::ModView(ModViewInput::Open {
+                place,
+                user: target.clone(),
+            })
+        }),
         MenuChoice::Timeout => ask_member(PersonAsk::Timeout),
         MenuChoice::Kick => ask_member(PersonAsk::Kick),
         MenuChoice::Ban => ask_member(PersonAsk::Ban),
@@ -1135,7 +1145,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 65] = [
+const CHOICES: [MenuChoice; 66] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1165,6 +1175,7 @@ const CHOICES: [MenuChoice; 65] = [
     MenuChoice::Mention,
     MenuChoice::ServerNickname,
     MenuChoice::Roles,
+    MenuChoice::ModView,
     MenuChoice::Timeout,
     MenuChoice::RemoveTimeout,
     MenuChoice::Kick,
@@ -1234,6 +1245,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::Mention => "mention",
         MenuChoice::ServerNickname => "server-nickname",
         MenuChoice::Roles => "roles",
+        MenuChoice::ModView => "mod-view",
         MenuChoice::Timeout => "timeout",
         MenuChoice::RemoveTimeout => "remove-timeout",
         MenuChoice::Kick => "kick",

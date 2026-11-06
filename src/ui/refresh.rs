@@ -315,6 +315,7 @@ impl Adapter {
         self.show_new_post(window);
         self.show_new_thread(window);
         self.show_members(window);
+        self.show_mod_view(window);
         self.show_invite(window);
         self.show_join(window);
         self.show_oauth(window);

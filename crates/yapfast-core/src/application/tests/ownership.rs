@@ -55,6 +55,7 @@ fn member(id: &str, bot: bool) -> ListedMember {
         spammer: false,
         quarantined: false,
         joined_by: JoinMethod::Unknown,
+        inviter: None,
         bot,
     }
 }
