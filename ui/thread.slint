@@ -88,6 +88,13 @@ export component ThreadPanel inherits Rectangle {
     /// Counts up for the window to focus the composer, after a menu's Reply or Edit.
     in property <int> focus-tick;
     changed focus-tick => { composer.focus-input(); }
+    /// Goes up for a key typed with nothing focused: the composer takes the
+    /// focus with its caret at the end.
+    in property <int> typing-tick;
+    changed typing-tick => { composer.focus-input(); composer.place-caret(1000000); }
+    callback composer-focused;
+    /// Escape in the composer; whether it was taken.
+    callback escape-composing() -> bool;
     /// Counts up for the window to put the cursor at `caret-offset`, after a
     /// suggestion was chosen.
     in property <int> caret-tick;
@@ -340,6 +347,8 @@ export component ThreadPanel inherits Rectangle {
                             suggestion-moved(step) => { root.suggestion-moved(step); }
                             suggestion-chosen => { root.suggestion-chosen(); }
                             suggestion-dismissed => { root.suggestion-dismissed(); }
+                            escaped => { return root.escape-composing(); }
+                            got-focus => { root.composer-focused(); }
                         }
                         VerticalLayout {
                             alignment: end; padding-bottom: 8px;
@@ -404,6 +413,11 @@ export component NewThreadPanel inherits Rectangle {
     callback jump-to(string);
     callback open-link(string);
     public function focus-composer() { composer.focus-input(); }
+    /// Goes up for a key typed with nothing focused, as on ThreadPanel.
+    in property <int> typing-tick;
+    changed typing-tick => { composer.focus-input(); composer.place-caret(1000000); }
+    callback composer-focused;
+    callback escape-composing() -> bool;
     background: Theme.chat;
     accessible-role: groupbox;
     accessible-label: "New Thread";
@@ -461,6 +475,8 @@ export component NewThreadPanel inherits Rectangle {
                         edited(text) => { root.body-edited(text); }
                         accepted => { root.create(); }
                         paste => { self.paste-text(); }
+                        escaped => { return root.escape-composing(); }
+                        got-focus => { root.composer-focused(); }
                     }
                     VerticalLayout {
                         alignment: end; padding-bottom: 8px;

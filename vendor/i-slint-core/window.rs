@@ -1417,6 +1417,31 @@ impl WindowInner {
         let extra_mod = internal_key_event.key_event.modifiers.control
             || internal_key_event.key_event.modifiers.meta
             || internal_key_event.key_event.modifiers.alt;
+
+        // Yapfast: a key nothing took, with no popup open, may go to the app; see
+        // `crate::yapfast_typing`.
+        if internal_key_event.event_type == KeyEventType::KeyPressed
+            && !extra_mod
+            && !(internal_key_event.key_event.modifiers.shift
+                && internal_key_event.key_event.text.starts_with(key_codes::Tab))
+            && self.active_popups.borrow().is_empty()
+        {
+            let nothing_focused = self.focus_item.borrow().upgrade().is_none();
+            match crate::yapfast_typing::offer(&internal_key_event.key_event.text, nothing_focused) {
+                crate::yapfast_typing::Offer::Declined => {}
+                crate::yapfast_typing::Offer::Taken => {
+                    self.ensure_tree_instantiated();
+                    return crate::input::KeyEventResult::EventAccepted;
+                }
+                crate::yapfast_typing::Offer::Deliver => {
+                    // A composer beside the channel takes the focus in a change handler.
+                    crate::properties::ChangeTracker::run_change_handlers();
+                    return crate::yapfast_typing::delivering(|| {
+                        self.process_key_input(internal_key_event)
+                    });
+                }
+            }
+        }
         if internal_key_event.key_event.text.starts_with(key_codes::Tab)
             && !internal_key_event.key_event.modifiers.shift
             && !extra_mod

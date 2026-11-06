@@ -106,6 +106,14 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   message; Alt+Up moves into the messages, where arrows step, Enter opens the
   menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
   Escape returns to the composer.
+- Type where no field takes it, as after a menu closes, and the key goes to the
+  end of the composer used last, the channel's or the thread's beside it, which
+  takes the focus, as in Discord; Backspace and Delete too, and Tab with nothing
+  focused. Enter doesn't send from there, unlike Discord. Not while the settings,
+  a profile, a card, a dialog, a panel such as the pins, the image viewer, a
+  ringing call or the call in full screen is open, nor on the friends list or a
+  call, nor with Ctrl, Alt or Super held, nor for the push-to-talk key while
+  unmuted in a call. Stepping through the messages, only letters and digits go.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
 - Emoji in message text are drawn by Twemoji's picture of them, as the picker's
   are, in a colour bitmap font made of them when Yapfast is built
@@ -211,7 +219,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   somewhere, the dialog opens again with those conversations chosen and why.
   Delete asks for confirmation, then
   redacts the message for everyone. Replies quote the original; edits are marked
-  "(edited)". Reply and edit modes show above the composer, with Cancel.
+  "(edited)". Reply and edit modes show above the composer, with Cancel;
+  Escape cancels too, wherever the focus is, once no suggestions or anything
+  over the conversation are open: first the search, then the channel's reply or
+  edit, then the thread's beside it, then the new thread's form.
   Cancelling an edit restores the draft it replaced.
 - Attach files with the system file dialog, paste them with Ctrl+V: files
   copied in a file manager, or a picture copied from a browser or a screenshot

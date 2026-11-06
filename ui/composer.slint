@@ -74,6 +74,10 @@ export component Composer inherits Rectangle {
     // Up in an empty composer, and Alt+Up anywhere in it.
     callback up-from-empty;
     callback up-to-messages;
+    /// Escape was pressed; whether it was taken, as by cancelling a reply.
+    callback escaped() -> bool;
+    /// The field took the keyboard.
+    callback got-focus;
     // Ctrl+V and the menu's Paste: the clipboard may hold files or a picture
     // rather than text, so the application looks first and, finding text,
     // pastes it with paste-text.
@@ -119,6 +123,7 @@ export component Composer inherits Rectangle {
                 if (event.text == Key.Return || event.text == Key.Tab) && !event.modifiers.shift { root.suggestion-chosen(); return accept; }
                 if event.text == Key.Escape { root.suggestion-dismissed(); return accept; }
             }
+            if event.text == Key.Escape && root.escaped() { return accept; }
             if event.text == Key.UpArrow && event.modifiers.alt { root.up-to-messages(); return accept; }
             if event.text == Key.UpArrow && root.text == "" && !event.modifiers.shift && !event.modifiers.control {
                 root.up-from-empty();
@@ -167,6 +172,7 @@ export component Composer inherits Rectangle {
                 selection-background-color: Theme.accent.with-alpha(0.35);
                 selection-foreground-color: Theme.text;
                 accessible-label: root.label;
+                changed has-focus => { if self.has-focus { root.got-focus(); } }
                 edited => { root.edited(self.text); root.caret(self.text, self.cursor-position-byte-offset); }
                 cursor-position-changed(position) => {
                     root.caret(self.text, self.cursor-position-byte-offset);
