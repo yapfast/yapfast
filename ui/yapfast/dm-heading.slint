@@ -1,0 +1,21 @@
+import { Theme } from "../theme.slint";
+import { IconButton } from "../controls.slint";
+
+export component DmHeading inherits HorizontalLayout {
+    in property <bool> discord-linked;
+    callback add-friend;
+    callback new-message;
+    height: 40px; padding-left: 8px; spacing: 4px;
+    Text {
+        text: "Direct Messages"; font-size: 12px; font-weight: 600;
+        color: Theme.muted; vertical-alignment: center; horizontal-stretch: 1;
+    }
+    if root.discord-linked: IconButton {
+        icon: @image-url("../icons/user-plus.svg"); label: "Add a friend"; size: 24px; glyph: 16px; tip-side: 2;
+        clicked => { root.add-friend(); }
+    }
+    IconButton {
+        icon: @image-url("../icons/square-pen.svg"); label: "New message"; size: 24px; glyph: 16px; tip-side: 2;
+        clicked => { root.new-message(); }
+    }
+}
