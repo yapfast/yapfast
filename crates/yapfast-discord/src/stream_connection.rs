@@ -580,9 +580,7 @@ async fn send(
                 if let Some((op, data)) = connection.handle(message?).await?
                     && !matches!(op, 2 | 4 | 6)
                 {
-                    let mut text = data.to_string();
-                    text.truncate(400);
-                    tracing::debug!(op, data = %text, "the stream server said");
+                    tracing::debug!(op, size = data.to_string().len(), "the stream server said");
                     // Session update: a viewer can't decode the codec, or the
                     // one who couldn't left.
                     if op == 14
@@ -842,9 +840,7 @@ async fn receive_stream(
             message = receive(&mut connection.ws, &mut connection.seq) => {
                 if let Some((op, data)) = connection.handle(message?).await? {
                     if !matches!(op, 2 | 4 | 6) {
-                        let mut text = data.to_string();
-                        text.truncate(400);
-                        tracing::debug!(op, data = %text, "the stream server said");
+                        tracing::debug!(op, size = data.to_string().len(), "the stream server said");
                     }
                     streamer.learn(op, &data);
                 }

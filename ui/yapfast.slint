@@ -360,6 +360,7 @@ export component YapfastWindow inherits Window {
     in property <image> link-code;
     in property <string> link-name;
     in property <string> link-note;
+    in-out property <string> link-token;
     callback link-discord;
     callback link-discord-token(string);
     callback open-discord-captcha;
@@ -2130,6 +2131,7 @@ export component YapfastWindow inherits Window {
         visible: !root.workspace;
         busy: root.busy; notice: root.notice; restore-available: root.restore-available; matrix-build: root.matrix-build;
         link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
+        link-token <=> root.link-token;
         sign-in-focus: root.sign-in-focus;
         graphics-notice <=> root.graphics-notice;
         homeserver <=> root.homeserver; username <=> root.username; password <=> root.password;
@@ -3588,6 +3590,7 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 4 && !root.discord-linked: DiscordLinkSettings {
             link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
+            link-token <=> root.link-token;
             link-discord => { root.link-discord(); }
             link-discord-token(token) => { root.link-discord-token(token); }
             open-discord-captcha => { root.open-discord-captcha(); }

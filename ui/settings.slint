@@ -1255,6 +1255,7 @@ export component DiscordLinkSettings inherits VerticalLayout {
     in property <image> link-code;
     in property <string> link-name;
     in property <string> link-note;
+    in-out property <string> link-token;
     callback link-discord;
     callback link-discord-token(string);
     callback open-discord-captcha;
@@ -1263,6 +1264,7 @@ export component DiscordLinkSettings inherits VerticalLayout {
     Label { text: "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."; }
     DiscordLinkPanel {
         phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
+        token <=> root.link-token;
         begin => { root.link-discord(); }
         reopen => { root.open-discord-captcha(); }
         link-token(token) => { root.link-discord-token(token); }

@@ -280,7 +280,7 @@ impl Connection {
                 }
             }
             let (interval, ready) = (interval.unwrap_or(41_250.0), ready.unwrap_or_default());
-            tracing::debug!(%ready, "the voice server is ready");
+            tracing::debug!(op = 2, size = ready.to_string().len(), "the voice server is ready");
             let ssrc = ready["ssrc"]
                 .as_u64()
                 .context("the voice server sent no SSRC")? as u32;
@@ -330,11 +330,9 @@ impl Connection {
                     Incoming::Dave(event) => dave_early.push(event),
                 }
             };
-            let mut described = session.clone();
-            if let Some(fields) = described.as_object_mut() {
-                fields.remove("secret_key");
-            }
-            tracing::debug!(session = %described, "the voice server described the session");
+            // Gateway payloads may carry user- or media-identifying data, so
+            // debug logs record only the opcode and the payload size.
+            tracing::debug!(op = 4, size = session.to_string().len(), "the voice server described the session");
             let key: Vec<u8> = session["secret_key"]
                 .as_array()
                 .context("the voice server sent no key")?
@@ -356,9 +354,7 @@ impl Connection {
             dave.recognise(user);
         }
         for (op, data) in &early {
-            let mut text = data.to_string();
-            text.truncate(400);
-            tracing::debug!(op, data = %text, "the voice server said while connecting");
+            tracing::debug!(op, size = data.to_string().len(), "the voice server said while connecting");
             if let Some(user) = announced(*op, data) {
                 dave.recognise(user);
             }

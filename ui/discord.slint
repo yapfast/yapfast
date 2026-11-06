@@ -35,9 +35,10 @@ export component DiscordLinkPanel inherits VerticalLayout {
     // Opens the captcha's page in the browser again.
     callback reopen;
     callback link-token(string);
-    // Kept here, outside the phases, so a token Discord refused stays to fix.
+    // The pasted token: cleared as soon as it is sent, so neither success
+    // nor failure keeps it in the UI; Rust also empties it after submit.
     property <bool> token-open;
-    property <string> token;
+    in-out property <string> token;
     spacing: 16px;
     if root.phase == 0 || root.phase == 4: VerticalLayout {
         spacing: 12px;
@@ -77,9 +78,9 @@ export component DiscordLinkPanel inherits VerticalLayout {
                 TextField {
                     text <=> root.token; password: true; placeholder: "Discord token"; label: "Discord token";
                     init => { self.focus-input(); }
-                    accepted => { root.link-token(root.token); }
+                    accepted => { root.link-token(root.token); root.token = ""; }
                 }
-                ActionButton { text: "Link"; primary: true; enabled: root.token != ""; clicked => { root.link-token(root.token); } }
+                ActionButton { text: "Link"; primary: true; enabled: root.token != ""; clicked => { root.link-token(root.token); root.token = ""; } }
             }
             Text {
                 text: "Anyone with your token can use your account. Paste it only here, and never share it.";

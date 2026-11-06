@@ -15,6 +15,7 @@ export component SignInScreen inherits Rectangle {
     in property <image> link-code;
     in property <string> link-name;
     in property <string> link-note;
+    in-out property <string> link-token;
     // The Matrix sign-in focuses its first field each time this counts up.
     in property <int> sign-in-focus;
     in-out property <string> graphics-notice;
@@ -55,6 +56,7 @@ export component SignInScreen inherits Rectangle {
                             Rectangle { height: 12px; }
                             if !root.busy: DiscordLinkPanel {
                                 phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
+                                token <=> root.link-token;
                                 begin => { root.link-discord(); }
                                 reopen => { root.open-discord-captcha(); }
                                 link-token(token) => { root.link-discord-token(token); }

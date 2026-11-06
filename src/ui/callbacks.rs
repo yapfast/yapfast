@@ -647,7 +647,21 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_browse, Action::BrowseChannels);
     bind_item!(on_message_friend, Action::MessagePerson);
     bind!(on_link_discord, Action::LinkDiscord);
-    bind_item!(on_link_discord_token, Action::LinkDiscordToken);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_link_discord_token(move |token| {
+            if let Some(window) = weak.upgrade() {
+                let token: String = token.into();
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::LinkDiscordToken(token));
+                // A pasted token must not stay in the UI: clear the field at
+                // once, so neither success nor failure retains it.
+                window.set_link_token(String::new());
+            }
+        });
+    }
     bind!(on_open_discord_captcha, Action::OpenDiscordCaptcha);
     bind!(on_cancel_discord_link, Action::CancelDiscordLink);
     bind!(on_unlink_discord, Action::UnlinkDiscord);
