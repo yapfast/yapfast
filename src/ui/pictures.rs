@@ -114,6 +114,34 @@ pub(super) fn avatar_picture(url: &str) -> slint::Image {
     })
 }
 
+/// The address of the animated version of a collectible's still picture:
+/// Discord serves a decoration's or nameplate's `/static` PNG and, beside it,
+/// an `/animated` APNG. Any other address is its own.
+pub(super) fn animated_url(url: &str) -> String {
+    match url.strip_suffix("/static") {
+        Some(base) if url.contains("/collectibles-shop/") => format!("{base}/animated"),
+        _ => url.to_owned(),
+    }
+}
+
+/// The frames and delays of the animation at `url`, once it has arrived and
+/// the frames decode as they show; empty for a still picture or one on its
+/// way.
+pub(super) fn avatar_animation(url: &str) -> (ModelRc<slint::Image>, ModelRc<i32>) {
+    let source =
+        AVATAR_SOURCES.with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade));
+    source.map_or_else(Default::default, |source| animation(&source))
+}
+
+/// How many times the animation at `url` plays before holding its last
+/// frame; 0 for ever, or until it has arrived.
+pub(super) fn picture_plays(url: &str) -> i32 {
+    AVATAR_SOURCES
+        .with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade))
+        .and_then(|source| source.animation.as_ref().map(|animation| animation.plays))
+        .map_or(0, |plays| i32::try_from(plays).unwrap_or(0))
+}
+
 thread_local! {
     static AVATAR_SOURCES: RefCell<HashMap<String, std::sync::Weak<Picture>>> = RefCell::default();
 }
@@ -637,7 +665,7 @@ pub(super) fn gallery_within(
 type Cells = Vec<(ImageCell, Option<Arc<Picture>>)>;
 
 fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (Cells, i32, i32) {
-    const TILE: i32 = 178;
+    const TILE: i32 = 273;
     const GAP: i32 = 4;
     let cell = |index: usize,
                 attachment: &yapfast_core::chat::Attachment,
@@ -945,6 +973,31 @@ mod tests {
         assert!(model.decoding.borrow().cursors.is_empty());
         FRAME_SWEEP.with(|timer| assert!(!timer.running()));
         assert_eq!(shown.size(), frames.row_data(0).unwrap().size());
+    }
+
+    #[test]
+    fn collectibles_play_from_their_animated_address_once_it_arrives() {
+        i_slint_backend_testing::init_no_event_loop();
+        let still = "https://cdn.discordapp.com/media/v1/collectibles-shop/5/static";
+        let animated = "https://cdn.discordapp.com/media/v1/collectibles-shop/5/animated";
+        assert_eq!(animated_url(still), animated);
+        assert_eq!(animated_url(animated), animated);
+        let avatar = "https://cdn.discordapp.com/avatars/5/abc.png/static";
+        assert_eq!(animated_url(avatar), avatar, "only collectibles have one");
+        // Until it arrives, no frames.
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
+        assert_eq!(avatar_animation(animated).0.row_count(), 0);
+        let file = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testing/fixtures/gif-h264.mp4"),
+        )
+        .unwrap();
+        let picture = Arc::new(yapfast_core::chat::decode_picture(&file, 32, 32).unwrap());
+        AVATAR_SOURCES.with_borrow_mut(|sources| {
+            sources.insert(animated.to_owned(), Arc::downgrade(&picture));
+        });
+        let (frames, delays) = avatar_animation(animated);
+        assert_eq!((frames.row_count(), delays.row_count()), (10, 10));
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
     }
 
     #[test]

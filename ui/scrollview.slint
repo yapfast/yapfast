@@ -68,7 +68,8 @@ component ScrollBar inherits Rectangle {
 
     border-width: 1px;
     border-radius: 7px;
-    visible: (self.policy == ScrollBarPolicy.always-on) || (self.policy == ScrollBarPolicy.as-needed && self.maximum > 0);
+    // Under a pixel is a fractional width's rounding, not something to scroll.
+    visible: (self.policy == ScrollBarPolicy.always-on) || (self.policy == ScrollBarPolicy.as-needed && self.maximum > 1px);
     clip: true;
 
     states [
