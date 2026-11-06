@@ -16,6 +16,14 @@
 //! says where the slots lie now, which is how the UI's mapping learns it must
 //! be made again too. A file never shrinks, so a mapping one process still
 //! holds stays whole under it.
+//!
+//! A slot holds either pixels or a picture the worker drew on the GPU and
+//! shared with the UI's process, which the UI shows without copying it: the
+//! header says which, slot by slot, so a reader never takes one for the
+//! other. A stream that doesn't draw on the GPU is a stream of pixels as it
+//! always was, and one whose pictures the UI can't open says so in the header
+//! and goes on with pixels from its next frame: a picture that can't be shown
+//! is a slow stream, not a blank one.
 
 use std::{
     fs::{File, OpenOptions},
@@ -30,11 +38,21 @@ use anyhow::{Context, Result, ensure};
 use memmap2::MmapMut;
 
 const MAGIC: u32 = u32::from_le_bytes(*b"TKFR");
-const HEADER: usize = 64;
+/// Where the slots start. It's well past what the header says, so a field
+/// added later lands in the room this one leaves rather than moving every
+/// slot in a file the other process has already mapped.
+const HEADER: usize = 256;
 const SLOTS: u32 = 3;
 /// Set beside the middle slot's index when the worker put a frame there that
 /// the UI hasn't taken.
 const FRESH: u32 = 4;
+
+/// What the UI says about a stream's GPU pictures: nothing yet, that it can
+/// show them on the adapter in [`Header::ui_luid`], or that it can't, which
+/// the worker reads as an answer to write pixels instead.
+const UI_UNSET: u32 = 0;
+const UI_USABLE: u32 = 1;
+const UI_REFUSED: u32 = 2;
 
 /// The header at the start of the file; slots follow it.
 #[repr(C)]
@@ -51,9 +69,102 @@ struct Header {
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
     times: [AtomicU64; SLOTS as usize],
+    /// The adapter the worker draws its pictures on and the fence they are
+    /// drawn behind, as the worker shared them: a stream has one device and
+    /// one fence, so these belong to the file rather than to a slot. Zero
+    /// while the stream publishes pixels.
+    luid: AtomicU64,
+    fence: AtomicU64,
+    /// What each slot holds when it isn't pixels.
+    pictures: [Shared; SLOTS as usize],
+    /// The UI's answer on this stream's pictures; see [`UI_UNSET`].
+    ui: AtomicU32,
+    /// The UI's process, which the worker duplicates its shared handles into:
+    /// a handle's value means nothing outside the process that took it.
+    ui_pid: AtomicU32,
+    /// The adapter the UI draws on, when its answer is [`UI_USABLE`].
+    ui_luid: AtomicU64,
+}
+
+/// One slot's picture, when the worker drew it on the GPU instead of writing
+/// its pixels.
+#[repr(C)]
+struct Shared {
+    /// The shared handle of the texture holding the picture, as it is in the
+    /// UI's process, or zero for a slot of pixels: this is what tells a
+    /// reader which of the two a slot holds.
+    texture: AtomicU64,
+    /// The value the fence reaches once the picture is drawn, which a reader
+    /// waits for before showing what the texture holds.
+    value: AtomicU64,
+    /// The number of the picture, which only grows: a reader compares it with
+    /// the one it showed to tell a new picture from the one before it.
+    generation: AtomicU64,
 }
 
 const _: () = assert!(size_of::<Header>() <= HEADER);
+
+/// A slot's picture: the pixels the worker wrote into the file, or one it
+/// drew on the GPU and shared, which the UI shows without copying.
+pub enum Frame<'a> {
+    /// The worker's pixels, `width` by `height` RGBA bytes, in a slot the UI
+    /// holds until its next take.
+    Pixels {
+        width: u32,
+        height: u32,
+        pixels: &'a [u8],
+    },
+    /// A picture in a texture the worker shares, and how to know it's drawn.
+    Gpu(Picture),
+}
+
+/// A picture the worker drew on the GPU, as its slot's header describes it.
+/// Everything here is a handle or a number the UI can check without opening
+/// anything, which is what makes a picture it can't show cheap to refuse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Picture {
+    /// The adapter the worker draws on, as its DXGI adapter's LUID, low half
+    /// first: Direct3D opens a shared texture on the adapter that made it and
+    /// on no other, so this decides whether the picture can be shown before
+    /// anything is opened.
+    pub luid: u64,
+    /// The shared handle of the fence the picture is drawn behind, as it is
+    /// in the UI's process.
+    pub fence: u64,
+    /// The shared handle of the texture holding the picture, as it is in the
+    /// UI's process: the worker duplicated it there.
+    pub texture: u64,
+    /// The value the fence reaches when the picture is drawn.
+    pub fence_value: u64,
+    /// The number of the picture, which only grows.
+    pub generation: u64,
+    /// The picture's size, in pixels.
+    pub width: u32,
+    pub height: u32,
+}
+
+/// What a worker hands [`Writer::publish`]: the picture it drew, without the
+/// number, which publishing gives it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Drawn {
+    /// The adapter it drew on, as the LUID of its DXGI adapter, low half
+    /// first; the UI opens the texture only on that adapter.
+    pub luid: u64,
+    /// The shared handle of the fence it signals once the picture is drawn,
+    /// as it is in the UI's process.
+    pub fence: u64,
+    /// The shared handle of the texture holding the picture, as it is in the
+    /// UI's process.
+    pub texture: u64,
+    /// The value that fence reaches when the picture is drawn: it must only
+    /// grow, and the worker must signal it after the drawing, before it
+    /// publishes.
+    pub fence_value: u64,
+    /// The picture's size, which the texture must have: Direct3D 12 trusts
+    /// it, and a texture smaller than this is read past its end.
+    pub width: u32,
+    pub height: u32,
+}
 
 /// The largest frame `width` by `height` RGBA pixels fit in.
 fn capacity(width: u32, height: u32) -> usize {
@@ -254,11 +365,15 @@ impl Frames {
             // The worker starts with slot 0 and the UI with slot 2.
             map[8..12].copy_from_slice(&1u32.to_ne_bytes());
         }
+        let mapping = Mapping::open(&file)?;
+        // The worker duplicates its shared handles into this process, and its
+        // value means nothing anywhere else.
+        mapping
+            .header()
+            .ui_pid
+            .store(std::process::id(), Ordering::Release);
         Ok(Self {
-            front: Mutex::new(Front {
-                mapping: Mapping::open(&file)?,
-                slot: 2,
-            }),
+            front: Mutex::new(Front { mapping, slot: 2 }),
             file,
             name: Mutex::new(Some(name)),
         })
@@ -282,14 +397,14 @@ impl Frames {
             .take();
     }
 
-    /// Calls `show` with the newest frame's width, height and RGBA pixels,
-    /// if one arrived since the last call.
-    pub fn take<T>(&self, show: impl FnOnce(u32, u32, &[u8]) -> T) -> Option<T> {
-        self.take_timed(show).map(|(shown, _)| shown)
+    /// Calls `show` with the newest frame, if one arrived since the last
+    /// call: its pixels, or the picture the worker drew on the GPU.
+    pub fn take_frame<T>(&self, show: impl FnOnce(Frame<'_>) -> T) -> Option<T> {
+        self.take_frame_timed(show).map(|(shown, _)| shown)
     }
 
-    /// As [`Self::take`], with when the frame shows in a video file.
-    pub fn take_timed<T>(&self, show: impl FnOnce(u32, u32, &[u8]) -> T) -> Option<(T, u64)> {
+    /// As [`Self::take_frame`], with when the frame shows in a video file.
+    pub fn take_frame_timed<T>(&self, show: impl FnOnce(Frame<'_>) -> T) -> Option<(T, u64)> {
         let mut front = self
             .front
             .lock()
@@ -326,12 +441,92 @@ impl Frames {
             width.load(Ordering::Relaxed),
             height.load(Ordering::Relaxed),
         );
-        let length = capacity(width, height).min(held);
-        // SAFETY: the worker no longer writes this slot: it's the UI's front
-        // until the UI swaps it back.
-        let pixels = unsafe { std::slice::from_raw_parts(front.mapping.slot(front.slot), length) };
+        let shared = &header.pictures[front.slot as usize];
+        let texture = shared.texture.load(Ordering::Relaxed);
+        // A handle is what says a slot holds a picture instead of pixels, and
+        // a slot the worker fills with pixels has none: the two can't be taken
+        // for each other.
+        let frame = if texture == 0 {
+            let length = capacity(width, height).min(held);
+            // SAFETY: the worker no longer writes this slot: it's the UI's
+            // front until the UI swaps it back.
+            let pixels =
+                unsafe { std::slice::from_raw_parts(front.mapping.slot(front.slot), length) };
+            Frame::Pixels {
+                width,
+                height,
+                pixels,
+            }
+        } else {
+            Frame::Gpu(Picture {
+                luid: header.luid.load(Ordering::Relaxed),
+                fence: header.fence.load(Ordering::Relaxed),
+                texture,
+                fence_value: shared.value.load(Ordering::Relaxed),
+                generation: shared.generation.load(Ordering::Relaxed),
+                width,
+                height,
+            })
+        };
         let time = header.times[front.slot as usize].load(Ordering::Relaxed);
-        Some((show(width, height, pixels), time))
+        Some((show(frame), time))
+    }
+
+    /// Calls `show` with the newest frame's width, height and RGBA pixels, if
+    /// one arrived since the last call. A picture the worker drew on the GPU
+    /// has no pixels in the file, so it's passed over here: a reader that can
+    /// show one asks for the frame instead.
+    pub fn take<T>(&self, show: impl FnOnce(u32, u32, &[u8]) -> T) -> Option<T> {
+        self.take_frame(|frame| match frame {
+            Frame::Pixels {
+                width,
+                height,
+                pixels,
+            } => Some(show(width, height, pixels)),
+            Frame::Gpu(_) => None,
+        })
+        .flatten()
+    }
+
+    /// As [`Self::take`], with when the frame shows in a video file.
+    pub fn take_timed<T>(&self, show: impl FnOnce(u32, u32, &[u8]) -> T) -> Option<(T, u64)> {
+        self.take_frame_timed(|frame| match frame {
+            Frame::Pixels {
+                width,
+                height,
+                pixels,
+            } => Some(show(width, height, pixels)),
+            Frame::Gpu(_) => None,
+        })
+        .and_then(|(shown, time)| shown.map(|shown| (shown, time)))
+    }
+
+    /// Says the UI can show this stream's pictures from the GPU, on `luid`,
+    /// the adapter its window draws on: the worker publishes them from its
+    /// next frame on. Says whether that changed what the header said.
+    pub fn accept_gpu(&self, luid: u64) -> bool {
+        let front = self
+            .front
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let header = front.mapping.header();
+        // The adapter before the answer, so a worker that reads the answer
+        // reads the adapter it goes with.
+        let moved = header.ui_luid.swap(luid, Ordering::Relaxed) != luid;
+        let said = header.ui.swap(UI_USABLE, Ordering::AcqRel) != UI_USABLE;
+        said || moved
+    }
+
+    /// Says it can't, once: whether a stream's pictures can be shown is a
+    /// property of the pair of adapters and the renderer, which don't change
+    /// while the stream lasts, so there's nothing to retry. Says whether this
+    /// was the first refusal, so the reason is logged once.
+    pub fn refuse_gpu(&self) -> bool {
+        let front = self
+            .front
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        front.mapping.header().ui.swap(UI_REFUSED, Ordering::AcqRel) != UI_REFUSED
     }
 }
 
@@ -342,6 +537,8 @@ pub struct Writer {
     file: File,
     mapping: Mapping,
     back: u32,
+    /// How many pictures this writer has published, which numbers them.
+    published: u64,
 }
 
 impl Writer {
@@ -355,7 +552,15 @@ impl Writer {
             mapping: Mapping::open(&file)?,
             file,
             back: 0,
+            published: 0,
         })
+    }
+    /// The UI's process, which the worker duplicates its shared handles into
+    /// before [`Self::publish`] takes them: a handle's value means nothing
+    /// outside the process that took it, so the ones the UI opens are the
+    /// ones duplicated there.
+    pub fn ui_process(&self) -> u32 {
+        self.mapping.header().ui_pid.load(Ordering::Acquire)
     }
 
     /// The largest frame, in pixels, that fits.
@@ -427,10 +632,68 @@ impl Writer {
             return false;
         }
         let header = self.mapping.header();
+        // A slot that held a picture the worker drew on the GPU holds pixels
+        // now, and its handle goes first: no reader takes this frame to be
+        // the texture of the one before it.
+        header.pictures[self.back as usize]
+            .texture
+            .store(0, Ordering::Relaxed);
         let [w, h] = &header.sizes[self.back as usize];
         w.store(width, Ordering::Relaxed);
         h.store(height, Ordering::Relaxed);
         header.times[self.back as usize].store(time_ms, Ordering::Relaxed);
+        self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
+        true
+    }
+
+    /// Publishes a picture the worker drew on the GPU, to show without a
+    /// pixel of it crossing the process boundary, and says whether it did:
+    /// `false` means the UI can't show such pictures — it looked and said so,
+    /// or it draws on another adapter — and the caller writes the frame's
+    /// pixels instead.
+    ///
+    /// The worker must, before calling this:
+    /// * draw into a `DXGI_FORMAT_R8G8B8A8_UNORM` texture of the picture's
+    ///   size, one mip, one sample, made with
+    ///   `D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX`
+    ///   (the second is what Direct3D 11 requires of a shared NT handle) and,
+    ///   through `IDXGIResource1::CreateSharedHandle`, one handle to it;
+    /// * make one shared fence for the stream,
+    ///   `ID3D11Device5::CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_ID3D12Fence)`,
+    ///   and one handle to it;
+    /// * duplicate both handles into the UI's process, [`Self::ui_process`],
+    ///   and keep the values they have there: those are what this takes;
+    /// * after drawing the picture, signal the fence with a value that only
+    ///   grows, and pass that value here. The GPU has not finished the
+    ///   drawing when this returns, so the value is what says it did, and the
+    ///   UI shows nothing until the fence reaches it.
+    ///
+    /// The slots still hold a frame's size, and a file whose slots are too
+    /// small for this picture is not grown: a GPU picture isn't in the file,
+    /// and the pixel path above grows the file for itself when it writes one.
+    pub fn publish(&mut self, drawn: &Drawn) -> bool {
+        let header = self.mapping.header();
+        // Nothing said yet is not an answer — the worker may publish before
+        // the UI has had a picture to look at — but a refusal is, and so is
+        // an adapter the UI doesn't draw on.
+        match header.ui.load(Ordering::Acquire) {
+            UI_UNSET => {}
+            UI_USABLE if header.ui_luid.load(Ordering::Relaxed) == drawn.luid => {}
+            _ => return false,
+        }
+        header.luid.store(drawn.luid, Ordering::Relaxed);
+        header.fence.store(drawn.fence, Ordering::Relaxed);
+        self.published += 1;
+        let shared = &header.pictures[self.back as usize];
+        shared.texture.store(drawn.texture, Ordering::Relaxed);
+        shared.value.store(drawn.fence_value, Ordering::Relaxed);
+        shared.generation.store(self.published, Ordering::Relaxed);
+        let [w, h] = &header.sizes[self.back as usize];
+        w.store(drawn.width, Ordering::Relaxed);
+        h.store(drawn.height, Ordering::Relaxed);
+        // A stream's pictures have no time in a file: only a video's frames
+        // do, and a video's frames are pixels.
+        header.times[self.back as usize].store(0, Ordering::Relaxed);
         self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
         true
     }
@@ -506,6 +769,165 @@ mod tests {
         assert_eq!(
             frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
             Some((2, 1, vec![3; 8]))
+        );
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A picture the worker drew on the GPU, as it hands one to
+    /// [`Writer::publish`]: handles 512 and 1024 are no real handles, but
+    /// they say which texture a test published.
+    fn drawn(texture: u64, width: u32, height: u32) -> Drawn {
+        Drawn {
+            luid: 0x1488a,
+            fence: 512,
+            texture,
+            fence_value: texture * 2,
+            width,
+            height,
+        }
+    }
+
+    /// The picture a slot describes, as a reader reads it, and nothing when
+    /// it holds pixels.
+    fn picture(frames: &Frames) -> Option<Picture> {
+        frames
+            .take_frame(|frame| match frame {
+                Frame::Gpu(picture) => Some(picture),
+                Frame::Pixels { width, height, .. } => {
+                    assert!(width > 0 && height > 0, "a frame says its size");
+                    None
+                }
+            })
+            .flatten()
+    }
+
+    /// A slot holds pixels or a picture the worker drew on the GPU, and a
+    /// reader is told which: the picture's description comes back whole, the
+    /// pixel path after it is the frame the worker wrote rather than the
+    /// picture read as bytes, and a reader that only shows pixels passes the
+    /// picture over instead of taking its slot for one.
+    #[test]
+    fn a_slot_holds_pixels_or_a_picture_and_says_which() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        assert!(writer.publish(&drawn(9, 4, 2)), "nothing said against it");
+        assert_eq!(
+            picture(&frames),
+            Some(Picture {
+                luid: 0x1488a,
+                fence: 512,
+                texture: 9,
+                fence_value: 18,
+                generation: 1,
+                width: 4,
+                height: 2,
+            })
+        );
+        assert!(
+            frames.take(|_, _, _| ()).is_none(),
+            "a picture is not pixels"
+        );
+
+        writer.publish(&drawn(11, 4, 2));
+        assert_eq!(picture(&frames).map(|picture| picture.texture), Some(11));
+
+        writer.write(4, 2, |pixels| pixels.fill(4));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((4, 2, vec![4; 32])),
+            "the pixels after a picture are pixels"
+        );
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// The UI decides once per stream whether it can show the worker's
+    /// pictures, and says so in the header: a worker drawing for an adapter
+    /// the UI doesn't draw on, or for a UI that refused them, writes the
+    /// frame's pixels rather than losing the frame.
+    #[test]
+    fn a_picture_the_ui_cannot_open_comes_out_as_pixels() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        // The UI draws on the worker's adapter, and says so.
+        assert!(frames.accept_gpu(0x1488a));
+        assert!(!frames.accept_gpu(0x1488a), "said once");
+        assert!(writer.publish(&drawn(9, 4, 2)), "the same adapter");
+        assert_eq!(picture(&frames).map(|picture| picture.luid), Some(0x1488a));
+
+        // It draws on another one, and the worker stops drawing for it.
+        assert!(frames.accept_gpu(0x2079f));
+        assert!(
+            !writer.publish(&drawn(11, 4, 2)),
+            "another adapter is refused before anything is opened"
+        );
+        writer.write(4, 2, |pixels| pixels.fill(5));
+        assert_eq!(
+            frames.take(|_, _, pixels| pixels.to_vec()),
+            Some(vec![5; 32])
+        );
+
+        // And once it has refused them outright, no picture is published.
+        assert!(frames.refuse_gpu());
+        assert!(!frames.refuse_gpu(), "refused once, logged once");
+        assert!(!writer.publish(&drawn(13, 4, 2)), "the UI can't show it");
+        writer.write(4, 2, |pixels| pixels.fill(6));
+        assert_eq!(
+            frames.take(|_, _, pixels| pixels.to_vec()),
+            Some(vec![6; 32])
+        );
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A picture carries the size it was drawn at and a number that only
+    /// grows, so a reader that shows it notices the worker drawing at another
+    /// size and knows which picture it has. A stream that draws on the GPU and
+    /// then writes pixels changes kind and size in one frame, and the reader
+    /// is told that too.
+    #[test]
+    fn a_picture_says_its_size_and_number() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        writer.publish(&drawn(9, 640, 360));
+        assert_eq!(
+            picture(&frames).map(|picture| (picture.width, picture.height, picture.generation)),
+            Some((640, 360, 1))
+        );
+        writer.publish(&drawn(9, 1280, 720));
+        assert_eq!(
+            picture(&frames).map(|picture| (picture.width, picture.height, picture.generation)),
+            Some((1280, 720, 2)),
+            "the same texture, drawn at another size"
+        );
+
+        writer.write(2, 1, |pixels| pixels.fill(7));
+        assert_eq!(
+            frames
+                .take_frame(|frame| match frame {
+                    Frame::Pixels {
+                        width,
+                        height,
+                        pixels,
+                    } => Some((width, height, pixels.to_vec())),
+                    Frame::Gpu(_) => None,
+                })
+                .flatten(),
+            Some((2, 1, vec![7; 8])),
+            "pixels again, at the pixel size"
         );
 
         drop((writer, frames));

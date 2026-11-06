@@ -46,6 +46,7 @@ mod channel_settings;
 mod emoji_animation;
 mod games;
 mod gifs;
+mod gpu;
 mod menus;
 mod messages;
 #[cfg(windows)]
@@ -124,10 +125,31 @@ pub fn run(
     // Windows draws the GPU setting with Direct3D 12; see [`graphics`].
     let selector = slint::BackendSelector::new().backend_name("winit".into());
     let (selector, renderer) = match plan.renderer {
-        graphics::Renderer::Gpu if cfg!(windows) => (
-            selector.renderer_name("skia".into()).require_d3d(),
-            "skia-direct3d",
-        ),
+        graphics::Renderer::Gpu if cfg!(windows) => {
+            // The window draws on a Direct3D 12 device Yapfast makes, which is
+            // the only device a stream's shared texture can be opened on, and
+            // so the only way to hand Slint a texture rather than pixels; see
+            // [`gpu`]. A device that can't be made costs the shared pictures
+            // and nothing else: Slint makes its own as it did before.
+            match gpu::install() {
+                Ok(configuration) => (
+                    selector
+                        .renderer_name("skia".into())
+                        .require_wgpu_30(configuration),
+                    "skia-wgpu-device",
+                ),
+                Err(error) => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "the window has no Direct3D 12 device of its own"
+                    );
+                    (
+                        selector.renderer_name("skia".into()).require_d3d(),
+                        "skia-direct3d",
+                    )
+                }
+            }
+        }
         graphics::Renderer::Gpu => (selector.renderer_name("skia-opengl".into()), "skia-opengl"),
         graphics::Renderer::Software => (
             selector.renderer_name("skia-software".into()),

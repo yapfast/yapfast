@@ -2411,15 +2411,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
         let adapter = state.borrow();
         let voice = &adapter.app.state.voice;
-        let image = |width, height, pixels: &[u8]| {
-            slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
-                pixels, width, height,
-            ))
-        };
         if let Some(frame) = voice
             .sharing
             .as_ref()
-            .and_then(|sharing| sharing.frames.take(image))
+            .and_then(|sharing| gpu::taken(&sharing.frames))
         {
             window.set_share_frame(frame);
         }
@@ -2446,13 +2441,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             .watching
             .as_ref()
             .and_then(|watching| watching.frames.as_ref())
-            .and_then(|frames| frames.take(image))
+            .and_then(gpu::taken)
         {
             window.set_watch_frame(frame);
         }
         let video = adapter.app.state.video.as_ref();
         let taken =
-            video.and_then(|video| Some((video, video.frames.as_ref()?.take_timed(image)?)));
+            video.and_then(|video| Some((video, video.frames.as_ref()?.take_timed(gpu::copied)?)));
         if taken.is_none() && video.is_some_and(|video| !video.playing && !video.loading) {
             // Half a second without a picture: a paused video's ticks stop.
             adapter.video_quiet.set(adapter.video_quiet.get() + 1);

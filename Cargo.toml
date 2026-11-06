@@ -23,7 +23,7 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:pollster", "dep:windows"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -87,8 +87,16 @@ xkeysym = { version = "0.2.1", optional = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
 # The GPU setting draws through Direct3D 12 on Windows: NVIDIA's OpenGL driver
-# spins a core while it waits for the screen. See src/graphics.rs.
-i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional = true }
+# spins a core while it waits for the screen. See src/graphics.rs. The unstable
+# half is what lets Yapfast make that device itself, so a stream's shared
+# texture opens on it and Slint shows it without copying it; see src/ui/gpu.rs.
+i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30", "unstable-wgpu-30"], optional = true }
+# The window's own device, which Slint draws with and a stream's texture is
+# opened on: Direct3D 12 for the device and what it holds, and an event to wait
+# on a stream's fence without spinning a core.
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_System_Threading"], optional = true }
+# Waiting on wgpu's futures to make that device, once, before the window opens.
+pollster = { version = "0.4", optional = true }
 
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
 [build-dependencies]
@@ -142,7 +150,7 @@ matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev 
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-011"] }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-011", "unstable-wgpu-30"] }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 tracing = "0.1"
