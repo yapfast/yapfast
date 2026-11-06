@@ -1476,7 +1476,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.sound_set = chosen(&SoundSet::ALL, window.get_sound_set());
         layout.sound_volume = Some(window.get_sound_volume().clamp(0, 200) as u8);
         layout.adjust_each_sound = window.get_adjust_each_sound();
-        layout.gpu_rendering = window.get_gpu_rendering();
+        layout.gpu_rendering = Some(window.get_gpu_rendering());
         layout.gpu_encoding = Some(window.get_gpu_encoding());
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
