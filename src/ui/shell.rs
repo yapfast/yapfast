@@ -436,6 +436,11 @@ impl Adapter {
         if let Some(dialog) = self.dialog.take() {
             dialog.abort();
         }
+        // Clocks that draw in the window go with it, rather than waking for one
+        // that's gone; the window that opens next starts them again.
+        self.animations.stop();
+        self.activity_clock.stop();
+        self.call_timer.pause();
         self.window = slint::Weak::default();
     }
 

@@ -24,7 +24,7 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, MotionClock } from "controls.slint";
+import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, MotionClock, Pulse } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
@@ -2968,6 +2968,7 @@ export component YapfastWindow inherits Window {
                             // last message leaves under it, so the timeline doesn't move.
                             // Its text lines up with the messages' (16px, a 40px avatar
                             // and 16px in), and it breathes gently while they type.
+                            typing-pulse := Pulse { running: root.typing != "" && root.room-selected && !root.voice-panel; }
                             if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
                                 x: 72px - 4px; y: parent.height - self.height;
                                 width: min(parent.width - 72px - 12px, typing-text.preferred-width + 8px); height: 20px;
@@ -2976,7 +2977,7 @@ export component YapfastWindow inherits Window {
                                     x: 4px; width: parent.width - 8px;
                                     text: root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
                                     vertical-alignment: center; overflow: elide;
-                                    opacity: 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg);
+                                    opacity: 0.75 + 0.25 * sin(typing-pulse.time / 1ms * 0.25deg);
                                 }
                             }
                             // Under the avatars, three dots rise and brighten in turn.
@@ -2985,7 +2986,7 @@ export component YapfastWindow inherits Window {
                                 width: 32px; height: 20px;
                                 background: Theme.chat;
                                 for dot in 3: Rectangle {
-                                    property <float> wave: sin(animation-tick() / 1ms * 0.3deg - dot * 70deg);
+                                    property <float> wave: sin(typing-pulse.time / 1ms * 0.3deg - dot * 70deg);
                                     x: 4px + dot * 9px; y: (parent.height - self.height) / 2 - 1.5px * self.wave;
                                     width: 6px; height: 6px; border-radius: 3px;
                                     background: Theme.muted;
