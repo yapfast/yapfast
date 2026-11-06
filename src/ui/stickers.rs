@@ -3,7 +3,6 @@
 //! and the pictures of those in sight loaded while the rest are let go.
 
 use yapfast_core::application::StickerPicture;
-use yapfast_core::chat::StickerCollection;
 
 use super::*;
 
@@ -15,12 +14,10 @@ const PADDING: f32 = 12.0;
 /// How tall a collection's heading is.
 const HEADING: f32 = 28.0;
 
-/// How many columns the grid `width` wide holds, and where its first one
-/// starts, so that they are centered as Discord's are.
-fn columns(width: f32) -> (f32, f32) {
-    let count = ((width + GAP) / (TILE + GAP)).floor().max(1.0);
-    let left = PADDING + (width - (count * TILE + (count - 1.0) * GAP)).max(0.0) / 2.0;
-    (count, left)
+/// How many columns the grid `width` wide holds, which hang from the
+/// collection's heading: Discord's hang off its server's icon, not centered.
+fn columns(width: f32) -> f32 {
+    ((width + GAP) / (TILE + GAP)).floor().max(1.0)
 }
 
 /// What the grid shows, for loading the pictures in sight.
@@ -92,11 +89,11 @@ impl Adapter {
             window.set_sticker_query(state.stickers.query.as_str().into());
         }
         let width = window.get_sticker_grid_width();
-        let (columns, left) = columns(width);
+        let columns = columns(width);
         let picker = &state.stickers;
         let pictures = &picker.pictures;
         let favorites = &picker.favorites;
-        let collections = picker.collections(self.app.discord_nitro());
+        let collections = picker.listed(self.app.discord_nitro());
         // The tiles' shape: the same inputs draw the same tiles, so a refresh
         // that brings only pictures rewrites the rows they draw.
         let mut structure = vec![format!("{width}x{columns}"), format!("q:{}", picker.query)];
@@ -137,7 +134,7 @@ impl Adapter {
             let icon = if frequent {
                 None
             } else {
-                server_icon(&self.app.state.servers, &collection)
+                server_icon(&self.app.state.servers, collection.id)
             };
             // A server's icon heads its stickers, which the app's own pictures
             // carry; a pack's own first sticker heads it until that comes.
@@ -145,7 +142,7 @@ impl Adapter {
             if let Some(StickerPicture::Shown(picture)) = collection
                 .stickers
                 .first()
-                .and_then(|sticker| pictures.get(&sticker.picture))
+                .and_then(|(sticker, _)| pictures.get(&sticker.picture))
             {
                 head = converted(surfaces, picture, false);
             }
@@ -174,7 +171,7 @@ impl Adapter {
             }
             tiles.push(StickerGridTile {
                 kind: if frequent { 2 } else { 1 },
-                label: collection.name.as_str().into(),
+                label: collection.name.into(),
                 id: Default::default(),
                 x: PADDING,
                 y: top,
@@ -187,9 +184,9 @@ impl Adapter {
                 usable: true,
             });
             top += HEADING;
-            for (index, sticker) in collection.stickers.iter().enumerate() {
+            for (index, (sticker, usable)) in collection.stickers.iter().enumerate() {
                 let (column, row) = (index % columns as usize, index / columns as usize);
-                let x = left + column as f32 * (TILE + GAP);
+                let x = PADDING + column as f32 * (TILE + GAP);
                 let y = top + row as f32 * (TILE + GAP);
                 let shown = match pictures.get(&sticker.picture) {
                     Some(StickerPicture::Shown(picture)) => converted(surfaces, picture, false),
@@ -222,7 +219,7 @@ impl Adapter {
                     frames: shown.frames.clone(),
                     delays: shown.delays.clone(),
                     favorite: favorites.iter().any(|known| known.id == sticker.id),
-                    usable: sticker.usable,
+                    usable: *usable,
                 });
                 placed.push(Placed {
                     picture: sticker.picture.clone(),
@@ -246,7 +243,7 @@ impl Adapter {
                     }
                 }
                 None => {
-                    if let Some(sticker) = collection.stickers.first() {
+                    if let Some((sticker, _)) = collection.stickers.first() {
                         heads.push(sticker.picture.clone());
                         let showing = pictures.contains_key(&sticker.picture)
                             || state.pictures.contains_key(&sticker.picture);
@@ -265,9 +262,9 @@ impl Adapter {
                 }
             }
             sections.push(RailSection {
-                name: collection.name.as_str().into(),
+                name: collection.name.into(),
                 icon: EmojiCell {
-                    name: collection.name.as_str().into(),
+                    name: collection.name.into(),
                     picture: head.image.clone(),
                     ..Default::default()
                 },
@@ -460,18 +457,29 @@ impl Adapter {
         // Two screens either side: a fast scroll shows what is decoded, not
         // what is still being decoded.
         let (from, to) = (top - 2.0 * height, top + 3.0 * height);
-        let mut asked: Vec<String> = self.stickers.heads.clone();
+        // Gathered by address, the heading's pictures first: a scroll that
+        // brings no picture copies none of them, and asks for none.
+        let mut seen: HashSet<&str> = self.stickers.heads.iter().map(String::as_str).collect();
+        let mut asked: Vec<&str> = self.stickers.heads.iter().map(String::as_str).collect();
         for placed in &self.stickers.placed {
-            if placed.bottom < from || placed.top > to || asked.contains(&placed.picture) {
+            if placed.bottom < from || placed.top > to || !seen.insert(placed.picture.as_str()) {
                 continue;
             }
-            asked.push(placed.picture.clone());
+            asked.push(placed.picture.as_str());
         }
-        if asked == self.stickers.asked {
+        // The grid lays the tiles out in the same order every time, so the
+        // pictures in sight read as the same list they were asked as.
+        if asked.len() == self.stickers.asked.len()
+            && asked
+                .iter()
+                .zip(&self.stickers.asked)
+                .all(|(now, then)| *now == then.as_str())
+        {
             return;
         }
-        self.stickers.asked.clone_from(&asked);
-        self.action(window, Action::StickersShown(asked));
+        let shown: Vec<String> = asked.into_iter().map(str::to_owned).collect();
+        self.stickers.asked.clone_from(&shown);
+        self.action(window, Action::StickersShown(shown));
     }
 }
 
@@ -497,11 +505,8 @@ fn converted(
 
 /// The icon of the server a collection of stickers is, which its heading and
 /// its rail button draw: none for Discord's packs.
-fn server_icon(
-    servers: &[Arc<yapfast_core::chat::ChatServer>],
-    collection: &StickerCollection,
-) -> Option<String> {
-    let server = yapfast_core::discord::server_id(&collection.id);
+fn server_icon(servers: &[Arc<yapfast_core::chat::ChatServer>], id: &str) -> Option<String> {
+    let server = yapfast_core::discord::server_id(id);
     servers
         .iter()
         .find(|known| known.id == server)?
@@ -576,14 +581,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_grid_centers_its_columns() {
-        // The picker's 498px, less the rail and 12px either side: four 96px
-        // tiles, 8px apart, centered.
-        let (count, left) = columns(426.0);
-        assert_eq!(count, 4.0);
-        assert_eq!(left, 21.0);
+    fn the_grid_hangs_its_columns_from_the_heading() {
+        // The picker's 426px holds four 96px tiles, 8px apart, flush with the
+        // heading's icon above them.
+        assert_eq!(columns(426.0), 4.0);
         // Wide enough for six, and never fewer than one.
-        assert_eq!(columns(700.0).0, 6.0);
-        assert_eq!(columns(60.0).0, 1.0);
+        assert_eq!(columns(700.0), 6.0);
+        assert_eq!(columns(60.0), 1.0);
     }
 }

@@ -105,7 +105,7 @@ export component PickerRail inherits Rectangle {
                 if section.clock: Image {
                     x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
                     width: 32px; height: 32px;
-                    source: @image-url("icons/clock.svg");
+                    source: @image-url("icons/clock.svg"); colorize: Theme.secondary;
                 }
                 if !section.clock: EmojiFace {
                     emoji: section.icon; font: root.font; side: 32px;

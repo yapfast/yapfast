@@ -72,6 +72,33 @@ pub struct StickerPicker {
     pub(super) asked_servers: HashSet<String>,
 }
 
+/// A collection the picker lists, its stickers borrowed: what the grid lays
+/// out from, so a refresh with nothing new copies no sticker.
+pub struct ListedCollection<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    /// Each sticker it lists, and whether this account may use it where the
+    /// picker is looking.
+    pub stickers: Vec<(&'a Sticker, bool)>,
+}
+
+impl<'a> ListedCollection<'a> {
+    /// The collection, or none when the search leaves it no sticker.
+    fn of(
+        id: &'a str,
+        name: &'a str,
+        stickers: impl Iterator<Item = &'a Sticker>,
+        search: &str,
+        usable: impl Fn(&Sticker) -> bool,
+    ) -> Option<Self> {
+        let stickers: Vec<(&'a Sticker, bool)> = stickers
+            .filter(|sticker| search.is_empty() || sticker.name.to_lowercase().contains(search))
+            .map(|sticker| (sticker, usable(sticker)))
+            .collect();
+        (!stickers.is_empty()).then_some(Self { id, name, stickers })
+    }
+}
+
 impl StickerPicker {
     /// The collections the picker lists: Favorites, Frequently Used, then
     /// every server's own stickers — the open server's first — and Discord's
@@ -79,6 +106,27 @@ impl StickerPicker {
     /// sticker this account may not use where it is looking is `usable`
     /// false, which the picker shows greyed with a lock.
     pub fn collections(&self, nitro: bool) -> Vec<StickerCollection> {
+        self.listed(nitro)
+            .into_iter()
+            .map(|listed| StickerCollection {
+                id: listed.id.to_owned(),
+                name: listed.name.to_owned(),
+                stickers: listed
+                    .stickers
+                    .into_iter()
+                    .map(|(sticker, usable)| Sticker {
+                        usable,
+                        ..sticker.clone()
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// The same collections, their stickers borrowed: what the picker's grid
+    /// lays out from, so a scroll or a refresh that brings nothing new copies
+    /// no sticker.
+    pub fn listed(&self, nitro: bool) -> Vec<ListedCollection<'_>> {
         let search = self.query.trim().to_lowercase();
         let here = self.server_for.as_deref();
         // The open server's sticker ids: its stickers are the ones a picker
@@ -93,36 +141,23 @@ impl StickerPicker {
                     .collect()
             })
             .unwrap_or_default();
-        let mut collections = vec![];
-        let mut push = |collection: &StickerCollection, usable: &dyn Fn(&Sticker) -> bool| {
-            let stickers: Vec<Sticker> = collection
-                .stickers
-                .iter()
-                .filter(|sticker| {
-                    search.is_empty() || sticker.name.to_lowercase().contains(&search)
-                })
-                .map(|sticker| Sticker {
-                    usable: usable(sticker),
-                    ..sticker.clone()
-                })
-                .collect();
-            if stickers.is_empty() {
-                return;
-            }
-            collections.push(StickerCollection {
-                id: collection.id.clone(),
-                name: collection.name.clone(),
-                stickers,
-            });
-        };
         // What this device keeps and sends is usable where its server's
         // stickers are, or with Nitro.
         let usable = |sticker: &Sticker| nitro || here_ids.contains(sticker.id.as_str());
-        for collection in [self.favorite_collection(), self.frequent()]
-            .into_iter()
-            .flatten()
-        {
-            push(&collection, &usable);
+        let mut listed = vec![];
+        for (id, name, stickers) in [("favorites", "Favorites", self.favorites.iter())] {
+            if let Some(collection) = ListedCollection::of(id, name, stickers, &search, usable) {
+                listed.push(collection);
+            }
+        }
+        if let Some(collection) = ListedCollection::of(
+            "frequent",
+            "Frequently Used",
+            self.frequent_stickers(),
+            &search,
+            usable,
+        ) {
+            listed.push(collection);
         }
         let mut servers: Vec<&ServerStickers> = self
             .servers
@@ -132,56 +167,53 @@ impl StickerPicker {
         servers
             .sort_by_key(|server| (here != Some(server.id.as_str()), server.name.to_lowercase()));
         for server in servers {
-            let collection = StickerCollection {
-                id: server.id.clone(),
-                name: server.name.clone(),
-                stickers: server.stickers.clone(),
-            };
-            push(&collection, &|_| nitro || here == Some(server.id.as_str()));
+            let where_it_is = |_sticker: &Sticker| nitro || here == Some(server.id.as_str());
+            if let Some(collection) = ListedCollection::of(
+                &server.id,
+                &server.name,
+                server.stickers.iter(),
+                &search,
+                where_it_is,
+            ) {
+                listed.push(collection);
+            }
         }
         // Discord's packs are Nitro's.
         for pack in &self.packs {
-            push(pack, &|_| nitro);
+            if let Some(collection) =
+                ListedCollection::of(&pack.id, &pack.name, pack.stickers.iter(), &search, |_| {
+                    nitro
+                })
+            {
+                listed.push(collection);
+            }
         }
-        collections
+        listed
     }
 
-    /// The stickers this device keeps, which Favorites lists first.
-    fn favorite_collection(&self) -> Option<StickerCollection> {
-        (!self.favorites.is_empty()).then(|| StickerCollection {
-            id: "favorites".into(),
-            name: "Favorites".into(),
-            stickers: self.favorites.clone(),
-        })
-    }
-
-    /// The stickers this device sent, the most used first.
-    fn frequent(&self) -> Option<StickerCollection> {
+    /// The stickers Frequently Used lists: those this device sent, the most
+    /// sent first, and Discord's first ones until one is.
+    fn frequent_stickers(&self) -> impl Iterator<Item = &Sticker> {
         let mut used: Vec<&StickerUse> = self.uses.iter().filter(|used| used.uses > 0).collect();
         used.sort_by(|a, b| {
             b.uses
                 .cmp(&a.uses)
                 .then_with(|| a.sticker.name.cmp(&b.sticker.name))
         });
-        let mut stickers: Vec<Sticker> = used
+        let sent: Vec<&Sticker> = used
             .into_iter()
             .take(FREQUENT_STICKERS)
-            .map(|used| used.sticker.clone())
+            .map(|used| &used.sticker)
             .collect();
-        if stickers.is_empty() {
-            stickers = self
-                .packs
-                .iter()
-                .flat_map(|pack| &pack.stickers)
-                .take(FREQUENT_STICKERS)
-                .cloned()
-                .collect();
+        if !sent.is_empty() {
+            return sent.into_iter();
         }
-        (!stickers.is_empty()).then(|| StickerCollection {
-            id: "frequent".into(),
-            name: "Frequently Used".into(),
-            stickers,
-        })
+        self.packs
+            .iter()
+            .flat_map(|pack| &pack.stickers)
+            .take(FREQUENT_STICKERS)
+            .collect::<Vec<&Sticker>>()
+            .into_iter()
     }
 }
 
@@ -490,7 +522,8 @@ impl Application {
         if !picker.open {
             return vec![];
         }
-        picker.pictures.retain(|url, _| shown.contains(url));
+        let kept: HashSet<&str> = shown.iter().map(String::as_str).collect();
+        picker.pictures.retain(|url, _| kept.contains(url.as_str()));
         let mut effects = vec![];
         for url in shown {
             if url.is_empty() || picker.pictures.contains_key(&url) {

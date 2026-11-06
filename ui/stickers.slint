@@ -119,7 +119,7 @@ export component StickerPicker inherits Rectangle {
                         if tile.kind == 2: HorizontalLayout {
                             x: 2px; y: (parent.height - self.height) / 2;
                             height: 18px; spacing: 6px; alignment: start;
-                            Image { width: 16px; height: 16px; source: @image-url("icons/clock.svg"); }
+                            Image { width: 16px; height: 16px; source: @image-url("icons/clock.svg"); colorize: Theme.secondary; }
                             Text {
                                 text: tile.label; color: Theme.secondary; font-size: 13px; font-weight: 700;
                                 vertical-alignment: center; horizontal-alignment: left; overflow: elide;

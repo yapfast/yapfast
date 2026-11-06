@@ -9140,8 +9140,19 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
     let wave = "https://cdn.discordapp.com/stickers/5.png?size=96";
     assert!(app.state.can_pick_stickers());
     // A start asks Discord for its default packs, and every server's own
-    // stickers, which are kept on disk and fetched ahead.
-    let at_start = backend(at_start);
+    // stickers, which are kept on disk and fetched ahead. The GIFs' picker is
+    // asked for at the same start, so only the stickers' asks are read here.
+    let at_start: Vec<Command> = backend(at_start)
+        .into_iter()
+        .filter(|command| {
+            matches!(
+                command,
+                Command::Discord(
+                    DiscordCommand::StickerPacks | DiscordCommand::GuildStickers { .. }
+                )
+            )
+        })
+        .collect();
     assert!(
         matches!(
             at_start.as_slice(),
