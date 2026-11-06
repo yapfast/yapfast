@@ -150,7 +150,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
 - A GIF picker next to the emoji button, on Discord: a search over Klipy,
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the
-  favourites; GIFs and moving pictures in messages have the star too. Its left
+  favourites; GIFs and moving pictures in messages have the star too. A
+  favourite's small thumbnail is kept on disk for as long as the GIF is
+  favourited, up to 200 MiB. A start fetches ahead the ones that cost little,
+  videos and small files; a larger GIF's is made when its tile first shows. Each of the home's trending terms shows one GIF, and those are fetched
+  ahead into a cache of their own, so the home paints at once. Its left
   edge drags it wider, as Discord's does: the right edge and the height stay,
   and the edge stops 8px past the server list. The GIFs and the Emoji share
   that window and its width: the GIFs' grid fits another column for every

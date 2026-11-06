@@ -174,6 +174,30 @@ impl std::fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
+impl Refused {
+    /// Whether the host asked to be asked less.
+    pub fn rate_limited(&self) -> bool {
+        self.0 == StatusCode::TOO_MANY_REQUESTS
+    }
+
+    /// Whether the file isn't there any more.
+    pub fn gone(&self) -> bool {
+        matches!(self.0, StatusCode::NOT_FOUND | StatusCode::GONE)
+    }
+}
+
+/// A download larger than it was allowed to be.
+#[derive(Debug)]
+pub struct TooLarge;
+
+impl std::fmt::Display for TooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the file is too large")
+    }
+}
+
+impl std::error::Error for TooLarge {}
+
 /// A download that Discord stopped answering for [`STALL`], given up so it
 /// doesn't hold its turn.
 #[derive(Debug)]
@@ -2052,11 +2076,14 @@ impl Api {
         use std::io::Write;
         allowed(url)?;
         let mut response = self.get_file(url).await?;
+        if response.content_length().is_some_and(|size| size > limit) {
+            return Err(TooLarge.into());
+        }
         let mut size = 0;
         while let Some(chunk) = self.next_chunk(&mut response).await? {
             size += chunk.len() as u64;
             if size > limit {
-                bail!("the file is too large");
+                return Err(TooLarge.into());
             }
             file.write_all(&chunk).context("could not keep the file")?;
         }
@@ -2692,5 +2719,15 @@ mod tests {
             refusal(StatusCode::UNAUTHORIZED, &login).to_string(),
             super::UNAUTHORIZED
         );
+    }
+
+    #[test]
+    fn a_429_is_a_rate_limit_and_other_refusals_are_not() {
+        use super::{Refused, StatusCode};
+        assert!(Refused(StatusCode::TOO_MANY_REQUESTS).rate_limited());
+        assert!(!Refused(StatusCode::NOT_FOUND).rate_limited());
+        assert!(!Refused(StatusCode::FORBIDDEN).rate_limited());
+        assert!(Refused(StatusCode::NOT_FOUND).gone());
+        assert!(!Refused(StatusCode::TOO_MANY_REQUESTS).gone());
     }
 }

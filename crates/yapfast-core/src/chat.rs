@@ -2029,6 +2029,11 @@ pub enum DiscordCommand {
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
+    /// Fetches ahead the favourite GIFs at these addresses that are cheap to
+    /// keep, videos and small files; a tile makes the others'
+    /// thumbnails when it first shows. The list is the whole set: what's kept
+    /// of a GIF no longer favourited goes.
+    PrefetchFavorites(Vec<String>),
     /// GIFs for a search, or with `None` those trending; [`Event::Gifs`]
     /// follows.
     Gifs(Option<String>),

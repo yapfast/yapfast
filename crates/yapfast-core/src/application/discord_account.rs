@@ -537,6 +537,7 @@ impl Application {
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
         effects.extend(self.prefetch_emoji());
+        effects.extend(self.prefetch_gifs());
         effects
     }
 

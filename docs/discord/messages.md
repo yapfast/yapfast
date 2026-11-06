@@ -461,6 +461,32 @@ its desktop client does:
   being written, and a search's pick is reported with `POST /gifs/select`
   `{id, q}`. Discord unfurls the URL into a gifv embed, whose picture Yapfast
   plays. Shift and a click puts the URL in the message instead.
+- A favourite's thumbnail is kept in `discord-gifs/`: a video, or a file up to
+  256 KiB, as it came, and any other as a VP9 WebM at the tile's width, which
+  keeps its frames and timing. One whose GIF is no longer
+  favourited goes when Discord's list comes at a start, and past 200 MiB the
+  least lately shown go.
+- A start fetches ahead, in the background, four at a time, the favourites
+  missing that need no encoding, up to 150 MiB in all: videos up to 8 MiB,
+  named by their address, and other files up to 256 KiB. Most favourites are
+  Discord's media proxy of a file, so these downloads come from Discord, though
+  outside its API's rate limits. A larger GIF is left for its tile, which
+  downloads and encodes it when it first shows: encoding every favourite at a
+  start would take hundreds of MiB. One too large or gone gets a `.skip` file,
+  so later starts don't ask for it. A host answering 429 ends the fetching until
+  the next start, and the log counts what it came to.
+- The first GIF of each of the home's trending terms is kept in
+  `discord-gif-home/`, fetched when the home's answer comes and pruned to what it
+  then offers, so those tiles animate from the disk. Nothing else of the home is
+  kept: the Favorites tile shows a favourite, which `discord-gifs/` holds, and
+  the Trending GIFs tile loads as it shows. The answer itself is kept beside
+  those pictures in `discord-gif-home.json` with the time it came, and a start
+  within a day shows it without asking Discord at all, whose trending terms move
+  daily. The favourites and the home are asked for once at a start, before the
+  picker is opened; if either fails, opening the picker tries again.
+- Discord's GIF endpoints take no page cursor — `/gifs/search` gives "as many as
+  Discord gives at once" — so trending and search show one page, as Discord's own
+  picker does, and there is nothing further to scroll for.
 - Only the GIFs in sight, and a screen either side, load and play; they come
   from Klipy's or Tenor's media hosts, at the size they show, and go when the
   picker closes. Dragging the picker wider moves and stretches the tiles
