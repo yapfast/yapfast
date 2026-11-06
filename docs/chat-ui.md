@@ -108,8 +108,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   lists it.
 - Use the keyboard for messages: Up in an empty composer edits your last
   message; Alt+Up moves into the messages, where arrows step, Enter opens the
-  menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
-  Escape returns to the composer.
+  menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards,
+  Alt+Enter marks a Discord message unread and Escape returns to the composer.
 - Type where no field takes it, as after a menu closes, and the key goes to the
   end of the composer used last, the channel's or the thread's beside it, which
   takes the focus, as in Discord; Backspace and Delete too, and Tab with nothing
@@ -147,9 +147,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   reaction, Edit on your own message or Reply on someone else's, and More.
   More, or a right click on the message, opens a menu with your four most used
   reactions, Add reaction, View Reactions, Edit, Reply, Forward, Create Thread
-  or View Thread, Copy text, Copy selection, Pin or Unpin, and Delete, with
-  Copy Image, Save Image, Copy Link and Open Link on a picture or link
-  (`ui/messages.slint`). View Reactions appears once a message has reactions,
+  or View Thread, Copy text, Copy selection, Pin or Unpin, Mark Unread and
+  Copy Message Link on a Discord message, and Delete, with Copy Image, Save
+  Image, Copy Link and Open Link on a picture or link, then Copy Message ID
+  last on a Discord message (`ui/messages.slint`; see
+  [Discord](discord/messages.md#mark-unread-and-message-links)). View Reactions appears once a message has reactions,
   Copy selection while text is selected, and Edit on your own messages only.
   Delete appears on your own messages, and on anyone's for a Discord moderator
   with Manage Messages. Until you have reacted, the most used reactions are 👍,

@@ -141,6 +141,7 @@ impl Application {
 
     pub(super) fn show_aside(&mut self, room: String) -> Vec<Effect> {
         self.state.new_thread = None;
+        self.let_go_unread();
         let seen = self
             .state
             .rooms
@@ -163,6 +164,7 @@ impl Application {
         if self.state.aside.take().is_none() {
             return vec![];
         }
+        self.let_go_unread();
         self.aside_visible.clear();
         vec![Effect::Backend(Command::Aside(None))]
     }
@@ -233,10 +235,15 @@ impl Application {
         }
     }
 
-    /// Reads the thread beside, as the open channel is read while it shows.
+    /// Reads the thread beside, as the open channel is read while it shows,
+    /// unless Mark Unread marked it unread since it opened.
     pub(super) fn mark_aside_read(&self) -> Vec<Effect> {
         match (self.state.aside.as_ref(), self.state.aside_room()) {
-            (Some(aside), Some(room)) if aside.ready && (room.unread > 0 || room.mentions > 0) => {
+            (Some(aside), Some(room))
+                if aside.ready
+                    && (room.unread > 0 || room.mentions > 0)
+                    && self.held_unread.as_ref() != Some(&room.id) =>
+            {
                 vec![Effect::Backend(Command::MarkRead {
                     room: room.id.clone(),
                     sync: self.state.sync_discord_reads,

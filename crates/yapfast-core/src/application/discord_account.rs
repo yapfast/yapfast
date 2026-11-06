@@ -121,8 +121,8 @@ impl Application {
     /// Reading the newest messages of an unread Discord channel reads it,
     /// as Discord's client does: once they're in view with the window in
     /// front, and the "New" divider is placed, so the view isn't about to
-    /// jump to it. A forum reads on showing it. Matrix rooms are read in the
-    /// backend.
+    /// jump to it, and Mark Unread didn't mark it unread since it opened. A
+    /// forum reads on showing it. Matrix rooms are read in the backend.
     pub(super) fn mark_discord_read(&self) -> Vec<Effect> {
         match self.state.selected_room() {
             Some(room)
@@ -131,7 +131,8 @@ impl Application {
                     && !self.state.detached
                     && (room.forum || self.state.reading && self.read_marker.is_none())
                     && room.network == Network::Discord
-                    && (room.unread > 0 || room.mentions > 0) =>
+                    && (room.unread > 0 || room.mentions > 0)
+                    && self.held_unread.as_ref() != Some(&room.id) =>
             {
                 vec![Effect::Backend(Command::MarkRead {
                     room: room.id.clone(),
