@@ -66,6 +66,18 @@ impl Application {
         vec![]
     }
 
+    pub(super) fn delete_now(&mut self, item: String) -> Vec<Effect> {
+        if !self
+            .state
+            .message(&item)
+            .is_some_and(|message| message.can_delete)
+        {
+            return vec![];
+        }
+        self.state.confirm_delete = Some(item);
+        self.confirm_delete()
+    }
+
     pub(super) fn pin_message(&mut self, item: String) -> Vec<Effect> {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];

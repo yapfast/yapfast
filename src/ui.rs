@@ -540,7 +540,15 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
-                let step = match keys.event(event) {
+                let outcome = keys.event(event);
+                // Shift turns a message's hover bar into its quick actions,
+                // as in Discord's client, wherever the focus is.
+                if let Some(window) = weak.upgrade()
+                    && window.get_shift_held() != keys.shift()
+                {
+                    window.set_shift_held(keys.shift());
+                }
+                let step = match outcome {
                     zoom::Outcome::Pass => return EventResult::Propagate,
                     zoom::Outcome::Taken => return EventResult::PreventDefault,
                     zoom::Outcome::Step(step) => step,

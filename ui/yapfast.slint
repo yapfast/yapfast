@@ -1298,6 +1298,8 @@ export component YapfastWindow inherits Window {
     callback remove-reactor(string);
     callback close-reactions;
     callback request-delete(string);
+    /// Delete a message without asking, from its quick actions.
+    callback delete-now(string);
     /// Pin a message, or unpin a pinned one.
     callback pin-message(string);
     callback emoji-search(string);
@@ -1410,6 +1412,9 @@ export component YapfastWindow inherits Window {
     public function timeline-at-end() -> bool { return root.follow-latest; }
     // Yapfast's window has the keyboard focus.
     in property <bool> window-focused;
+    /// Shift is held, which turns a message's hover bar into its quick
+    /// actions, as in Discord's client.
+    in property <bool> shift-held;
     // The newest message was read since the "New" divider was placed, so the bar
     // that jumps back to it is gone.
     in property <bool> caught-up;
@@ -2919,11 +2924,16 @@ export component YapfastWindow inherits Window {
                                             }
                                             // Actions, the reaction picker and delete confirmation float over the
                                             // row's top edge, so opening them never moves the timeline.
-                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": Rectangle {
+                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
                                                 x: parent.width - self.width - 16px; y: parent.top + (index == 0 ? 4px : -16px);
                                                 width: actions.preferred-width; height: actions.preferred-height;
                                                 background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                                                 drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
+                                                // Holding Shift swaps the frequent reactions for Pin and, on your
+                                                // own message, Reply, and More for a Delete that doesn't ask, as in
+                                                // Discord's client; not while the picker or menu is open.
+                                                property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
+                                                property <bool> deletes: self.quick && message.can-delete && root.composer-enabled;
                                                 actions := HorizontalLayout {
                                                     padding: 3px; spacing: 0px;
                                                     if root.confirm-delete == message.item: HorizontalLayout {
@@ -2936,16 +2946,28 @@ export component YapfastWindow inherits Window {
                                                     // Reply on someone else's, and everything else under More.
                                                     if root.confirm-delete != message.item: HorizontalLayout {
                                                         spacing: 0px;
+                                                        if message-bar.quick && message.can-pin: IconButton {
+                                                            icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                                            label: message.pinned ? "Unpin" : "Pin";
+                                                            clicked => { root.pin-message(message.item); }
+                                                        }
+                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
+                                                            icon: @image-url("icons/reply.svg"); label: "Reply";
+                                                            clicked => { root.reply(message.item); root.focus-composer(); }
+                                                        }
                                                         if message.can-react && root.composer-enabled: HorizontalLayout {
                                                             spacing: 0px;
-                                                            for cell in root.bar-reactions: EmojiButton {
-                                                                animation-key: cell.key;
-                                                                emoji: cell; font: root.emoji-font;
-                                                                clicked => { root.react(message.item, cell.key); }
-                                                            }
-                                                            Rectangle {
-                                                                width: 9px;
-                                                                Rectangle { width: 1px; height: 20px; background: Theme.line; }
+                                                            if !message-bar.quick: HorizontalLayout {
+                                                                spacing: 0px;
+                                                                for cell in root.bar-reactions: EmojiButton {
+                                                                    animation-key: cell.key;
+                                                                    emoji: cell; font: root.emoji-font;
+                                                                    clicked => { root.react(message.item, cell.key); }
+                                                                }
+                                                                Rectangle {
+                                                                    width: 9px;
+                                                                    Rectangle { width: 1px; height: 20px; background: Theme.line; }
+                                                                }
                                                             }
                                                             IconButton {
                                                                 icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
@@ -2957,7 +2979,11 @@ export component YapfastWindow inherits Window {
                                                         }
                                                         if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                                         if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
-                                                        IconButton {
+                                                        if message-bar.deletes: IconButton {
+                                                            icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
+                                                            clicked => { root.delete-now(message.item); }
+                                                        }
+                                                        if !message-bar.deletes: IconButton {
                                                             icon: @image-url("icons/ellipsis.svg"); label: "More";
                                                             clicked => {
                                                                 root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
@@ -3259,6 +3285,9 @@ export component YapfastWindow inherits Window {
                         paste => { root.aside-paste(); }
                         emoji-font: root.emoji-font; message-font-size: root.message-font-size; bar-reactions: root.bar-reactions;
                         active-item <=> root.active-item; react-item: root.react-item; menu-item: root.menu-item; confirm-delete: root.confirm-delete;
+                        shift-held: root.shift-held;
+                        pin-message(item) => { root.pin-message(item); }
+                        delete-now(item) => { root.delete-now(item); }
                         close => { root.aside-close(); }
                         expand => { root.aside-expand(); }
                         more(x, y) => { root.open-context-menu("thread-sidebar:" + root.aside-room, false, x, y); }
