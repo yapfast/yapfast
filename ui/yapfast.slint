@@ -29,7 +29,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, ShortcutRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1064,7 +1064,11 @@ export component YapfastWindow inherits Window {
     in-out property <bool> talk-recording;
     in-out property <int> talk-delay: 20;
     in-out property <string> talk-note;
+    in property <[ShortcutRow]> shortcut-rows;
+    in-out property <string> recording-shortcut;
     callback record-talk-key(bool);
+    callback record-shortcut(string, bool);
+    callback clear-shortcut(string);
     /// Calls' microphone and speakers volume: see VoiceSettings.
     in-out property <int> microphone-volume: 100;
     in-out property <int> speaker-volume: 100;
@@ -3532,6 +3536,7 @@ export component YapfastWindow inherits Window {
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
+            shortcut-rows: root.shortcut-rows; recording-shortcut <=> root.recording-shortcut;
             microphone-volume <=> root.microphone-volume; speaker-volume <=> root.speaker-volume;
             soundboard-volume <=> root.soundboard-volume; entrance-servers: root.entrance-servers;
             entrance-server <=> root.entrance-server; entrance-sound: root.entrance-sound;
@@ -3542,6 +3547,8 @@ export component YapfastWindow inherits Window {
             choose-entrance-sound(id) => { root.choose-entrance-sound(id); }
             call-volumes-changed => { root.call-volumes-changed(); }
             record-talk-key(on) => { root.record-talk-key(on); }
+            record-shortcut(id, on) => { root.record-shortcut(id, on); }
+            clear-shortcut(id) => { root.clear-shortcut(id); }
             select-microphone(index) => { root.select-microphone(index); }
             select-speaker(index) => { root.select-speaker(index); }
             select-camera(index) => { root.select-camera(index); }
