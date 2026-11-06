@@ -1,0 +1,72 @@
+import { Theme, Middle } from "../theme.slint";
+
+// Use the existing move/resize/close callbacks, including close-to-tray.
+component CaptionButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> close;
+    callback clicked;
+    width: 36px;
+    background: pointer.has-hover || focus.has-focus ? (root.close ? Theme.danger : Theme.hover) : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    Image {
+        source: root.icon; width: 12px; height: 12px;
+        colorize: root.close && pointer.has-hover ? Theme.on-danger : Theme.secondary;
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+        pointer := TouchArea { clicked => { root.clicked(); } }
+    }
+}
+
+export component WindowBar inherits Rectangle {
+    in property <string> place;
+    in property <bool> focused;
+    in property <bool> maximized;
+    callback move-window;
+    callback minimize-window;
+    callback maximize-window;
+    callback close-window;
+    height: 32px; background: Theme.rail;
+    property <bool> armed;
+    TouchArea {
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left {
+                if event.kind == PointerEventKind.down { root.armed = true; }
+                else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { root.armed = false; }
+            }
+        }
+        moved => {
+            if root.armed && (abs(self.mouse-x - self.pressed-x) > 3px || abs(self.mouse-y - self.pressed-y) > 3px) {
+                root.armed = false; root.move-window();
+            }
+        }
+        double-clicked => { root.maximize-window(); }
+    }
+    HorizontalLayout {
+        x: (parent.width - self.width) / 2; width: min(label.preferred-width + 26px, parent.width - 240px);
+        height: parent.height; spacing: 8px;
+        Middle { width: 16px; Image { source: @image-url("../icons/message-circle.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
+        label := Text {
+            text: root.place; font-size: 12px; font-weight: 600;
+            color: root.focused ? Theme.secondary : Theme.faint;
+            vertical-alignment: center; overflow: elide;
+        }
+    }
+    HorizontalLayout {
+        alignment: end; spacing: 0px;
+        CaptionButton { icon: @image-url("../icons/minus.svg"); label: "Minimize"; clicked => { root.minimize-window(); } }
+        CaptionButton {
+            icon: root.maximized ? @image-url("../icons/restore.svg") : @image-url("../icons/square.svg");
+            label: root.maximized ? "Restore" : "Maximize";
+            clicked => { root.maximize-window(); }
+        }
+        CaptionButton { icon: @image-url("../icons/x.svg"); label: "Close"; close: true; clicked => { root.close-window(); } }
+    }
+}

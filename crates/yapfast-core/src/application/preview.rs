@@ -26,6 +26,7 @@ impl Application {
                 hide_muted: false,
                 community: false,
                 pinned: Vec::new(),
+                ..Default::default()
             },
             ChatServer {
                 id: "coop".into(),
@@ -43,6 +44,7 @@ impl Application {
                 hide_muted: false,
                 community: false,
                 pinned: Vec::new(),
+                ..Default::default()
             },
         ]
         .into_iter()
@@ -211,6 +213,8 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         parent: None,
         forum: false,
         unlisted: false,
+        official: false,
+        empty: false,
         preview: None,
     }
 }
@@ -247,6 +251,8 @@ pub(super) fn preview_members(room: &str) -> Vec<ChatMember> {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            group_icon: None,
+            role_icon: None,
         })
         .collect();
     chat::sort_members(&mut members);

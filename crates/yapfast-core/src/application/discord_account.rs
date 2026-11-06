@@ -405,6 +405,10 @@ impl Application {
         snapshot: Arc<yapfast_discord::service::Snapshot>,
     ) -> Vec<Effect> {
         self.state.discord_online = snapshot.status == yapfast_discord::service::Status::Online;
+        if let Some(account) = &snapshot.account {
+            self.state.account_username =
+                Some(account.username.clone()).filter(|name| !name.is_empty());
+        }
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
         {

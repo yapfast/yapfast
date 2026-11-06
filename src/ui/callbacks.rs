@@ -416,6 +416,28 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_message_person(move |user| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MessagePerson(user.into()));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_save_note(move |user, note| {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(
+                &window,
+                Action::SaveNote {
+                    user: user.into(),
+                    note: note.into(),
+                },
+            );
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_befriend(move |user| {
         if let Some(window) = weak.upgrade() {
             state
@@ -564,6 +586,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 let menu = menus::menu(&adapter.borrow(), &id, person);
                 menus::show(&window, menu);
             }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        window.on_may_create_channel(move |category| {
+            adapter.borrow().app.may_create_channel(&category)
         });
     }
     {
@@ -1453,6 +1481,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let layout = &mut adapter.layout;
         layout.twelve_hour_clock = window.get_twelve_hour_clock();
         layout.clock_seconds = window.get_clock_seconds();
+        layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
+        layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());

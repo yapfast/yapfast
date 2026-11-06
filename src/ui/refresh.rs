@@ -588,6 +588,27 @@ impl Adapter {
             Navigation::Server(id) => self.app.header_choices(id).contains(&MenuChoice::Invite),
             Navigation::DirectMessages => false,
         });
+        window.set_header_community(match &state.navigation {
+            Navigation::Server(id) => state
+                .servers
+                .iter()
+                .any(|server| &server.id == id && server.community),
+            Navigation::DirectMessages => false,
+        });
+        let header_server = match &state.navigation {
+            Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+            Navigation::DirectMessages => None,
+        };
+        window.set_header_verified(header_server.is_some_and(|server| server.verified));
+        window.set_header_banner(
+            header_server
+                .and_then(|server| server.banner.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_header_events(
+            header_server.map_or(0, |server| i32::try_from(server.events.len()).unwrap_or(0)),
+        );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {
                 "Find a DM"
@@ -759,7 +780,7 @@ impl Adapter {
                     let this = (room.category_id.as_deref(), room.category.as_str());
                     if category.replace(this) != Some(this) {
                         folds_by = room.category_id.as_deref();
-                        room.category.to_uppercase()
+                        room.category.clone()
                     } else {
                         String::new()
                     }
@@ -797,6 +818,12 @@ impl Adapter {
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
+                    official: room.official,
+                    wave: if room.empty && !room.request {
+                        room.person.as_deref().unwrap_or_default().into()
+                    } else {
+                        Default::default()
+                    },
                     pinned: if room.direct {
                         state.pinned.contains(&room.id)
                     } else {
@@ -966,6 +993,8 @@ impl Adapter {
             .unwrap_or_else(|| display_part(account));
         window.set_account(account.into());
         window.set_account_name(account_name.into());
+        window.set_account_username(state.account_username.as_deref().unwrap_or_default().into());
+        window.set_account_user_id(state.discord_user.as_deref().unwrap_or_default().into());
         window.set_account_initial(initial(account_name));
         window.set_account_tint(tint(account_name));
         window.set_account_picture(cached_picture(
@@ -980,11 +1009,21 @@ impl Adapter {
             .map(status_line)
             .unzip();
         window.set_account_status_emoji(status_emoji.flatten().unwrap_or_default().into());
+        // The game Yapfast shows as playing, as the activity icon Discord puts
+        // before the status: alone it names the game, before a status it adds a bullet.
+        let playing = state
+            .discord_playing
+            .as_ref()
+            .filter(|_| state.online && !state.preview && state.discord_show_game);
+        window.set_account_activity_icon(i32::from(playing.is_some()));
+        window.set_account_activity_bullet(playing.is_some() && custom_status.is_some());
         window.set_account_status(
             if state.preview {
                 "Local only"
             } else if let Some(status) = &custom_status {
                 status
+            } else if let Some(playing) = playing {
+                &playing.name
             } else if let Some(status) = &state.account_status {
                 status
             } else if state.online {
@@ -1604,6 +1643,8 @@ impl Adapter {
                         tint: tint(&member.name),
                         picture: slint::Image::default(),
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
+                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
+                        role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
@@ -1614,7 +1655,7 @@ impl Adapter {
                         // Discord names its groups; Matrix members group by role.
                         heading: if let Some(group) = &member.group {
                             if index == 0 || members[index - 1].group.as_ref() != Some(group) {
-                                group.to_uppercase().into()
+                                group.as_str().into()
                             } else {
                                 SharedString::default()
                             }
@@ -3014,11 +3055,22 @@ impl Adapter {
                     super::menus::until(until / 1000, self.layout.twelve_hour_clock)
                 )
             });
+        // Discord swaps the composer for one disabled bar saying so, with no
+        // buttons and no caption.
+        let no_permission = window.global::<ClientStyle>().get_enabled()
+            && timed_out.is_none()
+            && !state.preview
+            && discord_room
+            && room.is_some_and(|room| !room.request && (room.read_only || room.locked));
+        window.set_composer_locked(no_permission);
+        window.set_composer_locked_text(
+            "You do not have permission to send messages in this channel.".into(),
+        );
         window.set_composer_hint(
             if room.is_none() {
                 "Choose a DM or server channel to write a message."
             } else if state.preview {
-                "Enter to send locally, Shift+Enter for a new line."
+                ""
             } else if room.is_some_and(|room| room.request) {
                 if discord_only {
                     ""
@@ -3027,6 +3079,8 @@ impl Adapter {
                 }
             } else if let Some(timed_out) = &timed_out {
                 timed_out
+            } else if no_permission {
+                ""
             } else if discord_room && room.is_some_and(|room| room.read_only || room.locked) {
                 "You can't send messages in this Discord channel."
             } else if discord_room && !state.discord_online {
@@ -4259,7 +4313,7 @@ pub(super) fn with_empty_categories(
     // Its id names the category, for the heading's menu.
     let heading = |category: &ListedCategory| RoomRow {
         id: category.id.as_str().into(),
-        heading: category.name.to_uppercase().into(),
+        heading: category.name.as_str().into(),
         category: category.id.as_str().into(),
         hidden: true,
         ..Default::default()

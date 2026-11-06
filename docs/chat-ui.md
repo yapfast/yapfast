@@ -1,5 +1,9 @@
 # Chat UI
 
+A refined presentation of these widgets is the default; see
+[Yapfast UI](yapfast-ui.md) for its metrics and the switch back to
+the earlier look.
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and Slint's
 Markdown draws formatted text. `pulldown-cmark` in `yapfast-core` reads
@@ -373,7 +377,10 @@ Weston's desktop shell, whose windows move and resize, where its kiosk shell
 makes the window full screen, which hides the bar. A window
 without the desktop's frame gets no shadow from KWin or Mutter, and the
 desktop's title bar menu isn't offered: winit can't show it on Linux. In
-full screen, as a call's stage is, the bar goes. Windows keeps its own frame.
+full screen, as a call's stage is, the bar goes. The earlier
+presentation on Windows keeps its own frame. The refined presentation
+defaults to an integrated Windows bar, with the same saved system-frame
+setting; see [Yapfast UI](yapfast-ui.md).
 
 The window follows Discord's arrangement:
 

@@ -193,7 +193,7 @@ export component ThreadPanel inherits Rectangle {
                     background: self.lit ? Theme.row-hover : transparent;
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
-                        background: Theme.accent.transparentize(0.9);
+                        background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
                         Rectangle { x: 0px; width: 2px; background: Theme.accent; }
                     }
                     row-pointer := TouchArea {

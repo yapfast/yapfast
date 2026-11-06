@@ -3,7 +3,7 @@ import { ScrollView } from "scrollview.slint";
 import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
-import { ProfileData, ProfileHeading } from "people.slint";
+import { ProfileData, ProfileHeading, ProfileTitle } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
 // Discord made it.
@@ -1059,7 +1059,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: "MEMBER SINCE"; }
+                                    ProfileTitle { text: "Member since"; }
                                     HorizontalLayout {
                                         spacing: 24px; alignment: start;
                                         if root.prompt.preview.created != "": VerticalLayout {

@@ -871,9 +871,10 @@ fn spoils_links(content: &str) -> bool {
         .any(|inside| inside.contains("http"))
 }
 
-/// The size Yapfast shows image previews at, at most.
-pub const PREVIEW_WIDTH: u64 = 360;
-pub const PREVIEW_HEIGHT: u64 = 270;
+/// The size Yapfast shows image previews at, at most: Discord's own cap for
+/// an attached picture, scaled by its aspect ratio.
+pub const PREVIEW_WIDTH: u64 = 550;
+pub const PREVIEW_HEIGHT: u64 = 400;
 
 /// The image viewer's largest size.
 pub const VIEW_WIDTH: u64 = 1920;
@@ -980,6 +981,15 @@ fn author_name(message: &Value) -> &str {
         .as_str()
         .or_else(|| ready::display_name(&message["author"]))
         .unwrap_or("Discord user")
+}
+
+/// Whether a user object is one of Discord's own accounts: the `system` user,
+/// or one with the SYSTEM public flag (1 << 12).
+pub fn is_official(user: &Value) -> bool {
+    user["system"].as_bool() == Some(true)
+        || user["public_flags"]
+            .as_u64()
+            .is_some_and(|flags| flags & (1 << 12) != 0)
 }
 
 /// [`Names`] as saved to disk, where maps keyed by server and user become
@@ -1108,6 +1118,9 @@ pub struct Names {
     members: HashSet<(Id, Id)>,
     /// Avatar hashes by user id, of those who set one.
     avatars: HashMap<Id, String>,
+    /// Discord's own accounts, such as the one that sends its official
+    /// messages, which a DM list marks.
+    officials: HashSet<Id>,
     /// Server avatar hashes by server and user id.
     member_avatars: HashMap<(Id, Id), String>,
     /// Members' roles by server and user id, for the colour of their name.
@@ -1242,6 +1255,7 @@ impl Names {
         self.users.retain(|user, _| seen.contains_key(user));
         self.usernames.retain(|user, _| seen.contains_key(user));
         self.bots.retain(|user| seen.contains_key(user));
+        self.officials.retain(|user| seen.contains_key(user));
         self.avatars.retain(|user, _| seen.contains_key(user));
         self.nicknames
             .retain(|(_, user), _| seen.contains_key(user));
@@ -1269,6 +1283,14 @@ impl Names {
         }
         if let Some(username) = user["username"].as_str() {
             self.usernames.insert(id, username.to_owned());
+        }
+        // Partial user objects leave both out.
+        if user.get("system").is_some() || user.get("public_flags").is_some() {
+            if is_official(user) {
+                self.officials.insert(id);
+            } else {
+                self.officials.remove(&id);
+            }
         }
         // Partial user objects leave it out.
         match user["bot"].as_bool() {
@@ -1476,6 +1498,11 @@ impl Names {
         }
         let hash = user_id.and_then(|user| self.avatars.get(&user));
         ready::avatar(user, hash.map(String::as_str))
+    }
+
+    /// Whether a user is one of Discord's own accounts.
+    pub fn is_official(&self, user: &str) -> bool {
+        id(user).is_some_and(|user| self.officials.contains(&user))
     }
 
     /// The avatar hash [`Self::avatar`] makes a user's address from outside
@@ -1912,7 +1939,7 @@ mod tests {
         assert!(message.attachments[0].image);
         assert_eq!(
             message.attachments[0].preview_url.as_deref(),
-            Some("https://media/cat.png?ex=1&animated=true&format=webp&width=360&height=135")
+            Some("https://media/cat.png?ex=1&animated=true&format=webp&width=550&height=206")
         );
         assert_eq!(
             message.attachments[0].view_url.as_deref(),
@@ -1925,7 +1952,7 @@ mod tests {
         assert_eq!(video.video_url.as_deref(), Some("https://cdn/clip.mp4"));
         assert_eq!(
             video.preview_url.as_deref(),
-            Some("https://media/clip.mp4?format=webp&width=360&height=203")
+            Some("https://media/clip.mp4?format=webp&width=550&height=309")
         );
         assert_eq!(video.dimensions, Some((1920, 1080)));
         assert_eq!(message.attachments[0].video_url, None);
@@ -2432,5 +2459,20 @@ mod tests {
         assert!(!own.mentions_me(me, Some(&server)));
         // A DM has no server: @everyone means nothing there.
         assert!(!message(json!({"mention_everyone": true})).mentions_me(me, None));
+    }
+    #[test]
+    fn discords_own_account_is_official_until_a_user_says_otherwise() {
+        assert!(is_official(&json!({"id": "1", "system": true})));
+        assert!(is_official(&json!({"id": "1", "public_flags": 1 << 12})));
+        assert!(!is_official(&json!({"id": "1", "public_flags": 64})));
+        let mut names = Names::default();
+        names.learn_user(&json!({"id": "1", "username": "Discord", "system": true}));
+        assert!(names.is_official("1"));
+        // A partial user object says nothing of it.
+        names.learn_user(&json!({"id": "1"}));
+        assert!(names.is_official("1"));
+        names.learn_user(&json!({"id": "1", "public_flags": 0}));
+        assert!(!names.is_official("1"));
+        assert!(!names.is_official("2"));
     }
 }

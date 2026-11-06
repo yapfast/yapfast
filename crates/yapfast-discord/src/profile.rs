@@ -33,6 +33,44 @@ pub struct Profile {
     pub mutual_servers: Vec<MutualServer>,
     /// The friends this account shares with them.
     pub mutual_friends: Vec<MutualFriend>,
+    /// The two colours of their profile's theme, a Nitro setting: the card's
+    /// gradient runs from the first to the second.
+    #[serde(default)]
+    pub theme: Option<[u32; 2]>,
+    /// The accounts on other services their profile shows.
+    #[serde(default)]
+    pub connections: Vec<Connection>,
+}
+
+/// An account on another service that a profile shows, such as Steam.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Connection {
+    /// The service, as Discord names it: `steam`, `twitch`, `github`.
+    pub kind: String,
+    pub name: String,
+    pub verified: bool,
+    /// Where the account is, when Discord's client knows how to link it.
+    pub url: Option<String>,
+    /// When the account was made, in Unix milliseconds, when the service says.
+    #[serde(default)]
+    pub since: Option<u64>,
+}
+
+/// A connected account's page on its service, where Discord's client links
+/// one.
+fn connection_url(kind: &str, id: &str, name: &str) -> Option<String> {
+    Some(match kind {
+        "steam" => format!("https://steamcommunity.com/profiles/{id}"),
+        "twitch" => format!("https://twitch.tv/{name}"),
+        "github" => format!("https://github.com/{name}"),
+        "youtube" => format!("https://www.youtube.com/channel/{id}"),
+        "twitter" | "x" => format!("https://twitter.com/{name}"),
+        "reddit" => format!("https://reddit.com/u/{name}"),
+        "spotify" => format!("https://open.spotify.com/user/{id}"),
+        "tiktok" => format!("https://tiktok.com/@{name}"),
+        "bluesky" => format!("https://bsky.app/profile/{name}"),
+        _ => return None,
+    })
 }
 
 /// A server this account shares with someone.
@@ -129,6 +167,12 @@ fn color(value: &Value) -> Option<u32> {
     value.as_u64().and_then(|color| u32::try_from(color).ok())
 }
 
+/// A profile's theme: `theme_colors`, two colours as numbers.
+fn theme_colors(value: &Value) -> Option<[u32; 2]> {
+    let colors = value.as_array()?;
+    Some([color(colors.first()?)?, color(colors.get(1)?)?])
+}
+
 /// A text field that may be missing, null or empty.
 fn text(value: &Value) -> Option<&str> {
     value.as_str().filter(|text| !text.trim().is_empty())
@@ -202,6 +246,24 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
                     id: id.to_owned(),
                     name: ready::display_name(friend)?.to_owned(),
                     avatar: ready::avatar(id, friend["avatar"].as_str()),
+                })
+            })
+            .collect(),
+        theme: theme_colors(&server["theme_colors"]).or_else(|| theme_colors(&own["theme_colors"])),
+        connections: value["connected_accounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|account| {
+                let kind = text(&account["type"])?;
+                let name = text(&account["name"])?;
+                let id = account["id"].as_str().unwrap_or_default();
+                Some(Connection {
+                    kind: kind.to_owned(),
+                    name: name.to_owned(),
+                    verified: account["verified"].as_bool().unwrap_or(false),
+                    url: connection_url(kind, id, name),
+                    since: account["metadata"]["created_at"].as_str().and_then(iso_ms),
                 })
             })
             .collect(),
@@ -322,5 +384,24 @@ mod tests {
                 .ends_with("/banners/1400000000000000200/def.png?size=600")
         );
         assert_eq!(profile.accent, Some(16_711_680));
+    }
+
+    #[test]
+    fn reads_the_theme_the_server_or_the_person_set() {
+        let answer = json!({
+            "user": {"id": "1400000000000000200", "username": "ann"},
+            "user_profile": {"theme_colors": [1052945, 6631526]},
+            "guild_member_profile": {"guild_id": "10", "theme_colors": null},
+        });
+        assert_eq!(
+            parse(&answer, Some("10")).unwrap().theme,
+            Some([1052945, 6631526])
+        );
+        let own = json!({"user": {"id": "1"}, "user_profile": {"theme_colors": [1]}});
+        assert_eq!(parse(&own, None).unwrap().theme, None, "needs both");
+        assert_eq!(
+            parse(&json!({"user": {"id": "1"}}), None).unwrap().theme,
+            None
+        );
     }
 }

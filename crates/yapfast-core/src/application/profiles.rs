@@ -234,6 +234,26 @@ impl Application {
         }
     }
 
+    /// Saves this account's note on a Discord user, which the profiles on
+    /// screen show at once; Discord keeps no empty notes.
+    pub(super) fn save_note(&mut self, user: String, note: String) -> Vec<Effect> {
+        if self.state.discord_user.is_none() || user.starts_with('@') {
+            return vec![];
+        }
+        let note = note.trim().to_owned();
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .flatten()
+            .filter(|view| view.profile.id == user)
+        {
+            view.profile.note.clone_from(&note);
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::SetNote {
+            user,
+            note,
+        }))]
+    }
+
     /// The profiles on screen of `user` waiting for Discord's.
     fn loading_profiles(&mut self, user: &str) -> impl Iterator<Item = &mut ProfileView> {
         [&mut self.state.profile, &mut self.state.panel_profile]
@@ -246,7 +266,13 @@ impl Application {
 /// Puts `profile` on screen in `view`. Presence and activities come from the
 /// member list; the profile doesn't carry them.
 fn fill_profile(view: &mut ProfileView, profile: &Profile) {
+    let note = std::mem::take(&mut view.profile.note);
     view.profile = Profile {
+        note: if profile.note.is_empty() {
+            note
+        } else {
+            profile.note.clone()
+        },
         presence: profile.presence.or(view.profile.presence),
         activity: profile.activity.clone().or(view.profile.activity.take()),
         activities: std::mem::take(&mut view.profile.activities),

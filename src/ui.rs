@@ -24,7 +24,7 @@ use yapfast_core::{
         ChannelKind, ChannelSettings, ChatMessage, Command, Delivery, EmbedField, Event, Picture,
         Placement, Presence, ProfilePicture, ProfileRole, Role, VideoCommand,
     },
-    discord, links, mention,
+    clock, discord, links, mention,
     meter::{self, InputMeter},
     network::Network,
     runtime::BackgroundRuntime,
@@ -60,6 +60,7 @@ mod shell;
 mod theme;
 mod tiles;
 mod title_bar;
+mod yapfast;
 
 use callbacks::bind_callbacks;
 use messages::*;
@@ -160,7 +161,7 @@ pub fn run(
     if !preview {
         crate::desktop_entry::install();
     }
-    let window = match YapfastWindow::new() {
+    let window = match yapfast::window() {
         Ok(window) => window,
         Err(error) => return failed(error, "could not create the Yapfast window"),
     };
@@ -1035,6 +1036,9 @@ struct Layout {
     twelve_hour_clock: bool,
     /// Message times with their seconds, as 21:41:05.
     clock_seconds: bool,
+    /// The order of day, month and year, as an index into
+    /// [`yapfast_core::clock::DateFormat::ALL`]; follows the clock unless chosen.
+    date_format: Option<i32>,
     /// Message text: 0 small, 1 default, 2 large.
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
@@ -1207,6 +1211,15 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
 }
 
 impl Layout {
+    /// Hands the date format to what formats times.
+    fn apply_date_format(&self) {
+        clock::set_date_format(self.date_format.and_then(|index| {
+            clock::DateFormat::ALL
+                .get(usize::try_from(index).ok()?)
+                .copied()
+        }));
+    }
+
     /// The voice gate's sensitivity, in whole dBFS from -80 to 0.
     fn sensitivity(&self) -> i32 {
         self.input_sensitivity
@@ -1264,20 +1277,30 @@ impl Layout {
             * sounds::gain(self.each_sound(sound))
     }
 
-    fn apply(&self, window: &YapfastWindow) {
-        self.apply_custom_games(window);
-        window.set_show_idle(self.show_idle.unwrap_or(true));
-        window.set_hide_blocked(self.hide_blocked);
-        window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+    // Appearance checks can apply these preferences without changing global audio gains.
+    fn apply_appearance(&self, window: &YapfastWindow) {
         // Before the first frame, which the event loop draws. A window made
         // again, after closing to the tray, keeps the theme this way too.
-        let (id, chosen) = theme::chosen(self.theme.as_deref(), &self.custom_themes);
+        let default_theme = window
+            .global::<ClientStyle>()
+            .get_enabled()
+            .then_some("bonfire");
+        let (id, chosen) =
+            theme::chosen(self.theme.as_deref().or(default_theme), &self.custom_themes);
         chosen.apply(window);
         window.set_theme_id(id.into());
         window.set_themes(theme::cards(&self.custom_themes));
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }
+    }
+
+    fn apply(&self, window: &YapfastWindow) {
+        self.apply_custom_games(window);
+        window.set_show_idle(self.show_idle.unwrap_or(true));
+        window.set_hide_blocked(self.hide_blocked);
+        window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+        self.apply_appearance(window);
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
@@ -1288,6 +1311,8 @@ impl Layout {
         window.set_profile_panel(!self.profile_panel_hidden);
         window.set_twelve_hour_clock(self.twelve_hour_clock);
         window.set_clock_seconds(self.clock_seconds);
+        window.set_date_format(self.date_format.unwrap_or(-1));
+        self.apply_date_format();
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
         window.set_link_previews(self.link_previews.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
@@ -1545,6 +1570,8 @@ struct Icons {
     dm: slint::Image,
     chat: slint::Image,
     text: slint::Image,
+    /// A boxed ID, for Copy ID.
+    id: slint::Image,
     thread: slint::Image,
     forum: slint::Image,
     voice: slint::Image,
@@ -1815,6 +1842,7 @@ impl Adapter {
                 "../ui/icons/message-square-text.svg"
             ))?,
             text: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/hash.svg"))?,
+            id: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-filled.svg"))?,
             thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
             forum: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/message-square-text.svg"
@@ -2625,7 +2653,7 @@ fn display_part(name: &str) -> &str {
         .map_or(name, |(local, _)| local)
 }
 
-/// A server icon shows the first letter of up to three words, as in "Co-op crew" → "Cc".
+/// A server icon shows the first letter of up to three words, as in "Co-op crew" → "CC", in capitals like Discord.
 fn initials(name: &str) -> SharedString {
     let mut words = name
         .split_whitespace()
@@ -2634,7 +2662,7 @@ fn initials(name: &str) -> SharedString {
         .next()
         .map(|first| first.to_uppercase().collect())
         .unwrap_or_else(|| "?".into());
-    text.extend(words.take(2).flat_map(char::to_lowercase));
+    text.extend(words.take(2).flat_map(char::to_uppercase));
     text.into()
 }
 

@@ -88,6 +88,8 @@ pub(super) fn command(
                     roles: discord.roles(guild, &user),
                     timed_out_until: None,
                     id: user,
+                    group_icon: None,
+                    role_icon: None,
                 })
                 .collect();
             members.sort_by_key(|member| member.name.to_lowercase());
@@ -143,6 +145,8 @@ pub(super) fn command(
                         roles: discord.roles(&guild, &user),
                         timed_out_until: None,
                         id: user,
+                        group_icon: None,
+                        role_icon: None,
                     })
                     .collect();
                 let _ = events.send(Event::MemberMatches {
@@ -173,7 +177,21 @@ pub(super) fn command(
                             tracing::warn!(%error, "could not fetch a Discord profile");
                             error.to_string()
                         });
-                    let _ = events.send(Event::Profile { user, result });
+                    let failed = result.is_err();
+                    let _ = events.send(Event::Profile {
+                        user: user.clone(),
+                        result,
+                    });
+                    if failed {
+                        return;
+                    }
+                    // The note this account keeps on them fills the full profile's.
+                    if let Ok(note) = discord.note(&user).await {
+                        let _ = events.send(Event::Note {
+                            user: user.clone(),
+                            result: Ok(note),
+                        });
+                    }
                 });
             }
             (discord, _) => {

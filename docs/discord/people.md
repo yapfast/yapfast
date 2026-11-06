@@ -116,7 +116,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Start call joins the DM's call, as the phone in its header does.
 - Add note writes this account's note on the other person:
   `GET /users/@me/notes/{id}` fills the dialog, a 404 meaning there's none,
-  and `PUT` with `{"note": ...}` saves it, an empty one removing it.
+  and `PUT` with `{"note": ...}` saves it, an empty one removing it. A note
+  read is kept in memory, so opening a profile again asks nothing:
+  USER_NOTE_UPDATE changes it, and a new session forgets them all.
 - Add friend nickname, for a friend, is `PATCH
   /users/@me/relationships/{id}` with `{"nickname": ...}`, or null to remove
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
@@ -331,8 +333,8 @@ to remove it. The client never sends the bio, pronouns or banner to
 The client's tab also has Profile Widgets, an avatar decoration, a
 nameplate, a profile effect, a frame, display name styles and, with
 Nitro, a profile theme of two colours in place of the banner colour, then
-the Server Tag and badges. Yapfast leaves them out, as it shows none of
-them. Changing the username, in My Account with the password, is left
+the Server Tag. Yapfast leaves them out, as it shows none of them. Changing the username, in My Account
+with the password, is left
 for later.
 
 ## Editing one's server profile
@@ -534,3 +536,14 @@ and prints counts, times and heap, never process names or paths:
 nix develop path:./nix --command cargo build --profile measure -p yapfast-discord --bin yapfast-game-detection-probe
 target/measure/yapfast-game-detection-probe /path/to/discord-games.json 30
 ```
+
+## Role icons
+
+A role with an icon (`icon` on the role, from GUILD_CREATE and GUILD_ROLE_*)
+shows it 20px beside its group's name in the member list, and the highest role
+with an icon shows 16px before a member's tag in the list. The picture is
+`/role-icons/{role}/{hash}.png?size=64`. Only a server with the `ROLE_ICONS`
+feature, or at boost level 2 or 3, shows them: Discord keeps a role's icon when
+a server loses its boosts, and its client stops drawing it, so Yapfast does too.
+GUILD_UPDATE brings the change. Unicode-emoji role icons and the icon beside a
+message author aren't drawn.

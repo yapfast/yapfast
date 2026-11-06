@@ -666,6 +666,8 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         parent: None,
         forum: false,
         unlisted: false,
+        official: dm.official,
+        empty: dm.empty,
         preview: dm.preview.as_ref().map(|preview| {
             Box::new(chat::RequestPreview {
                 text: match (preview.text.trim(), preview.files) {
@@ -810,6 +812,8 @@ fn server_rooms(
                 parent: None,
                 forum: false,
                 unlisted: false,
+                official: false,
+                empty: false,
                 preview: None,
             }
         } else {
@@ -856,6 +860,8 @@ fn server_rooms(
                 parent: None,
                 forum: channel.forum.is_some(),
                 unlisted: unlisted(channel),
+                official: false,
+                empty: false,
                 preview: None,
             }
         });
@@ -881,6 +887,21 @@ fn server_rooms(
         hide_muted: server.marks.notifications.hide_muted_channels,
         community: server.community,
         pinned,
+        banner: server.banner.clone(),
+        verified: server.verified,
+        events: server
+            .events
+            .iter()
+            .map(|event| chat::ServerEvent {
+                id: event.id.clone(),
+                name: event.name.clone(),
+                start: yapfast_discord::message::iso_ms(&event.start)
+                    .map_or(0, |ms| i64::try_from(ms / 1000).unwrap_or(0)),
+                location: event.location.clone(),
+                active: event.status == 2,
+                interested: event.interested,
+            })
+            .collect(),
     };
     (rooms, server)
 }
@@ -929,6 +950,8 @@ fn thread_room(
         parent: Some(parent.id.clone()),
         forum: false,
         unlisted: parent.unlisted,
+        official: false,
+        empty: false,
         preview: None,
     }
 }

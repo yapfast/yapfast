@@ -63,6 +63,7 @@ fn connected() -> Application {
             hide_muted: false,
             community: false,
             pinned: Vec::new(),
+            ..Default::default()
         }],
     }));
     app.apply(Event::Timeline {
@@ -136,6 +137,7 @@ fn locked_channels_show_without_asking_for_their_messages() {
             hide_muted: false,
             community: false,
             pinned: Vec::new(),
+            ..Default::default()
         }],
     }));
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
@@ -281,6 +283,8 @@ fn members_belong_to_the_selected_text_room() {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        group_icon: None,
+        role_icon: None,
     };
     app.apply(Event::Members {
         room: "games".into(),
@@ -2979,6 +2983,8 @@ fn member(id: &str, name: &str) -> ChatMember {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        group_icon: None,
+        role_icon: None,
     }
 }
 
@@ -3167,6 +3173,7 @@ fn discord_mentions_search_the_server_and_name_roles() {
         user_id: Some("1".into()),
         // Nitro, for the animated emoji.
         account: Some(Account {
+            username: String::new(),
             name: "Alice".into(),
             avatar: String::new(),
             premium_type: 2,
@@ -3900,6 +3907,8 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            group_icon: None,
+            role_icon: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {
@@ -5552,6 +5561,7 @@ fn a_matrix_room_divider_follows_its_read_receipt_once_loaded() {
             hide_muted: false,
             community: false,
             pinned: Vec::new(),
+            ..Default::default()
         }],
     }));
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
@@ -7692,6 +7702,7 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
     });
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     snapshot.account = Some(yapfast_discord::service::Account {
+        username: String::new(),
         name: "Alice".into(),
         avatar: "alice.png".into(),
         premium_type: 2,
@@ -7917,6 +7928,7 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
     // which Discord shows only without.
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     snapshot.account = Some(yapfast_discord::service::Account {
+        username: String::new(),
         name: "Alice".into(),
         avatar: "alice.png".into(),
         premium_type: 2,
