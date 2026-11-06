@@ -31,6 +31,7 @@ mod join;
 mod members;
 mod messages;
 mod mfa;
+mod mod_view;
 mod new_post;
 mod oauth;
 mod place_search;
@@ -61,6 +62,10 @@ pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
 pub use members::{member_server, with_clubs};
 pub use mfa::MfaPrompt;
+pub use mod_view::{
+    ELEVATED_PERMISSIONS, Granted, MOD_PERMISSIONS, ModPanel, ModView, ModViewInput, ModViewMember,
+    NEW_ACCOUNT_MS,
+};
 pub use new_post::{NewPost, POST_TAGS, POST_TITLE_LIMIT};
 pub use oauth::OAuthDialog;
 pub use place_search::Place;
@@ -551,6 +556,8 @@ pub struct AppState {
     pub voice_chat: bool,
     /// A Discord thread shown beside the selected channel.
     pub aside: Option<aside::Aside>,
+    /// Mod View, beside the selected channel in place of its member list.
+    pub mod_view: Option<ModView>,
     pub room_ready: bool,
     pub messages: Arc<Vec<Arc<ChatMessage>>>,
     /// The selected room's joined members, by role and then name; `None` while loading.
@@ -1803,6 +1810,8 @@ pub enum Action {
     Bans(BanInput),
     /// Something done on Audit Log in a server's settings.
     AuditLog(AuditInput),
+    /// Something done in Mod View.
+    ModView(ModViewInput),
     /// Answer the two-factor prompt: use another method, or with none
     /// list them; write the code; have Discord text it again; confirm; or
     /// cancel, which fails the request waiting on it.
@@ -2036,6 +2045,9 @@ pub struct Application {
     pictured_aside: Arc<Vec<Arc<ChatMessage>>>,
     /// A DM with a friend is starting, to open once it has.
     starting_dm: bool,
+    /// The last ban's reason and how much it deleted, which the next ban's
+    /// dialog starts with until Yapfast closes, for a raid's many bans.
+    last_ban: Option<(usize, String)>,
     /// Its call starts once it opens, as [`Action::CallPerson`] asks.
     pending_call: bool,
     /// What [`Action::MessageFromProfile`] sends once its DM opens.
@@ -2993,6 +3005,7 @@ impl Application {
             Action::Invites(input) => self.invite_input(input),
             Action::Bans(input) => self.ban_input(input),
             Action::AuditLog(input) => self.audit_log_input(input),
+            Action::ModView(input) => self.mod_view_input(input),
             Action::CloseServerSettings => {
                 self.close_server_settings();
                 vec![]
@@ -3576,6 +3589,7 @@ impl Application {
                 query,
                 result,
             } => self.audit_log_loaded(server, query, result),
+            Event::ModViewLoaded { server, user, part } => self.mod_view_loaded(server, user, part),
             Event::MembersFound {
                 server,
                 query,
