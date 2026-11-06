@@ -116,7 +116,7 @@ fn fill_row_icons(adapter: &Adapter) {
         let Some(section) = sections.row_data(index) else {
             continue;
         };
-        let row = section.row.max(0) as usize;
+        let row = section.heading.max(0) as usize;
         let Some(named) = rows.row_data(row) else {
             continue;
         };
@@ -330,8 +330,8 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
             icon: section.icon.clone(),
             // The sticker picker's clock, for the one heading both share.
             glyph: emoji::section_glyph(section.icon.name.as_str()),
-            top: (section.row as f32 - 0.5) * emoji::ROW_HEIGHT,
-            end: (section.end as f32 - 0.5) * emoji::ROW_HEIGHT,
+            top: section.top,
+            end: section.end,
         })
         .collect();
     update_model(&adapter.models.emoji_rail, rail);
@@ -347,6 +347,10 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     if !sections.is_empty() {
         update_model(&adapter.models.emoji_sections, sections);
     }
+    // A grid laid out again is made of new cells, and the custom emoji whose
+    // pictures this device already holds are drawn at once rather than waiting
+    // for one to arrive, which a drag of the picker's edge would not bring.
+    emoji::fill_pictures(&adapter.models.emoji_rows, &adapter.models.emoji_sections);
     fetch_shown_pictures(&mut adapter, window, first, last);
     fill_shown_glyphs(window, &mut adapter, first, last);
 }
@@ -1317,8 +1321,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let rows_reported = shown_rows.clone();
     window.on_emoji_scrolled_to(move |scrolled, height| {
         let Some(window) = weak.upgrade() else { return };
-        let first = (scrolled / emoji::CELL).floor().max(0.) as usize;
-        let last = ((scrolled + height) / emoji::CELL).ceil() as usize;
+        // The rows the grid shows, from where each row says it starts: a
+        // heading's row is tighter than one of emoji.
+        let (first, last) = {
+            let adapter = state.borrow();
+            emoji::visible_rows(&adapter.models.emoji_rows, scrolled, height)
+        };
         if rows_reported.get() == (first, last) {
             return;
         }

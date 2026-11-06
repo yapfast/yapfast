@@ -20,25 +20,29 @@ pub static FONT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")
 static INDEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.index"));
 
 /// The most bytes of pictures kept, which the cache lets go of at once: a filled
-/// cell keeps its own, so letting them go costs a redraw of what comes next. A
-/// display of twice the scale takes four times the bytes for each.
+/// cell keeps its own, so letting them go costs a redraw of what comes next.
 const MOST_BYTES: u32 = 4 << 20;
 
+/// A picture's side in Twemoji's own files, which is what the cache holds: a
+/// cell is drawn from it at whatever size it shows.
+pub(crate) const NATIVE: u32 = 72;
+/// The bytes one kept picture takes at that size.
+const NATIVE_BYTES: u32 = NATIVE * NATIVE * 4;
+
 thread_local! {
-    static PICTURES: RefCell<HashMap<(String, u32), Option<slint::Image>>> = RefCell::default();
+    static PICTURES: RefCell<HashMap<String, Option<slint::Image>>> = RefCell::default();
 }
 
 /// The picture of `glyph` at `px` logical pixels, for a display of `scale`, or
 /// none when Twemoji has no picture for it.
-pub fn picture(glyph: &str, px: f32, scale: f32) -> Option<slint::Image> {
-    let pixels = (px * scale).round().max(1.0) as u32;
+pub fn picture(glyph: &str, _px: f32, _scale: f32) -> Option<slint::Image> {
     PICTURES.with_borrow_mut(|pictures| {
-        if pictures.len() as u32 >= MOST_BYTES / (pixels * pixels * 4) {
+        if pictures.len() as u32 >= MOST_BYTES / NATIVE_BYTES {
             pictures.clear();
         }
         pictures
-            .entry((glyph.to_owned(), pixels))
-            .or_insert_with(|| decode(glyph, pixels))
+            .entry(glyph.to_owned())
+            .or_insert_with(|| decode(glyph))
             .clone()
     })
 }
@@ -54,15 +58,13 @@ pub fn has_picture(glyph: &str) -> bool {
     picture_bytes(glyph).is_some()
 }
 
-fn decode(glyph: &str, pixels: u32) -> Option<slint::Image> {
-    let decoded = image::DynamicImage::ImageRgba8(published(glyph)?);
-    let scaled = if (decoded.width(), decoded.height()) == (pixels, pixels) {
-        decoded
-    } else {
-        decoded.resize_exact(pixels, pixels, image::imageops::FilterType::Triangle)
-    };
-    let pixels_buffer = scaled.into_rgba8();
-    let buffer = slint::SharedPixelBuffer::clone_from_slice(pixels_buffer.as_raw(), pixels, pixels);
+/// The picture, at Twemoji's own 72px: Slint draws it at whatever size a cell
+/// shows it, and resizing it here cost 70-120us a picture, which a scroll paid
+/// for on every row that came into sight.
+fn decode(glyph: &str) -> Option<slint::Image> {
+    let picture = published(glyph)?;
+    let (width, height) = picture.dimensions();
+    let buffer = slint::SharedPixelBuffer::clone_from_slice(picture.as_raw(), width, height);
     Some(slint::Image::from_rgba8(buffer))
 }
 
@@ -148,12 +150,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_emoji_has_twemojis_picture_at_the_size_the_grid_draws() {
+    fn an_emoji_has_twemojis_picture_at_its_own_size() {
         let drawn = picture("🍕", 36., 1.).expect("Twemoji draws a pizza");
-        assert_eq!((drawn.size().width, drawn.size().height), (36, 36));
-        // A display at twice the scale gets twice the pixels for the same size.
-        let scaled = picture("🍕", 36., 2.).expect("kept for this size");
-        assert_eq!((scaled.size().width, scaled.size().height), (72, 72));
+        // Twemoji's own 72px, which Slint draws at whatever size a cell shows:
+        // resizing one for each size cost 70-120us, which a scroll paid for on
+        // every picture it brought into sight.
+        assert_eq!((drawn.size().width, drawn.size().height), (72, 72));
+        // Every size asked for is that one picture.
+        for (px, scale) in [(36., 2.), (16., 1.), (48., 1.5)] {
+            let same = picture("🍕", px, scale).expect("kept for this size");
+            assert_eq!(
+                (same.size().width, same.size().height),
+                (72, 72),
+                "{px} logical at {scale}"
+            );
+        }
     }
 
     #[test]

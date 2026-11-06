@@ -7466,10 +7466,11 @@ fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
             if cell.key.contains(':') || cell.glyph != cell.key || cell.glyph.chars().count() != 1 {
                 continue;
             }
+            // Twemoji's own 72px, which the cell draws at the grid's size.
             assert_eq!(
                 cell.picture.size().width,
-                emoji::GLYPH as u32,
-                "{} is drawn as a picture of the grid's size",
+                crate::twemoji::NATIVE,
+                "{} is drawn as a picture",
                 cell.name
             );
             drawn += 1;
@@ -7493,8 +7494,12 @@ fn resizing_the_grid_fills_the_rows_it_is_scrolled_to() {
     window.set_emoji_panel_width(498.);
     window.invoke_emoji_search("".into());
     // Scrolled a long way down, the rows in view are the ones drawn.
-    let top = 40.0 * emoji::CELL;
-    window.invoke_emoji_scrolled_to(top, 6.0 * emoji::CELL);
+    let top = window
+        .get_emoji_rows()
+        .row_data(40)
+        .map(|row| row.top)
+        .unwrap_or_default();
+    window.invoke_emoji_scrolled_to(top, 6.0 * emoji::ROW_HEIGHT);
     // A wider grid is laid out again, and its cells are new ones: the rows it is
     // scrolled to must take their pictures again, or every emoji there would be
     // a placeholder until the grid was scrolled.
@@ -7586,23 +7591,26 @@ fn rows_far_from_those_the_picker_shows_let_go_of_their_pictures() {
     // The screen below the one it shows is made ready with it, so the first
     // scroll finds what it brings into sight drawn already.
     assert!(drawn(8..16) > 20, "the screen below is ready");
+    let top_of =
+        |index: usize| -> f32 { rows.row_data(index).map(|row| row.top).unwrap_or_default() };
+    let screen = 6.0 * emoji::ROW_HEIGHT;
     // A short scroll keeps what it left, for a scroll back.
-    window.invoke_emoji_scrolled_to(6.0 * emoji::CELL, 6.0 * emoji::CELL);
+    window.invoke_emoji_scrolled_to(top_of(6), screen);
     assert!(drawn(0..4) > 10, "the rows just left keep their pictures");
     // A long one lets go of it, whether it went by steps or at once, as the
     // sidebar jumps; the rows it reached are drawn, and those between were not.
-    window.invoke_emoji_scrolled_to(40.0 * emoji::CELL, 6.0 * emoji::CELL);
+    window.invoke_emoji_scrolled_to(top_of(40), screen);
     assert_eq!(drawn(0..24), 0, "the rows far above let go");
     assert!(drawn(40..46) > 20, "the rows reached are drawn");
     assert!(
         drawn(32..40) > 20,
         "and the screen above them is ready, for a scroll back"
     );
-    window.invoke_emoji_scrolled_to(100.0 * emoji::CELL, 6.0 * emoji::CELL);
+    window.invoke_emoji_scrolled_to(top_of(100), screen);
     assert_eq!(drawn(40..46), 0, "a jump lets go of where it came from");
     assert!(drawn(100..106) > 20, "and draws where it went");
     // Back at the top, the pictures are drawn again.
-    window.invoke_emoji_scrolled_to(0.0, 6.0 * emoji::CELL);
+    window.invoke_emoji_scrolled_to(0.0, screen);
     assert!(drawn(0..6) > 20, "a row drawn before is drawn again");
     assert_eq!(drawn(100..106), 0);
 }

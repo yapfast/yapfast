@@ -170,8 +170,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   keep their size and their spacing as it widens, so what the width has over
   stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
   which is the artwork Discord's client uses and which the program carries
-  (`vendor/twemoji`, CC-BY 4.0), decoded at the size the grid draws as its row
-  shows; drawing the system emoji font instead cost a colour font's paint graph
+  (`vendor/twemoji`, CC-BY 4.0), decoded once at Twemoji's own 72px and drawn
+  from there at the size a cell shows, which costs a tenth of what resizing one
+  for each size cost and is what a scroll through the grid did then; drawing
+  the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
   slowly. A screen of rows either side of those shown is drawn with them, and
   their custom emoji's pictures fetched with them, so a scroll brings rows in
@@ -185,7 +187,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   animated emoji scrolls as fast as one of stills. Every server's emoji show,
   as Discord's picker shows them: the sections down its left jump to each of
   them, a server's button drawing its icon as its heading draws it beside the
-  server's name, Frequently Used's a clock and Favorites' a star, and the ones
+  server's name, Frequently Used's a clock and Favorites' a star, each heading
+  in a row of its own, tighter than a row of emoji and at the grid's top as the
+  rail's buttons are, and the ones
   this account may not use where it
   is looking — another server's, or an animated one without Nitro — are
   greyed with a lock in their corner, and pressing one opens Discord's Nitro

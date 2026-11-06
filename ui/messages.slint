@@ -28,6 +28,10 @@ export struct EmojiRow {
     icon: image,
     /// What it draws in place of a picture, as the rail's button draws it too.
     glyph: SectionGlyph,
+    /// Where the row starts in the grid and how tall it is: a heading's row is
+    /// tighter than one of emoji, so the grid's rows are placed by these.
+    top: length,
+    height: length,
 }
 /// A place the emoji picker's sidebar jumps to: the row of its heading, and the
 /// row after its last. Its icon is named by the heading.
@@ -36,7 +40,10 @@ export struct EmojiSection {
     /// The address of the server icon it shows, when it is one's, so one that
     /// arrives after the rail was built is drawn then.
     icon-url: string,
-    row: int, end: int,
+    /// Which row its heading is, and where the heading starts in the grid and
+    /// where its emoji end.
+    heading: int,
+    top: length, end: length,
 }
 
 // An emoji at `side`: its picture, its glyph, or, for a custom emoji whose
@@ -1121,22 +1128,21 @@ export component EmojiPicker inherits Rectangle {
     /// as its width holds, and widening it adds a column rather than room
     /// between the buttons.
     in property <int> columns: 1;
-    // Rows are all one height, so a row's place is known before the ListView
-    // lays it out, and a jump lands on its heading. A button is 56px, as
-    // Discord's, and holds the space its glyph leaves around it.
-    property <length> row-height: 56px;
+    // A button is 56px, as Discord's, and holds the space its glyph leaves
+    // around it; a section's heading row is tighter. Rows carry where they
+    // start, so the sidebar's jump lands on a heading.
     property <length> scrolled: -grid.content-y;
     property <length> shown-height: grid.height;
     function report() { root.scrolled-to(root.scrolled, root.shown-height); }
     init => { root.report(); }
     changed scrolled => { root.report(); }
     changed shown-height => { root.report(); }
-    function jump(row: int) {
+    function jump(top: length) {
         if root.emoji-query != "" {
             root.emoji-query = "";
             root.emoji-search("");
         }
-        grid.content-y = -row * root.row-height;
+        grid.content-y = -top;
     }
     background: root.bare ? transparent : Theme.raised; border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
     border-radius: root.bare ? 0px : 10px;
@@ -1177,14 +1183,11 @@ export component EmojiPicker inherits Rectangle {
                     grid := ListView {
                         vertical-stretch: 1;
                         for row in root.emoji-rows: VerticalLayout {
-                            height: root.row-height; padding-left: 8px; padding-right: 8px;
-                            // A heading takes a row of its own, and sits at the row's
-                            // foot so it meets the emoji under it.
-                            if row.heading != "": Rectangle { vertical-stretch: 1; }
+                            height: row.height; padding-left: 8px; padding-right: 8px;
                             if row.heading != "": HorizontalLayout {
                                 // Flush with the buttons below, as the sticker picker's
                                 // headings hang off their tiles.
-                                padding-left: 2px; padding-bottom: 4px; spacing: 6px; alignment: start;
+                                padding-left: 2px; padding-bottom: 2px; spacing: 6px; alignment: start;
                                 if row.glyph != SectionGlyph.none: Image {
                                     width: 16px; height: 16px;
                                     source: row.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");

@@ -69,8 +69,13 @@ pub const CELL: f32 = 56.0;
 /// ui/messages.slint passes it.
 pub const GLYPH: f32 = 36.0;
 
-/// The height of a grid row, which the rail's sections are placed by.
+/// The height of a grid row of emoji, which the rail's sections are placed by.
 pub const ROW_HEIGHT: f32 = 56.0;
+
+/// The height of a section's heading row: a row of its own, tighter than the
+/// emoji's, so a heading sits at the top of the grid as the rail's buttons do
+/// and its emoji follow close under it.
+pub const HEADING_HEIGHT: f32 = 28.0;
 
 /// The size the picker's rail draws its icons at, which the stickers' rail
 /// draws its own at too.
@@ -271,6 +276,30 @@ pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiC
         .collect()
 }
 
+/// The rows the grid shows with `top` at its top edge and `height` deep, both
+/// in the grid's own space: the first whose foot is past `top`, and the last
+/// whose head is above `top + height`.
+pub fn visible_rows(rows: &VecModel<EmojiRow>, top: f32, height: f32) -> (usize, usize) {
+    let count = rows.row_count();
+    if count == 0 {
+        return (0, 0);
+    }
+    let first = (0..count)
+        .find(|index| {
+            rows.row_data(*index)
+                .is_some_and(|row| row.top + row.height >= top)
+        })
+        .unwrap_or(count - 1);
+    let last = (first..count)
+        .rev()
+        .find(|index| {
+            rows.row_data(*index)
+                .is_some_and(|row| row.top <= top + height)
+        })
+        .unwrap_or(first);
+    (first, last)
+}
+
 /// The picker's rows: with no query, frequently used emoji, the custom emoji of
 /// each server in `custom`, and then every category under its heading; otherwise
 /// the emoji whose name or shortcode contains the query. With no query, also
@@ -300,13 +329,16 @@ pub fn rows(
         .collect();
     let mut rows = Vec::new();
     let mut sections = Vec::new();
+    // Where the next row starts, down the grid.
+    let mut top = 0.0;
     // A section under a heading of its icon's name, or the matches, under none.
     let mut section = |icon: Option<(EmojiCell, String)>, glyphs: Vec<(String, bool)>| {
         if glyphs.is_empty() {
             return;
         }
-        if let Some((icon, icon_url)) = icon {
-            let row = rows.len();
+        let start = top;
+        let heading = rows.len() as i32;
+        if let Some((icon, _)) = &icon {
             rows.push(EmojiRow {
                 heading: icon.name.as_str().into(),
                 cells: ModelRc::default(),
@@ -314,19 +346,18 @@ pub fn rows(
                 // the picker fills it then (see `fill_row_icons`).
                 icon: icon.picture.clone(),
                 glyph: section_glyph(icon.name.as_str()),
+                top,
+                height: HEADING_HEIGHT,
             });
-            sections.push(EmojiSection {
-                row: row as i32,
-                end: (row + 1 + glyphs.len().div_ceil(columns)) as i32,
-                icon_url: icon_url.into(),
-                icon,
-            });
+            top += HEADING_HEIGHT;
         }
         for chunk in glyphs.chunks(columns) {
             rows.push(EmojiRow {
                 heading: SharedString::default(),
                 icon: Default::default(),
                 glyph: SectionGlyph::None,
+                top,
+                height: ROW_HEIGHT,
                 cells: ModelRc::new(VecModel::from(
                     chunk
                         .iter()
@@ -336,6 +367,16 @@ pub fn rows(
                         })
                         .collect::<Vec<_>>(),
                 )),
+            });
+            top += ROW_HEIGHT;
+        }
+        if let Some((icon, icon_url)) = icon {
+            sections.push(EmojiSection {
+                heading,
+                top: start,
+                end: top,
+                icon_url: icon_url.into(),
+                icon,
             });
         }
     };
@@ -712,6 +753,26 @@ mod tests {
     }
 
     #[test]
+    fn the_grid_finds_the_rows_a_scroll_shows() {
+        let (all, _) = rows("", &[], &["🔥".into()], &[], columns(408.), |_| None);
+        let model = VecModel::from(all.clone());
+        let height = 3.0 * ROW_HEIGHT;
+        // A scroll into a heading's tighter row reports that heading.
+        let heading = all[0].top;
+        assert_eq!(visible_rows(&model, heading, height).0, 0);
+        // The heading's row ends where the first emoji's begins, so a scroll
+        // to that edge still reports it; a pixel into the emoji reports them.
+        assert_eq!(visible_rows(&model, all[1].top, height).0, 0);
+        let (first, last) = visible_rows(&model, all[1].top + 1.0, height);
+        assert_eq!(first, 1);
+        assert!(all[last].top <= all[1].top + height);
+        assert!(all.last().unwrap().top + all.last().unwrap().height > all[1].top);
+        // Past the end it keeps the last row rather than nothing.
+        let (first, _) = visible_rows(&model, all.last().unwrap().top + 500., height);
+        assert_eq!(first, all.len() - 1);
+    }
+
+    #[test]
     fn the_picker_lists_categories_or_matches_and_names_emoji() {
         let (all, sections) = rows("", &[], &["🔥".into()], &[], columns(408.), |_| None);
         assert_eq!(all[0].heading, "Frequently Used");
@@ -720,13 +781,17 @@ mod tests {
         assert!(all.iter().all(|row| row.cells.row_count() <= columns(408.)));
         // The sidebar jumps to each heading; a section ends where the next begins.
         assert_eq!(sections.len(), 1 + emojis::Group::iter().count());
-        assert_eq!((sections[0].row, sections[0].end), (0, 2));
+        // A section starts at its heading's row, which is tighter than one of
+        // emoji, and ends where the next begins.
+        assert_eq!((sections[0].heading, sections[0].top), (0, 0.0));
+        assert!(all[0].height < all[1].height, "a heading's row is tighter");
         assert_eq!(sections[1].icon.name, "Smileys & emotion");
         for (section, next) in sections.iter().zip(&sections[1..]) {
-            assert!(!all[section.row as usize].heading.is_empty());
-            assert_eq!(section.end, next.row);
+            assert!(!all[section.heading as usize].heading.is_empty());
+            assert_eq!(section.end, next.top);
         }
-        assert_eq!(sections.last().unwrap().end as usize, all.len());
+        let last = all.last().unwrap();
+        assert_eq!(sections.last().unwrap().end, last.top + last.height);
         let (found, sections) = rows(":pizza", &[], &[], &[], columns(408.), |_| None);
         assert_eq!(found.len(), 1);
         assert!(sections.is_empty(), "matches have no sections");
