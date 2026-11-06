@@ -288,6 +288,9 @@ pub struct AuditLogPage {
     pub asking: Option<AuditQuery>,
     pub user: Option<String>,
     pub action: Option<u16>,
+    /// Shows only what was done to someone, by id: Mod View's Moderator
+    /// Action Log.
+    pub target: Option<String>,
     /// Who the fetched entries name as having done something, for the
     /// user filter, by id.
     pub actors: Vec<(String, AuditUser)>,
@@ -306,7 +309,7 @@ impl AuditLogPage {
     }
 
     /// Discord sent `log`, for `query`: the first page, or older entries.
-    pub(super) fn take(&mut self, query: &AuditQuery, log: AuditLog, known: &Known) {
+    pub(crate) fn take(&mut self, query: &AuditQuery, log: AuditLog, known: &Known) {
         self.asking = None;
         self.failed = false;
         self.older = log.entries.len() >= AUDIT_PAGE;
@@ -367,8 +370,19 @@ impl AuditLogPage {
         self.ask(None)
     }
 
+    /// What to ask Discord for to show what was done to `target`, from
+    /// the newest, as Mod View's Moderator Action Log does.
+    pub(crate) fn about(target: String) -> (Self, AuditQuery) {
+        let mut page = Self {
+            target: Some(target),
+            ..Self::default()
+        };
+        let query = page.ask(None).unwrap_or_default();
+        (page, query)
+    }
+
     /// What to ask Discord for to show older entries.
-    pub(super) fn more(&mut self) -> Option<AuditQuery> {
+    pub(crate) fn more(&mut self) -> Option<AuditQuery> {
         if self.fetching() || !self.older {
             return None;
         }
@@ -381,6 +395,7 @@ impl AuditLogPage {
             before,
             user: self.user.clone(),
             action: self.action,
+            target: self.target.clone(),
         };
         self.asking = Some(query.clone());
         Some(query)
@@ -388,7 +403,7 @@ impl AuditLogPage {
 
     /// Opens a row's lines, or closes them if they're open; one row's
     /// show at a time.
-    pub(super) fn toggle(&mut self, row: usize) {
+    pub(crate) fn toggle(&mut self, row: usize) {
         if self.open == Some(row) {
             self.open = None;
         } else if self.rows.get(row).is_some_and(|row| !row.lines.is_empty()) {
@@ -397,7 +412,7 @@ impl AuditLogPage {
     }
 
     /// Discord didn't send what was asked.
-    pub(super) fn refused(&mut self) {
+    pub(crate) fn refused(&mut self) {
         let Some(query) = self.asking.take() else {
             return;
         };
@@ -412,7 +427,7 @@ impl AuditLogPage {
 
 /// What the open server knows, for naming the channels, roles and emoji
 /// entries refer to.
-pub(super) struct Known<'a> {
+pub(crate) struct Known<'a> {
     pub app: &'a Application,
     pub server: &'a str,
 }

@@ -52,6 +52,7 @@ mod gifs;
 mod keybinds;
 mod menus;
 mod messages;
+mod mod_view;
 #[cfg(windows)]
 mod move_loop;
 mod name_style;
