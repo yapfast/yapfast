@@ -56,7 +56,7 @@ fn fill_rail_glyphs(window: &YapfastWindow, adapter: &Adapter) {
         let Some(section) = rail.row_data(index) else {
             continue;
         };
-        if section.clock {
+        if section.glyph != SectionGlyph::None {
             continue;
         }
         let icon = section.icon;
@@ -329,7 +329,7 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
             name: section.icon.name.clone(),
             icon: section.icon.clone(),
             // The sticker picker's clock, for the one heading both share.
-            clock: section.icon.name.as_str() == emoji::FREQUENTLY_USED,
+            glyph: emoji::section_glyph(section.icon.name.as_str()),
             top: (section.row as f32 - 0.5) * emoji::ROW_HEIGHT,
             end: (section.end as f32 - 0.5) * emoji::ROW_HEIGHT,
         })

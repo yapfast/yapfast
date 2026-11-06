@@ -268,7 +268,11 @@ impl Adapter {
                     picture: head.image.clone(),
                     ..Default::default()
                 },
-                clock: frequent,
+                glyph: if frequent {
+                    SectionGlyph::Clock
+                } else {
+                    SectionGlyph::None
+                },
                 top: start,
                 end: top,
             });

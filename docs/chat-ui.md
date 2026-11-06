@@ -183,7 +183,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   placeholder until the emoji's frames arrive, which decode at 48px times the
   screen's scale factor, up to 96px, off the thread that draws, so a grid of
   animated emoji scrolls as fast as one of stills. Every server's emoji show,
-  as Discord's picker shows them: the ones this account may not use where it
+  as Discord's picker shows them: the sections down its left jump to each of
+  them, a server's button drawing its icon as its heading draws it beside the
+  server's name, Frequently Used's a clock and Favorites' a star, and the ones
+  this account may not use where it
   is looking — another server's, or an animated one without Nitro — are
   greyed with a lock in their corner, and pressing one opens Discord's Nitro
   page. A start whose picture cache is empty fetches all of them into it in

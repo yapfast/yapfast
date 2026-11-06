@@ -18,13 +18,28 @@ use slint::{
     fontique_011::{fontique, shared_collection},
 };
 use yapfast_core::chat::EmojiSet;
-use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection};
+use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection, SectionGlyph};
 
 use crate::custom_emoji;
 
 /// The heading Frequently Used's section goes under, which both pickers draw a
 /// clock for rather than an emoji's picture.
 pub const FREQUENTLY_USED: &str = "Frequently Used";
+
+/// The heading Favorites' section goes under, which both pickers draw the icon
+/// set's star for.
+pub const FAVORITES: &str = "Favorites";
+
+/// What a section draws in place of a picture, from the icon set rather than the
+/// platform's emoji font: the sections without a server's icon are the two this
+/// device keeps.
+pub fn section_glyph(heading: &str) -> SectionGlyph {
+    match heading {
+        FREQUENTLY_USED => SectionGlyph::Clock,
+        FAVORITES => SectionGlyph::Star,
+        _ => SectionGlyph::None,
+    }
+}
 
 /// The family name Yapfast gives the bitmap emoji font it registers.
 const REGISTERED: &str = "Yapfast Color Emoji";
@@ -298,7 +313,7 @@ pub fn rows(
                 // A server's icon beside its name, once its picture has come;
                 // the picker fills it then (see `fill_row_icons`).
                 icon: icon.picture.clone(),
-                clock: icon.name.as_str() == FREQUENTLY_USED,
+                glyph: section_glyph(icon.name.as_str()),
             });
             sections.push(EmojiSection {
                 row: row as i32,
@@ -311,7 +326,7 @@ pub fn rows(
             rows.push(EmojiRow {
                 heading: SharedString::default(),
                 icon: Default::default(),
-                clock: false,
+                glyph: SectionGlyph::None,
                 cells: ModelRc::new(VecModel::from(
                     chunk
                         .iter()
@@ -332,7 +347,14 @@ pub fn rows(
     };
     // The emoji this device keeps, under a star, first.
     section(
-        Some((titled("⭐", "Favorites"), String::new())),
+        Some((
+            EmojiCell {
+                name: FAVORITES.into(),
+                usable: true,
+                ..Default::default()
+            },
+            String::new(),
+        )),
         favorites
             .iter()
             .filter(|key| {

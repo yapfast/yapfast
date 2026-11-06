@@ -16,15 +16,18 @@ export global EmojiFavorites {
     in property <int> revision;
     pure callback is-favorite(string, int) -> bool;
 }
+/// What a picker draws in place of a picture for a section that has none of
+/// its own: Frequently Used's clock and Favorites' star, the icon set's own, as
+/// Discord draws them.
+export enum SectionGlyph { none, clock, star }
 /// A heading, or up to a row's worth of emoji, in the emoji picker.
 export struct EmojiRow {
     heading: string, cells: [EmojiCell],
     /// The icon a heading draws before its name: a server's own, once its
     /// picture came, as the sticker picker's headings draw it.
     icon: image,
-    /// Frequently Used's clock, drawn in place of a picture, as the sticker
-    /// picker draws it too.
-    clock: bool,
+    /// What it draws in place of a picture, as the rail's button draws it too.
+    glyph: SectionGlyph,
 }
 /// A place the emoji picker's sidebar jumps to: the row of its heading, and the
 /// row after its last. Its icon is named by the heading.
@@ -78,8 +81,8 @@ export component EmojiFace inherits Rectangle {
 export struct RailSection {
     name: string,
     icon: EmojiCell,
-    /// Frequently Used's clock, drawn in place of a picture.
-    clock: bool,
+    /// What the button draws in place of a picture, as the heading does.
+    glyph: SectionGlyph,
     top: length,
     end: length,
 }
@@ -110,12 +113,13 @@ export component PickerRail inherits Rectangle {
                 accessible-label: section.name;
                 accessible-item-selected: root.scrolled >= section.top - 1px && root.scrolled < section.end - 1px;
                 accessible-action-default => { root.jump(section.top); }
-                if section.clock: Image {
+                if section.glyph != SectionGlyph.none: Image {
                     x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
                     width: 32px; height: 32px;
-                    source: @image-url("icons/clock.svg"); colorize: Theme.secondary;
+                    source: section.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
+                    colorize: section.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232;
                 }
-                if !section.clock: EmojiFace {
+                if section.glyph == SectionGlyph.none: EmojiFace {
                     emoji: section.icon; font: root.font; side: 32px;
                     width: 36px; height: 36px;
                 }
@@ -1176,11 +1180,12 @@ export component EmojiPicker inherits Rectangle {
                             height: root.row-height; padding-left: 8px; padding-right: 8px;
                             if row.heading != "": HorizontalLayout {
                                 padding-left: 4px; padding-bottom: 4px; spacing: 6px; alignment: start;
-                                if row.clock: Image {
+                                if row.glyph != SectionGlyph.none: Image {
                                     width: 16px; height: 16px;
-                                    source: @image-url("icons/clock.svg"); colorize: Theme.secondary;
+                                    source: row.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
+                                    colorize: row.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232;
                                 }
-                                if !row.clock && row.icon.width > 0: Image {
+                                if row.glyph == SectionGlyph.none && row.icon.width > 0: Image {
                                     width: 16px; height: 16px; image-fit: contain; source: row.icon;
                                 }
                                 Text { text: row.heading; color: Theme.secondary; font-size: 13px; font-weight: 700; vertical-alignment: center; }

@@ -1313,16 +1313,16 @@ fn the_sticker_picker_lists_the_servers_stickers_above_the_packs() {
     // The rail lists the same sections the emoji picker's does, with no line
     // between them.
     let sections = window.get_sticker_sections();
-    let shown: Vec<(String, bool)> = (0..sections.row_count())
+    let shown: Vec<(String, SectionGlyph)> = (0..sections.row_count())
         .filter_map(|row| sections.row_data(row))
-        .map(|section| (section.name.to_string(), section.clock))
+        .map(|section| (section.name.to_string(), section.glyph))
         .collect();
     assert_eq!(
         shown,
         [
-            ("Frequently Used".to_string(), true),
-            ("Server".to_string(), false),
-            ("Wumpus".to_string(), false),
+            ("Frequently Used".to_string(), SectionGlyph::Clock),
+            ("Server".to_string(), SectionGlyph::None),
+            ("Wumpus".to_string(), SectionGlyph::None),
         ],
         "Frequently Used carries the clock, as the emoji picker's does"
     );
