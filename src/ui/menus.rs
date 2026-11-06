@@ -298,7 +298,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::Mute => ("Mute", &icons.mute),
         MenuChoice::Unmute => ("Unmute", &icons.unmute),
         MenuChoice::CopyLink => ("Copy link", &icons.copy),
-        MenuChoice::CopyId => ("Copy ID", &icons.text),
+        MenuChoice::CopyId => ("Copy ID", &icons.text.plain),
         MenuChoice::Mention => ("Mention", &icons.mention),
         MenuChoice::ServerNickname => ("Change nickname", &icons.rename),
         MenuChoice::Roles => ("Roles", &icons.roles),
