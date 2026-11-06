@@ -1794,6 +1794,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Block",
             "Change nickname",
             "Roles",
+            "Open in Mod View",
             "Time out Dave",
             "Kick Dave",
             "Ban Dave",
@@ -1811,7 +1812,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
         [
             "Remove friend",
             "Change nickname",
-            "Time out Dave",
+            "Open in Mod View",
             "Copy ID"
         ]
     );
@@ -1920,6 +1921,109 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     assert_eq!(marks[0].0, 0..5);
     window.invoke_draft_edited("@Carab".into());
     assert_eq!(i_slint_core::yapfast_marks::marks_of("@Carab"), None);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn mod_view_opens_from_a_members_menu_beside_the_channel() {
+    use slint::Model;
+    use yapfast_core::chat::{JoinMethod, ListedMember, ModViewPart, RoleMember};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Alice is Staff; Dave, below her, holds Crew.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    window.invoke_prepare_menu("4".into(), true);
+    window.invoke_choose_menu("4".into(), true, "mod-view".into());
+    assert!(window.get_mod_view_open());
+    let view = window.get_mod_view();
+    assert_eq!(view.name, "Dave");
+    assert_eq!(view.panel, 0);
+    assert!(view.may_kick && view.may_ban && view.may_timeout && !view.me);
+    assert_eq!(
+        (view.messages.as_str(), view.join_method.as_str()),
+        ("...", "...")
+    );
+    let roles: Vec<(String, bool)> = view
+        .roles
+        .iter()
+        .map(|role| (role.text.to_string(), role.removable))
+        .collect();
+    assert_eq!(roles, [("Crew".to_owned(), true)]);
+    assert_eq!(view.mod_permissions.row_count(), 0);
+
+    // Discord's answers fill it in.
+    let now = yapfast_core::clock::now_ms();
+    {
+        let mut adapter = adapter.borrow_mut();
+        for part in [
+            ModViewPart::Activity(Ok([40, 2, 0])),
+            ModViewPart::Member(Ok(Some(ListedMember {
+                person: RoleMember {
+                    id: "4".into(),
+                    name: "Dave".into(),
+                    username: Some("dave".into()),
+                    avatar: String::new(),
+                },
+                roles: vec!["20".into()],
+                joined: now - 3 * 86_400_000,
+                timed_out_until: 0,
+                unusual_dms: false,
+                spammer: false,
+                quarantined: false,
+                joined_by: JoinMethod::Invite("abc".into()),
+                inviter: None,
+                bot: false,
+            }))),
+        ] {
+            adapter.app.apply(Event::ModViewLoaded {
+                server: "discord:10".into(),
+                user: "4".into(),
+                part,
+            });
+        }
+        adapter.refresh(&window);
+    }
+    let view = window.get_mod_view();
+    assert_eq!(
+        (
+            view.messages.as_str(),
+            view.links.as_str(),
+            view.media.as_str()
+        ),
+        ("40", "2", "0")
+    );
+    assert!(view.messages_open && view.links_open);
+    assert_eq!(view.join_method, "abc");
+    assert_eq!(view.joined_ago, "3 days ago");
+    // Without View Audit Log, as Discord's does.
+    assert_eq!(view.audit, "This is Awkward");
+
+    // All Granted Permissions lists what @everyone gives him.
+    window.invoke_mod_view_act(2, "".into(), 1);
+    let view = window.get_mod_view();
+    assert_eq!(view.panel, 1);
+    let first = view.permissions.row_data(0).unwrap();
+    assert_eq!(first.title, "View Channels");
+    assert_eq!(first.roles.row_data(0).unwrap(), "@everyone");
+    window.invoke_mod_view_act(2, "".into(), 0);
+
+    // Kick opens its dialog.
+    window.invoke_mod_view_act(4, "".into(), 0);
+    assert!(window.get_person_open());
+    assert_eq!(window.get_person_prompt().title, "Kick Dave?");
+    window.invoke_close_person();
+
+    // Close.
+    window.invoke_mod_view_act(0, "".into(), 0);
+    assert!(!window.get_mod_view_open());
 }
 
 #[test]
@@ -5841,6 +5945,7 @@ fn members_and_invites_list_as_discords_pages_do() {
         spammer: false,
         quarantined: false,
         joined_by,
+        inviter: None,
         bot: false,
     };
     let mut mod_ = member(

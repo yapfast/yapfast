@@ -48,6 +48,7 @@ mod games;
 mod gifs;
 mod menus;
 mod messages;
+mod mod_view;
 #[cfg(windows)]
 mod move_loop;
 mod name_style;

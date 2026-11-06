@@ -999,7 +999,7 @@ fn role_chip(held: &[String], roles: &[ServerRole]) -> (SharedString, slint::Col
 
 /// How long ago, as Discord's Members words it: `account` for Joined
 /// Discord, which counts in days at least.
-fn ago(seconds: u64, account: bool) -> String {
+pub(super) fn ago(seconds: u64, account: bool) -> String {
     let plural = |count: u64, one: &str, other: &str| {
         format!("{count} {} ago", if count == 1 { one } else { other })
     };
@@ -1034,7 +1034,7 @@ fn time_left(seconds: u64) -> String {
 
 /// How a member joined, as Members' Join Method names it, and whether
 /// Discord doesn't say.
-fn join_method(joined: &JoinMethod) -> (String, bool) {
+pub(super) fn join_method(joined: &JoinMethod) -> (String, bool) {
     let label = match joined {
         JoinMethod::Unknown => return ("Unknown".to_owned(), true),
         JoinMethod::Bot => "Bot Invite".to_owned(),
@@ -1444,7 +1444,7 @@ fn audit_text(words: &AuditWords, twelve_hour: bool, now: u64) -> slint::StyledT
 }
 
 /// Audit Log's rows, the open one's lines, and its filters.
-fn audit_log_prompt(page: &AuditLogPage, twelve_hour: bool) -> AuditLogPrompt {
+pub(super) fn audit_log_prompt(page: &AuditLogPage, twelve_hour: bool) -> AuditLogPrompt {
     let now = clock::now_ms() / 1000;
     let when = |seconds: u64| clock::calendar(seconds, now, twelve_hour);
     // Each moderator's avatar and initial, shared by their rows.

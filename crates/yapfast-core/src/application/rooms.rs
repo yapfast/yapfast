@@ -55,6 +55,8 @@ pub enum MenuChoice {
     ServerNickname,
     /// Give them roles or take them away, in a submenu of the server's.
     Roles,
+    /// Open Mod View on them, beside the channel.
+    ModView,
     Timeout,
     RemoveTimeout,
     Kick,
@@ -853,6 +855,7 @@ impl Application {
         if self.state.search.is_some() && self.state.search_shown().is_none() {
             self.state.search = None;
         }
+        self.keep_mod_view(&id);
         self.state.add_people = None;
         self.state.topic = None;
         self.searched.clear();
