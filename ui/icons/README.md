@@ -29,9 +29,11 @@ glyphs such as check, x and chevrons.
 - Drawn for Yapfast in Solar's manner: gif, hash, mic and mic-off, the
   signal-high, signal-medium and signal-low bars, soundboard (the speaker of
   volume-2 with two sparkles), thread (a spool of thread,
-  as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
-  the speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
-  id-filled, music, plus, trophy, tv and verified.
+  as Discord marks threads), user-minus, user-pen, user-plus and user-x, the
+  speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
+  id-filled, music, plus, trophy, tv and verified; and noise-bars and
+  noise-bars-off (five rounded bars of a sound, and the same with a slash and
+  a gap cut around it), the call panel's noise suppression toggle.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
 LICENSE (ISC): calendar, check, chevron-down, chevron-left, chevron-right,

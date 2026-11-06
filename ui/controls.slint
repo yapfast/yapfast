@@ -1226,43 +1226,6 @@ export component ContextMenu inherits Rectangle {
     }
 }
 
-// The menu behind a toggle's caret: its devices, anything placed inside, then
-// a way into the full settings.
-export component DeviceMenu inherits Rectangle {
-    in property <string> heading;
-    in property <[string]> devices;
-    in property <int> current;
-    in property <string> empty;
-    callback select(int);
-    callback settings;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
-    VerticalLayout {
-        padding: 6px; spacing: 6px;
-        HorizontalLayout {
-            padding-left: 8px; padding-top: 4px;
-            Text { text: root.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if root.devices.length > 0: ScrollView {
-            // Five devices before the list scrolls.
-            height: min(5, root.devices.length) * 32px;
-            VerticalLayout {
-                for device[index] in root.devices: MenuItem {
-                    text: device; checked: index == root.current;
-                    clicked => { root.select(index); }
-                }
-            }
-        }
-        if root.devices.length == 0: HorizontalLayout {
-            padding-left: 8px; padding-right: 8px;
-            Label { text: root.empty; }
-        }
-        @children
-        Rectangle { height: 1px; background: Theme.line; }
-        MenuItem { text: "Voice settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
-    }
-}
-
 // How loud something sounds, from 0% to `maximum`: a marigold fill up to the
 // value. Above 100%, as Discord allows for people, a mark shows 100%, and a
 // drag snaps to it nearby. Dragging reports each step through `changed` and the
@@ -1345,6 +1308,65 @@ export component VolumeSlider inherits Rectangle {
             if event.text == Key.RightArrow || event.text == Key.UpArrow { root.move(root.step); return accept; }
             return reject;
         }
+    }
+}
+
+// The menu behind a device toggle's caret, as Vesktop's: the device chosen,
+// which opens the list of them in place, how loud it is, anything placed
+// inside, then a way into the voice settings.
+export component QuickDeviceMenu inherits Rectangle {
+    /// "Output" or "Input".
+    in property <string> kind;
+    in property <[string]> devices;
+    in property <int> current;
+    in property <string> empty;
+    in-out property <int> volume: 100;
+    callback select(int);
+    callback settings;
+    callback volume-changed(int);
+    callback volume-committed(int);
+    property <bool> listing;
+    // Five devices before the list scrolls.
+    property <length> list-height: root.listing ? min(5, max(1, root.devices.length)) * 32px + 4px : 0px;
+    animate list-height { duration: 180ms; easing: ease-out; }
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    VerticalLayout {
+        padding: 6px; spacing: 4px;
+        MenuItem {
+            text: root.kind + " Device"; submenu: true;
+            subtitle: root.devices.length == 0 ? "None found"
+                : root.current >= 0 && root.current < root.devices.length ? root.devices[root.current] : "System default";
+            clicked => { root.listing = !root.listing; }
+        }
+        Rectangle {
+            height: root.list-height; clip: true;
+            if root.devices.length > 0: ScrollView {
+                height: min(5, root.devices.length) * 32px;
+                VerticalLayout {
+                    for device[index] in root.devices: MenuItem {
+                        text: device; checked: index == root.current;
+                        clicked => { root.select(index); root.listing = false; }
+                    }
+                }
+            }
+            if root.devices.length == 0: HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Label { text: root.empty; }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        HorizontalLayout {
+            padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px;
+            VolumeSlider {
+                label: root.kind + " Volume"; value <=> root.volume;
+                changed(value) => { root.volume-changed(value); }
+                committed(value) => { root.volume-committed(value); }
+            }
+        }
+        @children
+        Rectangle { height: 1px; background: Theme.line; }
+        MenuItem { text: "Voice Settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
     }
 }
 
