@@ -1396,7 +1396,7 @@ export component DiscordSettings inherits VerticalLayout {
         }
         Rectangle { horizontal-stretch: 1; }
     }
-    if root.adding-account: VerticalLayout {
+    if root.adding-account && root.link-phase != 0: VerticalLayout {
         spacing: 8px;
         DiscordLinkPanel {
             phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
