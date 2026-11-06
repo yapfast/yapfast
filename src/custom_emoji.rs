@@ -200,7 +200,7 @@ fn square_png(picture: &Picture) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slint::fontique_011::fontique;
+    use slint::fontique_012::fontique;
     use std::sync::Arc;
 
     #[test]

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-skia-bindings = { version = "=0.153.3", default-features = false, features = ["binary-cache", "ganesh", "gl", "d3d", "jpeg-decode", "jpeg-encode", "pdf"] }
+skia-bindings = { version = "=0.157.0", default-features = false, features = ["binary-cache", "ganesh", "gl", "d3d", "jpeg-decode", "jpeg-encode", "pdf"] }
