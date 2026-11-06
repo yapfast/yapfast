@@ -1,7 +1,8 @@
 //! A colour bitmap font, built when Yapfast runs for Discord's custom emoji and
 //! when it's built for Twemoji's: each emoji is a PNG in a CBDT table, the format
 //! of the Noto Color Emoji build Yapfast already draws, at a Private Use Area code
-//! point. The font's vertical metrics are the UI typeface's, Atkinson Hyperlegible
+//! point. For the Mac the same PNGs go in an sbix table too, since CoreText, which
+//! Skia loads fonts with there, reads Apple's bitmap table and not CBDT. The font's vertical metrics are the UI typeface's, Atkinson Hyperlegible
 //! Next's, so a line with an emoji keeps its baseline. `build.rs` builds this file
 //! too, so it names nothing of the program's.
 
@@ -69,19 +70,20 @@ pub const TWEMOJI_LAST: u32 = 0x10_FFFD;
 /// keeps it as typed, such as the composer's, draws its picture too. Glyph 0 is
 /// the empty `.notdef`.
 pub fn build(family: &str, glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) -> Vec<u8> {
-    build_strike(&STRIKE, family, glyphs, also)
+    build_strike(&STRIKE, family, glyphs, also, cfg!(target_os = "macos"))
 }
 
-/// [`build`], of pictures of another size.
+/// [`build`], of pictures of another size, with an sbix table when it's `for_mac`.
 pub fn build_strike(
     strike: &Strike,
     family: &str,
     glyphs: &[(char, Vec<u8>)],
     also: &[(u32, char)],
+    for_mac: bool,
 ) -> Vec<u8> {
     let count = u16::try_from(glyphs.len() + 1).expect("fewer than 65535 glyphs");
     let advance = units(i32::from(strike.advance), strike);
-    let tables: [([u8; 4], Vec<u8>); 10] = [
+    let mut tables = vec![
         (*b"CBDT", cbdt(strike, glyphs)),
         (*b"CBLC", cblc(strike, glyphs)),
         (*b"OS/2", os2(advance, glyphs)),
@@ -93,6 +95,24 @@ pub fn build_strike(
         (*b"name", name(family)),
         (*b"post", post()),
     ];
+    // CoreText takes a TrueType font only with outlines, and draws a glyph only
+    // in its outline's box, so the Mac's has an empty outline the size of each
+    // bitmap under it, and the maxp of a font with outlines.
+    if for_mac {
+        let (glyf, loca) = boxes(strike, glyphs);
+        tables.retain(|(tag, _)| tag != b"maxp");
+        // head's indexToLocFormat: Twemoji's outlines outgrow short offsets.
+        if let Some((_, head)) = tables.iter_mut().find(|(tag, _)| tag == b"head") {
+            head[50..52].copy_from_slice(&1u16.to_be_bytes());
+        }
+        tables.extend([
+            (*b"glyf", glyf),
+            (*b"loca", loca),
+            (*b"maxp", maxp_outlines(count)),
+            (*b"sbix", sbix(strike, glyphs)),
+        ]);
+        tables.sort_by_key(|(tag, _)| *tag);
+    }
     assemble(&tables)
 }
 
@@ -166,6 +186,36 @@ fn cbdt(strike: &Strike, glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
         put8(&mut out, strike.bearing_y as u8);
         put8(&mut out, strike.advance);
         put32(&mut out, png.len() as u32);
+        out.extend_from_slice(png);
+    }
+    out
+}
+
+/// The same bitmaps for CoreText: one strike of each glyph's PNG. Glyph 0,
+/// `.notdef`, has none.
+fn sbix(strike: &Strike, glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    put16(&mut out, 1);
+    // Draw the bitmaps, which have no outlines under them.
+    put16(&mut out, 1);
+    put32(&mut out, 1);
+    put32(&mut out, 12);
+    // The strike: its size, then where each glyph's data starts, from its start.
+    put16(&mut out, u16::from(strike.ppem));
+    put16(&mut out, 72);
+    let mut offset = 4 + 4 * (glyphs.len() as u32 + 2);
+    put32(&mut out, offset);
+    put32(&mut out, offset);
+    for (_, png) in glyphs {
+        offset += 8 + png.len() as u32;
+        put32(&mut out, offset);
+    }
+    // CoreText puts a bitmap at its outline's box, which `boxes` makes where
+    // CBDT's metrics put it, so it needs no offset of its own.
+    for (_, png) in glyphs {
+        put16(&mut out, 0);
+        put16(&mut out, 0);
+        out.extend_from_slice(b"png ");
         out.extend_from_slice(png);
     }
     out
@@ -363,6 +413,51 @@ fn hmtx(strike: &Strike, advance: i16, count: u16) -> Vec<u8> {
 }
 
 /// Version 0.5: the glyph count alone, for a font without outlines.
+/// glyf and long loca for glyphs that are each a rectangle the size and place
+/// of the bitmap, which is where CoreText bounds it; `.notdef` has none.
+fn boxes(strike: &Strike, glyphs: &[(char, Vec<u8>)]) -> (Vec<u8>, Vec<u8>) {
+    let left = units(i32::from(strike.bearing_x), strike);
+    let top = units(i32::from(strike.bearing_y), strike);
+    let right = units(i32::from(strike.bearing_x) + i32::from(strike.side), strike);
+    let bottom = units(i32::from(strike.bearing_y) - i32::from(strike.side), strike);
+    // One contour of four points on the curve, going round from the bottom
+    // left, each coordinate a 16-bit step from the one before.
+    let mut rectangle = Vec::new();
+    for value in [1, left, bottom, right, top] {
+        put16(&mut rectangle, value as u16);
+    }
+    put16(&mut rectangle, 3);
+    put16(&mut rectangle, 0);
+    rectangle.extend_from_slice(&[1; 4]);
+    for step in [left, 0, right - left, 0] {
+        put16(&mut rectangle, step as u16);
+    }
+    for step in [bottom, top - bottom, 0, bottom - top] {
+        put16(&mut rectangle, step as u16);
+    }
+    let mut glyf = Vec::new();
+    let mut loca = Vec::new();
+    put32(&mut loca, 0);
+    put32(&mut loca, 0);
+    for _ in glyphs {
+        glyf.extend_from_slice(&rectangle);
+        put32(&mut loca, glyf.len() as u32);
+    }
+    (glyf, loca)
+}
+
+/// maxp for a font with outlines: version 1.0, with [`boxes`]' four points
+/// and one contour, no instructions, and the two zones every TrueType font has.
+fn maxp_outlines(count: u16) -> Vec<u8> {
+    let mut out = Vec::new();
+    put32(&mut out, 0x0001_0000);
+    put16(&mut out, count);
+    for value in [4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0] {
+        put16(&mut out, value);
+    }
+    out
+}
+
 fn maxp(count: u16) -> Vec<u8> {
     let mut out = Vec::new();
     put32(&mut out, 0x0000_5000);
@@ -516,6 +611,7 @@ mod tests {
     /// Fedora installs only the COLRv1 build of Noto Color Emoji. Skia draws
     /// COLRv1 through FreeType, and the prebuilt Skia made for the system's
     /// FreeType drew nothing; Linux uses the one with Skia's own FreeType.
+    #[cfg_attr(target_os = "macos", ignore = "CoreText doesn't paint COLRv1")]
     #[test]
     fn skia_draws_colrv1_glyphs_in_colour() {
         use skia_safe::{Color, Data, Font, FontMgr, Paint, Point, image::CachingHint, surfaces};

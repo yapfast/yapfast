@@ -89,6 +89,7 @@ fn pack_twemoji() {
         "Yapfast Twemoji",
         &glyphs,
         &also,
+        env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos"),
     );
     // An entry is where its name starts, u32, and how long it is, u16, then where
     // its picture starts and how long it is, u32 each.
