@@ -185,10 +185,13 @@ impl Chat {
     /// Connects when this device has a linked account; without one, there's
     /// nothing to start.
     pub(crate) fn start() -> anyhow::Result<Option<Self>> {
-        let token = match yapfast_discord::token::load() {
-            Ok(token) => token,
-            Err(error) if error.is::<yapfast_discord::token::NotLinked>() => return Ok(None),
-            Err(error) => return Err(error),
+        let token = match yapfast_discord::accounts::active()? {
+            Some(id) => yapfast_discord::accounts::token(&id)?,
+            None => match yapfast_discord::token::load() {
+                Ok(token) => token,
+                Err(error) if error.is::<yapfast_discord::token::NotLinked>() => return Ok(None),
+                Err(error) => return Err(error),
+            },
         };
         let discord = Discord::start(token)?;
         let (done, finished) = tokio::sync::mpsc::unbounded_channel();
