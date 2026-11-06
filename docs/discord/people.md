@@ -573,12 +573,10 @@ palettes are made once, and the rows wearing it share them; a row without a
 style holds an empty list.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
-  Modern 6, 8Bit 8, Tempo 12, Monkey Bars 13, Mainframe 14, Headbang 15 and
-  Journal 16, bundled in `ui/fonts` (see [its
+  Modern 6, Medieval 7, 8Bit 8, Vampyre 10, Tempo 12, Monkey Bars 13,
+  Mainframe 14, Headbang 15 and Journal 16, bundled in `ui/fonts` (see [its
   README](../../ui/fonts/README.md) for where each came from and its
-  licence). Medieval 7 and Vampyre 10 aren't bundled, since their licence
-  isn't confirmed, so those names show in the usual font; so does a name
-  in a script the font lacks.
+  licence). A name in a script the font lacks shows in the usual font.
 - **Effects**, by `effect_id`: solid 1, gradient 2 (the colours across the
   name from 10% to 90%), neon 3 (white letters edged in a lighter shade of
   the colour, with a halo), toon 4 (light bands edged in the dark shade),
@@ -688,8 +686,7 @@ Toon, Pop, Gummy or Prism) and its colours, from Discord's presets or one's
 own, with the name on a profile card, a message and a member row, in light or
 dark, and Surprise Me. The window draws each name as names are drawn
 everywhere else (`NameStyles` in `ui/controls.slint`, `name_style::row`), and
-offers the fonts bundled in `ui/fonts`; Medieval and Vampyre aren't among
-them, so it doesn't offer those. The usual font in
+offers Discord's eleven fonts, bundled in `ui/fonts`. The usual font in
 Discord's usual white is no style at all. The server tag's chip beside the
 pronouns lists the servers this account is in that offer a tag, from their
 `profile` in READY, searchable, and No Server Tag.
