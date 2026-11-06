@@ -313,10 +313,19 @@ impl Capture {
                     counting.hold(waiting);
                     if heard {
                         match encoder.encode_float(&frame, &mut opus) {
-                            Ok(size) => sound.send(Sound {
-                                opus: opus[..size].to_vec(),
-                                timestamp,
-                            }),
+                            Ok(size) => {
+                                // The frame goes into a buffer the connection
+                                // hands back once it's on the wire: the mixer
+                                // runs every 20 ms, and copying a frame into a
+                                // buffer it keeps is cheaper here than
+                                // allocating one for each of them.
+                                let mut bytes = sound.buffer();
+                                bytes.extend_from_slice(&opus[..size]);
+                                sound.send(Sound {
+                                    opus: bytes,
+                                    timestamp,
+                                });
+                            }
                             Err(error) => {
                                 tracing::warn!(%error, "could not encode the stream's sound")
                             }

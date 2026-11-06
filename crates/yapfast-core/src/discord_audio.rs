@@ -40,6 +40,10 @@ pub struct Hearing {
     deafened: AtomicBool,
     heard: Mutex<HashMap<u64, Instant>>,
     sounds: Mutex<Vec<Playing>>,
+    /// The buffer a voice's id is written into for its volume, held between
+    /// mixes: the mix runs every 20 ms, and a name formatted afresh each time
+    /// would allocate for a key that hasn't changed.
+    name: Mutex<String>,
     ended: UnboundedSender<String>,
 }
 
@@ -61,6 +65,7 @@ impl Hearing {
             deafened: AtomicBool::new(false),
             heard: Mutex::default(),
             sounds: Mutex::default(),
+            name: Mutex::default(),
             ended,
         }
     }
@@ -121,8 +126,13 @@ impl Listener for Hearing {
         let Some(output) = output.as_ref() else {
             return;
         };
-        let volume =
-            |user: u64| crate::volume::heard(crate::volume::Kind::Voice, &user.to_string());
+        let mut name = self.name.lock().unwrap();
+        let volume = |user: u64| {
+            use std::fmt::Write as _;
+            name.clear();
+            let _ = write!(name, "{user}");
+            crate::volume::heard(crate::volume::Kind::Voice, &name)
+        };
         let mut frame = spare_frame();
         let mut sounds = self.sounds.lock().unwrap();
         mix(
@@ -177,7 +187,7 @@ fn recycle(frame: Vec<i16>) {
 /// the `speakers'`, clipping at full scale. Sounds that ended go.
 fn mix(
     voices: &[(u64, &[i16])],
-    volume: impl Fn(u64) -> f32,
+    mut volume: impl FnMut(u64) -> f32,
     sounds: &mut Vec<Playing>,
     speakers: f32,
     out: &mut [i16],

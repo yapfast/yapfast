@@ -38,6 +38,9 @@ const SENDER_REPORTS: Duration = Duration::from_secs(1);
 const LOG_EVERY: Duration = Duration::from_secs(5);
 /// The most packets resent for one NACK, which can name hundreds.
 const RESENDS: usize = 128;
+/// The most buffers the stream's sound is queued in, as many as the queue
+/// holds.
+const SOUND_BUFFERS: usize = 8;
 /// The most video SSRCs a watched stream puts frames together for.
 const MAX_SSRCS: usize = 4;
 /// A frame's packets past the first `BURST` go out `PACE` every `STEP`,
@@ -262,14 +265,47 @@ pub struct Sound {
     pub timestamp: u32,
 }
 
+/// The buffers the stream's sound is queued in: the mixer writes a frame into
+/// one and the connection gives it back once the frame is on the wire, so a
+/// stream sending 50 frames a second allocates for none of them. A queue that
+/// backs up takes a buffer of its own rather than wait for one.
+#[derive(Default)]
+pub struct SoundBuffers(Mutex<Vec<Vec<u8>>>);
+
+impl SoundBuffers {
+    /// A buffer to write a frame into: one that came back, or a new one when
+    /// every frame still waits to go out.
+    pub fn take(&self) -> Vec<u8> {
+        lock(&self.0).pop().unwrap_or_default()
+    }
+    /// Takes back the buffer of a frame that went out.
+    fn give(&self, mut buffer: Vec<u8>) {
+        // As many as the queue holds: more would be memory kept for a
+        // connection that can't keep up with the mixer.
+        let mut idle = lock(&self.0);
+        if idle.len() < SOUND_BUFFERS {
+            buffer.clear();
+            idle.push(buffer);
+        }
+    }
+}
+
 /// Queues the stream's sound, from a thread of the sender's own.
 #[derive(Clone)]
-pub struct SoundSender(mpsc::Sender<Sound>);
+pub struct SoundSender {
+    sounds: mpsc::Sender<Sound>,
+    buffers: Arc<SoundBuffers>,
+}
 
 impl SoundSender {
+    /// A buffer to write a frame of sound into, which comes back here once the
+    /// frame is sent.
+    pub fn buffer(&self) -> Vec<u8> {
+        self.buffers.take()
+    }
     /// Queues a frame of sound, dropping it if the network can't keep up.
     pub fn send(&self, sound: Sound) {
-        let _ = self.0.try_send(sound);
+        let _ = self.sounds.try_send(sound);
     }
 }
 
@@ -500,6 +536,7 @@ fn ids(server: &StreamServer) -> Result<(u64, u64, u64)> {
 pub struct StreamSender {
     frames: mpsc::Sender<Frame>,
     sounds: mpsc::Sender<Sound>,
+    buffers: Arc<SoundBuffers>,
     shared: Arc<Shared>,
 }
 
@@ -521,21 +558,36 @@ impl StreamSender {
         let (frames, receiver) = mpsc::channel(4);
         // 160 ms of sound.
         let (sounds, heard) = mpsc::channel(8);
+        let buffers = Arc::new(SoundBuffers::default());
+        let sending = buffers.clone();
         spawn("yapfast-stream-send", shared.clone(), move |shared| {
-            Box::pin(
-                async move { send(&server, user, channel, fps, &shared, receiver, heard).await },
-            )
+            Box::pin(async move {
+                send(
+                    &server,
+                    user,
+                    channel,
+                    fps,
+                    &shared,
+                    receiver,
+                    (heard, sending),
+                )
+                .await
+            })
         })?;
         Ok(Self {
             frames,
             sounds,
+            buffers,
             shared,
         })
     }
 
     /// Where the stream's sound goes.
     pub fn sound(&self) -> SoundSender {
-        SoundSender(self.sounds.clone())
+        SoundSender {
+            sounds: self.sounds.clone(),
+            buffers: self.buffers.clone(),
+        }
     }
 
     /// Queues a frame. A full queue drops it and asks for a keyframe, so
@@ -829,7 +881,7 @@ async fn send(
     fps: u32,
     shared: &Shared,
     mut frames: mpsc::Receiver<Frame>,
-    mut sounds: mpsc::Receiver<Sound>,
+    (mut sounds, buffers): (mpsc::Receiver<Sound>, Arc<SoundBuffers>),
 ) -> Result<()> {
     let mut connection = open(server, user, channel, Role::Send, shared).await?;
     let (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
@@ -895,14 +947,26 @@ async fn send(
                 let Some(payload) = connection.dave.encrypt_opus(&sound.opus) else {
                     continue;
                 };
-                let mut packet =
-                    rtp::opus_packet(ssrc, sound_sequence, sound.timestamp, sound_packets == 0, &payload);
+                // The frame is written into the buffer the video packets go
+                // out in too: sound and picture take turns here, and the
+                // buffer keeps its room for both.
+                rtp::write_audio_into(
+                    &mut out,
+                    ssrc,
+                    sound_sequence,
+                    sound.timestamp,
+                    sound_packets == 0,
+                    &payload,
+                );
                 sound_sequence = sound_sequence.wrapping_add(1);
                 sound_packets = sound_packets.wrapping_add(1);
                 sound_octets = sound_octets.wrapping_add(payload.len() as u32);
-                let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
-                connection.transport.seal(&mut packet, clear)?;
-                connection.udp.send(&packet).await?;
+                let clear = rtp::rtp_clear_len(&out).unwrap_or(out.len());
+                connection.transport.seal(&mut out, clear)?;
+                connection.udp.send(&out).await?;
+                // The frame's own bytes are spent: the buffer goes back to the
+                // mixer for the frame after it.
+                buffers.give(sound.opus);
                 sent.sounds += 1;
                 if sound_reported.elapsed() >= SENDER_REPORTS {
                     sound_reported = Instant::now();
@@ -1007,7 +1071,7 @@ async fn send(
                 }
             }
             received = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..received?];
+                let packet = &mut datagram[..received?];
                 if !rtp::is_rtcp(packet) {
                     sent.rtp_back += 1;
                     continue;
@@ -1016,7 +1080,7 @@ async fn send(
                     sent.unopened += 1;
                     continue;
                 };
-                for (kind, said) in rtp::rtcp_kinds(&rtcp) {
+                for (kind, said) in rtp::rtcp_kinds(rtcp) {
                     *sent.rtcp.entry(kind.clone()).or_default() += 1;
                     if !said.is_empty() {
                         sent.said.insert(kind, said);
@@ -1025,7 +1089,7 @@ async fn send(
                 // One clock read for what this report says, and what it means
                 // is always how long ago it said it.
                 let now = std::time::Instant::now();
-                if rtp::wants_keyframe(&rtcp) {
+                if rtp::wants_keyframe(rtcp) {
                     sent.requests += 1;
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
                     if keyframe_due(answered, now) {
@@ -1033,10 +1097,10 @@ async fn send(
                         shared.keyframe.store(true, Ordering::Relaxed);
                     }
                 }
-                if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video) {
+                if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video) {
                     *lock(&shared.estimate) = Some((estimate, now));
                 }
-                for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
+                for lost in rtp::nacked(rtcp, video).into_iter().take(RESENDS) {
                     let Some(mut again) = history.get(lost, now).and_then(|original| packetizer.retransmit(original, rtx)) else {
                         sent.too_late += 1;
                         continue;
@@ -1383,12 +1447,12 @@ async fn receive_stream(
                 flowing = received.decoded;
             }
             length = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..length?];
+                let packet = &mut datagram[..length?];
                 received.packets += 1;
                 if rtp::is_rtcp(packet) {
                     received.rtcp += 1;
                     let rtcp = connection.transport.open(packet, rtp::RTCP_CLEAR).unwrap_or_default();
-                    for (sender, ntp, rtp) in rtp::sender_reports(&rtcp) {
+                    for (sender, ntp, rtp) in rtp::sender_reports(rtcp) {
                         let heard = std::time::Instant::now();
                         let report = SenderReport { ntp, rtp, heard };
                         if Some(sender) == streamer.audio {
@@ -1416,7 +1480,7 @@ async fn receive_stream(
                     received.unopened += 1;
                     continue;
                 };
-                let Some(packet) = rtp::parse(&plain) else {
+                let Some(packet) = rtp::parse(plain) else {
                     received.unparsed += 1;
                     continue;
                 };
@@ -1431,11 +1495,13 @@ async fn receive_stream(
                     // wall-clock time.
                     streamer.audio.get_or_insert(packet.ssrc);
                     let arrived = std::time::Instant::now();
-                    match connection.dave.decrypt_opus(streamer_id, packet.payload.to_vec()) {
+                    match connection.dave.decrypt_opus(streamer_id, packet.payload) {
                         // A full queue drops sound the player can't keep up
                         // with; the player drops what waited too long anyway.
                         Some(opus) => drop(sounds.try_send(ReceivedSound::new(
-                            &packet, opus, arrived,
+                            &packet,
+                            opus.into_owned(),
+                            arrived,
                         ))),
                         None => received.unheard += 1,
                     }
@@ -1660,6 +1726,7 @@ mod tests {
         let sender = StreamSender {
             frames,
             sounds,
+            buffers: Arc::default(),
             shared: shared.clone(),
         };
         let frame = |timestamp, keyframe| Frame {
@@ -1811,6 +1878,7 @@ mod tests {
         let sender = StreamSender {
             frames,
             sounds,
+            buffers: Arc::default(),
             shared: shared.clone(),
         };
         assert_eq!(sender.bitrate(1080, 9000), None, "nothing said yet");

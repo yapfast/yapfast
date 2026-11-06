@@ -97,13 +97,32 @@ const EXTENSIONS: usize = 4 + 12;
 /// 48 kHz samples and no extensions, as a call's audio goes. The marker
 /// starts a burst of sound.
 pub fn opus_packet(ssrc: u32, sequence: u16, timestamp: u32, marker: bool, opus: &[u8]) -> Vec<u8> {
-    let mut packet = Vec::with_capacity(HEADER + opus.len() + 20);
+    let mut packet = Vec::new();
+    write_audio_into(&mut packet, ssrc, sequence, timestamp, marker, opus);
+    packet
+}
+
+/// Writes one Opus frame's packet into `packet`, as [`opus_packet`] makes it,
+/// reusing the room the buffer already has: a call and a stream send a frame
+/// every 20 ms for as long as they last, and the buffer they send from keeps
+/// its capacity from one frame to the next, so after the first few they
+/// allocate for none of them. The room it reserves past the payload is for
+/// [`Transport::seal`]'s tag and counter, which follow the frame.
+pub fn write_audio_into(
+    packet: &mut Vec<u8>,
+    ssrc: u32,
+    sequence: u16,
+    timestamp: u32,
+    marker: bool,
+    opus: &[u8],
+) {
+    packet.clear();
+    packet.reserve(HEADER + opus.len() + 20);
     packet.extend_from_slice(&[0x80, u8::from(marker) << 7 | OPUS]);
     packet.extend_from_slice(&sequence.to_be_bytes());
     packet.extend_from_slice(&timestamp.to_be_bytes());
     packet.extend_from_slice(&ssrc.to_be_bytes());
     packet.extend_from_slice(opus);
-    packet
 }
 
 /// Cuts encoded frames into RTP packets for one SSRC.
@@ -1284,53 +1303,55 @@ impl Transport {
         let counter = self.counter.to_be_bytes();
         self.counter = self.counter.wrapping_add(1);
         let (header, body) = packet.split_at_mut(clear);
-        let tag = match &self.cipher {
+        let sealed = match &self.cipher {
             Cipher::Aes(cipher) => {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(&counter);
-                cipher
-                    .encrypt_in_place_detached(&nonce, header, body)
-                    .map(|tag| tag.to_vec())
+                cipher.encrypt_in_place_detached(&nonce, header, body)
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(&counter);
-                cipher
-                    .encrypt_in_place_detached(&nonce, header, body)
-                    .map(|tag| tag.to_vec())
+                cipher.encrypt_in_place_detached(&nonce, header, body)
             }
-        }
-        .map_err(|_| anyhow!("could not encrypt a stream packet"))?;
+        };
+        let sealed = sealed.map_err(|_| anyhow!("could not encrypt a stream packet"))?;
+        // The tag comes back on the stack, so a packet sent allocates only
+        // for the bytes of the packet itself.
+        let mut tag = [0u8; TAG];
+        tag.copy_from_slice(&sealed);
         packet.extend_from_slice(&tag);
         packet.extend_from_slice(&counter);
         Ok(())
     }
 
-    /// Decrypts a sealed packet, returning its clear part and plaintext.
-    pub fn open(&self, packet: &[u8], clear: usize) -> Option<Vec<u8>> {
+    /// Decrypts a sealed packet where it lies, returning its clear part and
+    /// plaintext: everything but the tag and the counter, which close it.
+    /// The caller's own buffer is the plaintext, which is what makes a call's
+    /// hundreds of received packets a second cost no allocation each.
+    pub fn open<'a>(&self, packet: &'a mut [u8], clear: usize) -> Option<&'a [u8]> {
         if packet.len() < clear + TAG + 4 {
             return None;
         }
-        let (rest, counter) = packet.split_at(packet.len() - 4);
-        let (sealed, tag) = rest.split_at(rest.len() - TAG);
-        let (header, body) = sealed.split_at(clear);
-        let mut plain = body.to_vec();
+        let sealed = packet.len() - TAG - 4;
+        let (header, rest) = packet.split_at_mut(clear);
+        let (body, tail) = rest.split_at_mut(sealed - clear);
+        let (tag, counter) = tail.split_at(TAG);
+        let tag: &[u8] = tag;
         let opened = match &self.cipher {
             Cipher::Aes(cipher) => {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, &mut plain, tag.into())
+                cipher.decrypt_in_place_detached(&nonce, header, body, tag.into())
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, &mut plain, tag.into())
+                cipher.decrypt_in_place_detached(&nonce, header, body, tag.into())
             }
         };
         opened.ok()?;
-        let mut whole = header.to_vec();
-        whole.extend_from_slice(&plain);
-        Some(whole)
+        Some(&packet[..sealed])
     }
 }
 
@@ -2138,6 +2159,24 @@ mod tests {
     }
 
     #[test]
+    fn an_audio_packet_takes_the_room_the_last_one_left() {
+        // A call and a stream write a frame every 20 ms into the same buffer:
+        // the room it has is room the allocator isn't asked for again.
+        let mut packet = Vec::new();
+        write_audio_into(&mut packet, 1, 0, 0, true, b"the first frame");
+        let room = packet.capacity();
+        write_audio_into(&mut packet, 1, 1, 960, false, b"the next frame");
+        assert_eq!(packet.capacity(), room, "the room carries over");
+        assert_eq!(packet.len(), HEADER + b"the next frame".len());
+        assert_eq!(&packet[HEADER..], b"the next frame", "the frame it holds");
+        assert_eq!(packet[1] & 0x7f, OPUS);
+        assert_eq!(packet[1] & 0x80, 0, "only the first frame marks a burst");
+        assert_eq!(packet, opus_packet(1, 1, 960, false, b"the next frame"));
+        // The room past the frame is for sealing it where it lies.
+        assert!(packet.capacity() >= packet.len() + TAG + 4);
+    }
+
+    #[test]
     fn seals_and_opens_both_modes() {
         for mode in Transport::MODES {
             let mut transport = Transport::new(mode, &[7; 32]).unwrap();
@@ -2150,9 +2189,17 @@ mod tests {
             assert_eq!(packet.len(), plain.len() + 20);
             assert_eq!(packet[..clear], plain[..clear], "the header stays readable");
             assert_ne!(packet[clear..plain.len()], plain[clear..]);
-            assert_eq!(transport.open(&packet, clear), Some(plain));
-            packet[clear] ^= 1;
-            assert_eq!(transport.open(&packet, clear), None, "tampering fails");
+            // Opening decrypts the packet where it lies: the buffer handed
+            // over is the plaintext itself.
+            let mut opening = packet.clone();
+            assert_eq!(transport.open(&mut opening, clear), Some(&plain[..]));
+            let mut tampered = packet.clone();
+            tampered[clear] ^= 1;
+            assert_eq!(
+                transport.open(&mut tampered, clear),
+                None,
+                "tampering fails"
+            );
         }
         assert!(Transport::new("xsalsa20_poly1305", &[0; 32]).is_err());
     }
