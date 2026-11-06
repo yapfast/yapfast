@@ -3814,12 +3814,19 @@ export component YapfastWindow inherits Window {
         close-image => { root.close-image(); }
         step-image(step) => { root.step-image(step); }
         save-attachment(item, index) => { root.save-attachment(item, index); }
+        copy-attachment(item, index) => { root.copy-attachment(item, index); }
+        copy-text(text) => { root.copy-text(text); }
+        open-link(link) => { root.open-link(link); }
+        attachment-link(item, index) => { return root.attachment-link(item, index); }
     }
     // The video playing, shown large over everything; see VideoViewer.
     if VideoPlayer.expanded && VideoPlayer.item != "": VideoViewer {
         y: root.title-height; height: root.height - root.title-height;
         preview: root.preview;
         save-attachment(item, index) => { root.save-attachment(item, index); }
+        copy-text(text) => { root.copy-text(text); }
+        open-link(link) => { root.open-link(link); }
+        attachment-link(item, index) => { return root.attachment-link(item, index); }
     }
     // Adding a Discord friend by username; see AddFriendDialog.
     add-friend-motion := PopupMotion { open: root.add-friend-open; }

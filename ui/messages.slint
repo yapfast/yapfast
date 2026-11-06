@@ -1,6 +1,6 @@
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
@@ -1723,6 +1723,54 @@ export component ConversationStart inherits VerticalLayout {
 // An image shown large over everything. Arrow keys or the side buttons
 // step through the message's images; Escape, the close button or a click
 // outside the image closes it.
+// A right click on a picture or video shown large offers what the message's
+// menu does for it.
+component ViewerMenu inherits PopupWindow {
+    in property <string> item;
+    in property <int> index;
+    in property <bool> video;
+    in property <bool> preview;
+    /// Its address on the web, or empty when it has none.
+    in property <string> link;
+    /// Where it opens in the viewer, which is this big.
+    in property <length> at-x;
+    in property <length> at-y;
+    in property <length> room-width;
+    in property <length> room-height;
+    callback copy-image(string, int);
+    callback save-attachment(string, int);
+    callback copy-text(string);
+    callback open-link(string);
+    /// The menu closed, by a choice or a key, for the viewer's keys to go on.
+    callback done;
+    property <MenuRow> save-row: {
+        id: "save", text: root.video ? "Save Video" : "Save Image", icon: @image-url("icons/download.svg")
+    };
+    property <MenuRow> copy-link-row: { id: "copy-link", text: "Copy Link", icon: @image-url("icons/link.svg") };
+    property <MenuRow> open-link-row: { id: "open-link", text: "Open Link", icon: @image-url("icons/external-link.svg") };
+    property <[MenuRow]> rows: root.link == "" ? [root.save-row]
+        : root.preview ? [root.copy-link-row, root.open-link-row]
+        : root.video ? [root.save-row, root.copy-link-row, root.open-link-row]
+        : [{ id: "copy-image", text: "Copy Image", icon: @image-url("icons/image.svg") }, root.save-row, root.copy-link-row, root.open-link-row];
+    x: max(8px, min(root.room-width - content.menu-width - 8px, root.at-x));
+    y: root.at-y + content.main-height <= root.room-height - 8px
+        ? root.at-y : max(8px, root.at-y - content.main-height);
+    width: content.content-width; height: content.content-height;
+    close-policy: PopupClosePolicy.close-on-click-outside;
+    content := ContextMenu {
+        rows: root.rows;
+        chose(id) => {
+            root.close();
+            root.done();
+            if id == "copy-image" { root.copy-image(root.item, root.index); }
+            else if id == "save" { root.save-attachment(root.item, root.index); }
+            else if id == "copy-link" { root.copy-text(root.link); }
+            else if id == "open-link" { root.open-link(root.link); }
+        }
+        close => { root.close(); root.done(); }
+    }
+}
+
 export component ImageViewer inherits Rectangle {
     in property <image> viewer-image;
     in property <[image]> viewer-frames;
@@ -1741,6 +1789,14 @@ export component ImageViewer inherits Rectangle {
     callback close-image;
     callback step-image(int);
     callback save-attachment(string, int);
+    callback copy-attachment(string, int);
+    callback copy-text(string);
+    callback open-link(string);
+    pure callback attachment-link(string, int) -> string;
+    // What its menu is for, read as it opens, as the arrows change the picture.
+    property <string> menu-link;
+    property <length> menu-x;
+    property <length> menu-y;
     background: #000000e6;
     accessible-role: groupbox;
     accessible-label: "Image viewer";
@@ -1764,7 +1820,16 @@ export component ImageViewer inherits Rectangle {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             still: root.viewer-image; frames: root.viewer-frames; delays: root.viewer-delays; image-fit: contain;
             accessible-role: image; accessible-label: root.viewer-name;
-            TouchArea { }
+            TouchArea {
+                pointer-event(event) => {
+                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                        root.menu-link = root.attachment-link(root.viewer-item, root.viewer-index);
+                        root.menu-x = self.absolute-position.x + self.mouse-x - root.absolute-position.x;
+                        root.menu-y = self.absolute-position.y + self.mouse-y - root.absolute-position.y;
+                        if !root.preview || root.menu-link != "" { image-menu.show(); }
+                    }
+                }
+            }
         }
         HorizontalLayout {
             y: 0px; height: 64px; padding-left: 20px; padding-right: 12px; spacing: 8px;
@@ -1803,6 +1868,16 @@ export component ImageViewer inherits Rectangle {
             viewer-note-text := Text { text: root.viewer-note; color: #ffffffd9; font-size: 13px; }
         }
     }
+    image-menu := ViewerMenu {
+        item: root.viewer-item; index: root.viewer-index; preview: root.preview;
+        link: root.menu-link; at-x: root.menu-x; at-y: root.menu-y;
+        room-width: root.width; room-height: root.height;
+        copy-image(item, index) => { root.copy-attachment(item, index); }
+        save-attachment(item, index) => { root.save-attachment(item, index); }
+        copy-text(text) => { root.copy-text(text); }
+        open-link(link) => { root.open-link(link); }
+        done => { viewer-keys.focus(); }
+    }
 }
 
 // The video playing, shown large over everything as ImageViewer shows an
@@ -1812,6 +1887,13 @@ export component ImageViewer inherits Rectangle {
 export component VideoViewer inherits Rectangle {
     in property <bool> preview;
     callback save-attachment(string, int);
+    callback copy-text(string);
+    callback open-link(string);
+    pure callback attachment-link(string, int) -> string;
+    // What its menu is for, read as it opens.
+    property <string> menu-link;
+    property <length> menu-x;
+    property <length> menu-y;
     background: #000000e6;
     accessible-role: groupbox;
     accessible-label: "Video viewer";
@@ -1844,7 +1926,18 @@ export component VideoViewer inherits Rectangle {
             accessible-label: (VideoPlayer.playing ? "Pause " : "Play ") + VideoPlayer.name;
             accessible-action-default => { VideoPlayer.toggle(); }
             if VideoPlayer.has-frame: Image { width: parent.width; height: parent.height; source: VideoPlayer.frame; image-fit: contain; }
-            TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { VideoPlayer.toggle(); } }
+            TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { VideoPlayer.toggle(); }
+                pointer-event(event) => {
+                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                        root.menu-link = root.attachment-link(VideoPlayer.item, VideoPlayer.index);
+                        root.menu-x = self.absolute-position.x + self.mouse-x - root.absolute-position.x;
+                        root.menu-y = self.absolute-position.y + self.mouse-y - root.absolute-position.y;
+                        if !root.preview || root.menu-link != "" { video-menu.show(); }
+                    }
+                }
+            }
             if VideoPlayer.loading && VideoPlayer.error == "": Rectangle {
                 width: loading.preferred-width + 20px; height: 28px; border-radius: 14px; background: #000000b3;
                 loading := Text { text: "Loading..."; color: #ffffff; font-size: 13px; }
@@ -1875,6 +1968,15 @@ export component VideoViewer inherits Rectangle {
             }
             Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Exit full screen"; tint: #ffffff; clicked => { VideoPlayer.expand(false); } } }
         }
+    }
+    video-menu := ViewerMenu {
+        item: VideoPlayer.item; index: VideoPlayer.index; video: true; preview: root.preview;
+        link: root.menu-link; at-x: root.menu-x; at-y: root.menu-y;
+        room-width: root.width; room-height: root.height;
+        save-attachment(item, index) => { root.save-attachment(item, index); }
+        copy-text(text) => { root.copy-text(text); }
+        open-link(link) => { root.open-link(link); }
+        done => { keys.focus(); }
     }
 }
 

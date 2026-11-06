@@ -229,7 +229,9 @@ an error.
   beside the text otherwise. A video the media proxy has (`video.proxy_url`)
   plays in place, as an attached one does, under the card's thumbnail as its
   poster, whatever the card's type: vxtwitter's posts come as `rich` cards
-  with one. Others, such as YouTube's, open in the browser. Other pictures open in the image viewer. A linked image or GIF
+  with one. Others, such as YouTube's, open in the browser. Other pictures open in the image viewer, where a right click on the picture
+  offers Copy Image, Save Image, Copy Link and Open Link, as the message's
+  menu does. A linked image or GIF
   shows with the message's images, without its address when that's all the
   message says. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
@@ -290,7 +292,7 @@ an error.
   them full screen. Full screen, as the image viewer shows a picture, the
   video is enlarged to fit the window with its bar under it; Space plays or
   pauses it, the arrow keys move five seconds, and Escape brings it back to
-  its cell. The worker draws its pictures at the size they show: playing,
+  its cell. A right click on it offers Save Video, Copy Link and Open Link. The worker draws its pictures at the size they show: playing,
   the next ones come at a new size; paused, the one showing is redrawn,
   which moving back to it would hold up while playing. MP4, MOV and WebM
   play, with H264, VP8, VP9 or AV1 pictures in 4:2:0, 4:2:2 or 4:4:4 at
