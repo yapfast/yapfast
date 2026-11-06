@@ -3683,9 +3683,24 @@ fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
     assert!(!app.state.room_ready, "a channel not shown before loads");
     app.apply(Event::Timeline {
         room: "discord:10:22".into(),
-        messages: timeline(vec![]),
+        messages: timeline(vec![ChatMessage {
+            item: "d:2".into(),
+            body: "Out now".into(),
+            can_react: true,
+            ..Default::default()
+        }]),
     });
     assert!(!app.state.can_write(), "read-only channel");
+    // It takes reactions all the same, as Add Reactions isn't sending.
+    assert_eq!(app.state.reacts_in("discord:10:22"), chat::Reacts::Any);
+    let effects = app.dispatch(Action::React {
+        item: "d:2".into(),
+        key: "🎉".into(),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::React { room, .. })] if room == "discord:10:22"
+    ));
     // Back to general: shown as it was left at once, while the backend
     // sends it afresh.
     app.dispatch(Action::SelectRoom("discord:10:21".into()));
@@ -3701,6 +3716,7 @@ fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
         ..snapshot(false)
     }));
     assert!(!app.state.can_write(), "sending waits for Discord");
+    assert_eq!(app.state.reacts_in("discord:10:21"), chat::Reacts::None);
 }
 
 #[test]

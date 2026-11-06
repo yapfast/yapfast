@@ -58,7 +58,7 @@ use crate::{
     chat::{
         Attachment, ChatMember, ChatMessage, ChatRoom, ChatServer, Command, Contact, Delivery,
         Direction, Event, ForwardFailure, History, MAX_MESSAGE_BYTES, MAX_PREVIEW_DOWNLOAD_BYTES,
-        Notification, Picture, Placement, Reaction, Reactor, Reply, Role, RoomIndex, Start,
+        Notification, Picture, Placement, Reaction, Reactor, Reacts, Reply, Role, RoomIndex, Start,
         decode_preview, decode_view, notification_text, plain_snippet, sort_members,
     },
     matrix_media,
@@ -1187,6 +1187,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             locked: false,
             join_locked: false,
             read_only: false,
+            reacts: Reacts::Any,
             slowed: false,
             timed_out_until: None,
             category: String::new(),

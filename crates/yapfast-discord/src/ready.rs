@@ -40,6 +40,9 @@ pub mod permission {
     pub const ADMINISTRATOR: u64 = 1 << 3;
     pub const MANAGE_CHANNELS: u64 = 1 << 4;
     pub const MANAGE_GUILD: u64 = 1 << 5;
+    /// Adding a reaction nobody has added to a message yet; adding to one
+    /// already there needs only reading the channel's history.
+    pub const ADD_REACTIONS: u64 = 1 << 6;
     pub const VIEW_AUDIT_LOG: u64 = 1 << 7;
     /// Deleting others' messages and removing their reactions.
     pub const MANAGE_MESSAGES: u64 = 1 << 13;
