@@ -22,7 +22,7 @@ use yapfast_core::{
     backend::Backend,
     chat::{
         ChannelKind, ChannelSettings, ChatMessage, Command, Delivery, EmbedField, Event, Picture,
-        Placement, Presence, ProfilePicture, ProfileRole, Role, VideoCommand,
+        Placement, Presence, ProfilePicture, ProfileRole, Reacts, Role, VideoCommand,
     },
     clock, discord, links, mention,
     meter::{self, InputMeter},

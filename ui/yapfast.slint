@@ -437,6 +437,10 @@ export component YapfastWindow inherits Window {
     /// A voice room shows its call, rather than its chat.
     property <bool> voice-panel: root.voice-room && !root.voice-chat;
     in property <bool> composer-enabled;
+    /// Adding to a message's reactions, or taking one's own back; and adding
+    /// any reaction. A Discord channel decides these apart from sending.
+    in property <bool> reactions-enabled;
+    in property <bool> new-reactions-enabled;
     /// The selected conversation is a Discord message request, introduced by
     /// the title; it's answered instead of written to.
     in property <bool> room-request;
@@ -462,6 +466,8 @@ export component YapfastWindow inherits Window {
     in property <bool> aside-start;
     in property <bool> aside-failed;
     in property <bool> aside-composer-enabled;
+    in property <bool> aside-reactions-enabled;
+    in property <bool> aside-new-reactions-enabled;
     in property <bool> aside-can-send;
     in property <string> aside-compose-label;
     in property <bool> aside-reply-ping;
@@ -2144,7 +2150,8 @@ export component YapfastWindow inherits Window {
         }
     }
     // A message's actions, from its hover bar's "More" button or a right click.
-    property <bool> menu-can-react: root.menu-message.can-react && root.composer-enabled;
+    property <bool> menu-can-react: root.menu-message.can-react
+        && (root.menu-aside ? root.aside-new-reactions-enabled : root.new-reactions-enabled);
     call-link-menu := PopupWindow {
         width: 320px; height: call-link-content.content-height;
         x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
@@ -2915,7 +2922,7 @@ export component YapfastWindow inherits Window {
                                     if event.text == Key.Return || event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
                                         root.keyboard-popup = "menu"; return accept;
                                     }
-                                    if (event.text == "+" || event.text == "=") && root.keyed-message.can-react && root.composer-enabled {
+                                    if (event.text == "+" || event.text == "=") && root.keyed-message.can-react && root.new-reactions-enabled {
                                         root.keyboard-popup = "react"; return accept;
                                     }
                                     if (event.text == "r" || event.text == "R") && root.keyed-message.can-reply && root.composer-enabled {
@@ -3091,7 +3098,7 @@ export component YapfastWindow inherits Window {
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
                                                     }
                                                     MessageContent {
-                                                        message: message; active-item: root.active-item; preview: root.preview; composer-enabled: root.composer-enabled;
+                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                                         author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
                                                         author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
@@ -3165,7 +3172,7 @@ export component YapfastWindow inherits Window {
                                                             icon: @image-url("icons/reply.svg"); label: "Reply";
                                                             clicked => { root.reply(message.item); root.focus-composer(); }
                                                         }
-                                                        if message.can-react && root.composer-enabled: HorizontalLayout {
+                                                        if message.can-react && root.new-reactions-enabled: HorizontalLayout {
                                                             spacing: 0px;
                                                             if !message-bar.quick: HorizontalLayout {
                                                                 spacing: 0px;
@@ -3505,6 +3512,7 @@ export component YapfastWindow inherits Window {
                         composer-focused => { root.aside-composer-last = true; }
                         escape-composing => { return root.escape-composing(); }
                         busy: root.busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
+                        reactions-enabled: root.aside-reactions-enabled; new-reactions-enabled: root.aside-new-reactions-enabled;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }
                         staged: root.aside-staged; can-attach: root.aside-can-attach; can-mark-spoilers: root.aside-can-mark-spoilers;

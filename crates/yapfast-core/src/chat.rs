@@ -78,6 +78,10 @@ pub struct ChatRoom {
     /// Readable, but this account may not send here, such as a Discord
     /// announcement channel.
     pub read_only: bool,
+    /// What reacting this account may do here, which a Discord channel
+    /// decides apart from sending: a read-only channel may still take
+    /// reactions.
+    pub reacts: Reacts,
     /// A Discord channel or thread whose slowmode this account waits out
     /// between messages.
     pub slowed: bool,
@@ -156,6 +160,20 @@ impl ChatRoom {
     pub fn call_encrypted(&self) -> bool {
         self.network == Network::Discord || self.encrypted
     }
+}
+
+/// What reacting an account may do in a room, as Discord's client works it
+/// out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Reacts {
+    /// None, as while timed out, or in an archived thread it may not open
+    /// again.
+    None,
+    /// Only add to a reaction someone added already, or take its own back,
+    /// as a Discord channel allows without Add Reactions.
+    Existing,
+    /// Add any reaction too.
+    Any,
 }
 
 /// A Discord message request's latest message, as the requests list shows it.

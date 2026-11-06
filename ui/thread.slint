@@ -19,6 +19,8 @@ export component ThreadPanel inherits Rectangle {
     in property <bool> failed;
     in property <bool> busy;
     in property <bool> composer-enabled;
+    in property <bool> reactions-enabled;
+    in property <bool> new-reactions-enabled;
     in property <bool> can-send;
     in property <bool> sending;
     /// "Replying to ..." or "Editing your message", over the composer.
@@ -222,7 +224,7 @@ export component ThreadPanel inherits Rectangle {
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
                             }
                             MessageContent {
-                                message: message; active-item: root.active-item; composer-enabled: root.composer-enabled;
+                                message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                 end-padding: 16px;
                                 author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
@@ -277,7 +279,7 @@ export component ThreadPanel inherits Rectangle {
                                     icon: @image-url("icons/reply.svg"); label: "Reply";
                                     clicked => { root.reply(message.item); root.focus-composer(); }
                                 }
-                                if message.can-react && root.composer-enabled: HorizontalLayout {
+                                if message.can-react && root.new-reactions-enabled: HorizontalLayout {
                                     spacing: 0px;
                                     for cell[slot] in root.bar-reactions: EmojiButton {
                                         animation-key: cell.key;
