@@ -462,6 +462,7 @@ impl Adapter {
             window.set_search_text(SharedString::default());
         }
         self.show_header(window);
+        self.show_peek(window);
         self.show_dm_tools(window);
         self.show_threads(window);
         self.show_forum(window);
@@ -1741,6 +1742,40 @@ impl Adapter {
         self.models.post_chosen_tags.set_vec(chosen);
         self.models.post_tag_choices.set_vec(choices);
         self.post_tags_shown = Some(shown);
+    }
+
+    /// The newest messages of the room peeked at from the channel list, or
+    /// what to say while they come; nothing once the peek closes, which
+    /// lets go of its rows.
+    fn show_peek(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let peek = state.peek.as_ref();
+        window.set_peek_open(peek.is_some());
+        let room = peek.and_then(|peek| state.rooms.iter().find(|room| room.id == peek.room));
+        window.set_peek_name(
+            room.map_or_else(String::new, |room| {
+                if room.direct {
+                    room.name.clone()
+                } else {
+                    format!("#{}", room.name)
+                }
+            })
+            .into(),
+        );
+        window.set_peek_note(
+            match peek.map(|peek| &peek.messages) {
+                Some(None) => "Loading messages...",
+                Some(Some(Err(error))) => error.as_str(),
+                Some(Some(Ok(messages))) if messages.is_empty() => "No messages yet.",
+                _ => "",
+            }
+            .into(),
+        );
+        let messages = match peek.and_then(|peek| peek.messages.as_ref()) {
+            Some(Ok(messages)) => messages.as_slice(),
+            _ => &[],
+        };
+        show_found(&self.models.peek, messages, self.layout.twelve_hour_clock);
     }
 
     /// The open conversation's header.

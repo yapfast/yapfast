@@ -504,6 +504,16 @@ impl Api {
         }
     }
 
+    /// A channel's newest `limit` messages, newest first, as a glance at it
+    /// takes them: no read acknowledgement goes with them.
+    pub async fn newest(&self, channel: &str, limit: usize) -> Result<Vec<Value>> {
+        let path = format!("/channels/{channel}/messages?limit={limit}");
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
     /// A message of a channel, or none once it's gone. User accounts can't
     /// ask for one message by its id, so this asks as Discord's client does,
     /// for the one around it, which is another message when it's gone.

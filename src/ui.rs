@@ -601,6 +601,13 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         });
                     }
                 }
+                // Alt alone peeks at the channel or DM under the pointer,
+                // wherever the focus is.
+                if let Some(window) = weak.upgrade()
+                    && window.get_alt_held() != keys.alt_only()
+                {
+                    window.set_alt_held(keys.alt_only());
+                }
                 // Alt+Left and Alt+Right go back and forward through the
                 // conversations visited, as in Discord.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
@@ -1199,6 +1206,9 @@ struct Layout {
     /// Long messages fold to a few lines, with Show more; off unless turned
     /// on.
     collapse_long: bool,
+    /// Holding Alt over a channel or DM in the list peeks at its newest
+    /// messages; off unless turned on.
+    peek_channels: bool,
     /// When animations play.
     animate: Animate,
     /// The profile switches, each as [`Cosmetics`] starts it unless changed.
@@ -1519,6 +1529,7 @@ impl Layout {
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
         window.set_collapse_long(self.collapse_long);
+        window.set_peek_channels(self.peek_channels);
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         self.show_cosmetics(window);
@@ -1672,6 +1683,8 @@ struct Models {
     /// The open DM's pinned messages, what its search found, and the
     /// friends its picker offers.
     pins: Rc<VecModel<FoundRow>>,
+    /// The newest messages of the room peeked at, while the peek shows.
+    peek: Rc<VecModel<FoundRow>>,
     /// The open channel's list of its threads.
     thread_rows: Rc<VecModel<ThreadRow>>,
     /// The open forum's posts.
@@ -1757,6 +1770,7 @@ impl Models {
         window.set_mentions(ModelRc::from(self.mentions.clone()));
         window.set_new_dm_people(ModelRc::from(self.new_dm_people.clone()));
         window.set_pins(ModelRc::from(self.pins.clone()));
+        window.set_peek_rows(ModelRc::from(self.peek.clone()));
         window.set_thread_rows(ModelRc::from(self.thread_rows.clone()));
         window.set_post_rows(ModelRc::from(self.post_rows.clone()));
         window.set_post_chosen_tags(ModelRc::from(self.post_chosen_tags.clone()));

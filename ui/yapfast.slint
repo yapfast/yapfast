@@ -59,7 +59,7 @@ import { PermissionRow, RoleMemberRow, RoleRow, RoleSwatch, RolesPrompt } from "
 import { BansPrompt, SafetyOption, SafetyPrompt } from "moderation.slint";
 import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateRow } from "channel_settings.slint";
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
-import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
+import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, PeekPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
@@ -995,6 +995,45 @@ export component YapfastWindow inherits Window {
     in property <[FoundRow]> pins;
     in property <string> pins-note;
     callback show-pins(bool);
+    /// Alt is held, alone, wherever the focus is; and with it, the room
+    /// under the pointer in the channel list is peeked at, while
+    /// `peek-channels` is on. `peek` asks for a room's newest messages, or
+    /// with "" for none, and they show in `peek-rows`, under `peek-name`,
+    /// while `peek-open`; or `peek-note` says why not.
+    in property <bool> alt-held;
+    in-out property <bool> peek-channels;
+    in property <bool> peek-open;
+    in property <string> peek-name;
+    in property <[FoundRow]> peek-rows;
+    in property <string> peek-note;
+    callback peek(string);
+    /// The room whose row in the channel list the pointer is over, and
+    /// where the row is; the room asked for, and where its row was then.
+    in-out property <string> peek-over;
+    property <length> peek-over-x;
+    property <length> peek-over-y;
+    property <string> peek-target: root.peek-channels && root.alt-held && !root.settings-open ? root.peek-over : "";
+    property <string> peeking;
+    property <length> peek-x;
+    property <length> peek-y;
+    // Moving across rows asks only for the one the pointer settles on;
+    // letting go of Alt, or leaving the list, closes it at once.
+    changed peek-target => {
+        if root.peek-target == "" && root.peeking != "" {
+            root.peeking = "";
+            root.peek("");
+        }
+    }
+    Timer {
+        interval: 120ms;
+        running: root.peek-target != "" && root.peek-target != root.peeking;
+        triggered => {
+            root.peeking = root.peek-target;
+            root.peek-x = root.peek-over-x;
+            root.peek-y = root.peek-over-y;
+            root.peek(root.peeking);
+        }
+    }
     /// The header's pin button's bottom right corner, under which the pins open.
     property <length> pins-anchor-x;
     property <length> pins-anchor-y;
@@ -2517,6 +2556,7 @@ export component YapfastWindow inherits Window {
                                 create-channel(id) => {
                                     if root.category-of(id) != "" { root.choose-menu(root.category-of(id), false, "create-channel"); }
                                 }
+                                peek-over(id, x, y) => { root.peek-over = id; root.peek-over-x = x; root.peek-over-y = y; }
                                 open-category-menu(id, x, y) => {
                                     if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
                                 }
@@ -4007,6 +4047,7 @@ export component YapfastWindow inherits Window {
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
             collapse-long <=> root.collapse-long;
+            peek-channels <=> root.peek-channels;
             matrix: root.matrix-build; discord: root.discord-linked;
             preferences-changed => { root.preferences-changed(); }
         }
@@ -4140,6 +4181,13 @@ export component YapfastWindow inherits Window {
             open-link(link) => { root.open-link(link); }
             close => { root.show-pins(false); }
         }
+    }
+    // A room peeked at, beside its row in the channel list, within the window.
+    if root.peek-open && root.peeking != "": PeekPopover {
+        x: min(root.peek-x + 8px, root.width - self.width - 8px);
+        height: min(self.fit, 460px, root.height - 16px);
+        y: max(8px, min(root.peek-y - 12px, root.height - self.height - 8px));
+        heading: root.peek-name; rows: root.peek-rows; note: root.peek-note;
     }
     // The open channel's threads, under the Threads button. Opening one
     // closes them, as does Escape or a click outside.

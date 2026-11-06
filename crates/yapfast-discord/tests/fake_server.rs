@@ -7093,3 +7093,63 @@ fn sending<'a>(nonce: &'a str, reply: Option<&'a str>) -> yapfast_discord::api::
         silent: false,
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn peeks_at_a_channel_without_reading_it() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        snapshot,
+        guild,
+        general,
+        ..
+    } = Fixture::start("peeks_at_a_channel_without_reading_it").await;
+    let bob = snapshot
+        .conversations
+        .iter()
+        .find(|dm| dm.name == "Bob")
+        .unwrap()
+        .clone();
+    assert!(bob.unread && bob.mentions == 2);
+    let acks = || {
+        serde_json::from_str::<Vec<Vec<String>>>(&control(server, "GET", "/_control/acks", ""))
+            .unwrap()
+    };
+    let before = acks();
+    control(server, "POST", "/_control/history", "");
+
+    // Bob's unread DM: its newest messages, oldest first, asked for once and
+    // only as many as are shown.
+    let said: Vec<_> = discord
+        .peek(PRIVATE, &bob.id, 6)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|message| message.content)
+        .collect();
+    assert_eq!(
+        said,
+        [
+            "Did you see the trip notes?",
+            "Yes, bringing snacks",
+            "Great",
+            "See you at nine"
+        ]
+    );
+    let general_said = discord.peek(&guild, &general, 2).await.unwrap();
+    assert_eq!(general_said.len(), 2);
+    assert!(general_said[0].order() < general_said[1].order());
+    let asked: Vec<String> =
+        serde_json::from_str(&control(server, "GET", "/_control/history", "")).unwrap();
+    assert_eq!(asked, ["?limit=6", "?limit=2"]);
+
+    // Nothing is read: no acknowledgement goes, even after reads' batch, and
+    // the DM stays unread with its mentions.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(acks(), before);
+    let now = discord.snapshots().borrow().clone();
+    let still = now.conversations.iter().find(|dm| dm.id == bob.id).unwrap();
+    assert!(still.unread && still.mentions == 2);
+}
