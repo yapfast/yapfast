@@ -34,7 +34,7 @@ use yapfast_core::{
 };
 
 use crate::drop::Drag;
-use crate::{autostart, custom_emoji, emoji, graphics, zoom};
+use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
 mod appearance;
 mod away;
@@ -43,6 +43,7 @@ mod call_link;
 mod call_timer;
 mod callbacks;
 mod channel_settings;
+mod emoji_animation;
 mod games;
 mod gifs;
 mod menus;
@@ -280,6 +281,7 @@ fn prepare(window: &YapfastWindow) {
             .set_size(slint::PhysicalSize::new(width, height));
     }
     window.set_emoji_font(emoji::family().into());
+    emoji_text::register();
     copy_whole_messages(window);
     mark_autoscrolls(window);
     type_anywhere(window);
@@ -326,7 +328,17 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     let weak = window.as_weak();
     slint::Timer::single_shot(Duration::ZERO, move || {
         let Some(window) = weak.upgrade() else { return };
-        FOCUSED.set(false);
+        // A window that opens focused gets no event saying so, and animation
+        // would wait for one; ask it instead.
+        let focused = {
+            use slint::winit_030::WinitWindowAccessor as _;
+            window
+                .window()
+                .with_winit_window(|winit| winit.has_focus())
+                .unwrap_or(false)
+        };
+        FOCUSED.set(focused);
+        show_motion(&window);
         // The display's own scale factor, which the zoom multiplies.
         let base = Rc::new(Cell::new(window.window().scale_factor()));
         let level = Rc::new(Cell::new(
@@ -932,8 +944,11 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
-    /// The GIF picker's width, as its left edge last dragged it wider.
-    gif_picker_width: Option<f32>,
+    /// The expression picker's width, the GIFs and the emoji alike, as its
+    /// left edge last dragged it wider. `gif_picker_width` named it while only
+    /// the GIFs took it.
+    #[serde(alias = "gif_picker_width")]
+    picker_width: Option<f32>,
     /// The member list shows until someone closes it.
     members_hidden: bool,
     /// So does the profile beside a one-to-one DM.
@@ -1114,6 +1129,9 @@ fn show_motion(window: &YapfastWindow) {
         Animate::Never => false,
     };
     window.global::<Motion>().set_playing(playing);
+    // Animated emoji hold still with everything else, at once rather than at
+    // the next refresh.
+    i_slint_core::yapfast_emoji::set_playing(playing);
 }
 
 /// Where a setting's value is among its choices.
@@ -1214,8 +1232,8 @@ impl Layout {
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
-        if let Some(width) = self.gif_picker_width {
-            window.set_gif_picker_width(width);
+        if let Some(width) = self.picker_width {
+            window.set_picker_width(width);
         }
         window.set_member_list(!self.members_hidden);
         window.set_profile_panel(!self.profile_panel_hidden);
@@ -1536,6 +1554,9 @@ struct Adapter {
     runtime: Arc<BackgroundRuntime>,
     root: PathBuf,
     layout: Layout,
+    /// The rows of the emoji picker's grid that may hold pictures it drew, first
+    /// and last: see `fill_shown_glyphs`.
+    emoji_rows_filled: (usize, usize),
     app: Application,
     models: Models,
     icons: Icons,
@@ -1560,6 +1581,8 @@ struct Adapter {
     /// The same for the thread beside the open channel.
     aside_messages: Arc<Vec<Arc<ChatMessage>>>,
     aside_rows: Vec<MessageRow>,
+    /// The width the thread beside the channel last fitted its rows to.
+    aside_fit: i32,
     /// The thread's rows are built again at its next showing, as the
     /// timeline's were.
     aside_restyle: bool,
@@ -1601,6 +1624,12 @@ struct Adapter {
     video_cell: Cell<(u32, u32)>,
     /// Server icons and avatars already handed to Slint, by address.
     pictures: HashMap<String, slint::Image>,
+    /// The emoji the open card shows, so the card is built again as what
+    /// Discord says of its server arrives.
+    emoji_card: Option<emoji_text::Target>,
+    /// The animated emoji on screen: the frames they need and the clock they
+    /// draw from, which stops while the window is unfocused, idle or minimised.
+    animations: emoji_animation::Animations,
     /// `AppState::picture_changes` when the message rows were last built.
     pictures_seen: u64,
     /// The last jump to a message the timeline made; see `AppState::jump`.
@@ -1625,7 +1654,7 @@ struct Adapter {
     /// Where the `@` of the word being mentioned is in the composer text.
     mention_at: Option<usize>,
     /// What the composer's mentions were last coloured for.
-    mentions_marked: Option<refresh::MentionsMarked>,
+    mentions_marked: [Option<refresh::MentionsMarked>; i_slint_core::yapfast_marks::SLOTS],
     /// Suggestions for the `@` here were closed with Escape; they stay closed until
     /// the cursor leaves the word.
     mention_dismissed: Option<usize>,
@@ -1633,6 +1662,9 @@ struct Adapter {
     emoji_word: Option<(usize, String)>,
     /// Like `mention_dismissed`, for the `:` here.
     emoji_dismissed: Option<usize>,
+    /// The suggestions are for the composer of the thread beside the channel,
+    /// typed in last, rather than the channel's.
+    suggesting_aside: bool,
     /// The room whose composer last reported its cursor, and the cursor's byte
     /// offset, where the picker's emoji go.
     caret: Option<(String, usize)>,
@@ -1702,6 +1734,27 @@ struct Adapter {
 }
 
 impl Adapter {
+    /// What the channel's composer holds, or the thread's beside it with `aside`.
+    fn composer_text(&self, aside: bool) -> String {
+        let state = &self.app.state;
+        if aside {
+            state.aside_draft()
+        } else {
+            state.draft()
+        }
+        .to_owned()
+    }
+
+    /// Puts `text` in the channel's composer, or the thread's beside it.
+    fn set_composer_text(&mut self, window: &YapfastWindow, aside: bool, text: String) {
+        let action = if aside {
+            Action::SetAsideDraft(text)
+        } else {
+            Action::SetDraft(text)
+        };
+        self.action(window, action);
+    }
+
     fn new(
         runtime: Arc<BackgroundRuntime>,
         root: PathBuf,
@@ -1797,6 +1850,7 @@ impl Adapter {
                 runtime,
                 root,
                 layout,
+                emoji_rows_filled: (0, 0),
                 app,
                 models,
                 icons,
@@ -1828,6 +1882,8 @@ impl Adapter {
                 video_quiet: Cell::new(0),
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
+                emoji_card: None,
+                animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
                 jumped: None,
                 unread_jumped: 0,
@@ -1837,13 +1893,15 @@ impl Adapter {
                 restyle: false,
                 theme_editor: None,
                 aside_messages: Arc::new(Vec::new()),
+                aside_fit: 0,
                 aside_rows: Vec::new(),
                 aside_restyle: false,
                 mention_at: None,
-                mentions_marked: None,
+                mentions_marked: [None, None],
                 mention_dismissed: None,
                 emoji_word: None,
                 emoji_dismissed: None,
+                suggesting_aside: false,
                 caret: None,
                 notifier: crate::notify::Notifier::start(open_from_notification),
                 viewer_image: None,
@@ -2565,6 +2623,19 @@ fn count_of(count: u64, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })
 }
 
+/// `count` with its thousands marked, as Discord writes "3,999".
+fn grouped(count: u64) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, digit) in digits.char_indices() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
 /// A status on one line, as Discord shows it under a name; the profile keeps
 /// its own line breaks.
 fn one_line(text: &str) -> String {
@@ -2584,9 +2655,6 @@ fn same_list<T: Clone + PartialEq + 'static>(old: &ModelRc<T>, new: ModelRc<T>) 
 /// cards' widths less their padding.
 const PROFILE_CARD_WIDTH: f32 = 300. - 2. * 16.;
 const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
-
-/// The most custom emoji the picker fetches pictures for at once.
-const MAX_PICKER_EMOJI: usize = 600;
 
 /// How many emoji the composer suggests for a `:name` word.
 const EMOJI_SUGGESTIONS: usize = 10;

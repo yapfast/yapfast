@@ -17,10 +17,10 @@ impl Application {
         }
     }
 
-    pub(super) fn mention_query(&mut self, query: Option<String>) -> Vec<Effect> {
+    pub(super) fn mention_query(&mut self, query: Option<(char, String)>) -> Vec<Effect> {
         self.state.mention_query = query.clone();
         // Discord servers list only some members; ask for the rest by name.
-        let (Some(room), Some(query)) = (self.state.selected.clone(), query) else {
+        let (Some(room), Some(('@', query))) = (self.state.selected.clone(), query) else {
             return vec![];
         };
         let in_server =
@@ -110,7 +110,7 @@ impl Application {
         if !message.can_edit || !self.state.can_write_in(&id) {
             return vec![];
         }
-        let body = message.body.clone();
+        let body = mention::as_typed(&message.body, &message.mentions);
         let draft = match self.state.compose.get(&id) {
             Some(Compose::Edit { draft, .. }) => draft.clone(),
             _ => self.state.drafts.get(&id).cloned().unwrap_or_default(),

@@ -1129,6 +1129,110 @@ async fn a_thread_beside_the_open_channel_shows_its_own_pages() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_thread_beside_the_open_channel_plays_its_videos() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let mut chat = Chat::start().unwrap().expect("the fake's account");
+    let mut snapshots = chat.discord.snapshots();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        snapshots.wait_for(|snapshot| snapshot.status == Status::Online),
+    )
+    .await
+    .expect("the fake Discord answers")
+    .unwrap();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let general = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
+    let (plans, plans_id) = chat
+        .discord
+        .snapshots()
+        .borrow()
+        .servers
+        .iter()
+        .flat_map(|server| &server.threads)
+        .find(|thread| thread.name == "Plans")
+        .map(|thread| (discord::room_id(FAKE_GUILD, &thread.id), thread.id.clone()))
+        .expect("the fake's Plans thread");
+    // The clip is there before the thread opens, so its first page has it.
+    let server = yapfast_discord::client::test_server().unwrap();
+    let address = server.trim_start_matches("http://").trim_end_matches('/');
+    let mut control = tokio::net::TcpStream::connect(address).await.unwrap();
+    control
+        .write_all(
+            format!(
+                "POST /_control/clip?channel={plans_id} HTTP/1.1\r\nHost: {address}\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut answer = String::new();
+    control.read_to_string(&mut answer).await.unwrap();
+    assert!(answer.contains("video posted"), "{answer}");
+
+    chat.command(Command::Open(general), &events);
+    chat.command(Command::Aside(Some(plans.clone())), &events);
+    let (item, index) = until(
+        &chat.discord,
+        &mut chat.channels,
+        &chat.done,
+        &mut chat.finished,
+        &mut received,
+        |event| match event {
+            Event::Timeline { room, messages } if *room == plans => {
+                messages.iter().find_map(|message| {
+                    let index = message
+                        .attachments
+                        .iter()
+                        .position(|attachment| attachment.video)?;
+                    Some((message.item.clone(), index))
+                })
+            }
+            _ => None,
+        },
+    )
+    .await;
+    // A test binary can't be the video's worker, which is no matter here: what
+    // this asks is whether the thread's video was found.
+    chat.command(
+        Command::PlayVideo {
+            room: plans.clone(),
+            item: item.clone(),
+            index,
+            width: 320,
+            height: 180,
+            speakers: None,
+        },
+        &events,
+    );
+    let playing = std::iter::from_fn(|| received.try_recv().ok())
+        .find_map(|event| match event {
+            Event::Video(video) => video,
+            _ => None,
+        })
+        .expect("the video started");
+    assert_eq!(
+        (playing.room.as_str(), playing.item.as_str()),
+        (plans.as_str(), item.as_str())
+    );
+    assert_ne!(
+        playing.error.as_deref(),
+        Some("This video is no longer available.")
+    );
+
+    // Closing the thread stops its video.
+    chat.command(Command::Aside(None), &events);
+    assert!(chat.video.is_none());
+    assert!(
+        std::iter::from_fn(|| received.try_recv().ok())
+            .any(|event| matches!(event, Event::Video(None)))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn a_jump_shows_the_messages_around_one_then_newer_pages_to_the_present() {
     let discord = fake_discord().await;
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
@@ -1709,7 +1813,11 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     let mut shown = vec![];
     while shown.len() < 2 {
         match live.recv().await {
-            Ok(Live::Created(message)) if message.forwarded => shown.push(message),
+            Ok(Live::Created(message))
+                if message.forwarded && message.content == original.content =>
+            {
+                shown.push(message)
+            }
             Ok(Live::Created(message)) if message.content == "look at this" => shown.push(message),
             _ => {}
         }
@@ -1728,4 +1836,40 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     // Nor a message Discord doesn't have.
     forward("d:1".into(), &room, None);
     assert!(matches!(answer().await, Err(ForwardFailure::Forward(_))));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_servers_card_shows_how_many_of_its_members_are_online() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let server = discord::server_id(FAKE_GUILD);
+    command(
+        Command::Discord(DiscordCommand::ServerPreview {
+            server: server.clone(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let answer = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::ServerPreview {
+                server: asked,
+                result,
+            } = received.recv().await.unwrap()
+                && asked == server
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    let preview = answer.expect("what the server's card shows");
+    assert_eq!(preview.online, Some(3), "Dave is offline");
+    assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
 }

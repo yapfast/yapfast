@@ -83,6 +83,8 @@ The core of it is `yapfast_selection.rs`. The other changes are marked `Yapfast:
   without an underline, on a pill only when it's a mention, to `yapfast:user/`,
   `yapfast:role/` or `yapfast:everyone`, and where the font family `monospace`
   is the system's monospace font, as inline code's, for fenced code
+- `textlayout/sharedparley.rs` again, where a `StyledText` lets its text 4px past
+  its box, and a `TextInput` up and down, as an emoji is taller than its line
 - `textlayout/sharedparley/draw.rs`, which draws mention pills under their
   text and opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`
 - `graphics/image.rs`, where no image equals no image; upstream they differ,
@@ -165,6 +167,19 @@ is. Compare it with the Fluent style's when upgrading Slint.
 
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
+
+The picker's, the reaction buttons' and the emoji suggestions' emoji are drawn
+from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
+`assets/72x72` from https://github.com/discord/twemoji at the revision
+`vendor/twemoji/REVISION` names, under CC-BY 4.0, which asks for the attribution
+`vendor/twemoji/README.yapfast.md` gives. `build.rs` makes them one font the program
+carries, which message text draws and maps rather than copies, and
+`src/twemoji.rs` finds a picture in it by the emoji's code points; a code point it has
+no picture for stays a glyph from the system's emoji font (`src/emoji_glyphs.rs`
+draws that once into a picture). `scripts/release_package.py` copies the
+licences and attribution into each package and `THIRD-PARTY.json`. Update by
+taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
+says.
 
 libDF, DeepFilterNet's Rust implementation, comes from DeepFilterNet's
 repository at `d375b2d`, since crates.io has only its 0.2.5. It asks for

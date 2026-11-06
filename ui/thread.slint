@@ -3,7 +3,7 @@ import { Theme, Middle } from "theme.slint";
 import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } from "controls.slint";
 import { FoundRow, FoundCard } from "header.slint";
 import { SettingsSwitch } from "settings.slint";
-import { Composer, StagedFile, StagedTile } from "composer.slint";
+import { Composer, StagedFile, StagedTile, MentionRow, MentionList, EmojiSuggestions } from "composer.slint";
 import { EmojiCell, EmojiButton, MessageRow, MessageContent, HistoryEdge } from "messages.slint";
 
 /// A Discord thread beside the open channel, in place of its member list, as
@@ -88,6 +88,24 @@ export component ThreadPanel inherits Rectangle {
     /// Counts up for the window to focus the composer, after a menu's Reply or Edit.
     in property <int> focus-tick;
     changed focus-tick => { composer.focus-input(); }
+    /// Counts up for the window to put the cursor at `caret-offset`, after a
+    /// suggestion was chosen.
+    in property <int> caret-tick;
+    in property <int> caret-offset;
+    changed caret-tick => { composer.place-caret(root.caret-offset); composer.focus-input(); }
+    // Mention and emoji suggestions for what's typed here, as the channel's
+    // composer has; the window fills them while this composer was typed in last.
+    in property <[MentionRow]> mentions;
+    in property <int> mention-index;
+    in property <[EmojiCell]> emoji-suggestions;
+    in property <string> emoji-suggestion-query;
+    in property <int> emoji-suggestion-index;
+    callback caret(string, int);
+    callback suggestion-moved(int);
+    callback suggestion-chosen;
+    callback suggestion-dismissed;
+    callback mention-chosen(int);
+    callback emoji-suggestion-chosen(int);
     public function scroll-to-latest() {
         root.follow-latest = true;
         thread-list.content-y = min(0px, thread-list.height - thread-list.content-height);
@@ -237,6 +255,7 @@ export component ThreadPanel inherits Rectangle {
                                 if message.can-react && root.composer-enabled: HorizontalLayout {
                                     spacing: 0px;
                                     for cell[slot] in root.bar-reactions: EmojiButton {
+                                        animation-key: cell.key;
                                         visible: slot < 2; width: slot < 2 ? 32px : 0px;
                                         emoji: cell; font: root.emoji-font;
                                         clicked => { root.react(message.item, cell.key); }
@@ -279,7 +298,7 @@ export component ThreadPanel inherits Rectangle {
                     IconButton { icon: @image-url("icons/x.svg"); label: root.is-editing ? "Cancel editing" : "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                 }
             }
-            Rectangle {
+            composer-box := Rectangle {
                 min-height: 48px;
                 background: Theme.field;
                 border-radius: 10px;
@@ -316,6 +335,11 @@ export component ThreadPanel inherits Rectangle {
                             edited(text) => { root.draft-edited(text); }
                             accepted => { root.send(); }
                             paste => { root.paste(); }
+                            suggesting: root.mentions.length > 0 || root.emoji-suggestions.length > 0;
+                            caret(text, offset) => { root.caret(text, offset); }
+                            suggestion-moved(step) => { root.suggestion-moved(step); }
+                            suggestion-chosen => { root.suggestion-chosen(); }
+                            suggestion-dismissed => { root.suggestion-dismissed(); }
                             // Escape stops a reply or an edit, as in Discord.
                             escaped => {
                                 if root.compose-label == "" { return false; }
@@ -336,6 +360,24 @@ export component ThreadPanel inherits Rectangle {
                 }
             }
         }
+    }
+    // Suggestions just above the composer and as wide as it, over a reply's or
+    // an edit's bar, as the channel's show above its own.
+    property <length> suggestions-y: composer-box.absolute-position.y - root.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - 8px;
+    if root.mentions.length > 0 && root.composer-enabled: MentionList {
+        x: composer-box.absolute-position.x - root.absolute-position.x;
+        width: composer-box.width;
+        y: root.suggestions-y - self.height;
+        mentions: root.mentions; mention-index: root.mention-index;
+        mention-chosen(index) => { root.mention-chosen(index); }
+    }
+    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled: EmojiSuggestions {
+        x: composer-box.absolute-position.x - root.absolute-position.x;
+        width: composer-box.width;
+        y: root.suggestions-y - self.height;
+        emoji: root.emoji-suggestions; query: root.emoji-suggestion-query;
+        emoji-index: root.emoji-suggestion-index; emoji-font: root.emoji-font;
+        emoji-chosen(index) => { root.emoji-suggestion-chosen(index); }
     }
 }
 

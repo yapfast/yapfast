@@ -136,7 +136,8 @@
 // POST /_control/embeds makes Bob post an article link, whose preview arrives
 // a moment later in a MESSAGE_UPDATE as Discord's does, a YouTube link and a
 // GIF link, and a bot post a card with fields; their pictures come from
-// /external/, standing in for Discord's media proxy.
+// /external/, standing in for Discord's media proxy. They go to #general, or
+// with ?channel=ID to that channel or thread.
 // The soundboard: GET /soundboard-default-sounds gives six of Discord's own,
 // and op 31 "Server"'s two, Bob's laugh with :talk: and Carol's applause.
 // POST /channels/{id}/send-soundboard-sound plays one in the call Alice is in,
@@ -160,6 +161,9 @@
 // emoji and sticker take that long, as a round trip to the real CDN does. POST /_control/showcase makes
 // Bob post a spoiler, custom emoji, stickers, a GIF, a spoilered picture and a reply
 // to the start of #general's history, and Alice block Dave, who then posts.
+// GET /guilds/{id}/preview answers what the card of one of its emoji shows:
+// its partial guild object, with how many members it has and how many are
+// around.
 // /gifs/trending, /gifs/trending-gifs, /gifs/search and /gifs/suggest find
 // ten GIFs, made by testing/make-gif-fixtures and served from /_gifs/; a
 // search for "nothing" finds none. GET /_control/gif-selects lists what POST
@@ -242,7 +246,7 @@
 // and links' pictures, to show loading states.
 // POST /_control/clip makes Bob attach clip.mp4, six seconds with sound, and
 // link a post whose card plays a video, as vxtwitter's do; Carol forwards
-// the clip.
+// the clip. They go to #general, or with ?channel=ID to that channel or thread.
 // POST /_control/bob-away makes Bob idle with a custom status,
 // /_control/bob-mobile puts him online on his phone alone, and
 // /_control/bob-offline takes him offline.
@@ -3654,7 +3658,9 @@ function streamTo(ws: Socket, key: Buffer, ssrc: number, watcher = watchers.get(
     const peer = peers.get(ws.data.ssrc!);
     try {
       if (peer) udp.send(packet, peer.port, peer.address);
-    } catch {}
+    } catch {
+      // Nothing to do: the viewer's socket is already gone.
+    }
   };
   // testing/fixtures' recording goes at 10 frames a second, as tests
   // expect; a camera at 30, and an env's video at the rate it was made at.
@@ -4729,6 +4735,30 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       dispatch("GUILD_UPDATE", { ...properties, roles: serverRoles, emojis: guild().emojis });
       return json(guildProfile());
     }
+  }
+
+  // A server's preview, as the card of one of its emoji shows it: the
+  // partial guild object with all its partial fields, counts included; see
+  // "The server has two custom emoji" above.
+  if (method === "GET" && (m = path.match(/^\/guilds\/(\d+)\/preview$/))) {
+    if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
+    const { properties } = guild();
+    const around = Object.values(users).filter(
+      (user) => (presences[user.id]?.status ?? "offline") !== "offline",
+    );
+    return json({
+      id: GUILD,
+      name: properties.name,
+      icon: properties.icon,
+      description: properties.description,
+      splash: properties.splash,
+      discovery_splash: null,
+      features: properties.features,
+      emojis: guild().emojis,
+      stickers: guild().stickers,
+      approximate_member_count: Object.keys(users).length,
+      approximate_presence_count: around.length,
+    });
   }
 
   // "Server"'s roles; see "Server"'s roles above.
@@ -6819,16 +6849,16 @@ function articleEmbed(origin: string) {
   };
 }
 
-function postEmbeds(origin: string) {
+function postEmbeds(origin: string, channel = GENERAL) {
   const now = Date.now();
-  const article = post(GENERAL, users.bob, `Have you seen this? ${ARTICLE}`, now);
+  const article = post(channel, users.bob, `Have you seen this? ${ARTICLE}`, now);
   dispatch("MESSAGE_CREATE", dispatched(article, origin));
   // Discord fetches the page after the message is sent, then updates it.
   setTimeout(() => {
     article.embeds = (origin) => [articleEmbed(origin)];
     dispatch("MESSAGE_UPDATE", previewUpdate(article, origin));
   }, 800);
-  const video = post(GENERAL, users.bob, "This one too https://www.youtube.com/watch?v=talk", now + 1, {
+  const video = post(channel, users.bob, "This one too https://www.youtube.com/watch?v=talk", now + 1, {
     embeds: (origin) => [
       {
         type: "video",
@@ -6844,7 +6874,7 @@ function postEmbeds(origin: string) {
     ],
   });
   dispatch("MESSAGE_CREATE", dispatched(video, origin));
-  const gif = post(GENERAL, users.bob, "https://tenor.com/view/bike-gif-1", now + 2, {
+  const gif = post(channel, users.bob, "https://tenor.com/view/bike-gif-1", now + 2, {
     embeds: (origin) => [
       {
         type: "gifv",
@@ -6856,7 +6886,7 @@ function postEmbeds(origin: string) {
     ],
   });
   dispatch("MESSAGE_CREATE", dispatched(gif, origin));
-  const card = post(GENERAL, statusBot, "", now + 3, {
+  const card = post(channel, statusBot, "", now + 3, {
     embeds: (origin) => [
       {
         type: "rich",
@@ -6938,11 +6968,11 @@ function postShowcase(origin: string) {
 // drawn here instead.
 const clip = readFileSync(new URL("video-clip.mp4", fixtures));
 
-function postVideo(origin: string) {
+function postVideo(origin: string, channel: string) {
   const now = Date.now();
   const video = addFile({
     id: snowflake(now, 1),
-    channel: GENERAL,
+    channel,
     filename: "clip.mp4",
     contentType: "video/mp4",
     data: new Uint8Array(clip),
@@ -6950,14 +6980,14 @@ function postVideo(origin: string) {
     height: 270,
     draw: sunset,
   });
-  const watch = post(GENERAL, users.bob, "Watch this", now, { files: [video] });
+  const watch = post(channel, users.bob, "Watch this", now, { files: [video] });
   dispatch("MESSAGE_CREATE", dispatched(watch, origin));
   // Carol forwards it: the forward's own content is empty.
-  dispatch("MESSAGE_CREATE", dispatched(post(GENERAL, users.carol, "", now + 2, { forward: watch.id }), origin));
+  dispatch("MESSAGE_CREATE", dispatched(post(channel, users.carol, "", now + 2, { forward: watch.id }), origin));
   // vxtwitter's card for a post with a video: rich, with the video the
   // proxy has beside a thumbnail.
   const link = "https://vxtwitter.com/bob/status/1";
-  const linked = post(GENERAL, users.bob, link, now + 1, {
+  const linked = post(channel, users.bob, link, now + 1, {
     embeds: (origin) => [
       {
         type: "rich",
@@ -7983,7 +8013,7 @@ const server = Bun.serve<SocketData>({
       return new Response("showcase posted\n");
     }
     if (req.method === "POST" && path === "/_control/clip") {
-      postVideo(origin);
+      postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
     }
     if (req.method === "POST" && path === "/_control/components") {
@@ -7998,7 +8028,7 @@ const server = Bun.serve<SocketData>({
       return new Response(message.id);
     }
     if (req.method === "POST" && path === "/_control/embeds") {
-      postEmbeds(origin);
+      postEmbeds(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("embeds posted\n");
     }
     if (req.method === "POST" && path === "/_control/gallery") {

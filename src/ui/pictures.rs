@@ -834,6 +834,52 @@ mod tests {
     }
 
     #[test]
+    fn rows_fit_their_pictures_and_previews_to_a_narrow_panel() {
+        PREVIEWS.set(Previews::default());
+        let picture = Arc::new(Picture {
+            width: 400,
+            height: 300,
+            rgba: yapfast_core::chat::Pixels::new(400, 300, vec![0; 400 * 300 * 4]),
+            ..Default::default()
+        });
+        let attachment = |placement| yapfast_core::chat::Attachment {
+            name: "bridge.png".into(),
+            size: None,
+            image: true,
+            dimensions: Some((400, 300)),
+            preview: Some(picture.clone()),
+            preview_failed: false,
+            placement,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        };
+        let message = ChatMessage {
+            attachments: vec![
+                attachment(Placement::Message),
+                attachment(Placement::Embed(0)),
+            ],
+            embeds: vec![yapfast_core::chat::Embed {
+                title: "City opens its first bridge for bikes only".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // Beside the avatar in the timeline, as they came.
+        let wide = message_row(&message, &HashSet::new());
+        assert_eq!((wide.gallery_width, wide.gallery_height), (400, 300));
+        let card = wide.embeds.row_data(0).unwrap();
+        assert_eq!((card.gallery_width, card.gallery_height), (400, 300));
+        // In 232px, the picture fits it, and the card's within its padding.
+        let narrow = message_row_within(&message, &HashSet::new(), Some(232));
+        assert_eq!((narrow.gallery_width, narrow.gallery_height), (232, 174));
+        let card = narrow.embeds.row_data(0).unwrap();
+        assert_eq!((card.gallery_width, card.gallery_height), (200, 150));
+        PREVIEWS.set(Previews::default());
+    }
+
+    #[test]
     fn avatar_sources_are_weak_and_pixels_are_converted_only_when_requested() {
         PREVIEWS.set(Previews::default());
         let mut state = AppState::default();

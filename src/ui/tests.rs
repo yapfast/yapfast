@@ -432,6 +432,79 @@ fn files_dropped_on_the_thread_beside_go_with_its_message() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
+    use yapfast_core::chat::{ChatMember, Role};
+    let (window, adapter, _folder) = discord_server_window_changed(0, |server, _| {
+        server
+            .threads
+            .push(yapfast_core::yapfast_discord::ready::Channel {
+                id: "30".into(),
+                name: "Plans".into(),
+                parent: Some("11".into()),
+                thread: Some(Box::new(yapfast_core::yapfast_discord::ready::Thread {
+                    joined: true,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            });
+    });
+    window.show().unwrap();
+    adapter
+        .borrow_mut()
+        .app
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("discord:10:11".into()));
+    adapter
+        .borrow_mut()
+        .action(&window, Action::OpenAside("discord:10:30".into()));
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.room_ready = true;
+        adapter.app.state.aside.as_mut().unwrap().ready = true;
+        adapter.app.apply(Event::Members {
+            room: "discord:10:11".into(),
+            members: Ok(vec![ChatMember {
+                id: "3".into(),
+                name: "Carol".into(),
+                username: Some("carol".into()),
+                role: Role::Member,
+                avatar: None,
+                group: None,
+                presence: None,
+                color: None,
+                activity: None,
+                activities: Default::default(),
+                roles: Default::default(),
+                timed_out_until: None,
+            }]),
+        });
+        adapter.refresh(&window);
+    }
+    // `@` in the thread's composer suggests the channel's people, and the one
+    // chosen goes in that composer, not the channel's.
+    window.invoke_aside_composer_caret("hey @ca".into(), 7);
+    assert!(window.get_suggesting_aside());
+    assert_eq!(window.get_mentions().row_count(), 1);
+    window.invoke_mention_chosen(0);
+    assert_eq!(adapter.borrow().app.state.aside_draft(), "hey @Carol ");
+    assert_eq!(adapter.borrow().app.state.draft(), "");
+    // It's marked as the channel's composer marks its own.
+    let marks = i_slint_core::yapfast_marks::marks_of("hey @Carol ").expect("marked");
+    assert_eq!(marks[0].0, 4..10);
+    // `:name` too.
+    window.invoke_aside_composer_caret("hey @Carol :pizz".into(), 16);
+    assert!(window.get_emoji_suggestions().row_count() > 0);
+    window.invoke_emoji_suggestion_chosen(0);
+    assert_eq!(adapter.borrow().app.state.aside_draft(), "hey @Carol 🍕 ");
+    // Typing in the channel's composer takes the suggestions back.
+    window.invoke_composer_caret("@".into(), 1);
+    assert!(!window.get_suggesting_aside());
+}
+
+#[test]
 fn the_keyboard_steps_through_messages_and_acts_on_them() {
     use slint::platform::{Key, WindowEvent};
     let window = showing(
@@ -909,10 +982,24 @@ fn messages(lines: &[(&str, &str)]) -> YapfastWindow {
     )
 }
 
+/// Starts the testing backend on this test's thread, once: a test that sets
+/// anything up before it builds a window calls it first, as a font of emoji
+/// would otherwise start the platform's own.
+fn init_backend() {
+    thread_local! {
+        static STARTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    STARTED.with(|started| {
+        if !started.replace(true) {
+            i_slint_backend_testing::init_no_event_loop();
+        }
+    });
+}
+
 /// A window showing these messages, each starting a group and sent at 19:2 and its
 /// index, with the composer.
 fn showing(chat: Vec<ChatMessage>) -> YapfastWindow {
-    i_slint_backend_testing::init_no_event_loop();
+    init_backend();
     let window = YapfastWindow::new().unwrap();
     copy_whole_messages(&window);
     // Without the adapter's clipboard reading, Ctrl+V pastes text, as it
@@ -1171,6 +1258,166 @@ fn a_link_showing_other_text_asks_before_it_opens() {
             .all(|link| link == "yapfast:leave/https://evil.example/yapfast"),
         "{opened:?}"
     );
+}
+
+#[test]
+fn a_click_on_an_emoji_in_a_message_reaches_its_card() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    // The window's setup registers Twemoji's font, as the program's does.
+    init_backend();
+    emoji_text::register();
+    let window = one_message("😭 that hurt");
+    let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+    let record = opened.clone();
+    window.on_open_link(move |link| record.borrow_mut().push(link.into()));
+    let button = PointerEventButton::Left;
+    // The emoji starts the message, which sits at the end of the list.
+    for y in (620..700).step_by(4) {
+        for x in (370..430).step_by(4) {
+            let position = slint::LogicalPosition::new(x as f32, y as f32);
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerPressed { position, button });
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerReleased { position, button });
+        }
+    }
+    let opened = opened.borrow();
+    assert!(
+        opened.iter().any(|link| link == "yapfast:emoji/1f62d"),
+        "{opened:?}"
+    );
+}
+
+#[test]
+fn an_emoji_card_says_what_the_emoji_is() {
+    let mut pictures = HashMap::new();
+    let state = yapfast_core::application::AppState::default();
+    let default = emoji_card(
+        &emoji_text::Target::Unicode("😭".to_owned()),
+        None,
+        &state,
+        &mut pictures,
+    );
+    assert_eq!(default.name, ":sob:");
+    assert_eq!(
+        default.description,
+        "This is a default emoji. It can be used anywhere."
+    );
+    assert_eq!(default.server, "", "no server to show");
+    assert_eq!(default.glyph, "😭", "shown when Twemoji has no picture");
+    // A server's emoji, whose server this account can't reach, says so, and
+    // shows no server.
+    let custom = emoji_card(
+        &emoji_text::Target::Custom("42".to_owned()),
+        None,
+        &state,
+        &mut pictures,
+    );
+    assert_eq!(custom.description, "Invite-Only Server");
+    // Nothing of the server shows: no name, no count, no separator.
+    assert_eq!(custom.server, "");
+    assert_eq!(custom.server_online, "");
+    assert_eq!(custom.server_note, "");
+}
+
+/// The clock an animated emoji draws from moves only while playing, so an
+/// unfocused or idle window holds every emoji still; it is the vendored
+/// registry's, which this crate can reach and its own tests cannot run.
+#[test]
+fn an_animated_emoji_draws_a_frame_only_while_playing() {
+    use i_slint_core::yapfast_emoji as registry;
+    let (glyph, key) = ('\u{10ffe0}', "test-animation:1");
+    let frame =
+        || slint::Image::from_rgba8(slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(2, 2));
+    let animation = Rc::new(registry::Animation::new(vec![frame(), frame()], &[10, 10]));
+    registry::insert(key, Some(glyph), animation);
+    // The glyph message text draws, and the name the picker knows, both name it.
+    assert!(registry::frame_of_glyph(glyph).is_some());
+    assert!(registry::frame_of_key(key).is_some());
+    registry::set_playing(false);
+    let paused = registry::elapsed();
+    registry::advance(Duration::from_millis(40));
+    assert_eq!(registry::elapsed(), paused, "a paused clock holds still");
+    registry::set_playing(true);
+    registry::advance(Duration::from_millis(40));
+    assert!(registry::elapsed() > paused, "and moves while playing");
+    registry::set_playing(false);
+    registry::remove(key);
+    assert!(
+        registry::frame_of_glyph(glyph).is_none(),
+        "the still draws again"
+    );
+}
+
+#[test]
+fn an_emoji_card_says_how_many_of_its_servers_members_are_online() {
+    let mut pictures = HashMap::new();
+    let mut state = yapfast_core::application::AppState::default();
+    let server = yapfast_core::chat::ChatServer {
+        id: "discord:10".into(),
+        name: "Equicord".into(),
+        channels: Vec::new(),
+        discord: true,
+        muted: false,
+        unavailable: false,
+        icon: Some("https://cdn.discordapp.com/icons/10/abc.png".into()),
+        folder: None,
+        hide_muted: false,
+        community: true,
+        pinned: Vec::new(),
+    };
+    let target = emoji_text::Target::Custom("42".to_owned());
+    // Before Discord answers, the note follows the features Yapfast has.
+    let known = emoji_card(&target, Some(&server), &state, &mut pictures);
+    assert_eq!(known.server_online, "", "nothing said yet");
+    assert_eq!(known.server_note, "Discoverable Server");
+    assert_eq!(
+        known.server_picture_url, "https://cdn.discordapp.com/icons/10/abc.png",
+        "the card asks for the icon by address, so it loads"
+    );
+    state.server_previews.insert(
+        server.id.clone(),
+        yapfast_core::chat::ServerPreview {
+            online: Some(3999),
+            discoverable: true,
+        },
+    );
+    let answered = emoji_card(&target, Some(&server), &state, &mut pictures);
+    assert_eq!(
+        answered.server_online, "3,999 Online",
+        "grouped as Discord writes it"
+    );
+    assert_eq!(answered.server_note, "Discoverable Server");
+    // A server Discover doesn't list shows its count alone, whatever feature
+    // Yapfast knew of it.
+    state.server_previews.insert(
+        server.id.clone(),
+        yapfast_core::chat::ServerPreview {
+            online: Some(12),
+            discoverable: false,
+        },
+    );
+    // A server that isn't a Community shows its count alone.
+    let mut quiet = server.clone();
+    quiet.community = false;
+    let private = emoji_card(&target, Some(&quiet), &state, &mut pictures);
+    assert_eq!(private.server_online, "12 Online");
+    assert_eq!(private.server_note, "");
+    // A Community keeps its note even when the preview answers without the
+    // feature, which is what Discord's own card does.
+    let noted = emoji_card(&target, Some(&server), &state, &mut pictures);
+    assert_eq!(noted.server_online, "12 Online");
+    assert_eq!(noted.server_note, "Discoverable Server");
+    // A server out of reach, as in an outage, shows no server either.
+    let mut away = server.clone();
+    away.unavailable = true;
+    let unreachable = emoji_card(&target, Some(&away), &state, &mut pictures);
+    assert_eq!(unreachable.description, "Invite-Only Server");
+    assert_eq!(unreachable.server, "", "no server to open");
+    assert_eq!(unreachable.server_online, "", "and nothing of it to show");
+    assert_eq!(unreachable.server_note, "");
 }
 
 #[test]
@@ -6781,7 +7028,7 @@ fn a_found_message_shows_its_blocks_with_spoilers_hidden() {
 }
 
 #[test]
-fn the_gif_picker_keeps_the_width_it_was_dragged_to() {
+fn the_picker_keeps_the_width_it_was_dragged_to() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
     let window = YapfastWindow::new().unwrap();
@@ -6792,22 +7039,334 @@ fn the_gif_picker_keeps_the_width_it_was_dragged_to() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    window.invoke_gif_picker_width_chosen(648.);
-    assert_eq!(Layout::read(directory.path()).gif_picker_width, Some(648.));
+    window.invoke_picker_width_chosen(648.);
+    assert_eq!(Layout::read(directory.path()).picker_width, Some(648.));
     // A new window starts at the stored width.
     let next = YapfastWindow::new().unwrap();
     adapter.borrow_mut().attach(&next);
-    assert_eq!(next.get_gif_picker_width(), 648.);
+    assert_eq!(next.get_picker_width(), 648.);
 }
 
 #[test]
-fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list() {
+fn resizing_the_window_carries_the_pickers_room_with_the_composer() {
+    let window = showing(vec![]);
+    window.set_can_pick_gifs(true);
+    settle(&window);
+    let button = slint::platform::PointerEventButton::Left;
+    let click = |x: f32, y: f32| {
+        let native = window.window();
+        native.dispatch_event(slint::platform::WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, y),
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: slint::LogicalPosition::new(x, y),
+            button,
+        });
+        native.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: slint::LogicalPosition::new(x, y),
+            button,
+        });
+        settle(&window);
+    };
+    // The GIF button opens the picker with 978px of room: up to 8px right of
+    // the server list, which is 80px from the window's left edge.
+    click(992., 710.);
+    let room = window.get_picker_room();
+    assert_eq!(room, 978.);
+    // A window 200px wider carries the composer's buttons with it, and the
+    // room the picker may take, so the picker stays over its button instead of
+    // where the window used to end.
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1320., 760.));
+    settle(&window);
+    assert_eq!(window.get_picker_room(), room + 200.);
+    assert_eq!(window.get_picker_shown(), 498.);
+}
+
+#[test]
+fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    // What the picker shows, drawn once each, at the size the grid draws its
+    // glyphs: the colour font's paint graph would otherwise be walked again for
+    // every emoji on screen, every frame.
+    let rows = window.get_emoji_rows();
+    let shown = 0..8.min(rows.row_count());
+    let mut drawn = 0;
+    for index in shown {
+        let row = rows.row_data(index).unwrap();
+        for cell in row.cells.iter() {
+            // A custom emoji has its own picture, and a sequence keeps its
+            // glyphs for the font to join.
+            if cell.key.contains(':') || cell.glyph != cell.key || cell.glyph.chars().count() != 1 {
+                continue;
+            }
+            assert_eq!(
+                cell.picture.size().width,
+                emoji::GLYPH as u32,
+                "{} is drawn as a picture of the grid's size",
+                cell.name
+            );
+            drawn += 1;
+        }
+    }
+    assert!(drawn > 20, "the picker drew {drawn} emoji");
+}
+
+#[test]
+fn resizing_the_grid_fills_the_rows_it_is_scrolled_to() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    // Scrolled a long way down, the rows in view are the ones drawn.
+    let top = 40.0 * emoji::CELL;
+    window.invoke_emoji_scrolled_to(top, 6.0 * emoji::CELL);
+    // A wider grid is laid out again, and its cells are new ones: the rows it is
+    // scrolled to must take their pictures again, or every emoji there would be
+    // a placeholder until the grid was scrolled.
+    // A drag changes the columns more than once, and each change lays the grid
+    // out again: every one of them must fill the rows in view, not only the
+    // first.
+    window.set_emoji_panel_width(648.);
+    window.invoke_emoji_reflow();
+    window.set_emoji_panel_width(978.);
+    window.invoke_emoji_reflow();
+    let rows = window.get_emoji_rows();
+    let drawn: usize = (40..46.min(rows.row_count()))
+        .map(|index| {
+            rows.row_data(index)
+                .map(|row| {
+                    row.cells
+                        .iter()
+                        .filter(|cell| cell.picture.size().width > 0)
+                        .count()
+                })
+                .unwrap_or(0)
+        })
+        .sum();
+    assert!(drawn > 20, "the rows in view are drawn again: {drawn}");
+}
+
+#[test]
+fn only_the_rows_the_picker_shows_are_drawn() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    let rows = window.get_emoji_rows();
+    let drawn_in = |index: usize| -> usize {
+        let Some(row) = rows.row_data(index) else {
+            return 0;
+        };
+        row.cells
+            .iter()
+            .filter(|cell| cell.picture.size().width > 0)
+            .count()
+    };
+    // The rows the grid shows carry their pictures, and those a page below are
+    // left as glyphs: a long list costs only what is looked at, and scrolling to
+    // one fills it then.
+    let shown: usize = (0..8.min(rows.row_count())).map(drawn_in).sum();
+    assert!(shown > 20, "the rows shown are drawn: {shown}");
+    let below: usize = (12..40.min(rows.row_count())).map(drawn_in).sum();
+    assert_eq!(below, 0, "the rows a page below are not prepared");
+}
+
+#[test]
+fn rows_far_from_those_the_picker_shows_let_go_of_their_pictures() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    let rows = window.get_emoji_rows();
+    let drawn = |range: std::ops::Range<usize>| -> usize {
+        range
+            .filter_map(|index| rows.row_data(index))
+            .map(|row| {
+                row.cells
+                    .iter()
+                    .filter(|cell| cell.picture.size().width > 0)
+                    .count()
+            })
+            .sum()
+    };
+    assert!(drawn(0..8) > 20, "the top is drawn");
+    // A short scroll keeps what it left, for a scroll back.
+    window.invoke_emoji_scrolled_to(6.0 * emoji::CELL, 6.0 * emoji::CELL);
+    assert!(drawn(0..4) > 10, "the rows just left keep their pictures");
+    // A long one lets go of it, whether it went by steps or at once, as the
+    // sidebar jumps; the rows it reached are drawn, and those between were not.
+    window.invoke_emoji_scrolled_to(40.0 * emoji::CELL, 6.0 * emoji::CELL);
+    assert_eq!(drawn(0..24), 0, "the rows far above let go");
+    assert!(drawn(40..46) > 20, "the rows reached are drawn");
+    window.invoke_emoji_scrolled_to(100.0 * emoji::CELL, 6.0 * emoji::CELL);
+    assert_eq!(drawn(40..46), 0, "a jump lets go of where it came from");
+    assert!(drawn(100..106) > 20, "and draws where it went");
+    // Back at the top, the pictures are drawn again.
+    window.invoke_emoji_scrolled_to(0.0, 6.0 * emoji::CELL);
+    assert!(drawn(0..6) > 20, "a row drawn before is drawn again");
+    assert_eq!(drawn(100..106), 0);
+}
+
+#[test]
+fn a_closed_picker_keeps_no_grid_and_builds_it_as_it_opens() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    assert!(window.get_emoji_rows().row_count() > 100);
+    window.invoke_emoji_picker_closed();
+    assert_eq!(window.get_emoji_rows().row_count(), 0);
+    // A window resized meanwhile doesn't build it for nothing.
+    window.set_emoji_panel_width(648.);
+    window.invoke_emoji_reflow();
+    assert_eq!(window.get_emoji_rows().row_count(), 0);
+    window.invoke_emoji_search("".into());
+    let rows = window.get_emoji_rows();
+    assert!(rows.row_count() > 100);
+    let drawn: usize = (0..8)
+        .filter_map(|index| rows.row_data(index))
+        .map(|row| {
+            row.cells
+                .iter()
+                .filter(|cell| cell.picture.size().width > 0)
+                .count()
+        })
+        .sum();
+    assert!(drawn > 20, "the picker that opens is drawn: {drawn}");
+}
+
+#[test]
+fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
+    let row = |cells: Vec<EmojiCell>| EmojiRow {
+        heading: "".into(),
+        cells: ModelRc::new(VecModel::from(cells)),
+    };
+    let rows = VecModel::from(vec![
+        row(vec![emoji::cell("🍕")]),
+        row(vec![emoji::cell("cate:5"), emoji::cell("dog:6")]),
+    ]);
+    // A Unicode glyph needs no picture, so the first row asks for none.
+    assert!(
+        callbacks::custom_keys_without_pictures(&rows, 0, 0).is_empty(),
+        "the Unicode row asks for nothing"
+    );
+    let keys = callbacks::custom_keys_without_pictures(&rows, 0, 1);
+    assert_eq!(keys.len(), 2);
+    assert!(keys.contains("cate:5") && keys.contains("dog:6"));
+    // Rows past the end are left alone rather than read.
+    assert_eq!(
+        callbacks::custom_keys_without_pictures(&rows, 1, 9).len(),
+        2
+    );
+    assert!(callbacks::custom_keys_without_pictures(&rows, 5, 9).is_empty());
+    // A picture that arrived, or a name the server kept without one, is not
+    // asked for again.
+    let shown = rows.row_data(1).unwrap();
+    let filled = emoji::cell("cate:5");
+    shown.cells.set_row_data(
+        0,
+        EmojiCell {
+            picture: slint::Image::from_rgba8(slint::SharedPixelBuffer::new(2, 2)),
+
+            usable: true,
+            ..filled
+        },
+    );
+    let keys = callbacks::custom_keys_without_pictures(&rows, 1, 1);
+    assert_eq!(keys.iter().collect::<Vec<_>>(), ["dog:6"]);
+}
+
+#[test]
+fn the_emoji_grid_fits_the_width_the_picker_shows_at() {
+    // The widest row of the grid, which is the emoji a row fit.
+    fn widest(window: &YapfastWindow) -> usize {
+        let rows = window.get_emoji_rows();
+        (0..rows.row_count())
+            .map(|index| rows.row_data(index).unwrap().cells.row_count())
+            .max()
+            .unwrap_or(0)
+    }
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // The emoji popup opens 408px wide: six 56px buttons a row.
+    window.set_emoji_panel_width(408.);
+    window.invoke_emoji_search("".into());
+    assert_eq!(widest(&window), 6);
+    // The picker above the composer opens at 498, and its left edge drags it
+    // wider: the grid fits more emoji a row, as the GIFs' grid does.
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_reflow();
+    assert_eq!(widest(&window), 7);
+    window.set_emoji_panel_width(648.);
+    window.invoke_emoji_reflow();
+    assert_eq!(widest(&window), 10);
+    // Narrower than the default, the grid fits fewer.
+    window.set_emoji_panel_width(560.);
+    window.invoke_emoji_reflow();
+    assert_eq!(widest(&window), 8);
+}
+
+#[test]
+fn dragging_the_pickers_left_edge_widens_it_no_further_than_the_server_list() {
     let window = showing(vec![]);
     window.set_can_pick_gifs(true);
     // The widths letting go of the edge keeps.
     let chosen = Rc::new(RefCell::new(vec![]));
     let kept = chosen.clone();
-    window.on_gif_picker_width_chosen(move |width| kept.borrow_mut().push(width));
+    window.on_picker_width_chosen(move |width| kept.borrow_mut().push(width));
     settle(&window);
     let button = slint::platform::PointerEventButton::Left;
     let at = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
@@ -6827,11 +7386,11 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     // The GIF button in the composer opens the picker, 498px wide, its right
     // edge on the emoji button's.
     click(992., 710.);
-    assert_eq!(window.get_gif_picker_shown(), 498.);
+    assert_eq!(window.get_picker_shown(), 498.);
     assert_eq!(window.get_gif_grid_width(), 474.);
     // Room for it up to 8px right of the server list, which is 80px from the
     // window's left edge.
-    let room = window.get_gif_picker_room();
+    let room = window.get_picker_room();
     assert_eq!(room, 978.);
     // Where the picker shows on screen: its right edge, which is the emoji
     // button's, must stay there however far its left edge is dragged.
@@ -6907,29 +7466,29 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     assert!(chosen.borrow().is_empty());
     press(564.);
     moved(514.);
-    assert_eq!(window.get_gif_picker_shown(), 548.);
+    assert_eq!(window.get_picker_shown(), 548.);
     assert_eq!(panel(), (510., 548.));
     moved(464.);
-    assert_eq!(window.get_gif_picker_shown(), 598.);
+    assert_eq!(window.get_picker_shown(), 598.);
     assert_eq!(right_edge(), 1058.);
     moved(414.);
-    assert_eq!(window.get_gif_picker_shown(), 648.);
+    assert_eq!(window.get_picker_shown(), 648.);
     assert_eq!(right_edge(), 1058.);
     // The grid takes the width it got: three columns of 200px.
     assert_eq!(window.get_gif_grid_width(), 624.);
     release(414.);
-    assert_eq!(window.get_gif_picker_width(), 648.);
+    assert_eq!(window.get_picker_width(), 648.);
     assert_eq!(right_edge(), 1058.);
     assert_eq!(*chosen.borrow(), [648.]);
-    // The emoji keep the width the picker opens at; the GIFs come back at
-    // the width dragged.
+    // The emoji show at the width dragged too: the two tabs share the window.
     let tabs = found().2 + 30.;
     click(410. + 110., tabs);
-    assert_eq!(panel(), (560., 498.));
+    assert_eq!(panel(), (410., 648.));
+    assert_eq!(window.get_emoji_panel_width(), 648.);
     // A click on the panel's empty places keeps it open; one beside it, in
     // the room it could take, closes it.
-    click(560. + 300., tabs);
-    assert_eq!(panel(), (560., 498.));
+    click(410. + 300., tabs);
+    assert_eq!(panel(), (410., 648.));
     click(300., tabs);
     let inner = i_slint_core::window::WindowInner::from_pub(window.window());
     assert!(inner.active_popups().is_empty());
@@ -6940,18 +7499,18 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     // at, and no further.
     press(414.);
     moved(514.);
-    assert_eq!(window.get_gif_picker_shown(), 548.);
+    assert_eq!(window.get_picker_shown(), 548.);
     moved(700.);
-    assert_eq!(window.get_gif_picker_shown(), 498.);
+    assert_eq!(window.get_picker_shown(), 498.);
     release(700.);
-    assert_eq!(window.get_gif_picker_width(), 498.);
+    assert_eq!(window.get_picker_width(), 498.);
     // Left again, the edge stops just past the server list.
     press(564.);
     moved(0.);
-    assert_eq!(window.get_gif_picker_shown(), room);
+    assert_eq!(window.get_picker_shown(), room);
     assert_eq!(right_edge(), 1058.);
     release(0.);
-    assert_eq!(window.get_gif_picker_width(), room);
+    assert_eq!(window.get_picker_width(), room);
     assert_eq!(right_edge(), 1058.);
     window.hide().unwrap();
 }

@@ -2,6 +2,198 @@
 
 use super::*;
 
+/// The rows of the picker's grid that fit at once, with one to spare: the grid
+/// is about 340px tall and a row is 56px.
+const GRID_ROWS: usize = 8;
+
+/// The rows past those shown, each way, that keep their pictures once drawn, so
+/// a scroll back finds them ready. A row further off lets go of its own: a whole
+/// list of pictures is about 9 MiB, and 36 MiB on a display of twice the scale.
+const KEPT_ROWS: usize = 8;
+
+/// Fetches the pictures of the custom emoji whose rows show between `first` and
+/// `last`, and of those that have none yet. The picker brings the rest as it
+/// scrolls them into sight, since a server list can hold more emoji than fit in
+/// memory at once.
+fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: usize, last: usize) {
+    let wanted = custom_keys_without_pictures(&adapter.models.emoji_rows, first, last);
+    if wanted.is_empty() {
+        return;
+    }
+    let pictures = adapter
+        .app
+        .usable_emoji()
+        .iter()
+        .flat_map(|set| &set.emoji)
+        .filter(|emoji| wanted.contains(&emoji::custom_key(emoji)))
+        .map(|emoji| emoji.picture.clone())
+        .collect();
+    adapter.action(window, Action::LoadPictures(pictures));
+}
+
+/// Gives the picker's grid the emoji it shows between `first` and `last` rows a
+/// picture each, drawn once, so scrolling draws a bitmap instead of walking the
+/// colour font's paint graph for every emoji on screen; see [`crate::emoji_glyphs`].
+fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize, last: usize) {
+    let scale = window.window().scale_factor();
+    let_go_of_far_glyphs(adapter, first, last);
+    let rows = &adapter.models.emoji_rows;
+    let count = rows.row_count();
+    if count == 0 || first >= count {
+        return;
+    }
+    let mut shown: Vec<String> = Vec::new();
+    for index in first..=last.min(count - 1) {
+        let Some(row) = rows.row_data(index) else {
+            continue;
+        };
+        for cell_index in 0..row.cells.row_count() {
+            let Some(cell) = row.cells.row_data(cell_index) else {
+                continue;
+            };
+            if cell.key.contains(':') {
+                shown.push(cell.key.to_string());
+            }
+            // A custom emoji draws its own picture, and a cell whose glyph is a
+            // name rather than an emoji has nothing to draw.
+            if cell.picture.size().width > 0 || cell.key.contains(':') || cell.glyph != cell.key {
+                continue;
+            }
+            // Twemoji's picture, as Discord's client draws emoji; a code point it
+            // has none for keeps the system font's glyph, drawn once here too.
+            if let Some(image) = crate::twemoji::picture(&cell.glyph, emoji::GLYPH, scale)
+                .or_else(|| crate::emoji_glyphs::picture(&cell.glyph, emoji::GLYPH, scale))
+            {
+                row.cells.set_row_data(
+                    cell_index,
+                    EmojiCell {
+                        picture: image,
+
+                        usable: true,
+                        ..cell
+                    },
+                );
+            }
+        }
+    }
+    // The cells on screen whose emoji animate are decoded in turn, so the grid
+    // moves without waiting for a message to show them first.
+    let shown: Vec<(String, Option<char>, String)> = adapter
+        .app
+        .usable_emoji()
+        .iter()
+        .flat_map(|set| &set.emoji)
+        .filter(|emoji| emoji.animated)
+        .map(|emoji| {
+            (
+                (
+                    emoji::custom_key(emoji),
+                    custom_emoji::glyph(&emoji.id),
+                    emoji.picture.clone(),
+                ),
+                shown.iter().any(|key| *key == emoji::custom_key(emoji)),
+            )
+        })
+        .filter(|(_, visible)| *visible)
+        .map(|(job, _)| job)
+        .collect();
+    let pictures = &adapter.app.state.pictures;
+    adapter.animations.also(shown, pictures);
+}
+
+/// Takes the pictures [`fill_shown_glyphs`] gave back from the rows over
+/// [`KEPT_ROWS`] from those shown between `first` and `last`. It looks only at the
+/// rows that may hold one, so a scroll costs what it moved past.
+fn let_go_of_far_glyphs(adapter: &mut Adapter, first: usize, last: usize) {
+    let kept = first.saturating_sub(KEPT_ROWS)..=last.saturating_add(KEPT_ROWS);
+    let (from, to) = adapter.emoji_rows_filled;
+    let rows = &adapter.models.emoji_rows;
+    for index in from..=to.min(rows.row_count().saturating_sub(1)) {
+        if kept.contains(&index) {
+            continue;
+        }
+        let Some(row) = rows.row_data(index) else {
+            continue;
+        };
+        for cell_index in 0..row.cells.row_count() {
+            let Some(cell) = row.cells.row_data(cell_index) else {
+                continue;
+            };
+            // As in filling: a custom emoji's picture isn't this one's to take.
+            if cell.picture.size().width > 0 && !cell.key.contains(':') && cell.glyph == cell.key {
+                row.cells.set_row_data(
+                    cell_index,
+                    EmojiCell {
+                        picture: Default::default(),
+                        ..cell
+                    },
+                );
+            }
+        }
+    }
+    adapter.emoji_rows_filled = (
+        from.max(*kept.start()).min(first),
+        to.min(*kept.end()).max(last),
+    );
+}
+
+/// The reaction keys of the custom emoji in `rows` from `first` to `last` that
+/// have no picture yet, which the picker asks for when it shows them.
+pub(super) fn custom_keys_without_pictures(
+    rows: &VecModel<EmojiRow>,
+    first: usize,
+    last: usize,
+) -> HashSet<String> {
+    let count = rows.row_count();
+    if count == 0 || first >= count {
+        return HashSet::new();
+    }
+    let mut wanted = HashSet::new();
+    for index in first..=last.min(count - 1) {
+        let Some(row) = rows.row_data(index) else {
+            continue;
+        };
+        for cell in row.cells.iter() {
+            // A custom emoji's reaction key is `name:id`; a Unicode one is the
+            // glyph itself.
+            if cell.picture.size().width == 0 && cell.key.contains(':') {
+                wanted.insert(cell.key.to_string());
+            }
+        }
+    }
+    wanted
+}
+
+/// Gives the picker's grid the emoji `query` finds, `columns` to a row, and
+/// fetches the pictures of the custom emoji it shows.
+fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &str, columns: usize) {
+    let mut adapter = adapter.borrow_mut();
+    let (rows, sections) = {
+        let custom = adapter.app.emoji_sets();
+        emoji::rows(
+            query,
+            &adapter.app.frequent_reactions(16),
+            &custom,
+            columns,
+            |set| {
+                let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
+                Some(picture(icon))
+            },
+        )
+    };
+    update_model(&adapter.models.emoji_rows, rows);
+    adapter.emoji_rows_filled = (0, GRID_ROWS);
+    // The grid shares the width it shows at among these, so its cells need the
+    // count the rows were built with.
+    window.set_emoji_columns(columns as i32);
+    // Matches have no sections; the sidebar keeps those it jumps back to.
+    if !sections.is_empty() {
+        update_model(&adapter.models.emoji_sections, sections);
+    }
+    fetch_shown_pictures(&mut adapter, window, 0, GRID_ROWS);
+    fill_shown_glyphs(window, &mut adapter, 0, GRID_ROWS);
+}
+
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     super::games::bind(window, adapter);
     super::gifs::bind(window, adapter);
@@ -20,6 +212,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window
         .global::<PictureStore>()
         .on_picture(|url, _revision| avatar_picture(url.as_str()));
+    // An animated emoji's frame, by the name the picker knows it by; a still
+    // one has none and keeps its picture.
+    window
+        .global::<EmojiAnimations>()
+        .on_frame(|key, _revision| {
+            i_slint_core::yapfast_emoji::frame_of_key(key.as_str()).unwrap_or_default()
+        });
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -863,34 +1062,77 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    // The emoji per row the grid last took, so a width that leaves the columns
+    // alone does not build it again.
+    let columns_shown: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+    // The rows the grid last said it shows, so a scroll within them asks for
+    // nothing again, and a grid laid out again fills the rows it is scrolled to.
+    let shown_rows: Rc<Cell<(usize, usize)>> = Rc::new(Cell::new((usize::MAX, usize::MAX)));
+    let shown = columns_shown.clone();
+    let rows_before = shown_rows.clone();
     window.on_emoji_search(move |query| {
         let Some(window) = weak.upgrade() else { return };
+        let columns = emoji::columns(window.get_emoji_panel_width());
+        shown.set(columns);
+        // A grid built again starts at its top, and says where it shows from.
+        rows_before.set((usize::MAX, usize::MAX));
+        show_emoji(&state, &window, &query, columns);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    let rows_shown = shown_rows.clone();
+    window.on_emoji_reflow(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let columns = emoji::columns(window.get_emoji_panel_width());
+        // A closed picker has no grid to lay out, and builds it as it opens.
+        if columns == columns_shown.get() || state.borrow().models.emoji_rows.row_count() == 0 {
+            return;
+        }
+        columns_shown.set(columns);
+        // The grid keeps what is being searched for, laid out again.
+        show_emoji(&state, &window, &window.get_emoji_query(), columns);
+        // Its cells are new ones, so the rows it is scrolled to take their
+        // pictures again: a wider grid puts emoji in them that were a row below
+        // the last time, which would otherwise wait for a scroll to show.
+        // The range stays: a drag changes the columns several times, and each
+        // change lays every cell out again, so each one fills the same rows.
+        let (first, last) = rows_shown.get();
+        if first != usize::MAX {
+            let mut adapter = state.borrow_mut();
+            fetch_shown_pictures(&mut adapter, &window, first, last);
+            fill_shown_glyphs(&window, &mut adapter, first, last);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    // The grid went, and its next opening builds it again: its cells and their
+    // pictures can go, and those held for them, the custom emoji ones once there
+    // were more than a wide grid shows, since the disk cache has them. glibc would
+    // keep what that frees, so it's handed back once the grid's items have gone.
+    window.on_emoji_picker_closed(move || {
+        let Some(window) = weak.upgrade() else { return };
+        custom_emoji::forget_images();
+        crate::twemoji::forget();
+        crate::emoji_glyphs::forget();
         let mut adapter = state.borrow_mut();
-        let custom = adapter.app.usable_emoji();
-        // Opening the picker fetches the custom emoji's pictures.
-        if query.is_empty() {
-            let pictures = custom
-                .iter()
-                .flat_map(|set| &set.emoji)
-                .map(|emoji| emoji.picture.clone())
-                .take(MAX_PICKER_EMOJI)
-                .collect();
-            adapter.action(&window, Action::LoadPictures(pictures));
+        adapter.models.emoji_rows.set_vec(Vec::new());
+        adapter.action(&window, Action::UnloadEmojiPictures);
+        slint::Timer::single_shot(std::time::Duration::from_secs(1), trim);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    let rows_reported = shown_rows.clone();
+    window.on_emoji_scrolled_to(move |scrolled, height| {
+        let Some(window) = weak.upgrade() else { return };
+        let first = (scrolled / emoji::CELL).floor().max(0.) as usize;
+        let last = ((scrolled + height) / emoji::CELL).ceil() as usize;
+        if rows_reported.get() == (first, last) {
+            return;
         }
-        let (rows, sections) = emoji::rows(
-            &query,
-            &adapter.app.frequent_reactions(16),
-            &custom,
-            |set| {
-                let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
-                Some(picture(icon))
-            },
-        );
-        update_model(&adapter.models.emoji_rows, rows);
-        // Matches have no sections; the sidebar keeps those it jumps back to.
-        if !sections.is_empty() {
-            update_model(&adapter.models.emoji_sections, sections);
-        }
+        rows_reported.set((first, last));
+        let mut adapter = state.borrow_mut();
+        fetch_shown_pictures(&mut adapter, &window, first, last);
+        fill_shown_glyphs(&window, &mut adapter, first, last);
     });
     bind_item!(on_select_reaction, Action::ShowReactors);
     bind!(on_more_reactors, Action::MoreReactors);
@@ -944,15 +1186,22 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter.layout.write(&adapter.root);
     });
     let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_aside_resized(move |width| {
         let mut adapter = state.borrow_mut();
         adapter.layout.aside_width = Some(width);
         adapter.layout.write(&adapter.root);
+        // Its pictures and link previews fit the new width.
+        if let Some(window) = weak.upgrade()
+            && adapter.app.state.aside.is_some()
+        {
+            adapter.show_aside(&window);
+        }
     });
     let state = adapter.clone();
-    window.on_gif_picker_width_chosen(move |width| {
+    window.on_picker_width_chosen(move |width| {
         let mut adapter = state.borrow_mut();
-        adapter.layout.gif_picker_width = Some(width);
+        adapter.layout.picker_width = Some(width);
         adapter.layout.write(&adapter.root);
     });
     let state = adapter.clone();
@@ -1027,6 +1276,31 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
             return;
         }
+        // An emoji in a message's text opens its card, below it.
+        if let Some(target) = emoji_text::target(&link) {
+            let Some(window) = weak.upgrade() else { return };
+            if let Some(rect) = i_slint_core::yapfast_selection::clicked_link() {
+                window.invoke_anchor_link(
+                    rect.origin.x,
+                    rect.origin.y,
+                    rect.size.width,
+                    rect.size.height,
+                );
+            }
+            let mut adapter = state.borrow_mut();
+            let Adapter { app, pictures, .. } = &mut *adapter;
+            let card = messages::emoji_card_for(app, &target, pictures);
+            let server = card.server.to_string();
+            window.set_emoji_card(card);
+            window.set_emoji_card_open(true);
+            // Its server's card shows how many are online, which Discord is
+            // asked for and the card builds again with once it answers.
+            adapter.emoji_card = Some(target);
+            if !server.is_empty() {
+                adapter.action(&window, Action::PreviewServer(server));
+            }
+            return;
+        }
         // A mention opens the person's card, or the role's members, beside the
         // mention, or by the pointer when the link's place isn't known.
         let author = link
@@ -1048,6 +1322,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     Action::ShowProfile { user, large: false }
                 }
                 mention::Target::Role(role) => Action::ShowRole(role),
+                // Opens its chat; a voice channel's doesn't join the call.
+                mention::Target::Channel(room) => Action::Open(room),
                 // As in Discord's client, @everyone and @here open nothing.
                 mention::Target::Everyone => return,
             };
@@ -1581,66 +1857,23 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .action(&window, Action::SelectRoom(id.into()));
         }
     });
-    let state = adapter.clone();
-    let weak = window.as_weak();
-    window.on_composer_caret(move |text, offset| {
-        let Some(window) = weak.upgrade() else { return };
-        // Choosing a suggestion moves the cursor while it's being handled.
-        let Ok(mut adapter) = state.try_borrow_mut() else {
-            return;
+    for aside in [false, true] {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        let caret = move |text: SharedString, offset: i32| {
+            let Some(window) = weak.upgrade() else { return };
+            // Choosing a suggestion moves the cursor while it's being handled.
+            let Ok(mut adapter) = state.try_borrow_mut() else {
+                return;
+            };
+            composer_caret(&mut adapter, &window, &text, offset, aside);
         };
-        // The cursor moves before the edit is reported; take the text first, so the
-        // refresh below doesn't put back the text before it.
-        if adapter.app.state.draft() != text.as_str() {
-            adapter.action(&window, Action::SetDraft(text.to_string()));
+        if aside {
+            window.on_aside_composer_caret(caret);
+        } else {
+            window.on_composer_caret(caret);
         }
-        let offset = usize::try_from(offset).ok();
-        adapter.caret = adapter.app.state.selected.clone().zip(offset);
-        // The `:name` word, unless its suggestions were closed.
-        let word = offset.and_then(|offset| emoji::query(&text, offset));
-        if word.is_none() {
-            adapter.emoji_dismissed = None;
-        }
-        let word = word
-            .filter(|(at, _)| adapter.emoji_dismissed != Some(*at))
-            .map(|(at, name)| (at, name.to_owned()));
-        if adapter.emoji_word != word {
-            adapter.emoji_word = word;
-            window.set_emoji_suggestion_index(0);
-            adapter.show_emoji_suggestions(&window);
-            // Custom emoji show their pictures once they arrive.
-            let wanted: Vec<String> = adapter
-                .app
-                .usable_emoji()
-                .into_iter()
-                .flat_map(|set| set.emoji)
-                .filter(|custom| {
-                    let key = emoji::custom_key(custom);
-                    !adapter.app.state.pictures.contains_key(&custom.picture)
-                        && adapter
-                            .models
-                            .emoji_suggestions
-                            .iter()
-                            .any(|cell| cell.key == key)
-                })
-                .map(|custom| custom.picture)
-                .collect();
-            if !wanted.is_empty() {
-                adapter.action(&window, Action::LoadPictures(wanted));
-            }
-        }
-        let found = offset.and_then(|offset| mention::query(&text, offset));
-        if found.is_none() {
-            adapter.mention_dismissed = None;
-        }
-        let found = found.filter(|(at, _)| adapter.mention_dismissed != Some(*at));
-        adapter.mention_at = found.map(|(at, _)| at);
-        let query = found.map(|(_, query)| query.to_owned());
-        if adapter.app.state.mention_query != query {
-            window.set_mention_index(0);
-            adapter.action(&window, Action::MentionQuery(query));
-        }
-    });
+    }
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_mention_chosen(move |index| {
@@ -1655,27 +1888,27 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     .into_iter()
                     .nth(index)
             });
-            let (Some(chosen), Some(at), Some(query)) = (
+            let (Some(chosen), Some(at), Some((sigil, query))) = (
                 chosen,
                 adapter.mention_at,
                 adapter.app.state.mention_query.clone(),
             ) else {
                 return;
             };
-            let text = adapter.app.state.draft().to_owned();
+            let aside = adapter.suggesting_aside;
+            let text = adapter.composer_text(aside);
             let end = at + 1 + query.len();
-            if text.get(at..end) != Some(format!("@{query}").as_str()) {
+            if text.get(at..end) != Some(format!("{sigil}{query}").as_str()) {
                 return;
             }
-            let inserted = format!("@{} ", chosen.name);
+            let inserted = format!("{}{} ", chosen.sigil(), chosen.name);
             let text = format!("{}{inserted}{}", &text[..at], &text[end..]);
             adapter.mention_at = None;
             adapter.action(&window, Action::MentionQuery(None));
-            adapter.action(&window, Action::SetDraft(text));
-            at + inserted.len()
+            adapter.set_composer_text(&window, aside, text);
+            (aside, at + inserted.len())
         };
-        window.invoke_place_composer_caret(i32::try_from(caret).unwrap_or(i32::MAX));
-        window.invoke_focus_composer();
+        place_composer_caret(&window, caret);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -1691,18 +1924,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let (Some(chosen), Some((at, name))) = (chosen, word) else {
                 return;
             };
-            let text = adapter.app.state.draft().to_owned();
+            let aside = adapter.suggesting_aside;
+            let text = adapter.composer_text(aside);
             let end = at + 1 + name.len();
             if text.get(at..end) != Some(format!(":{name}").as_str()) {
                 return;
             }
             let inserted = format!("{} ", emoji::composer_text(&chosen.key));
             let text = format!("{}{inserted}{}", &text[..at], &text[end..]);
-            adapter.action(&window, Action::SetDraft(text));
-            at + inserted.len()
+            adapter.set_composer_text(&window, aside, text);
+            (aside, at + inserted.len())
         };
-        window.invoke_place_composer_caret(i32::try_from(caret).unwrap_or(i32::MAX));
-        window.invoke_focus_composer();
+        place_composer_caret(&window, caret);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -2591,6 +2824,93 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
 thread_local! {
     /// What the share menu lists to share, in its order.
     static SHAREABLE: RefCell<Vec<yapfast_core::stream_worker::Source>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Puts the cursor at a byte offset in the channel's composer, or the
+/// thread's beside it, and the keyboard there.
+fn place_composer_caret(window: &YapfastWindow, (aside, caret): (bool, usize)) {
+    let caret = i32::try_from(caret).unwrap_or(i32::MAX);
+    if aside {
+        window.invoke_place_aside_composer_caret(caret);
+    } else {
+        window.invoke_place_composer_caret(caret);
+        window.invoke_focus_composer();
+    }
+}
+
+/// The text and cursor of the channel's composer, or of the thread's beside
+/// it with `aside`: the `:name` and `@` or `#` words it suggests for.
+fn composer_caret(
+    adapter: &mut Adapter,
+    window: &YapfastWindow,
+    text: &str,
+    offset: i32,
+    aside: bool,
+) {
+    // The cursor moves before the edit is reported; take the text first, so the
+    // refresh below doesn't put back the text before it.
+    if aside {
+        if adapter.app.state.aside_draft() != text {
+            adapter.action(window, Action::SetAsideDraft(text.to_owned()));
+        }
+    } else if adapter.app.state.draft() != text {
+        adapter.action(window, Action::SetDraft(text.to_owned()));
+    }
+    let offset = usize::try_from(offset).ok();
+    if !aside {
+        adapter.caret = adapter.app.state.selected.clone().zip(offset);
+    }
+    // Suggestions follow the composer typed in last, as do what was closed.
+    if adapter.suggesting_aside != aside {
+        adapter.suggesting_aside = aside;
+        adapter.mention_dismissed = None;
+        adapter.emoji_dismissed = None;
+        window.set_suggesting_aside(aside);
+    }
+    // The `:name` word, unless its suggestions were closed.
+    let word = offset.and_then(|offset| emoji::query(text, offset));
+    if word.is_none() {
+        adapter.emoji_dismissed = None;
+    }
+    let word = word
+        .filter(|(at, _)| adapter.emoji_dismissed != Some(*at))
+        .map(|(at, name)| (at, name.to_owned()));
+    if adapter.emoji_word != word {
+        adapter.emoji_word = word;
+        window.set_emoji_suggestion_index(0);
+        adapter.show_emoji_suggestions(window);
+        // Custom emoji show their pictures once they arrive.
+        let wanted: Vec<String> = adapter
+            .app
+            .usable_emoji()
+            .into_iter()
+            .flat_map(|set| set.emoji)
+            .filter(|custom| {
+                let key = emoji::custom_key(custom);
+                !adapter.app.state.pictures.contains_key(&custom.picture)
+                    && adapter
+                        .models
+                        .emoji_suggestions
+                        .iter()
+                        .any(|cell| cell.key == key)
+            })
+            .map(|custom| custom.picture)
+            .collect();
+        if !wanted.is_empty() {
+            adapter.action(window, Action::LoadPictures(wanted));
+        }
+    }
+    let found = offset.and_then(|offset| mention::query(text, offset));
+    if found.is_none() {
+        adapter.mention_dismissed = None;
+    }
+    let found = found.filter(|(at, _, _)| adapter.mention_dismissed != Some(*at));
+    adapter.mention_at = found.map(|(at, _, _)| at);
+    let query = found.map(|(_, sigil, query)| (sigil, query.to_owned()));
+    if adapter.app.state.mention_query != query {
+        window.set_mention_index(0);
+        adapter.action(window, Action::MentionQuery(query));
+    }
 }
 
 /// Films with the chosen camera into the voice settings' preview, which is
