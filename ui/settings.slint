@@ -1387,7 +1387,7 @@ export component DiscordSettings inherits VerticalLayout {
     }
     if root.accounts.length > 0: HorizontalLayout {
         ActionButton {
-            text: "Add another account"; icon: @image-url("icons/user-plus.svg");
+            text: "Add another account"; icon: @image-url("icons/user.svg");
             clicked => { root.adding-account = true; root.link-discord(); }
         }
         ActionButton {
