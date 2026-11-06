@@ -1,3 +1,4 @@
+import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover } from "controls.slint";
@@ -69,12 +70,13 @@ export component HeaderSearch inherits Rectangle {
     callback search(string);
     callback clear;
     init => { if root.autofocus { input.focus(); } }
-    width: input.has-focus || root.text != "" ? 240px : 180px;
+    // Discord's box: 243px with a faint outline, wider while it's used.
+    width: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;
     animate width { duration: Theme.quick; }
-    height: 28px; border-radius: 6px;
+    height: ClientStyle.enabled ? 30px : 28px; border-radius: ClientStyle.enabled ? 8px : 6px;
     background: Theme.sunken;
-    border-width: input.has-focus ? 1px : 0px;
-    border-color: Theme.accent.with-alpha(0.8);
+    border-width: input.has-focus || ClientStyle.enabled ? 1px : 0px;
+    border-color: input.has-focus ? Theme.accent.with-alpha(0.8) : Theme.line;
     Text {
         x: 8px; width: root.width - 36px; height: root.height;
         visible: root.text == "";
@@ -109,8 +111,9 @@ export component HeaderSearch inherits Rectangle {
         }
     }
     if root.text == "": Image {
-        x: root.width - 24px; width: 16px; height: 16px;
-        source: @image-url("icons/search.svg"); colorize: Theme.muted;
+        x: root.width - (ClientStyle.enabled ? 28px : 24px); y: (root.height - self.height) / 2;
+        width: ClientStyle.enabled ? 20px : 16px; height: ClientStyle.enabled ? 20px : 16px;
+        source: @image-url("icons/search.svg"); colorize: ClientStyle.enabled ? Theme.secondary : Theme.muted;
     }
     if root.text != "": IconButton {
         x: root.width - 26px; size: 24px; glyph: 14px; tip-side: 2;

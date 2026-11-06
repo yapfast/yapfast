@@ -35,6 +35,8 @@ impl Application {
                 member.id.clone()
             },
             avatar: member.avatar.clone(),
+            decoration: member.decoration.clone(),
+            style: member.style,
             presence: member.presence,
             activity: member.activity.clone(),
             activities: member.activities.clone(),
@@ -51,6 +53,26 @@ impl Application {
         };
         let room = room.id.clone();
         self.open_profile(room, profile, large)
+    }
+
+    /// Fetches the profile of a member of the open Discord room before it is
+    /// asked for. The fetch keeps it, and nothing is shown for it.
+    pub(super) fn prefetch_profile(&mut self, user: String) -> Vec<Effect> {
+        let Some(room) = self
+            .state
+            .selected_room()
+            .filter(|room| room.network == Network::Discord)
+            .filter(|_| self.state.discord_online && !self.state.preview)
+            .filter(|_| self.state.person(&user).is_some())
+            .map(|room| room.id.clone())
+        else {
+            return vec![];
+        };
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
+            room,
+            user,
+            effect: self.state.cosmetics.effects,
+        }))]
     }
 
     /// Opens a Discord profile named only by its user id, as behind a
@@ -203,6 +225,7 @@ impl Application {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
                 room,
                 user,
+                effect: self.state.cosmetics.effects,
             }))]
         } else {
             vec![]
@@ -234,6 +257,38 @@ impl Application {
         }
     }
 
+    /// Gives the profiles on screen of `user` the levels of their badges, which
+    /// come after the rest.
+    pub(super) fn show_badge_levels(&mut self, user: &str, badges: Vec<crate::chat::ProfileBadge>) {
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .filter_map(Option::as_mut)
+            .filter(|view| view.profile.id == user && !view.loading)
+        {
+            view.profile.badges.clone_from(&badges);
+        }
+    }
+
+    /// Saves this account's note on a Discord user, which the profiles on
+    /// screen show at once; Discord keeps no empty notes.
+    pub(super) fn save_note(&mut self, user: String, note: String) -> Vec<Effect> {
+        if self.state.discord_user.is_none() || user.starts_with('@') {
+            return vec![];
+        }
+        let note = note.trim().to_owned();
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .flatten()
+            .filter(|view| view.profile.id == user)
+        {
+            view.profile.note.clone_from(&note);
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::SetNote {
+            user,
+            note,
+        }))]
+    }
+
     /// The profiles on screen of `user` waiting for Discord's.
     fn loading_profiles(&mut self, user: &str) -> impl Iterator<Item = &mut ProfileView> {
         [&mut self.state.profile, &mut self.state.panel_profile]
@@ -246,7 +301,13 @@ impl Application {
 /// Puts `profile` on screen in `view`. Presence and activities come from the
 /// member list; the profile doesn't carry them.
 fn fill_profile(view: &mut ProfileView, profile: &Profile) {
+    let note = std::mem::take(&mut view.profile.note);
     view.profile = Profile {
+        note: if profile.note.is_empty() {
+            note
+        } else {
+            profile.note.clone()
+        },
         presence: profile.presence.or(view.profile.presence),
         activity: profile.activity.clone().or(view.profile.activity.take()),
         activities: std::mem::take(&mut view.profile.activities),
@@ -265,6 +326,8 @@ pub(super) fn dm_profile(room: &ChatRoom, person: String) -> Profile {
             person.clone()
         },
         avatar: room.avatar.clone(),
+        decoration: room.decoration.clone(),
+        style: room.style,
         presence: room.presence,
         activity: room.activity.clone(),
         activities: room.activities.clone(),

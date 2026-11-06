@@ -112,6 +112,7 @@ impl Application {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
                 room,
                 user: person,
+                effect: self.state.cosmetics.effects,
             }))]
         } else {
             vec![]
@@ -405,6 +406,10 @@ impl Application {
         snapshot: Arc<yapfast_discord::service::Snapshot>,
     ) -> Vec<Effect> {
         self.state.discord_online = snapshot.status == yapfast_discord::service::Status::Online;
+        if let Some(account) = &snapshot.account {
+            self.state.account_username =
+                Some(account.username.clone()).filter(|name| !name.is_empty());
+        }
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
         {
@@ -413,6 +418,8 @@ impl Application {
             if let Some(account) = &snapshot.account {
                 self.state.account_name = Some(account.name.clone());
                 self.state.account_avatar = Some(account.avatar.clone());
+                self.state.account_decoration = account.decoration.clone();
+                self.state.account_nameplate = account.nameplate.clone().map(Into::into);
             }
             self.state.account_status = Some(match &snapshot.status {
                 Status::Online => "Online".into(),
