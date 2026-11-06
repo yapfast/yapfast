@@ -960,6 +960,7 @@ fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
         messages: timeline(vec![
             message("e:$bob", false),
             message("e:$mine", true),
+            message("e:$other", true),
             pending,
         ]),
     });
@@ -978,7 +979,12 @@ fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
     app.dispatch(Action::RequestDelete("e:$mine".into()));
     assert!(app.dispatch(Action::DeleteNow("e:$bob".into())).is_empty());
     assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$mine"));
-    app.dispatch(Action::CancelDelete);
+    assert!(matches!(
+        app.dispatch(Action::DeleteNow("e:$other".into())).as_slice(),
+        [Effect::Backend(Command::Delete { item, .. })] if item == "e:$other"
+    ));
+    assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$mine"));
+    // A quick Delete of the message being asked about ends the question.
     assert!(matches!(
         app.dispatch(Action::DeleteNow("e:$mine".into())).as_slice(),
         [Effect::Backend(Command::Delete { item, .. })] if item == "e:$mine"
