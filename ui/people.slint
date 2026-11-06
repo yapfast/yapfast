@@ -1,6 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label } from "theme.slint";
-import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField } from "controls.slint";
+import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField, TipIcon } from "controls.slint";
 import { StatusDot } from "rail.slint";
 
 /// A member of the open room. A heading starts each role's group.
@@ -17,6 +17,10 @@ export struct MemberRow {
     picture-url: string,
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
+    /// "Server boosting since 3 March 2024" for someone who boosts their
+    /// Discord server, which a gem by the name says on hover; empty for
+    /// anyone else.
+    boosting: string,
 }
 
 // The open room's members, grouped by role under the conversation header.
@@ -26,6 +30,8 @@ export component MemberPanel inherits Rectangle {
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
+    /// A gem by each server booster's name; on unless turned off.
+    in property <bool> boost-gems: true;
     /// A member was clicked: their id, and where their row is in the window.
     callback open-profile(string, length);
     /// A member was right-clicked: their id, and where in the window.
@@ -79,6 +85,14 @@ export component MemberPanel inherits Rectangle {
                             Text {
                                 text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500; overflow: elide;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
+                            }
+                            // Discord's boosting pink, the same in every theme, as in
+                            // Discord's client.
+                            if root.boost-gems && member.boosting != "": Middle {
+                                TipIcon {
+                                    source: @image-url("icons/gem.svg"); width: 14px; height: 14px;
+                                    colorize: #ff73fa; tip: member.boosting;
+                                }
                             }
                             if member.timed-out: Image {
                                 source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;

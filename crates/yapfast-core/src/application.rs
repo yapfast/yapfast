@@ -919,6 +919,7 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                boosting_since: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -943,6 +944,7 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                boosting_since: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -967,6 +969,7 @@ impl AppState {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            boosting_since: None,
         })
     }
 

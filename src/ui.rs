@@ -1005,6 +1005,8 @@ struct Layout {
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
+    /// A gem by each server booster in the member list; on unless turned off.
+    boost_gems: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
@@ -1256,6 +1258,7 @@ impl Layout {
         window.set_clock_seconds(self.clock_seconds);
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
         window.set_link_previews(self.link_previews.unwrap_or(true));
+        window.set_boost_gems(self.boost_gems.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));
