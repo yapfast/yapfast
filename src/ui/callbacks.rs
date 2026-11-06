@@ -665,6 +665,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
         });
     }
+    #[cfg(feature = "discord")]
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
