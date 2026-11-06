@@ -3027,14 +3027,14 @@ impl Application {
                 change,
             } => self.change_member(place, user, change),
             Action::LinkDiscord => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if self.state.preview || !cfg!(feature = "discord") {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Starting);
                 vec![Effect::LinkDiscord]
             }
             Action::LinkDiscordToken(token) => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if self.state.preview || !cfg!(feature = "discord") {
                     return vec![];
                 }
                 if token.trim().is_empty() {
