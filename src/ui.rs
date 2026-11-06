@@ -296,8 +296,8 @@ const ZOOM_NOTE: Duration = Duration::from_millis(1200);
 
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
-/// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
-/// it.
+/// layout, opens the quick switcher with Ctrl+K, pins the folding channel
+/// list open with Ctrl+Shift+B, and takes files dropped on it.
 fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
@@ -306,14 +306,14 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
         },
     };
-    /// The K key: the letter K in the keyboard's layout, or in a layout
-    /// without Latin letters, the key in its place.
-    fn is_k(key: &KeyEvent) -> bool {
+    /// A letter key, such as K: the letter in the keyboard's layout, or in
+    /// a layout without Latin letters, the key in its place.
+    fn is_letter(key: &KeyEvent, letter: &str, code: KeyCode) -> bool {
         match &key.logical_key {
             Key::Character(text) if text.chars().all(|letter| letter.is_ascii_alphabetic()) => {
-                text.eq_ignore_ascii_case("k")
+                text.eq_ignore_ascii_case(letter)
             }
-            _ => key.physical_key == PhysicalKey::Code(KeyCode::KeyK),
+            _ => key.physical_key == PhysicalKey::Code(code),
         }
     }
     let saved = zoom::saved(adapter.borrow().layout.zoom);
@@ -522,7 +522,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
                     && key.state == ElementState::Pressed
                     && keys.control_only()
-                    && is_k(key)
+                    && is_letter(key, "k", KeyCode::KeyK)
                     && let Some(window) = weak.upgrade()
                     && window.get_workspace()
                     && !window.get_settings_open()
@@ -537,6 +537,22 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                                 adapter.borrow_mut().action(&window, Action::ToggleSwitcher);
                             }
                         });
+                    }
+                    return EventResult::PreventDefault;
+                }
+                // Ctrl+Shift+B pins the folding channel list open, or lets
+                // it fold again, as its pin does.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.control_shift()
+                    && is_letter(key, "b", KeyCode::KeyB)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                    && window.global::<Looks>().get_fold_channels()
+                {
+                    if !key.repeat {
+                        window.set_sidebar_pinned(!window.get_sidebar_pinned());
                     }
                     return EventResult::PreventDefault;
                 }
@@ -1005,6 +1021,27 @@ struct Layout {
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
+    /// The side panels fold until pointed at; off unless turned on.
+    fold_channels: Option<bool>,
+    fold_members: Option<bool>,
+    /// How long a folded panel waits under the pointer before it unrolls,
+    /// and after the pointer leaves before it folds, in ms; 120 and 300
+    /// unless changed.
+    unroll_delay: Option<i32>,
+    fold_delay: Option<i32>,
+    /// A shadow on the chat side of a panel unrolled over it, what the
+    /// folded channel list shows (unread channels and mentions, who's in
+    /// voice channels, the server's icon), the account panel as a pill in
+    /// the rail, and the pins that keep a panel unrolled; on unless turned
+    /// off.
+    unrolled_shadow: Option<bool>,
+    folded_unread: Option<bool>,
+    folded_voice: Option<bool>,
+    folded_server: Option<bool>,
+    folded_dock: Option<bool>,
+    pin_button: Option<bool>,
+    /// Panels slide and carets slide out; on unless turned off.
+    animations: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
@@ -1084,6 +1121,11 @@ struct Layout {
     /// Where the window was when Yapfast last ran, and how big.
     window: Option<placement::Placement>,
 }
+
+/// How long a folded side panel waits before it unrolls, and before it folds
+/// again, in ms, unless changed in Appearance.
+const UNROLL_DELAY: i32 = 120;
+const FOLD_DELAY: i32 = 300;
 
 /// Yapfast's sounds start as they're made: 12 dB under full scale at the loudest.
 const DEFAULT_SOUND_VOLUME: u8 = 100;
@@ -1256,6 +1298,18 @@ impl Layout {
         window.set_clock_seconds(self.clock_seconds);
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
         window.set_link_previews(self.link_previews.unwrap_or(true));
+        let looks = window.global::<Looks>();
+        looks.set_fold_channels(self.fold_channels.unwrap_or(false));
+        looks.set_fold_members(self.fold_members.unwrap_or(false));
+        looks.set_unroll_delay(self.unroll_delay.unwrap_or(UNROLL_DELAY).clamp(0, 1000));
+        looks.set_fold_delay(self.fold_delay.unwrap_or(FOLD_DELAY).clamp(0, 1500));
+        looks.set_unrolled_shadow(self.unrolled_shadow.unwrap_or(true));
+        looks.set_folded_unread(self.folded_unread.unwrap_or(true));
+        looks.set_folded_voice(self.folded_voice.unwrap_or(true));
+        looks.set_folded_server(self.folded_server.unwrap_or(true));
+        looks.set_folded_dock(self.folded_dock.unwrap_or(true));
+        looks.set_pin_button(self.pin_button.unwrap_or(true));
+        looks.set_animations(self.animations.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));

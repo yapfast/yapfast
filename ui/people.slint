@@ -26,6 +26,11 @@ export component MemberPanel inherits Rectangle {
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
+    /// How far it is folded to its avatars, from 0 open to 1 folded, following its
+    /// width: folded, its headings and note fade, so only the pictures show.
+    in property <float> fold;
+    /// Room kept at the top right for the pin that keeps it unrolled.
+    in property <length> pin-room;
     /// A member was clicked: their id, and where their row is in the window.
     callback open-profile(string, length);
     /// A member was right-clicked: their id, and where in the window.
@@ -34,18 +39,20 @@ export component MemberPanel inherits Rectangle {
     accessible-role: list;
     accessible-label: "Members";
     VerticalLayout {
-        if root.note != "": HorizontalLayout { padding: 16px; Label { text: root.note; } }
+        if root.note != "": HorizontalLayout { padding: 16px; opacity: 1 - root.fold; Label { text: root.note; } }
         // A list view makes only the rows in sight, which matters in large servers.
         ListView {
             vertical-stretch: 1;
             for member[index] in root.rows: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
-                padding-top: index == 0 ? 8px : 0px;
+                // The pin sits beside the first heading, or above the first row without one.
+                padding-top: index == 0 ? (member.heading == "" ? max(8px, root.pin-room) : 8px) : 0px;
                 padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
                 spacing: 2px;
                 if member.heading != "": HorizontalLayout {
-                    padding-left: 8px; height: 36px;
-                    Text { text: member.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center; }
+                    padding-left: 8px; padding-right: index == 0 ? root.pin-room : 0px; height: 36px;
+                    opacity: 1 - root.fold;
+                    Text { text: member.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center; overflow: elide; }
                 }
                 Rectangle {
                   height: 42px; border-radius: 6px;
