@@ -80,6 +80,7 @@ pub struct GifPicker {
     favorites_asked: bool,
     favorites_fresh: bool,
     /// This start asked for what the picker fetches ahead.
+    #[cfg(feature = "discord")]
     prefetched: bool,
     /// Stars used before Discord's favourites came, each adding a GIF or
     /// taking one out: they show at once and reach Discord's once they come,
@@ -160,6 +161,7 @@ impl Application {
     /// Asks for the favourite GIFs and the picker's home once, at a start, so
     /// their pictures are fetched ahead before the picker is ever opened.
     /// Opening the picker finds both answered, or tries again if one failed.
+    #[cfg(feature = "discord")]
     pub(super) fn prefetch_gifs(&mut self) -> Vec<Effect> {
         if self.state.preview || std::mem::replace(&mut self.state.gifs.prefetched, true) {
             return vec![];

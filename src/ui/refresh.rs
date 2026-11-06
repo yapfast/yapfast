@@ -2856,7 +2856,7 @@ impl Adapter {
         {
             return;
         }
-        let marks = if draft.contains('@') {
+        let marks = if draft.contains(['@', '#']) {
             yapfast_core::mention::marks(draft, &state.mention_candidates())
         } else {
             Vec::new()
@@ -2936,15 +2936,19 @@ impl Adapter {
             .iter()
             .enumerate()
             .map(|(index, candidate)| {
-                // People come first, then roles and groups, each under a heading.
+                // People come first, then roles and groups, each under a heading;
+                // `#` lists channels alone.
                 let starts_section = index == 0 || suggestions[index - 1].group != candidate.group;
                 MentionRow {
-                    heading: match (starts_section, candidate.group) {
-                        (false, _) => "",
-                        (true, false) => "MEMBERS",
-                        (true, true) => "ROLES",
+                    heading: match (starts_section, candidate.group, candidate.channel) {
+                        (false, ..) => "",
+                        (true, false, _) => "MEMBERS",
+                        (true, true, false) => "ROLES",
+                        (true, true, true) => "CHANNELS",
                     }
                     .into(),
+                    sigil: candidate.sigil().to_string().into(),
+                    voice: candidate.voice,
                     initial: initial(&candidate.name),
                     tint: tint(&candidate.name),
                     picture: cached_picture(&mut self.pictures, state, candidate.avatar.as_deref()),

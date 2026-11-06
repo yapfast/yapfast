@@ -1315,6 +1315,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     Action::ShowProfile { user, large: false }
                 }
                 mention::Target::Role(role) => Action::ShowRole(role),
+                // Opens its chat; a voice channel's doesn't join the call.
+                mention::Target::Channel(room) => Action::Open(room),
                 // As in Discord's client, @everyone and @here open nothing.
                 mention::Target::Everyone => return,
             };
@@ -1900,9 +1902,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if found.is_none() {
             adapter.mention_dismissed = None;
         }
-        let found = found.filter(|(at, _)| adapter.mention_dismissed != Some(*at));
-        adapter.mention_at = found.map(|(at, _)| at);
-        let query = found.map(|(_, query)| query.to_owned());
+        let found = found.filter(|(at, _, _)| adapter.mention_dismissed != Some(*at));
+        adapter.mention_at = found.map(|(at, _, _)| at);
+        let query = found.map(|(_, sigil, query)| (sigil, query.to_owned()));
         if adapter.app.state.mention_query != query {
             window.set_mention_index(0);
             adapter.action(&window, Action::MentionQuery(query));
@@ -1922,7 +1924,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     .into_iter()
                     .nth(index)
             });
-            let (Some(chosen), Some(at), Some(query)) = (
+            let (Some(chosen), Some(at), Some((sigil, query))) = (
                 chosen,
                 adapter.mention_at,
                 adapter.app.state.mention_query.clone(),
@@ -1931,10 +1933,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             };
             let text = adapter.app.state.draft().to_owned();
             let end = at + 1 + query.len();
-            if text.get(at..end) != Some(format!("@{query}").as_str()) {
+            if text.get(at..end) != Some(format!("{sigil}{query}").as_str()) {
                 return;
             }
-            let inserted = format!("@{} ", chosen.name);
+            let inserted = format!("{}{} ", chosen.sigil(), chosen.name);
             let text = format!("{}{inserted}{}", &text[..at], &text[end..]);
             adapter.mention_at = None;
             adapter.action(&window, Action::MentionQuery(None));

@@ -1,5 +1,6 @@
-//! Mentioning people and roles from the composer: the `@` word being typed, who
-//! it may mean, and the message text that mentions them on its network.
+//! Mentioning people, roles and channels from the composer: the `@` or `#` word
+//! being typed, who or what it may mean, and the message text that mentions
+//! them on its network.
 
 use std::ops::Range;
 
@@ -16,8 +17,19 @@ pub struct Candidate {
     pub avatar: Option<String>,
     /// The RGB colour of the name.
     pub color: Option<u32>,
-    /// A role or a group such as @everyone, rather than a person.
+    /// A role or a group such as @everyone, or a channel, rather than a person.
     pub group: bool,
+    /// A channel, which `#` mentions rather than `@`.
+    pub channel: bool,
+    /// A voice channel.
+    pub voice: bool,
+}
+
+impl Candidate {
+    /// What the composer writes before the name: `#` for a channel, else `@`.
+    pub fn sigil(&self) -> char {
+        if self.channel { '#' } else { '@' }
+    }
 }
 
 /// Someone or something a message mentions, as the message shows it.
@@ -34,24 +46,28 @@ pub struct Mentioned {
 }
 
 /// Who a mention points at: a user, by Discord or Matrix id, a Discord role,
-/// or everyone, as Discord's `@everyone` and `@here` do.
+/// a channel, by room id, or everyone, as Discord's `@everyone` and `@here` do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     User(String),
     Role(String),
+    Channel(String),
     Everyone,
 }
 
 const USER_LINK: &str = "yapfast:user/";
 const ROLE_LINK: &str = "yapfast:role/";
+const CHANNEL_LINK: &str = "yapfast:channel/";
 const EVERYONE_LINK: &str = "yapfast:everyone";
 const MATRIX_TO: &str = "https://matrix.to/#/";
 
-/// The address a mention links to in a message; clicking it opens the person or role.
+/// The address a mention links to in a message; clicking it opens the person,
+/// role or channel.
 pub fn link(target: &Target) -> String {
     match target {
         Target::User(id) => format!("{USER_LINK}{id}"),
         Target::Role(id) => format!("{ROLE_LINK}{id}"),
+        Target::Channel(room) => format!("{CHANNEL_LINK}{room}"),
         Target::Everyone => EVERYONE_LINK.to_owned(),
     }
 }
@@ -63,6 +79,9 @@ pub fn target(link: &str) -> Option<Target> {
     }
     if let Some(id) = link.strip_prefix(ROLE_LINK) {
         return Some(Target::Role(id.to_owned()));
+    }
+    if let Some(room) = link.strip_prefix(CHANNEL_LINK) {
+        return Some(Target::Channel(room.to_owned()));
     }
     if link == EVERYONE_LINK {
         return Some(Target::Everyone);
@@ -113,8 +132,11 @@ pub fn linked(markdown: &str, mentions: &[Mentioned], link_color: u32) -> String
             continue;
         }
         // A name is shown as typed: one such as `[x](https://…)` would
-        // otherwise be a link of its own.
-        let text = crate::links::escape_markdown(&mention.text);
+        // otherwise be a link of its own. A channel's comes escaped already.
+        let text = match mention.target {
+            Target::Channel(_) => mention.text.clone(),
+            _ => crate::links::escape_markdown(&mention.text),
+        };
         let color = mention.color.unwrap_or(link_color) & 0xff_ffff;
         out.push_str(&format!(
             "<font color=\"#{color:06x}\">[{text}](<{}>)</font>",
@@ -124,6 +146,42 @@ pub fn linked(markdown: &str, mentions: &[Mentioned], link_color: u32) -> String
     }
     out.push_str(&escaped[last..]);
     out
+}
+
+/// A message's `body` as its author would type it again, to edit: a channel's
+/// name is escaped where it shows, and would go out as text with its backslashes.
+pub fn as_typed(body: &str, mentions: &[Mentioned]) -> String {
+    let mut places: Vec<(usize, &str)> = mentions
+        .iter()
+        .filter(|mention| matches!(mention.target, Target::Channel(_)))
+        .flat_map(|mention| {
+            mention
+                .at
+                .iter()
+                .map(move |&at| (at, mention.text.as_str()))
+        })
+        .collect();
+    places.sort_unstable_by_key(|(at, _)| std::cmp::Reverse(*at));
+    let mut typed = body.to_owned();
+    for (at, text) in places {
+        if typed.get(at..at + text.len()) == Some(text) {
+            typed.replace_range(at..at + text.len(), &without_escapes(text));
+        }
+    }
+    typed
+}
+
+/// `text` without the backslashes that escape its Markdown's punctuation.
+fn without_escapes(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(next) = chars.next() {
+        if next == '\\' && chars.peek().is_some_and(char::is_ascii_punctuation) {
+            continue;
+        }
+        plain.push(next);
+    }
+    plain
 }
 
 /// Moves each offset into `original` to the same place in `escaped`, which
@@ -159,18 +217,23 @@ fn is_name_char(c: char) -> bool {
 /// Names longer than this aren't looked up while typing.
 const MAX_QUERY: usize = 32;
 
-/// The `@` word ending at `cursor`, a byte offset into `text`: where its `@` is,
-/// and what follows it.
-pub fn query(text: &str, cursor: usize) -> Option<(usize, &str)> {
+/// The `@` or `#` word ending at `cursor`, a byte offset into `text`: where its
+/// sigil is, which one, and what follows it.
+pub fn query(text: &str, cursor: usize) -> Option<(usize, char, &str)> {
     let before = text.get(..cursor)?;
-    let at = before.rfind('@')?;
+    let at = before.rfind(['@', '#'])?;
+    let sigil = if before[at..].starts_with('#') {
+        '#'
+    } else {
+        '@'
+    };
     let query = &before[at + 1..];
     let starts_word = before[..at]
         .chars()
         .next_back()
         .is_none_or(|previous| previous.is_whitespace() || "([{\"'".contains(previous));
     (starts_word && query.len() <= MAX_QUERY && !query.contains(char::is_whitespace))
-        .then_some((at, query))
+        .then_some((at, sigil, query))
 }
 
 /// The candidates `query` may mean, at most `limit`: names that start with it,
@@ -209,7 +272,8 @@ pub fn matching<'a>(candidates: &'a [Candidate], query: &str, limit: usize) -> V
         .collect()
 }
 
-/// `text` with each `@name` of a candidate, outside code, in its network's form.
+/// `text` with each `@name` or `#channel` of a candidate, outside code, in its
+/// network's form.
 pub fn wire(text: &str, candidates: &[Candidate]) -> String {
     let mut out = String::with_capacity(text.len());
     let mut end = 0;
@@ -231,10 +295,13 @@ pub fn marks(text: &str, candidates: &[Candidate]) -> Vec<(Range<usize>, Option<
         .collect()
 }
 
-/// Each `@name` of a candidate in `text`, outside code, and whom it names.
-/// The longest name that fits wins, so `@Ann Lee` isn't taken for `@Ann`.
+/// Each `@name` or `#channel` of a candidate in `text`, outside code, and whom
+/// it names. The longest name that fits wins, so `@Ann Lee` isn't taken for
+/// `@Ann`, and of names that differ only in case the one written so, as a pick
+/// writes it, so `#General` isn't taken for `#general`. Two names written alike
+/// can't be told apart: the first listed wins.
 fn found<'a>(text: &str, candidates: &'a [Candidate]) -> Vec<(Range<usize>, &'a Candidate)> {
-    if !text.contains('@') {
+    if !text.contains(['@', '#']) {
         return Vec::new();
     }
     let mut sorted: Vec<&Candidate> = candidates
@@ -251,18 +318,26 @@ fn found<'a>(text: &str, candidates: &'a [Candidate]) -> Vec<(Range<usize>, &'a 
             code = !code;
         }
         let starts_word = previous.is_none_or(|previous| !previous.is_alphanumeric());
-        if next == '@' && !code && starts_word {
+        if (next == '@' || next == '#') && !code && starts_word {
             let after = &text[at + 1..];
-            let candidate = sorted.iter().find(|candidate| {
+            let mut fits = sorted.iter().copied().filter(|candidate| {
                 let name = &candidate.name;
-                after
-                    .get(..name.len())
-                    .is_some_and(|head| head.eq_ignore_ascii_case(name))
+                candidate.sigil() == next
+                    && after
+                        .get(..name.len())
+                        .is_some_and(|head| head.eq_ignore_ascii_case(name))
                     && ends_name(&after[name.len()..])
+            });
+            let longest = fits.next();
+            let candidate = longest.map(|longest| {
+                std::iter::once(longest)
+                    .chain(fits.take_while(|other| other.name.len() == longest.name.len()))
+                    .find(|candidate| after.starts_with(&candidate.name))
+                    .unwrap_or(longest)
             });
             if let Some(candidate) = candidate {
                 let end = at + 1 + candidate.name.len();
-                found.push((at..end, *candidate));
+                found.push((at..end, candidate));
                 previous = candidate.name.chars().next_back();
                 at = end;
                 continue;
@@ -286,6 +361,16 @@ mod tests {
             avatar: None,
             color: None,
             group: false,
+            channel: false,
+            voice: false,
+        }
+    }
+
+    fn channel(name: &str, mention: &str) -> Candidate {
+        Candidate {
+            group: true,
+            channel: true,
+            ..person(name, mention)
         }
     }
 
@@ -353,16 +438,20 @@ mod tests {
 
     #[test]
     fn finds_the_word_being_typed() {
-        assert_eq!(query("hi @bo", 6), Some((3, "bo")));
-        assert_eq!(query("@", 1), Some((0, "")));
-        assert_eq!(query("(@carol", 7), Some((1, "carol")));
+        assert_eq!(query("hi @bo", 6), Some((3, '@', "bo")));
+        assert_eq!(query("@", 1), Some((0, '@', "")));
+        assert_eq!(query("(@carol", 7), Some((1, '@', "carol")));
         assert_eq!(query("mail me@home", 12), None, "not after a letter");
         assert_eq!(query("@bob is here", 12), None, "a space ends it");
         assert_eq!(
             query("hi @bo and", 6),
-            Some((3, "bo")),
+            Some((3, '@', "bo")),
             "the cursor ends it"
         );
+        assert_eq!(query("see #gen", 8), Some((4, '#', "gen")));
+        assert_eq!(query("#", 1), Some((0, '#', "")));
+        assert_eq!(query("C#", 2), None, "not after a letter");
+        assert_eq!(query("# Title", 7), None, "a heading's space ends it");
     }
 
     #[test]
@@ -409,6 +498,79 @@ mod tests {
         assert_eq!(wire("me@Ann.com", &candidates), "me@Ann.com");
         assert_eq!(wire("`@Ann` but @Ann", &candidates), "`@Ann` but <@1>");
         assert_eq!(wire("café @Ann", &candidates), "café <@1>");
+    }
+
+    #[test]
+    fn channels_go_out_with_hash() {
+        let candidates = [
+            channel("general", "<#11>"),
+            channel("off-topic", "<#12>"),
+            person("general", "<@3>"),
+        ];
+        assert_eq!(
+            wire("see #general and #off-topic, ask @general", &candidates),
+            "see <#11> and <#12>, ask <@3>"
+        );
+        assert_eq!(
+            wire("C#general and #generalist", &candidates),
+            "C#general and #generalist"
+        );
+        assert_eq!(wire("`#general`", &candidates), "`#general`");
+    }
+
+    #[test]
+    fn a_name_written_alike_wins_over_one_in_another_case() {
+        let text = channel("general", "<#1>");
+        let voice = channel("General", "<#2>");
+        assert_eq!(
+            wire(
+                "#General, #general, #GENERAL",
+                &[text.clone(), voice.clone()]
+            ),
+            "<#2>, <#1>, <#1>"
+        );
+        assert_eq!(wire("#General", &[voice, text]), "<#2>");
+        // The longest still wins first.
+        let candidates = [person("Ann", "<@1>"), person("ann lee", "<@2>")];
+        assert_eq!(wire("@Ann Lee", &candidates), "<@2>");
+    }
+
+    #[test]
+    fn a_channels_mention_opens_it_and_shows_its_escaped_name() {
+        let target = Target::Channel("discord:1:2".into());
+        assert_eq!(super::target(&link(&target)), Some(target.clone()));
+        let mentions = [Mentioned {
+            text: "#off\\-topic".into(),
+            target,
+            color: None,
+            at: vec![4],
+        }];
+        assert_eq!(
+            linked("see #off\\-topic", &mentions, 0x112233),
+            "see <font color=\"#112233\">[#off\\-topic](<yapfast:channel/discord:1:2>)</font>"
+        );
+    }
+
+    #[test]
+    fn editing_writes_a_channels_name_as_typed() {
+        let channel = Mentioned {
+            text: "#off\\-topic".into(),
+            target: Target::Channel("discord:1:2".into()),
+            color: None,
+            at: vec![0, 16],
+        };
+        let role = Mentioned {
+            text: "@a\\-b".into(),
+            target: Target::Role("3".into()),
+            color: None,
+            at: vec![28],
+        };
+        let body = "#off\\-topic 1\\* #off\\-topic @a\\-b";
+        assert_eq!(
+            as_typed(body, &[channel, role]),
+            "#off-topic 1\\* #off-topic @a\\-b",
+            "the rest stays as it is"
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 use super::{channels::SharedPreviews, *};
 use yapfast_discord::message::MentionTarget;
+use yapfast_discord::ready::Access;
 
 /// A new Discord message as a notification: who wrote it, by their name in the server,
 /// and what it says, or what it carries when it has no text.
@@ -457,6 +458,10 @@ pub(super) fn rendered(
                         .map(|(_, color)| *color);
                     (Target::Role(id), color)
                 }
+                MentionTarget::Channel(id) => {
+                    let guild = server.map_or("", |server| server.id.as_str());
+                    (Target::Channel(discord::room_id(guild, &id)), None)
+                }
                 MentionTarget::Everyone => (Target::Everyone, None),
             };
             Mentioned {
@@ -471,7 +476,7 @@ pub(super) fn rendered(
 }
 
 /// The roles a message in a server channel may mention, after @everyone and @here
-/// for those allowed them.
+/// for those allowed them, then the channels it may link with `#`.
 pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup> {
     let Some((guild, channel)) = discord::parse_room(room) else {
         return vec![];
@@ -491,6 +496,8 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name: name.into(),
                 mention: format!("@{name}"),
                 color: None,
+                channel: false,
+                voice: false,
             });
         }
     }
@@ -502,6 +509,22 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name,
                 mention: format!("<@&{id}>"),
                 color,
+                channel: false,
+                voice: false,
+            }),
+    );
+    // Its text and voice channels this account can see, in Discord's order.
+    let text = server.text_channels().map(|known| (known, false));
+    let voice = server.voice_channels().map(|known| (known, true));
+    groups.extend(
+        text.chain(voice)
+            .filter(|(known, _)| known.marks.access != Access::Hidden)
+            .map(|(known, voice)| MentionGroup {
+                name: known.channel.name.clone(),
+                mention: format!("<#{}>", known.channel.id),
+                color: None,
+                channel: true,
+                voice,
             }),
     );
     groups

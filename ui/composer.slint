@@ -207,8 +207,12 @@ export struct MentionRow {
     name: string, initial: string, tint: color, picture: image,
     // The name's colour, from a coloured Discord role.
     color: color, has-color: bool,
-    // A role or a group such as @everyone, rather than a person.
+    // A role or a group such as @everyone, or a channel, rather than a person.
     group: bool,
+    // What a group's mark shows: "@", or "#" for a channel.
+    sigil: string,
+    // A voice channel, whose mark is a speaker instead.
+    voice: bool,
     // Their username, or what a group reaches, such as "Everyone in this channel".
     detail: string,
     // The heading over the first member and the first role, such as "MEMBERS".
@@ -227,7 +231,7 @@ component SuggestionHeading inherits Text {
     height: 24px; vertical-alignment: center;
 }
 
-// Mention suggestions: members, then roles, each under its heading.
+// Mention suggestions: members, then roles, each under its heading, or channels.
 export component MentionList inherits SuggestionFrame {
     in property <[MentionRow]> mentions;
     /// The highlighted one.
@@ -253,7 +257,8 @@ export component MentionList inherits SuggestionFrame {
                         if mention.group: Rectangle {
                             width: 24px; height: 24px; border-radius: 12px;
                             background: (mention.has-color ? mention.color : Theme.muted).with-alpha(0.2);
-                            Text { text: "@"; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 700; }
+                            if !mention.voice: Text { text: mention.sigil; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 700; }
+                            if mention.voice: Image { source: @image-url("icons/volume-2.svg"); width: 14px; height: 14px; colorize: Theme.secondary; }
                         }
                     }
                     Text {

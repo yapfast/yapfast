@@ -522,10 +522,11 @@ pub struct AppState {
     pub server_previews: HashMap<String, chat::ServerPreview>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
-    /// The `@` word being typed in the composer, if any.
-    pub mention_query: Option<String>,
+    /// The `@` or `#` word being typed in the composer, if any: its sigil and
+    /// what follows it.
+    pub mention_query: Option<(char, String)>,
     /// What the selected room's messages may mention besides people: Discord's
-    /// roles, @everyone and @here.
+    /// roles, @everyone and @here, and its server's channels.
     pub mention_groups: Vec<MentionGroup>,
     /// Members of the selected room a search found for mentioning, beyond those
     /// listed.
@@ -1024,6 +1025,8 @@ impl AppState {
                 avatar: avatar.clone(),
                 color,
                 group: false,
+                channel: false,
+                voice: false,
             });
         }
         candidates.extend(self.mention_groups.iter().map(|group| Candidate {
@@ -1033,20 +1036,29 @@ impl AppState {
             avatar: None,
             color: group.color,
             group: true,
+            channel: group.channel,
+            voice: group.voice,
         }));
         candidates
     }
 
-    /// What the `@` word being typed may mean: people, best first, then roles
-    /// and groups.
+    /// What the word being typed may mean: for `@`, people, best first, then
+    /// roles and groups; for `#`, channels.
     pub fn mention_suggestions(&self) -> Vec<Candidate> {
-        let Some(query) = &self.mention_query else {
+        let Some((sigil, query)) = &self.mention_query else {
             return vec![];
         };
         let (groups, people): (Vec<Candidate>, Vec<Candidate>) = self
             .mention_candidates()
             .into_iter()
+            .filter(|candidate| candidate.sigil() == *sigil)
             .partition(|candidate| candidate.group);
+        if *sigil == '#' {
+            return mention::matching(&groups, query, MENTION_SUGGESTIONS)
+                .into_iter()
+                .cloned()
+                .collect();
+        }
         let people = mention::matching(&people, query, MENTION_SUGGESTIONS);
         let groups = mention::matching(&groups, query, MENTION_GROUPS);
         people.into_iter().chain(groups).cloned().collect()
@@ -1308,8 +1320,9 @@ pub enum Action {
     /// spoiler, or not.
     ToggleAsideSpoiler(usize),
     SetDraft(String),
-    /// The `@` word being typed in the composer changed, or there's none now.
-    MentionQuery(Option<String>),
+    /// The `@` or `#` word being typed in the composer changed, or there's
+    /// none now: its sigil and what follows it.
+    MentionQuery(Option<(char, String)>),
     /// Open the dialog for starting a DM, look for people in it, start one, or close it.
     OpenNewDm,
     /// Edit this account's newest message that can be edited, as Up in an empty
@@ -3857,6 +3870,8 @@ impl Application {
                 .find(|server| server.emojis.iter().any(|emoji| emoji.id == id))
                 .map(|server| discord::server_id(&server.id));
         }
+        #[cfg(not(feature = "discord"))]
+        let _ = id;
         None
     }
 

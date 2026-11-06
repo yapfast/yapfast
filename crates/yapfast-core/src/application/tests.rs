@@ -3095,7 +3095,7 @@ fn matrix_mentions_link_to_the_person() {
     });
     // Matrix lists every member, so nothing is searched for.
     assert!(
-        app.dispatch(Action::MentionQuery(Some("s".into())))
+        app.dispatch(Action::MentionQuery(Some(('@', "s".into()))))
             .is_empty()
     );
     let names: Vec<_> = app
@@ -3176,14 +3176,26 @@ fn discord_mentions_search_the_server_and_name_roles() {
     });
     app.apply(Event::MentionGroups {
         room: room.clone(),
-        groups: vec![MentionGroup {
-            name: "Mods".into(),
-            mention: "<@&30>".into(),
-            color: Some(0x3498db),
-        }],
+        groups: vec![
+            MentionGroup {
+                name: "Mods".into(),
+                mention: "<@&30>".into(),
+                color: Some(0x3498db),
+                channel: false,
+                voice: false,
+            },
+            MentionGroup {
+                name: "general".into(),
+                mention: "<#11>".into(),
+                color: None,
+                channel: true,
+                voice: false,
+            },
+        ],
     });
-    // People with their usernames, then roles; never this account.
-    app.dispatch(Action::MentionQuery(Some(String::new())));
+    // People with their usernames, then roles; never this account, nor
+    // channels, which `#` mentions.
+    app.dispatch(Action::MentionQuery(Some(('@', String::new()))));
     let suggested: Vec<_> = app
         .state
         .mention_suggestions()
@@ -3199,11 +3211,11 @@ fn discord_mentions_search_the_server_and_name_roles() {
     );
     // Few listed members match, so the server is searched, once per name.
     assert!(matches!(
-        app.dispatch(Action::MentionQuery(Some("Bo".into()))).as_slice(),
+        app.dispatch(Action::MentionQuery(Some(('@', "Bo".into())))).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::SearchMembers { query, .. }))] if query == "Bo"
     ));
     assert!(
-        app.dispatch(Action::MentionQuery(Some("bo".into())))
+        app.dispatch(Action::MentionQuery(Some(('@', "bo".into()))))
             .is_empty()
     );
     app.apply(Event::MemberMatches {
@@ -3218,14 +3230,26 @@ fn discord_mentions_search_the_server_and_name_roles() {
         .map(|candidate| candidate.name)
         .collect();
     assert_eq!(names, ["Bob", "Bobby"]);
+    // `#` suggests the server's channels alone, without a search.
+    assert!(
+        app.dispatch(Action::MentionQuery(Some(('#', "ge".into()))))
+            .is_empty()
+    );
+    let channels: Vec<_> = app
+        .state
+        .mention_suggestions()
+        .into_iter()
+        .map(|candidate| (candidate.name, candidate.channel))
+        .collect();
+    assert_eq!(channels, [("general".into(), true)]);
     // Custom emoji from the picker go out in Discord's form.
     app.dispatch(Action::SetDraft(
-        "@Bobby and @mods, look :talk: :party:".into(),
+        "@Bobby and @mods, look in #general :talk: :party:".into(),
     ));
     let Command::Send { body, .. } = send_command(app.dispatch(Action::Send)) else {
         unreachable!()
     };
-    assert_eq!(body, "<@9> and <@&30>, look <:talk:5> <a:party:6>");
+    assert_eq!(body, "<@9> and <@&30>, look in <#11> <:talk:5> <a:party:6>");
     app.apply(Event::SendResult {
         room: room.clone(),
         body,
@@ -8695,6 +8719,7 @@ fn no_favourite_gifs_left_still_lets_go_of_those_kept() {
     ));
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
     use crate::chat::{FavoriteGif, Gif};
