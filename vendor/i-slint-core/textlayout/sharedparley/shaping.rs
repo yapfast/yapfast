@@ -31,6 +31,8 @@ pub(super) struct Brush {
 
 pub(super) struct LayoutWithoutLineBreaksBuilder {
     font_request: Option<FontRequest>,
+    /// See [`crate::item_rendering::RenderString::line_height_factor`].
+    pub(super) line_height_factor: Option<f32>,
     pub(super) text_wrap: TextWrap,
     stroke: Option<TextStrokeStyle>,
     pub(super) scale_factor: ScaleFactor,
@@ -43,6 +45,7 @@ pub(super) struct LayoutWithoutLineBreaksBuilder {
 impl LayoutWithoutLineBreaksBuilder {
     pub(super) fn new(
         font_request: Option<FontRequest>,
+        line_height_factor: Option<f32>,
         text_wrap: TextWrap,
         stroke: Option<TextStrokeStyle>,
         scale_factor: ScaleFactor,
@@ -54,6 +57,7 @@ impl LayoutWithoutLineBreaksBuilder {
 
         Self {
             font_request,
+            line_height_factor,
             text_wrap,
             stroke,
             scale_factor,
@@ -65,16 +69,19 @@ impl LayoutWithoutLineBreaksBuilder {
     fn ranged_builder<'a>(
         &self,
         layout_ctx: &'a mut parley::LayoutContext<Brush>,
-        font_ctx: &'a mut parley::FontContext,
+        font_ctx: &'a mut FontContext,
         text: &'a str,
     ) -> parley::RangedBuilder<'a, Brush> {
         // Use the requested font's natural line-height ratio for every run so fallback fonts,
         // such as the symbol font used for password characters, don't enlarge the line box.
         // `FontSizeRelative` scales the result with each styled span's font size.
-        let line_height_ratio =
-            self.font_request.as_ref().and_then(|fr| line_height_ratio(font_ctx, fr));
+        let line_height_ratio = self
+            .font_request
+            .as_ref()
+            .and_then(|fr| line_height_ratio(font_ctx, fr, self.line_height_factor));
 
-        let mut builder = layout_ctx.ranged_builder(font_ctx, text, self.scale_factor.get(), false);
+        let mut builder =
+            layout_ctx.ranged_builder(&mut font_ctx.inner, text, self.scale_factor.get(), false);
 
         if let Some(ratio) = line_height_ratio {
             builder.push_default(parley::StyleProperty::LineHeight(
@@ -167,7 +174,7 @@ impl LayoutWithoutLineBreaksBuilder {
     /// [`SelectionSpan`].
     pub(super) fn build(
         &self,
-        font_context: &mut parley::FontContext,
+        font_context: &mut FontContext,
         text: &str,
         formatting: impl IntoIterator<Item = i_slint_common::styled_text::FormattedSpan>,
         link_color: Option<Color>,
@@ -274,19 +281,12 @@ impl LayoutWithoutLineBreaksBuilder {
 
 /// The line-height ratio, relative to the font size, that every shaped line gets.
 pub(super) fn line_height_ratio(
-    font_ctx: &mut parley::FontContext,
+    font_ctx: &mut FontContext,
     font_request: &FontRequest,
+    line_height_factor: Option<f32>,
 ) -> Option<f32> {
-    let font = font_request.query_fontique(&mut font_ctx.collection, &mut font_ctx.source_cache)?;
-    let face = skrifa::FontRef::from_index(font.blob.data(), font.index).ok()?;
-    let location = face.axes().location(font.synthesis.variation_settings());
-    let metrics = face.metrics(skrifa::instance::Size::unscaled(), &location);
-    let units_per_em = metrics.units_per_em as f32;
-    (units_per_em > 0.0)
-        .then(|| (metrics.ascent - metrics.descent + metrics.leading) / units_per_em)
-        .map(|natural_ratio| {
-            font_request.line_height_for_natural_height(natural_ratio).unwrap_or(natural_ratio)
-        })
+    let natural_ratio = font_ctx.query_font(font_request)?.natural_line_height_ratio?;
+    Some(natural_ratio * line_height_factor.unwrap_or(1.0))
 }
 
 /// Splits plain text into paragraph byte ranges at `'\n'`. The `'\n'` and any preceding `'\r'`
@@ -304,13 +304,13 @@ pub(super) fn paragraph_ranges(text: &str) -> impl Iterator<Item = Range<usize>>
 
 pub(super) fn create_text_paragraphs(
     layout_builder: &LayoutWithoutLineBreaksBuilder,
-    font_context: &mut parley::FontContext,
+    font_context: &mut FontContext,
     text: PlainOrStyledText,
     link_color: Color,
     marks: Option<crate::yapfast_marks::Marks>,
 ) -> Vec<TextParagraph> {
     let paragraph_from_text =
-        |font_context: &mut parley::FontContext,
+        |font_context: &mut FontContext,
          text: &str,
          range: std::ops::Range<usize>,
          formatting: Vec<i_slint_common::styled_text::FormattedSpan>,
@@ -332,6 +332,11 @@ pub(super) fn create_text_paragraphs(
                         || url == "yapfast:everyone"
                 })
             });
+            let control_characters = text
+                .char_indices()
+                .filter_map(|(index, c)| c.is_control().then_some(index))
+                .collect();
+
             let layout = layout_builder.build(font_context, text, formatting, Some(link_color));
 
             // Yapfast: the glyphs an animation may stand in for, found while the
@@ -342,13 +347,14 @@ pub(super) fn create_text_paragraphs(
                 .map(|(at, character)| (at..at + character.len_utf8(), character))
                 .collect();
             TextParagraph {
-                pictures,
                 range,
                 y: PhysicalLength::default(),
                 layout,
                 links,
                 code_ranges,
+                pictures,
                 mentions,
+                control_characters,
             }
         };
 
@@ -384,12 +390,10 @@ pub(super) fn create_text_paragraphs(
             }
         }
         PlainOrStyledText::Styled(rich_text) => {
-            // Yapfast: styled paragraphs are placed as if joined by newlines, as plain text is, so
-            // a selection's byte range spans them.
-            let mut start = 0;
-            for paragraph in rich_text.paragraphs {
-                let range = start..start + paragraph.text.len();
-                start = range.end + 1;
+            // Offsets into the text as `styled_text::get_raw_text` joins it, which a selection's
+            // offsets index.
+            let ranges: Vec<_> = crate::styled_text::raw_text_ranges(&rich_text).collect();
+            for (paragraph, range) in rich_text.paragraphs.into_iter().zip(ranges) {
                 paragraphs.push(paragraph_from_text(
                     font_context,
                     &paragraph.text,
@@ -416,6 +420,7 @@ pub(super) fn shaping_builder(
     let (stroke_brush, _, stroke_style) = text.stroke();
     LayoutWithoutLineBreaksBuilder::new(
         item_rc.map(|irc| text.font_request(irc)),
+        text.line_height_factor(),
         text_wrap,
         (!stroke_brush.is_transparent()).then_some(stroke_style),
         scale_factor,
@@ -435,6 +440,7 @@ pub(super) fn content_widths_builder(
 ) -> LayoutWithoutLineBreaksBuilder {
     let mut builder = LayoutWithoutLineBreaksBuilder::new(
         Some(font_request),
+        None,
         TextWrap::WordWrap,
         None,
         scale_factor,
@@ -448,26 +454,37 @@ pub(super) fn content_widths_builder(
 /// with what the item's cache entry was shaped with.
 #[cfg(test)]
 pub(super) fn plain_builder_for_tests() -> LayoutWithoutLineBreaksBuilder {
-    LayoutWithoutLineBreaksBuilder::new(None, TextWrap::NoWrap, None, ScaleFactor::new(1.0))
+    LayoutWithoutLineBreaksBuilder::new(None, None, TextWrap::NoWrap, None, ScaleFactor::new(1.0))
 }
 
 #[cfg(test)]
 pub(super) fn wrap_builder_for_tests() -> LayoutWithoutLineBreaksBuilder {
-    LayoutWithoutLineBreaksBuilder::new(None, TextWrap::WordWrap, None, ScaleFactor::new(1.0))
+    LayoutWithoutLineBreaksBuilder::new(None, None, TextWrap::WordWrap, None, ScaleFactor::new(1.0))
 }
 
 /// Shapes `text` the way both the drawing and the measuring paths need it, so that they can share
-/// one cache entry. `text_wrap` is passed separately because `text_size` measures the unwrapped
-/// width of items that are otherwise wrapped.
+/// one cache entry.
+///
+/// Reads the item's properties before borrowing `font_context`,
+/// because their bindings may measure other text, which borrows it too.
 pub(super) fn shape_paragraphs(
     text: Pin<&dyn crate::item_rendering::RenderString>,
     item_rc: Option<&crate::item_tree::ItemRc>,
     text_wrap: TextWrap,
     scale_factor: ScaleFactor,
-    font_context: &mut parley::FontContext,
+    font_context: &RefCell<FontContext>,
 ) -> Vec<TextParagraph> {
     let builder = shaping_builder(text, item_rc, text_wrap, scale_factor);
-    create_text_paragraphs(&builder, font_context, text.text(), text.link_color(), text.marks())
+    let plain_or_styled_text = text.text();
+    let link_color = text.link_color();
+    let marks = text.marks();
+    create_text_paragraphs(
+        &builder,
+        &mut font_context.borrow_mut(),
+        plain_or_styled_text,
+        link_color,
+        marks,
+    )
 }
 
 pub(super) struct TextParagraph {
@@ -483,6 +500,8 @@ pub(super) struct TextParagraph {
     /// translucent rounded background by `draw` for visual parity with common markdown
     /// renderers.
     pub(super) code_ranges: std::vec::Vec<Range<usize>>,
+    /// Ascending byte offsets of the control characters in the paragraph's text.
+    pub(super) control_characters: std::vec::Vec<usize>,
     /// Yapfast: links inside a colour span, which are mentions: drawn in the colour on a
     /// translucent pill of it.
     pub(super) mentions: std::vec::Vec<(Range<usize>, Color)>,
