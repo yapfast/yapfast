@@ -180,9 +180,10 @@ pub struct OpenChannel {
     pub(super) pictures: HashMap<String, Option<Arc<Picture>>>,
     pub(super) requested: HashSet<String>,
     visible: HashSet<u64>,
-    /// The originals of replies on screen that were looked up, each asked for
-    /// once while the channel stays open; true for one Discord didn't answer
-    /// for.
+    /// The originals of replies on screen being looked up, each asked for
+    /// once; true for one Discord didn't answer for, which waits for the
+    /// channel to open again. One that's answered leaves, as its replies then
+    /// quote it, and a reply to it that comes later looks it up again.
     originals: HashMap<String, bool>,
     pub(super) previews: SharedPreviews,
     /// Shown messages as the timeline last showed them, by snowflake, so a
@@ -285,6 +286,12 @@ impl OpenChannel {
     /// Loads the latest page again, after missing live events.
     pub fn refresh(&mut self, discord: &Discord, done: &UnboundedSender<Done>) {
         self.load(discord, done, Load::Latest);
+    }
+
+    /// Its latest page is still to come, so messages newer than those it
+    /// kept may be missing. Offline, what's kept is all there is for now.
+    pub(super) fn latest_due(&self, discord: &Discord) -> bool {
+        !self.synced && !matches!(discord.snapshots().borrow().status, Status::Offline(_))
     }
 
     /// Live events may have gone by without it: offline, or behind on
@@ -1277,7 +1284,10 @@ impl OpenChannel {
     /// or that it's gone. Without an answer, they say it couldn't be loaded.
     pub(super) fn original(&mut self, id: &str, result: Result<Option<DiscordReply>, String>) {
         let quote = match result {
-            Ok(original) => Some(original.unwrap_or(DiscordReply::Deleted)),
+            Ok(original) => {
+                self.originals.remove(id);
+                Some(original.unwrap_or(DiscordReply::Deleted))
+            }
             Err(error) => {
                 tracing::debug!(%error, "a reply's original didn't load");
                 self.originals.insert(id.to_owned(), true);

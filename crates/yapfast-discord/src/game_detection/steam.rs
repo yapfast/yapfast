@@ -289,31 +289,32 @@ mod tests {
             1,
             "only the game, none of Steam's tools"
         );
-        let path = dir
+        // Paths, not text: a join onto a canonicalised Windows path writes its
+        // separators its own way, which a replacement over the text would miss.
+        let common = dir
             .path()
             .canonicalize()
             .unwrap()
-            .join("steamapps/common/Fixture/game");
+            .join("steamapps")
+            .join("common");
+        let path = common.join("Fixture").join("game");
         assert_eq!(
             &*steam.matches(&path.to_string_lossy()).unwrap().name,
             "Unknown Steam Game"
         );
         assert!(
             steam
-                .matches(
-                    &path
-                        .to_string_lossy()
-                        .replace("Fixture/game", "FixtureOther/game")
-                )
+                .matches(&common.join("FixtureOther").join("game").to_string_lossy())
                 .is_none()
         );
         assert!(
             steam
                 .matches(
-                    &dir.path()
-                        .canonicalize()
-                        .unwrap()
-                        .join("steamapps/common/Proton/files/bin/wine")
+                    &common
+                        .join("Proton")
+                        .join("files")
+                        .join("bin")
+                        .join("wine")
                         .to_string_lossy()
                 )
                 .is_none()

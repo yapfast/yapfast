@@ -456,6 +456,11 @@ fn a_reply_on_screen_looks_its_original_up_once() {
     assert_eq!(shows(&open, 6), Some(original.clone()));
     assert_eq!(shows(&open, 7), Some(original));
     assert_eq!(shows(&open, 8), Some(Reply::Unknown { id: "2".into() }));
+    // A reply to it that comes later isn't left waiting.
+    assert!(open.live(&Live::Created(unknown("10", "1"))));
+    open.visible(["10"].map(|id| format!("d:{id}")).to_vec());
+    assert_eq!(open.originals_wanted(), ["1"]);
+    open.original("1", Err("refused".into()));
     // One that's gone says so; a failure leaves the reply as it was, unasked again.
     open.visible(["8", "9"].map(|id| format!("d:{id}")).to_vec());
     assert_eq!(open.originals_wanted(), ["2"], "not one with no id");
@@ -1723,4 +1728,40 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     // Nor a message Discord doesn't have.
     forward("d:1".into(), &room, None);
     assert!(matches!(answer().await, Err(ForwardFailure::Forward(_))));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_servers_card_shows_how_many_of_its_members_are_online() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let server = discord::server_id(FAKE_GUILD);
+    command(
+        Command::Discord(DiscordCommand::ServerPreview {
+            server: server.clone(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let answer = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::ServerPreview {
+                server: asked,
+                result,
+            } = received.recv().await.unwrap()
+                && asked == server
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    let preview = answer.expect("what the server's card shows");
+    assert_eq!(preview.online, Some(3), "Dave is offline");
+    assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
 }

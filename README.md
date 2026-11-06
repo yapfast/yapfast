@@ -186,7 +186,6 @@ they do in Discord.
 - Making and changing server folders.
 - A server's form for new members, such as its rules, when you join. Yapfast
   sends you to Discord in your browser to fill it in.
-- Animated custom emoji in messages, which show their first frame.
 - Captchas, sort of. If Discord asks for one while you link or join a server,
   Yapfast opens it in your browser, but I haven't hit one against real
   Discord yet, so who knows..

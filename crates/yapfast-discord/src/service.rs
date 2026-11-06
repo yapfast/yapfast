@@ -16,7 +16,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use crate::{
     activity,
     api::{self, Api, PAGE, Span},
-    cache, forum, gift, invite, limits,
+    cache, forum, gift, guild, invite, limits,
     marked::MarkedServer,
     member_list::{ListedMember, Presence},
     message::{self, Message, Names, Page, Reply},
@@ -2175,6 +2175,12 @@ impl Discord {
         )
         .await?;
         Ok(invite::Joined::of(&answer, preview))
+    }
+
+    /// A server's preview, by its id; see [`Api::guild_preview`].
+    pub async fn guild_preview(&self, guild: &str) -> Result<guild::Preview> {
+        let preview = self.api.guild_preview(guild).await?;
+        guild::Preview::of(&preview).context("Discord didn't answer with a server.")
     }
 
     /// What a server's scheduled event shows from its link, and

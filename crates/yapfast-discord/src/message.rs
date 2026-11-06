@@ -1509,6 +1509,12 @@ impl Names {
                 MentionTarget::Role(id.to_owned())
             } else if let Some(id) = tag.strip_prefix("@!").or_else(|| tag.strip_prefix('@')) {
                 MentionTarget::User(id.to_owned())
+            } else if let Some(id) = tag.strip_prefix('#') {
+                // One the server doesn't list shows as `#channel`, and opens nothing.
+                if server.is_none_or(|server| server.channel_name(id).is_none()) {
+                    return;
+                }
+                MentionTarget::Channel(id.to_owned())
             } else {
                 return;
             };
@@ -1634,6 +1640,8 @@ pub enum MentionTarget {
     User(String),
     /// A role, by id.
     Role(String),
+    /// A channel of the server the message is in, by id.
+    Channel(String),
     /// `@everyone` or `@here`.
     Everyone,
 }
@@ -2229,9 +2237,19 @@ mod tests {
                 "@Annie and @Annie, @Mods, #general <@x".to_owned(),
                 vec![
                     mention("@Annie", MentionTarget::User("2".into()), &[0, 11]),
-                    mention("@Mods", MentionTarget::Role("30".into()), &[19])
+                    mention("@Mods", MentionTarget::Role("30".into()), &[19]),
+                    mention("#general", MentionTarget::Channel("11".into()), &[26])
                 ]
             )
+        );
+        // A channel the server doesn't list isn't a mention of anything.
+        assert_eq!(
+            names.render_mentions(Some(&server), "<#99>"),
+            ("#channel".to_owned(), vec![])
+        );
+        assert_eq!(
+            names.render_mentions(None, "<#11>"),
+            ("#channel".to_owned(), vec![])
         );
         assert_eq!(
             names.render_mentions(

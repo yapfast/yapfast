@@ -411,6 +411,9 @@ pub struct AppState {
     /// Those it blocked, by name, and those it ignores, by user id.
     pub discord_blocked: Vec<chat::Blocked>,
     pub discord_ignored: Arc<[String]>,
+    /// Who is who, as the Discord service knows them.
+    #[cfg(feature = "discord")]
+    pub discord_names: Option<yapfast_discord::service::SharedNames>,
     /// DMs pinned to the top of the DM list on this device, by room id, the
     /// first pinned first.
     pub pinned: Vec<String>,
@@ -513,12 +516,17 @@ pub struct AppState {
     /// Shared with the networks' lists they're shown from.
     pub rooms: Vec<Arc<ChatRoom>>,
     pub servers: Vec<Arc<ChatServer>>,
+    /// What the card of a server's emoji shows of it beyond its name and icon,
+    /// by server id, once Discord answered for it: how many of its members are
+    /// online, and whether Discover lists it.
+    pub server_previews: HashMap<String, chat::ServerPreview>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
-    /// The `@` word being typed in the composer, if any.
-    pub mention_query: Option<String>,
+    /// The `@` or `#` word being typed in the composer, if any: its sigil and
+    /// what follows it.
+    pub mention_query: Option<(char, String)>,
     /// What the selected room's messages may mention besides people: Discord's
-    /// roles, @everyone and @here.
+    /// roles, @everyone and @here, and its server's channels.
     pub mention_groups: Vec<MentionGroup>,
     /// Members of the selected room a search found for mentioning, beyond those
     /// listed.
@@ -699,6 +707,11 @@ impl AppState {
             .as_ref()
             .and_then(|id| self.drafts.get(id))
             .map_or("", String::as_str)
+    }
+
+    /// The draft of the room with this id, such as the thread beside's.
+    pub fn draft_in(&self, room: &str) -> &str {
+        self.drafts.get(room).map_or("", String::as_str)
     }
 
     /// The files waiting in the selected room's composer.
@@ -1012,6 +1025,8 @@ impl AppState {
                 avatar: avatar.clone(),
                 color,
                 group: false,
+                channel: false,
+                voice: false,
             });
         }
         candidates.extend(self.mention_groups.iter().map(|group| Candidate {
@@ -1021,20 +1036,29 @@ impl AppState {
             avatar: None,
             color: group.color,
             group: true,
+            channel: group.channel,
+            voice: group.voice,
         }));
         candidates
     }
 
-    /// What the `@` word being typed may mean: people, best first, then roles
-    /// and groups.
+    /// What the word being typed may mean: for `@`, people, best first, then
+    /// roles and groups; for `#`, channels.
     pub fn mention_suggestions(&self) -> Vec<Candidate> {
-        let Some(query) = &self.mention_query else {
+        let Some((sigil, query)) = &self.mention_query else {
             return vec![];
         };
         let (groups, people): (Vec<Candidate>, Vec<Candidate>) = self
             .mention_candidates()
             .into_iter()
+            .filter(|candidate| candidate.sigil() == *sigil)
             .partition(|candidate| candidate.group);
+        if *sigil == '#' {
+            return mention::matching(&groups, query, MENTION_SUGGESTIONS)
+                .into_iter()
+                .cloned()
+                .collect();
+        }
         let people = mention::matching(&people, query, MENTION_SUGGESTIONS);
         let groups = mention::matching(&groups, query, MENTION_GROUPS);
         people.into_iter().chain(groups).cloned().collect()
@@ -1116,8 +1140,23 @@ impl AppState {
             {
                 Some(request) if request.incoming => Relation::Incoming,
                 Some(_) => Relation::Outgoing,
+                None if self.is_discord_bot(user) => Relation::Bot,
                 None => Relation::Stranger,
             }
+        }
+    }
+
+    /// Whether a Discord user is a bot or an app, as far as it's known.
+    fn is_discord_bot(&self, user: &str) -> bool {
+        #[cfg(feature = "discord")]
+        return self
+            .discord_names
+            .as_ref()
+            .is_some_and(|names| names.read().is_bot(user));
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = user;
+            false
         }
     }
 
@@ -1243,6 +1282,8 @@ pub enum Relation {
     Incoming,
     /// This account sent them one.
     Outgoing,
+    /// A bot or an app, which Discord refuses friend requests to.
+    Bot,
     Stranger,
 }
 
@@ -1279,8 +1320,9 @@ pub enum Action {
     /// spoiler, or not.
     ToggleAsideSpoiler(usize),
     SetDraft(String),
-    /// The `@` word being typed in the composer changed, or there's none now.
-    MentionQuery(Option<String>),
+    /// The `@` or `#` word being typed in the composer changed, or there's
+    /// none now: its sigil and what follows it.
+    MentionQuery(Option<(char, String)>),
     /// Open the dialog for starting a DM, look for people in it, start one, or close it.
     OpenNewDm,
     /// Edit this account's newest message that can be edited, as Up in an empty
@@ -1416,6 +1458,10 @@ pub enum Action {
     /// Download pictures that show outside the state, such as the emoji
     /// picker's; see [`DiscordCommand::Pictures`].
     LoadPictures(Vec<String>),
+    /// Lets go of the custom emoji pictures in memory, which the disk cache
+    /// holds: the picker's cells keep their own while it shows, and a later look
+    /// reads them again.
+    UnloadEmojiPictures,
     Login {
         homeserver: String,
         username: String,
@@ -1889,6 +1935,10 @@ pub enum Action {
         user: String,
         large: bool,
     },
+    /// Ask Discord what a server's card shows, for the card an emoji of it
+    /// opens: how many of its members are online, and whether Discover lists
+    /// it. Nothing is asked twice for the same server.
+    PreviewServer(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -1967,6 +2017,10 @@ pub struct Application {
     pictures_kept: usize,
     /// How many of the pictures kept are custom emoji, which stay.
     emoji_pictures: usize,
+    /// The custom emoji pictures were fetched on this start, for a cache that
+    /// held no picture at all; see [`Application::prefetch_emoji`].
+    #[cfg(feature = "discord")]
+    emoji_prefetched: bool,
     /// Names searched for in the selected room, lowercased.
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
@@ -2001,6 +2055,9 @@ pub struct Application {
     /// the first message after it is still to be found, and whether the
     /// messages around it were asked for.
     read_marker: Option<(String, bool)>,
+    /// What shows is what was kept, with the newest page on its way, so the
+    /// "New" divider isn't placed yet: see [`chat::Direction::Kept`].
+    divider_waits: bool,
     /// [`AppState::seen`] is still to be checked against the selected room's
     /// timeline, once it comes.
     placing_seen: bool,
@@ -2041,6 +2098,10 @@ const LISTED_PICTURES: usize = 150;
 /// decoded, and the window keeps a copy of each it shows. The rail, the DMs
 /// listed, a member list and a timeline show a few hundred at most.
 const KEPT_PICTURES: usize = 400;
+/// Custom emoji pictures kept in memory at most: more than a wide picker shows,
+/// and far short of what a large account has, which the disk cache holds. See
+/// [`Application::unload_emoji_pictures`]. One is 16 KB decoded.
+const KEPT_EMOJI: usize = 600;
 /// Timeline rows either side of those on screen whose avatars stay when
 /// pictures go.
 const PICTURED_AROUND: usize = 30;
@@ -2394,6 +2455,23 @@ impl Application {
         ))))
     }
 
+    /// Lets go of the custom emoji pictures in memory once there are more than
+    /// [`KEPT_EMOJI`], which is more than a wide picker shows: the disk cache
+    /// keeps them all, the grid's cells keep the ones it shows, and a later look
+    /// reads the rest from the disk. So a large account's emoji cost memory only
+    /// while they are looked at. The pictures asked for are forgotten with them,
+    /// so a look asks again rather than showing nothing.
+    fn unload_emoji_pictures(&mut self) -> Vec<Effect> {
+        if self.emoji_pictures <= KEPT_EMOJI {
+            return Vec::new();
+        }
+        self.state.pictures.retain(|url, _| !is_custom_emoji(url));
+        self.requested_pictures.retain(|url| !is_custom_emoji(url));
+        self.emoji_pictures = 0;
+        self.state.picture_changes += 1;
+        Vec::new()
+    }
+
     /// Keeps a picture that arrived, and once more than [`KEPT_PICTURES`]
     /// have, forgets those off screen, which are asked for again when they
     /// show. So that pictures on screen don't make it go through them each
@@ -2639,6 +2717,7 @@ impl Application {
             Action::Later => self.later(),
             Action::JumpToPresent => self.jump_to_present(),
             Action::LoadPictures(urls) => self.load_pictures(urls),
+            Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -3153,6 +3232,7 @@ impl Application {
             }
             Action::ShowProfile { user, large } => self.show_profile(user, large),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
+            Action::PreviewServer(server) => self.preview_server(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
                 if let Some(view) = &mut self.state.profile {
@@ -3503,6 +3583,7 @@ impl Application {
                 result,
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
+            Event::ServerPreview { server, result } => self.show_server_preview(server, result),
             Event::EmojisChanged {
                 server,
                 upload,
@@ -3778,10 +3859,28 @@ impl Application {
         false
     }
 
-    /// The custom emoji this account may use in the selected room, by server, the
-    /// room's own server first: with Nitro every server's, and without it only
-    /// that server's, none animated.
-    pub fn usable_emoji(&self) -> Vec<chat::EmojiSet> {
+    /// The server whose emoji this is, by its server id, when it is one's this
+    /// account is in; an emoji's card names it.
+    pub fn emoji_server(&self, id: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            return snapshot
+                .servers
+                .iter()
+                .find(|server| server.emojis.iter().any(|emoji| emoji.id == id))
+                .map(|server| discord::server_id(&server.id));
+        }
+        #[cfg(not(feature = "discord"))]
+        let _ = id;
+        None
+    }
+
+    /// Every custom emoji of every server the account is in, by server, the
+    /// room's own server first, each saying whether this account may use it in
+    /// the room it is looking at. The picker shows all of them, the ones it may
+    /// not use greyed as Discord's does; everything else uses
+    /// [`Application::usable_emoji`].
+    pub fn emoji_sets(&self) -> Vec<chat::EmojiSet> {
         #[cfg(feature = "discord")]
         if let Some(snapshot) = &self.discord {
             let here = self
@@ -3794,37 +3893,52 @@ impl Application {
                 .account
                 .as_ref()
                 .is_some_and(|account| account.premium_type > 0);
-            let mut servers: Vec<_> = snapshot
-                .servers
-                .iter()
-                .filter(|server| nitro || Some(server.id.as_str()) == here)
-                .collect();
+            let mut servers: Vec<_> = snapshot.servers.iter().collect();
             servers.sort_by_key(|server| Some(server.id.as_str()) != here);
             return servers
                 .into_iter()
-                .map(|server| chat::EmojiSet {
-                    server: server.name.clone(),
-                    icon: server.icon.clone(),
-                    emoji: server
-                        .emojis
-                        .iter()
-                        .filter(|emoji| emoji.available && (nitro || !emoji.animated))
-                        .map(|emoji| chat::CustomEmoji {
-                            text: format!(":{}:", emoji.name),
-                            id: emoji.id.clone(),
-                            animated: emoji.animated,
-                            picture: yapfast_discord::ready::custom_emoji(
-                                &emoji.id,
-                                false,
-                                chat::EMOJI_PICTURE_SIZE,
-                            ),
-                        })
-                        .collect(),
+                .map(|server| {
+                    let ours = Some(server.id.as_str()) == here;
+                    chat::EmojiSet {
+                        id: server.id.clone(),
+                        server: server.name.clone(),
+                        icon: server.icon.clone(),
+                        emoji: server
+                            .emojis
+                            .iter()
+                            .filter(|emoji| emoji.available)
+                            .map(|emoji| chat::CustomEmoji {
+                                text: format!(":{}:", emoji.name),
+                                id: emoji.id.clone(),
+                                animated: emoji.animated,
+                                usable: nitro || (ours && !emoji.animated),
+                                picture: yapfast_discord::ready::custom_emoji(
+                                    &emoji.id,
+                                    emoji.animated,
+                                    chat::EMOJI_PICTURE_SIZE,
+                                ),
+                            })
+                            .collect(),
+                    }
                 })
                 .filter(|set| !set.emoji.is_empty())
                 .collect();
         }
         vec![]
+    }
+
+    /// The custom emoji this account may use in the selected room, by server, the
+    /// room's own server first: with Nitro every server's, and without it only
+    /// that server's, none animated.
+    pub fn usable_emoji(&self) -> Vec<chat::EmojiSet> {
+        self.emoji_sets()
+            .into_iter()
+            .map(|set| chat::EmojiSet {
+                emoji: set.emoji.into_iter().filter(|emoji| emoji.usable).collect(),
+                ..set
+            })
+            .filter(|set| !set.emoji.is_empty())
+            .collect()
     }
 
     /// The `count` reactions this device adds most, then the defaults.

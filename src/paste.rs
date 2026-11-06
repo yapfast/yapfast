@@ -613,6 +613,10 @@ fn percent_decode(text: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// A `text/uri-list` is X11's and Wayland's, so a path in one is written
+    /// as they offer it, as a URI; the desktop's own clipboard names files
+    /// another way.
+    #[cfg(target_os = "linux")]
     #[test]
     fn reads_local_files_from_a_uri_list() {
         let dir = tempfile::tempdir().unwrap();
@@ -627,7 +631,12 @@ mod tests {
             "# copied\r\nfile://{encoded}\r\nfile://localhost{encoded}\r\nhttps://example.com/a.png\r\nfile:///no/such/file\r\n"
         );
         assert_eq!(files(&list), vec![file.clone(), file]);
+    }
+
+    #[test]
+    fn reads_no_percent_escape_it_cannot_decode() {
         assert_eq!(percent_decode("%zz"), None);
+        assert_eq!(percent_decode("%20"), Some(" ".into()));
     }
 
     /// A `BITMAPV5HEADER` for a 2×2 bitmap, with these masks.
