@@ -1307,6 +1307,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter.layout.write(&adapter.root);
     });
     let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_pins_changed(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let mut adapter = state.borrow_mut();
+        let pins = (window.get_sidebar_pinned(), window.get_members_pinned());
+        if (adapter.layout.pin_channels, adapter.layout.pin_members) != pins {
+            (adapter.layout.pin_channels, adapter.layout.pin_members) = pins;
+            adapter.layout.write(&adapter.root);
+        }
+    });
+    let state = adapter.clone();
     window.on_member_list_toggled(move |shown| {
         let mut adapter = state.borrow_mut();
         adapter.layout.members_hidden = !shown;
@@ -1582,6 +1593,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
+        let looks = window.global::<Looks>();
+        layout.fold_channels = Some(looks.get_fold_channels());
+        layout.fold_members = Some(looks.get_fold_members());
+        layout.unroll_delay = Some(looks.get_unroll_delay());
+        layout.fold_delay = Some(looks.get_fold_delay());
+        layout.unrolled_shadow = Some(looks.get_unrolled_shadow());
+        layout.folded_unread = Some(looks.get_folded_unread());
+        layout.folded_voice = Some(looks.get_folded_voice());
+        layout.folded_server = Some(looks.get_folded_server());
+        layout.folded_dock = Some(looks.get_folded_dock());
+        layout.pin_button = Some(looks.get_pin_button());
+        layout.animations = Some(looks.get_animations());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.nameplates = Some(window.get_show_nameplates());

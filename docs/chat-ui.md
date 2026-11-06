@@ -482,6 +482,50 @@ The window follows Discord's arrangement:
   Removing a friend and blocking ask first. Matrix links go through
   matrix.to. Arrow keys, Home and End move through the menu, Right opens a
   submenu and Left leaves it, Enter chooses, and Escape closes it.
+- Side panels that fold, off unless turned on. With "Fold the channel
+  list" on in Appearance, the sidebar folds to a 34px sliver beside the rail
+  and unrolls to its full width over the conversation while the pointer is on
+  it past the rail, or on its edge, which still resizes it; once unrolled it
+  stays while the pointer goes back over the rail. With "Fold the member
+  list" on, the member list folds to a 56px column of avatars at the right
+  and unrolls leftward the same way. Each waits before unrolling (Open delay,
+  120 ms unless changed) and before folding again (Close delay, 300 ms), so
+  passing over it doesn't flicker, and takes 250 ms to unroll or fold; the
+  conversation keeps the width the folded panels leave it. A device menu
+  opened from the sidebar, or the card of someone clicked in the member
+  list, keeps its panel open until it closes. Folded, the sliver keeps each
+  row's icon: an unread channel's icon is bright, with the unread notch at
+  the sliver's edge, and mentions show their count on the icon's corner; DM
+  pictures shrink to 24px with their status dot; up to three pictures of
+  who's in a voice channel stack under its icon, then "+N", with a red dot
+  on each face sharing their screen, and beside "+N" when someone further
+  down is; and the server's icon, or the logo on the DM home, stands where
+  the header was. The account panel stands in the rail as a pill (settings,
+  output, input, the account's picture), whose device carets slide out while
+  their toggle is pointed at, unless turned off, when it folds with the list.
+  The pill stays during a call too, and the call's controls (its status and
+  channel, sharing, the soundboard, Leave) come out of the pill's right side
+  with the channel list: out beside it at the list's foot, about the list's
+  width, while the list is unrolled or pinned, and back behind the pill as
+  it folds, which leaves a green tab on the pill's right edge, and a ring on
+  its picture, fainter than speaking's, to show the call goes on. Unrolled over the conversation, a
+  panel casts a soft shadow on it. A pin at the right of the sidebar's
+  header, and at the member list's top right, keeps that panel unrolled
+  until unpinned; Ctrl+Shift+B pins or unpins the channel list from anywhere
+  while it folds. Pinned, a panel takes its room beside the conversation
+  instead of lying over it: the conversation moves aside for the channel
+  list's full width, or narrows to leave the member list all of its own, and
+  slides back when unpinned; with nothing over it, no shadow shows. Pins
+  stay until unpinned, in a window made again from the tray and after a
+  restart, kept in `layout.json` (`pin_channels`, `pin_members`). Appearance's collapsible
+  SIDE PANELS group holds all of these: the two folds, the two delays
+  (sliders in 50 ms steps), the shadow, unread and mentions, voice channels,
+  the server's icon, the account pill and the pins, kept in `layout.json`
+  (`fold_channels`, `fold_members`, `unroll_delay`, `fold_delay`,
+  `unrolled_shadow`, `folded_unread`, `folded_voice`, `folded_server`,
+  `folded_dock`, `pin_button`) and applied at once. With Extra animations
+  off under MOTION (`animations`), folding, unrolling, the pill's fade, its
+  carets and the call's controls beside it snap.
 - Inviting opens a dialog with a link Discord made at once, lasting 7 days
   and working any number of times, a button that copies it, and a line on
   how long it lasts. Choices for how long a link lasts (30 minutes to 7

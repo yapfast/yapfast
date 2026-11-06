@@ -74,6 +74,11 @@ impl Keys {
         self.shift
     }
 
+    /// Ctrl and Shift are held, without Alt.
+    pub fn control_shift(&self) -> bool {
+        self.control && self.shift && !self.alt
+    }
+
     pub fn event(&mut self, event: &WindowEvent) -> Outcome {
         match event {
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -268,8 +273,10 @@ mod tests {
         assert!(keys.control_only());
         keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
         assert!(!keys.control_only() && keys.shift());
+        assert!(keys.control_shift());
         keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::ALT));
         assert!(!keys.control_only() && !keys.shift());
+        assert!(!keys.control_shift());
         keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
         keys.event(&WindowEvent::Focused(false));
         assert!(!keys.control_only());

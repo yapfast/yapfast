@@ -104,6 +104,11 @@ export component MemberPanel inherits Rectangle {
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
+    /// How far it is folded to its avatars, from 0 open to 1 folded, following its
+    /// width: folded, its headings and note fade, so only the pictures show.
+    in property <float> fold;
+    /// Room kept at the top right for the pin that keeps it unrolled.
+    in property <length> pin-room;
     /// A member was clicked: their id, and where their row is in the window.
     callback open-profile(string, length);
     /// A member was right-clicked: their id, and where in the window.
@@ -119,8 +124,10 @@ export component MemberPanel inherits Rectangle {
         triggered => { root.activity-clock(); }
     }
     VerticalLayout {
+        // Folded to its avatars, the cards fade with the headings.
         if root.activity-rows.length > 0: VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
+            opacity: 1 - root.fold;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
                 // there's otherwise nothing to open.
@@ -143,7 +150,8 @@ export component MemberPanel inherits Rectangle {
                     clicked => { activity-header.toggled(); }
                 }
                 HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; spacing: 4px;
+                    // Room for the folding list's pin, which sits beside this heading.
+                    padding-left: 8px; padding-right: 8px + root.pin-room; spacing: 4px;
                     Text { text: "Activity \u{2014} " + root.activity-rows.length; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                     Middle {
@@ -226,20 +234,22 @@ export component MemberPanel inherits Rectangle {
                 }
             }
         }
-        if root.note != "": HorizontalLayout { padding: 16px; Label { text: root.note; } }
+        if root.note != "": HorizontalLayout { padding: 16px; opacity: 1 - root.fold; Label { text: root.note; } }
         // A list view makes only the rows in sight, which matters in large servers.
         ListView {
             vertical-stretch: 1;
             for member[index] in root.rows: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
-                padding-top: index == 0 ? 8px : 0px;
+                // The pin sits beside the first heading, or above the first row without one.
+                padding-top: index == 0 ? (member.heading == "" && root.activity-rows.length == 0 ? max(8px, root.pin-room) : 8px) : 0px;
                 padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
                 spacing: 2px;
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.
                 if member.heading != "": HorizontalLayout {
-                    padding-left: 8px; padding-top: 20px; padding-bottom: 4px; height: 42px; spacing: 8px;
+                    padding-left: 8px; padding-right: index == 0 && root.activity-rows.length == 0 ? root.pin-room : 0px; padding-top: 20px; padding-bottom: 4px; height: 42px; spacing: 8px;
+                    opacity: 1 - root.fold;
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
-                    Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                    Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; overflow: elide; }
                 }
                 Rectangle {
                   height: 42px; border-radius: 8px;

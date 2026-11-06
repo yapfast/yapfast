@@ -124,6 +124,67 @@ export global Badges {
     in property <bool> discord: true;
 }
 
+// What the Appearance settings turn on and off.
+export global Looks {
+    /// The side panels fold to a sliver until pointed at; off unless turned on.
+    in-out property <bool> fold-channels: false;
+    in-out property <bool> fold-members: false;
+    /// How long a folded panel waits under the pointer before it unrolls, and
+    /// after the pointer leaves before it folds, in ms, so passing over it
+    /// doesn't flicker.
+    in-out property <int> unroll-delay: 120;
+    in-out property <int> fold-delay: 300;
+    /// A soft shadow on the chat side of a panel unrolled over the chat.
+    in-out property <bool> unrolled-shadow: true;
+    /// What the channel list's sliver shows: unread channels and mentions,
+    /// who's in each voice channel, and the server's icon at the top.
+    in-out property <bool> folded-unread: true;
+    in-out property <bool> folded-voice: true;
+    in-out property <bool> folded-server: true;
+    /// The account panel stands in the rail as a pill while the channel list is folded.
+    in-out property <bool> folded-dock: true;
+    /// A pin in each folding panel keeps it unrolled.
+    in-out property <bool> pin-button: true;
+    /// Off, what eases or slides snaps instead.
+    in-out property <bool> animations: true;
+    /// How long something growing or sliding out takes.
+    out property <duration> settle: root.animations ? 180ms : 0ms;
+    /// How long a side panel takes to unroll or fold.
+    out property <duration> fold: root.animations ? 250ms : 0ms;
+}
+
+// Whether the pointer is on something that waits before it answers: `shown`
+// follows `wanted` after `open-delay` when it turns true and `close-delay`
+// when it turns false, and not at all if it turns back before then.
+export component HoverDelay {
+    in property <bool> wanted;
+    in property <duration> open-delay;
+    in property <duration> close-delay;
+    out property <bool> shown;
+    init => { self.shown = self.wanted; }
+    changed wanted => { root.settle(); }
+    function settle() {
+        if root.wanted == root.shown {
+            wait.stop();
+        } else if (root.wanted ? root.open-delay : root.close-delay) <= 0ms {
+            wait.stop();
+            root.shown = root.wanted;
+        } else if wait.running {
+            wait.restart();
+        } else {
+            wait.start();
+        }
+    }
+    wait := Timer {
+        running: false;
+        interval: max(1ms, root.wanted ? root.open-delay : root.close-delay);
+        triggered => {
+            self.stop();
+            root.shown = root.wanted;
+        }
+    }
+}
+
 // How popups open, as Discord's modals do but quicker: the card grows
 // from 80% as it fades in, and shrinks away as it fades out when it
 // closes. A popup's dimmed backdrop only fades.

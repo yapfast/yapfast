@@ -1,5 +1,6 @@
 import { ScrollView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Theme, Tip, Middle, Label, Looks } from "theme.slint";
+export { Looks } from "theme.slint";
 import { ClientStyle } from "yapfast/style.slint";
 
 // A labelled action. Primary is marigold, danger red, ghost transparent until hovered.
@@ -164,9 +165,15 @@ export component DeviceToggle inherits Rectangle {
     in property <length> glyph: 20px;
     in property <color> tint: Theme.secondary;
     out property <bool> hovered: toggle.hovered || caret.has-hover;
+    /// The caret hides until the toggle is pointed at, then slides out, as in a
+    /// narrow column where the pair wouldn't fit side by side.
+    in property <bool> caret-on-hover;
     callback clicked;
     callback menu;
-    width: 52px; min-height: 32px;
+    property <bool> caret-shown: !root.caret-on-hover || root.open || toggle.hovered || caret.has-hover;
+    property <length> caret-width: root.caret-shown ? 20px : 0px;
+    animate caret-width { duration: Looks.settle; easing: ease-out; }
+    width: 32px + root.caret-width; min-height: 32px;
     // The ground is the visible pair only, centred in the row like IconButton's face.
     Rectangle {
         y: (parent.height - self.height) / 2; height: 32px;
@@ -182,7 +189,8 @@ export component DeviceToggle inherits Rectangle {
             clicked => { root.clicked(); }
         }
         Rectangle {
-            width: 20px;
+            width: root.caret-width; clip: true;
+            opacity: root.caret-width / 20px;
             accessible-role: button;
             accessible-label: root.menu-label;
             accessible-action-default => { root.menu(); }
@@ -1297,6 +1305,8 @@ export component VolumeSlider inherits Rectangle {
     in property <int> step: 5;
     /// Marks 100% and snaps to it.
     in property <bool> full-mark: root.maximum > 100;
+    /// Pointing picks only whole steps, as the keys do.
+    in property <bool> snap;
     callback changed(int);
     callback committed(int);
     height: column.preferred-height;
@@ -1321,7 +1331,9 @@ export component VolumeSlider inherits Rectangle {
         root.committed(root.value);
     }
     function point(x: length) {
-        let value = round(max(0, min(1, x / track.width)) * root.maximum);
+        let value = root.snap
+            ? round(max(0, min(1, x / track.width)) * root.maximum / root.step) * root.step
+            : round(max(0, min(1, x / track.width)) * root.maximum);
         root.set(root.full-mark && abs(value - 100) <= 4 ? 100 : value);
     }
     column := VerticalLayout {
