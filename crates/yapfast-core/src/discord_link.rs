@@ -55,8 +55,8 @@ async fn with_token(token: String, progress: impl Fn(Progress)) {
     let checked = async {
         let api = Api::new(token.clone())?;
         api.learn_build_number().await;
-        api.me().await?;
-        token::store(&token)
+        let user = api.me().await?;
+        yapfast_discord::accounts::save(&user.id, &user.username, &token)
     };
     progress(match checked.await {
         Ok(()) => Progress::Linked,
@@ -85,7 +85,19 @@ async fn run(progress: impl Fn(Progress)) {
         })
     })
     .await;
-    progress(match linked.and_then(|login| token::store(&login)) {
+    let linked = match linked {
+        Ok(login) => {
+            let checked = async {
+                let api = Api::new(login.clone())?;
+                api.learn_build_number().await;
+                let user = api.me().await?;
+                yapfast_discord::accounts::save(&user.id, &user.username, &login)
+            }.await;
+            checked.map_err(|error| error)
+        }
+        Err(error) => Err(error),
+    };
+    progress(match linked {
         Ok(()) => Progress::Linked,
         Err(error) => match error.downcast_ref::<Stopped>() {
             Some(Stopped::Expired) => Progress::Expired,
