@@ -1,7 +1,7 @@
 //! The push-to-talk key, held in any app: through the GlobalShortcuts portal
-//! on Wayland, XInput 2's raw key events on X11, and a low-level keyboard
-//! hook on Windows. Where none of these works, the key works while Yapfast's
-//! window has the focus, and settings say so. Each tells
+//! on Wayland, XInput 2's raw key events on X11, and a low-level keyboard or
+//! mouse hook on Windows. Where none of these works, the key works while
+//! Yapfast's window has the focus, and settings say so. Each tells
 //! [`yapfast_core::push_to_talk::hold`] when the key goes down or comes up.
 use std::sync::{
     Arc, Mutex,
@@ -9,12 +9,21 @@ use std::sync::{
 };
 
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use slint::winit_030::winit::event::MouseButton;
 use slint::winit_030::winit::{
     event::{ElementState, KeyEvent, WindowEvent},
     keyboard::{Key, KeyLocation, NamedKey, PhysicalKey},
     platform::scancode::PhysicalKeyExtScancode,
 };
 use yapfast_core::runtime::BackgroundRuntime;
+
+/// Mouse buttons share the saved scan-code field, tagged above Windows' 16-bit
+/// scan codes so existing keyboard bindings keep their meaning.
+#[cfg(windows)]
+const MOUSE_4: u32 = 0xFFFF_0004;
+#[cfg(windows)]
+const MOUSE_5: u32 = 0xFFFF_0005;
 
 /// A key recorded in settings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +47,29 @@ impl Keybind {
             scancode,
             name: name(event),
             trigger: trigger(event),
+        })
+    }
+
+    /// Mouse 4 or 5 pressed in the window on Windows.
+    #[cfg(windows)]
+    pub fn recorded_mouse(event: &WindowEvent) -> Option<Self> {
+        let WindowEvent::MouseInput {
+            state: ElementState::Pressed,
+            button,
+            ..
+        } = event
+        else {
+            return None;
+        };
+        let (scancode, name) = match button {
+            MouseButton::Back => (MOUSE_4, "Mouse 4"),
+            MouseButton::Forward => (MOUSE_5, "Mouse 5"),
+            _ => return None,
+        };
+        Some(Self {
+            scancode,
+            name: name.into(),
+            trigger: None,
         })
     }
 }
@@ -189,6 +221,13 @@ pub fn window_event(event: &WindowEvent) {
             if !event.repeat && event.physical_key.to_scancode() == Some(key) =>
         {
             yapfast_core::push_to_talk::hold(event.state == ElementState::Pressed);
+        }
+        #[cfg(windows)]
+        WindowEvent::MouseInput { state, button, .. }
+            if (key == MOUSE_4 && *button == MouseButton::Back)
+                || (key == MOUSE_5 && *button == MouseButton::Forward) =>
+        {
+            yapfast_core::push_to_talk::hold(*state == ElementState::Pressed);
         }
         WindowEvent::Focused(false) => yapfast_core::push_to_talk::hold(false),
         _ => {}
@@ -784,18 +823,20 @@ mod windows {
         System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
         UI::WindowsAndMessaging::{
             CallNextHookEx, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, MSG,
-            PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN,
-            WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+            MSLLHOOKSTRUCT, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
+            WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+            WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1, XBUTTON2,
         },
     };
 
     use super::{Reach, Report};
 
-    /// The key the hook watches, as winit's scan code.
+    /// The key or tagged mouse button the hook watches.
     static KEY: AtomicU32 = AtomicU32::new(super::NONE);
 
-    /// A low-level keyboard hook on a thread of its own, which sees every
-    /// key, its release included, and passes each on. Removed when dropped.
+    /// A low-level keyboard or mouse hook on a thread of its own, which sees
+    /// every input event, releases included, and passes each on. Removed when
+    /// dropped.
     pub struct Hook {
         thread: u32,
     }
@@ -803,6 +844,7 @@ mod windows {
     impl Hook {
         pub fn start(scancode: u32, report: Report) -> Option<Self> {
             KEY.store(scancode, Ordering::Relaxed);
+            let mouse = matches!(scancode, super::MOUSE_4 | super::MOUSE_5);
             let (started, thread) = mpsc::sync_channel(1);
             let spawned = std::thread::Builder::new()
                 .name("yapfast-talk-key".into())
@@ -811,12 +853,21 @@ mod windows {
                     // Windows hands it; the message loop runs on this thread,
                     // which the hook needs, until WM_QUIT.
                     unsafe {
-                        let hook = SetWindowsHookExW(
-                            WH_KEYBOARD_LL,
-                            Some(proc),
-                            GetModuleHandleW(ptr::null()),
-                            0,
-                        );
+                        let hook = if mouse {
+                            SetWindowsHookExW(
+                                WH_MOUSE_LL,
+                                Some(mouse_proc),
+                                GetModuleHandleW(ptr::null()),
+                                0,
+                            )
+                        } else {
+                            SetWindowsHookExW(
+                                WH_KEYBOARD_LL,
+                                Some(proc),
+                                GetModuleHandleW(ptr::null()),
+                                0,
+                            )
+                        };
                         if hook.is_null() {
                             let _ = started.send(None);
                             return;
@@ -875,6 +926,29 @@ mod windows {
         unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) }
     }
 
+    /// Notes the bound side button going down or up, and passes every mouse
+    /// event on. XBUTTON1 is Mouse 4 (Back); XBUTTON2 is Mouse 5 (Forward).
+    unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        if code == HC_ACTION as i32 {
+            // SAFETY: for HC_ACTION, lparam points at the mouse event's details.
+            let mouse = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
+            let button = match (mouse.mouseData >> 16) as u16 {
+                XBUTTON1 => super::MOUSE_4,
+                XBUTTON2 => super::MOUSE_5,
+                _ => super::NONE,
+            };
+            if button == KEY.load(Ordering::Relaxed) {
+                match wparam as u32 {
+                    WM_XBUTTONDOWN => yapfast_core::push_to_talk::hold(true),
+                    WM_XBUTTONUP => yapfast_core::push_to_talk::hold(false),
+                    _ => {}
+                }
+            }
+        }
+        // SAFETY: the next hook gets the event as it came.
+        unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) }
+    }
+
     #[cfg(test)]
     mod tests {
         use std::{
@@ -883,11 +957,14 @@ mod windows {
         };
 
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
-            SendInput,
+            INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
+            KEYEVENTF_SCANCODE, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
         };
 
         use super::*;
+
+        /// The hook tests share the microphone's held state and the watched key.
+        static TALK_STATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
         /// Types a key by its scan code, as a keyboard would.
         fn send(scancode: u16, up: bool) {
@@ -908,6 +985,30 @@ mod windows {
             assert_eq!(sent, 1);
         }
 
+        /// Clicks a side button, as a mouse would.
+        fn send_mouse(button: u16, up: bool) {
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: 0,
+                        dy: 0,
+                        mouseData: u32::from(button),
+                        dwFlags: if up {
+                            MOUSEEVENTF_XUP
+                        } else {
+                            MOUSEEVENTF_XDOWN
+                        },
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            };
+            // SAFETY: one input, of the size Windows expects.
+            let sent = unsafe { SendInput(1, &input, size_of::<INPUT>() as i32) };
+            assert_eq!(sent, 1);
+        }
+
         fn wait_held(held: bool) {
             let until = Instant::now() + Duration::from_secs(2);
             while yapfast_core::push_to_talk::held() != held {
@@ -916,11 +1017,140 @@ mod windows {
             }
         }
 
+        #[test]
+        fn the_window_records_mouse_4_and_5() {
+            use slint::winit_030::winit::event::{
+                DeviceId, ElementState, MouseButton, WindowEvent,
+            };
+
+            use crate::push_to_talk::Keybind;
+
+            let event = |button, state| WindowEvent::MouseInput {
+                device_id: DeviceId::dummy(),
+                state,
+                button,
+            };
+            for (button, name, scancode) in [
+                (MouseButton::Back, "Mouse 4", super::super::MOUSE_4),
+                (MouseButton::Forward, "Mouse 5", super::super::MOUSE_5),
+            ] {
+                let key = Keybind::recorded_mouse(&event(button, ElementState::Pressed))
+                    .expect("a side button should be recordable");
+                assert_eq!(key.scancode, scancode);
+                assert_eq!(key.name, name);
+                assert_eq!(key.trigger, None);
+            }
+            assert!(
+                Keybind::recorded_mouse(&event(MouseButton::Left, ElementState::Pressed)).is_none(),
+                "ordinary buttons keep their usual meaning"
+            );
+            assert!(
+                Keybind::recorded_mouse(&event(MouseButton::Back, ElementState::Released))
+                    .is_none(),
+                "only a press records"
+            );
+        }
+
+        #[test]
+        fn the_focused_window_holds_a_mouse_binding() {
+            use slint::winit_030::winit::event::{
+                DeviceId, ElementState, MouseButton, WindowEvent,
+            };
+
+            let _talk = TALK_STATE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mouse = |button, state| WindowEvent::MouseInput {
+                device_id: DeviceId::dummy(),
+                state,
+                button,
+            };
+            super::super::FOCUSED_KEY.store(super::super::MOUSE_4, Ordering::Relaxed);
+            yapfast_core::push_to_talk::hold(false);
+            crate::push_to_talk::window_event(&mouse(MouseButton::Forward, ElementState::Pressed));
+            assert!(!yapfast_core::push_to_talk::held());
+            crate::push_to_talk::window_event(&mouse(MouseButton::Back, ElementState::Pressed));
+            assert!(yapfast_core::push_to_talk::held());
+            crate::push_to_talk::window_event(&WindowEvent::Focused(false));
+            assert!(!yapfast_core::push_to_talk::held());
+            crate::push_to_talk::window_event(&mouse(MouseButton::Back, ElementState::Pressed));
+            assert!(yapfast_core::push_to_talk::held());
+            crate::push_to_talk::window_event(&mouse(MouseButton::Back, ElementState::Released));
+            assert!(!yapfast_core::push_to_talk::held());
+            super::super::FOCUSED_KEY.store(super::super::NONE, Ordering::Relaxed);
+        }
+
+        #[test]
+        fn the_mouse_hook_hears_the_bound_side_button_go_down_and_up() {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                MSLLHOOKSTRUCT, WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1, XBUTTON2,
+            };
+
+            let _talk = TALK_STATE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            fn event(message: u32, button: u16) {
+                let details = MSLLHOOKSTRUCT {
+                    mouseData: u32::from(button) << 16,
+                    ..Default::default()
+                };
+                // SAFETY: details has the shape a mouse hook's lparam points at.
+                unsafe {
+                    mouse_proc(
+                        HC_ACTION as i32,
+                        message as usize,
+                        &details as *const MSLLHOOKSTRUCT as LPARAM,
+                    );
+                }
+            }
+
+            yapfast_core::push_to_talk::hold(false);
+            KEY.store(super::super::MOUSE_4, Ordering::Relaxed);
+            event(WM_XBUTTONDOWN, XBUTTON2);
+            assert!(!yapfast_core::push_to_talk::held());
+            event(WM_XBUTTONDOWN, XBUTTON1);
+            assert!(yapfast_core::push_to_talk::held());
+            event(WM_XBUTTONUP, XBUTTON2);
+            assert!(yapfast_core::push_to_talk::held());
+            event(WM_XBUTTONUP, XBUTTON1);
+            assert!(!yapfast_core::push_to_talk::held());
+
+            KEY.store(super::super::MOUSE_5, Ordering::Relaxed);
+            event(WM_XBUTTONDOWN, XBUTTON2);
+            assert!(yapfast_core::push_to_talk::held());
+            event(WM_XBUTTONUP, XBUTTON2);
+            assert!(!yapfast_core::push_to_talk::held());
+            KEY.store(super::super::NONE, Ordering::Relaxed);
+        }
+
+        /// The installed mouse hook hears Mouse 4 anywhere, down and up. Run it
+        /// alone, on a desktop, or under Wine with an X server.
+        #[test]
+        #[ignore = "clicks the desktop's side buttons"]
+        fn the_installed_mouse_hook_hears_mouse_4_go_down_and_up() {
+            let _talk = TALK_STATE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let hook = Hook::start(super::super::MOUSE_4, Arc::new(|_| {})).expect("no hook");
+            send_mouse(XBUTTON1, false);
+            wait_held(true);
+            send_mouse(XBUTTON1, true);
+            wait_held(false);
+            send_mouse(XBUTTON2, false);
+            send_mouse(XBUTTON2, true);
+            std::thread::sleep(Duration::from_millis(100));
+            assert!(!yapfast_core::push_to_talk::held());
+            drop(hook);
+        }
+
         /// The hook hears the key typed anywhere, down and up. Run it alone,
         /// on a desktop, or under Wine with an X server.
         #[test]
         #[ignore = "types into the desktop"]
         fn the_hook_hears_the_key_go_down_and_up() {
+            let _talk = TALK_STATE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let hook = Hook::start(0x2F, Arc::new(|_| {})).expect("no hook"); // V
             send(0x2F, false);
             wait_held(true);
