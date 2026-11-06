@@ -26,6 +26,7 @@ impl Application {
                 hide_muted: false,
                 community: false,
                 pinned: Vec::new(),
+                ..Default::default()
             },
             ChatServer {
                 id: "coop".into(),
@@ -43,6 +44,7 @@ impl Application {
                 hide_muted: false,
                 community: false,
                 pinned: Vec::new(),
+                ..Default::default()
             },
         ]
         .into_iter()
@@ -204,6 +206,8 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         ringing: vec![],
         incoming: false,
         avatar: None,
+        decoration: None,
+        style: None,
         upload_limit: 50 * 1024 * 1024,
         presence: None,
         activity: None,
@@ -211,6 +215,10 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         parent: None,
         forum: false,
         unlisted: false,
+        tag: None,
+        official: false,
+        empty: false,
+        symbol: 0,
         preview: None,
     }
 }
@@ -235,11 +243,15 @@ pub(super) fn preview_members(room: &str) -> Vec<ChatMember> {
     let mut members: Vec<_> = people
         .iter()
         .map(|&(name, role)| ChatMember {
+            bot: false,
             id: format!("@{}:preview.local", name.to_lowercase()),
             name: name.into(),
             username: None,
             role,
             avatar: None,
+            decoration: None,
+            nameplate: None,
+            style: None,
             group: None,
             presence: None,
             color: None,
@@ -247,6 +259,9 @@ pub(super) fn preview_members(room: &str) -> Vec<ChatMember> {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            tag: None,
+            group_icon: None,
+            role_icon: None,
         })
         .collect();
     chat::sort_members(&mut members);

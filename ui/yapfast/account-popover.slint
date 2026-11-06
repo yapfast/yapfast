@@ -1,0 +1,118 @@
+import { ScrollView } from "../scrollview.slint";
+import { Theme, Middle } from "../theme.slint";
+import { Avatar, MenuItem, StatusText } from "../controls.slint";
+import { StatusDot } from "../rail.slint";
+import { StatusOption } from "../dialogs.slint";
+
+// Uses the account summary already supplied by Yapfast. A neutral header
+// deliberately avoids inventing a banner, decorations, biography or badges.
+export component AccountPopover inherits Rectangle {
+    in property <string> name;
+    in property <string> initial;
+    in property <color> tint;
+    in property <image> picture;
+    in property <string> user-id;
+    in property <string> status;
+    in property <string> custom-text;
+    in property <string> custom-emoji;
+    in property <bool> has-custom-status;
+    in property <string> game-name;
+    in property <string> game-duration;
+    in-out property <bool> expanded;
+    in property <length> available-height: 100000px;
+    callback choose(string);
+    callback custom-status;
+    callback edit-profile;
+    callback settings;
+    callback copy-id;
+    callback game-duration-due;
+    property <string> presence-label: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
+    background: Theme.panel; border-radius: 8px;
+    border-width: 1px; border-color: Theme.line;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    accessible-role: groupbox; accessible-label: "Account";
+    height: min(root.available-height, content.preferred-height);
+    ScrollView {
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            spacing: 0px;
+            Rectangle {
+                height: 156px;
+                Rectangle { y: 0px; height: 80px; background: Theme.sunken; border-radius: 8px; }
+                Rectangle { y: 72px; height: 8px; background: Theme.sunken; }
+                Rectangle {
+                    x: 12px; y: 36px; width: 88px; height: 88px;
+                    border-radius: 44px; background: Theme.panel;
+                    Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
+                    StatusDot { x: 66px; y: 65px; width: 20px; height: 20px; border-radius: 10px; presence: root.status == "invisible" ? "offline" : root.status; ring: Theme.panel; }
+                }
+                Text { x: 16px; y: 128px; width: parent.width - 32px; height: 24px; text: root.name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+            }
+            VerticalLayout {
+                padding: 16px; padding-top: 8px; spacing: 12px;
+                if root.has-custom-status: StatusText { text: root.custom-text; emoji-url: root.custom-emoji; }
+                if root.game-name != "": Rectangle {
+                    height: 80px; border-radius: 8px; background: Theme.raised;
+                    VerticalLayout {
+                        padding: 12px; spacing: 4px; alignment: center;
+                        Text { text: "Playing"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                        Text { text: root.game-name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
+                        if root.game-duration != "": Text { text: root.game-duration; color: Theme.live; font-size: 12px; }
+                    }
+                    Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
+                }
+                Rectangle {
+                    background: Theme.raised; border-radius: 8px;
+                    VerticalLayout {
+                        padding: 8px; spacing: 4px;
+                        MenuItem { height: 40px; text: "Edit Profile"; icon: @image-url("../icons/pencil.svg"); clicked => { root.edit-profile(); } }
+                        Rectangle { height: 1px; background: Theme.line; }
+                        Rectangle {
+                            height: 40px; border-radius: 4px;
+                            background: status-touch.has-hover ? Theme.active : transparent;
+                            border-width: status-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+                            accessible-role: button; accessible-label: "Change status"; accessible-description: root.presence-label;
+                            accessible-expanded: root.expanded;
+                            accessible-action-default => { root.expanded = !root.expanded; }
+                            forward-focus: status-focus;
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 8px; spacing: 8px;
+                                Middle { StatusDot { presence: root.status == "invisible" ? "offline" : root.status; ring: Theme.raised; } }
+                                Text { text: root.presence-label; color: Theme.secondary; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                                Image { source: root.expanded ? @image-url("../icons/chevron-down.svg") : @image-url("../icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                            }
+                            status-focus := FocusScope {
+                                key-pressed(event) => {
+                                    if event.text == " " || event.text == "\n" { root.expanded = !root.expanded; return accept; }
+                                    return reject;
+                                }
+                                status-touch := TouchArea { mouse-cursor: pointer; clicked => { root.expanded = !root.expanded; } }
+                            }
+                        }
+                        if root.expanded: VerticalLayout {
+                            spacing: 2px;
+                            for option in [
+                                { key: "online", name: "Online", note: "" },
+                                { key: "idle", name: "Idle", note: "" },
+                                { key: "dnd", name: "Do Not Disturb", note: "You won't get message notifications." },
+                                { key: "invisible", name: "Invisible", note: "You'll appear offline." },
+                            ]: StatusOption {
+                                key: option.key; name: option.name; note: option.note; checked: root.status == option.key;
+                                clicked => { root.choose(option.key); }
+                            }
+                        }
+                        MenuItem { height: 40px; text: root.has-custom-status ? "Change custom status" : "Set a custom status"; icon: @image-url("../icons/smile-plus.svg"); clicked => { root.custom-status(); } }
+                    }
+                }
+                Rectangle {
+                    background: Theme.raised; border-radius: 8px;
+                    VerticalLayout {
+                        padding: 8px; spacing: 4px;
+                        if root.user-id != "": MenuItem { height: 40px; text: "Copy User ID"; icon: @image-url("../icons/copy.svg"); clicked => { root.copy-id(); } }
+                        MenuItem { height: 40px; text: "User Settings"; icon: @image-url("../icons/settings.svg"); clicked => { root.settings(); } }
+                    }
+                }
+            }
+        }
+    }
+}

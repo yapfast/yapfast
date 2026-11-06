@@ -268,6 +268,10 @@ impl Application {
                                     .state
                                     .message(&item)
                                     .and_then(|original| original.avatar.clone()),
+                                color: self
+                                    .state
+                                    .message(&item)
+                                    .and_then(|original| original.color),
                                 body,
                                 item: Some(item),
                             }),

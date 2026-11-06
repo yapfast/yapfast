@@ -462,6 +462,18 @@ mod tests {
     }
 
     #[test]
+    fn keeps_a_webms_transparency() {
+        // The left half of each picture is see-through, the right half solid.
+        let data = fixture("gif-vp9-alpha.webm");
+        let picture = crate::chat::decode_picture(&data, 32, 18).unwrap();
+        for frame in picture.frames() {
+            let alpha = |x: usize, y: usize| frame[(y * 32 + x) * 4 + 3];
+            assert!(alpha(4, 9) < 8, "left {}", alpha(4, 9));
+            assert!(alpha(28, 9) > 247, "right {}", alpha(28, 9));
+        }
+    }
+
+    #[test]
     fn shows_deeper_and_less_subsampled_pictures() {
         let frames = |name: &str| -> Vec<Vec<u8>> {
             let data = fixture(name);
