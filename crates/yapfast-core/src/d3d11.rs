@@ -100,6 +100,7 @@ unsafe extern "C" {
         height: c_uint,
         fps: c_uint,
         kbps: c_uint,
+        surfaces: c_uint,
         tuning: *const c_char,
         report: *mut c_char,
         report_size: usize,
@@ -345,6 +346,32 @@ pub enum Resize {
     Either,
 }
 
+/// How many of a capture's surfaces a session keeps registered and mapped
+/// between frames, which is memory the capture pays for twice over: every
+/// surface a session holds is a full-size one it has taken a reference of, so
+/// the capture can't reuse it while the session keeps it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Surfaces {
+    /// The ring a capture source hands back, kept so that a frame costs an
+    /// encode and no registration: what a session encoding a share wants.
+    Ring,
+    /// One, for a session that reads a frame in ten to show a preview: it has
+    /// no ring to keep up with, and at 1080p each of the four a ring costs is
+    /// another eight megabytes the capture can't fill.
+    One,
+}
+
+impl Surfaces {
+    /// The number of the capture's surfaces a session keeps for it, which the
+    /// shim holds to as many as it has room for.
+    fn held(self) -> c_uint {
+        match self {
+            Self::Ring => 4,
+            Self::One => 1,
+        }
+    }
+}
+
 /// An encoder on the GPU reading D3D11 textures: NVENC through a D3D11 device,
 /// one codec to an instance, opened with the tuning the stream ships.
 pub struct D3d11Encoder {
@@ -443,6 +470,11 @@ impl D3d11Encoder {
     /// [`Self::new`] doesn't apply, since the device is already made and the
     /// adapter it is on is the answer.
     ///
+    /// `surfaces` is how many of the capture's surfaces the session holds, and
+    /// so pins: [`Surfaces::Ring`] for a session encoding the share, which reads
+    /// the ring the capture fills, and [`Surfaces::One`] for one that reads a
+    /// frame in ten to show a preview.
+    ///
     // `device` is an opaque handle in the same sense [`Texture`] is: nothing in
     // this crate reads through it, it is handed to the shim, and the shim holds
     // it for the session's length without ever taking a reference of its own.
@@ -457,6 +489,7 @@ impl D3d11Encoder {
         height: u32,
         fps: u32,
         kbps: u32,
+        surfaces: Surfaces,
     ) -> Result<Self> {
         let number = codec_number(codec, width, height)?;
         let mut report = [0u8; 192];
@@ -471,6 +504,7 @@ impl D3d11Encoder {
                 height,
                 fps,
                 kbps,
+                surfaces.held(),
                 std::ptr::null(),
                 report.as_mut_ptr().cast(),
                 report.len(),
@@ -484,6 +518,7 @@ impl D3d11Encoder {
         tracing::debug!(
             engine = encoder.configuration.engine.as_str(),
             ?codec,
+            ?surfaces,
             tuning = encoder.configuration.tuning.as_str(),
             config = config.as_str(),
             codecs = encoder.codecs.as_str(),
@@ -1569,8 +1604,9 @@ mod tests {
         // must not move it: what an encoder on a device handed to it must not do is
         // make a second device.
         let devices_before = unsafe { yapfast_d3d11enc_devices_created() };
-        let mut encoder = D3d11Encoder::open_on(device, codec, width, height, 60, 8000)
-            .unwrap_or_else(|why| panic!("no encoder on the capture's device: {why:#}"));
+        let mut encoder =
+            D3d11Encoder::open_on(device, codec, width, height, 60, 8000, Surfaces::Ring)
+                .unwrap_or_else(|why| panic!("no encoder on the capture's device: {why:#}"));
         assert_eq!(
             unsafe { yapfast_d3d11enc_devices_created() },
             devices_before,

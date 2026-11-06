@@ -68,10 +68,14 @@
 /* The codecs, as Rust numbers them. */
 enum { CODEC_H264, CODEC_HEVC, CODEC_AV1, CODEC_COUNT };
 
-/* How many textures are remembered, by (texture, subresource): a capture source
- * hands back a few surfaces in rotation rather than one, and registering and
- * mapping each of them again on every frame would cost more of the processor
- * than the encode does. Four covers the ring a desktop duplicator keeps. */
+/* The most textures a session may remember, by (texture, subresource): a
+ * capture source hands back a few surfaces in rotation rather than one, and
+ * registering and mapping each of them again on every frame would cost more of
+ * the processor than the encode does. Four covers the ring a desktop
+ * duplicator keeps, and a session is opened with how many of them it holds —
+ * four for one encoding a stream, and one for one that only reads a preview,
+ * because every surface held is a full-size one the capture can't fill while
+ * it is. */
 #define SLOTS 4
 
 /* Enough for a keyframe of a 1080p screen at the stream's cap, and drawn from
@@ -511,6 +515,10 @@ struct yapfast_d3d11enc {
   /* Frames' pixels moved by the processor since this encoder opened: a count
    * the encode path keeps at zero, and says so. */
   unsigned long long copied;
+  /* How many of a capture's surfaces this session keeps registered and
+   * mapped, and how many views of them the scaler keeps: `SLOTS` at most, and
+   * one for a session that reads a preview rather than encoding a stream. */
+  unsigned held;
   struct slot slots[SLOTS];
   /* What a capture of another size goes through to reach the encoder, and what
    * a preview is read back through: see `struct scale`. */
@@ -915,6 +923,9 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new(unsigned codec_id, unsigned width,
   e->fps = fps;
   e->kbps = kbps;
   e->tuning = tuning;
+  /* An encoder that made its own device is one encoding a share, and reads
+   * the ring the capture fills. */
+  e->held = SLOTS;
 
   /* The adapter is named, not searched for: Rust has already chosen it from the
    * GPU setting and from what this machine has, and this opens the device on
@@ -947,11 +958,18 @@ failed:
  * the device rather than named, so the open still reports the card the session
  * is really on, and a device made on anything but NVIDIA's is refused in words
  * before a session is attempted. NULL with `report` filled in when the device
- * isn't one NVENC can encode on, or when the session refuses it. */
+ * isn't one NVENC can encode on, or when the session refuses it.
+ *
+ * `surfaces` is how many of the capture's surfaces the session keeps registered
+ * and mapped between frames: four for one encoding a share, where the capture
+ * hands back a ring and registering each surface per frame would cost more than
+ * the encode, and one for a session that reads a frame in ten to show a preview
+ * and has no ring to keep up with. Every surface held is a full-size one the
+ * capture can't fill while it is held, which at 4K is 33 MB apiece. */
 struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id, unsigned width,
                                                  unsigned height, unsigned fps, unsigned kbps,
-                                                 const char *tuning_name, char *report,
-                                                 size_t report_size) {
+                                                 unsigned surfaces, const char *tuning_name,
+                                                 char *report, size_t report_size) {
   struct yapfast_d3d11enc *e;
   DXGI_ADAPTER_DESC1 desc;
   char why[192] = "";
@@ -978,6 +996,11 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id
   e->fps = fps;
   e->kbps = kbps;
   e->tuning = tuning;
+  /* One surface is the least a session can keep, and `SLOTS` the most: what a
+   * caller asks for is what it reads, and a count outside that range is one of
+   * the two ends rather than a session that remembers nothing or writes past
+   * its array. */
+  e->held = surfaces < 1 ? 1 : surfaces > SLOTS ? SLOTS : surfaces;
   e->device = (ID3D11Device *)device;
   /* Borrowed, so not released here: see the ownership note at the top of this
    * file. */
@@ -1002,10 +1025,11 @@ failed:
 
 /* A slot with no texture, or the least recently used one: a capture source with
  * more surfaces than this keeps re-registering them, which is slower but never
- * wrong. */
+ * wrong. A session opened with one surface has one candidate, so the surface it
+ * held goes back before the new one takes its place. */
 static struct slot *free_slot(struct yapfast_d3d11enc *e) {
   struct slot *oldest = &e->slots[0];
-  for (size_t i = 0; i < SLOTS; i++) {
+  for (size_t i = 0; i < e->held; i++) {
     struct slot *slot = &e->slots[i];
     if (!slot->texture) return slot;
     if (slot->used < oldest->used) oldest = slot;
@@ -1108,7 +1132,7 @@ static struct slot *slot_register(struct yapfast_d3d11enc *e, void *texture, uns
 }
 
 static void close_slots(struct yapfast_d3d11enc *e) {
-  for (size_t i = 0; i < SLOTS; i++) {
+  for (size_t i = 0; i < e->held; i++) {
     struct slot *slot = &e->slots[i];
     if (slot->mapped) library.functions.nvEncUnmapInputResource(e->session, slot->mapped);
     if (slot->registered)
@@ -1146,7 +1170,7 @@ static void close_shader(struct yapfast_d3d11enc *e) {
  * the scaled frame, the staging texture a readback maps, and the processor or
  * the shader that filled them. */
 static void close_scale(struct yapfast_d3d11enc *e) {
-  for (size_t i = 0; i < SLOTS; i++) close_input(&e->scaler.inputs[i]);
+  for (size_t i = 0; i < e->held; i++) close_input(&e->scaler.inputs[i]);
   if (e->scaler.picture) e->scaler.picture->lpVtbl->Release(e->scaler.picture);
   if (e->scaler.staging) e->scaler.staging->lpVtbl->Release(e->scaler.staging);
   if (e->scaler.target) e->scaler.target->lpVtbl->Release(e->scaler.target);
@@ -1197,7 +1221,7 @@ long yapfast_d3d11enc_encode(struct yapfast_d3d11enc *e, void *texture, unsigned
   if (!texture || !out || !is_key) return fail(e, -1, "the encoder was given nothing to encode");
   *is_key = 0;
   struct slot *slot = NULL;
-  for (size_t i = 0; i < SLOTS && !slot; i++)
+  for (size_t i = 0; i < e->held && !slot; i++)
     if (e->slots[i].texture == texture && e->slots[i].subresource == subresource)
       slot = &e->slots[i];
   if (!slot) {
@@ -1299,12 +1323,14 @@ int yapfast_d3d11enc_set_bitrate(struct yapfast_d3d11enc *e, unsigned kbps) {
 /* The entry for the caller's texture, made on the first frame it arrives and
  * kept while it keeps arriving: the same least-recently-used rotation as the
  * encoder's slots, since a capture source hands back a few surfaces in rotation
- * rather than one. Never fails — the entry is one of a fixed array — and a view
- * that can't be made of this surface is said by whoever asked for it. */
+ * rather than one — and the same count, so that a session that reads one frame
+ * in ten holds one surface rather than four. Never fails — the entry is one of
+ * a fixed array — and a view that can't be made of this surface is said by
+ * whoever asked for it. */
 static struct input *input_for(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture,
                                unsigned subresource, DXGI_FORMAT format) {
   struct input *oldest = NULL;
-  for (size_t i = 0; i < SLOTS; i++) {
+  for (size_t i = 0; i < e->held; i++) {
     struct input *input = &e->scaler.inputs[i];
     if (input->texture == texture && input->subresource == subresource &&
         input->format == format) {

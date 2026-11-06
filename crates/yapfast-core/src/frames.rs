@@ -14,8 +14,13 @@
 //! small tile costs a small file. One shown larger than the file was made for
 //! grows it: the worker lengthens the file and maps it again, and the header
 //! says where the slots lie now, which is how the UI's mapping learns it must
-//! be made again too. A file never shrinks, so a mapping one process still
-//! holds stays whole under it.
+//! be made again too. A file gives its room back as well: a share that went
+//! full-screen once doesn't hold four-K slots for the stream's life, since the
+//! worker shortens the file once the frames have needed a fraction of it for
+//! long enough. A reader maps the file for the length of one take and lets it
+//! go after, holding the file shared while it does, so nothing is ever
+//! shortened under a mapping: the worker takes the file to itself for it, and
+//! a reader that is reading is what it finds there.
 //!
 //! A slot holds either pixels or a picture the worker drew on the GPU and
 //! shared with the UI's process, which the UI shows without copying it: the
@@ -26,12 +31,13 @@
 //! is a slow stream, not a blank one.
 
 use std::{
-    fs::{File, OpenOptions},
+    fs::{File, OpenOptions, TryLockError},
     path::{Path, PathBuf},
     sync::{
         Mutex,
         atomic::{AtomicU32, AtomicU64, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, ensure};
@@ -47,6 +53,13 @@ const SLOTS: u32 = 3;
 /// the UI hasn't taken.
 const FRESH: u32 = 4;
 
+/// How many times the room a frame needs the file may hold before the rest of
+/// it is worth giving back, and how long the frames have to keep needing less
+/// before it is: a share that went full-screen and came back to a tile settles
+/// in ten seconds, and a window passing through a large size doesn't.
+const ROOM_SLACK: usize = 4;
+const ROOM_BACK_AFTER: Duration = Duration::from_secs(10);
+
 /// What the UI says about a stream's GPU pictures: nothing yet, that it can
 /// show them on the adapter in [`Header::ui_luid`], or that it can't, which
 /// the worker reads as an answer to write pixels instead.
@@ -58,9 +71,9 @@ const UI_REFUSED: u32 = 2;
 #[repr(C)]
 struct Header {
     magic: u32,
-    /// The bytes a slot holds, which is where each slot starts: it changes
-    /// only by growing, and the process that grows it says so here before it
-    /// writes a frame at the new size.
+    /// The bytes a slot holds, which is where each slot starts: it changes as
+    /// frames need more room and as they stop needing it, and the process that
+    /// changes it says so here before it writes a frame at the new size.
     capacity: AtomicU32,
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
@@ -171,8 +184,29 @@ fn capacity(width: u32, height: u32) -> usize {
     width as usize * height as usize * 4
 }
 
+/// The header at the start of a view of the file.
+fn header_of(map: &MmapMut) -> &Header {
+    // SAFETY: every view here is at least HEADER bytes, page aligned, and
+    // Header is plain integers.
+    unsafe { &*map.as_ptr().cast::<Header>() }
+}
+
+/// Where slot `index` starts in a view whose slots hold `capacity` bytes each.
+fn slot_of(map: &MmapMut, capacity: usize, index: u32) -> *mut u8 {
+    // SAFETY: whoever maps the file checks that it holds every slot.
+    unsafe {
+        map.as_ptr()
+            .cast_mut()
+            .add(HEADER + index as usize * capacity)
+    }
+}
+
+/// The worker's view of the file: the slots it writes, kept between frames and
+/// let go for as long as the file is being made smaller.
 struct Mapping {
-    map: MmapMut,
+    /// The view, or none while the file is shortened: a file can't be ended
+    /// while any view of it exists, this one included.
+    map: Option<MmapMut>,
     capacity: usize,
 }
 
@@ -182,17 +216,25 @@ impl Mapping {
         // slots through the triple buffer, never the same slot at once.
         let map = unsafe { MmapMut::map_mut(file) }.context("could not map the video frames")?;
         ensure!(map.len() >= HEADER, "the video frames file is too short");
-        let mapping = Self { capacity: 0, map };
+        let mut mapping = Self {
+            map: Some(map),
+            capacity: 0,
+        };
         ensure!(mapping.header().magic == MAGIC, "not a video frames file");
         let capacity = mapping.capacity_now();
         ensure!(
-            mapping.map.len() >= HEADER + SLOTS as usize * capacity,
+            mapping.view().len() >= HEADER + SLOTS as usize * capacity,
             "the video frames file is too short"
         );
-        Ok(Self {
-            capacity,
-            ..mapping
-        })
+        mapping.capacity = capacity;
+        Ok(mapping)
+    }
+
+    /// The view itself: every use of a mapping is a use of the slots in it, and
+    /// the only time there is none is between letting the view go and mapping
+    /// the shortened file.
+    fn view(&self) -> &MmapMut {
+        self.map.as_ref().expect("the slots are mapped")
     }
 
     /// The bytes a slot holds, as the header says: frames larger than those
@@ -216,7 +258,7 @@ impl Mapping {
         // the slots through the triple buffer, never the same slot at once.
         let map = unsafe { MmapMut::map_mut(file) }.context("could not map the video frames")?;
         ensure!(map.len() >= length, "the video frames file is too short");
-        self.map = map;
+        self.map = Some(map);
         self.capacity = capacity;
         self.header()
             .capacity
@@ -224,47 +266,166 @@ impl Mapping {
         Ok(())
     }
 
+    /// Makes the slots `capacity` bytes, and this view with them, when they
+    /// hold more of the file than the frames need: the room a share used when
+    /// it was shown large goes back to the machine rather than being held for
+    /// the stream's life.
+    ///
+    /// The caller holds the file to itself for the whole of this — every reader
+    /// takes the file shared for as long as it has a view of it — so no view but
+    /// this one exists, which is what makes ending the file safe rather than
+    /// merely possible: Windows won't end a file any process has a view of, and
+    /// a view of a file that shrank reads past its end. Answers whether the file
+    /// gave its room back; a length the file system won't end keeps its room and
+    /// loses no frame.
+    fn shorten(&mut self, file: &File, capacity: usize) -> Result<bool> {
+        if capacity >= self.capacity {
+            return Ok(false);
+        }
+        // This view goes first: it is a view of the file like any other, and
+        // one of them is enough to keep the file its length.
+        self.map = None;
+        let length = HEADER + SLOTS as usize * capacity;
+        if let Err(error) = file.set_len(length as u64) {
+            tracing::debug!(
+                error = format!("{error:#}"),
+                "the video frames keep their room"
+            );
+            // SAFETY: as `open`.
+            let map =
+                unsafe { MmapMut::map_mut(file) }.context("could not map the video frames")?;
+            ensure!(map.len() >= HEADER, "the video frames file is too short");
+            self.map = Some(map);
+            return Ok(false);
+        }
+        // SAFETY: as `open`.
+        let map = unsafe { MmapMut::map_mut(file) }.context("could not map the video frames")?;
+        ensure!(map.len() >= length, "the video frames file is too short");
+        self.map = Some(map);
+        self.capacity = capacity;
+        let header = self.header();
+        header
+            .capacity
+            .store(u32::try_from(capacity)?, Ordering::Release);
+        // Every slot moved with the file, so a frame the reader hasn't taken is
+        // no longer where its size says it is: the freshness goes with the room,
+        // and the next frame written is the first read at the new stride.
+        header.middle.fetch_and(!FRESH, Ordering::AcqRel);
+        Ok(true)
+    }
+
     fn header(&self) -> &Header {
-        // SAFETY: the map is at least HEADER bytes, page aligned, and Header
-        // is plain integers.
-        unsafe { &*self.map.as_ptr().cast::<Header>() }
+        header_of(self.view())
     }
 
     fn slot(&self, index: u32) -> *mut u8 {
-        // SAFETY: Mapping::open checked the file holds every slot.
-        unsafe {
-            self.map
-                .as_ptr()
-                .cast_mut()
-                .add(HEADER + index as usize * self.capacity)
+        slot_of(self.view(), self.capacity, index)
+    }
+}
+
+/// A reader's view of the file, held for the length of one take and let go with
+/// the shared lock that goes with it. A reader that isn't reading has no view up,
+/// which is what lets the worker give the file's room back: it shortens the file
+/// only while it can hold the file to itself, and it asks by taking the lock.
+struct Reading<'a> {
+    file: &'a File,
+    /// Whether the file is held shared for as long as this view exists. A file
+    /// system that can't lock the file is one where the room isn't given back
+    /// either — the worker's own attempt fails there too — so a refusal is not
+    /// a reason to stop showing frames.
+    locked: bool,
+    /// The view, or none for the moment between letting it go and the lock
+    /// going with it.
+    map: Option<MmapMut>,
+    /// The bytes a slot held when this view was made, which is the stride its
+    /// slots are read at.
+    capacity: usize,
+}
+
+impl<'a> Reading<'a> {
+    /// Maps the file for a read: the lock comes first and the view after it, so
+    /// a view never exists while the worker could be shortening the file.
+    fn open(file: &'a File) -> Result<Self> {
+        // A lock error is not a reason to stop showing frames: it is the same
+        // answer the writer gets when it asks, so nothing shortens this file.
+        let locked = file.lock_shared().is_ok();
+        // SAFETY: only Yapfast's own processes map the file, and they touch the
+        // slots through the triple buffer, never the same slot at once.
+        let map = match unsafe { MmapMut::map_mut(file) } {
+            Ok(map) => map,
+            Err(error) => {
+                if locked {
+                    let _ = file.unlock();
+                }
+                return Err(error).context("could not map the video frames");
+            }
+        };
+        // From here the view letting go of the file is also what unlocks it,
+        // so a file that isn't the frames file is let go of like one that is.
+        let mut reading = Self {
+            file,
+            locked,
+            map: Some(map),
+            capacity: 0,
+        };
+        ensure!(
+            reading.view().len() >= HEADER,
+            "the video frames file is too short"
+        );
+        ensure!(reading.header().magic == MAGIC, "not a video frames file");
+        reading.capacity = reading.capacity_now();
+        ensure!(
+            reading.view().len() >= HEADER + SLOTS as usize * reading.capacity,
+            "the video frames file is too short"
+        );
+        Ok(reading)
+    }
+
+    fn view(&self) -> &MmapMut {
+        self.map.as_ref().expect("the frames are mapped")
+    }
+
+    fn header(&self) -> &Header {
+        header_of(self.view())
+    }
+
+    fn capacity_now(&self) -> usize {
+        self.header().capacity.load(Ordering::Acquire) as usize
+    }
+
+    fn slot(&self, index: u32) -> *mut u8 {
+        slot_of(self.view(), self.capacity, index)
+    }
+}
+
+impl Drop for Reading<'_> {
+    fn drop(&mut self) {
+        // The view goes before the lock: the worker shortens the file only
+        // while nothing has a view of it, and a lock let go with the view still
+        // up would say the file was the worker's to shorten.
+        self.map = None;
+        if self.locked {
+            let _ = self.file.unlock();
         }
     }
 }
 
 /// The UI's side: it creates the file and shows the newest frame.
 pub struct Frames {
-    /// The mapping the UI reads through and the slot it reads: the two change
-    /// together, so a frame is never read through a mapping replaced under it.
-    front: Mutex<Front>,
-    /// The file, kept to map it again at the size the worker grows it to.
+    /// The file, mapped for the length of a take and let go after it: the
+    /// worker shortens it only while nothing has it mapped, so a view held
+    /// between takes would hold the file's room with it.
     file: File,
+    /// The slot the UI read last, which is the one it hands back when it takes
+    /// the middle one.
+    front: Mutex<Front>,
     name: Mutex<Option<Name>>,
 }
 
-/// What the UI reads through: the mapping, and the slot it holds.
+/// What the UI holds between takes: the slot it reads, and nothing of the file
+/// itself, which is mapped again for each take.
 struct Front {
-    mapping: Mapping,
     slot: u32,
-}
-
-impl Front {
-    /// Maps the file again when the worker has grown it: a frame larger than
-    /// these slots holds moved every slot, so a mapping left behind reads
-    /// another frame's pixels.
-    fn follow(&mut self, file: &File) -> Result<()> {
-        let capacity = self.mapping.capacity_now();
-        self.mapping.grow(file, capacity)
-    }
 }
 
 /// What keeps the file's name until [`Frames::unlink`].
@@ -330,13 +491,13 @@ fn create_file(directory: PathBuf) -> std::io::Result<(File, Name)> {
 
 impl std::fmt::Debug for Frames {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // A frame being read holds the mapping, and a log line doesn't wait
-        // for it: what it holds is printed when it can be read.
-        let capacity = self
-            .front
-            .try_lock()
-            .ok()
-            .map(|front| front.mapping.capacity);
+        // A frame being read holds the file, and a log line doesn't wait for
+        // it: what it holds is printed when it can be read.
+        let capacity = self.front.try_lock().ok().and_then(|_front| {
+            Reading::open(&self.file)
+                .ok()
+                .map(|reading| reading.capacity)
+        });
         formatter
             .debug_struct("Frames")
             .field("capacity", &capacity)
@@ -373,8 +534,8 @@ impl Frames {
             .ui_pid
             .store(std::process::id(), Ordering::Release);
         Ok(Self {
-            front: Mutex::new(Front { mapping, slot: 2 }),
             file,
+            front: Mutex::new(Front { slot: 2 }),
             name: Mutex::new(Some(name)),
         })
     }
@@ -409,33 +570,35 @@ impl Frames {
             .front
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Err(error) = front.follow(&self.file) {
-            // The frames are lost with the mapping, but a stream's sound and
-            // the call go on: whoever grows the file asks again next time.
-            tracing::warn!(
-                error = format!("{error:#}"),
-                "could not map the video frames"
-            );
+        // The file is mapped for this take and not held between them: the worker
+        // shortens it only while nothing has it mapped, and a view of a file that
+        // shrank reads another frame's pixels.
+        let reading = match Reading::open(&self.file) {
+            Ok(reading) => reading,
+            Err(error) => {
+                // The frames are lost with this view, but a stream's sound and
+                // the call go on: the next take maps the file again.
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not map the video frames"
+                );
+                return None;
+            }
+        };
+        let held = reading.capacity;
+        if reading.header().middle.load(Ordering::Acquire) & FRESH == 0 {
             return None;
         }
-        let held = front.mapping.capacity;
-        if front.mapping.header().middle.load(Ordering::Acquire) & FRESH == 0 {
-            return None;
-        }
-        front.slot = front
-            .mapping
-            .header()
-            .middle
-            .swap(front.slot, Ordering::AcqRel)
-            & !FRESH;
+        front.slot = reading.header().middle.swap(front.slot, Ordering::AcqRel) & !FRESH;
         // The worker may have grown the file since: the frame just taken was
-        // written at a slot size this mapping doesn't know, so it's let go for
-        // the frame after it, which is read where it was written.
-        if front.mapping.capacity_now() != held {
-            let _ = front.follow(&self.file);
+        // written at a slot size this view doesn't hold, so it's let go for the
+        // frame after it, which is read where it was written. A file that
+        // shrank can't be seen here: the reader holds it shared while it reads,
+        // and the worker shortens it only while it has the file to itself.
+        if reading.capacity_now() != held {
             return None;
         }
-        let header = front.mapping.header();
+        let header = reading.header();
         let [width, height] = &header.sizes[front.slot as usize];
         let (width, height) = (
             width.load(Ordering::Relaxed),
@@ -450,8 +613,7 @@ impl Frames {
             let length = capacity(width, height).min(held);
             // SAFETY: the worker no longer writes this slot: it's the UI's
             // front until the UI swaps it back.
-            let pixels =
-                unsafe { std::slice::from_raw_parts(front.mapping.slot(front.slot), length) };
+            let pixels = unsafe { std::slice::from_raw_parts(reading.slot(front.slot), length) };
             Frame::Pixels {
                 width,
                 height,
@@ -505,11 +667,16 @@ impl Frames {
     /// the adapter its window draws on: the worker publishes them from its
     /// next frame on. Says whether that changed what the header said.
     pub fn accept_gpu(&self, luid: u64) -> bool {
-        let front = self
+        // Held so that one reader maps the file at a time: the lock each view
+        // takes is the file's, and two views of one process would share it.
+        let _front = self
             .front
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let header = front.mapping.header();
+        let Ok(reading) = Reading::open(&self.file) else {
+            return false;
+        };
+        let header = reading.header();
         // The adapter before the answer, so a worker that reads the answer
         // reads the adapter it goes with.
         let moved = header.ui_luid.swap(luid, Ordering::Relaxed) != luid;
@@ -522,23 +689,31 @@ impl Frames {
     /// while the stream lasts, so there's nothing to retry. Says whether this
     /// was the first refusal, so the reason is logged once.
     pub fn refuse_gpu(&self) -> bool {
-        let front = self
+        // Held so that one reader maps the file at a time, as `accept_gpu`
+        // holds it.
+        let _front = self
             .front
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        front.mapping.header().ui.swap(UI_REFUSED, Ordering::AcqRel) != UI_REFUSED
+        let Ok(reading) = Reading::open(&self.file) else {
+            return false;
+        };
+        reading.header().ui.swap(UI_REFUSED, Ordering::AcqRel) != UI_REFUSED
     }
 }
 
 /// The worker's side: it fills frames.
 pub struct Writer {
     /// The file the slots are mapped from, kept to lengthen it when a frame
-    /// needs more room than it has.
+    /// needs more room than it has and to shorten it once the frames need less.
     file: File,
     mapping: Mapping,
     back: u32,
     /// How many pictures this writer has published, which numbers them.
     published: u64,
+    /// The largest frame written since the frames went small, and when the
+    /// first of them was; see [`Self::give_room_back`].
+    small: Option<(usize, Instant)>,
 }
 
 impl Writer {
@@ -553,6 +728,7 @@ impl Writer {
             file,
             back: 0,
             published: 0,
+            small: None,
         })
     }
     /// The UI's process, which the worker duplicates its shared handles into
@@ -573,7 +749,74 @@ impl Writer {
     /// the file was made for grows it once, instead of being scaled down to
     /// what it holds.
     pub fn reserve(&mut self, width: u32, height: u32) -> Result<()> {
-        self.mapping.grow(&self.file, capacity(width, height))
+        let wanted = capacity(width, height);
+        self.mapping.grow(&self.file, wanted)?;
+        self.give_room_back(wanted, ROOM_BACK_AFTER);
+        Ok(())
+    }
+
+    /// Gives the file's room back when the frames have needed far less of it
+    /// for long enough: a share that went full-screen once and came back to a
+    /// tile holds three slots of four-K pixels, about a hundred megabytes, it
+    /// never writes again.
+    ///
+    /// A frame that wants more than a quarter of the room is not small, and
+    /// starts the wait over; one that wants less starts it, and the largest of
+    /// the frames in that wait is the size the file settles at, so a frame of
+    /// the size it settled at doesn't grow it again. `waited` is how long the
+    /// frames have to have stayed small, which a stream leaves to
+    /// [`ROOM_BACK_AFTER`]. The file is held to this writer while it is
+    /// shortened, by taking the lock every reader holds for as long as it has
+    /// the file mapped: the room goes back only when nobody is reading, and a
+    /// reader that is keeps its view whole.
+    fn give_room_back(&mut self, wanted: usize, waited: Duration) {
+        let held = self.mapping.capacity;
+        if wanted == 0 || wanted.saturating_mul(ROOM_SLACK) > held {
+            self.small = None;
+            return;
+        }
+        let (largest, since) = match self.small {
+            Some((largest, since)) => (largest.max(wanted), since),
+            None => (wanted, Instant::now()),
+        };
+        self.small = Some((largest, since));
+        if since.elapsed() < waited {
+            return;
+        }
+        match self.file.try_lock() {
+            Ok(()) => {}
+            // A reader is reading, and the room waits for one that isn't: a
+            // frame is not worth shortening a file a reader has open.
+            Err(TryLockError::WouldBlock) => {
+                self.small = Some((largest, Instant::now()));
+                return;
+            }
+            // A file system that can't lock the file is one no reader is
+            // holding for the writer either, so nothing here is certain enough
+            // to end a file over.
+            Err(TryLockError::Error(error)) => {
+                tracing::debug!(
+                    error = format!("{error:#}"),
+                    "the video frames keep their room"
+                );
+                self.small = Some((largest, Instant::now()));
+                return;
+            }
+        }
+        let shortened = self.mapping.shorten(&self.file, largest);
+        let _ = self.file.unlock();
+        self.small = None;
+        match shortened {
+            Ok(true) => tracing::debug!(
+                bytes = largest * SLOTS as usize,
+                "the video frames gave their room back"
+            ),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                error = format!("{error:#}"),
+                "could not give the video frames' room back"
+            ),
+        }
     }
 
     /// Writes a frame with `fill`, which gets its RGBA pixels, then shows it.
@@ -769,6 +1012,55 @@ mod tests {
         assert_eq!(
             frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
             Some((2, 1, vec![3; 8]))
+        );
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A file that grew for a picture shown large gives the room back once the
+    /// frames have needed a fraction of it for long enough: a share that went
+    /// full-screen and came back to a tile holds slots the size of the screen
+    /// for the stream's life otherwise. The frame whose slot moved with the
+    /// room is not read at the old stride, and the frame written after it is
+    /// read where it was written.
+    #[test]
+    fn frames_give_back_the_room_a_large_picture_took() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        writer.write(64, 48, |pixels| pixels.fill(1));
+        assert!(writer.fits(64, 48), "the slots grew for the picture");
+        assert_eq!(
+            frames.take(|width, height, _| (width, height)),
+            Some((64, 48))
+        );
+        let grown = std::fs::metadata(&path).unwrap().len();
+        assert_eq!(grown, HEADER as u64 + SLOTS as u64 * 64 * 48 * 4);
+
+        // A frame much smaller than the slots, and the wait the room goes back
+        // after: a test's wait is none, and a stream's is ten seconds.
+        writer.write(4, 2, |pixels| pixels.fill(2));
+        writer.give_room_back(4 * 2 * 4, Duration::ZERO);
+        let held = std::fs::metadata(&path).unwrap().len();
+        assert_eq!(held, HEADER as u64 + SLOTS as u64 * 4 * 2 * 4);
+        assert!(
+            frames.take(|_, _, _| ()).is_none(),
+            "the frame whose slot moved went with the room"
+        );
+
+        // The frame written now is read at the stride the slots have.
+        writer.write(4, 2, |pixels| pixels.fill(3));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((4, 2, vec![3; 32]))
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            held,
+            "a frame of the size the file settled at doesn't grow it again"
         );
 
         drop((writer, frames));

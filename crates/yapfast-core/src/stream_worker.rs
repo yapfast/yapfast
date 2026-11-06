@@ -1217,7 +1217,8 @@ impl Sink {
             )?)),
             // The card's session reads a texture only on the device it opened
             // on, so it opens on the capture's own, which is the whole of what
-            // lets a frame reach it without being copied first.
+            // lets a frame reach it without being copied first. It reads the
+            // ring the capture fills, so it keeps the surfaces of one.
             #[cfg(any(wgc, dup))]
             Footage::OnTheCard => Ok(Encoding::Texture(d3d11::D3d11Encoder::open_on(
                 _device.context("the card's encoder needs the capture's device")?,
@@ -1226,6 +1227,7 @@ impl Sink {
                 height,
                 self.fps,
                 aimed,
+                d3d11::Surfaces::Ring,
             )?)),
         }
     }
@@ -2245,6 +2247,7 @@ fn graphics_capture(
         sent_height,
         sink.fps,
         kbps(sent_height, None),
+        d3d11::Surfaces::Ring,
     )
     .context("the card won't open an encoder on the device it captures with")?;
     Ok(Card::Graphics { capture, monitor })
@@ -2278,6 +2281,7 @@ fn duplication(source: &Source, sink: &Sink, (max_width, max_height): (u32, u32)
         sent_height,
         sink.fps,
         kbps(sent_height, None),
+        d3d11::Surfaces::Ring,
     )
     .context(
         "the card won't open an encoder on the device the duplication fills its textures on",
@@ -2446,7 +2450,6 @@ fn capture_textures(
     );
     let fps = sink.fps;
     sink.footage = Footage::OnTheCard;
-    let sink = Arc::new(Mutex::new(sink));
     let started = Instant::now();
     // Only the pace of the loop matters here: a screen that drew nothing is a
     // frame skipped, not one captured twice.
@@ -2456,7 +2459,10 @@ fn capture_textures(
     // device when something first wants a preview and let go when nothing does.
     // A session of its own, because the encoder scales into one texture it keeps
     // for each size, and a tile sharing the stream's session would remake that
-    // texture every frame, alternating the stream's size with the tile's.
+    // texture every frame, alternating the stream's size with the tile's. It
+    // keeps one of the capture's surfaces rather than a ring: it reads a frame
+    // in ten, so there is no rotation to keep up with, and every surface it held
+    // would be a full-size one the capture couldn't fill.
     let mut tile: Option<d3d11::D3d11Encoder> = None;
     // The tile's pixels, in the card's order: BGRA, one row after another.
     let mut pixels: Vec<u8> = vec![];
@@ -2486,46 +2492,48 @@ fn capture_textures(
                 Arrival::Still
             }
         };
-        // Everything the sink has to say about this pass, under its lock once:
-        // the controls, which is also where its reports go, whether a preview is
-        // wanted, and the frame itself when one arrived. No lock is held while
-        // the capture, the encoder or the preview work.
+        // Everything the sink has to say about this pass: the controls, which is
+        // also where its reports go, whether a preview is wanted, the UI's
+        // process, and the frame itself when one arrived. None of it is done
+        // under a lock, because there is none: this sink is the loop's own — the
+        // other capture path shares its sink with a capturer's callback thread
+        // and locks it for that, and a share of the card has no second thread to
+        // share with. Sole ownership is what keeps a frame's texture from being
+        // read by two threads at once; the compiler holds it to that, and the
+        // GPU work below — scale, encode, readback, the picture the UI shows —
+        // runs with nothing held at all.
+        let switched = sink.check(report)?;
+        let wanted = sink.preview_wanted();
+        // The UI's process, which a picture drawn here is shared into: zero
+        // until it opens these frames, and a process that has gone is one
+        // with nothing to show anything in.
+        let ui = sink.writer.ui_process();
         let mut size = None;
-        let (switched, wanted, ui) = {
-            let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            let switched = sink.check(report)?;
-            let wanted = sink.preview_wanted();
-            // The UI's process, which a picture drawn here is shared into: zero
-            // until it opens these frames, and a process that has gone is one
-            // with nothing to show anything in.
-            let ui = sink.writer.ui_process();
-            match arrival {
-                Arrival::Frame => {
-                    let content = capture.content_size();
-                    let sent = fit(content.0, content.1, max_width, max_height);
-                    taken = sink.textured(
-                        d3d11::Texture::new(capture.texture()),
-                        content,
-                        sent,
-                        capture.device(),
-                    );
-                    size = Some(sent);
-                }
-                // The screen changed size and the capture's texture with it, so
-                // the next frame is at the new size: `ready` opens an encoder
-                // for it and tells the sender, and a session's first frame is
-                // whole.
-                Arrival::Resized => tracing::info!("the screen changed size"),
-                // Nothing has been drawn and nothing has moved, which is the
-                // desktop's own rate: the next pass is the next slot.
-                Arrival::Still => {}
-                // What was being captured ended. This capture hands out no more
-                // frames, so the share ends rather than waits on one that won't
-                // come.
-                Arrival::Closed => bail!("the capture of the screen ended"),
-            };
-            (switched, wanted, ui)
-        };
+        match arrival {
+            Arrival::Frame => {
+                let content = capture.content_size();
+                let sent = fit(content.0, content.1, max_width, max_height);
+                taken = sink.textured(
+                    d3d11::Texture::new(capture.texture()),
+                    content,
+                    sent,
+                    capture.device(),
+                );
+                size = Some(sent);
+            }
+            // The screen changed size and the capture's texture with it, so
+            // the next frame is at the new size: `ready` opens an encoder
+            // for it and tells the sender, and a session's first frame is
+            // whole.
+            Arrival::Resized => tracing::info!("the screen changed size"),
+            // Nothing has been drawn and nothing has moved, which is the
+            // desktop's own rate: the next pass is the next slot.
+            Arrival::Still => {}
+            // What was being captured ended. This capture hands out no more
+            // frames, so the share ends rather than waits on one that won't
+            // come.
+            Arrival::Closed => bail!("the capture of the screen ended"),
+        }
         if let Some((width, height)) = size
             && reported != size
         {
@@ -2558,9 +2566,7 @@ fn capture_textures(
                 // made the device is let go of.
                 tile = None;
                 shared = None;
-                sink.lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .let_go();
+                sink.let_go();
                 capture = capture.reopen()?;
             }
             Ok(()) => restarts = 0,
@@ -2581,6 +2587,7 @@ fn capture_textures(
                     preview.1,
                     fps,
                     kbps(preview.1, None),
+                    d3d11::Surfaces::One,
                 ) {
                     Ok(opened) => {
                         // The picture the UI's window shows where it lies is made
@@ -2622,15 +2629,12 @@ fn capture_textures(
             && read.is_none_or(|last| last.elapsed() >= PREVIEW_EVERY)
         {
             read = Some(Instant::now());
-            let taken = {
-                let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                sink.preview_from_card(
-                    tile,
-                    d3d11::Texture::new(capture.texture()),
-                    capture.content_size(),
-                    &mut pixels,
-                )
-            };
+            let taken = sink.preview_from_card(
+                tile,
+                d3d11::Texture::new(capture.texture()),
+                capture.content_size(),
+                &mut pixels,
+            );
             if let Err(error) = taken {
                 tracing::warn!(error = format!("{error:#}"), "sharing without a preview");
             }
@@ -2645,10 +2649,7 @@ fn capture_textures(
         if let (Some(tile), Some(shared)) = (tile.as_mut(), shared.as_mut())
             && arrival == Arrival::Frame
         {
-            let taken = {
-                let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                sink.share_from_card(tile, shared, d3d11::Texture::new(capture.texture()))
-            };
+            let taken = sink.share_from_card(tile, shared, d3d11::Texture::new(capture.texture()));
             match taken {
                 Ok(true) => {}
                 // The UI looked and can't show a picture from this card, or its
@@ -4080,6 +4081,7 @@ mod tests {
             sent_height,
             30,
             kbps(sent_height, None),
+            d3d11::Surfaces::Ring,
         ) else {
             eprintln!(
                 "and this machine has no H264 NVENC session on the device the capture fills its \
