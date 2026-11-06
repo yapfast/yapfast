@@ -789,6 +789,8 @@ export component TextField inherits Rectangle {
     in property <bool> ring: true;
     /// What the placeholder is drawn in.
     in property <color> placeholder-color: Theme.muted;
+    /// The text's colour, for a field on another ground than Yapfast's own.
+    in property <color> ink: Theme.text;
     /// A picture at the field's right end, such as a smiley, which the text
     /// stays clear of.
     in property <image> trailing-icon;
@@ -822,7 +824,7 @@ export component TextField inherits Rectangle {
             single-line: true;
             vertical-alignment: center;
             font-size: root.text-size;
-            color: root.enabled ? Theme.text : Theme.muted;
+            color: root.enabled ? root.ink : Theme.muted;
             input-type: root.password ? InputType.password : InputType.text;
             selection-background-color: Theme.accent.with-alpha(0.35);
             selection-foreground-color: Theme.text;
