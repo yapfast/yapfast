@@ -672,14 +672,13 @@ export component ProfileCard inherits Rectangle {
                         }
                     }
                     // The card leaves the dates to the full profile and the DM panel:
-                    // "Member since", then the Discord logo and the join date, a
-                    // bullet and the date of joining this server.
+                    // "Member since", then the account's creation date, a bullet and
+                    // the date of joining this server.
                     if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
                         spacing: 6px;
                         ProfileTitle { text: Strings.member-since; }
                         HorizontalLayout {
                             spacing: 6px; alignment: start;
-                            if root.data.created != "": Middle { Image { source: @image-url("icons/discord.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
                             if root.data.created != "": Text { text: root.data.created; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
                             if root.data.created != "" && root.data.joined != "": Text { text: "\u{2022}"; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
                             if root.data.joined != "": Text { text: root.data.joined; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
