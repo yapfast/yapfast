@@ -651,6 +651,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_discord_captcha, Action::OpenDiscordCaptcha);
     bind!(on_cancel_discord_link, Action::CancelDiscordLink);
     bind!(on_unlink_discord, Action::UnlinkDiscord);
+    #[cfg(feature = "discord")]
     {
         let weak = window.as_weak();
         window.on_select_discord_account(move |id| {
