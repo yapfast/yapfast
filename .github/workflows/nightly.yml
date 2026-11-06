@@ -5,6 +5,11 @@ name: Nightly
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit to build (default: workflow ref)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ inputs.ref || github.ref }}
       - id: version
         run: |
           current=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
@@ -137,7 +142,7 @@ jobs:
             previous=$(gh release view --json tagName --jq .tagName || true)
           fi
           {
-            echo "A nightly build of main at $COMMIT, for testing what's coming in the next release. Expect rough edges."
+            echo "A nightly build (RatFast branch)  at $COMMIT, for testing what's coming in the next release. Expect rough edges."
             echo
             if [ -n "$previous" ]; then
               echo "## Changes since $previous"
