@@ -5,10 +5,14 @@ the connection while browsing text channels, other servers and DMs. Each join
 starts muted and turns the microphone on as the call connects, unless Settings
 › Voice & video turns that off. The dock under the rail and sidebar exposes
 mute, deafen, audio devices and Leave. A caret beside mute and beside deafen
-opens a menu that chooses the input or output device and links to the full
-settings. Deafen also mutes the microphone; undeafening keeps it muted, while
-unmuting when deafened undeafens too. The voice view shows the participants and
-their mute, deafen and speaking state; a deafened person shows crossed-out
+opens a menu, as Vesktop's: the input or output device chosen, which a click
+opens into the list of devices in place, the microphone or speaker volume
+(the same as Settings › Voice & video, saved as the slider is let go), and a
+way into the voice settings. The input menu adds the microphone's level, and
+with Discord linked, its noise suppression. Deafen also mutes the microphone;
+undeafening keeps it muted, while unmuting when deafened undeafens too. The
+voice view shows the participants and their mute, deafen and speaking state; a
+deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
 Yapfast calls only your own shows. Clicking a voice channel joins it. Clicking

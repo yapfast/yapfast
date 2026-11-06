@@ -355,6 +355,10 @@ export component VoiceDock inherits Rectangle {
     in property <bool> camera-starting;
     /// The call has Discord's soundboard.
     in property <bool> can-soundboard;
+    /// Noise suppression is on; it can be turned on and off from the call.
+    in property <bool> noise-on;
+    in property <bool> can-noise;
+    callback toggle-noise;
     callback leave-voice;
     callback dismiss-voice-error;
     callback toggle-camera;
@@ -399,6 +403,13 @@ export component VoiceDock inherits Rectangle {
                     if root.voice-active: Text { text: root.voice-detail; color: Theme.muted; font-size: 13px; overflow: elide; }
                 }
                 LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
+            }
+            // Beside leaving, as in Vesktop. Off shows red, so it isn't forgotten.
+            if root.voice-active && root.can-noise: IconButton {
+                icon: root.noise-on ? @image-url("icons/noise-bars.svg") : @image-url("icons/noise-bars-off.svg");
+                label: root.noise-on ? "Turn off noise suppression" : "Turn on noise suppression";
+                alert: !root.noise-on;
+                clicked => { root.toggle-noise(); }
             }
             if root.voice-active: IconButton {
                 icon: @image-url("icons/phone-off.svg"); label: "Leave voice"; danger: true;

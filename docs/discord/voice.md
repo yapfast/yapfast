@@ -348,8 +348,12 @@ RNNoise, through `nnnoiseless` (BSD-3-Clause), lets keyboard clicks through,
 and they hold the gate open. Settings → Voice & video → "Noise suppression in
 Discord calls" still chooses it, to compare the two, as does Off, for a quiet
 room: RNNoise then only tells the gate which blocks are speech. Yapfast keeps
-the choice in `layout.json` as `noise_suppression`. A call going on switches
-at its next block, after DeepFilterNet's 0.2 s load if switching to it.
+the choice in `layout.json` as `noise_suppression`. The microphone's menu, from
+the caret beside mute, has the same three choices. During a call, a button
+beside Leave in the call panel turns suppression off, shown red while it's
+off, and on again to the kind last used, DeepFilterNet unless RNNoise was. A
+call going on switches at its next block, after DeepFilterNet's 0.2 s load if
+switching to it.
 Muting closes the microphone, but the call's microphone thread,
 `yapfast-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it
