@@ -8633,70 +8633,66 @@ fn votes_go_to_discord_and_the_window_lists_who_voted() {
 
 #[cfg(feature = "discord")]
 #[test]
-fn the_home_gifs_are_fetched_ahead() {
-    use crate::chat::{Gif, GifCategory};
+fn a_start_asks_for_the_gif_pickers_home_and_favourites_once() {
+    let asks = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Discord(
+                        DiscordCommand::GifCategories | DiscordCommand::FavoriteGifs
+                    ))
+                )
+            })
+            .count()
+    };
+    let snapshot = || discord_event(yapfast_discord::service::Snapshot::default());
     let mut app = Application::default();
-    let term = |name: &str| GifCategory {
-        name: name.into(),
-        src: format!("https://static.klipy.com/{name}.webp"),
-    };
-    let effects = app.gif_categories_came(Ok((
-        vec![term("happy"), term("sad")],
-        Some(Gif {
-            url: "https://klipy.com/gifs/trend".into(),
-            src: "https://static.klipy.com/trend.webp".into(),
-            ..Default::default()
-        }),
-    )));
-    // The home is a handful of pictures, all of them fetched ahead so it shows
-    // at once the next time.
-    let [Effect::Backend(Command::Discord(DiscordCommand::PrefetchGifHome(pictures)))] =
-        effects.as_slice()
-    else {
-        panic!(
-            "the home's pictures are fetched ahead, got {} effects",
-            effects.len()
-        );
-    };
-    let srcs: Vec<&str> = pictures.iter().map(|(src, ..)| src.as_str()).collect();
-    assert_eq!(
-        srcs,
-        [
-            "https://static.klipy.com/happy.webp",
-            "https://static.klipy.com/sad.webp"
-        ],
-        "each term's first GIF, and nothing else of the home"
-    );
+    assert_eq!(asks(&app.apply(snapshot())), 2);
+    // Discord failing doesn't make every later snapshot ask again; opening the
+    // picker does.
+    app.apply(Event::GifCategories(Err("down".into())));
+    app.apply(Event::FavoriteGifs(Err("down".into())));
+    assert_eq!(asks(&app.apply(snapshot())), 0);
 }
 
 #[test]
-fn every_favourite_gif_is_fetched_ahead() {
+fn discords_list_of_favourite_gifs_is_what_is_fetched_ahead() {
     use crate::chat::{FavoriteGif, Gif};
     let mut app = Application::default();
-    let gif = |name: &str| Gif {
+    let gif = |name: &str, src: &str| Gif {
         url: format!("https://klipy.com/gifs/{name}"),
-        src: format!("https://static.klipy.com/{name}.webp"),
-        width: 400,
-        height: 300,
+        src: src.into(),
         ..Default::default()
     };
-    // The favourites kept on disk arrive first, and every one of them wants its
-    // thumbnail before the view is opened: at the grid's width, the pictures
-    // keeping their shape.
-    let effects = app.kept_favorite_gifs_came(vec![
-        FavoriteGif::of(&gif("one"), &[]),
-        FavoriteGif::of(&gif("two"), &[]),
-    ]);
-    let [Effect::Backend(Command::Discord(DiscordCommand::PrefetchFavorites(thumbnails)))] =
-        effects.as_slice()
-    else {
-        panic!(
-            "the favourites are fetched ahead, got {} effects",
-            effects.len()
-        );
-    };
-    assert_eq!(thumbnails.len(), 2);
-    assert_eq!(thumbnails[0], (gif("one").src, 200, 150));
+    let favorite = |name: &str, src: &str| FavoriteGif::of(&gif(name, src), &[]);
+    // The list kept on disk may be out of date, and fetches nothing.
+    let kept = app.apply(Event::KeptFavoriteGifs(vec![favorite("old", "old.webp")]));
+    assert!(kept.is_empty());
+    // Each picture once.
+    let effects = app.apply(Event::FavoriteGifs(Ok(vec![
+        favorite("one", "one.webp"),
+        favorite("again", "one.webp"),
+        favorite("two", "two.webp"),
+        favorite("none", ""),
+    ])));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::PrefetchFavorites(urls)))]
+            if urls == &["one.webp", "two.webp"]
+    ));
+}
+
+#[test]
+fn no_favourite_gifs_left_still_lets_go_of_those_kept() {
+    let mut app = Application::default();
+    let effects = app.apply(Event::FavoriteGifs(Ok(vec![])));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::PrefetchFavorites(urls)))]
+            if urls.is_empty()
+    ));
 }
 
 #[test]
@@ -8781,9 +8777,9 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
     assert!(app.state.favorite_gifs_changed > changed);
     let elsewhere = FavoriteGif::of(&other("new"), &[]);
     let saved = backend(app.apply(Event::FavoriteGifs(Ok(vec![elsewhere.clone()]))));
-    // Their thumbnails are fetched ahead as well, which
-    // `every_favourite_gif_is_fetched_ahead` covers; what Discord is told is
-    // the set of favourites.
+    // Their pictures are fetched ahead as well, which
+    // `discords_list_of_favourite_gifs_is_what_is_fetched_ahead` covers; what
+    // Discord is told is the set of favourites.
     let sent = saved
         .iter()
         .find_map(|command| match command {

@@ -151,16 +151,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the
   favourites; GIFs and moving pictures in messages have the star too. A
-  favourite's GIF itself is kept on disk, frames and all, for as long as the GIF
-  is favourited — every one of them, with no size to stay under — so its tile
-  animates from the file, and a start fetches the ones missing in the background
-  so the Favourites view is complete when it opens. Each of the home's trending
-  terms shows one GIF, and those are fetched the same way into a cache of their
-  own — nothing else of the home, whose Favorites tile shows a favourite and
-  whose Trending GIFs tile loads as it shows. The favourites and the home are
-  asked for at a start, so the pictures are in place before the picker is first
-  opened, and the home paints at once from what is kept.
-  Its left
+  favourite's small thumbnail is kept on disk for as long as the GIF is
+  favourited, up to 200 MiB. A start fetches ahead the ones that cost little,
+  videos and small files; a larger GIF's is made when its tile first shows. Each of the home's trending terms shows one GIF, and those are fetched
+  ahead into a cache of their own, so the home paints at once. Its left
   edge drags it wider, as Discord's does: the right edge and the height stay,
   and the edge stops 8px past the server list. The GIFs and the Emoji share
   that window and its width: the GIFs' grid fits another column for every

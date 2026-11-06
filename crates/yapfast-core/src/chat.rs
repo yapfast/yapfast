@@ -2029,17 +2029,11 @@ pub enum DiscordCommand {
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
-    /// Keeps a thumbnail of every favourite GIF, whose pictures are at these
-    /// addresses, at these sizes: the grid's tiles ask for the ones they show,
-    /// and this fetches the rest in the background, so the Favourites view is
-    /// complete when it opens. The list is the whole set: a thumbnail of a GIF
-    /// no longer favourited goes.
-    PrefetchFavorites(Vec<(String, u32, u32)>),
-    /// Keeps the home's pictures, the trending terms' and the Trending GIFs
-    /// tile's, at these addresses and sizes, so the home shows at once and its
-    /// tiles animate from the disk. The list is the whole home: a picture it no
-    /// longer offers goes.
-    PrefetchGifHome(Vec<(String, u32, u32)>),
+    /// Fetches ahead the favourite GIFs at these addresses that are cheap to
+    /// keep, videos and small files; a tile makes the others'
+    /// thumbnails when it first shows. The list is the whole set: what's kept
+    /// of a GIF no longer favourited goes.
+    PrefetchFavorites(Vec<String>),
     /// GIFs for a search, or with `None` those trending; [`Event::Gifs`]
     /// follows.
     Gifs(Option<String>),

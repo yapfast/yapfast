@@ -20,11 +20,6 @@ pub enum GifView {
     Search,
 }
 
-/// The width a favourite's thumbnail is made at when it is fetched ahead: the
-/// grid's tiles ask for the size they show, and one wider than this asks again
-/// when it is drawn, which replaces the file.
-const THUMBNAIL_WIDTH: u32 = 200;
-
 /// A picture the picker shows, by its address.
 #[derive(Clone, Debug)]
 pub enum GifPicture {
@@ -84,6 +79,8 @@ pub struct GifPicker {
     /// than those kept on disk.
     favorites_asked: bool,
     favorites_fresh: bool,
+    /// This start asked for what the picker fetches ahead.
+    prefetched: bool,
     /// Stars used before Discord's favourites came, each adding a GIF or
     /// taking one out: they show at once and reach Discord's once they come,
     /// so a change made elsewhere meanwhile stays.
@@ -161,11 +158,10 @@ impl Application {
     }
 
     /// Asks for the favourite GIFs and the picker's home once, at a start, so
-    /// their pictures are fetched ahead before the picker is ever opened: the
-    /// favourites' GIFs are kept, and the home's first GIFs are kept for its
-    /// terms. Opening the picker finds both answered.
+    /// their pictures are fetched ahead before the picker is ever opened.
+    /// Opening the picker finds both answered, or tries again if one failed.
     pub(super) fn prefetch_gifs(&mut self) -> Vec<Effect> {
-        if self.state.preview {
+        if self.state.preview || std::mem::replace(&mut self.state.gifs.prefetched, true) {
             return vec![];
         }
         // The home's answer first: it is one small request, and its terms' pictures
@@ -437,36 +433,15 @@ impl Application {
     pub(super) fn gif_categories_came(
         &mut self,
         result: Result<(Vec<GifCategory>, Option<Gif>), String>,
-    ) -> Vec<Effect> {
+    ) {
         let picker = &mut self.state.gifs;
         picker.home_loading = false;
         match result {
             Ok((categories, preview)) => {
                 picker.categories = categories;
                 picker.trending_preview = preview;
-                // The home's first GIF in each of its terms, and nothing else of
-                // the home: the Favorites tile shows a favourite, which the
-                // favourites' own prefetch keeps, and the Trending GIFs tile is
-                // left to load as it shows. These are fetched to the disk only, so
-                // the home paints at once the next time and its tiles animate
-                // from what is kept.
-                let pictures: Vec<(String, u32, u32)> = picker
-                    .categories
-                    .iter()
-                    .filter(|category| !category.src.is_empty())
-                    .map(|category| (category.src.clone(), THUMBNAIL_WIDTH, THUMBNAIL_WIDTH))
-                    .collect();
-                (!pictures.is_empty())
-                    .then_some(Effect::Backend(Command::Discord(
-                        DiscordCommand::PrefetchGifHome(pictures),
-                    )))
-                    .into_iter()
-                    .collect()
             }
-            Err(error) => {
-                picker.home_error = Some(error);
-                vec![]
-            }
+            Err(error) => picker.home_error = Some(error),
         }
     }
 
@@ -523,41 +498,34 @@ impl Application {
 
     /// Shows the favourites kept on disk, with the stars used since, until
     /// Discord's come.
-    pub(super) fn kept_favorite_gifs_came(
-        &mut self,
-        mut favorites: Vec<FavoriteGif>,
-    ) -> Vec<Effect> {
+    pub(super) fn kept_favorite_gifs_came(&mut self, mut favorites: Vec<FavoriteGif>) {
         let picker = &self.state.gifs;
         if picker.favorites_fresh {
-            return vec![];
+            return;
         }
         for (gif, add) in &picker.starred {
             star(&mut favorites, gif, *add);
         }
         self.state.favorite_gifs = Some(favorites);
         self.state.favorite_gifs_changed += 1;
-        self.prefetch_favorites().into_iter().collect()
     }
 
-    /// Keeps a thumbnail of every favourite GIF, so the Favourites view is
-    /// complete when it opens: the tiles ask for the ones they show as they are
-    /// drawn, and this fetches the rest in the background, on Discord's worker,
-    /// keeping the cache to the list as it does. Nothing is held: the files are
-    /// made on the disk, and a tile decodes one when it shows it.
-    fn prefetch_favorites(&mut self) -> Option<Effect> {
-        let favorites = self.state.favorite_gifs.as_ref()?;
-        let thumbnails: Vec<(String, u32, u32)> = favorites
+    /// Fetches ahead what's cheap to keep of Discord's list of favourite GIFs,
+    /// on Discord's worker, keeping the cache to the list as it does. Nothing
+    /// is held: the files go to the disk, and a tile decodes one when it shows
+    /// it. The list kept on disk may be out of date, so it doesn't ask.
+    fn prefetch_favorites(&self) -> Option<Effect> {
+        let mut seen = HashSet::new();
+        let urls = self
+            .state
+            .favorite_gifs
+            .as_ref()?
             .iter()
-            .filter(|favorite| !favorite.src.is_empty())
-            .map(|favorite| {
-                let width = THUMBNAIL_WIDTH.min(favorite.width.max(1));
-                let height = (u64::from(width) * u64::from(favorite.height.max(1))
-                    / u64::from(favorite.width.max(1))) as u32;
-                (favorite.src.clone(), width, height.max(1))
-            })
+            .filter(|favorite| !favorite.src.is_empty() && seen.insert(favorite.src.as_str()))
+            .map(|favorite| favorite.src.clone())
             .collect();
-        (!thumbnails.is_empty()).then_some(Effect::Backend(Command::Discord(
-            DiscordCommand::PrefetchFavorites(thumbnails),
+        Some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchFavorites(urls),
         )))
     }
 

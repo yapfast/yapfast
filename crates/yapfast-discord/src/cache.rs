@@ -23,9 +23,9 @@
 //!   [`crate::api::Api::learn_build_number`].
 //! - `discord-favorite-gifs.json`: the favourite GIFs, as Discord's settings
 //!   last gave them, so the picker shows them before Discord answers.
-//! - `discord-gifs/`: the GIF itself of each favourite, by its picture's
-//!   address, kept for as long as the GIF is favourited and no longer: see
-//!   [`retain_gif_thumbnails`].
+//! - `discord-gifs/`: a thumbnail of each favourite GIF, by its picture's
+//!   address, for as long as the GIF is favourited: see
+//!   [`retain_gif_thumbnails`]. The least lately shown go past [`GIFS_SIZE`].
 //! - `discord-gif-home/`: the home's pictures, each trending term's first GIF,
 //!   fetched ahead so the home shows at once; see [`retain_gif_home`].
 //! - `discord-gif-home.json`: the home as Discord last answered it, with when,
@@ -78,6 +78,10 @@ const PICTURE_PATHS: [&str; 9] = [
 const PICTURES_SIZE: u64 = 64 * 1024 * 1024;
 /// The most the kept previews take; the least lately shown go first.
 const PREVIEWS_SIZE: u64 = 192 * 1024 * 1024;
+/// The most the favourite GIFs' thumbnails take; the least lately shown go
+/// first. A start fetches ahead no further than [`prune`] brings them down to,
+/// so it doesn't fetch again what pruning just let go.
+const GIFS_SIZE: u64 = 200 * 1024 * 1024;
 /// Downloads larger than this aren't kept, such as a file being saved.
 const LARGEST_PICTURE: usize = 8 * 1024 * 1024;
 /// The most channels whose messages are kept; the least lately used go.
@@ -147,8 +151,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Keeps the account in `file` from now on, and the rest beside it.
 pub fn keep_in(file: PathBuf) {
     *lock(&FILE) = Some(file);
-    // The favourite GIFs' thumbnails keep themselves: see `retain_gif_thumbnails`.
-    if let (Some(pictures), Some(_gifs), Some(messages), Some(profiles), Some(videos)) = (
+    if let (Some(pictures), Some(gifs), Some(messages), Some(profiles), Some(videos)) = (
         pictures(),
         gifs(),
         messages_directory(),
@@ -173,6 +176,13 @@ pub fn keep_in(file: PathBuf) {
                 prune(previews, PREVIEWS_SIZE, usize::MAX);
             }
             prune(&pictures, PICTURES_SIZE, usize::MAX);
+            // Downloads Yapfast didn't finish before it last closed.
+            for_each_file(&gifs, |file| {
+                if is_gif_download(file) {
+                    let _ = std::fs::remove_file(file);
+                }
+            });
+            prune(&gifs, GIFS_SIZE, usize::MAX);
             prune(&messages, u64::MAX, CHANNELS);
             prune(&profiles, u64::MAX, PROFILES);
             // Videos played before Yapfast last closed.
@@ -367,7 +377,55 @@ fn gif_file(url: &str) -> Option<PathBuf> {
 
 /// The thumbnail kept of the favourite GIF whose picture is at `url`.
 pub fn kept_gif(url: &str) -> Option<PathBuf> {
-    gif_file(url).filter(|file| file.is_file())
+    let file = gif_file(url).filter(|file| file.is_file())?;
+    // Shown now, so pruning keeps it longer.
+    touch(&file);
+    Some(file)
+}
+
+/// Whether a thumbnail is kept of the favourite GIF whose picture is at `url`,
+/// without counting as showing it.
+pub fn has_gif(url: &str) -> bool {
+    gif_file(url).is_some_and(|file| file.is_file())
+}
+
+/// Remembers that a start shouldn't ask for the favourite GIF at `url` again,
+/// being too large to fetch ahead or gone: asking at every start would cost a
+/// request each. A tile still asks when it shows.
+pub fn skip_gif_ahead(url: &str) {
+    if let Some(file) = gif_file(url) {
+        let _ = std::fs::write(file.with_extension("skip"), []);
+    }
+}
+
+/// Whether [`skip_gif_ahead`] remembers the favourite GIF at `url`.
+pub fn gif_ahead_skipped(url: &str) -> bool {
+    gif_file(url).is_some_and(|file| file.with_extension("skip").is_file())
+}
+
+/// How many more bytes a start may fetch ahead into `discord-gifs/`.
+pub fn gif_room() -> u64 {
+    let Some(directory) = gifs() else { return 0 };
+    let mut used = 0;
+    for_each_file(&directory, |file| {
+        used += std::fs::metadata(file).map_or(0, |metadata| metadata.len());
+    });
+    (GIFS_SIZE / 4 * 3).saturating_sub(used)
+}
+
+/// Runs `each` on the files in `directory`.
+fn for_each_file(directory: &Path, mut each: impl FnMut(&Path)) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        each(&entry.path());
+    }
+}
+
+fn is_gif_download(file: &Path) -> bool {
+    file.extension()
+        .is_some_and(|extension| extension == "download")
 }
 
 /// The home's picture kept for the GIF at `url`, which a tile reads.
@@ -376,18 +434,14 @@ pub fn kept_gif_home(url: &str) -> Option<PathBuf> {
     file.is_file().then_some(file)
 }
 
-/// Keeps the home's picture at `url` as it was downloaded, for its tile to
-/// animate from: the GIF itself, as a favourite's is kept.
-pub fn keep_gif_home(url: &str, picture: KeptGif<'_>) -> Option<PathBuf> {
+/// Keeps the home's picture at `url`, downloaded to `from`, as it came, for
+/// its tile to animate from.
+pub fn keep_gif_home(url: &str, from: &Path) -> Option<PathBuf> {
     let file = gif_home()?.join(hash(url));
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent).ok()?;
     }
-    let kept = match picture {
-        KeptGif::File(from) => std::fs::rename(from, &file).map_err(anyhow::Error::from),
-        KeptGif::Bytes(data) => write_bytes(&file, data),
-    };
-    match kept {
+    match std::fs::rename(from, &file) {
         Ok(()) => Some(file),
         Err(error) => {
             tracing::warn!(%error, "could not keep one of the home's GIFs");
@@ -396,55 +450,41 @@ pub fn keep_gif_home(url: &str, picture: KeptGif<'_>) -> Option<PathBuf> {
     }
 }
 
-/// Keeps the home's pictures of exactly these GIFs, whose pictures are at these
-/// addresses: the home is what it shows now, so a picture it no longer offers
-/// goes.
-pub fn retain_gif_home(urls: impl IntoIterator<Item = String>) {
-    let Some(directory) = gif_home() else { return };
-    let keep: std::collections::HashSet<PathBuf> = urls
-        .into_iter()
-        .map(|url| directory.join(hash(&url)))
-        .collect();
-    let Ok(entries) = std::fs::read_dir(&directory) else {
-        return;
-    };
-    for entry in entries.filter_map(Result::ok) {
-        if !keep.contains(&entry.path()) {
-            let _ = std::fs::remove_file(entry.path());
-        }
+/// Keeps the home's pictures of exactly the GIFs at `urls`: the home is what it
+/// shows now, so a picture it no longer offers goes.
+pub fn retain_gif_home(urls: &[String]) {
+    if let Some(directory) = gif_home() {
+        retain_gifs_in(&directory, urls);
     }
 }
 
-/// Keeps a thumbnail of exactly these favourite GIFs, whose pictures are at
-/// these addresses: one of a GIF nobody favourites any more goes. Every
-/// favourite is kept, so there is no size to stay under; a thumbnail takes
-/// 14-300 KB, about 334 KB on the machine this was measured on, which is why
-/// the list, not a budget, decides.
-pub fn retain_gif_thumbnails(urls: impl IntoIterator<Item = String>) {
-    let Some(directory) = gifs() else { return };
-    retain_gif_thumbnails_in(&directory, urls);
+/// Keeps thumbnails of no GIFs but the favourites at `urls`: one of a GIF
+/// nobody favourites any more goes, whatever room is left.
+pub fn retain_gif_thumbnails(urls: &[String]) {
+    if let Some(directory) = gifs() {
+        retain_gifs_in(&directory, urls);
+    }
 }
 
-/// [`retain_gif_thumbnails`] in a directory, which a test can give it.
-fn retain_gif_thumbnails_in(directory: &std::path::Path, urls: impl IntoIterator<Item = String>) {
-    let keep: std::collections::HashSet<PathBuf> = urls
-        .into_iter()
-        .map(|url| directory.join(hash(&url)))
-        .collect();
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.filter_map(Result::ok) {
-        if !keep.contains(&entry.path()) {
-            let _ = std::fs::remove_file(entry.path());
+/// Deletes the pictures in `directory` of GIFs other than those at `urls`,
+/// though not a download, which may be in progress.
+fn retain_gifs_in(directory: &Path, urls: &[String]) {
+    let keep: std::collections::HashSet<PathBuf> =
+        urls.iter().map(|url| directory.join(hash(url))).collect();
+    for_each_file(directory, |file| {
+        if !keep.contains(&file.with_extension("")) && !is_gif_download(file) {
+            let _ = std::fs::remove_file(file);
         }
-    }
+    });
 }
 
 /// A new file to download the picture at `url` into, before it becomes the
-/// favourite's thumbnail or makes one.
+/// favourite's thumbnail or makes one. It's this download's alone: two of one
+/// GIF at once don't write over each other.
 pub fn gif_download(url: &str) -> Option<(PathBuf, std::fs::File)> {
-    let file = gif_file(url)?.with_extension("download");
+    static DOWNLOADS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let number = DOWNLOADS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file = gif_file(url)?.with_extension(format!("{number}.download"));
     std::fs::create_dir_all(file.parent()?).ok()?;
     let mut options = std::fs::OpenOptions::new();
     options.read(true).write(true).create(true).truncate(true);
@@ -935,7 +975,10 @@ fn prune(directory: &Path, size: u64, count: usize) {
 
 /// Deletes everything kept, as when unlinking.
 pub fn forget() {
-    for file in [file(), favorite_gifs_file()].into_iter().flatten() {
+    for file in [file(), favorite_gifs_file(), gif_home_answer_file()]
+        .into_iter()
+        .flatten()
+    {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -946,6 +989,7 @@ pub fn forget() {
         pictures(),
         previews(),
         gifs(),
+        gif_home(),
         messages_directory(),
         profiles_directory(),
         videos(),
@@ -1211,6 +1255,8 @@ mod tests {
         assert_eq!(profile("10", "2"), None);
         assert_eq!(favorite_gifs(), None);
         load("token", Some(KEY));
+        keep_gif_home_answer(&KeptHome::default());
+        std::fs::create_dir_all(gif_home().unwrap()).unwrap();
         forget();
         assert!(load("token", Some(KEY)).snapshot.servers.is_empty());
         assert!(messages("40").is_empty());
@@ -1218,6 +1264,8 @@ mod tests {
         assert!(!pictures().unwrap().exists() && !previews().unwrap().exists());
         assert!(!profiles_directory().unwrap().exists());
         assert_eq!(kept_gif(gif), None);
+        assert!(!gif_home().unwrap().exists());
+        assert_eq!(gif_home_answer(), None);
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
@@ -1264,11 +1312,23 @@ mod tests {
         let kept = |url: &str| directory.join(hash(url));
         std::fs::write(kept(one), [1, 2, 3]).unwrap();
         std::fs::write(kept(two), [4, 5, 6]).unwrap();
-        // Every favourite is kept; one nobody favourites any more goes, with no
-        // size to stay under.
-        retain_gif_thumbnails_in(&directory, [one.to_owned()]);
+        let downloading = kept(one).with_extension("7.download");
+        std::fs::write(&downloading, [7]).unwrap();
+        std::fs::write(kept(one).with_extension("skip"), []).unwrap();
+        std::fs::write(kept(two).with_extension("skip"), []).unwrap();
+        // One nobody favourites any more goes; a download in progress doesn't.
+        retain_gifs_in(&directory, &[one.to_owned()]);
         assert!(kept(one).is_file(), "a favourite's thumbnail stays");
         assert!(!kept(two).exists(), "an unfavourited one goes");
+        assert!(downloading.is_file(), "a download stays");
+        assert!(
+            kept(one).with_extension("skip").is_file(),
+            "a favourite's note stays"
+        );
+        assert!(
+            !kept(two).with_extension("skip").exists(),
+            "an unfavourited one's goes"
+        );
         std::fs::remove_dir_all(&directory).ok();
     }
 

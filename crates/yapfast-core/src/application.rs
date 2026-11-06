@@ -3442,13 +3442,11 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
-            Event::GifCategories(result) => return self.gif_categories_came(result),
+            Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),
-            Event::KeptFavoriteGifs(favorites) => {
-                return self.kept_favorite_gifs_came(favorites);
-            }
+            Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
             Event::Reactors {
