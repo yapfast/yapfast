@@ -1212,6 +1212,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             activities: Default::default(),
             parent: None,
             forum: false,
+            mark: Default::default(),
             unlisted: false,
             tag: None,
             decoration: None,

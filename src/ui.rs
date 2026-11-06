@@ -1638,15 +1638,39 @@ impl Models {
     }
 }
 
+/// A kind of Discord channel's icon, alone and with a lock or a warning
+/// sign at its top right, as Discord's client marks a channel @everyone is
+/// kept out of and an age-restricted one.
+struct ChannelIcon {
+    plain: slint::Image,
+    private: slint::Image,
+    age_restricted: slint::Image,
+}
+
+impl ChannelIcon {
+    fn load(plain: &[u8], private: &[u8], age_restricted: &[u8]) -> Result<Self> {
+        Ok(Self {
+            plain: slint::Image::load_from_svg_data(plain)?,
+            private: slint::Image::load_from_svg_data(private)?,
+            age_restricted: slint::Image::load_from_svg_data(age_restricted)?,
+        })
+    }
+}
+
 struct Icons {
     dm: slint::Image,
     chat: slint::Image,
-    text: slint::Image,
+    text: ChannelIcon,
     /// A boxed ID, for Copy ID.
     id: slint::Image,
     thread: slint::Image,
-    forum: slint::Image,
-    voice: slint::Image,
+    forum: ChannelIcon,
+    voice: ChannelIcon,
+    announcement: ChannelIcon,
+    media: ChannelIcon,
+    /// A stage channel's, which Discord doesn't mark age-restricted.
+    stage: ChannelIcon,
+    rules: slint::Image,
     lock: slint::Image,
     read: slint::Image,
     call: slint::Image,
@@ -1913,13 +1937,39 @@ impl Adapter {
             chat: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/message-square-text.svg"
             ))?,
-            text: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/hash.svg"))?,
+            text: ChannelIcon::load(
+                include_bytes!("../ui/icons/hash.svg"),
+                include_bytes!("../ui/icons/hash-lock.svg"),
+                include_bytes!("../ui/icons/hash-warning.svg"),
+            )?,
             id: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-filled.svg"))?,
             thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
-            forum: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/message-square-text.svg"
-            ))?,
-            voice: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/volume-2.svg"))?,
+            forum: ChannelIcon::load(
+                include_bytes!("../ui/icons/message-square-text.svg"),
+                include_bytes!("../ui/icons/message-square-text-lock.svg"),
+                include_bytes!("../ui/icons/message-square-text-warning.svg"),
+            )?,
+            voice: ChannelIcon::load(
+                include_bytes!("../ui/icons/volume-2.svg"),
+                include_bytes!("../ui/icons/volume-2-lock.svg"),
+                include_bytes!("../ui/icons/volume-2-warning.svg"),
+            )?,
+            announcement: ChannelIcon::load(
+                include_bytes!("../ui/icons/megaphone.svg"),
+                include_bytes!("../ui/icons/megaphone-lock.svg"),
+                include_bytes!("../ui/icons/megaphone-warning.svg"),
+            )?,
+            media: ChannelIcon::load(
+                include_bytes!("../ui/icons/image.svg"),
+                include_bytes!("../ui/icons/image-lock.svg"),
+                include_bytes!("../ui/icons/image-warning.svg"),
+            )?,
+            stage: ChannelIcon::load(
+                include_bytes!("../ui/icons/stage.svg"),
+                include_bytes!("../ui/icons/stage-lock.svg"),
+                include_bytes!("../ui/icons/stage.svg"),
+            )?,
+            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
             lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
             read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
             call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,

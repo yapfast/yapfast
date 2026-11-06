@@ -249,6 +249,19 @@ server they name, so the sidebar rebuilds that server's rows and keeps the
 others. Names are 1 to 100 characters and topics up to 1024, checked before
 asking.
 
+Each channel's icon in the sidebar and its header says what it is, as in
+Discord's client (`Icons::channel`): a hash for text, a megaphone for an
+announcement channel (type 5), a forum's and a media channel's own (15 and
+16), a speaker for voice and a broadcast mast for a stage (13). The rules
+channel, the guild's `rules_channel_id`, has a book with a check instead,
+whatever its kind. A warning sign at the icon's top right marks an
+age-restricted channel (`nsfw`), and else a lock marks one @everyone is
+kept out of: the channel's own overwrite for @everyone denies View
+Channel, or for a voice or stage channel, @everyone may not connect
+(`Server::private`). Other roles may still be let in, so the lock doesn't
+mean the account can't read it; a channel it can't read shows a plain lock,
+greyed, as before.
+
 ## The server header, events and private channels
 
 In Discord mode the sidebar header shows the server's banner (`guild.banner`,
@@ -553,7 +566,7 @@ ordinary message in it.
 A forum (type 15) lists among the text channels, by its position, with its
 own icon, and shows its posts in place of messages, as Discord's client
 does (`application/forum.rs`, `ForumPanel`). A media channel (type 16) has
-a forum's fields and is one here, with a forum's icon and its list of
+a forum's fields and is one here, with its own icon and a forum's list of
 cards, where Discord's client shows a gallery. Its posts are public threads
 whose parent is the forum, so everything above holds for them: posts the
 account is in list under the forum in the sidebar, the active ones come

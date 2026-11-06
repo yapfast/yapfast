@@ -97,11 +97,10 @@ impl Adapter {
             name: channel.name.as_str().into(),
             topic: channel.topic.as_str().into(),
             icon: match channel.kind {
-                BrowsedKind::Voice => self.icons.voice.clone(),
-                BrowsedKind::Forum => self.icons.forum.clone(),
-                BrowsedKind::Category | BrowsedKind::Text | BrowsedKind::Announcement => {
-                    self.icons.text.clone()
-                }
+                BrowsedKind::Voice => self.icons.voice.plain.clone(),
+                BrowsedKind::Forum => self.icons.forum.plain.clone(),
+                BrowsedKind::Announcement => self.icons.announcement.plain.clone(),
+                BrowsedKind::Category | BrowsedKind::Text => self.icons.text.plain.clone(),
             },
             category: channel.kind == BrowsedKind::Category,
             voice: channel.kind == BrowsedKind::Voice,
@@ -197,20 +196,41 @@ impl SidebarShown {
 }
 
 impl Icons {
-    /// A conversation's icon, as the sidebar shows it.
-    fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
+    /// A conversation's icon, as the sidebar shows it: a lock for one this
+    /// account may not read.
+    pub(super) fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
         if room.locked {
             self.lock.clone()
-        } else if room.voice {
-            self.voice.clone()
-        } else if room.forum {
-            self.forum.clone()
-        } else if room.direct {
-            self.dm.clone()
-        } else if room.parent.is_some() {
-            self.thread.clone()
         } else {
-            self.text.clone()
+            self.channel(room)
+        }
+    }
+
+    /// A conversation's own icon, as its header shows it: for a Discord
+    /// channel, its kind's, marked as Discord's client marks it, with a
+    /// warning sign before a lock.
+    pub(super) fn channel(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
+        use yapfast_core::chat::MarkKind;
+        if room.direct {
+            return self.dm.clone();
+        } else if room.parent.is_some() {
+            return self.thread.clone();
+        }
+        let icon = match room.mark.kind {
+            MarkKind::Rules => return self.rules.clone(),
+            MarkKind::Stage => &self.stage,
+            _ if room.voice => &self.voice,
+            MarkKind::Media => &self.media,
+            _ if room.forum => &self.forum,
+            MarkKind::Announcement => &self.announcement,
+            MarkKind::Plain => &self.text,
+        };
+        if room.mark.age_restricted {
+            icon.age_restricted.clone()
+        } else if room.mark.private {
+            icon.private.clone()
+        } else {
+            icon.plain.clone()
         }
     }
 }
@@ -1561,17 +1581,10 @@ impl Adapter {
         window.set_room_parent(parent.map_or("", |parent| parent.name.as_str()).into());
         window.set_room_parent_id(parent.map_or("", |parent| parent.id.as_str()).into());
         window.set_room_parent_forum(parent.is_some_and(|parent| parent.forum));
-        window.set_room_icon(if room.is_some_and(|room| room.parent.is_some()) {
-            self.icons.thread.clone()
-        } else if room.is_some_and(|room| room.voice) {
-            self.icons.voice.clone()
-        } else if room.is_some_and(|room| room.forum) {
-            self.icons.forum.clone()
-        } else if room.is_some_and(|room| room.direct) {
-            self.icons.dm.clone()
-        } else {
-            self.icons.text.clone()
-        });
+        window.set_room_icon(room.map_or_else(
+            || self.icons.text.plain.clone(),
+            |room| self.icons.channel(room),
+        ));
         // Discord counts a channel's members only once its list comes.
         window.set_members(
             room.map_or(SharedString::default(), |room| match room.members {
