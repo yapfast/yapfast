@@ -148,7 +148,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   avatars that rise in turn, and Yapfast tells the room while you type unless a
   setting turns it off.
 - Hover or click a message for its toolbar: your three most used reactions, Add
-  reaction, Edit on your own message or Reply on someone else's, and More.
+  reaction, Edit on your own message or Reply on someone else's, Forward on a
+  message that can be forwarded, and More.
   More, or a right click on the message, opens a menu with your four most used
   reactions, Add reaction, View Reactions, Edit, Reply, Forward, Create Thread
   or View Thread, Copy text, Copy selection, Pin or Unpin, and Delete, with
