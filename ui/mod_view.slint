@@ -1,0 +1,388 @@
+import { Theme, Middle } from "theme.slint";
+import { ActionButton, Avatar, IconButton } from "controls.slint";
+import { ScrollView } from "scrollview.slint";
+import { AuditLogPrompt, AuditRows } from "moderation.slint";
+
+/// A role or permission as Mod View shows it.
+export struct ModViewChip {
+    id: string,
+    text: string,
+    /// A role's colour, or transparent.
+    color: color,
+    /// A permission moderators need two-factor authentication for.
+    elevated: bool,
+    /// This account may take the role away.
+    removable: bool,
+}
+
+/// A permission in All Granted Permissions: what it allows, and the roles
+/// that give it.
+export struct ModPermissionRow {
+    title: string,
+    description: string,
+    category: string,
+    elevated: bool,
+    moderator: bool,
+    /// "2 Roles", and their names.
+    count: string,
+    roles: [string],
+}
+
+/// What Mod View shows.
+export struct ModViewPrompt {
+    name: string,
+    username: string,
+    initial: string,
+    avatar-url: string,
+    /// 0 the member, 1 All Granted Permissions, 2 Moderator Action Log.
+    panel: int,
+    me: bool,
+    may-kick: bool,
+    may-ban: bool,
+    may-timeout: bool,
+    /// Seconds left of their timeout, or 0.
+    timeout-left: int,
+    /// When Discord last saw them send unusual DMs, or empty.
+    unusual-dms: string,
+    /// Their counts, or "..." while they come; whether each opens a search.
+    messages: string,
+    links: string,
+    media: string,
+    audit: string,
+    messages-open: bool,
+    links-open: bool,
+    audit-open: bool,
+    audit-failed: bool,
+    mod-permissions: [ModViewChip],
+    all-count: int,
+    permissions: [ModPermissionRow],
+    roles: [ModViewChip],
+    addable: [ModViewChip],
+    created: string,
+    created-ago: string,
+    /// Made less than a week ago: Yapfast's mark.
+    new-account: bool,
+    joined: string,
+    joined-ago: string,
+    join-method: string,
+    join-unknown: bool,
+    invited-by: string,
+    log: AuditLogPrompt,
+}
+
+// A section of Mod View: its label over a card of rows.
+component Section inherits VerticalLayout {
+    in property <string> label;
+    spacing: 8px;
+    Text { text: root.label; color: Theme.text; font-size: 14px; font-weight: 700; }
+    Rectangle {
+        border-radius: 8px; background: Theme.raised;
+        VerticalLayout { padding: 4px; @children }
+    }
+}
+
+// A row of a section: an icon and a name, what it says on the right, and an
+// arrow when it opens something.
+component InfoRow inherits Rectangle {
+    in property <image> icon;
+    in property <string> name;
+    in property <string> value;
+    in property <color> value-color: Theme.secondary;
+    in property <bool> opens;
+    callback clicked;
+    height: max(36px, row.preferred-height);
+    border-radius: 6px;
+    background: area.has-hover && root.opens ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-enabled: root.opens;
+    accessible-label: root.name + ": " + root.value;
+    accessible-action-default => { if root.opens { root.clicked(); } }
+    row := HorizontalLayout {
+        padding-left: 8px; padding-right: 8px; spacing: 10px;
+        Middle { Image { source: root.icon; width: 16px; height: 16px; colorize: Theme.muted; } }
+        Text { text: root.name; color: Theme.secondary; font-size: 14px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        Text { text: root.value; color: root.value-color; font-size: 14px; font-weight: 600; vertical-alignment: center; horizontal-alignment: right; wrap: word-wrap; max-width: 220px; }
+        if root.opens: Middle { Image { source: @image-url("icons/chevron-right.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
+    }
+    area := TouchArea {
+        enabled: root.opens; mouse-cursor: root.opens ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One of the actions under the member's name: an icon over its word.
+component ModAction inherits VerticalLayout {
+    in property <image> icon;
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> danger;
+    callback clicked;
+    spacing: 4px; alignment: start;
+    HorizontalLayout {
+        alignment: center;
+        IconButton {
+            icon: root.icon; label: root.text; enabled: root.enabled; danger: root.danger;
+            size: 40px; glyph: 20px; fill: Theme.raised; radius: 20px;
+            clicked => { root.clicked(); }
+        }
+    }
+    Text { text: root.text; color: root.enabled ? Theme.secondary : Theme.faint; font-size: 12px; horizontal-alignment: center; }
+}
+
+// A role or a permission, as a pill.
+component Chip inherits Rectangle {
+    in property <ModViewChip> chip;
+    in property <bool> clickable;
+    callback remove;
+    height: 26px; width: pill.preferred-width;
+    border-radius: 6px; background: Theme.chat;
+    border-width: 1px; border-color: Theme.line;
+    pill := HorizontalLayout {
+        padding-left: 8px; padding-right: root.chip.removable ? 4px : 8px; spacing: 6px;
+        if root.chip.color != transparent: Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: root.chip.color; } }
+        if root.chip.elevated: Middle { Image { source: @image-url("icons/shield.svg"); width: 12px; height: 12px; colorize: Theme.accent; } }
+        Text { text: root.chip.text; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
+        if root.chip.removable: Middle {
+            IconButton {
+                icon: @image-url("icons/x.svg"); label: "Remove " + root.chip.text;
+                size: 18px; glyph: 12px; tip-side: 2;
+                clicked => { root.remove(); }
+            }
+        }
+    }
+}
+
+// Chips, one under another, and Add Role after them when it's offered.
+component ChipList inherits VerticalLayout {
+    in property <[ModViewChip]> chips;
+    in property <bool> adds;
+    callback remove(string);
+    callback add;
+    spacing: 6px;
+    for chip in root.chips: HorizontalLayout {
+        alignment: start;
+        Chip { chip: chip; remove => { root.remove(chip.id); } }
+    }
+    if root.adds: HorizontalLayout {
+        alignment: start;
+        IconButton {
+            icon: @image-url("icons/circle-plus.svg"); label: "Add Role";
+            size: 26px; glyph: 16px; tip-side: 2;
+            clicked => { root.add(); }
+        }
+    }
+}
+
+// Mod View: Discord's panel about one member, for the server's moderators,
+// in place of the member list. Its own panels list every permission the
+// member holds, and what moderators did to them.
+export component ModViewPanel inherits Rectangle {
+    in property <ModViewPrompt> view;
+    /// 0 close, 1 refresh, 2 a panel by number, 3 message, 4 kick, 5 ban,
+    /// 6 time out, 7 remove timeout, 8 copy the id, 9 copy a mention, 10
+    /// search messages (0) or links (1), 11 remove a role by id, 12 add one,
+    /// 13 a quick timeout by its place, 20 + what Moderator Action Log did.
+    callback act(int, string, int);
+    background: Theme.sidebar;
+    Rectangle { x: 0; width: 1px; background: Theme.edge; }
+    property <bool> adding-role;
+    // The timeout counts down here, so nothing else redraws each second.
+    property <int> left;
+    init => { root.left = root.view.timeout-left; }
+    changed view => { root.left = root.view.timeout-left; }
+    Timer { interval: 1s; running: root.left > 0; triggered => { root.left -= 1; } }
+    pure function time-left(seconds: int) -> string {
+        if seconds >= 86400 { return Math.floor(seconds / 86400) + "d " + Math.mod(Math.floor(seconds / 3600), 24) + "h " + Math.mod(Math.floor(seconds / 60), 60) + "m " + Math.mod(seconds, 60) + "s"; }
+        if seconds >= 3600 { return Math.floor(seconds / 3600) + "h " + Math.mod(Math.floor(seconds / 60), 60) + "m " + Math.mod(seconds, 60) + "s"; }
+        if seconds >= 60 { return Math.floor(seconds / 60) + "m " + Math.mod(seconds, 60) + "s"; }
+        return seconds + "s";
+    }
+    VerticalLayout {
+        // The heading: Mod View with Refresh and Close, or Back on a panel.
+        Rectangle {
+            height: 48px;
+            HorizontalLayout {
+                padding-left: 12px; padding-right: 10px; spacing: 8px;
+                if root.view.panel == 0: Middle { Image { source: @image-url("icons/shield.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
+                if root.view.panel == 0: Text { text: "Mod View"; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                if root.view.panel != 0: Middle {
+                    IconButton { icon: @image-url("icons/chevron-left.svg"); label: "Back"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.act(2, "", 0); } }
+                }
+                if root.view.panel != 0: Text {
+                    text: root.view.panel == 1 ? "All Granted Permissions" : "Moderator Action Log";
+                    color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
+                }
+                if root.view.panel == 0: Middle { IconButton { icon: @image-url("icons/refresh-cw.svg"); label: "Refresh"; size: 28px; glyph: 16px; tip-side: 2; clicked => { root.act(1, "", 0); } } }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close Mod View"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.act(0, "", 0); } } }
+            }
+            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+        }
+        if root.view.panel == 0: ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 16px; spacing: 20px; alignment: start;
+                // Who they are, and what can be done to them.
+                VerticalLayout {
+                    spacing: 14px;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Avatar { size: 56px; initial: root.view.initial; picture-url: root.view.avatar-url; }
+                        VerticalLayout {
+                            alignment: center; spacing: 2px;
+                            Text { text: root.view.name; color: Theme.text; font-size: 18px; font-weight: 700; overflow: elide; }
+                            if root.view.username != "": Text { text: root.view.username; color: Theme.muted; font-size: 14px; overflow: elide; }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: space-around;
+                        ModAction { icon: @image-url("icons/message-circle.svg"); text: "Message"; enabled: !root.view.me; clicked => { root.act(3, "", 0); } }
+                        ModAction { icon: @image-url("icons/user-x.svg"); text: "Kick"; enabled: root.view.may-kick; clicked => { root.act(4, "", 0); } }
+                        ModAction { icon: @image-url("icons/ban.svg"); text: "Ban"; enabled: root.view.may-ban; clicked => { root.act(5, "", 0); } }
+                        ModAction {
+                            icon: @image-url("icons/clock.svg"); text: root.left > 0 ? "Remove" : "Timeout";
+                            enabled: root.view.may-timeout;
+                            clicked => { root.act(root.left > 0 ? 7 : 6, "", 0); }
+                        }
+                        ModAction { icon: @image-url("icons/text-select.svg"); text: "Copy ID"; clicked => { root.act(8, "", 0); } }
+                    }
+                    // Yapfast's own: a timeout in one click, and copying a mention.
+                    if root.view.may-timeout && root.left <= 0: HorizontalLayout {
+                        spacing: 6px;
+                        Middle { Text { text: "Time out for"; color: Theme.muted; font-size: 13px; } }
+                        for length[index] in ["60s", "5m", "10m", "1h", "1d", "1w"]: ActionButton {
+                            text: length; small: true; ghost: true;
+                            clicked => { root.act(13, "", index); }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        ActionButton { text: "Copy mention"; small: true; ghost: true; clicked => { root.act(9, "", 0); } }
+                    }
+                }
+                // Discord's signals: unusual DMs lately, and a timeout.
+                if root.left > 0 || root.view.unusual-dms != "": Section {
+                    label: "Signals";
+                    if root.view.unusual-dms != "": InfoRow { icon: @image-url("icons/triangle-alert.svg"); name: "Unusual DM Activity"; value: root.view.unusual-dms; }
+                    if root.left > 0: InfoRow { icon: @image-url("icons/clock.svg"); name: "Timed Out"; value: root.time-left(root.left); value-color: Theme.danger; }
+                }
+                Section {
+                    label: "Server Activity";
+                    InfoRow { icon: @image-url("icons/message-circle.svg"); name: "Messages"; value: root.view.messages; opens: root.view.messages-open; clicked => { root.act(10, "", 0); } }
+                    InfoRow { icon: @image-url("icons/link.svg"); name: "Links"; value: root.view.links; opens: root.view.links-open; clicked => { root.act(10, "", 1); } }
+                    InfoRow { icon: @image-url("icons/image.svg"); name: "Media"; value: root.view.media; }
+                    InfoRow {
+                        icon: @image-url("icons/history.svg"); name: "Audit Log"; value: root.view.audit;
+                        value-color: root.view.audit-failed ? Theme.danger : Theme.secondary;
+                        opens: root.view.audit-open; clicked => { root.act(2, "", 2); }
+                    }
+                }
+                Section {
+                    label: "Permissions";
+                    VerticalLayout {
+                        padding: 8px; spacing: 10px;
+                        HorizontalLayout {
+                            Text { text: "Mod Permissions"; color: Theme.secondary; font-size: 14px; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
+                            ActionButton { text: "All (" + root.view.all-count + ")"; small: true; ghost: true; clicked => { root.act(2, "", 1); } }
+                        }
+                        if root.view.mod-permissions.length == 0: Text { text: "No Mod Permissions"; color: Theme.live; font-size: 13px; }
+                        ChipList { chips: root.view.mod-permissions; }
+                    }
+                }
+                Section {
+                    label: "Roles";
+                    VerticalLayout {
+                        padding: 8px; spacing: 8px;
+                        if root.view.roles.length == 0 && root.view.addable.length == 0: Text { text: "No Roles"; color: Theme.muted; font-size: 13px; }
+                        ChipList {
+                            chips: root.view.roles; adds: root.view.addable.length > 0;
+                            remove(id) => { root.act(11, id, 0); }
+                            add => { root.adding-role = !root.adding-role; }
+                        }
+                        // The roles this account may give them, as Discord's Add Role lists.
+                        if root.adding-role: VerticalLayout {
+                            spacing: 2px;
+                            Text { text: "Add Role"; color: Theme.muted; font-size: 12px; font-weight: 700; }
+                            for role in root.view.addable: Rectangle {
+                                height: 30px; border-radius: 6px;
+                                background: add-area.has-hover ? Theme.hover : transparent;
+                                accessible-role: button; accessible-label: "Add " + role.text;
+                                accessible-action-default => { root.adding-role = false; root.act(12, role.id, 0); }
+                                HorizontalLayout {
+                                    padding-left: 8px; spacing: 8px;
+                                    Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: role.color == transparent ? Theme.muted : role.color; } }
+                                    Text { text: role.text; color: Theme.secondary; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                }
+                                add-area := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.adding-role = false; root.act(12, role.id, 0); }
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    label: "Account";
+                    InfoRow {
+                        icon: @image-url("icons/discord.svg"); name: "Discord Join Date";
+                        value: root.view.created-ago == "" ? root.view.created : root.view.created + " (" + root.view.created-ago + ")";
+                    }
+                    if root.view.new-account: HorizontalLayout {
+                        padding-left: 34px; padding-bottom: 6px; alignment: start;
+                        Rectangle {
+                            height: 22px; width: warn.preferred-width; border-radius: 11px; background: Theme.danger.with-alpha(0.18);
+                            warn := HorizontalLayout {
+                                padding-left: 8px; padding-right: 8px; spacing: 4px;
+                                Middle { Image { source: @image-url("icons/triangle-alert.svg"); width: 12px; height: 12px; colorize: Theme.danger; } }
+                                Text { text: "New account"; color: Theme.danger; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                    if root.view.joined != "": InfoRow {
+                        icon: @image-url("icons/users.svg"); name: "Server Join Date";
+                        value: root.view.joined + " (" + root.view.joined-ago + ")";
+                    }
+                    InfoRow {
+                        icon: @image-url("icons/link.svg"); name: "Join Method"; value: root.view.join-method;
+                        value-color: root.view.join-unknown ? Theme.muted : Theme.secondary;
+                    }
+                    if root.view.invited-by != "": InfoRow { icon: @image-url("icons/user-plus.svg"); name: "Invited by"; value: root.view.invited-by; }
+                }
+            }
+        }
+        // Every permission they hold, what it allows, and which roles give it.
+        if root.view.panel == 1: ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 16px; spacing: 10px; alignment: start;
+                for permission in root.view.permissions: Rectangle {
+                    border-radius: 8px; background: Theme.raised;
+                    VerticalLayout {
+                        padding: 12px; spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            VerticalLayout {
+                                horizontal-stretch: 1; spacing: 2px;
+                                Text { text: permission.title; color: Theme.text; font-size: 15px; font-weight: 600; }
+                                HorizontalLayout {
+                                    spacing: 6px; alignment: start;
+                                    Text { text: permission.category; color: Theme.muted; font-size: 12px; }
+                                    if permission.elevated: Text { text: "· Elevated"; color: Theme.accent; font-size: 12px; }
+                                    if !permission.elevated && permission.moderator: Text { text: "· Moderator"; color: Theme.muted; font-size: 12px; }
+                                }
+                            }
+                            Text { text: permission.count; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
+                        }
+                        if permission.description != "": Text { text: permission.description; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+                        for role in permission.roles: Text { text: role; color: Theme.secondary; font-size: 13px; }
+                    }
+                }
+            }
+        }
+        // What moderators did to them: the server's audit log about them.
+        if root.view.panel == 2: AuditRows {
+            vertical-stretch: 1; padding: 16px;
+            page: root.view.log;
+            act(what, number) => { root.act(20 + what, "", number); }
+        }
+    }
+}

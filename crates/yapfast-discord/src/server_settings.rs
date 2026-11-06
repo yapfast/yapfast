@@ -203,6 +203,8 @@ pub struct FoundMember {
     pub join_source: u8,
     pub invite_code: Option<String>,
     pub integration: Option<String>,
+    /// Who made the invite, or added the bot, by id.
+    pub inviter: Option<String>,
 }
 
 /// Discord's user flag for an account it suspects of spam.
@@ -248,6 +250,7 @@ pub fn parse_members_search(found: &Value) -> (Vec<FoundMember>, Option<u64>) {
                 join_source: found["join_source_type"].as_u64().unwrap_or_default() as u8,
                 invite_code: found["source_invite_code"].as_str().map(str::to_owned),
                 integration: found["integration_type"].as_str().map(str::to_owned),
+                inviter: found["inviter_id"].as_str().map(str::to_owned),
             })
         })
         .collect();
@@ -473,6 +476,44 @@ pub fn parse_roles(roles: &Value) -> Vec<Role> {
         .collect();
     roles.sort_by(|a, b| b.position.cmp(&a.position).then(a.id.cmp(&b.id)));
     roles
+}
+
+/// The file types Mod View counts as media, as Discord's client lists
+/// them.
+const MEDIA_EXTENSIONS: [&str; 12] = [
+    "png", "jpg", "webp", "mov", "mp4", "qt", "gif", "mp3", "wav", "flac", "ogg", "opus",
+];
+
+/// Discord's `messages/search/tabs` body for Mod View's counts of what
+/// `user` sent: their messages, those with links and those with media, a
+/// message each, with exact totals and NSFW channels, as Discord's client
+/// asks.
+pub fn activity_tabs(user: &str) -> Value {
+    let tab = |extra: Value| {
+        let mut tab = serde_json::json!({"author_id": [user], "limit": 1, "cursor": null});
+        if let (Some(tab), Value::Object(extra)) = (tab.as_object_mut(), extra) {
+            tab.extend(extra);
+        }
+        tab
+    };
+    serde_json::json!({
+        "tabs": {
+            "messages": tab(Value::Null),
+            "links": tab(serde_json::json!({"has": ["link"]})),
+            "media": tab(serde_json::json!({"attachment_extension": MEDIA_EXTENSIONS})),
+        },
+        "track_exact_total_hits": true,
+        "include_nsfw": true,
+    })
+}
+
+/// How many messages, links and media an [`activity_tabs`] search found.
+pub fn parse_activity(found: &Value) -> [u64; 3] {
+    ["messages", "links", "media"].map(|tab| {
+        found["tabs"][tab]["total_results"]
+            .as_u64()
+            .unwrap_or_default()
+    })
 }
 
 #[cfg(test)]

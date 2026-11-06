@@ -307,31 +307,14 @@ component AuditFilter inherits VerticalLayout {
     }
 }
 
-// Audit Log: who did what in the server, newest first, with Discord's
-// filters by user and by action. A row's arrow opens its numbered lines;
-// older entries load at the end of the list.
-export component AuditLogSection inherits VerticalLayout {
+// Audit Log's rows, newest first: "No Logs Yet" without any, a row's arrow
+// opening its numbered lines, and older entries loading at the end of the
+// list. Mod View's Moderator Action Log shows them too.
+export component AuditRows inherits VerticalLayout {
     in property <AuditLogPrompt> page;
-    /// 0 filter by user and 1 by action, by index; 2 load older entries;
-    /// 3 open or close a row, by its place.
+    /// 2 load older entries; 3 open or close a row, by its place.
     callback act(int, int);
     spacing: 16px;
-    HorizontalLayout {
-        spacing: 16px;
-        Middle { horizontal-stretch: 1; SettingsTitle { text: "Audit Log"; } }
-        // Discord's client ignores a filter while it's fetching.
-        AuditFilter {
-            label: "Filter by User"; options: root.page.users; chosen: root.page.user;
-            enabled: !root.page.fetching;
-            choose(index) => { root.act(0, index); }
-        }
-        AuditFilter {
-            label: "Filter by Action"; options: root.page.actions; chosen: root.page.action;
-            enabled: !root.page.fetching;
-            choose(index) => { root.act(1, index); }
-        }
-    }
-    Rectangle { height: 1px; background: Theme.line; }
     if root.page.rows.length == 0 && root.page.fetching: Label { text: "Loading..."; vertical-stretch: 1; }
     if root.page.rows.length == 0 && !root.page.fetching: VerticalLayout {
         alignment: center; spacing: 8px; vertical-stretch: 1;
@@ -416,5 +399,37 @@ export component AuditLogSection inherits VerticalLayout {
             text: root.page.fetching ? "Loading..." : "Load More"; enabled: !root.page.fetching;
             clicked => { root.act(2, 0); }
         }
+    }
+}
+
+// Audit Log: who did what in the server, newest first, with Discord's
+// filters by user and by action. A row's arrow opens its numbered lines;
+// older entries load at the end of the list.
+export component AuditLogSection inherits VerticalLayout {
+    in property <AuditLogPrompt> page;
+    /// 0 filter by user and 1 by action, by index; 2 load older entries;
+    /// 3 open or close a row, by its place.
+    callback act(int, int);
+    spacing: 16px;
+    HorizontalLayout {
+        spacing: 16px;
+        Middle { horizontal-stretch: 1; SettingsTitle { text: "Audit Log"; } }
+        // Discord's client ignores a filter while it's fetching.
+        AuditFilter {
+            label: "Filter by User"; options: root.page.users; chosen: root.page.user;
+            enabled: !root.page.fetching;
+            choose(index) => { root.act(0, index); }
+        }
+        AuditFilter {
+            label: "Filter by Action"; options: root.page.actions; chosen: root.page.action;
+            enabled: !root.page.fetching;
+            choose(index) => { root.act(1, index); }
+        }
+    }
+    Rectangle { height: 1px; background: Theme.line; }
+    AuditRows {
+        vertical-stretch: 1;
+        page: root.page;
+        act(what, number) => { root.act(what, number); }
     }
 }
