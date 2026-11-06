@@ -8447,3 +8447,75 @@ fn an_avatars_colour_is_worked_out_once_it_has_arrived() {
     assert_eq!(profile::avatar_color(Some("b.png"), &waiting), None);
     assert_eq!(profile::avatar_color(None, &avatar), None);
 }
+
+#[test]
+fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    assert!(!window.get_collapse_long(), "off unless turned on");
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // A frame or so: the list lays its rows out as time moves on.
+    let settle = |window: &YapfastWindow| {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+            slint::platform::update_timers_and_animations();
+            let _ = window.invoke_timeline_extent();
+        }
+    };
+    settle(&window);
+    let before = window.invoke_timeline_extent();
+    let count = window.get_messages().row_count();
+    // The preview's short messages don't fold.
+    window.set_collapse_long(true);
+    settle(&window);
+    assert_eq!(window.invoke_timeline_extent(), before);
+    window.set_collapse_long(false);
+    settle(&window);
+    let long: String = (1..=40)
+        .map(|line| format!("Line {line} of the plan\n"))
+        .collect();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SetDraft(long.trim_end().into()));
+    adapter.borrow_mut().action(&window, Action::Send);
+    settle(&window);
+    assert_eq!(window.get_messages().row_count(), count + 1, "it was sent");
+    let item = window.get_messages().iter().last().unwrap().item;
+    let whole = window.invoke_timeline_extent();
+    let line = window.get_message_font_size() * 1.3;
+    assert!(whole - before > line * 30., "{before} grew to {whole}");
+
+    // With the switch on it folds to twelve lines, and the list is shorter.
+    window.set_collapse_long(true);
+    settle(&window);
+    let folded = window.invoke_timeline_extent();
+    assert!(whole - folded > line * 20., "{whole} folds to {folded}");
+
+    // Show more shows it whole, in its own row, and Show less folds it again.
+    window.invoke_fold_message(item.clone(), true);
+    settle(&window);
+    let row = window.get_messages().iter().last().unwrap();
+    assert!(row.item == item && row.expanded);
+    let shown = window.invoke_timeline_extent();
+    assert!(shown > whole, "whole, with Show less under it: {shown}");
+    window.invoke_fold_message(item.clone(), false);
+    settle(&window);
+    assert!(!window.get_messages().iter().last().unwrap().expanded);
+    assert_eq!(window.invoke_timeline_extent(), folded);
+
+    // The switch is kept with the other preferences.
+    window.invoke_preferences_changed();
+    assert!(adapter.borrow().layout.collapse_long);
+}
