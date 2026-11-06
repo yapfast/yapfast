@@ -219,6 +219,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         .on_frame(|key, _revision| {
             i_slint_core::yapfast_emoji::frame_of_key(key.as_str()).unwrap_or_default()
         });
+    window
+        .global::<PictureStore>()
+        .on_animated(|url| animated_url(url.as_str()).into());
+    window
+        .global::<PictureStore>()
+        .on_frames(|url, _revision| avatar_animation(url.as_str()).0);
+    window
+        .global::<PictureStore>()
+        .on_delays(|url, _revision| avatar_animation(url.as_str()).1);
+    window
+        .global::<PictureStore>()
+        .on_plays(|url, _revision| picture_plays(url.as_str()));
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -416,6 +428,46 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_message_person(move |user| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MessagePerson(user.into()));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_profile_tab_opened(move |page| {
+        use yapfast_core::application::ProfileTab;
+        // ProfileModal's pages: 0 Activity, 3 Board, 4 Wishlist; the mutual
+        // ones ask for nothing.
+        let tab = match page {
+            0 => ProfileTab::Activity,
+            3 => ProfileTab::Board,
+            4 => ProfileTab::Wishlist,
+            _ => return,
+        };
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::OpenProfileTab(tab));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_save_note(move |user, note| {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(
+                &window,
+                Action::SaveNote {
+                    user: user.into(),
+                    note: note.into(),
+                },
+            );
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_befriend(move |user| {
         if let Some(window) = weak.upgrade() {
             state
@@ -454,6 +506,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 state
                     .borrow_mut()
                     .action(&window, Action::RequestJoinVoice(id));
+            }
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_start_video_call(move || {
+        if let Some(window) = weak.upgrade() {
+            let id = state.borrow().app.state.selected.clone();
+            if let Some(id) = id {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::StartVideoCall(id));
             }
         }
     });
@@ -568,6 +632,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     {
         let adapter = adapter.clone();
+        window.on_may_create_channel(move |category| {
+            adapter.borrow().app.may_create_channel(&category)
+        });
+    }
+    {
+        let adapter = adapter.clone();
         // An empty category's heading names the category itself.
         window.on_category_of(move |room| {
             let app = &adapter.borrow().app;
@@ -619,6 +689,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         on_show_profile,
         (|user| Action::ShowProfile { user, large: false })
     );
+    bind_item!(on_prefetch_profile, Action::PrefetchProfile);
     bind_item!(on_edit, Action::Edit);
     {
         let adapter = adapter.clone();
@@ -643,6 +714,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_new_dm, Action::OpenNewDm);
     bind!(on_open_add_friend, Action::OpenAddFriend);
     bind!(on_open_requests, Action::OpenDmScreen(DmScreen::Requests));
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_inbox_opened(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().refresh(&window);
+            }
+        });
+    }
+    bind!(on_go_back, Action::NavigateBack);
+    bind!(on_go_forward, Action::NavigateForward);
     bind!(on_open_friends, Action::OpenDmScreen(DmScreen::Friends));
     bind!(on_open_browse, Action::BrowseChannels);
     bind_item!(on_message_friend, Action::MessagePerson);
@@ -719,6 +801,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     bind!(on_close_channel, Action::CloseChannelDialog);
     bind!(on_edit_profile, Action::EditProfile);
+    bind!(on_account_opened, Action::LoadOwnProfile);
+    bind!(on_open_profile_wishlist, Action::OpenWishlist);
     bind!(on_undo_profile, Action::UndoProfileEdits);
     bind!(on_save_profile, Action::SaveProfile);
     bind!(on_close_profile_editor, Action::CloseProfileEditor);
@@ -733,11 +817,135 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
+        window.on_choose_server_tag({
+            let (adapter, weak) = (adapter.clone(), weak.clone());
+            move |server| {
+                if let Some(window) = weak.upgrade() {
+                    adapter
+                        .borrow_mut()
+                        .action(&window, Action::ChooseServerTag(server.to_string()));
+                }
+            }
+        });
+        window.on_edit_own_note({
+            let (adapter, weak) = (adapter.clone(), weak.clone());
+            move || {
+                if let Some(window) = weak.upgrade() {
+                    let user = adapter.borrow().app.state.discord_user.clone();
+                    if let Some(user) = user {
+                        adapter.borrow_mut().action(
+                            &window,
+                            Action::AskPerson {
+                                user,
+                                ask: yapfast_core::application::PersonAsk::Note,
+                            },
+                        );
+                    }
+                }
+            }
+        });
+        window.on_choose_name_style({
+            let (adapter, weak) = (adapter.clone(), weak.clone());
+            move |font, effect, colours| {
+                if let Some(window) = weak.upgrade() {
+                    adapter.borrow_mut().action(
+                        &window,
+                        Action::ChooseNameStyle {
+                            font: u8::try_from(font).unwrap_or(11),
+                            effect: u8::try_from(effect.max(1)).unwrap_or(1),
+                            colours: colours.to_string(),
+                        },
+                    );
+                }
+            }
+        });
+        // The name style window draws each candidate as names are drawn
+        // everywhere else, from its font, effect and colours as hex.
+        window
+            .global::<NameStyles>()
+            .on_row(|font, effect, key, text| {
+                let colours = key_colours(&key);
+                super::name_style::row(
+                    Some(yapfast_core::chat::NameStyle::new(
+                        u8::try_from(font).unwrap_or(11),
+                        u8::try_from(effect.max(1)).unwrap_or(1),
+                        if colours.is_empty() {
+                            &[0xf0_f0_f2]
+                        } else {
+                            &colours
+                        },
+                    )),
+                    &text,
+                )
+            });
+        window.global::<NameStyles>().on_stripe(|key, index| {
+            let colours = key_colours(&key);
+            colours
+                .get(usize::try_from(index).unwrap_or(0) % colours.len().max(1))
+                .map_or_else(slint::Color::default, |rgb| {
+                    slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, *rgb as u8)
+                })
+        });
+        window.global::<NameStyles>().on_contains(|text, query| {
+            text.to_lowercase()
+                .contains(query.trim().to_lowercase().as_str())
+        });
+        window.on_key_part(|key, index| {
+            key.split(',')
+                .nth(index.max(0) as usize)
+                .unwrap_or_default()
+                .into()
+        });
+        // Spread evenly over five stops, however many colours it has.
+        window.on_key_colour(|key, index| {
+            let colours: Vec<[f32; 3]> = key_colours(&key)
+                .into_iter()
+                .map(|rgb| {
+                    [
+                        (rgb >> 16 & 255) as f32,
+                        (rgb >> 8 & 255) as f32,
+                        (rgb & 255) as f32,
+                    ]
+                })
+                .collect();
+            let (Some(first), Some(last)) = (colours.first(), colours.last()) else {
+                return slint::Color::default();
+            };
+            let at = index.clamp(0, 4) as f32 / 4.0 * (colours.len() - 1) as f32;
+            let low = at.floor() as usize;
+            let (from, to) = (
+                colours.get(low).unwrap_or(first),
+                colours.get(low + 1).unwrap_or(last),
+            );
+            let part =
+                |channel: usize| (from[channel] + (to[channel] - from[channel]) * at.fract()) as u8;
+            slint::Color::from_rgb_u8(part(0), part(1), part(2))
+        });
+        window.on_format_hex(|colour| {
+            format!(
+                "{:02x}{:02x}{:02x}",
+                colour.red(),
+                colour.green(),
+                colour.blue()
+            )
+            .into()
+        });
+        window.on_parse_hex(|text| {
+            let hex = text.trim().trim_start_matches('#');
+            let value = (hex.len() == 6)
+                .then(|| u32::from_str_radix(hex, 16).ok())
+                .flatten();
+            value.map_or_else(slint::Color::default, |rgb| {
+                slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+            })
+        });
         window.on_write_profile(move |field, text| {
             let field = match field {
                 0 => ProfileText::Name,
                 1 => ProfileText::Pronouns,
                 2 => ProfileText::Bio,
+                4 => ProfileText::ThemeTop,
+                5 => ProfileText::ThemeBottom,
                 _ => ProfileText::Colour,
             };
             if let Some(window) = weak.upgrade() {
@@ -1452,12 +1660,21 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let layout = &mut adapter.layout;
         layout.twelve_hour_clock = window.get_twelve_hour_clock();
         layout.clock_seconds = window.get_clock_seconds();
+        layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
+        layout.time_zone = usize::try_from(window.get_time_zone() - 1)
+            .ok()
+            .and_then(|index| yapfast_core::clock::ZONES.get(index).copied());
+        layout.language = window.get_language();
+        layout.apply_clock_style(&window);
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
+        layout.nameplates = Some(window.get_show_nameplates());
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
+        layout.read_cosmetics(&window);
+        let cosmetics = layout.cosmetics();
         show_motion(&window);
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
@@ -1517,8 +1734,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             (window.get_reply_ping_default(), window.get_strip_tracking());
         adapter.app.dispatch(Action::ReplyPing(reply_ping));
         adapter.app.dispatch(Action::StripTracking(strip_tracking));
+        adapter
+            .app
+            .dispatch(Action::HideNameplates(!window.get_show_nameplates()));
         adapter.restyle = true;
-        adapter.refresh(&window);
+        // It refreshes the window, and asks for what the profile switches
+        // may now show.
+        adapter.action(&window, Action::SetCosmetics(cosmetics));
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -3038,6 +3260,13 @@ fn report_delay(last: &Cell<Option<std::time::Instant>>) -> Duration {
     });
     last.set(Some(now + delay));
     delay
+}
+
+/// A name style's colours, written as hex joined by commas.
+fn key_colours(key: &str) -> Vec<u32> {
+    key.split(',')
+        .filter_map(|hex| u32::from_str_radix(hex.trim().trim_start_matches('#'), 16).ok())
+        .collect()
 }
 
 #[cfg(test)]

@@ -1,5 +1,9 @@
 # Chat UI
 
+A refined presentation of these widgets is the default; see
+[Yapfast UI](yapfast-ui.md) for its metrics and the switch back to
+the earlier look.
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and Slint's
 Markdown draws formatted text. `pulldown-cmark` in `yapfast-core` reads
@@ -363,7 +367,10 @@ Weston's desktop shell, whose windows move and resize, where its kiosk shell
 makes the window full screen, which hides the bar. A window
 without the desktop's frame gets no shadow from KWin or Mutter, and the
 desktop's title bar menu isn't offered: winit can't show it on Linux. In
-full screen, as a call's stage is, the bar goes. Windows keeps its own frame.
+full screen, as a call's stage is, the bar goes. The earlier
+presentation on Windows keeps its own frame. The refined presentation
+defaults to an integrated Windows bar, with the same saved system-frame
+setting; see [Yapfast UI](yapfast-ui.md).
 
 The window follows Discord's arrangement:
 
@@ -371,8 +378,12 @@ The window follows Discord's arrangement:
   with a white pill at the rail edge for hover, selection or unread activity.
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
-  anywhere; a closed folder shows it for its servers. The rail is built again
-  for a voice event only when the call starts, ends or moves.
+  anywhere; a closed folder shows it for its servers. A server where someone
+  shares their screen in a voice channel, while this account isn't in its
+  call, shows a white screen on red in the same place, as Discord marks it,
+  and a closed folder shows it for its servers too. The rail is built again
+  for a voice event only when the call starts, ends or moves, or with the
+  channel list when who is in a voice channel changes.
   Hovering shows the server's name. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
@@ -407,7 +418,11 @@ The window follows Discord's arrangement:
   DMs show the person's avatar. Participants of the call you are in appear under
   its voice channel, with a green ring while they speak and a muted icon; for
   Discord, who is in every other voice channel shows too, with a LIVE tag for a
-  screen share and a camera icon. You, in a channel on another client such as
+  screen share and a camera icon. Each Discord name shows in its owner's
+  display name style, shortened with "…" to fit, then their server tag, as in
+  the member list, but in the style's font alone: no colours or effect, even
+  hovered, as names in a server show. A call's tiles show each
+  name in its style's font. You, in a channel on another client such as
   your phone, show dimmed until hovered, without icons, and the tooltip says
   "Connected on another client". Every row takes the hover tone, and clicking
   someone opens their profile card beside the row, as Discord's popout does;

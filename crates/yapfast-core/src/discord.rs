@@ -66,6 +66,15 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
+/// Decorations and nameplates: a decoration is 288 pixels square, shrunk to
+/// show sharply at the card's largest; a nameplate, 448x84 or 672x126, keeps
+/// its size, the strip a row's height shows at twice the scale.
+#[cfg(feature = "discord")]
+const COLLECTIBLE_SIZE: (u32, u32) = (672, 192);
+/// A profile effect's layers, which cover a card: Discord draws them 450 by
+/// 880 pixels, scaled to the card.
+#[cfg(feature = "discord")]
+const EFFECT_SIZE: (u32, u32) = (450, 900);
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -187,6 +196,16 @@ fn in_voice(snapshot: &Snapshot, channel: &str) -> Vec<VoicePerson> {
 }
 
 #[cfg(feature = "discord")]
+/// A server tag as Yapfast's chat shows it.
+pub fn server_tag(tag: Option<yapfast_discord::message::Tag>) -> Option<chat::ServerTag> {
+    let tag = tag?;
+    Some(chat::ServerTag {
+        badge: tag.badge_url(),
+        text: tag.text,
+    })
+}
+
+#[cfg(feature = "discord")]
 /// Discord's presence as Yapfast's chat names it.
 pub fn presence(presence: yapfast_discord::member_list::Presence) -> chat::Presence {
     use yapfast_discord::member_list::Presence as Discord;
@@ -212,6 +231,8 @@ fn voice_person(member: &yapfast_discord::service::VoiceMember) -> VoicePerson {
         streaming: member.streaming,
         video: member.video,
         elsewhere: member.elsewhere,
+        style: member.style.map(Into::into),
+        tag: server_tag(member.tag.clone()),
     }
 }
 
@@ -659,6 +680,8 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
             .collect(),
         incoming: dm.ringing.iter().any(|person| person.user_id == me),
         avatar: dm.avatar.clone(),
+        decoration: dm.decoration.clone(),
+        style: dm.style.map(Into::into),
         upload_limit: yapfast_discord::api::upload_limit(premium, None),
         presence: dm.presence.map(presence),
         activity: dm.activity.clone(),
@@ -666,6 +689,10 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         parent: None,
         forum: false,
         unlisted: false,
+        tag: server_tag(dm.tag.clone()),
+        official: dm.official,
+        empty: dm.empty,
+        symbol: chat::symbol::TEXT,
         preview: dm.preview.as_ref().map(|preview| {
             Box::new(chat::RequestPreview {
                 text: match (preview.text.trim(), preview.files) {
@@ -800,6 +827,8 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                decoration: None,
+                style: None,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -810,6 +839,18 @@ fn server_rooms(
                 parent: None,
                 forum: false,
                 unlisted: false,
+                tag: None,
+                official: false,
+                empty: false,
+                symbol: private_symbol(
+                    server,
+                    channel,
+                    if channel.stage {
+                        chat::symbol::STAGE
+                    } else {
+                        chat::symbol::TEXT
+                    },
+                ),
                 preview: None,
             }
         } else {
@@ -846,6 +887,8 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                decoration: None,
+                style: None,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -856,6 +899,24 @@ fn server_rooms(
                 parent: None,
                 forum: channel.forum.is_some(),
                 unlisted: unlisted(channel),
+                tag: None,
+                official: false,
+                empty: false,
+                symbol: private_symbol(
+                    server,
+                    channel,
+                    if server.rules_channel.as_deref() == Some(channel.id.as_str()) {
+                        chat::symbol::RULES
+                    } else if channel.announcement {
+                        chat::symbol::ANNOUNCEMENT
+                    } else if channel.media {
+                        chat::symbol::MEDIA
+                    } else if channel.nsfw {
+                        chat::symbol::AGE_RESTRICTED
+                    } else {
+                        chat::symbol::TEXT
+                    },
+                ),
                 preview: None,
             }
         });
@@ -876,13 +937,43 @@ fn server_rooms(
         muted: server.marks.muted,
         unavailable: server.unavailable,
         icon: server.icon.clone(),
+        tag: server_tag(server.tag.clone()),
         // Index::update sets it, since a folder changes without its servers.
         folder: None,
         hide_muted: server.marks.notifications.hide_muted_channels,
         community: server.community,
         pinned,
+        banner: server.banner.clone(),
+        verified: server.verified,
+        events: server
+            .events
+            .iter()
+            .map(|event| chat::ServerEvent {
+                id: event.id.clone(),
+                name: event.name.clone(),
+                start: yapfast_discord::message::iso_ms(&event.start)
+                    .map_or(0, |ms| i64::try_from(ms / 1000).unwrap_or(0)),
+                location: event.location.clone(),
+                active: event.status == 2,
+                interested: event.interested,
+            })
+            .collect(),
     };
     (rooms, server)
+}
+
+/// A channel's icon `kind`, with the padlock mark when @everyone may not see it.
+#[cfg(feature = "discord")]
+fn private_symbol(
+    server: &MarkedServer,
+    channel: &yapfast_discord::ready::Channel,
+    kind: u8,
+) -> u8 {
+    if server.private(channel) {
+        kind | chat::symbol::PRIVATE
+    } else {
+        kind
+    }
 }
 
 /// A thread as it lists under `parent`, its channel's room.
@@ -922,6 +1013,8 @@ fn thread_room(
         ringing: vec![],
         incoming: false,
         avatar: None,
+        decoration: None,
+        style: None,
         presence: None,
         activity: None,
         activities: Default::default(),
@@ -929,6 +1022,10 @@ fn thread_room(
         parent: Some(parent.id.clone()),
         forum: false,
         unlisted: parent.unlisted,
+        tag: None,
+        official: false,
+        empty: false,
+        symbol: chat::symbol::TEXT,
         preview: None,
     }
 }
@@ -1122,6 +1219,10 @@ impl Pictures {
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
+                } else if url.ends_with(chat::EFFECT_PICTURE) {
+                    EFFECT_SIZE
+                } else if url.contains("/collectibles-shop/") {
+                    COLLECTIBLE_SIZE
                 } else {
                     (PICTURE_SIZE, PICTURE_SIZE)
                 };
@@ -1529,6 +1630,8 @@ mod tests {
             streaming: false,
             video: false,
             elsewhere: false,
+            style: None,
+            tag: None,
             server_muted: false,
             server_deafened: false,
         };
@@ -1699,6 +1802,8 @@ mod tests {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                style: None,
+                tag: None,
             }],
         );
         assert!(kept.update_into(&call, false, &mut rooms, &mut servers));
@@ -1747,6 +1852,8 @@ mod tests {
                     streaming: true,
                     video: false,
                     elsewhere: false,
+                    style: None,
+                    tag: None,
                     server_muted: false,
                     server_deafened: false,
                 }],
@@ -1796,5 +1903,33 @@ mod tests {
         assert!(rooms.len() == 6 && rooms[2].locked && rooms[5].locked);
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
+    }
+
+    #[test]
+    fn someone_in_voice_keeps_their_name_style_and_server_tag() {
+        let member = yapfast_discord::service::VoiceMember {
+            user_id: "2".into(),
+            name: "Ann".into(),
+            avatar: "ann.png".into(),
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            server_deafened: false,
+            streaming: false,
+            video: false,
+            elsewhere: false,
+            style: yapfast_discord::collectibles::Style::parse(
+                &serde_json::json!({"font_id": 14, "effect_id": 3, "colors": [255]}),
+            ),
+            tag: Some(yapfast_discord::message::Tag {
+                guild: "99".into(),
+                text: "GUYS".into(),
+                badge: None,
+            }),
+        };
+        let person = voice_person(&member);
+        let style = person.style.expect("their name style");
+        assert_eq!((style.font, style.effect), (14, 3));
+        assert_eq!(person.tag.map(|tag| tag.text), Some("GUYS".into()));
     }
 }

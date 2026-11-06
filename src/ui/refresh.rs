@@ -83,6 +83,34 @@ impl Reach {
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// Someone's row under a voice channel or in a call, with their name style
+/// and server tag as their member row has them, so far as the profile
+/// switches let them show.
+pub(super) fn voice_looks(
+    row: PersonRow,
+    person: Option<&yapfast_core::chat::VoicePerson>,
+    cosmetics: Cosmetics,
+) -> PersonRow {
+    let Some(person) = person else {
+        return row;
+    };
+    let tag = cosmetics.tag(person.tag.as_ref());
+    PersonRow {
+        name_style: name_style::row(cosmetics.style(person.style), &row.name),
+        tag: tag.map_or_else(Default::default, |tag| tag.text.as_str().into()),
+        tag_badge: tag
+            .and_then(|tag| tag.badge.as_deref())
+            .unwrap_or_default()
+            .into(),
+        ..row
+    }
+}
+
+/// A server's Discord id, from Yapfast's id for it.
+fn discord_server_id(id: &str) -> &str {
+    id.rsplit(':').next().unwrap_or(id)
+}
+
 impl Adapter {
     /// Browse Channels' rows whose channel's name has its search in it, each
     /// under its category's heading.
@@ -145,6 +173,8 @@ pub(super) struct SidebarShown {
     list_changes: u64,
     /// Whether Discord took changes, which the header's invite button needs.
     discord_online: bool,
+    /// What the profile switches let DM rows show.
+    cosmetics: yapfast_core::application::Cosmetics,
 }
 
 impl SidebarShown {
@@ -161,6 +191,7 @@ impl SidebarShown {
             category_changes: state.category_changes,
             list_changes: state.list_changes,
             discord_online: state.discord_online,
+            cosmetics: state.cosmetics,
         }
     }
 
@@ -199,18 +230,39 @@ impl SidebarShown {
 impl Icons {
     /// A conversation's icon, as the sidebar shows it.
     fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
+        use yapfast_core::chat::symbol;
+        // Discord puts a padlock on the icon of a channel @everyone can't see.
+        let private = room.symbol & symbol::PRIVATE != 0;
+        let kind = room.symbol & !symbol::PRIVATE;
         if room.locked {
             self.lock.clone()
         } else if room.voice {
-            self.voice.clone()
+            match (kind == symbol::STAGE, private) {
+                (true, true) => self.stage_private.clone(),
+                (true, false) => self.stage.clone(),
+                (false, true) => self.voice_private.clone(),
+                (false, false) => self.voice.clone(),
+            }
         } else if room.forum {
-            self.forum.clone()
+            match (kind == symbol::MEDIA, private) {
+                (true, true) => self.media_private.clone(),
+                (true, false) => self.media.clone(),
+                (false, true) => self.forum_private.clone(),
+                (false, false) => self.forum.clone(),
+            }
         } else if room.direct {
             self.dm.clone()
         } else if room.parent.is_some() {
             self.thread.clone()
         } else {
-            self.text.clone()
+            match kind {
+                symbol::RULES => self.rules.clone(),
+                symbol::ANNOUNCEMENT if private => self.announcement_private.clone(),
+                symbol::ANNOUNCEMENT => self.announcement.clone(),
+                symbol::AGE_RESTRICTED => self.age_restricted.clone(),
+                _ if private => self.text_private.clone(),
+                _ => self.text.clone(),
+            }
         }
     }
 }
@@ -285,6 +337,11 @@ impl Adapter {
             .set_revision(self.app.state.picture_changes as i32);
         self.show_viewer(window);
         self.show_profile(window);
+        window.set_can_go_back(self.app.state.can_go_back());
+        window.set_can_go_forward(self.app.state.can_go_forward());
+        if window.get_inbox_open() {
+            self.show_inbox(window);
+        }
         let changes = Changes::read(self, window);
         if changes.reset || self.navigation != self.app.state.navigation {
             window.set_filter(SharedString::default());
@@ -562,6 +619,7 @@ impl Adapter {
         }
         self.sidebar = Some(SidebarShown::of(&self.app.state, window));
         let state = &self.app.state;
+        let cosmetics = state.cosmetics;
         let query = window.get_filter().to_lowercase();
         window.set_sidebar_title(match &state.navigation {
             Navigation::DirectMessages => "Direct messages".into(),
@@ -588,6 +646,27 @@ impl Adapter {
             Navigation::Server(id) => self.app.header_choices(id).contains(&MenuChoice::Invite),
             Navigation::DirectMessages => false,
         });
+        window.set_header_community(match &state.navigation {
+            Navigation::Server(id) => state
+                .servers
+                .iter()
+                .any(|server| &server.id == id && server.community),
+            Navigation::DirectMessages => false,
+        });
+        let header_server = match &state.navigation {
+            Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+            Navigation::DirectMessages => None,
+        };
+        window.set_header_verified(header_server.is_some_and(|server| server.verified));
+        window.set_header_banner(
+            header_server
+                .and_then(|server| server.banner.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_header_events(
+            header_server.map_or(0, |server| i32::try_from(server.events.len()).unwrap_or(0)),
+        );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {
                 "Find a DM"
@@ -759,7 +838,7 @@ impl Adapter {
                     let this = (room.category_id.as_deref(), room.category.as_str());
                     if category.replace(this) != Some(this) {
                         folds_by = room.category_id.as_deref();
-                        room.category.to_uppercase()
+                        room.category.clone()
                     } else {
                         String::new()
                     }
@@ -794,9 +873,28 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
+                    decoration_url: cosmetics
+                        .decoration(room.decoration.as_deref())
+                        .unwrap_or_default()
+                        .into(),
+                    name_style: name_style::row(cosmetics.style(room.style), &room.name),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
+                    tag: cosmetics
+                        .tag(room.tag.as_ref())
+                        .map_or_else(Default::default, |tag| tag.text.as_str().into()),
+                    tag_badge: cosmetics
+                        .tag(room.tag.as_ref())
+                        .and_then(|tag| tag.badge.as_deref())
+                        .unwrap_or_default()
+                        .into(),
+                    official: room.official,
+                    wave: if room.empty && !room.request {
+                        room.person.as_deref().unwrap_or_default().into()
+                    } else {
+                        Default::default()
+                    },
                     pinned: if room.direct {
                         state.pinned.contains(&room.id)
                     } else {
@@ -809,27 +907,30 @@ impl Adapter {
                         let people: Vec<_> = room
                             .people
                             .iter()
-                            .map(|person| PersonRow {
-                                id: person.id.clone().into(),
-                                name: person.name.clone().into(),
-                                initial: initial(&person.name),
-                                tint: tint(&person.id),
-                                picture: cached_picture(
-                                    &mut self.pictures,
-                                    state,
-                                    person.avatar.as_deref(),
-                                ),
-                                muted: person.muted,
-                                deafened: person.deafened,
-                                server_muted: person.server_muted,
-                                server_deafened: person.server_deafened,
-                                live: person.streaming,
-                                video: person.video,
-                                local: state.discord_user.as_ref() == Some(&person.id),
-                                elsewhere: person.elsewhere,
-                                person: person.id.clone().into(),
-                                connected: true,
-                                ..Default::default()
+                            .map(|person| {
+                                let row = PersonRow {
+                                    id: person.id.clone().into(),
+                                    name: person.name.clone().into(),
+                                    initial: initial(&person.name),
+                                    tint: tint(&person.id),
+                                    picture: cached_picture(
+                                        &mut self.pictures,
+                                        state,
+                                        person.avatar.as_deref(),
+                                    ),
+                                    muted: person.muted,
+                                    deafened: person.deafened,
+                                    server_muted: person.server_muted,
+                                    server_deafened: person.server_deafened,
+                                    live: person.streaming,
+                                    video: person.video,
+                                    local: state.discord_user.as_ref() == Some(&person.id),
+                                    elsewhere: person.elsewhere,
+                                    person: person.id.clone().into(),
+                                    connected: true,
+                                    ..Default::default()
+                                };
+                                voice_looks(row, Some(person), cosmetics)
                             })
                             .collect();
                         ModelRc::new(VecModel::from(people))
@@ -966,12 +1067,62 @@ impl Adapter {
             .unwrap_or_else(|| display_part(account));
         window.set_account(account.into());
         window.set_account_name(account_name.into());
+        window.set_account_username(state.account_username.as_deref().unwrap_or_default().into());
+        window.set_account_user_id(state.discord_user.as_deref().unwrap_or_default().into());
         window.set_account_initial(initial(account_name));
         window.set_account_tint(tint(account_name));
         window.set_account_picture(cached_picture(
             &mut self.pictures,
             state,
             state.account_avatar.as_deref(),
+        ));
+        // The account's card, from its own profile once that's come.
+        let own = state
+            .account_profile
+            .as_ref()
+            .map(|profile| (profile.clone(), state.picture_changes));
+        let same = match (&own, &self.account_profile_shown) {
+            (Some((profile, changes)), Some((shown, shown_changes))) => {
+                Arc::ptr_eq(profile, shown) && changes == shown_changes
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            let data = own
+                .as_ref()
+                .map_or_else(ProfileData::default, |(profile, _)| {
+                    let view = ProfileView {
+                        profile: yapfast_core::chat::Profile::clone(profile),
+                        ..Default::default()
+                    };
+                    profile_data(&mut self.pictures, state, &view)
+                });
+            window.set_account_profile(data);
+            self.account_profile_shown = own;
+        }
+        let look = window.global::<AccountLook>();
+        let cosmetics = state.cosmetics;
+        look.set_decoration_url(
+            cosmetics
+                .decoration(state.account_decoration.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        look.set_nameplate_url(
+            state
+                .account_nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates)
+                .map(|plate| plate.picture.as_str())
+                .unwrap_or_default()
+                .into(),
+        );
+        look.set_nameplate_color(role_color(
+            state
+                .account_nameplate
+                .as_ref()
+                .and_then(|plate| plate.color),
         ));
         let (custom_status, status_emoji) = state
             .custom_status
@@ -980,11 +1131,21 @@ impl Adapter {
             .map(status_line)
             .unzip();
         window.set_account_status_emoji(status_emoji.flatten().unwrap_or_default().into());
+        // The game Yapfast shows as playing, as the activity icon Discord puts
+        // before the status: alone it names the game, before a status it adds a bullet.
+        let playing = state
+            .discord_playing
+            .as_ref()
+            .filter(|_| state.online && !state.preview && state.discord_show_game);
+        window.set_account_activity_icon(i32::from(playing.is_some()));
+        window.set_account_activity_bullet(playing.is_some() && custom_status.is_some());
         window.set_account_status(
             if state.preview {
                 "Local only"
             } else if let Some(status) = &custom_status {
                 status
+            } else if let Some(playing) = playing {
+                &playing.name
             } else if let Some(status) = &state.account_status {
                 status
             } else if state.online {
@@ -1001,6 +1162,78 @@ impl Adapter {
         window.set_discord_status(state.discord_presence.as_deref().unwrap_or("online").into());
         window.set_storage(state.storage.unwrap_or_default().into());
         window.set_notice(state.notice.as_deref().unwrap_or_default().into());
+    }
+
+    /// The inbox popout's rows, from what the client already knows: friend
+    /// requests for You, channels and conversations with unread messages, and
+    /// those that mention this account.
+    fn show_inbox(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let mut rows = Vec::new();
+        for request in state
+            .friend_requests
+            .iter()
+            .filter(|request| request.incoming && !request.spam)
+        {
+            rows.push(InboxRow {
+                id: request.id.as_str().into(),
+                name: request.name.as_str().into(),
+                place: yapfast_core::i18n::tr("inbox_friend_request").into(),
+                initial: initial(&request.name),
+                tint: tint(&request.id),
+                picture_url: request.avatar.as_deref().unwrap_or_default().into(),
+                count: 0,
+                kind: 2,
+                direct: true,
+            });
+        }
+        for room in state
+            .rooms
+            .iter()
+            .filter(|room| !room.request && !room.unlisted)
+        {
+            let (count, kind) = if room.mentions > 0 {
+                (room.mentions, 0)
+            } else if room.unread > 0 && !room.muted {
+                (room.unread, 1)
+            } else {
+                continue;
+            };
+            let place = if room.direct {
+                String::new()
+            } else {
+                state
+                    .servers
+                    .iter()
+                    .find(|server| server.channels.contains(&room.id))
+                    .map(|server| server.name.clone())
+                    .unwrap_or_default()
+            };
+            rows.push(InboxRow {
+                id: room.id.as_str().into(),
+                name: if room.direct {
+                    room.name.clone()
+                } else {
+                    format!("#{}", room.name)
+                }
+                .into(),
+                place: place.into(),
+                initial: initial(&room.name),
+                tint: tint(&room.id),
+                picture_url: if room.direct {
+                    room.avatar.as_deref().unwrap_or_default().into()
+                } else {
+                    SharedString::default()
+                },
+                count: i32::try_from(count).unwrap_or(i32::MAX),
+                kind,
+                direct: room.direct,
+            });
+        }
+        window.set_inbox_has_for_you(rows.iter().any(|row| row.kind == 2));
+        window.set_inbox_has_unreads(rows.iter().any(|row| row.kind == 1));
+        window.set_inbox_has_mentions(rows.iter().any(|row| row.kind == 0));
+        update_model(&self.models.inbox, rows);
     }
 
     /// Starting a thread: what the open channel offers, and the "New
@@ -1356,6 +1589,53 @@ impl Adapter {
         window.set_room_activity_emoji(activity_emoji);
         window.set_profile_available(state.one_to_one().is_some());
         window.set_room_request(room.is_some_and(|room| room.request));
+        // What opens a server channel's history in Discord's client: "Welcome
+        // to" the server for its first channel, else the channel itself.
+        let (intro, intro_title, intro_text) = match (room, &state.navigation) {
+            (Some(room), Navigation::Server(id))
+                if room.network == Network::Discord
+                    && !room.direct
+                    && !room.voice
+                    && room.parent.is_none() =>
+            {
+                let server = state.servers.iter().find(|server| &server.id == id);
+                let first = server.is_some_and(|server| {
+                    server
+                        .channels
+                        .iter()
+                        .filter_map(|channel| state.rooms.iter().find(|room| &room.id == channel))
+                        .find(|room| !room.voice && room.parent.is_none() && !room.forum)
+                        .is_some_and(|first| first.id == room.id)
+                });
+                let name = room.name.as_str();
+                match server {
+                    Some(server) if first => (
+                        "server",
+                        server.name.clone(),
+                        yapfast_core::i18n::tr("intro_server_start").to_owned(),
+                    ),
+                    _ => (
+                        "channel",
+                        yapfast_core::i18n::tr("intro_welcome_channel").replace("{name}", name),
+                        yapfast_core::i18n::tr("intro_channel_start").replace("{name}", name),
+                    ),
+                }
+            }
+            _ => ("", String::new(), String::new()),
+        };
+        window.set_intro_kind(intro.into());
+        window.set_intro_welcome(yapfast_core::i18n::tr("intro_welcome_server").into());
+        window.set_intro_title(intro_title.into());
+        window.set_intro_text(intro_text.into());
+        window.set_composer_placeholder(room.map_or(SharedString::default(), |room| {
+            yapfast_core::i18n::composer_hint(
+                &room.name,
+                room.direct,
+                room.person.is_some(),
+                room.parent.is_none(),
+            )
+            .into()
+        }));
         window.set_request_title(
             match room {
                 Some(room) if room.category == discord::SPAM => {
@@ -1576,11 +1856,21 @@ impl Adapter {
     /// The member list, the reactions offered on messages, and a role's card.
     fn show_members(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
+        let cosmetics = state.cosmetics;
+        // In a server, names show their style's font alone.
+        let in_server = name_style::in_server(state.selected.as_deref());
         let now = yapfast_core::clock::now_ms();
         let members = match &state.members {
             Some(Ok(members)) => members.as_slice(),
             _ => &[],
         };
+        let (activity_rows, activity_total) = activity_panel(members, now);
+        update_model(&self.models.roster_activity, activity_rows);
+        window.set_roster_activity_total(activity_total);
+        let owner = state
+            .selected
+            .as_deref()
+            .and_then(|room| self.app.server_owner(room));
         window.set_roster_note(
             match &state.members {
                 None => "Loading members...",
@@ -1596,15 +1886,50 @@ impl Adapter {
                 .iter()
                 .enumerate()
                 .map(|(index, member)| {
-                    let (activity, activity_emoji) = activity_line(member.activity.as_deref());
+                    let (activity_icon, activity_bullet, named) =
+                        subline(&member.activities, member.activity.as_deref());
+                    let (activity, activity_emoji) =
+                        activity_line(named.as_deref().or(member.activity.as_deref()));
                     MemberRow {
+                        activity_icon,
+                        activity_bullet,
                         id: member.id.clone().into(),
                         name: member.name.clone().into(),
                         initial: initial(&member.name),
                         tint: tint(&member.name),
                         picture: slint::Image::default(),
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
+                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
+                        role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
+                        tag: cosmetics
+                            .tag(member.tag.as_ref())
+                            .map_or_else(Default::default, |tag| tag.text.as_str().into()),
+                        tag_badge: cosmetics
+                            .tag(member.tag.as_ref())
+                            .and_then(|tag| tag.badge.as_deref())
+                            .unwrap_or_default()
+                            .into(),
+                        decoration_url: cosmetics
+                            .decoration(member.decoration.as_deref())
+                            .unwrap_or_default()
+                            .into(),
+                        name_style: name_style::font_only_in(
+                            in_server,
+                            name_style::row(cosmetics.style(member.style), &member.name),
+                        ),
+                        nameplate_url: member
+                            .nameplate
+                            .as_ref()
+                            .filter(|_| !state.hide_nameplates)
+                            .map(|plate| plate.picture.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                        nameplate_color: role_color(
+                            member.nameplate.as_ref().and_then(|plate| plate.color),
+                        ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
+                        bot: member.bot,
+                        owner: owner.as_deref() == Some(member.id.as_str()),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
                         has_color: member.color.is_some(),
@@ -1614,7 +1939,7 @@ impl Adapter {
                         // Discord names its groups; Matrix members group by role.
                         heading: if let Some(group) = &member.group {
                             if index == 0 || members[index - 1].group.as_ref() != Some(group) {
-                                group.to_uppercase().into()
+                                group.as_str().into()
                             } else {
                                 SharedString::default()
                             }
@@ -2261,16 +2586,42 @@ impl Adapter {
                 bio: written(&editor.bio, fallback.map(|fallback| &fallback.bio)),
                 created: fallback.and_then(|fallback| fallback.created.clone()),
                 joined: fallback.and_then(|fallback| fallback.joined.clone()),
-                ..Default::default()
+                theme: editor.theme().ok().flatten(),
+                style: editor.name_style(),
+                widgets: fallback
+                    .map(|fallback| fallback.widgets.clone())
+                    .unwrap_or_default(),
+                wishlist_place: fallback.and_then(|fallback| fallback.wishlist_place.clone()),
+                wishlist: editor.wishlist.clone(),
+                // What the editor doesn't change comes from the account's
+                // profile: its decoration, tag, badges and activities.
+                ..self
+                    .app
+                    .state
+                    .account_profile
+                    .as_deref()
+                    .cloned()
+                    .unwrap_or_default()
             },
             large: false,
             loading: false,
             kept: false,
             note: None,
+            ..Default::default()
         };
         let mut preview = profile_data(&mut self.pictures, &self.app.state, &view);
         // Someone's own card offers them nothing.
         preview.friend = 0;
+        // The tabs' lists stay as they are unless they changed, so a card
+        // doesn't lose its place or its pictures as this is shown again.
+        let shown = window.get_profile_editor_prompt().preview;
+        preview.widgets = same_widget_rows(&shown.widgets, preview.widgets);
+        preview.wishlist = same_list(&shown.wishlist, preview.wishlist);
+        if editor.loading() {
+            preview.board_note = "Loading the board...".into();
+        } else if editor.profile.is_none() {
+            preview.board_note = "Couldn't load the board.".into();
+        }
         if let Some(picture) = new_avatar {
             preview.picture = slint_image(picture);
         }
@@ -2308,6 +2659,24 @@ impl Adapter {
                 "Tell this server a bit about yourself",
             )
         };
+        let own = self.app.state.account_profile.as_ref();
+        // What it would wear: the choice, else what the profile has.
+        let shown_tag = match &editor.chosen_tag {
+            None => self
+                .app
+                .state
+                .account_profile
+                .as_ref()
+                .and_then(|own| own.tag.clone()),
+            Some(None) => None,
+            Some(Some(chosen)) => self
+                .app
+                .state
+                .servers
+                .iter()
+                .find(|server| discord_server_id(&server.id) == chosen)
+                .and_then(|server| server.tag.clone()),
+        };
         window.set_profile_editor_prompt(ProfileEditorPrompt {
             title: title.into(),
             detail: detail.into(),
@@ -2330,6 +2699,56 @@ impl Adapter {
             upgrade: editor.upgrade(),
             banner_shown: !main || editor.nitro(),
             colour_shown: editor.may_write(ProfileText::Colour),
+            server_tags: ModelRc::new(VecModel::from(
+                self.app
+                    .state
+                    .servers
+                    .iter()
+                    .filter_map(|server| {
+                        let tag = server.tag.as_ref()?;
+                        Some(ServerTagRow {
+                            id: discord_server_id(&server.id).into(),
+                            name: server.name.as_str().into(),
+                            icon: server.icon.as_deref().unwrap_or_default().into(),
+                            tag: tag.text.as_str().into(),
+                            badge: tag.badge.as_deref().unwrap_or_default().into(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+            tag_chosen_id: editor
+                .chosen_tag
+                .as_ref()
+                .and_then(|chosen| chosen.as_deref())
+                .unwrap_or_default()
+                .into(),
+            tag_text: shown_tag
+                .as_ref()
+                .map_or("", |tag| tag.text.as_str())
+                .into(),
+            tag_icon: shown_tag
+                .as_ref()
+                .and_then(|tag| tag.badge.as_deref())
+                .unwrap_or_default()
+                .into(),
+            look_enabled: editor.may_write(ProfileText::ThemeTop),
+            // What the account wears, though the profile switches may keep
+            // its pictures from showing.
+            decoration_set: own.is_some_and(|own| own.decoration.is_some()),
+            effect_set: own.is_some_and(|own| own.effect.is_some()),
+            // Yapfast doesn't read profile frames.
+            frame_set: false,
+            name_font_id: editor.name_font.map_or(11, |font| font as i32),
+            name_effect_id: editor.name_effect as i32,
+            name_colours_key: editor
+                .name_colours
+                .iter()
+                .map(|colour| format!("{colour:06x}"))
+                .collect::<Vec<_>>()
+                .join(",")
+                .into(),
+            theme_top_text: editor.theme_top.as_str().into(),
+            theme_bottom_text: editor.theme_bottom.as_str().into(),
             colour: colour
                 .ok()
                 .flatten()
@@ -2835,8 +3254,10 @@ impl Adapter {
             first_unread: None,
             revealed: &self.revealed,
             restyle: std::mem::take(&mut self.aside_restyle),
+            decorations: self.layout.cosmetics().decorations,
         };
         let layout = &self.layout;
+        let in_server = name_style::in_server(Some(room));
         show_timeline(
             &self.models.aside_messages,
             &mut self.aside_rows,
@@ -2844,10 +3265,13 @@ impl Adapter {
             &aside.messages,
             &marks,
             |message| {
-                layout.restyle(
+                let mut row = layout.restyle(
                     message,
                     message_row_within(message, marks.revealed, Some(fit)),
-                )
+                );
+                // In a server, an author's name shows its style's font alone.
+                row.name_style = name_style::font_only_in(in_server, row.name_style);
+                row
             },
         );
         self.aside_messages = aside.messages.clone();
@@ -3014,11 +3438,20 @@ impl Adapter {
                     super::menus::until(until / 1000, self.layout.twelve_hour_clock)
                 )
             });
+        // Discord swaps the composer for one disabled bar saying so, with no
+        // buttons and no caption.
+        let no_permission = window.global::<ClientStyle>().get_enabled()
+            && timed_out.is_none()
+            && !state.preview
+            && discord_room
+            && room.is_some_and(|room| !room.request && (room.read_only || room.locked));
+        window.set_composer_locked(no_permission);
+        window.set_composer_locked_text(yapfast_core::i18n::tr("composer_no_permission").into());
         window.set_composer_hint(
             if room.is_none() {
                 "Choose a DM or server channel to write a message."
             } else if state.preview {
-                "Enter to send locally, Shift+Enter for a new line."
+                ""
             } else if room.is_some_and(|room| room.request) {
                 if discord_only {
                     ""
@@ -3027,6 +3460,8 @@ impl Adapter {
                 }
             } else if let Some(timed_out) = &timed_out {
                 timed_out
+            } else if no_permission {
+                ""
             } else if discord_room && room.is_some_and(|room| room.read_only || room.locked) {
                 "You can't send messages in this Discord channel."
             } else if discord_room && !state.discord_online {
@@ -3147,15 +3582,22 @@ impl Adapter {
                 first_unread: state.first_unread.as_deref(),
                 revealed: &self.revealed,
                 restyle,
+                decorations: self.layout.cosmetics().decorations,
             };
             let layout = &self.layout;
+            let in_server = name_style::in_server(state.selected.as_deref());
             show_timeline(
                 &self.models.messages,
                 &mut self.rows,
                 &self.messages,
                 &state.messages,
                 &marks,
-                |message| layout.restyle(message, message_row(message, marks.revealed)),
+                |message| {
+                    let mut row = layout.restyle(message, message_row(message, marks.revealed));
+                    // In a server, an author's name shows its style's font alone.
+                    row.name_style = name_style::font_only_in(in_server, row.name_style);
+                    row
+                },
             );
             if selection_changed || reset {
                 self.latest_due = false;
@@ -3447,14 +3889,17 @@ impl Adapter {
         );
         let call_people: Vec<_> = present
             .iter()
-            .map(|person| PersonRow {
-                id: person.id.as_str().into(),
-                name: person.name.as_str().into(),
-                initial: initial(&person.name),
-                tint: tint(&person.id),
-                picture: cached_picture(&mut self.pictures, state, person.avatar.as_deref()),
-                connected: true,
-                ..Default::default()
+            .map(|person| {
+                let row = PersonRow {
+                    id: person.id.as_str().into(),
+                    name: person.name.as_str().into(),
+                    initial: initial(&person.name),
+                    tint: tint(&person.id),
+                    picture: cached_picture(&mut self.pictures, state, person.avatar.as_deref()),
+                    connected: true,
+                    ..Default::default()
+                };
+                voice_looks(row, Some(person), state.cosmetics)
             })
             .collect();
         update_model(&self.models.call_people, call_people);
@@ -3495,51 +3940,63 @@ impl Adapter {
         );
         window.set_voice_error(voice.error.as_deref().unwrap_or_default().into());
         window.set_voice_warning(voice.warning.as_deref().unwrap_or_default().into());
+        // The call's room lists who is in it as Discord sees them, with the
+        // name styles and tags the call's participants don't carry.
+        let in_call = voice
+            .room
+            .as_ref()
+            .and_then(|id| state.rooms.iter().find(|room| &room.id == id))
+            .map_or(&[][..], |room| room.people.as_slice());
         update_model(
             &self.models.participants,
             if voice.active() {
                 voice
                     .participants
                     .iter()
-                    .map(|person| PersonRow {
-                        id: person.id.clone().into(),
-                        local: person.local,
-                        name: display_part(&person.user).into(),
-                        initial: initial(display_part(&person.user)),
-                        tint: tint(display_part(if person.local {
-                            account
-                        } else {
-                            &person.user
-                        })),
-                        speaking: person.speaking && !person.muted && person.connected,
-                        connected: person.connected,
-                        status: if let Some(problem) = &person.problem {
-                            problem.as_str()
-                        } else if !person.connected {
-                            "Connection lost"
-                        } else if person.deafened {
-                            "Deafened"
-                        } else if person.muted {
-                            "Muted"
-                        } else if person.speaking {
-                            "Speaking"
-                        } else {
-                            "Listening"
-                        }
-                        .into(),
-                        muted: person.muted,
-                        deafened: person.deafened,
-                        live: person.streaming,
-                        video: person.video.is_some(),
-                        elsewhere: false,
-                        server_muted: person.server_muted,
-                        server_deafened: person.server_deafened,
-                        person: person.person.clone().into(),
-                        picture: cached_picture(
-                            &mut self.pictures,
-                            state,
-                            person.avatar.as_deref(),
-                        ),
+                    .map(|person| {
+                        let listed = in_call.iter().find(|listed| listed.id == person.person);
+                        let row = PersonRow {
+                            id: person.id.clone().into(),
+                            local: person.local,
+                            name: display_part(&person.user).into(),
+                            initial: initial(display_part(&person.user)),
+                            tint: tint(display_part(if person.local {
+                                account
+                            } else {
+                                &person.user
+                            })),
+                            speaking: person.speaking && !person.muted && person.connected,
+                            connected: person.connected,
+                            status: if let Some(problem) = &person.problem {
+                                problem.as_str()
+                            } else if !person.connected {
+                                "Connection lost"
+                            } else if person.deafened {
+                                "Deafened"
+                            } else if person.muted {
+                                "Muted"
+                            } else if person.speaking {
+                                "Speaking"
+                            } else {
+                                "Listening"
+                            }
+                            .into(),
+                            muted: person.muted,
+                            deafened: person.deafened,
+                            live: person.streaming,
+                            video: person.video.is_some(),
+                            elsewhere: false,
+                            server_muted: person.server_muted,
+                            server_deafened: person.server_deafened,
+                            person: person.person.clone().into(),
+                            picture: cached_picture(
+                                &mut self.pictures,
+                                state,
+                                person.avatar.as_deref(),
+                            ),
+                            ..Default::default()
+                        };
+                        voice_looks(row, listed, state.cosmetics)
                     })
                     .collect()
             } else {
@@ -4062,6 +4519,16 @@ pub(super) fn rail_rows(
     let in_call = |server: &yapfast_core::chat::ChatServer| {
         call.is_some_and(|room| server.channels.iter().any(|channel| channel == room))
     };
+    // Someone shares their screen in one of its voice channels, which Discord
+    // marks on the server's icon while this account isn't in its call.
+    let streaming = |server: &yapfast_core::chat::ChatServer| {
+        server
+            .channels
+            .iter()
+            .filter_map(|channel| rooms_by_id.get(channel.as_str()))
+            .any(|room| room.voice && room.people.iter().any(|person| person.streaming))
+    };
+    let live = |server: &yapfast_core::chat::ChatServer| !in_call(server) && streaming(server);
     let mut rows = Vec::with_capacity(state.servers.len());
     let mut servers = state.servers.iter().peekable();
     while let Some(server) = servers.next() {
@@ -4069,6 +4536,7 @@ pub(super) fn rail_rows(
             let (unread, mentions) = marks(server);
             rows.push(ServerRow {
                 call: in_call(server),
+                live: live(server),
                 ..server_row(server, selected(server), unread, mentions)
             });
             continue;
@@ -4106,6 +4574,8 @@ pub(super) fn rail_rows(
             unread,
             badge: count_badge(mentions),
             call: inside.iter().any(|server| in_call(server)),
+            live: !inside.iter().any(|server| in_call(server))
+                && inside.iter().any(|server| streaming(server)),
             discord: true,
             folder: true,
             open,
@@ -4131,6 +4601,7 @@ pub(super) fn rail_rows(
                     last: index == last,
                     tint,
                     call: in_call(server),
+                    live: live(server),
                     ..server_row(server, selected(server), unread, mentions)
                 });
             }
@@ -4259,7 +4730,7 @@ pub(super) fn with_empty_categories(
     // Its id names the category, for the heading's menu.
     let heading = |category: &ListedCategory| RoomRow {
         id: category.id.as_str().into(),
-        heading: category.name.to_uppercase().into(),
+        heading: category.name.as_str().into(),
         category: category.id.as_str().into(),
         hidden: true,
         ..Default::default()

@@ -114,6 +114,8 @@ pub fn member_server(alice: &[&str]) -> Application {
                     streaming: false,
                     video: false,
                     elsewhere: false,
+                    style: None,
+                    tag: None,
                 },
                 yapfast_discord::service::VoiceMember {
                     user_id: "1".into(),
@@ -126,6 +128,8 @@ pub fn member_server(alice: &[&str]) -> Application {
                     streaming: false,
                     video: false,
                     elsewhere: true,
+                    style: None,
+                    tag: None,
                 },
             ],
         )]
@@ -135,11 +139,15 @@ pub fn member_server(alice: &[&str]) -> Application {
     app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
     app.dispatch(Action::SelectRoom("discord:10:11".into()));
     let listed = |id: &str, name: &str| ChatMember {
+        bot: false,
         id: id.into(),
         name: name.into(),
         username: None,
         role: Role::Member,
         avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
         group: None,
         presence: None,
         color: None,
@@ -147,6 +155,9 @@ pub fn member_server(alice: &[&str]) -> Application {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        tag: None,
+        group_icon: None,
+        role_icon: None,
     };
     app.apply(Event::Members {
         room: "discord:10:11".into(),

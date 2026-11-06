@@ -101,6 +101,8 @@ pub(super) fn found(
         sender: discord::sender_id(&message.author_id),
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
+        decoration: discord.decoration(guild, &message.author_id),
+        style: discord.style(guild, &message.author_id).map(Into::into),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
         bot: message.bot,
         body,
@@ -543,9 +545,14 @@ pub(super) fn chat_profile(
         .iter()
         .find(|server| server.id == guild)
         .map(|server| &*server.server);
+    let bio_emoji = profile.bio.as_deref().map(emoji_in).unwrap_or_default();
     Profile {
         name: profile.name,
         avatar: Some(profile.avatar),
+        decoration: discord.decoration(Some(guild), &profile.user_id),
+        style: discord.style(Some(guild), &profile.user_id).map(Into::into),
+        effect: profile.effect,
+        theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
         pronouns: profile.pronouns.unwrap_or_default(),
@@ -559,8 +566,8 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(yapfast_discord::message::date(profile.created)),
-        joined: profile.joined.map(yapfast_discord::message::date),
+        created: Some(crate::clock::day(profile.created / 1000)),
+        joined: profile.joined.map(|ms| crate::clock::day(ms / 1000)),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -589,6 +596,65 @@ pub(super) fn chat_profile(
                 avatar: Some(friend.avatar),
             })
             .collect(),
+        tag: discord::server_tag(profile.tag),
+        badges: profile
+            .badges
+            .into_iter()
+            .map(|badge| ProfileBadge {
+                description: badge.description,
+                icon: badge.icon,
+                link: badge.link,
+                level: badge.level.map(|level| ProfileBadgeLevel {
+                    kind: level.kind,
+                    title: level.title,
+                    progress: level.progress,
+                    picture: level.picture,
+                }),
+            })
+            .collect(),
+        bio_emoji,
+        // The note comes with its own request; see `fill_profile`.
+        note: String::new(),
+        connections: profile
+            .connections
+            .into_iter()
+            .map(|connection| ProfileConnection {
+                kind: connection.kind,
+                name: connection.name,
+                verified: connection.verified,
+                url: connection.url,
+                since: connection.since.map(|ms| crate::clock::day(ms / 1000)),
+            })
+            .collect(),
+        widgets: profile
+            .widgets
+            .into_iter()
+            .map(|widget| crate::chat::ProfileWidget {
+                title: widget.title,
+                application: widget.application,
+                lists_games: widget.lists_games,
+                games: widget
+                    .games
+                    .into_iter()
+                    .map(|game| crate::chat::ProfileGame {
+                        id: game.id,
+                        name: game.name,
+                        icon: game.icon,
+                        comment: game.comment,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        wishlist_place: profile.wishlist.map(|place| crate::chat::WishlistPlace {
+            id: place.id,
+            private: place.private,
+        }),
+        // Each tab of the full profile asks for its own when it opens.
+        wishlist: Default::default(),
+        board_asked: false,
+        board_named: false,
+        recent: Vec::new(),
+        recent_asked: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
@@ -704,18 +770,25 @@ pub(super) fn chat_embed(
 
 pub(super) fn chat_member(member: ListedMember) -> ChatMember {
     ChatMember {
+        bot: member.bot,
         id: member.user_id,
         name: member.name,
         username: member.username,
         role: Role::Member,
         avatar: Some(member.avatar),
+        decoration: member.decoration,
+        nameplate: member.nameplate.map(Into::into),
+        style: member.style.map(Into::into),
         group: Some(member.group),
+        group_icon: member.group_icon,
+        role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,
         timed_out_until: member.timed_out_until,
+        tag: discord::server_tag(member.tag),
     }
 }
 

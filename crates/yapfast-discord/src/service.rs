@@ -24,6 +24,7 @@ use crate::{
     notifications::Change,
     oauth,
     profile::{self, Profile},
+    profile_effect,
     ready::{self, PRIVATE, Server},
     scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
@@ -74,14 +75,28 @@ pub struct VoiceMember {
     /// This account, in the call on another client, such as Discord's app
     /// on a phone, rather than on this gateway session.
     pub elsewhere: bool,
+    /// The display name style they draw their name with in the call's
+    /// server, or everywhere, and the server tag they wear by it, as their
+    /// member row has them.
+    pub style: Option<crate::collectibles::Style>,
+    pub tag: Option<crate::message::Tag>,
 }
 
 /// The linked account, as Discord shows it outside any server.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
     pub name: String,
+    /// Its username, such as `derfayberr`, which the account card shows
+    /// under the pointer; empty while unknown.
+    #[serde(default)]
+    pub username: String,
     /// The address of its avatar.
     pub avatar: String,
+    /// The decoration it wears around its avatar, and its nameplate.
+    #[serde(default)]
+    pub decoration: Option<String>,
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
     /// [`crate::api::upload_limit`].
     pub premium_type: u8,
@@ -103,7 +118,23 @@ pub struct Conversation {
     pub name: String,
     /// The other person's avatar in a DM, or a group DM's icon.
     pub avatar: Option<String>,
+    /// The decoration the other person in a DM wears around their avatar.
+    #[serde(default)]
+    pub decoration: Option<String>,
+    /// The display name style of the other person in a DM.
+    #[serde(default)]
+    pub style: Option<crate::collectibles::Style>,
     pub group: bool,
+    /// The server tag the other person in a DM wears by their name.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
+    /// The other person is Discord's own account, which is marked as official.
+    #[serde(default)]
+    pub official: bool,
+    /// A one-to-one DM nobody has written in yet, where the DM list offers to
+    /// wave.
+    #[serde(default)]
+    pub empty: bool,
     /// Everyone in it, this account included.
     pub people: usize,
     /// A message request, waiting to be accepted or ignored. Requests count
@@ -648,6 +679,8 @@ pub struct Discord {
     names: Arc<RwLock<Names>>,
     /// Profiles fetched lately, oldest first.
     profiles: Arc<Mutex<Vec<Kept>>>,
+    /// Profile effects fetched lately, oldest first.
+    effects: Arc<Mutex<Vec<Arc<profile_effect::Effect>>>>,
     /// The threads a list of a channel's threads found, by id, while it's
     /// open: one opens from what Discord gave rather than asking again.
     listed_threads: Arc<Mutex<HashMap<String, Value>>>,
@@ -669,6 +702,9 @@ pub struct Discord {
 const NEW_DMS: usize = 8;
 const NEW_DM_SPAN: Duration = Duration::from_secs(10 * 60);
 
+/// The most profile effects kept: a few cards' worth.
+const EFFECTS: usize = 8;
+
 /// A profile fetched lately, for a user in a server.
 struct Kept {
     user: String,
@@ -685,6 +721,9 @@ const LIVE_BACKLOG: usize = 256;
 /// Profiles are fetched again after this long; Discord limits how often.
 const PROFILE_AGE: Duration = Duration::from_secs(5 * 60);
 const PROFILES: usize = 32;
+
+/// The levels of someone's badges being fetched, from [`Discord::start_badge_levels`].
+pub struct EarlyBadges(tokio::task::JoinHandle<Result<Value>>);
 
 impl Discord {
     /// Connects on the current Tokio runtime and keeps reconnecting until
@@ -749,6 +788,7 @@ impl Discord {
             api,
             names,
             profiles: Arc::default(),
+            effects: Arc::default(),
             listed_threads: Arc::default(),
             new_dms: Arc::new(Mutex::new(limits::Window::new(NEW_DMS, NEW_DM_SPAN))),
             application_icons: Arc::default(),
@@ -1294,10 +1334,38 @@ impl Discord {
         if let Some(earlier) = earlier {
             kept(earlier);
         }
+        let asked = Instant::now();
         let value = self.api.profile(user, server(guild)).await?;
+        tracing::info!(ms = asked.elapsed().as_millis() as u64, "fetched a profile");
+        // What the answer says of an effect, to find where Discord puts it
+        // when a card shows none. Only keys and the effect's own value.
+        let keys = |value: &Value| {
+            value
+                .as_object()
+                .map(|object| object.keys().cloned().collect::<Vec<_>>().join(","))
+                .unwrap_or_default()
+        };
+        tracing::info!(
+            top = keys(&value),
+            user_profile = keys(&value["user_profile"]),
+            guild_profile = keys(&value["guild_member_profile"]),
+            effect = %value["user_profile"]["profile_effect"],
+            guild_effect = %value["guild_member_profile"]["profile_effect"],
+            top_effect = %value["profile_effect"],
+            user_effect = %value["user"]["profile_effect"],
+            user_profile_collectibles = %profile_effect::shape(&value["user_profile"]["collectibles"]),
+            guild_collectibles = %profile_effect::shape(&value["guild_member_profile"]["collectibles"]),
+            user_collectibles = %profile_effect::shape(&value["user"]["collectibles"]),
+            top_collectibles = %profile_effect::shape(&value["collectibles"]),
+            "what a profile says of its effect"
+        );
         self.write_names().learn_user(&value["user"]);
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
+        tracing::info!(
+            theme = ?profile.theme,
+            "the theme colours a profile arrived with"
+        );
         {
             let mut profiles = self.lock_profiles();
             profiles.retain(|old| !same(&old));
@@ -1315,6 +1383,68 @@ impl Discord {
         let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
         tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         Ok(profile)
+    }
+
+    /// Adds the levels of a profile's badges, the details its tooltips show,
+    /// to `profile`, and to the copy kept of it. They come from a request of
+    /// their own, which Discord answers more slowly than the profile, so the
+    /// card doesn't wait for it: this runs once it is on screen. Whether any
+    /// badge has a level now.
+    pub async fn badge_levels(
+        &self,
+        guild: &str,
+        user: &str,
+        profile: &mut Profile,
+        early: Option<EarlyBadges>,
+    ) -> bool {
+        if !profile
+            .badges
+            .iter()
+            .any(|badge| badge.level_icon.is_some() || badge.link.is_some())
+        {
+            return false;
+        }
+        let asked = Instant::now();
+        let levels = match early {
+            Some(early) => early
+                .0
+                .await
+                .map_err(anyhow::Error::from)
+                .and_then(|levels| levels),
+            None => self.api.badges(user).await,
+        };
+        match levels {
+            Ok(levels) => profile.with_levels(&levels),
+            Err(error) => {
+                tracing::debug!(%error, user, "could not fetch badge levels");
+                return false;
+            }
+        }
+        tracing::info!(
+            ms = asked.elapsed().as_millis() as u64,
+            "fetched badge levels"
+        );
+        if !profile.badges.iter().any(|badge| badge.level.is_some()) {
+            return false;
+        }
+        if let Some(kept) = self
+            .lock_profiles()
+            .iter_mut()
+            .find(|kept| kept.user == user && kept.guild == guild)
+        {
+            kept.profile.badges.clone_from(&profile.badges);
+        }
+        let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
+        tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
+        true
+    }
+
+    /// Starts asking for the levels of someone's badges, beside their
+    /// profile, which says whether they have any. The answer is waited for
+    /// in [`Self::badge_levels`]; if there are no badges it is dropped.
+    pub fn start_badge_levels(&self, user: &str) -> EarlyBadges {
+        let (api, user) = (self.api.clone(), user.to_owned());
+        EarlyBadges(tokio::spawn(async move { api.badges(&user).await }))
     }
 
     /// A member's nickname and avatar in a server, as Names knows them.
@@ -1414,14 +1544,19 @@ impl Discord {
         member: &Value,
         profile: &Value,
     ) -> Result<()> {
-        if some(member) {
-            self.api.modify_member_me(guild, member).await?;
+        // As for the main profile, what went through is kept no longer.
+        let saved = async {
+            if some(member) {
+                self.api.modify_member_me(guild, member).await?;
+            }
+            if some(profile) {
+                self.api.modify_guild_profile(guild, profile).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_guild_profile(guild, profile).await?;
-        }
+        .await;
         self.forget_own_profile(Some(guild));
-        Ok(())
+        saved
     }
 
     /// A server's profile, for its settings' Server Profile page.
@@ -1736,18 +1871,33 @@ impl Discord {
     }
 
     /// Changes this account's main profile as Discord's client does:
-    /// `user`'s fields, its display name and avatar, go to the user, then
-    /// `profile`'s, its bio, pronouns, banner and banner colour, to its
-    /// profile, each only when it has any. USER_UPDATE follows both.
-    pub async fn save_main_profile(&self, user: &Value, profile: &Value) -> Result<()> {
-        if some(user) {
-            self.api.modify_me(user).await?;
+    /// `user`'s fields, its display name, avatar and name style, go to the
+    /// user, then `profile`'s, its bio, pronouns, banner, colour and theme,
+    /// to its profile, each only when it has any, then the server whose tag
+    /// it wears, when that changed, to its own endpoint. USER_UPDATE follows.
+    /// The kept profiles go even when a request fails, as those before it
+    /// changed what Discord has.
+    pub async fn save_main_profile(
+        &self,
+        user: &Value,
+        profile: &Value,
+        server_tag: Option<Option<&str>>,
+    ) -> Result<()> {
+        let saved = async {
+            if some(user) {
+                self.api.modify_me(user).await?;
+            }
+            if some(profile) {
+                self.api.modify_profile_me(profile).await?;
+            }
+            if let Some(server) = server_tag {
+                self.api.set_server_tag(server).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_profile_me(profile).await?;
-        }
+        .await;
         self.forget_own_profile(None);
-        Ok(())
+        saved
     }
 
     /// Drops this account's kept profiles, so they're fetched afresh: in
@@ -1757,6 +1907,54 @@ impl Discord {
         self.lock_profiles().retain(|kept| {
             Some(&kept.user) != me.as_ref() || guild.is_some_and(|guild| kept.guild != guild)
         });
+    }
+
+    /// The profile effect sold as `sku`: its layers, from the shop, asked for
+    /// once and kept for the next few cards. None for a SKU that isn't one.
+    pub async fn profile_effect(&self, sku: &str) -> Result<Option<Arc<profile_effect::Effect>>> {
+        let lock = || {
+            self.effects
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        if let Some(kept) = lock().iter().find(|effect| effect.sku == sku) {
+            return Ok(Some(kept.clone()));
+        }
+        // The client's own list of effects names the layers; the shop's
+        // product is the fallback for one the list doesn't have.
+        let asked = Instant::now();
+        let listed = match self.api.user_profile_effects().await {
+            Ok(configs) => profile_effect::find(sku, &configs),
+            Err(error) => {
+                tracing::warn!(%error, sku, "could not list the profile effects");
+                None
+            }
+        };
+        let found = match listed {
+            Some(effect) => Some(effect),
+            None => {
+                let product = self.api.collectibles_product(sku).await?;
+                profile_effect::parse(sku, &product)
+            }
+        };
+        let Some(effect) = found else {
+            tracing::info!(sku, "the shop has no profile effect with this SKU");
+            return Ok(None);
+        };
+        tracing::info!(
+            sku,
+            layers = effect.layers.len(),
+            ms = asked.elapsed().as_millis() as u64,
+            "fetched a profile effect"
+        );
+        let effect = Arc::new(effect);
+        let mut kept = lock();
+        kept.retain(|old| old.sku != sku);
+        kept.push(effect.clone());
+        if kept.len() > EFFECTS {
+            kept.remove(0);
+        }
+        Ok(Some(effect))
     }
 
     fn lock_profiles(&self) -> std::sync::MutexGuard<'_, Vec<Kept>> {
@@ -1973,6 +2171,50 @@ impl Discord {
     /// Sets the nickname this account gives a friend; empty clears it.
     pub async fn set_friend_nickname(&self, user: &str, nickname: &str) -> Result<()> {
         self.api.set_friend_nickname(user, nickname).await
+    }
+
+    /// What someone did lately, for their full profile's Activity tab.
+    pub async fn recent_activity(&self, user: &str) -> Result<Vec<profile::RecentEntry>> {
+        Ok(profile::recent_entries(&self.api.outbox(user).await?))
+    }
+
+    /// Names a board's games and applications. What Discord doesn't say
+    /// stays as it is, and the board shows without it.
+    pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
+        let mut games: Vec<&str> = widgets
+            .iter()
+            .flat_map(|widget| &widget.games)
+            .map(|game| game.id.as_str())
+            .collect();
+        games.sort_unstable();
+        games.dedup();
+        let mut known = Vec::new();
+        for ids in games.chunks(crate::widgets::GAMES_AT_ONCE) {
+            match self.api.games(ids).await {
+                Ok(answer) => known.extend(crate::widgets::parse_games(&answer)),
+                Err(error) => tracing::debug!(%error, "could not get a board's games"),
+            }
+        }
+        crate::widgets::name_games(widgets, &known);
+        let applications: Vec<String> = widgets
+            .iter()
+            .filter_map(|widget| widget.application.clone())
+            .collect();
+        if applications.is_empty() {
+            return;
+        }
+        let ids: Vec<&str> = applications.iter().map(String::as_str).collect();
+        match self.api.public_applications(&ids).await {
+            Ok(answer) => crate::widgets::name_applications(widgets, &answer),
+            Err(error) => tracing::debug!(%error, "could not get a board's applications"),
+        }
+    }
+
+    /// The items on a wishlist, by the id a profile gave, as Discord's client
+    /// fetches them for either its own account or someone else.
+    pub async fn wishlist(&self, id: &str) -> Result<Vec<crate::wishlist::Item>> {
+        crate::wishlist::parse(&self.api.wishlist(id).await?)
+            .ok_or_else(|| anyhow!("could not understand Discord's answer"))
     }
 
     /// This account's note on someone; empty when it has none.
@@ -2840,6 +3082,32 @@ impl Discord {
     /// The address of a user's avatar, in a server or in DMs.
     pub fn avatar(&self, guild: Option<&str>, user: &str) -> String {
         self.read_names().avatar(guild.and_then(server), user)
+    }
+
+    /// The server tag a user wears beside their name, if they do.
+    pub fn server_tag(&self, user: &str) -> Option<crate::message::Tag> {
+        self.read_names().server_tag(user).cloned()
+    }
+
+    /// The address of the decoration a user wears around their avatar, in a
+    /// server or in DMs.
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<String> {
+        self.read_names().decoration(guild.and_then(server), user)
+    }
+
+    /// The nameplate a user equips, in a server or in DMs.
+    pub fn nameplate(
+        &self,
+        guild: Option<&str>,
+        user: &str,
+    ) -> Option<crate::collectibles::Nameplate> {
+        self.read_names().nameplate(guild.and_then(server), user)
+    }
+
+    /// The display name style a user draws their name with, in a server or
+    /// in DMs.
+    pub fn style(&self, guild: Option<&str>, user: &str) -> Option<crate::collectibles::Style> {
+        self.read_names().style(guild.and_then(server), user)
     }
 
     /// A member's roles in a server by id, as far as they're known, shared
