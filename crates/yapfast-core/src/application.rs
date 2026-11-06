@@ -3870,6 +3870,8 @@ impl Application {
                 .find(|server| server.emojis.iter().any(|emoji| emoji.id == id))
                 .map(|server| discord::server_id(&server.id));
         }
+        #[cfg(not(feature = "discord"))]
+        let _ = id;
         None
     }
 

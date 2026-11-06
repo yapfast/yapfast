@@ -8719,6 +8719,7 @@ fn no_favourite_gifs_left_still_lets_go_of_those_kept() {
     ));
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
     use crate::chat::{FavoriteGif, Gif};
