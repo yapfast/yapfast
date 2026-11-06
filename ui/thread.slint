@@ -316,6 +316,12 @@ export component ThreadPanel inherits Rectangle {
                             edited(text) => { root.draft-edited(text); }
                             accepted => { root.send(); }
                             paste => { root.paste(); }
+                            // Escape stops a reply or an edit, as in Discord.
+                            escaped => {
+                                if root.compose-label == "" { return false; }
+                                root.cancel-compose();
+                                return true;
+                            }
                         }
                         VerticalLayout {
                             alignment: end; padding-bottom: 8px;

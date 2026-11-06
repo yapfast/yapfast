@@ -65,6 +65,7 @@ pub mod yapfast_anchor;
 pub mod yapfast_autoscroll;
 pub mod yapfast_marks;
 pub mod yapfast_selection;
+pub mod yapfast_typing;
 pub mod textlayout;
 pub mod timers;
 pub mod translations;

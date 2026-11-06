@@ -1417,6 +1417,17 @@ impl WindowInner {
         let extra_mod = internal_key_event.key_event.modifiers.control
             || internal_key_event.key_event.modifiers.meta
             || internal_key_event.key_event.modifiers.alt;
+
+        // Yapfast: text nothing took, with no popup open, may go to the app; see
+        // `crate::yapfast_typing`.
+        if internal_key_event.event_type == KeyEventType::KeyPressed
+            && !extra_mod
+            && self.active_popups.borrow().is_empty()
+            && crate::yapfast_typing::offer(&internal_key_event.key_event.text)
+        {
+            self.ensure_tree_instantiated();
+            return crate::input::KeyEventResult::EventAccepted;
+        }
         if internal_key_event.key_event.text.starts_with(key_codes::Tab)
             && !internal_key_event.key_event.modifiers.shift
             && !extra_mod

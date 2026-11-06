@@ -106,6 +106,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   message; Alt+Up moves into the messages, where arrows step, Enter opens the
   menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
   Escape returns to the composer.
+- Type with nothing focused, as after a menu closes, and the text goes on the
+  end of the message in the composer, which takes the focus, as in Discord;
+  not while the settings, a profile, a dialog, a panel such as the pins, the
+  image viewer, a ringing call or the call in full screen is open, nor on the
+  friends list or a call, nor with Ctrl, Alt or Super held.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
 - Mention someone by typing `@` and picking from the room's members. The
   message links to them (`[Name](https://matrix.to/#/@user:server)`) and lists
@@ -165,7 +170,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   somewhere, the dialog opens again with those conversations chosen and why.
   Delete asks for confirmation, then
   redacts the message for everyone. Replies quote the original; edits are marked
-  "(edited)". Reply and edit modes show above the composer, with Cancel.
+  "(edited)". Reply and edit modes show above the composer, with Cancel;
+  Escape in the composer cancels too, once no suggestions are open.
   Cancelling an edit restores the draft it replaced.
 - Attach files with the system file dialog, paste them with Ctrl+V: files
   copied in a file manager, or a picture copied from a browser or a screenshot

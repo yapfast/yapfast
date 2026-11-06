@@ -282,6 +282,7 @@ fn prepare(window: &YapfastWindow) {
     window.set_emoji_font(emoji::family().into());
     copy_whole_messages(window);
     mark_autoscrolls(window);
+    type_anywhere(window);
 }
 
 /// The most backend events applied together before the window refreshes, so
@@ -621,6 +622,16 @@ fn open_from_notification(room: String) {
         if let Some(open) = open.borrow().as_ref() {
             open(room);
         }
+    });
+}
+
+/// Sends what's typed with nothing focused, such as after a menu closes, to the composer.
+fn type_anywhere(window: &YapfastWindow) {
+    let window = window.as_weak();
+    i_slint_core::yapfast_typing::on_unclaimed(move |text| {
+        window
+            .upgrade()
+            .is_some_and(|window| window.invoke_type_into_composer(text.into()))
     });
 }
 

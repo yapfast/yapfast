@@ -219,6 +219,92 @@ fn the_composers_menu_cuts_copies_and_pastes_through_the_application() {
     assert_eq!(window.get_draft(), "hellohello");
 }
 
+/// Presses and lets go of a key, as typed.
+fn tap(window: &YapfastWindow, text: SharedString) {
+    use slint::platform::WindowEvent;
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text });
+}
+
+#[test]
+fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let other = window.get_messages().iter().find(|row| !row.own).unwrap();
+    window.invoke_reply(other.item.clone());
+    assert!(window.get_compose_label().starts_with("Replying to Sam"));
+    window.invoke_focus_composer();
+    for letter in "ok".chars() {
+        tap(&window, letter.into());
+    }
+    tap(&window, Key::Escape.into());
+    assert_eq!(window.get_compose_label(), "", "Escape cancels the reply");
+    assert_eq!(window.get_draft(), "ok", "and leaves what was written");
+
+    // With nothing to cancel, Escape changes nothing, and the composer
+    // keeps the keyboard.
+    tap(&window, Key::Escape.into());
+    tap(&window, "!".into());
+    assert_eq!(window.get_compose_label(), "");
+    assert_eq!(window.get_draft(), "ok!");
+}
+
+#[test]
+fn typing_with_nothing_focused_goes_to_the_composer() {
+    use slint::platform::{Key, WindowEvent};
+    let window = one_message("Hi");
+    window.set_draft("Hello".into());
+    // Nothing has the keyboard, and without the hook the key goes nowhere.
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "Hello");
+    type_anywhere(&window);
+
+    // Not over the settings or another overlay.
+    window.set_settings_open(true);
+    tap(&window, "x".into());
+    window.set_settings_open(false);
+    window.set_pins_open(true);
+    tap(&window, "x".into());
+    window.set_pins_open(false);
+    assert_eq!(window.get_draft(), "Hello");
+
+    // Nor with Ctrl held.
+    window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Control.into(),
+    });
+    tap(&window, "x".into());
+    window.window().dispatch_event(WindowEvent::KeyReleased {
+        text: Key::Control.into(),
+    });
+    assert_eq!(window.get_draft(), "Hello");
+
+    // Nor keys that type nothing.
+    tap(&window, Key::DownArrow.into());
+    assert_eq!(window.get_draft(), "Hello");
+
+    tap(&window, " ".into());
+    assert_eq!(window.get_draft(), "Hello ", "the text goes on the end");
+    // The composer has the keyboard now, and its caret is at the end.
+    tap(&window, "w".into());
+    tap(&window, Key::Backspace.into());
+    tap(&window, "y".into());
+    assert_eq!(window.get_draft(), "Hello y");
+}
+
 #[cfg(feature = "discord")]
 #[test]
 fn files_dropped_on_the_window_stage_or_say_why_not() {
