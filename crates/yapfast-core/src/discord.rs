@@ -665,6 +665,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         activities: dm.activities.clone(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         preview: dm.preview.as_ref().map(|preview| {
             Box::new(chat::RequestPreview {
@@ -809,6 +810,7 @@ fn server_rooms(
                 ),
                 parent: None,
                 forum: false,
+                mark: mark(server, channel),
                 unlisted: false,
                 preview: None,
             }
@@ -855,6 +857,7 @@ fn server_rooms(
                 ),
                 parent: None,
                 forum: channel.forum.is_some(),
+                mark: mark(server, channel),
                 unlisted: unlisted(channel),
                 preview: None,
             }
@@ -887,6 +890,28 @@ fn server_rooms(
 
 /// A thread as it lists under `parent`, its channel's room.
 #[cfg(feature = "discord")]
+/// What a server channel's icon shows besides, as Discord's client marks
+/// it: the rules channel above all, then its kind, and whether @everyone is
+/// kept out of it or it's age-restricted.
+fn mark(server: &MarkedServer, channel: &yapfast_discord::ready::Channel) -> chat::ChannelMark {
+    use chat::MarkKind;
+    chat::ChannelMark {
+        kind: if server.rules_channel.as_deref() == Some(channel.id.as_str()) {
+            MarkKind::Rules
+        } else if channel.announcement {
+            MarkKind::Announcement
+        } else if channel.media {
+            MarkKind::Media
+        } else if channel.stage {
+            MarkKind::Stage
+        } else {
+            MarkKind::Plain
+        },
+        private: server.private(channel),
+        age_restricted: channel.nsfw,
+    }
+}
+
 fn thread_room(
     server: &MarkedServer,
     thread: MarkedChannel,
@@ -928,6 +953,7 @@ fn thread_room(
         upload_limit: yapfast_discord::api::upload_limit(premium, Some(server.premium_tier)),
         parent: Some(parent.id.clone()),
         forum: false,
+        mark: Default::default(),
         unlisted: parent.unlisted,
         preview: None,
     }
