@@ -70,12 +70,16 @@ impl Animation {
 
     /// The frame that shows `elapsed` milliseconds in.
     pub fn frame_at(&self, elapsed: u32) -> Option<&Image> {
+        self.frames.get(self.index_at(elapsed)?)
+    }
+
+    /// Which frame shows `elapsed` milliseconds in.
+    fn index_at(&self, elapsed: u32) -> Option<usize> {
         if self.frames.is_empty() || self.ends == 0 {
             return None;
         }
         let at = elapsed % self.ends;
-        let index = self.starts.partition_point(|start| *start <= at).saturating_sub(1);
-        self.frames.get(index)
+        Some(self.starts.partition_point(|start| *start <= at).saturating_sub(1))
     }
 
     /// How long the animation runs before it starts again, in milliseconds.
@@ -164,7 +168,8 @@ pub fn remove(key: &str) {
     });
 }
 
-/// Moves the clock, while playing, and draws what shows a frame again.
+/// Moves the clock, while playing, and draws again what shows an emoji whose
+/// frame changed: a tick between two frames draws nothing.
 pub fn advance(delta: Duration) {
     let Some(revision) = REGISTRY.with_borrow_mut(|registered| {
         if !registered.playing || registered.by_key.is_empty() {
@@ -174,7 +179,16 @@ pub fn advance(delta: Duration) {
         if millis == 0 {
             return None;
         }
-        registered.elapsed = registered.elapsed.saturating_add(millis);
+        let before = registered.elapsed;
+        registered.elapsed = before.saturating_add(millis);
+        let after = registered.elapsed;
+        if !registered
+            .by_key
+            .values()
+            .any(|animation| animation.index_at(before) != animation.index_at(after))
+        {
+            return None;
+        }
         Some(REVISION.with(|revision| {
             let next = revision.as_ref().get_untracked().wrapping_add(1);
             revision.as_ref().set(next);

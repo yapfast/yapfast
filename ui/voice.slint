@@ -1,6 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
-import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
+import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem, Pulse } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 
 export struct PersonRow {
@@ -1044,7 +1044,8 @@ export component IncomingCall inherits Rectangle {
                 // A ring that pulses while it rings.
                 Rectangle {
                     border-radius: self.width / 2; border-width: 3px; border-color: Theme.live;
-                    opacity: 0.45 + 0.4 * sin(animation-tick() / 1ms * 0.36deg);
+                    opacity: 0.45 + 0.4 * sin(ring-pulse.time / 1ms * 0.36deg);
+                    ring-pulse := Pulse { }
                 }
                 Avatar {
                     x: 10px; y: 10px; size: 72px;

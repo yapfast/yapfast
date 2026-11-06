@@ -455,6 +455,19 @@ export component MotionClock {
     }
 }
 
+// A clock for a small looping effect, a shimmer or a pulse: 30 steps a second
+// while `running` and the window has the focus, where `animation-tick()` would
+// draw the window at the display's rate, and in the background too.
+export component Pulse {
+    in property <bool> running: true;
+    out property <duration> time;
+    Timer {
+        interval: 33ms;
+        running: root.running && Motion.playing;
+        triggered => { root.time += self.interval; }
+    }
+}
+
 // A picture, or an animation at the frame Motion's clock is at.
 export component Picture inherits Image {
     in property <image> still;
@@ -487,9 +500,10 @@ export component Skeleton inherits Rectangle {
     clip: true;
     accessible-role: image;
     accessible-label: "Loading";
+    pulse := Pulse { }
     Rectangle {
         width: max(120px, parent.width * 0.5); height: parent.height;
-        x: Math.mod(animation-tick() / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
+        x: Math.mod(pulse.time / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
         background: @linear-gradient(90deg, Theme.shimmer.with-alpha(0) 0%, Theme.shimmer 50%, Theme.shimmer.with-alpha(0) 100%);
     }
 }

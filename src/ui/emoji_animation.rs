@@ -413,8 +413,11 @@ impl Animations {
 
     /// Keeps the frames that arrived, and gives the registry each emoji's
     /// animation, so text and the picker draw them from now on.
-    pub(super) fn drain(&mut self) {
+    /// True when something arrived.
+    pub(super) fn drain(&mut self) -> bool {
+        let mut arrived = false;
         while let Ok(decoded) = self.decoded.try_recv() {
+            arrived = true;
             self.decoding.remove(&decoded.key);
             if decoded.frames.is_empty() {
                 self.cache.still(&decoded.key);
@@ -438,6 +441,7 @@ impl Animations {
             self.cache.insert(decoded.key, decoded.glyph, frames);
             self.cache.evict();
         }
+        arrived
     }
 
     /// Takes what arrived from the decoders, starts what is wanted next, and
@@ -445,16 +449,26 @@ impl Animations {
     /// decode that finishes is seen at once rather than at the next change.
     pub(super) fn run(&mut self, window: &YapfastWindow, pictures: &HashMap<String, Arc<Picture>>) {
         self.start(pictures);
-        self.drain();
+        // What draws a frame depends on the clock's revision already, so only
+        // frames that arrived, which nothing drew yet, need the window drawn.
+        if self.drain() {
+            window.window().request_redraw();
+        }
         window
             .global::<EmojiAnimations>()
             .set_revision(i_slint_core::yapfast_emoji::revision() as i32);
-        window.window().request_redraw();
+    }
+
+    /// Stops the clock with the window it drew in, as closing it does; the next
+    /// sync starts it with the window that opens.
+    pub(super) fn stop(&mut self) {
+        self.timer.stop();
+        self.interval = 0;
     }
 
     /// Sets whether the clock may move, and starts or stops the timer: it runs
-    /// while anything animates, or while frames are on their way, and it is
-    /// the clock itself that holds still when playback is off.
+    /// while playback is on and anything animates, or while frames are on
+    /// their way.
     pub(super) fn sync(
         &mut self,
         window: &YapfastWindow,
@@ -463,10 +477,9 @@ impl Animations {
     ) {
         i_slint_core::yapfast_emoji::set_playing(playing);
         self.side = frame_side(window.window().scale_factor());
-        let waiting = !self.decoding.is_empty()
-            || self.queue.len() > 0
-            || !i_slint_core::yapfast_emoji::is_empty();
-        if !waiting {
+        let arriving = !self.decoding.is_empty() || self.queue.len() > 0;
+        let animating = playing && !i_slint_core::yapfast_emoji::is_empty();
+        if !arriving && !animating {
             self.timer.stop();
             self.interval = 0;
             return;

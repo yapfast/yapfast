@@ -14,12 +14,21 @@ pub(super) struct CallTimer {
     timer: Timer,
 }
 
+impl CallTimer {
+    /// Stops the clock with the window it counts in; the call's time stays, for
+    /// the window that opens next.
+    pub(super) fn pause(&mut self) {
+        self.timer.stop();
+    }
+}
+
 impl Adapter {
     /// Starts timing the call in `room` once it connects, and stops when it
     /// ends; a call that moves to another room starts again.
     pub(super) fn time_call(&mut self, window: &YapfastWindow, room: Option<&str>) {
         let same = match (&self.call_timer.since, room) {
-            (Some((timed, _)), Some(room)) => timed == room,
+            // A paused one goes on in the window that opened, from when it began.
+            (Some((timed, _)), Some(room)) => timed == room && self.call_timer.timer.running(),
             (None, None) => true,
             _ => false,
         };
@@ -32,9 +41,12 @@ impl Adapter {
             window.set_voice_time(Default::default());
             return;
         };
-        let started = Instant::now();
+        let started = match &self.call_timer.since {
+            Some((timed, started)) if timed == room => *started,
+            _ => Instant::now(),
+        };
         self.call_timer.since = Some((room.to_owned(), started));
-        window.set_voice_time(elapsed(Duration::ZERO).into());
+        window.set_voice_time(elapsed(started.elapsed()).into());
         let window = window.as_weak();
         self.call_timer
             .timer
