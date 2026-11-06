@@ -85,6 +85,18 @@ pub fn load() -> Result<String> {
     }
 }
 
+/// Deletes credentials from the former single-account store after that
+/// login has been migrated into the account registry.
+pub fn forget_legacy() -> Result<()> {
+    for account in [ACCOUNT, EARLIER_ACCOUNT] {
+        match named(account)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(_) => bail!("could not remove the legacy Discord token"),
+        }
+    }
+    Ok(())
+}
+
 /// The key [`crate::cache`] encrypts its files with, made the first time.
 /// With the test server, always the same one, so what a run kept shows in
 /// the next, as with Discord.
