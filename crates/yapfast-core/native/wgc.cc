@@ -8,7 +8,7 @@
  * textures instead of pixels. Together a frame goes from the compositor to the
  * driver without crossing the processor, which on this machine is the difference
  * between about 5.4 ms of the processor per 3440x1440 frame and about 0.8
- * (spike/wgc-nvenc/RESULTS.md measured both sides).
+ * (.local/spike/wgc-nvenc/RESULTS.md measured both sides).
  *
  * Three things this does that a caller has to know about:
  *

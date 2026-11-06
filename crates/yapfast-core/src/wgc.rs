@@ -6,7 +6,7 @@
 //! and this is a capture source that makes them. A frame therefore goes from the
 //! compositor to the driver untouched, which is the difference between about 5.4
 //! ms of the processor per 3440x1440 frame and about 0.8 as the spike that
-//! proved the path measured it (spike/wgc-nvenc/RESULTS.md).
+//! proved the path measured it (.local/spike/wgc-nvenc/RESULTS.md).
 //!
 //! Nothing here is wired into a stream yet: the capture loop that should hold a
 //! [`Capture`], poll it and hand frames to an encoder is the next stage. What

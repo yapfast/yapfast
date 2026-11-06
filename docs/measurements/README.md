@@ -130,7 +130,7 @@ and encodes that very 4520×1920 texture on the capture's own device — 250,984
 bytes, keyframe first, and not one pixel of the frame copied by the processor.
 
 
-An experiment, not shipped behaviour: the spike is in `spike/wgc-nvenc/` in the
+An experiment, not shipped behaviour: the spike is in `.local/spike/wgc-nvenc/` in the
 working tree and is not committed. Machine: RTX 4090 (driver 617.14), Windows
 build 26200, a 3440×1440 monitor in HDR, an Intel UHD 770 also present.
 
@@ -185,7 +185,7 @@ What the platform said, which matters more than the percentages:
 ### What a source picker finds, on this machine
 
 Same machine, Windows 11 25H2 build 26200, from the spike in
-`spike/capture-enum/` (also not committed):
+`.local/spike/capture-enum/` (also not committed):
 
 - **Both displays are driven by the RTX 4090**; the Intel UHD 770 drives none.
   So capture here is born on the discrete adapter and NVENC needs no
@@ -208,7 +208,7 @@ Same machine, Windows 11 25H2 build 26200, from the spike in
 ### A decoded picture straight to the screen, without the processor
 
 Whether a decoded stream can reach Skia's GPU renderer without being copied to
-CPU memory first — spike in `spike/gpu-present/`, not committed, not shipped.
+CPU memory first — spike in `.local/spike/gpu-present/`, not committed, not shipped.
 
 **Both hops work on this machine.** A D3D11 texture created with
 `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` (either flag alone fails) crosses a process
@@ -265,7 +265,7 @@ measured instead, and the numbers are in `docs/measurements/README.md`:
 ### Encoder preset, colour claim, and Opus complexity
 
 Three questions that looked like they needed a human. They were measured instead,
-in `spike/codec-evidence/` (not committed), on this machine's RTX 4090.
+in `.local/spike/codec-evidence/` (not committed), on this machine's RTX 4090.
 
 **NVENC preset.** 1080p 30 fps at 6000 kbit/s, 300 frames, every setting held
 except the preset, three runs each:

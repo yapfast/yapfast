@@ -7,7 +7,7 @@
 //! Copying one 720p picture costs 1.1-1.9 ms, 3-6 % of a core per stream at
 //! 30 fps; showing it this way costs neither.
 //!
-//! Two things the spike in `spike/gpu-present` found shape the code. A shared
+//! Two things the spike in `.local/spike/gpu-present` found shape the code. A shared
 //! resource opens only on the adapter that made it and refuses with
 //! `E_INVALIDARG` on any other, so the worker's adapter LUID decides before
 //! anything is opened, and a mismatch is a decision rather than a failure to
