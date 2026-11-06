@@ -7639,6 +7639,7 @@ fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
     let row = |cells: Vec<EmojiCell>| EmojiRow {
         heading: "".into(),
         cells: ModelRc::new(VecModel::from(cells)),
+        ..Default::default()
     };
     let rows = VecModel::from(vec![
         row(vec![emoji::cell("🍕")]),

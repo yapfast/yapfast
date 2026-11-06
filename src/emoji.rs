@@ -22,6 +22,10 @@ use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection};
 
 use crate::custom_emoji;
 
+/// The heading Frequently Used's section goes under, which both pickers draw a
+/// clock for rather than an emoji's picture.
+pub const FREQUENTLY_USED: &str = "Frequently Used";
+
 /// The family name Yapfast gives the bitmap emoji font it registers.
 const REGISTERED: &str = "Yapfast Color Emoji";
 
@@ -291,6 +295,10 @@ pub fn rows(
             rows.push(EmojiRow {
                 heading: icon.name.as_str().into(),
                 cells: ModelRc::default(),
+                // A server's icon beside its name, once its picture has come;
+                // the picker fills it then (see `fill_row_icons`).
+                icon: icon.picture.clone(),
+                clock: icon.name.as_str() == FREQUENTLY_USED,
             });
             sections.push(EmojiSection {
                 row: row as i32,
@@ -302,6 +310,8 @@ pub fn rows(
         for chunk in glyphs.chunks(columns) {
             rows.push(EmojiRow {
                 heading: SharedString::default(),
+                icon: Default::default(),
+                clock: false,
                 cells: ModelRc::new(VecModel::from(
                     chunk
                         .iter()
@@ -353,7 +363,14 @@ pub fn rows(
         return (rows, sections);
     }
     section(
-        Some((titled("🕒", "Frequently Used"), String::new())),
+        Some((
+            EmojiCell {
+                name: FREQUENTLY_USED.into(),
+                usable: true,
+                ..Default::default()
+            },
+            String::new(),
+        )),
         frequent.iter().map(|key| (key.clone(), true)).collect(),
     );
     for (set, keys) in custom.iter().zip(custom_keys) {

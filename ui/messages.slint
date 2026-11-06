@@ -17,7 +17,15 @@ export global EmojiFavorites {
     pure callback is-favorite(string, int) -> bool;
 }
 /// A heading, or up to a row's worth of emoji, in the emoji picker.
-export struct EmojiRow { heading: string, cells: [EmojiCell] }
+export struct EmojiRow {
+    heading: string, cells: [EmojiCell],
+    /// The icon a heading draws before its name: a server's own, once its
+    /// picture came, as the sticker picker's headings draw it.
+    icon: image,
+    /// Frequently Used's clock, drawn in place of a picture, as the sticker
+    /// picker draws it too.
+    clock: bool,
+}
 /// A place the emoji picker's sidebar jumps to: the row of its heading, and the
 /// row after its last. Its icon is named by the heading.
 export struct EmojiSection {
@@ -1167,8 +1175,15 @@ export component EmojiPicker inherits Rectangle {
                         for row in root.emoji-rows: VerticalLayout {
                             height: root.row-height; padding-left: 8px; padding-right: 8px;
                             if row.heading != "": HorizontalLayout {
-                                padding-left: 4px; padding-bottom: 4px;
-                                Text { text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: bottom; }
+                                padding-left: 4px; padding-bottom: 4px; spacing: 6px; alignment: start;
+                                if row.clock: Image {
+                                    width: 16px; height: 16px;
+                                    source: @image-url("icons/clock.svg"); colorize: Theme.secondary;
+                                }
+                                if !row.clock && row.icon.width > 0: Image {
+                                    width: 16px; height: 16px; image-fit: contain; source: row.icon;
+                                }
+                                Text { text: row.heading; color: Theme.secondary; font-size: 13px; font-weight: 700; vertical-alignment: center; }
                             }
                             if row.cells.length > 0: HorizontalLayout {
                                 alignment: start;

@@ -92,12 +92,42 @@ fn fill_rail_icons(adapter: &Adapter) {
     }
 }
 
+/// A server's icon that came after the grid was built, drawn beside its name
+/// then, as the rail's button draws it.
+fn fill_row_icons(adapter: &Adapter) {
+    let rows = &adapter.models.emoji_rows;
+    let sections = &adapter.models.emoji_sections;
+    for index in 0..sections.row_count() {
+        let Some(section) = sections.row_data(index) else {
+            continue;
+        };
+        let row = section.row.max(0) as usize;
+        let Some(named) = rows.row_data(row) else {
+            continue;
+        };
+        if section.icon_url.is_empty() || named.icon.size().width > 0 {
+            continue;
+        }
+        let Some(source) = adapter.app.state.pictures.get(section.icon_url.as_str()) else {
+            continue;
+        };
+        rows.set_row_data(
+            row,
+            EmojiRow {
+                icon: picture(source),
+                ..named
+            },
+        );
+    }
+}
+
 /// Gives the picker's grid the emoji it shows between `first` and `last` rows a
 /// picture each, drawn once, so scrolling draws a bitmap instead of walking the
 /// colour font's paint graph for every emoji on screen; see [`crate::emoji_glyphs`].
 fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize, last: usize) {
     fill_rail_glyphs(window, adapter);
     fill_rail_icons(adapter);
+    fill_row_icons(adapter);
     let scale = window.window().scale_factor();
     let_go_of_far_glyphs(adapter, first, last);
     let rows = &adapter.models.emoji_rows;
@@ -285,7 +315,8 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
         .map(|section| RailSection {
             name: section.icon.name.clone(),
             icon: section.icon.clone(),
-            clock: false,
+            // The sticker picker's clock, for the one heading both share.
+            clock: section.icon.name.as_str() == emoji::FREQUENTLY_USED,
             top: (section.row as f32 - 0.5) * emoji::ROW_HEIGHT,
             end: (section.end as f32 - 0.5) * emoji::ROW_HEIGHT,
         })
