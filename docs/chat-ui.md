@@ -156,15 +156,15 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
   reaction adds or removes yours.
 - Holding Shift turns the toolbar into quick actions, as in Discord's
-  client: the reactions give way to Pin or Unpin, and on your own message
-  Reply, before Add reaction and Edit or Reply; and More gives way to Delete
-  where you may delete, which deletes at once without asking. The thread
-  beside a channel does the same. Shift is read from the window's modifier
-  keys wherever the focus is, and counts as let go when the window loses the
-  focus, so it can't stick on after being let go elsewhere. It leaves a bar
-  alone while its picker or menu is open. A pointer that stays put is told
-  what's under it as the buttons change, so its tooltip and highlight match
-  what a click does.
+  client: the reactions give way to Pin or Unpin, Create Thread, and on your
+  own message Reply, before Add reaction and Edit or Reply; Forward follows;
+  and More gives way to Delete where you may delete, which deletes at once
+  without asking. The thread beside a channel does the same, without Create
+  Thread. Shift is read from the window's modifier keys wherever the focus
+  is, and counts as let go when the window loses the focus, so it can't stick
+  on after being let go elsewhere. It leaves a bar alone while its picker or
+  menu is open. A pointer that stays put is told what's under it as the
+  buttons change, so its tooltip and highlight match what a click does.
 - A GIF picker next to the emoji button, on Discord: a search over Klipy,
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the

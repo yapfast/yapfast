@@ -2929,9 +2929,10 @@ export component YapfastWindow inherits Window {
                                                 width: actions.preferred-width; height: actions.preferred-height;
                                                 background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                                                 drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
-                                                // Holding Shift swaps the frequent reactions for Pin and, on your
-                                                // own message, Reply, and More for a Delete that doesn't ask, as in
-                                                // Discord's client; not while the picker or menu is open.
+                                                // Holding Shift swaps the frequent reactions for Pin, Create Thread
+                                                // and, on your own message, Reply, adds Forward, and swaps More for a
+                                                // Delete that doesn't ask, as in Discord's client; not while the
+                                                // picker or menu is open.
                                                 property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
                                                 property <bool> deletes: self.quick && message.can-delete && root.composer-enabled;
                                                 actions := HorizontalLayout {
@@ -2950,6 +2951,10 @@ export component YapfastWindow inherits Window {
                                                             icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
                                                             label: message.pinned ? "Unpin" : "Pin";
                                                             clicked => { root.pin-message(message.item); }
+                                                        }
+                                                        if message-bar.quick && root.can-start-threads && message.can-reply && message.thread-room == "": IconButton {
+                                                            icon: @image-url("icons/thread.svg"); label: "Create Thread";
+                                                            clicked => { root.new-thread(message.item, "message"); }
                                                         }
                                                         if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
                                                             icon: @image-url("icons/reply.svg"); label: "Reply";
@@ -2979,6 +2984,10 @@ export component YapfastWindow inherits Window {
                                                         }
                                                         if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                                         if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                                        if message-bar.quick && message.can-forward && root.forward-allowed: IconButton {
+                                                            icon: @image-url("icons/forward.svg"); label: "Forward";
+                                                            clicked => { root.start-forward(message.item); }
+                                                        }
                                                         if message-bar.deletes: IconButton {
                                                             icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
                                                             clicked => { root.delete-now(message.item); }
@@ -3286,7 +3295,9 @@ export component YapfastWindow inherits Window {
                         emoji-font: root.emoji-font; message-font-size: root.message-font-size; bar-reactions: root.bar-reactions;
                         active-item <=> root.active-item; react-item: root.react-item; menu-item: root.menu-item; confirm-delete: root.confirm-delete;
                         shift-held: root.shift-held;
+                        forward-allowed: root.forward-allowed;
                         pin-message(item) => { root.pin-message(item); }
+                        start-forward(item) => { root.start-forward(item); }
                         delete-now(item) => { root.delete-now(item); }
                         close => { root.aside-close(); }
                         expand => { root.aside-expand(); }

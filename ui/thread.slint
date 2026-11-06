@@ -50,6 +50,7 @@ export component ThreadPanel inherits Rectangle {
     in property <string> confirm-delete;
     /// Shift is held: the hover bar shows its quick actions.
     in property <bool> shift-held;
+    in property <bool> forward-allowed;
     /// The rows at the top and bottom of the view, for the media to load.
     property <int> top-index: -1;
     property <int> bottom-index: -1;
@@ -66,6 +67,7 @@ export component ThreadPanel inherits Rectangle {
     callback reply(string);
     callback edit(string);
     callback pin-message(string);
+    callback start-forward(string);
     callback delete-now(string);
     callback react(string, string);
     /// A message's reaction picker or menu, opening beside what was clicked.
@@ -290,6 +292,10 @@ export component ThreadPanel inherits Rectangle {
                                 }
                                 if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                 if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                if message-bar.quick && message.can-forward && root.forward-allowed: IconButton {
+                                    icon: @image-url("icons/forward.svg"); label: "Forward";
+                                    clicked => { root.start-forward(message.item); }
+                                }
                                 if message-bar.deletes: IconButton {
                                     icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
                                     clicked => { root.delete-now(message.item); }
