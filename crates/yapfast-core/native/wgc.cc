@@ -858,8 +858,14 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
   *texture = NULL;
   /* The frame handed out last time is the caller's until this call, and this is
    * where it goes back: the pool reuses its buffer for the frame made next, and
-   * this is the only place the shim lets go of one. */
-  capture->texture = NULL;
+   * this is the only place the shim lets go of one. The texture goes with it:
+   * `GetInterface` hands out a reference of its own, so the frame holding the
+   * surface does not cover it — a release per frame never given back left the
+   * pool's buffer climbing and stranded a texture set on every resize. */
+  if (capture->texture) {
+    capture->texture->Release();
+    capture->texture = NULL;
+  }
   if (capture->frame) {
     capture->frame->Release();
     capture->frame = NULL;
@@ -925,7 +931,8 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
   }
   /* Kept together: the frame owns the surface, which owns the texture, so the
    * texture is only valid while both are held — and the caller borrows it until
-   * the next call. */
+   * the next call. The reference `GetInterface` gave here is the one released at
+   * the top of this function and in `yapfast_wgc_close`. */
   capture->frame = frame;
   capture->texture = found;
   *texture = found;
@@ -1010,7 +1017,10 @@ extern "C" void yapfast_wgc_describe(yapfast_wgc *capture, char *text, size_t si
  * which Rust's wrapper is what prevents. */
 extern "C" void yapfast_wgc_close(yapfast_wgc *capture) {
   if (!capture) return;
-  capture->texture = NULL;
+  if (capture->texture) {
+    capture->texture->Release();
+    capture->texture = NULL;
+  }
   if (capture->frame) {
     capture->frame->Release();
     capture->frame = NULL;
