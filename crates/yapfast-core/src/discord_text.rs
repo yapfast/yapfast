@@ -185,7 +185,12 @@ impl Chat {
     /// Connects when this device has a linked account; without one, there's
     /// nothing to start.
     pub(crate) fn start() -> anyhow::Result<Option<Self>> {
-        let token = match yapfast_discord::accounts::active()? {
+        let active = if yapfast_discord::client::test_server().is_some() {
+            None
+        } else {
+            yapfast_discord::accounts::active()?
+        };
+        let token = match active {
             Some(id) => yapfast_discord::accounts::token(&id)?,
             None => match yapfast_discord::token::load() {
                 Ok(token) => token,
