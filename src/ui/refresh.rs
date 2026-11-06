@@ -502,14 +502,23 @@ impl Adapter {
         window.set_matrix_build(cfg!(feature = "matrix"));
         #[cfg(feature = "discord")]
         {
-            let accounts = yapfast_discord::accounts::list().unwrap_or_else(|error| {
-                tracing::warn!(%error, "could not list linked Discord accounts");
+            let testing = yapfast_discord::client::test_server().is_some();
+            let accounts = if testing {
                 Vec::new()
-            });
-            let active = yapfast_discord::accounts::active().unwrap_or_else(|error| {
-                tracing::warn!(%error, "could not read active Discord account");
+            } else {
+                yapfast_discord::accounts::list().unwrap_or_else(|error| {
+                    tracing::warn!(%error, "could not list linked Discord accounts");
+                    Vec::new()
+                })
+            };
+            let active = if testing {
                 None
-            });
+            } else {
+                yapfast_discord::accounts::active().unwrap_or_else(|error| {
+                    tracing::warn!(%error, "could not read active Discord account");
+                    None
+                })
+            };
             window.set_discord_accounts(ModelRc::new(VecModel::from(
                 accounts
                     .into_iter()
