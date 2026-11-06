@@ -122,7 +122,8 @@
 // Discord's do, with MESSAGE_POLL_VOTE_ADD and _REMOVE, and once a poll ends,
 // a MESSAGE_UPDATE and a "poll closed" notice (type 46).
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
-// banner and a server bio, Carol a banner colour, and the rest nothing more.
+// banner, a server bio and three badges, Carol a banner colour, and the rest
+// nothing more. GET /users/{id}/badges gives Bob's playing time its level.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -363,12 +364,38 @@ const STICKER_BOUNCE = "1400000000000000311";
 const STICKER_LOTTIE = "1400000000000000312";
 const ALICE = "1400000000000000001";
 
+/** The profile effect Bob equips: an intro layer and a looping one over the card. */
+const PROFILE_EFFECT = "1500000000000000010";
+// The SKUs that are nameplates, whose pictures are strips.
+const nameplateSkus = new Set<string>();
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
-type User = { id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean };
+type User = {
+  id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean;
+  /** The SKU of the avatar decoration they wear, and their nameplate. */
+  decoration?: string;
+  nameplate?: { sku: string; palette: string };
+  /** `display_name_styles`: Discord's font and effect ids, and RGB colours. */
+  style?: { font: number; effect: number; colors: number[] };
+  /** The SKU of the profile effect they equip, which GET
+   *  /collectibles-products/{sku} describes. */
+  effect?: string;
+};
 const users: Record<string, User> = {
-  alice: { id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1" },
-  bob: { id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1" },
-  carol: { id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1" },
+  alice: {
+    id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1", decoration: "1500000000000000003",
+    nameplate: { sku: "1500000000000000004", palette: "bubble_gum" },
+  },
+  // Bob wears a decoration, and Carol a nameplate; Alice, whose card shows
+  // both, has both.
+  bob: {
+    id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1", decoration: "1500000000000000001",
+    effect: PROFILE_EFFECT,
+  },
+  carol: {
+    id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1",
+    nameplate: { sku: "1500000000000000002", palette: "violet" },
+    style: { font: 3, effect: 2, colors: [0xff7eb3, 0x7a5cff] },
+  },
   dave: { id: "1400000000000000004", username: "dave", global_name: "Dave", avatar: null },
 };
 // People Alice shares no server with, who wrote to her anyway.
@@ -376,6 +403,7 @@ const strangers: Record<string, User> = {
   erin: { id: "1400000000000000005", username: "erin", global_name: "Erin", avatar: "erin1" },
   frank: { id: "1400000000000000006", username: "frank_deals", global_name: "Free Nitro", avatar: null },
 };
+for (const user of Object.values(users)) if (user.nameplate) nameplateSkus.add(user.nameplate.sku);
 const userById = new Map([...Object.values(users), ...Object.values(strangers)].map((user) => [user.id, user]));
 
 // Alice's relationships by user id: Bob and Carol are friends (1), and Erin
@@ -585,13 +613,87 @@ function timeOf(id: string): number {
   return Number((BigInt(id) >> 22n) + DISCORD_EPOCH);
 }
 
+// What a person equips from the collectibles shop, as user objects carry it:
+// `avatar_decoration_data`, and `collectibles.nameplate`. Their pictures are
+// served under /media/v1/collectibles-shop/{sku}/static.
+const COLLECTIBLES_PATH = /^\/media\/v1\/collectibles-shop\/(\d+)\/(static|animated|video)$/;
+
 function wireUser(user: User) {
+  const { decoration, nameplate, style, effect: _effect, ...rest } = user;
   return {
-    ...user,
+    ...rest,
     discriminator: "0",
     public_flags: 0,
-    avatar_decoration_data: null,
+    // Bob wears the server's tag, as Discord sends the server a user
+    // chose to represent them, and Alice the one she chose with PUT
+    // /users/@me/clan; everyone else has none.
+    primary_guild:
+      user.id === users.bob.id
+        ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
+        : (user as any).clan ?? null,
+    avatar_decoration_data: decoration
+      ? { asset: `a_${decoration}`, sku_id: decoration, expires_at: null }
+      : null,
+    collectibles: nameplate
+      ? {
+          nameplate: {
+            sku_id: nameplate.sku, asset: `nameplates/${nameplate.palette}/`,
+            label: `A ${nameplate.palette} nameplate`, palette: nameplate.palette, expires_at: null,
+          },
+        }
+      : null,
+    display_name_styles: style ? wireStyle(style) : null,
   };
+}
+
+function wireStyle(style: NonNullable<User["style"]>) {
+  return { font_id: style.font, effect_id: style.effect, colors: style.colors };
+}
+
+/** What a member equips for "Server" alone, which member objects carry as
+ *  `avatar_decoration_data`, `collectibles` and `display_name_styles`:
+ *  Dave wears a decoration and a teal nameplate there, and Bob a green neon
+ *  Mainframe name. */
+const serverLooks: Record<string, Pick<User, "decoration" | "nameplate" | "style">> = {
+  "1400000000000000004": { decoration: "1500000000000000005", nameplate: { sku: "1500000000000000007", palette: "teal" } },
+  "1400000000000000002": { style: { font: 14, effect: 3, colors: [0x00ff99] } },
+};
+for (const look of Object.values(serverLooks)) if (look.nameplate) nameplateSkus.add(look.nameplate.sku);
+
+const profileEffects = new Set<string>([PROFILE_EFFECT]);
+
+/** A layer of a profile effect: a 450 by 880 picture, clear but for a few
+ *  petals, which differ by layer. */
+function effectPicture(name: string): Uint8Array {
+  const shade = crc32(new TextEncoder().encode(name));
+  return png(450, 880, (x, y) => {
+    const petal = (x * 7 + y * 13 + (shade & 255)) % 97 < 2 && (x + y) % 5 < 3;
+    return petal ? [255, 150 + (shade & 63), 190, 220] : [0, 0, 0, 0];
+  });
+}
+
+/** A decoration is a ring around a transparent middle, a nameplate a strip
+ *  that fades in from its left. */
+function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style" | "effect">) {
+  if (spec.nameplate) nameplateSkus.add(spec.nameplate.sku);
+  return {
+    ...(spec.decoration ? { decoration: spec.decoration } : {}),
+    ...(spec.nameplate ? { nameplate: spec.nameplate } : {}),
+    ...(spec.style ? { style: spec.style } : {}),
+    ...(spec.effect ? { effect: spec.effect } : {}),
+  };
+}
+
+function collectiblePicture(sku: string): Uint8Array {
+  if (nameplateSkus.has(sku)) {
+    const [width, height] = [448, 84];
+    return png(width, height, (x) => [255, 255, 255, Math.round((255 * x) / width)]);
+  }
+  const size = 288;
+  return png(size, size, (x, y) => {
+    const radius = Math.hypot(x - size / 2, y - size / 2) / (size / 2);
+    return radius > 0.83 && radius < 1 ? [255, 120, 180, 255] : [0, 0, 0, 0];
+  });
 }
 
 // --- Server members ---------------------------------------------------------
@@ -629,8 +731,10 @@ function wireUser(user: User) {
 // banner and banner colour with PATCH /users/@me/profile, each answered
 // with USER_UPDATE. An empty display name goes by her username, and null
 // takes a picture or colour away. The banner needs Nitro, and an animated
-// avatar Nitro or Classic, here `--nitro`. GET /_control/profile shows hers,
-// and POST /_control/profile-reset puts it back as it started.
+// avatar Nitro or Classic, here `--nitro`. PUT /users/@me/clan with
+// {identity_guild_id, identity_enabled} chooses the server tag she wears,
+// "CREW" for "Server", or takes it off with null. GET /_control/profile shows
+// hers, and POST /_control/profile-reset puts it back as it started.
 const memberRoles = new Map<string, string[]>();
 const memberNicks = new Map<string, string>();
 /** Server profiles by user: avatar and banner hashes, bio and pronouns. */
@@ -727,6 +831,20 @@ function resetMembers() {
 resetMembers();
 seedAudit();
 
+function serverLook(user: User) {
+  const look = serverLooks[user.id];
+  if (!look) return {};
+  return {
+    avatar_decoration_data: look.decoration
+      ? { asset: `a_${look.decoration}`, sku_id: look.decoration, expires_at: null }
+      : null,
+    collectibles: look.nameplate
+      ? { nameplate: { sku_id: look.nameplate.sku, asset: "nameplates/x/", label: "A nameplate", palette: look.nameplate.palette } }
+      : null,
+    display_name_styles: look.style ? wireStyle(look.style) : null,
+  };
+}
+
 function member(user: User, roles: string[] = memberRoles.get(user.id) ?? []) {
   return {
     user: wireUser(user),
@@ -736,6 +854,7 @@ function member(user: User, roles: string[] = memberRoles.get(user.id) ?? []) {
     communication_disabled_until: timeouts.get(user.id) ?? null,
     avatar: serverProfiles.get(user.id)?.avatar ?? null,
     banner: serverProfiles.get(user.id)?.banner ?? null,
+    ...serverLook(user),
     joined_at: JOINED_AT,
     premium_since: null,
     deaf: voice.get(user.id)?.deaf ?? false,
@@ -788,6 +907,7 @@ function picture(path: string): Uint8Array {
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
+const IRONCLAD_ICON = "https://cdn.discordapp.com/assets/content/d705628490898f2cc22d669cf8b415bc03fed1ddaf98a2a8cbd97442a509293c.svg";
 // A person's profile as GET /users/{id}/profile gives it, with the server's
 // side when asked for with guild_id.
 function wireProfile(user: User, guild: string | null) {
@@ -804,7 +924,7 @@ function wireProfile(user: User, guild: string | null) {
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -813,7 +933,20 @@ function wireProfile(user: User, guild: string | null) {
       : {}),
     mutual_guilds: inServer ? [{ id: GUILD, nick: null }] : [],
     mutual_friends: bob ? [wireUser(users.carol)] : [],
-    badges: [],
+    badges: bob
+      ? [
+          {
+            id: "hypesquad_house_1",
+            description: "HypeSquad Bravery",
+            icon: "8a88d63823d8a71cd5e390baa45efa02",
+            link: "https://support.discord.com/hc/en-us/articles/360035962891",
+          },
+          { id: "active_developer", description: "Active Developer", icon: "6bdc42827a38498929a4920da12695d9" },
+          // A badge that levels up carries only its label and the picture
+          // of its level here; GET /users/{id}/badges has the rest.
+          { id: "game_time", description: "Spielzeit", icon: "208e1bb66e311286cae364bc6f19277a", simple_icon_url: IRONCLAD_ICON },
+        ]
+      : [],
     premium_type: null,
   };
 }
@@ -5282,10 +5415,58 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return new Response(null, { status: 204 });
   }
 
+  // The shop's product for a profile effect, whose layers Discord's client
+  // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
+    const sku = m[1]!;
+    if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
+    const layer = (name: string) => `${url.origin}/assets/profile_effects/${sku}/${name}.png`;
+    return json({
+      sku_id: sku, store_listing_id: "1", type: 1, name: "Petals", summary: "Falling petals", premium_type: 2,
+      items: [
+        { type: 1, sku_id: sku, title: "Petals", description: "Falling petals", accessibilityLabel: "Falling petals",
+          animationType: 1, thumbnailPreviewSrc: layer("thumbnail"), reducedMotionSrc: layer("reduced"),
+          staticFrameSrc: layer("still"),
+          effects: [
+            { src: layer("intro"), loop: false, height: 880, width: 450, duration: 2000, start: 0, loopDelay: 0,
+              position: { x: 0, y: 0 }, zIndex: 101, randomizedSources: [] },
+            { src: layer("loop"), loop: true, height: 880, width: 450, duration: 3000, start: 1500, loopDelay: 1000,
+              position: { x: 0, y: 20 }, zIndex: 102, randomizedSources: [] },
+          ] },
+      ],
+    });
+  }
+
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
     const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
     if (!user) return notFound("Unknown User", 10013);
     return json(wireProfile(user, url.searchParams.get("guild_id")));
+  }
+
+  // The levels of someone's badges, as the client asks for them to fill a
+  // badge's tooltip: Bob has played for 1,816 hours, "Eisern".
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/badges$/))) {
+    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    return json({
+      badges:
+        m[1] === users.bob.id
+          ? [
+              {
+                badge_id: 20,
+                name: "Spielzeit",
+                info_label: "1.816 Stunden gespielt",
+                owned: true,
+                simple_icon_url: IRONCLAD_ICON,
+                complex_icon_static_url: "https://cdn.discordapp.com/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg",
+                current_tier: "ironclad",
+                tiers: [
+                  { key: "casual", name: "Locker", owned: true, complex_icon_static_url: "https://cdn.discordapp.com/assets/content/1f9d42f34184814a137e40b0de83e2cac0ae44d83531777b9369d2e2a6ddfeb3.svg" },
+                  { key: "ironclad", name: "Eisern", owned: true, simple_icon_url: IRONCLAD_ICON, complex_icon_static_url: "https://cdn.discordapp.com/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg" },
+                ],
+              },
+            ]
+          : [],
+    });
   }
 
   // Opening a DM finds the one Alice has with them, or starts one; with
@@ -6273,6 +6454,18 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     dispatch("USER_UPDATE", wire);
     return json(wire);
   }
+  if (method === "PUT" && path === "/users/@me/clan") {
+    const body: any = await req.json().catch(() => ({}));
+    const alice: any = users.alice;
+    const guild = body.identity_guild_id;
+    if (guild !== null && guild !== GUILD) return json({ message: "Unknown Guild", code: 10004 }, 404);
+    alice.clan = guild === null
+      ? null
+      : { identity_guild_id: guild, identity_enabled: body.identity_enabled, tag: "CREW", badge: "crew" };
+    const wire = { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 };
+    dispatch("USER_UPDATE", wire);
+    return json(wire);
+  }
   if (method === "PATCH" && path === "/users/@me/profile") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.pronouns === "string" && body.pronouns.length > 40) return tooLong("pronouns", 40);
@@ -7199,6 +7392,11 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     username: me.username ?? users.alice.username,
     global_name: me.name ?? me.username ?? users.alice.global_name,
     avatar: pictureHash(me.avatar, users.alice.avatar),
+    decoration: undefined,
+    nameplate: undefined,
+    style: undefined,
+    effect: undefined,
+    ...collectiblesOf(me),
   });
   userById.set(ALICE, users.alice);
   nitro = me.nitro ?? nitro;
@@ -7226,6 +7424,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     const user: User = {
       id: newId(), username, global_name: person.name ?? username, avatar: pictureHash(person.avatar, `${person.key}1`),
       ...(person.bot ? { bot: true } : {}),
+      ...collectiblesOf(person),
     };
     byKey.set(person.key, user);
     userById.set(user.id, user);
@@ -7518,7 +7717,7 @@ function envProfile(world: World, user: User, guild: string | null) {
   const server = guild ? world.byId.get(guild) : undefined;
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(server?.members.has(user.id)
       ? { guild_member_profile: guildMemberProfile(user.id, server.id), guild_member: { ...memberIn(server.id, user), bio: "" } }
       : {}),
@@ -7664,6 +7863,14 @@ const server = Bun.serve<SocketData>({
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
     // Activities' pictures: games' icons and assets, and Spotify's covers.
+    const effectLayer = req.method === "GET" ? path.match(/^\/assets\/profile_effects\/(\d+)\/(\w+)\.png$/) : null;
+    if (effectLayer && profileEffects.has(effectLayer[1]!)) {
+      return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
+    }
+    const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
+    if (collectible) {
+      return new Response(collectiblePicture(collectible[1]!), { headers: { "content-type": "image/png" } });
+    }
     if (req.method === "GET" && /^\/(app-icons\/\d+\/[a-z0-9]+\.png|app-assets\/\d+\/[a-z0-9]+\.png|spotify\/[A-Za-z0-9]+)$/.test(path)) {
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
     }
@@ -7682,7 +7889,7 @@ const server = Bun.serve<SocketData>({
       return Response.json({ global_name, avatar, ...aliceProfile });
     }
     if (req.method === "POST" && path === "/_control/profile-reset") {
-      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1" });
+      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1", clan: null });
       Object.assign(aliceProfile, { bio: "", pronouns: "", banner: null, accent_color: null });
       dispatch("USER_UPDATE", { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 });
       return new Response("Alice's profile is as it started\n");

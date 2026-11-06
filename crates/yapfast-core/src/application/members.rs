@@ -224,7 +224,9 @@ impl Application {
         if !me {
             choices.extend(state.relationship_choices(user));
         }
-        if self.may(place, Permission::ManageRoles) && !self.server_roles(place).is_empty() {
+        if self.may_in_server(place, Permission::ManageRoles)
+            && !self.server_roles(place).is_empty()
+        {
             choices.push(MenuChoice::Roles);
         }
         if in_voice && !self.move_targets(place, user).is_empty() {
@@ -272,8 +274,18 @@ impl Application {
                 state.can_join_voice(&dm.id)
                     && !(state.voice.active() && state.voice.room.as_ref() == Some(&dm.id))
             }
-            None => state.relation(user) == Relation::Friend && state.discord_online && !state.busy,
+            None => self.may_start_dm_call(user),
         }
+    }
+
+    /// Whether a call with someone can start a DM first: Discord's member
+    /// menu offers Call for anyone but oneself, not only friends.
+    fn may_start_dm_call(&self, user: &str) -> bool {
+        let state = &self.state;
+        !user.starts_with('@')
+            && state.relation(user) != Relation::Me
+            && state.discord_online
+            && !state.busy
     }
 
     /// A member's roles in the Discord server a place names, shared with
@@ -407,8 +419,7 @@ impl Application {
             effects.extend(self.dispatch(Action::RequestJoinVoice(dm)));
             return effects;
         }
-        let friend = self.state.relation(&user) == Relation::Friend;
-        if !friend || !self.state.discord_online || self.state.busy {
+        if !self.may_start_dm_call(&user) {
             return vec![];
         }
         self.starting_dm = true;
