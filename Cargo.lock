@@ -9677,7 +9677,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tungstenite 0.26.2",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -11619,6 +11618,7 @@ dependencies = [
  "reqwest 0.13.5",
  "rsa",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "serenity-voice-model",
