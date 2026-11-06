@@ -75,7 +75,7 @@ export { NewTags } from "yapfast/new-tags.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
-export { PersonRow, StreamRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
+export { PersonRow, StreamRow, StreamWindow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock, ServerTags } from "controls.slint";
 export { ServerTagRow } from "server.slint";
@@ -1023,6 +1023,7 @@ export component YapfastWindow inherits Window {
     in property <[PersonRow]> watch-viewers;
     in property <string> watch-viewer-names;
     /// Watching someone's stream in the call.
+    /// A stream shows in this window: one watched that isn't in its own.
     in property <bool> watching;
     in property <string> watch-title;
     in property <string> watch-status;
@@ -1534,6 +1535,8 @@ export component YapfastWindow inherits Window {
     callback watch-stream(string);
     /// Watch every stream in the call.
     callback watch-all-streams;
+    /// Moves this person's stream to a window of its own, or back.
+    callback toggle-pop-out(string);
     /// Someone in a voice channel was clicked in the channel list.
     callback show-voice-person(string, string);
     /// A channel category's heading was clicked; see RoomList.
@@ -3260,6 +3263,7 @@ export component YapfastWindow inherits Window {
                                     full-screen(on) => { root.stage-full = on; }
                                     watch-stream(id) => { root.watch-stream(id); }
                                     stop-watching(id) => { root.stop-watching(id); }
+                                    toggle-pop-out(id) => { root.toggle-pop-out(id); }
                                     open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
                                     tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
                                         root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
@@ -4316,6 +4320,7 @@ export component YapfastWindow inherits Window {
                 focused: root.call-focus;
                 full-screen(on) => { root.stage-full = on; }
                 stop-watching(id) => { root.stop-watching(id); }
+                toggle-pop-out(id) => { root.toggle-pop-out(id); }
                 open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
                 tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
                     root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);

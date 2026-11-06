@@ -46,7 +46,8 @@ the conversation view, which `video_player.rs` plays in the stream worker.
 `stream_worker.rs` runs Go Live and video playback in a child process,
 `yapfast --stream-worker`, so their memory goes when they stop. `video.rs`
 reads video files, `encode.rs` encodes Go Live and the camera, and
-`decode.rs` decodes a watched stream, each through C in `native/*.c`.
+`decode.rs` decodes a watched stream, each through C in `native/*.c`. In
+the client, `src/ui/pop_out.rs` shows a stream in a window of its own.
 `audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
 
 `vendor/` holds patched Slint, webrtc-sys, matrix-rtc-livekit, davey and

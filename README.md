@@ -102,11 +102,11 @@ Voice channels and DM calls, with mute, deafen, a volume for each person,
 noise suppression, echo removal, and a voice gate you can tune, or
 push-to-talk on any key or combination, held in any app. Keybinds mute,
 deafen or push to mute from any app too ([keybinds](docs/keybinds.md)). Go
-Live, watch other people's streams, as many at once as you like, turn on
-your camera and play the soundboard. The call stays up while you read other
-channels, busy voice channels say how long their call has gone on, and
-pointing at a Discord voice channel shows who is in it, who is live and
-whose camera is on.
+Live, watch other people's streams, as many at once as you like, each in the
+call or in a window of its own, turn on your camera and play the soundboard.
+The call stays up while you read other channels, busy voice channels say how
+long their call has gone on, and pointing at a Discord voice channel shows who
+is in it, who is live and whose camera is on.
 
 The noise suppression could be better, though. Know an open source one that
 does a better job? PLEASE tell me.

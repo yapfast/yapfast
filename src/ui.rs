@@ -59,6 +59,7 @@ mod new_tags;
 mod pictures;
 mod placement;
 mod polls;
+mod pop_out;
 mod profile;
 mod refresh;
 mod server_settings;
@@ -75,7 +76,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown};
+use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown, watch_status};
 use tiles::{Focus, Pip, Stage, Tiles, follow_streams, places};
 use yapfast_ui::*;
 
@@ -2245,6 +2246,8 @@ struct Adapter {
     streams_shown: Vec<String>,
     /// The tiles sharing the room, by their place.
     wall: Vec<usize>,
+    /// Streams in windows of their own, by whose they are.
+    pop_outs: HashMap<String, pop_out::PopOut>,
     /// Runs the microphone through Discord's processing while voice settings
     /// show the voice gate's sensitivity.
     #[cfg(feature = "discord")]
@@ -2557,6 +2560,7 @@ impl Adapter {
                 call_focus: None,
                 streams_shown: Vec::new(),
                 wall: Vec::new(),
+                pop_outs: HashMap::new(),
                 #[cfg(feature = "discord")]
                 gate_meter: None,
                 keybinds: None,
@@ -2868,6 +2872,7 @@ impl Adapter {
                                 }
                                 None => adapter.ring(),
                             }
+                            adapter.show_pop_outs();
                             adapter.show_tray();
                         }
                         if let Some(adapter) = weak.upgrade() {

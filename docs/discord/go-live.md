@@ -27,6 +27,13 @@ until a click beside it. While the call is off screen, the large tile's stream
 or camera, or else the first stream being watched, or this account's own,
 shows in a corner (`StreamPip`), as Discord's picture in picture does.
 
+The button on a watched stream's tile moves it to a window of its own
+(`ui/pop_out.rs`, `StreamWindow`), which can go to another screen, and goes
+full screen from its button or a double click. Its tile says so, and a click
+there, or closing the window, brings the stream back to the call; the stream
+stays watched meanwhile. The window takes the stream's pictures on a timer of
+its own, in place of the call's `stream-tick`, so it goes on while the main
+window is closed to the tray, and it closes when the stream or the call ends.
 While the call is off screen, only the corner's stream takes its pictures
 from its worker; the others' workers go on decoding, and their newest picture
 waits in their frames.

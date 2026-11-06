@@ -4434,11 +4434,13 @@ impl Adapter {
     fn corner_stream(&self) -> Option<&voice::Watching> {
         let voice = &self.app.state.voice;
         let large = |watching: &&voice::Watching| matches!(&self.call_focus, Some(Focus::Stream(user)) if *user == watching.user);
-        voice
-            .watching
-            .iter()
-            .find(large)
-            .or_else(|| voice.watching.first())
+        let showing = || voice.watching.iter().filter(|w| !self.popped(w));
+        showing().find(large).or_else(|| showing().next())
+    }
+
+    /// Whether this stream is in a window of its own.
+    fn popped(&self, watching: &voice::Watching) -> bool {
+        self.pop_outs.contains_key(&watching.user)
     }
 
     /// Which of the call's tiles shows large, or the streams that share the
@@ -4449,6 +4451,7 @@ impl Adapter {
         let showing: Vec<String> = voice
             .watching
             .iter()
+            .filter(|watching| !self.popped(watching))
             .map(|watching| watching.user.clone())
             .collect();
         if showing != self.streams_shown {
@@ -4571,6 +4574,7 @@ impl Adapter {
                     .watching
                     .iter()
                     .find(|watching| watching.user == person.id);
+                let popped = watching.is_some_and(|watching| self.popped(watching));
                 update_model(
                     viewers,
                     watching
@@ -4579,7 +4583,12 @@ impl Adapter {
                 );
                 StreamRow {
                     watched: watching.is_some(),
-                    status: watching.map(watch_status).unwrap_or_default(),
+                    popped,
+                    status: match watching {
+                        Some(_) if popped => "Showing in its own window".into(),
+                        Some(watching) => watch_status(watching),
+                        None => SharedString::new(),
+                    },
                     viewers: ModelRc::from(viewers.clone()),
                     viewer_names: viewer_names(viewers),
                 }
@@ -4587,20 +4596,20 @@ impl Adapter {
             .collect();
         update_model(&self.models.streams, rows);
         window.set_unwatched_streams(voice.unwatched().count() as i32);
-        window.set_watching(!voice.watching.is_empty());
+        window.set_watching(voice.watching.iter().any(|w| !self.popped(w)));
     }
 
     /// Each stream's picture, in the participants' order: it moves with them,
-    /// and goes when the stream does. Setting a row
+    /// and goes when the call no longer shows the stream. Setting a row
     /// compares nothing, and only a row that changes is set.
     fn place_stream_frames(&self, people: &[voice::Participant]) {
         let frames = &self.models.stream_frames;
-        let watched = |person: &voice::Participant| {
+        let shown = |person: &voice::Participant| {
             let voice = &self.app.state.voice;
             voice
                 .watching
                 .iter()
-                .any(|watching| watching.user == person.id)
+                .any(|watching| watching.user == person.id && !self.popped(watching))
         };
         if self
             .frame_ids
@@ -4618,7 +4627,7 @@ impl Adapter {
             frames.set_vec(kept.collect::<Vec<_>>());
         }
         for (row, person) in people.iter().enumerate() {
-            if !watched(person)
+            if !shown(person)
                 && frames
                     .row_data(row)
                     .is_some_and(|frame| frame.size().width > 0)
@@ -6217,7 +6226,7 @@ fn viewer_names(viewers: &VecModel<PersonRow>) -> SharedString {
 }
 
 /// What shows until a stream's first picture.
-fn watch_status(watching: &voice::Watching) -> SharedString {
+pub(super) fn watch_status(watching: &voice::Watching) -> SharedString {
     if watching.frames.is_none() {
         format!("Connecting to {}'s stream...", watching.name)
     } else {

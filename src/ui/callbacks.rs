@@ -3261,6 +3261,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             state.borrow_mut().action(&window, Action::WatchAllStreams);
         }
     });
+    let state = adapter.clone();
+    window.on_toggle_pop_out(move |id| Adapter::toggle_pop_out(&state, &id));
     // Frames skip the application state, which would redraw far more than the pictures.
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -3306,7 +3308,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let Some(frame) = watching
                 .frames
                 .as_ref()
-                .filter(|_| in_call || large)
+                // A stream in its own window takes its pictures there.
+                .filter(|_| (in_call || large) && !adapter.pop_outs.contains_key(&watching.user))
                 .and_then(|frames| frames.take(image))
             else {
                 continue;

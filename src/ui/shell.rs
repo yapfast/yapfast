@@ -332,6 +332,13 @@ impl Shell {
     }
 }
 
+/// Acts as the window would, whether or not it's open.
+pub(super) fn act(action: Action) {
+    if let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) {
+        shell.act(action);
+    }
+}
+
 /// Makes the window again where it was, on Appearance as the setting that
 /// asked for it, for a change Slint can't make to the shown window.
 pub(super) fn remake_window() {
