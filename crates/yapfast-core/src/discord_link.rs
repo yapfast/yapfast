@@ -74,8 +74,10 @@ async fn save_account(token: String) -> anyhow::Result<()> {
     }
 
     yapfast_discord::accounts::save(&user.id, &user.username, &token)?;
-    if legacy_migrated {
-        token::forget_legacy()?;
+    if legacy_migrated
+        && let Err(error) = token::forget_legacy()
+    {
+        tracing::warn!(%error, "could not remove the migrated legacy Discord token");
     }
     Ok(())
 }
