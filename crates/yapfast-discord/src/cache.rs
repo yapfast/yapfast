@@ -45,7 +45,10 @@ mod sealed;
 use std::{
     io::{Read, Seek, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -101,6 +104,9 @@ static LOGIN: Mutex<Option<String>> = Mutex::new(None);
 static KEY: Mutex<Option<Key>> = Mutex::new(None);
 /// The member lists to save with the account, as the service last kept them.
 static LISTS: Mutex<Vec<MemberList>> = Mutex::new(Vec::new());
+/// Counts how often [`keep_lists`] kept new lists, so [`keep`] tells when
+/// what's on disk is out of date without comparing the lists themselves.
+static LISTS_CHANGED: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Deserialize)]
 struct Saved {
@@ -661,12 +667,50 @@ fn write_sealed_with(
 /// The member lists to save with the account from now on.
 pub(crate) fn keep_lists(lists: Vec<MemberList>) {
     *lock(&LISTS) = lists;
+    LISTS_CHANGED.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Whether `now` would save what `earlier` saved: the live parts (the
+/// connection, voice, and the rest of the `#[serde(skip)]` fields) change
+/// often and are kept nowhere, so a change of only them is not a change of
+/// what the disk holds. Shared subtrees go by identity, as the account's
+/// snapshots share them while unchanged.
+fn same_saved(earlier: &Snapshot, now: &Snapshot) -> bool {
+    earlier.user_id == now.user_id
+        && earlier.account == now.account
+        && earlier.servers.len() == now.servers.len()
+        && earlier
+            .servers
+            .iter()
+            .zip(&now.servers)
+            .all(|(before, after)| {
+                Arc::ptr_eq(&before.server, &after.server)
+                    && Arc::ptr_eq(&before.marks, &after.marks)
+            })
+        && earlier.folders == now.folders
+        && earlier.conversations.len() == now.conversations.len()
+        && earlier
+            .conversations
+            .iter()
+            .zip(&now.conversations)
+            .all(|(before, after)| Arc::ptr_eq(before, after))
+        && Arc::ptr_eq(&earlier.friends, &now.friends)
+        && Arc::ptr_eq(&earlier.friend_list, &now.friend_list)
+        && Arc::ptr_eq(&earlier.blocked, &now.blocked)
+        && Arc::ptr_eq(&earlier.blocked_list, &now.blocked_list)
+        && Arc::ptr_eq(&earlier.ignored, &now.ignored)
+        && Arc::ptr_eq(&earlier.friend_requests, &now.friend_requests)
+        && earlier.presence == now.presence
+        && earlier.custom_status == now.custom_status
+        && earlier.show_game == now.show_game
 }
 
 /// Saves the account while connected, a while after it changes, until the
-/// service ends.
+/// service ends. A change of only what's not saved, or of neither the names
+/// nor the lists since the last save, saves nothing: the disk already holds it.
 pub(crate) async fn keep(mut snapshots: watch::Receiver<Arc<Snapshot>>, names: Arc<RwLock<Names>>) {
     let mut ended = false;
+    let mut saved: Option<(Arc<Snapshot>, u64, u64)> = None;
     while !ended {
         ended = snapshots.changed().await.is_err();
         if !ended {
@@ -679,11 +723,30 @@ pub(crate) async fn keep(mut snapshots: watch::Receiver<Arc<Snapshot>>, names: A
         let Some(file) = file() else {
             continue;
         };
-        let (names, lists) = (names.clone(), lock(&LISTS).clone());
+        let lists_version = LISTS_CHANGED.load(Ordering::SeqCst);
+        let names_version = names
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .version();
+        if saved
+            .as_ref()
+            .is_some_and(|(kept, seen_names, seen_lists)| {
+                *seen_names == names_version
+                    && *seen_lists == lists_version
+                    && same_saved(kept, &snapshot)
+            })
+        {
+            continue;
+        }
+        let kept = snapshot.clone();
+        let (next_names, next_lists) = (names.clone(), lock(&LISTS).clone());
         let written =
-            tokio::task::spawn_blocking(move || save(&file, &snapshot, &names, &lists)).await;
-        if let Ok(Err(error)) = written {
-            tracing::warn!(%error, "could not save the Discord account");
+            tokio::task::spawn_blocking(move || save(&file, &snapshot, &next_names, &next_lists))
+                .await;
+        match written {
+            Ok(Ok(())) => saved = Some((kept, names_version, lists_version)),
+            Ok(Err(error)) => tracing::warn!(%error, "could not save the Discord account"),
+            Err(_) => {}
         }
     }
 }

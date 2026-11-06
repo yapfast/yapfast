@@ -1995,6 +1995,17 @@ pub struct Application {
     /// Discord's lists, made from `discord`.
     #[cfg(feature = "discord")]
     discord_index: discord::Index,
+    /// [`Self::emoji_sets`] as built, for the snapshot and room it came from,
+    /// so a keystroke doesn't rebuild every server's set. The snapshot is
+    /// held, so no later snapshot can reuse its address and look the same.
+    #[cfg(feature = "discord")]
+    emoji_cache: std::sync::Mutex<
+        Option<(
+            Arc<yapfast_discord::service::Snapshot>,
+            Option<String>,
+            Vec<chat::EmojiSet>,
+        )>,
+    >,
     last_selected: HashMap<Navigation, String>,
     samples: HashMap<String, Vec<Arc<ChatMessage>>>,
     /// How often this device added each reaction.
@@ -3889,19 +3900,30 @@ impl Application {
     pub fn emoji_sets(&self) -> Vec<chat::EmojiSet> {
         #[cfg(feature = "discord")]
         if let Some(snapshot) = &self.discord {
-            let here = self
+            let here: Option<&str> = self
                 .state
                 .selected
                 .as_deref()
                 .and_then(discord::parse_room)
                 .map(|(guild, _)| guild);
+            {
+                let cache = self
+                    .emoji_cache
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some((kept, shown, sets)) = &*cache {
+                    if Arc::ptr_eq(kept, snapshot) && shown.as_deref() == here {
+                        return sets.clone();
+                    }
+                }
+            }
             let nitro = snapshot
                 .account
                 .as_ref()
                 .is_some_and(|account| account.premium_type > 0);
             let mut servers: Vec<_> = snapshot.servers.iter().collect();
             servers.sort_by_key(|server| Some(server.id.as_str()) != here);
-            return servers
+            let sets: Vec<chat::EmojiSet> = servers
                 .into_iter()
                 .map(|server| {
                     let ours = Some(server.id.as_str()) == here;
@@ -3929,6 +3951,12 @@ impl Application {
                 })
                 .filter(|set| !set.emoji.is_empty())
                 .collect();
+            *self
+                .emoji_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                Some((Arc::clone(snapshot), here.map(str::to_owned), sets.clone()));
+            return sets;
         }
         vec![]
     }

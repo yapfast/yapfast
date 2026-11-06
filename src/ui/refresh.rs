@@ -243,6 +243,38 @@ impl SwitcherShown {
     }
 }
 
+/// What the last shown animated emoji were named from, so they're named
+/// again only once that changes: the timelines, the pictures that
+/// arrived, the reaction bars' cells, the card and the soundboard.
+pub(super) struct AnimationsShown {
+    messages: Arc<Vec<Arc<ChatMessage>>>,
+    aside: Option<Arc<Vec<Arc<ChatMessage>>>>,
+    picture_changes: u64,
+    card: Option<String>,
+    cells: Vec<String>,
+    soundboard: Option<Arc<[voice::SoundGroup]>>,
+}
+
+impl AnimationsShown {
+    /// Whether the animations would name the same as before.
+    fn shows(&self, state: &AppState, card: Option<&str>, cells: &[String]) -> bool {
+        Arc::ptr_eq(&self.messages, &state.messages)
+            && match (&self.aside, &state.aside) {
+                (None, None) => true,
+                (Some(kept), Some(aside)) => Arc::ptr_eq(kept, &aside.messages),
+                _ => false,
+            }
+            && self.picture_changes == state.picture_changes
+            && self.card.as_deref() == card
+            && self.cells == cells
+            && match (&self.soundboard, &state.voice.soundboard) {
+                (None, None) => true,
+                (Some(kept), Some(groups)) => Arc::ptr_eq(kept, groups),
+                _ => false,
+            }
+    }
+}
+
 /// What a message row in the thread beside the channel takes across beside
 /// its content: the space before the avatar, the avatar and the space after
 /// it, and the space at the end, as `ThreadPanel` lays it out.
@@ -369,37 +401,7 @@ impl Adapter {
     /// something plays and the window is focused, used and not minimised.
     fn show_emoji_animations(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let mut shown: Vec<(String, Option<char>, String)> = state
-            .messages
-            .iter()
-            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
-            .flat_map(|message| &message.emoji)
-            .filter(|emoji| emoji.animated)
-            .map(|emoji| {
-                (
-                    emoji::custom_key(emoji),
-                    custom_emoji::glyph(&emoji.id),
-                    emoji.picture.clone(),
-                )
-            })
-            .collect();
-        // The card shows one emoji, which may be from a message no longer on
-        // screen, and a call's soundboard shows its sounds' own.
         let card = self.emoji_card.as_ref().and_then(|target| target.custom());
-        let on_card = card.and_then(|id| {
-            state
-                .messages
-                .iter()
-                .flat_map(|message| &message.emoji)
-                .find(|emoji| emoji.id == id)
-        });
-        if let Some(emoji) = on_card.filter(|emoji| emoji.animated) {
-            shown.push((
-                emoji::custom_key(emoji),
-                custom_emoji::glyph(&emoji.id),
-                emoji.picture.clone(),
-            ));
-        }
         // The bars and menus over messages show their emoji as cells too, and
         // what each decodes is the picture the account may use here.
         let mut cells: Vec<String> = Vec::new();
@@ -410,29 +412,75 @@ impl Adapter {
                 }
             }
         }
-        for emoji in self.app.usable_emoji().iter().flat_map(|set| &set.emoji) {
-            let key = emoji::custom_key(emoji);
-            if emoji.animated && cells.contains(&key) {
-                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture.clone()));
-            }
-        }
-        for sound in state
-            .voice
-            .soundboard
-            .iter()
-            .flat_map(|groups| groups.iter())
-            .flat_map(|group| &group.sounds)
-        {
-            if let Some(picture) = &sound.picture {
-                shown.push((format!("sound:{picture}"), None, picture.clone()));
-            }
-        }
         let pictures = &state.pictures;
+        // Naming the animated emoji goes through every message each refresh
+        // otherwise; name them again only once what they show from changes.
+        if !self
+            .animations_shown
+            .as_ref()
+            .is_some_and(|shown| shown.shows(state, card, &cells))
+        {
+            let mut shown: Vec<(String, Option<char>, String)> = state
+                .messages
+                .iter()
+                .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
+                .flat_map(|message| &message.emoji)
+                .filter(|emoji| emoji.animated)
+                .map(|emoji| {
+                    (
+                        emoji::custom_key(emoji),
+                        custom_emoji::glyph(&emoji.id),
+                        emoji.picture.clone(),
+                    )
+                })
+                .collect();
+            // The card shows one emoji, which may be from a message no longer
+            // on screen, and a call's soundboard shows its sounds' own.
+            let on_card = card.and_then(|id| {
+                state
+                    .messages
+                    .iter()
+                    .flat_map(|message| &message.emoji)
+                    .find(|emoji| emoji.id == id)
+            });
+            if let Some(emoji) = on_card.filter(|emoji| emoji.animated) {
+                shown.push((
+                    emoji::custom_key(emoji),
+                    custom_emoji::glyph(&emoji.id),
+                    emoji.picture.clone(),
+                ));
+            }
+            for emoji in self.app.usable_emoji().iter().flat_map(|set| &set.emoji) {
+                let key = emoji::custom_key(emoji);
+                if emoji.animated && cells.contains(&key) {
+                    shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture.clone()));
+                }
+            }
+            for sound in state
+                .voice
+                .soundboard
+                .iter()
+                .flat_map(|groups| groups.iter())
+                .flat_map(|group| &group.sounds)
+            {
+                if let Some(picture) = &sound.picture {
+                    shown.push((format!("sound:{picture}"), None, picture.clone()));
+                }
+            }
+            self.animations.show(shown, pictures);
+            self.animations_shown = Some(AnimationsShown {
+                messages: state.messages.clone(),
+                aside: state.aside.as_ref().map(|aside| aside.messages.clone()),
+                picture_changes: state.picture_changes,
+                card: card.map(str::to_owned),
+                cells: cells.clone(),
+                soundboard: state.voice.soundboard.clone(),
+            });
+        }
         // Idle holds the clock as an unfocused window does, whatever the Animate
         // setting says; a minimised window has lost focus, and `playing` is
         // already false for it.
         let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
-        self.animations.show(shown, pictures);
         self.animations.run(window, pictures);
         self.animations.sync(window, playing, self.weak.clone());
     }

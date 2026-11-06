@@ -66,7 +66,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{Reach, SidebarShown, SwitcherShown};
+use refresh::{AnimationsShown, Reach, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -1645,6 +1645,9 @@ struct Adapter {
     /// The animated emoji on screen: the frames they need and the clock they
     /// draw from, which stops while the window is unfocused, idle or minimised.
     animations: emoji_animation::Animations,
+    /// What they were named from last, so they're named again only once
+    /// that changes; see `refresh::AnimationsShown`.
+    animations_shown: Option<AnimationsShown>,
     /// `AppState::picture_changes` when the message rows were last built.
     pictures_seen: u64,
     /// The last jump to a message the timeline made; see `AppState::jump`.
@@ -1899,6 +1902,7 @@ impl Adapter {
                 pictures: HashMap::new(),
                 emoji_card: None,
                 animations: emoji_animation::Animations::new(),
+                animations_shown: None,
                 pictures_seen: 0,
                 jumped: None,
                 unread_jumped: 0,
