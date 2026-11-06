@@ -264,11 +264,6 @@ start time (12 or 24 hours as the clock is set) followed by its place.
 Yapfast doesn't fetch `/guilds/{id}/scheduled-events` and doesn't draw
 Discord's event cards, so interest counts aren't shown.
 
-A channel whose `@everyone` overwrite denies `VIEW_CHANNEL` shows a padlock
-variant of its icon (text, voice, announcement, stage, forum and media). The
-rule is `Server::private()` and the symbol is `symbol::PRIVATE` OR'd into the
-channel's symbol.
-
 ## A chat's first message
 
 At the start of a channel's history Discord writes a welcome block, which

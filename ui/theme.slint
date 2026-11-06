@@ -134,33 +134,3 @@ export component PopupMotion {
     changed open => { self.amount = self.open ? 1 : 0; }
     animate amount { duration: Popup.duration; easing: ease-out-quad; }
 }
-
-/// Interface texts in the chosen language, which Rust fills in on start and
-/// whenever the language changes (`yapfast_core::i18n`).
-export global Strings {
-    in property <string> official-badge: "OFFICIAL";
-    in property <string> official-message: "Official Discord Message";
-    in property <string> wave: "Wave";
-    in property <string> invite-people: "Invite people";
-    in property <string> show-mutual: "Show mutual friends and servers in the full profile";
-    in property <string> roles: "Roles";
-    in property <string> connections: "Connections";
-    in property <string> note-title: "Note (only visible to you)";
-    in property <string> note-hint: "Click to add a note";
-    in property <string> add-friend: "Add Friend";
-    in property <string> friends: "Friends";
-    in property <string> friend-sent: "Friend Request Sent";
-    in property <string> accept-friend: "Accept Friend Request";
-    in property <string> view-full-profile: "View Full Profile";
-    in property <string> view-full-bio: "View full bio";
-    in property <string> member-since: "Member since";
-    in property <string> tab-activity: "Activity";
-    in property <string> tab-mutual-friends: "Mutual friends";
-    in property <string> tab-mutual-servers: "Mutual servers";
-    in property <string> setting-date-format: "DATE FORMAT";
-    in property <string> setting-time-zone: "TIME ZONE";
-    in property <string> setting-language: "LANGUAGE";
-    in property <[string]> date-formats: ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
-    in property <[string]> time-zones: ["System default"];
-    in property <[string]> languages: ["English", "Deutsch"];
-}

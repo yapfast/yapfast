@@ -26,7 +26,7 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion, Strings } from "theme.slint";
+import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, PictureStore } from "controls.slint";
@@ -52,7 +52,7 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
-export { Theme, Badges, Popup, Strings } from "theme.slint";
+export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
@@ -1077,8 +1077,6 @@ export component YapfastWindow inherits Window {
     in-out property <bool> twelve-hour-clock;
     in-out property <bool> clock-seconds;
     in-out property <int> date-format: -1;
-    in-out property <int> time-zone;
-    in-out property <int> language;
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size: 1;
     in-out property <bool> link-previews: true;
@@ -2262,7 +2260,7 @@ export component YapfastWindow inherits Window {
                                 }
                                 if root.header-server != "" && root.header-invite: IconButton {
                                     x: parent.width - self.width - 8px; y: 8px;
-                                    icon: @image-url("icons/user-plus.svg"); label: Strings.invite-people; size: 32px; glyph: 20px; tip-side: 2;
+                                    icon: @image-url("icons/user-plus.svg"); label: "Invite people"; size: 32px; glyph: 20px; tip-side: 2;
                                     clicked => { root.open-invite(root.header-server); }
                                 }
                                 if !ClientStyle.enabled && root.dms-selected && !root.preview && root.discord-linked: IconButton {
@@ -3773,7 +3771,7 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 2: MessageSettings {
             message-font-size: root.message-font-size;
-            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; time-zone <=> root.time-zone; language <=> root.language; text-size <=> root.text-size;
+            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
             link-previews <=> root.link-previews; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;

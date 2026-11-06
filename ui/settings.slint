@@ -3,7 +3,7 @@ import { SettingsNavigation } from "yapfast/settings-nav.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, Popup, Strings } from "theme.slint";
+import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
@@ -1040,10 +1040,6 @@ export component MessageSettings inherits VerticalLayout {
     in-out property <bool> clock-seconds;
     /// The date format: 0 day first, 1 month first, 2 year first; -1 follows the clock.
     in-out property <int> date-format: -1;
-    /// The time zone: 0 the system's, then those of `clock::ZONES`.
-    in-out property <int> time-zone;
-    /// The language: 0 English, 1 German.
-    in-out property <int> language;
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size;
     in-out property <bool> link-previews;
@@ -1100,22 +1096,11 @@ export component MessageSettings inherits VerticalLayout {
             checked <=> root.clock-seconds;
             toggled => { root.preferences-changed(); }
         }
-        SettingsHeading { text: Strings.setting-date-format; }
+        SettingsHeading { text: "DATE FORMAT"; }
         Choices {
-            label: Strings.setting-date-format; options: Strings.date-formats;
+            label: "DATE FORMAT"; options: ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
             current: root.date-format >= 0 ? root.date-format : root.twelve-hour-clock ? 1 : 0;
             chosen(index) => { root.date-format = index; root.preferences-changed(); }
-        }
-        SettingsHeading { text: Strings.setting-time-zone; }
-        ComboBox {
-            model: Strings.time-zones; current-index: root.time-zone; accessible-label: Strings.setting-time-zone;
-            selected => { root.time-zone = self.current-index; root.preferences-changed(); }
-        }
-        SettingsHeading { text: Strings.setting-language; }
-        Choices {
-            label: Strings.setting-language; options: Strings.languages;
-            current <=> root.language;
-            chosen => { root.preferences-changed(); }
         }
     }
     VerticalLayout {

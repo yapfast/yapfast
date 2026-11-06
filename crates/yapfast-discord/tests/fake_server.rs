@@ -1421,7 +1421,7 @@ async fn reads_history_and_member_lists() {
         .await
         .unwrap();
     assert!(preview.starts_with(b"\x89PNG"));
-    assert_eq!(&preview[16..24], &[0, 0, 1, 104, 0, 0, 0, 225], "360x225");
+    assert_eq!(&preview[16..24], &[0, 0, 2, 38, 0, 0, 1, 88], "550x344");
 
     // The channel's member list arrives once it's on screen, grouped as in
     // Discord: the hoisted Mods role, then online, then offline.
@@ -3657,6 +3657,22 @@ async fn acts_from_a_dms_menu() {
         .await
         .unwrap();
     assert_eq!(discord.note(&dave_user).await.unwrap(), "Met at the jam");
+    // Discord is asked once; another client's change comes by the gateway.
+    let note_reads = || control(server, "GET", "/_control/note-reads", "");
+    assert_eq!(note_reads(), "1");
+    post_control(
+        server,
+        &format!("/_control/note-elsewhere?user={dave_user}&note=Owes+me"),
+        "",
+    );
+    timeout(WAIT, async {
+        while discord.note(&dave_user).await.unwrap() != "Owes me" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(note_reads(), "1");
     discord.ignore(&dave_user, true).await.unwrap();
     snapshot_where(&discord, |snapshot| {
         *snapshot.ignored == [dave_user.clone()]

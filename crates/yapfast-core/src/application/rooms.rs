@@ -36,8 +36,6 @@ pub enum MenuChoice {
     /// Send someone an invite to one of this account's Discord servers, in
     /// a submenu of them; see `places.rs`.
     InviteToServer,
-    /// The apps menu of Discord's member menu, a submenu that has none yet.
-    Apps,
     Unfriend,
     Ignore,
     Unignore,

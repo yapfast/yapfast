@@ -659,6 +659,9 @@ pub struct Discord {
     names: Arc<RwLock<Names>>,
     /// Profiles fetched lately, oldest first.
     profiles: Arc<Mutex<Vec<Kept>>>,
+    /// This account's notes it has read, by user: none is an empty text. The
+    /// session keeps them current; see [`session::Shared::notes`].
+    notes: Notes,
     /// The threads a list of a channel's threads found, by id, while it's
     /// open: one opens from what Discord gave rather than asking again.
     listed_threads: Arc<Mutex<HashMap<String, Value>>>,
@@ -697,6 +700,22 @@ const LIVE_BACKLOG: usize = 256;
 const PROFILE_AGE: Duration = Duration::from_secs(5 * 60);
 const PROFILES: usize = 32;
 
+/// How many users' notes are kept before they're read afresh.
+const NOTES: usize = 256;
+
+type Notes = Arc<Mutex<HashMap<String, String>>>;
+
+/// Keeps a note this account has on `user`.
+fn keep_note(notes: &Notes, user: &str, note: &str) {
+    let mut notes = notes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if notes.len() >= NOTES && !notes.contains_key(user) {
+        notes.clear();
+    }
+    notes.insert(user.to_owned(), note.to_owned());
+}
+
 impl Discord {
     /// Connects on the current Tokio runtime and keeps reconnecting until
     /// Discord rejects the token.
@@ -727,6 +746,7 @@ impl Discord {
         cached.names = SharedNames::new(names.clone());
         let (snapshots, watcher) = watch::channel(Arc::new(cached));
         let (live, _) = broadcast::channel(LIVE_BACKLOG);
+        let notes = Notes::default();
         // Sharing waits for READY unless an earlier session's settings said.
         let (show_game, shown) = watch::channel(watcher.borrow().show_game);
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
@@ -738,6 +758,7 @@ impl Discord {
                 snapshots,
                 live: live.clone(),
                 names: names.clone(),
+                notes: notes.clone(),
                 api: api.clone(),
                 lists: MemberLists::new(
                     lists,
@@ -760,6 +781,7 @@ impl Discord {
             api,
             names,
             profiles: Arc::default(),
+            notes,
             listed_threads: Arc::default(),
             new_dms: Arc::new(Mutex::new(limits::Window::new(NEW_DMS, NEW_DM_SPAN))),
             application_icons: Arc::default(),
@@ -1309,10 +1331,6 @@ impl Discord {
         self.write_names().learn_user(&value["user"]);
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
-        tracing::info!(
-            theme = ?profile.theme,
-            "the theme colours a profile arrived with"
-        );
         {
             let mut profiles = self.lock_profiles();
             profiles.retain(|old| !same(&old));
@@ -1990,14 +2008,28 @@ impl Discord {
         self.api.set_friend_nickname(user, nickname).await
     }
 
-    /// This account's note on someone; empty when it has none.
+    /// This account's note on someone; empty when it has none. Discord is
+    /// asked once for each user, as its client does.
     pub async fn note(&self, user: &str) -> Result<String> {
-        self.api.note(user).await
+        let kept = self
+            .notes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(user)
+            .cloned();
+        if let Some(kept) = kept {
+            return Ok(kept);
+        }
+        let note = self.api.note(user).await?;
+        keep_note(&self.notes, user, &note);
+        Ok(note)
     }
 
     /// Sets this account's note on someone; empty removes it.
     pub async fn set_note(&self, user: &str, note: &str) -> Result<()> {
-        self.api.set_note(user, note).await
+        self.api.set_note(user, note).await?;
+        keep_note(&self.notes, user, note);
+        Ok(())
     }
 
     /// Sets the nickname of `user` in a server, this account's own included;

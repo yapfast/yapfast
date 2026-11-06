@@ -1785,7 +1785,6 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Start call",
             "Add note",
             "Add friend nickname",
-            "Apps",
             "Remove friend",
             "Ignore",
             "Block",
@@ -1805,7 +1804,12 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     };
     assert_eq!(
         marked(|row| row.separated),
-        ["Apps", "Change nickname", "Time out Dave", "Copy ID"]
+        [
+            "Remove friend",
+            "Change nickname",
+            "Time out Dave",
+            "Copy ID"
+        ]
     );
     assert_eq!(
         marked(|row| row.danger),
@@ -1819,7 +1823,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     );
 
     // Roles: every one, ticked where held, greyed where out of reach.
-    let roles = window.get_menu_submenus().row_data(11).unwrap();
+    let roles = window.get_menu_submenus().row_data(10).unwrap();
     let shown: Vec<(String, bool, bool)> = roles
         .iter()
         .map(|row| (row.text.to_string(), row.checked, row.disabled))
@@ -1827,17 +1831,22 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     let row = |name: &str, checked, disabled| (name.to_owned(), checked, disabled);
     assert_eq!(
         shown,
-        // Only the roles within reach are listed, as Discord's menu does.
-        [row("Crew", true, false), row("Wardens", false, false)]
+        [
+            row("Leads", false, true),
+            row("Staff", false, true),
+            row("Crew", true, false),
+            row("Bot", false, true),
+            row("Wardens", false, false),
+        ]
     );
     assert!(roles.iter().all(|row| row.checkbox));
     window.invoke_choose_menu("4".into(), true, "role:20".into());
     assert!(
         !window
             .get_menu_submenus()
-            .row_data(11)
+            .row_data(10)
             .unwrap()
-            .row_data(0)
+            .row_data(2)
             .unwrap()
             .checked,
         "Crew unticks at once, and the menu stays open"
@@ -1931,11 +1940,10 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
         .iter()
         .position(|row| row.text == "Invite to server")
         .unwrap();
-    assert_eq!(rows[at - 1].text, "Apps");
     assert_eq!(rows[at + 1].text, "Remove friend");
     assert!(
-        !rows[at].separated,
-        "in the group of how she stands with them"
+        rows[at].separated,
+        "it starts the group of how she stands with them"
     );
     let servers = window.get_menu_submenus().row_data(at).unwrap();
     let servers: Vec<(String, String)> = servers
@@ -3911,7 +3919,6 @@ fn friends_in_a_servers_voice_channel_show_where() {
         unlisted: false,
         official: false,
         empty: false,
-        symbol: 0,
         preview: None,
     };
     let mut state = AppState::default();
@@ -6611,7 +6618,6 @@ fn requests_list_someone_once_with_their_message() {
         unlisted: false,
         official: false,
         empty: false,
-        symbol: 0,
         preview: Some(Box::new(RequestPreview {
             text: format!("Hi from {person}"),
             at: 1_700_000_000_000,
@@ -8164,4 +8170,25 @@ fn dominant_colour_of_an_avatar_is_its_vivid_colour() {
         profile::dominant_color(&slint::Image::from_rgba8(empty)),
         None
     );
+}
+
+#[test]
+fn an_avatars_colour_is_worked_out_once_it_has_arrived() {
+    use slint::{Rgba8Pixel, SharedPixelBuffer};
+    let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(4, 4);
+    buffer
+        .make_mut_slice()
+        .fill(Rgba8Pixel::new(200, 20, 20, 255));
+    let avatar = slint::Image::from_rgba8(buffer);
+    let waiting = slint::Image::default();
+    assert_eq!(profile::avatar_color(Some("a.png"), &waiting), None);
+    let color = profile::avatar_color(Some("a.png"), &avatar);
+    assert!(color.is_some());
+    assert_eq!(
+        profile::avatar_color(Some("a.png"), &waiting),
+        color,
+        "kept by address, without reading the picture again"
+    );
+    assert_eq!(profile::avatar_color(Some("b.png"), &waiting), None);
+    assert_eq!(profile::avatar_color(None, &avatar), None);
 }
