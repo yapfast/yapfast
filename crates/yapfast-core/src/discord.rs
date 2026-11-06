@@ -28,6 +28,36 @@ use crate::{
     network::Network,
 };
 
+/// One Discord identity linked on this device, without exposing its token.
+#[cfg(feature = "discord")]
+pub fn linked_accounts() -> anyhow::Result<Vec<yapfast_discord::accounts::Account>> {
+    yapfast_discord::accounts::list()
+}
+
+/// The Discord identity selected for the next backend start.
+#[cfg(feature = "discord")]
+pub fn active_account() -> anyhow::Result<Option<String>> {
+    yapfast_discord::accounts::active()
+}
+
+/// Selects a saved Discord identity for the next backend start.
+#[cfg(feature = "discord")]
+pub fn select_account(id: &str) -> anyhow::Result<()> {
+    yapfast_discord::accounts::select(id)
+}
+
+/// Removes one saved Discord identity without touching the others.
+#[cfg(feature = "discord")]
+pub fn remove_account(id: &str) -> anyhow::Result<()> {
+    yapfast_discord::accounts::remove(id)
+}
+
+/// Whether this process is connected to the local fake Discord used by tests.
+#[cfg(feature = "discord")]
+pub fn is_test_server() -> bool {
+    yapfast_discord::client::test_server().is_some()
+}
+
 pub(crate) const PREFIX: &str = "discord:";
 /// Discord channels kept after closing, so going back to one shows it at
 /// once, and of each, the newest messages kept. Decoded previews use one
