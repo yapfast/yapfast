@@ -1112,6 +1112,7 @@ export component YapfastWindow inherits Window {
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size: 1;
     in-out property <bool> link-previews: true;
+    in-out property <bool> boost-gems: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
     /// Whether nameplates show, in member lists and on the account's card.
@@ -3590,7 +3591,7 @@ export component YapfastWindow inherits Window {
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member;
+                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
@@ -3844,7 +3845,7 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 2: MessageSettings {
             message-font-size: root.message-font-size;
             twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
-            link-previews <=> root.link-previews; share-typing <=> root.share-typing;
+            link-previews <=> root.link-previews; boost-gems <=> root.boost-gems; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
             collapse-long <=> root.collapse-long;

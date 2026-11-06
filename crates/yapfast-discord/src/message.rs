@@ -1270,6 +1270,9 @@ pub struct Names {
     /// When members' timeouts end, in Unix milliseconds, by server and user
     /// id: only those timed out, while Yapfast runs.
     timeouts: HashMap<(Id, Id), u64>,
+    /// Since when members have boosted their server, in Unix milliseconds,
+    /// by server and user id: only those boosting it, while Yapfast runs.
+    boosts: HashMap<(Id, Id), u64>,
     /// Changes whenever a name, avatar or role of someone known changes, so
     /// what was shown with them can tell it's out of date. Someone new
     /// changes nothing shown, which was rendered after learning them.
@@ -1454,6 +1457,7 @@ impl Names {
             .retain(|(_, user), _| seen.contains_key(user));
         self.roles.retain(|(_, user), _| seen.contains_key(user));
         self.timeouts.retain(|(_, user), _| seen.contains_key(user));
+        self.boosts.retain(|(_, user), _| seen.contains_key(user));
     }
 
     /// Changes whenever what [`Names::name`], [`Names::avatar`],
@@ -1576,6 +1580,11 @@ impl Names {
             let until = until.as_str().and_then(iso_ms);
             changed(&mut self.timeouts, key, until);
         }
+        // Present when known, null when they don't boost it.
+        if let Some(since) = member.get("premium_since") {
+            let since = since.as_str().and_then(iso_ms);
+            changed(&mut self.boosts, key, since);
+        }
         self.members.insert(key);
         self.version += u64::from(known && learned);
     }
@@ -1593,6 +1602,7 @@ impl Names {
             | self.member_nameplates.remove(&key).is_some()
             | self.member_styles.remove(&key).is_some();
         self.timeouts.remove(&key);
+        self.boosts.remove(&key);
         self.members.remove(&key);
         self.version += u64::from(learned);
     }
@@ -1601,6 +1611,12 @@ impl Names {
     /// out as far as Yapfast knows; it may have ended already.
     pub fn timed_out_until(&self, guild: &str, user: &str) -> Option<u64> {
         self.timeouts.get(&member_key(guild, user)?).copied()
+    }
+
+    /// Since when a member has boosted their server, in Unix milliseconds,
+    /// if they do as far as Yapfast knows.
+    pub fn boosting_since(&self, guild: &str, user: &str) -> Option<u64> {
+        self.boosts.get(&member_key(guild, user)?).copied()
     }
 
     /// The members known to hold `role` in a server, by user id.
