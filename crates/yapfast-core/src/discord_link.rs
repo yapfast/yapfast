@@ -53,6 +53,9 @@ async fn save_account(token: String) -> anyhow::Result<()> {
     let api = Api::new(token.clone())?;
     api.learn_build_number().await;
     let user = api.me().await?;
+    if yapfast_discord::client::test_server().is_some() {
+        return token::store(&token);
+    }
     let mut legacy_migrated = false;
 
     if yapfast_discord::accounts::active()?.is_none()
