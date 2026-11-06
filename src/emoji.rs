@@ -15,7 +15,7 @@ use std::sync::{Arc, OnceLock};
 
 use slint::{
     Model, ModelRc, SharedString, VecModel,
-    fontique_011::{fontique, shared_collection},
+    fontique_012::{fontique, shared_collection},
 };
 use yapfast_core::chat::EmojiSet;
 use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection, SectionGlyph};

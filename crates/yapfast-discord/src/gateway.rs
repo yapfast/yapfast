@@ -26,7 +26,7 @@ use tokio::{
     time::{Instant, timeout},
 };
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async,
+    MaybeTlsStream, WebSocketStream,
     tungstenite::{
         Message,
         client::IntoClientRequest,
@@ -35,7 +35,7 @@ use tokio_tungstenite::{
     },
 };
 
-use crate::{client, event::Event, member_list};
+use crate::{client, event::Event, member_list, websocket};
 
 const URL: &str = "wss://gateway.discord.gg";
 /// What the web client asks of the gateway: JSON, compressed as one zlib
@@ -270,7 +270,7 @@ async fn open(url: &str) -> Result<Socket> {
         header::ORIGIN,
         HeaderValue::from_static("https://discord.com"),
     );
-    let (socket, _) = timeout(IO_TIMEOUT, connect_async(request))
+    let (socket, _) = timeout(IO_TIMEOUT, websocket::connect(request))
         .await
         .context("Discord's gateway didn't answer")?
         .context("could not reach Discord's gateway")?;
@@ -287,7 +287,6 @@ impl Gateway {
         presence: Value,
         reconnects: &mut Reconnects,
     ) -> Result<(Self, Value)> {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let url = match client::test_server() {
             Some(server) => {
                 let server = server

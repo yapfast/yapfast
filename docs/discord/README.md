@@ -131,6 +131,11 @@ sign-in screen, and signing out there unlinks. Either way, Yapfast first says
 that Discord doesn't allow third-party clients, so linking puts the account at
 risk, and shows the code only when asked.
 
+HTTPS requests and WebSockets alike trust the certificates the system trusts,
+through `rustls-platform-verifier`, so a reverse proxy whose CA is in the
+system's store works. The WebSockets share one TLS setup,
+`yapfast_discord::websocket`.
+
 The remote login gateway (`wss://remote-auth-gateway.discord.gg/?v=2`, with
 Discord's web origin) works as Discord's own login page does,
 `yapfast_discord::remote_auth`:

@@ -350,6 +350,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         zoom::apply(window.window(), base.get(), level.get());
         let note = Rc::new(slint::Timer::default());
         let mut keys = zoom::Keys::default();
+        let mut cursor = None;
         // The winit window exists by the first event it sends.
         #[cfg(target_os = "linux")]
         let mut watching = false;
@@ -541,7 +542,40 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
-                let step = match keys.event(event) {
+                let outcome = keys.event(event);
+                // Shift turns a message's hover bar into its quick actions,
+                // as in Discord's client, wherever the focus is.
+                match event {
+                    WindowEvent::CursorMoved { position, .. } => cursor = Some(*position),
+                    WindowEvent::CursorLeft { .. } => cursor = None,
+                    _ => {}
+                }
+                if let Some(window) = weak.upgrade()
+                    && window.get_shift_held() != keys.shift()
+                {
+                    window.set_shift_held(keys.shift());
+                    // The buttons change under a pointer that stays put, and
+                    // Slint looks again only when it moves; ask it to now, so
+                    // the tooltip and highlight belong to what a click does.
+                    // Not while the keyboard walks the messages, whose choice
+                    // a row newly under the pointer would take.
+                    if let Some(position) = cursor
+                        && !window.get_browsing()
+                    {
+                        let position =
+                            position.to_logical::<f32>(f64::from(slint_window.scale_factor()));
+                        let position = slint::LogicalPosition::new(position.x, position.y);
+                        let weak = weak.clone();
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let Some(window) = weak.upgrade() {
+                                window.window().dispatch_event(
+                                    slint::platform::WindowEvent::PointerMoved { position },
+                                );
+                            }
+                        });
+                    }
+                }
+                let step = match outcome {
                     zoom::Outcome::Pass => return EventResult::Propagate,
                     zoom::Outcome::Taken => return EventResult::PreventDefault,
                     zoom::Outcome::Step(step) => step,

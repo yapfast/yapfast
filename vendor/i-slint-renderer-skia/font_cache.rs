@@ -77,16 +77,10 @@ impl FontCache {
     }
 
     fn load_typeface_internal(&self, font: &parley::FontData) -> Option<skia_safe::Typeface> {
-        // Yapfast: Skia reads the font where fontique keeps it, rather than a copy.
-        // Fontique maps system fonts from disk, so the copy put each whole file
-        // on the heap, 10 MiB for Noto Color Emoji, once more for each variation.
-        let bytes = keep_for_skia(&font.data);
-        // SAFETY: `keep_for_skia` keeps the blob, and so its bytes, alive and in
-        // place until the process ends, so no typeface or Skia cache outlives them.
-        let data = unsafe { skia_safe::Data::new_bytes(bytes) };
-        let typeface = self
-            .font_mgr
-            .new_from_data(data, if font.index > 0 { Some(font.index as _) } else { None });
+        let typeface = self.font_mgr.new_from_data(
+            skia_safe::Data::new_with_owner(font.data.clone()),
+            if font.index > 0 { Some(font.index as _) } else { None },
+        );
 
         // Due to  https://issues.skia.org/issues/310510989, fonts from true type collections
         // with an index > 0 fail to load on macOS. As a workaround, we manually extract the font from the
@@ -99,7 +93,7 @@ impl FontCache {
                 .and_then(|ttc| ttc.get(font.index).ok())
                 .map(|ttf| write_fonts::FontBuilder::new().copy_missing_tables(ttf).build())
                 .and_then(|new_ttf| {
-                    self.font_mgr.new_from_data(skia_safe::Data::new_copy(&new_ttf), None)
+                    self.font_mgr.new_from_data(skia_safe::Data::new_with_owner(new_ttf), None)
                 })
         {
             return Some(typeface);
@@ -107,21 +101,6 @@ impl FontCache {
 
         typeface
     }
-}
-
-/// Yapfast: every font blob Skia reads without a copy, by blob id, never released.
-/// They are the few font files drawn with; fontique maps system fonts from disk
-/// and bundled ones are in the executable, so keeping them takes no heap.
-static KEPT_FOR_SKIA: std::sync::Mutex<std::collections::BTreeMap<u64, fontique::Blob<u8>>> =
-    std::sync::Mutex::new(std::collections::BTreeMap::new());
-
-fn keep_for_skia(blob: &fontique::Blob<u8>) -> &'static [u8] {
-    let mut kept = KEPT_FOR_SKIA.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let blob = kept.entry(blob.id()).or_insert_with(|| blob.clone());
-    let bytes: &[u8] = blob.as_ref();
-    // SAFETY: the blob stays in KEPT_FOR_SKIA, which nothing removes from, and
-    // a blob's data is shared behind an Arc, so its bytes neither move nor go.
-    unsafe { std::slice::from_raw_parts(bytes.as_ptr(), bytes.len()) }
 }
 
 thread_local! {

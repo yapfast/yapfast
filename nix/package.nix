@@ -39,6 +39,7 @@ rustPlatform.buildRustPackage {
       "deep_filter-0.5.7-pre" = deepFilterHash;
       "matrix-rtc-bridge-0.4.0-rc.1" = "sha256-Zm+5xARhyrix22Ihz2fesWkwg21FaT/eqi240eT1lnQ=";
       "matrix-sdk-0.19.1" = "sha256-MzEIaDxJVssAiTd2r7qRSdkZvD+IYpC71shuJU5TATE=";
+      "slint-1.19.0" = "sha256-gAu/zH5z6UrlEolvzpmcjsFZlJG2PWV96nNRgrdKyFs=";
     };
   };
   buildNoDefaultFeatures = true;

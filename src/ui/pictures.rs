@@ -452,7 +452,7 @@ impl Model for Frames {
         if row >= self.row_count() {
             return None;
         }
-        let now = Duration::from_millis(i_slint_core::animations::current_tick().0);
+        let now = Duration::from(i_slint_core::animations::current_tick());
         let image = {
             let mut decoding = self.decoding.borrow_mut();
             decoding.used = Some(now);
@@ -461,9 +461,7 @@ impl Model for Frames {
         FRAME_SWEEP.with(|timer| {
             if !timer.running() {
                 timer.start(slint::TimerMode::Repeated, IDLE_FRAMES, || {
-                    if !sweep(Duration::from_millis(
-                        i_slint_core::animations::current_tick().0,
-                    )) {
+                    if !sweep(i_slint_core::animations::current_tick().into()) {
                         FRAME_SWEEP.with(slint::Timer::stop);
                     }
                 });

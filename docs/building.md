@@ -25,20 +25,18 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1, Slint 1.18.1 and Skia 0.153.3. Cargo.lock pins the
-complete Rust graph. `vendor/i-slint-renderer-skia` is Slint's Skia renderer
-1.18.1 with these changes. Glyphs use Skia's slight (vertical-only) hinting,
+Yapfast pins Rust 1.97.1, Slint's master at `ac7d423f` and Skia 0.157.0.
+Cargo.lock pins the complete Rust graph. That commit calls itself 1.19.0, which
+isn't released: `[patch.crates-io]` in Cargo.toml takes `=1.19.0` and the crates
+it needs from the commit. Its generated Rust compiles in half the time of
+1.18's. `vendor/i-slint-renderer-skia` is Slint's Skia renderer at that commit
+with these changes. Glyphs use Skia's slight (vertical-only) hinting,
 because the default hinting spaced Satoshi's letters unevenly. Smooth pictures
 up to 512×512 pixels sample mipmaps, because plain bilinear sampling made
 pictures drawn smaller than their pixels, such as avatars, look jagged. Larger
 ones, such as video frames, go without: each frame would build its mipmaps
 anew. So do pictures drawn no smaller than their pixels, such as a call's
-camera, made at its tile's size. Skia reads fonts where fontique keeps them
-rather than copying each file to the heap. It reads a picture made in code,
-such as a camera's frame or an avatar, where Slint keeps it too, rather than
-copying it for each new frame: a table on the UI thread keeps the Slint buffer
-beside Skia's image until nothing else holds that image, and Slint copies a
-buffer it shares before anything writes to it. On Linux it takes rust-skia's
+camera, made at its tile's size. On Linux it takes rust-skia's
 prebuilt Skia with Skia's own FreeType: the one built for the system's FreeType
 lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build of Noto
 Color Emoji, the only one Fedora installs. Rust-skia builds that Skia only with
@@ -52,8 +50,9 @@ on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on Direct3D
 `Cargo.toml`. Copy the matching release over it, and reapply them, when
 upgrading Slint.
 
-`vendor/i-slint-core` is Slint's core 1.18.1 with `StyledText` made selectable,
-which upstream Slint doesn't offer. Dragging selects, a double press selects a
+`vendor/i-slint-core` is Slint's core at that commit with `StyledText` always
+selectable, across the texts around it, where upstream's `selectable` property
+selects inside one text and Yapfast leaves it unset. Dragging selects, a double press selects a
 word and a triple press a paragraph. Dragging past a text carries the selection
 on through the texts and pictures around it: those sharing its nearest flickable,
 such as a list's rows, in reading order. Pictures are the `Image`s with
@@ -216,8 +215,8 @@ measured speed. Use them for builds people run. The `measure` profile
 optimizes like release, keeps symbols and builds incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
 measure`. The `fast` profile is `measure` with the Slint interface
-unoptimized, which cuts a rebuild after a `.slint` edit from two minutes to
-about 35 seconds. Use it for tests, local runs and checks: `cargo build
+unoptimized. A `.slint` edit that changes a value rebuilds in about 35 seconds
+either way, and one that adds an element in 80 seconds rather than 100. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`.
 
 ### Dependency sources
@@ -225,12 +224,12 @@ about 35 seconds. Use it for tests, local runs and checks: `cargo build
 Yapfast patches these crates in `vendor/`, through `[patch.crates-io]` or a path
 dependency in Cargo.toml:
 
-- `i-slint-core`: Slint's core 1.18.1 with selectable `StyledText`,
+- `i-slint-core`: Slint's core at `ac7d423f` with selectable `StyledText`,
   mentions coloured in a `TextInput`, timelines that keep their place as
   older messages load, a wheel that speeds up when spun fast, and middle-click
   autoscroll, above.
-- `i-slint-renderer-skia`: Slint's Skia renderer 1.18.1 with slight hinting,
-  mipmapped pictures, uncopied fonts and pictures, and Skia's own FreeType on
+- `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
+  mipmapped pictures, and Skia's own FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows
   restores a minimized window at its old size without its pixels, which
   partial rendering left black. On Direct3D 12 it also hands each frame back
