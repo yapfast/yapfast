@@ -408,8 +408,10 @@ an error.
 ## GIFs
 
 The GIF button left of the emoji button, or Ctrl+G, opens a picker with two
-tabs, GIFs and Emoji, as Discord's does; Ctrl+E opens it on Emoji. Discord
-finds GIFs through Klipy, and Yapfast asks Discord as its desktop client does:
+tabs, GIFs and Emoji, as Discord's does; Ctrl+E opens it on Emoji. The two
+share the window: its left edge drags it wider, and each tab fits what it shows
+to that width. Discord finds GIFs through Klipy, and Yapfast asks Discord as
+its desktop client does:
 
 - The home is `GET /gifs/trending?media_format=tinywebp&locale=en-US`:
   trending terms, each with a picture, and one trending GIF. It shows a

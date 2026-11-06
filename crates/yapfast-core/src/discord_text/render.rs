@@ -339,6 +339,7 @@ pub(super) fn custom_emoji(message: &Message) -> Vec<CustomEmoji> {
                 text: key.clone(),
                 id: id.to_owned(),
                 animated: false,
+                usable: true,
                 picture: yapfast_discord::ready::custom_emoji(
                     id,
                     false,
@@ -363,6 +364,7 @@ fn emoji_in(content: &str) -> Vec<CustomEmoji> {
             ),
             id: emoji.id,
             animated: emoji.animated,
+            usable: true,
         })
         .collect()
 }

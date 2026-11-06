@@ -134,10 +134,27 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Shift and a click puts it in the message, and a star keeps it among the
   favourites; GIFs and moving pictures in messages have the star too. Its left
   edge drags it wider, as Discord's does: the right edge and the height stay,
-  the grid fits another column for every 212px, and the edge stops 8px past
-  the server list. The Emoji tab keeps the 498px the picker opens at. A drag
-  that changed the width keeps it in `layout.json` (`gif_picker_width`), and
-  it comes back at the next start. See [Discord](discord/messages.md#gifs).
+  and the edge stops 8px past the server list. The GIFs and the Emoji share
+  that window and its width: the GIFs' grid fits another column for every
+  212px, and the emoji's another of Discord's 56px buttons a row. The buttons
+  keep their size and their spacing as it widens, so what the width has over
+  stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
+  which is the artwork Discord's client uses and which the program carries
+  (`vendor/twemoji`, CC-BY 4.0), decoded at the size the grid draws as its row
+  shows; drawing the system emoji font instead cost a colour font's paint graph
+  for every emoji on screen, every frame, and made a stretched picker scroll
+  slowly. A row more than eight past those shown lets go of its pictures, and
+  a picker that closes lets go of its grid, so the list costs what is near the
+  view. A code point Twemoji has no picture for, and emoji in message text,
+  are still drawn by the system font. Every server's emoji show, as Discord's
+  picker shows them: the ones this account may not use where it is looking —
+  another server's, or an animated one without Nitro — are greyed with a lock
+  in their corner, and pressing one opens Discord's Nitro page. A start whose
+  picture cache is empty fetches all of them into it in the background, off the
+  thread that draws, decoding none and holding none, so the first look finds
+  them. A drag that changed
+  the width keeps it in `layout.json` (`picker_width`), and it comes back at
+  the next start. See [Discord](discord/messages.md#gifs).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the

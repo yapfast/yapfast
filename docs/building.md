@@ -159,6 +159,18 @@ is. Compare it with the Fluent style's when upgrading Slint.
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
 
+The picker's, the reaction buttons' and the emoji suggestions' emoji are drawn
+from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
+`assets/72x72` from https://github.com/discord/twemoji at the revision
+`vendor/twemoji/REVISION` names, under CC-BY 4.0, which asks for the attribution
+`vendor/twemoji/README.yapfast.md` gives. `build.rs` packs them into the program
+and `src/twemoji.rs` finds one by the emoji's code points; a code point it has
+no picture for stays a glyph from the system's emoji font (`src/emoji_glyphs.rs`
+draws that once into a picture). `scripts/release_package.py` copies the
+licences and attribution into each package and `THIRD-PARTY.json`. Update by
+taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
+says.
+
 libDF, DeepFilterNet's Rust implementation, comes from DeepFilterNet's
 repository at `d375b2d`, since crates.io has only its 0.2.5. It asks for
 tract `^0.21.4`, but tract 0.21.10 changed an API it uses, so Cargo.lock keeps

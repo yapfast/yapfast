@@ -921,8 +921,11 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
-    /// The GIF picker's width, as its left edge last dragged it wider.
-    gif_picker_width: Option<f32>,
+    /// The expression picker's width, the GIFs and the emoji alike, as its
+    /// left edge last dragged it wider. `gif_picker_width` named it while only
+    /// the GIFs took it.
+    #[serde(alias = "gif_picker_width")]
+    picker_width: Option<f32>,
     /// The member list shows until someone closes it.
     members_hidden: bool,
     /// So does the profile beside a one-to-one DM.
@@ -1203,8 +1206,8 @@ impl Layout {
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
-        if let Some(width) = self.gif_picker_width {
-            window.set_gif_picker_width(width);
+        if let Some(width) = self.picker_width {
+            window.set_picker_width(width);
         }
         window.set_member_list(!self.members_hidden);
         window.set_profile_panel(!self.profile_panel_hidden);
@@ -1525,6 +1528,9 @@ struct Adapter {
     runtime: Arc<BackgroundRuntime>,
     root: PathBuf,
     layout: Layout,
+    /// The rows of the emoji picker's grid that may hold pictures it drew, first
+    /// and last: see `fill_shown_glyphs`.
+    emoji_rows_filled: (usize, usize),
     app: Application,
     models: Models,
     icons: Icons,
@@ -1786,6 +1792,7 @@ impl Adapter {
                 runtime,
                 root,
                 layout,
+                emoji_rows_filled: (0, 0),
                 app,
                 models,
                 icons,
@@ -2573,9 +2580,6 @@ fn same_list<T: Clone + PartialEq + 'static>(old: &ModelRc<T>, new: ModelRc<T>) 
 /// cards' widths less their padding.
 const PROFILE_CARD_WIDTH: f32 = 300. - 2. * 16.;
 const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
-
-/// The most custom emoji the picker fetches pictures for at once.
-const MAX_PICKER_EMOJI: usize = 600;
 
 /// How many emoji the composer suggests for a `:name` word.
 const EMOJI_SUGGESTIONS: usize = 10;

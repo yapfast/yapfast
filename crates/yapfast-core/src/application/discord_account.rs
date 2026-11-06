@@ -274,6 +274,7 @@ impl Application {
                     text: format!(":{}:", emoji.name),
                     id: emoji.id.clone(),
                     animated: emoji.animated,
+                    usable: true,
                     picture: yapfast_discord::ready::custom_emoji(
                         &emoji.id,
                         false,
@@ -535,7 +536,42 @@ impl Application {
         effects.extend(self.mark_aside_read());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
+        effects.extend(self.prefetch_emoji());
         effects
+    }
+
+    /// Fetches the account's custom emoji pictures into the disk cache once, on
+    /// a start that kept none: a first start, or one whose cache went. Nothing
+    /// is decoded or held, so it costs no memory; the fetcher downloads a few at
+    /// a time and lets whatever is on screen go before them, and its backoff
+    /// keeps Discord from rate-limiting it.
+    #[cfg(feature = "discord")]
+    fn prefetch_emoji(&mut self) -> Option<Effect> {
+        if self.emoji_prefetched {
+            return None;
+        }
+        self.emoji_prefetched = true;
+        if yapfast_discord::cache::pictures_kept() != 0 {
+            return None;
+        }
+        let mut seen = HashSet::new();
+        let emoji: Vec<String> = self
+            .emoji_sets()
+            .iter()
+            .flat_map(|set| &set.emoji)
+            .map(|emoji| emoji.picture.clone())
+            .filter(|url| !url.is_empty() && seen.insert(url.clone()))
+            .collect();
+        tracing::info!(
+            pictures = emoji.len(),
+            "prefetching custom emoji pictures for a cache that held none"
+        );
+        // To the disk cache alone: nothing is decoded or held, so an account
+        // with thousands of emoji costs no memory to prefetch, and what the
+        // picker shows is read from the disk as it shows it.
+        (!emoji.is_empty()).then_some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchPictures(emoji),
+        )))
     }
 
     /// Forgets the Discord account after it was unlinked.
