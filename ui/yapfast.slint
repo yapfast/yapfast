@@ -3598,6 +3598,12 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 4 && root.discord-linked: DiscordSettings {
             matrix-build: root.matrix-build;
             accounts: root.discord-accounts;
+            link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
+            link-discord => { root.link-discord(); }
+            link-discord-token(token) => { root.link-discord-token(token); }
+            open-discord-captcha => { root.open-discord-captcha(); }
+            cancel-discord-link => { root.cancel-discord-link(); }
+            restart-app => { root.restart(); }
             select-account(id) => { root.select-discord-account(id); }
             remove-account(id) => { root.remove-discord-account(id); }
             show-hidden-channels: root.show-hidden-channels; sync-discord-reads: root.sync-discord-reads;
