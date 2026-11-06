@@ -69,6 +69,13 @@ struct RawSource {
     _private: [u8; 0],
 }
 
+/// The two shared pictures and the fence they are drawn behind, as
+/// native/d3d11enc.c keeps them.
+#[repr(C)]
+struct RawShared {
+    _private: [u8; 0],
+}
+
 // SAFETY: the shim's own declarations; every pointer passed is one it returned,
 // and the buffers are as large as their sizes say.
 unsafe extern "C" {
@@ -137,6 +144,27 @@ unsafe extern "C" {
     fn yapfast_d3d11enc_device(encoder: *mut Raw) -> *mut c_void;
     fn yapfast_d3d11enc_copied(encoder: *mut Raw) -> c_ulonglong;
     fn yapfast_d3d11enc_free(encoder: *mut Raw);
+    #[allow(clippy::too_many_arguments)]
+    fn yapfast_d3d11enc_shared_new(
+        encoder: *mut Raw,
+        width: c_uint,
+        height: c_uint,
+        process: c_uint,
+        fence: *mut c_ulonglong,
+        luid: *mut c_ulonglong,
+        why: *mut c_char,
+        why_size: usize,
+    ) -> *mut RawShared;
+    fn yapfast_d3d11enc_shared_draw(
+        encoder: *mut Raw,
+        shared: *mut RawShared,
+        texture: *mut c_void,
+        subresource: c_uint,
+        handle: *mut c_ulonglong,
+        value: *mut c_ulonglong,
+    ) -> c_int;
+    fn yapfast_d3d11enc_shared_picture(shared: *mut RawShared) -> *mut c_void;
+    fn yapfast_d3d11enc_shared_free(shared: *mut RawShared);
     fn yapfast_d3d11enc_source_new(
         encoder: *mut Raw,
         frames: c_uint,
@@ -785,6 +813,137 @@ impl Drop for D3d11Encoder {
     }
 }
 
+/// A picture drawn on the card for the UI's window to show where it lies: two
+/// tile-sized BGRA textures and one fence on an encoder's device, sharing the
+/// handles of all three into the UI's process.
+///
+/// The UI's window draws on a Direct3D 12 device of its own and opens the handle
+/// of the texture a picture was published under, so what crosses the process
+/// boundary is a handle and two numbers rather than the tile's pixels. Two
+/// textures alternate, so the one the UI is showing is never the one being
+/// drawn, and the fence value that comes back with each picture is what says it
+/// is drawn: see [`crate::frames::Drawn`], which is what a caller publishes.
+///
+/// It holds textures on its encoder's device, so it goes before the encoder it
+/// draws for, and it is worth nothing without the UI's process being alive:
+/// every failure here is a stream that writes pixels instead.
+pub struct Shared {
+    raw: *mut RawShared,
+    size: (u32, u32),
+    luid: u64,
+    fence: u64,
+}
+
+// SAFETY: the two textures and the fence are the device's, and every call that
+// draws takes the share by `&mut self` while the handle shared out is a number.
+unsafe impl Send for Shared {}
+
+impl Shared {
+    /// Two pictures of `width` by `height` and one fence on `tile`'s device, with
+    /// the handles of all three duplicated into `ui`, the process that opens
+    /// them. Answers why not where the card or the UI's process won't have them:
+    /// a caller that gets an error writes the tile's pixels as it always did.
+    pub fn new(tile: &D3d11Encoder, width: u32, height: u32, ui: u32) -> Result<Self> {
+        let (mut fence, mut luid) = (0, 0);
+        let mut why = [0u8; 192];
+        // SAFETY: raw is an open encoder, and the out-pointers are two locals and
+        // a buffer of the size given.
+        let raw = unsafe {
+            yapfast_d3d11enc_shared_new(
+                tile.raw,
+                width,
+                height,
+                ui,
+                &mut fence,
+                &mut luid,
+                why.as_mut_ptr().cast(),
+                why.len(),
+            )
+        };
+        if raw.is_null() {
+            bail!(
+                "a {width}x{height} picture couldn't be shared with the UI: {}",
+                c_text(&why)
+            );
+        }
+        Ok(Self {
+            raw,
+            size: (width, height),
+            luid,
+            fence,
+        })
+    }
+
+    /// The size of each picture, which is the size it is drawn at and the size
+    /// the UI opens it at.
+    pub fn size(&self) -> (u32, u32) {
+        self.size
+    }
+
+    /// The adapter the pictures were made on, as the UI's window compares its
+    /// own device against.
+    pub fn luid(&self) -> u64 {
+        self.luid
+    }
+
+    /// The fence's handle as the UI's process holds it: one fence for a stream's
+    /// pictures, waited on by the value each of them is published with.
+    pub fn fence(&self) -> u64 {
+        self.fence
+    }
+
+    /// Scales `texture` into the next of the two pictures on the GPU, in one
+    /// pass through the driver's video processor or its shader, and answers that
+    /// picture's handle as the UI's process holds it with the fence value that
+    /// says it is drawn.
+    ///
+    /// The value is signalled after the scale is queued and nothing here waits
+    /// for it: the UI does, and so does the next draw into the same picture.
+    pub fn draw(&mut self, tile: &mut D3d11Encoder, texture: Texture) -> Result<(u64, u64)> {
+        let (mut handle, mut value) = (0, 0);
+        // SAFETY: raw and the encoder are both open, the texture is the caller's
+        // and outlives the call, and the out-pointers are two locals.
+        let drawn = unsafe {
+            yapfast_d3d11enc_shared_draw(
+                tile.raw,
+                self.raw,
+                texture.handle,
+                texture.subresource,
+                &mut handle,
+                &mut value,
+            )
+        };
+        if drawn <= 0 {
+            bail!(
+                "{:?} couldn't draw a {}x{} picture for the UI: {}",
+                tile.codec,
+                self.size.0,
+                self.size.1,
+                tile.error()
+            );
+        }
+        Ok((handle, value))
+    }
+
+    /// The picture the last draw wrote, as a texture on the encoder's device:
+    /// what a test reads back to see the tile the UI would show, and what the
+    /// stream never needs, since it publishes the handle instead.
+    pub fn picture(&self) -> Texture {
+        // SAFETY: raw is an open share, and the texture it names lives as long as
+        // it does.
+        Texture::new(unsafe { yapfast_d3d11enc_shared_picture(self.raw) })
+    }
+}
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        // SAFETY: raw came from the shim's constructor and is freed once. The
+        // handles duplicated into the UI's process are that process's, and go
+        // when it closes them.
+        unsafe { yapfast_d3d11enc_shared_free(self.raw) };
+    }
+}
+
 /// The frames a [`D3d11Encoder`] reads before a capture source fills its
 /// textures: one BGRA texture on the encoder's device, which a compute shader
 /// refills there, so nothing of a frame crosses the processor and a measurement
@@ -1178,6 +1337,62 @@ mod tests {
         for (quarter, x, y, colour) in quarters(width, height) {
             assert_solid(pixel(&pixels, width, x, y), colour, quarter);
         }
+    }
+    /// A picture drawn for the UI is a whole tile of the capture, drawn again and
+    /// again without it being written over: the two draws answer different
+    /// textures, so the one the UI would be showing is never the one the next
+    /// frame fills, and climbing fence values, so a wait can tell one from the
+    /// other. What the second one holds is the capture's own quarters, which is
+    /// the picture the UI would put on screen.
+    #[test]
+    #[ignore = "needs an NVIDIA GPU: it opens an NVENC session on one"]
+    fn a_shared_picture_is_drawn_in_two_before_either_is_drawn_over() {
+        let _gpu = one_gpu_test_at_a_time();
+        let (width, height) = (480u32, 270u32);
+        let mut encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
+            .expect("an NVENC encoder on this machine");
+        let source = encoder.source(1).expect("a texture to draw on");
+        source.quads().expect("the quadrants to draw");
+        // This process, which DuplicateHandle answers as readily as another one:
+        // what the UI does with the handles it is given is the UI's test, and a
+        // handle here is a handle whether or not anybody else opens it.
+        let mut shared = Shared::new(&encoder, width, height, std::process::id())
+            .expect("a tile-sized picture to share");
+        assert_eq!(shared.size(), (width, height));
+        assert_ne!(
+            shared.luid(),
+            0,
+            "the picture has no adapter to be shown on"
+        );
+        assert_ne!(shared.fence(), 0, "the picture has no fence to wait on");
+        let (first, first_value) = shared
+            .draw(&mut encoder, source.texture())
+            .expect("the first picture drawn");
+        let (second, second_value) = shared
+            .draw(&mut encoder, source.texture())
+            .expect("the second picture drawn");
+        assert_ne!(
+            first, second,
+            "both pictures are one texture, which is one written under the UI"
+        );
+        assert!(
+            second_value > first_value,
+            "the fence went back, to {second_value} from {first_value}"
+        );
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        assert_eq!(
+            encoder
+                .readback(shared.picture(), width, height, &mut pixels)
+                .expect("the shared picture read back"),
+            pixels.len()
+        );
+        for (quarter, x, y, colour) in quarters(width, height) {
+            assert_solid(pixel(&pixels, width, x, y), colour, quarter);
+        }
+        eprintln!(
+            "two {width}x{height} pictures at {} and {} behind a fence at {second_value}",
+            first, second
+        );
     }
     /// A readback at a picture's own size is that picture's pixels, exactly: the
     /// copy is a copy, with no scaler in it to move a value, so the two pixels

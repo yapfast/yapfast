@@ -56,7 +56,7 @@ use crate::wgc;
 use crate::{
     decode::{Frame, Live},
     encode::{self, Effort, Encoder},
-    frames::{Frames, Writer},
+    frames::{Drawn, Frames, Writer},
     picture::{self, I420, Tone},
     stream_audio,
     voice::{Resolution, StreamQuality, StreamStats},
@@ -924,6 +924,36 @@ impl Sink {
             }
         });
         Ok(())
+    }
+
+    /// Publishes the tile of a frame the card captured as a picture the UI's
+    /// window shows where the card drew it: the same size the tile is read back
+    /// at, scaled on the GPU into a texture both processes hold, and one handle
+    /// and two numbers published where the tile's pixels would have been.
+    ///
+    /// Answers whether the UI can show such a picture at all. `false` is an
+    /// answer for the rest of the stream rather than for this frame: whether a
+    /// pair of adapters can share a texture doesn't change while the stream
+    /// lasts, and the tile's pixels keep going out exactly as they did, so a UI
+    /// that can't show this one has nothing to fall back to but what it already
+    /// has.
+    #[cfg(any(wgc, dup))]
+    fn share_from_card(
+        &mut self,
+        tile: &mut d3d11::D3d11Encoder,
+        shared: &mut d3d11::Shared,
+        texture: d3d11::Texture,
+    ) -> Result<bool> {
+        let (texture, fence_value) = shared.draw(tile, texture)?;
+        let (width, height) = shared.size();
+        Ok(self.writer.publish(&Drawn {
+            luid: shared.luid(),
+            fence: shared.fence(),
+            texture,
+            fence_value,
+            width,
+            height,
+        }))
     }
 
     /// The preview, and Discord's thumbnail when one is due: the picture scaled
@@ -2431,6 +2461,13 @@ fn capture_textures(
     // The tile's pixels, in the card's order: BGRA, one row after another.
     let mut pixels: Vec<u8> = vec![];
     let mut read: Option<Instant> = None;
+    // The picture the UI's window shows where the card drew it, made with the
+    // tile's own session: the same scale that fills the tile fills the texture
+    // the UI opens, so one session and one destination serve both, and a share
+    // that can't be read back can still be shown. `showable` is whether the UI
+    // says it can show one at all, which a refusal settles for the stream.
+    let mut shared: Option<d3d11::Shared> = None;
+    let mut showable = true;
     // How many times the session and the capture have been put back together
     // since a frame last went out.
     let mut restarts = 0u32;
@@ -2454,10 +2491,14 @@ fn capture_textures(
         // wanted, and the frame itself when one arrived. No lock is held while
         // the capture, the encoder or the preview work.
         let mut size = None;
-        let (switched, wanted) = {
+        let (switched, wanted, ui) = {
             let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             let switched = sink.check(report)?;
             let wanted = sink.preview_wanted();
+            // The UI's process, which a picture drawn here is shared into: zero
+            // until it opens these frames, and a process that has gone is one
+            // with nothing to show anything in.
+            let ui = sink.writer.ui_process();
             match arrival {
                 Arrival::Frame => {
                     let content = capture.content_size();
@@ -2483,7 +2524,7 @@ fn capture_textures(
                 // come.
                 Arrival::Closed => bail!("the capture of the screen ended"),
             };
-            (switched, wanted)
+            (switched, wanted, ui)
         };
         if let Some((width, height)) = size
             && reported != size
@@ -2516,6 +2557,7 @@ fn capture_textures(
                 // session goes now, and the stream's before the capture that
                 // made the device is let go of.
                 tile = None;
+                shared = None;
                 sink.lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .let_go();
@@ -2541,6 +2583,22 @@ fn capture_textures(
                     kbps(preview.1, None),
                 ) {
                     Ok(opened) => {
+                        // The picture the UI's window shows where it lies is made
+                        // with this session and at the tile's own size: the scale
+                        // that fills the tile fills it, so the stream holds a
+                        // texture rather than a frame either way.
+                        if showable && ui != 0 {
+                            match d3d11::Shared::new(&opened, preview.0, preview.1, ui) {
+                                Ok(made) => shared = Some(made),
+                                Err(error) => {
+                                    tracing::info!(
+                                        error = format!("{error:#}"),
+                                        "showing the pixels of a stream: the card won't share a picture"
+                                    );
+                                    showable = false;
+                                }
+                            }
+                        }
                         tile = Some(opened);
                         read = Some(Instant::now());
                     }
@@ -2554,6 +2612,7 @@ fn capture_textures(
             // session goes with it.
             (false, true) => {
                 tile = None;
+                shared = None;
                 read = None;
             }
             _ => {}
@@ -2575,6 +2634,39 @@ fn capture_textures(
             if let Err(error) = taken {
                 tracing::warn!(error = format!("{error:#}"), "sharing without a preview");
             }
+        }
+        // The picture the UI's window shows where the card drew it: the tile's
+        // own size, scaled on the card into a texture both processes hold, so a
+        // window drawn on the GPU shows it without a copy of anything. It is
+        // published after the tile's pixels, so that the newest frame is the
+        // texture and a stream whose sharing is refused keeps the pixels that
+        // went before it rather than losing the frame.
+        let mut withdrawn = false;
+        if let (Some(tile), Some(shared)) = (tile.as_mut(), shared.as_mut())
+            && arrival == Arrival::Frame
+        {
+            let taken = {
+                let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                sink.share_from_card(tile, shared, d3d11::Texture::new(capture.texture()))
+            };
+            match taken {
+                Ok(true) => {}
+                // The UI looked and can't show a picture from this card, or its
+                // window draws on another one: the tile's pixels are what it
+                // shows, and the share it never opened is let go of.
+                Ok(false) => withdrawn = true,
+                Err(error) => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "sharing without the picture drawn on the card"
+                    );
+                    withdrawn = true;
+                }
+            }
+        }
+        if withdrawn {
+            showable = false;
+            shared = None;
         }
     }
     Ok(())

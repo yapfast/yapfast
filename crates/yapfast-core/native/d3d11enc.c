@@ -47,6 +47,9 @@
 /* D3D11.3's shader resource views, which are the only ones that can name a
  * plane of a planar surface: how a shader reads NV12's chroma. */
 #include <d3d11_3.h>
+/* D3D11.4's fence, which is what a picture shared with the UI's window is drawn
+ * behind: the value that says the copy is finished, waited on over there. */
+#include <d3d11_4.h>
 #include <d3dcompiler.h>
 #include <dxgi1_2.h>
 #include <stdarg.h>
@@ -2257,4 +2260,326 @@ void yapfast_d3d11enc_source_free(struct yapfast_d3d11enc_source *source) {
   if (source->quads) source->quads->lpVtbl->Release(source->quads);
   if (source->texture) source->texture->lpVtbl->Release(source->texture);
   free(source);
+}
+
+/* ------------------------------------------------------- the shared picture */
+
+/* The picture the UI's window shows where the card drew it.
+ *
+ * The window draws on a Direct3D 12 device in the UI's process, and a texture
+ * this device shares is one it opens and shows without a pixel of it crossing
+ * the processor. Two of them, alternating: a shared handle names a texture that
+ * the UI opens and keeps for as long as the handle it was published under, so
+ * one texture would be overwritten under the picture somebody is looking at.
+ * Two give the UI a whole frame to finish with the one it has.
+ *
+ * The fence is the promise. A value is signalled on the GPU after the copy into
+ * one of the two, and it is the value, not the publish, that says the picture is
+ * drawn: the UI waits for it before showing anything, and this file waits for
+ * the last value a texture was written at before writing it again. The keyed
+ * mutex Direct3D 11 requires beside an NT handle is taken for the copy and given
+ * back at once, since the Direct3D 12 view of the resource has no mutex to take,
+ * and the fence is what orders the two devices. */
+struct yapfast_d3d11enc_shared {
+  ID3D11Texture2D *pictures[2];
+  IDXGIKeyedMutex *mutexes[2];
+  /* The handles, as the UI's process holds them: what is published is these and
+   * never the ones this process made, which mean nothing over there. */
+  unsigned long long textures[2];
+  /* The fence value each texture was last written at. */
+  unsigned long long written[2];
+  ID3D11Fence *fence;
+  /* The context's signalling half: a copy is only drawn once the fence says so,
+   * and only the GPU can say it. */
+  ID3D11DeviceContext4 *signals;
+  unsigned long long fence_handle;
+  unsigned long long value;
+  unsigned long long luid;
+  unsigned width, height;
+  unsigned next;
+};
+
+/* Freed where a share is half made, below where it is defined: a share that
+ * can't be finished is let go of in the same call that tried to make it. */
+void yapfast_d3d11enc_shared_free(struct yapfast_d3d11enc_shared *s);
+
+/* Direct3D 12's fence, by its identifier, which is what a fence has to be made
+ * as for a device in another process, on another API, to open it. Spelled out
+ * because this is C, which has no `__uuidof`, and because including Direct3D
+ * 12's header for one number would link its library for one number. */
+static const GUID fence_iid = {
+    0x8efb471d, 0x616c, 0x4f49, {0x90, 0xf7, 0x12, 0x7b, 0xb7, 0x63, 0xfa, 0x51}};
+
+/* A handle as another process holds it. A handle's value means nothing outside
+ * the process that took it, so what the UI opens is a duplicate made in its
+ * table. The duplicate is not closed here: it is the UI's to close, and closing
+ * that number in this process would close whatever this process has there. */
+static int duplicate_into(HANDLE source, unsigned process, unsigned long long *out, char *why,
+                          size_t size) {
+  HANDLE target = OpenProcess(PROCESS_DUP_HANDLE, FALSE, (DWORD)process), copy = NULL;
+  if (!target) {
+    if (size)
+      snprintf(why, size, "OpenProcess(%u) for the UI's handles failed (%lu)", process,
+               (unsigned long)GetLastError());
+    return -1;
+  }
+  if (!DuplicateHandle(GetCurrentProcess(), source, target, &copy, 0, FALSE,
+                       DUPLICATE_SAME_ACCESS)) {
+    if (size)
+      snprintf(why, size, "DuplicateHandle into %u failed (%lu)", process,
+               (unsigned long)GetLastError());
+    CloseHandle(target);
+    return -1;
+  }
+  CloseHandle(target);
+  *out = (unsigned long long)(uintptr_t)copy;
+  return 0;
+}
+
+/* One of the two textures, and the mutex and handle that go with it. */
+static int shared_texture(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shared *s,
+                          unsigned at, unsigned process, char *why, size_t size) {
+  D3D11_TEXTURE2D_DESC desc;
+  IDXGIResource1 *resource = NULL;
+  IDXGIKeyedMutex *mutex = NULL;
+  HANDLE handle = NULL;
+  HRESULT status;
+  memset(&desc, 0, sizeof desc);
+  desc.Width = s->width;
+  desc.Height = s->height;
+  desc.MipLevels = 1;
+  desc.ArraySize = 1;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.Usage = D3D11_USAGE_DEFAULT;
+  desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+  /* The pair Direct3D 11 requires of a texture another API opens: an NT handle,
+   * a real kernel object a process can duplicate, and the keyed mutex that goes
+   * beside one. */
+  desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+  status = e->device->lpVtbl->CreateTexture2D(e->device, &desc, NULL, &s->pictures[at]);
+  if (FAILED(status)) {
+    s->pictures[at] = NULL;
+    hr_failure(why, size, "CreateTexture2D for a shared picture", status);
+    return -1;
+  }
+  status = s->pictures[at]->lpVtbl->QueryInterface(s->pictures[at], &IID_IDXGIResource1,
+                                                   (void **)&resource);
+  if (FAILED(status) || !resource) {
+    hr_failure(why, size, "QueryInterface(IDXGIResource1) on a shared picture", status);
+    return -1;
+  }
+  status = resource->lpVtbl->CreateSharedHandle(resource, NULL, GENERIC_ALL, NULL, &handle);
+  resource->lpVtbl->Release(resource);
+  if (FAILED(status) || !handle) {
+    hr_failure(why, size, "IDXGIResource1::CreateSharedHandle for a shared picture", status);
+    return -1;
+  }
+  status = s->pictures[at]->lpVtbl->QueryInterface(s->pictures[at], &IID_IDXGIKeyedMutex,
+                                                   (void **)&mutex);
+  if (FAILED(status) || !mutex) {
+    CloseHandle(handle);
+    hr_failure(why, size, "QueryInterface(IDXGIKeyedMutex) on a shared picture", status);
+    return -1;
+  }
+  s->mutexes[at] = mutex;
+  if (duplicate_into(handle, process, &s->textures[at], why, size)) {
+    CloseHandle(handle);
+    return -1;
+  }
+  CloseHandle(handle);
+  return 0;
+}
+
+/* The fence the two textures are drawn behind, and its handle. Shared between
+ * the APIs as Direct3D 12's fence because that is where the UI opens it; the
+ * same object answers Direct3D 11's fence, which is the half that signals it. */
+static int shared_fence(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shared *s,
+                        unsigned process, char *why, size_t size) {
+  ID3D11Device5 *device = NULL;
+  IUnknown *unknown = NULL;
+  HANDLE handle = NULL;
+  HRESULT status;
+  status = e->device->lpVtbl->QueryInterface(e->device, &IID_ID3D11Device5, (void **)&device);
+  if (FAILED(status) || !device) {
+    hr_failure(why, size, "QueryInterface(ID3D11Device5) for a shared picture's fence", status);
+    return -1;
+  }
+  status =
+      device->lpVtbl->CreateFence(device, 0, D3D11_FENCE_FLAG_SHARED, &fence_iid, (void **)&unknown);
+  device->lpVtbl->Release(device);
+  if (FAILED(status) || !unknown) {
+    hr_failure(why, size, "ID3D11Device5::CreateFence", status);
+    return -1;
+  }
+  status = unknown->lpVtbl->QueryInterface(unknown, &IID_ID3D11Fence, (void **)&s->fence);
+  unknown->lpVtbl->Release(unknown);
+  if (FAILED(status) || !s->fence) {
+    s->fence = NULL;
+    hr_failure(why, size, "QueryInterface(ID3D11Fence) on a shared fence", status);
+    return -1;
+  }
+  status = s->fence->lpVtbl->CreateSharedHandle(s->fence, NULL, GENERIC_ALL, NULL, &handle);
+  if (FAILED(status) || !handle) {
+    hr_failure(why, size, "ID3D11Fence::CreateSharedHandle", status);
+    return -1;
+  }
+  if (duplicate_into(handle, process, &s->fence_handle, why, size)) {
+    CloseHandle(handle);
+    return -1;
+  }
+  CloseHandle(handle);
+  return 0;
+}
+
+/* Two tile-sized pictures and one fence, on the device `e` encodes from, with
+ * both textures' and the fence's handles duplicated into `process`: the UI's,
+ * which is the one that opens them. Answers NULL with `yapfast_d3d11enc_error`
+ * saying why, which is the caller's cue to keep writing pixels. */
+struct yapfast_d3d11enc_shared *yapfast_d3d11enc_shared_new(
+    struct yapfast_d3d11enc *e, unsigned width, unsigned height, unsigned process,
+    unsigned long long *fence, unsigned long long *luid, char *why, size_t size) {
+  struct yapfast_d3d11enc_shared *s;
+  IDXGIAdapter1 *adapter = NULL;
+  DXGI_ADAPTER_DESC1 desc;
+  char said[192] = "";
+  if (why && size) why[0] = 0;
+  if (!e) return nothing(e, "there is no encoder to share a picture with");
+  if (!width || !height)
+    return nothing(e, "%ux%u isn't a size to share a picture at", width, height);
+  if (!process) return nothing(e, "there is no UI process to share a picture with");
+  s = calloc(1, sizeof *s);
+  if (!s) return nothing(e, "no memory for a shared picture");
+  s->width = width;
+  s->height = height;
+  /* The adapter is the UI's test as much as the picture's: Direct3D opens a
+   * shared texture on the adapter that made it and on no other, so the LUID is
+   * what the UI compares its own window's device against before opening
+   * anything. */
+  if (adapter_of(e->device, &adapter, &desc, said, sizeof said)) goto failed;
+  adapter->lpVtbl->Release(adapter);
+  adapter = NULL;
+  s->luid = (unsigned long long)desc.AdapterLuid.LowPart |
+            ((unsigned long long)(unsigned long)desc.AdapterLuid.HighPart << 32);
+  if (shared_texture(e, s, 0, process, said, sizeof said)) goto failed;
+  if (shared_texture(e, s, 1, process, said, sizeof said)) goto failed;
+  if (shared_fence(e, s, process, said, sizeof said)) goto failed;
+  if (e->context->lpVtbl->QueryInterface(e->context, &IID_ID3D11DeviceContext4,
+                                         (void **)&s->signals) != S_OK ||
+      !s->signals) {
+    s->signals = NULL;
+    snprintf(said, sizeof said, "this context can't signal a fence (ID3D11DeviceContext4)");
+    goto failed;
+  }
+  *fence = s->fence_handle;
+  *luid = s->luid;
+  return s;
+failed:
+  if (adapter) adapter->lpVtbl->Release(adapter);
+  yapfast_d3d11enc_shared_free(s);
+  if (!said[0]) snprintf(said, sizeof said, "a shared picture couldn't be made");
+  if (why && size) snprintf(why, size, "%s", said);
+  return nothing(e, "%s", said);
+}
+
+/* Scales `texture`'s picture into the next of the two shared ones on the GPU,
+ * signals the fence with the value that says it is drawn, and answers the
+ * texture's handle as the UI's process holds it and that value. Answers 1, or 0
+ * with `yapfast_d3d11enc_error` saying why.
+ *
+ * The wait before the copy is the reuse discipline: the GPU, not the processor,
+ * waits for the value this texture was last written at, so a picture the driver
+ * is still filling is never written over, and the alternating pair means the one
+ * the UI is showing is the one not being written. */
+int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shared *s,
+                                 void *texture, unsigned subresource, unsigned long long *handle,
+                                 unsigned long long *value) {
+  ID3D11Texture2D *source = texture;
+  D3D11_TEXTURE2D_DESC desc;
+  NV_ENC_BUFFER_FORMAT registered;
+  char why[192] = "";
+  unsigned at;
+  HRESULT status;
+  if (!e) return -1;
+  if (!s) return fail(e, -1, "no shared picture to draw into");
+  if (!source) return fail(e, -1, "the shared picture was given nothing to draw");
+  source->lpVtbl->GetDesc(source, &desc);
+  if (subresource >= desc.MipLevels * desc.ArraySize)
+    return fail(e, -1, "the texture has no subresource %u", subresource);
+  if (!texture_format(desc.Format, &registered))
+    return fail(e, -1,
+                "the texture is DXGI format %u, and a shared picture is drawn from BGRA, RGBA or "
+                "NV12",
+                (unsigned)desc.Format);
+  at = s->next;
+  if (s->mutexes[at]->lpVtbl->AcquireSync(s->mutexes[at], 0, INFINITE) != S_OK)
+    return fail(e, -1, "a shared picture couldn't be taken for drawing");
+  status = s->signals->lpVtbl->Wait(s->signals, s->fence, s->written[at]);
+  if (FAILED(status)) {
+    s->mutexes[at]->lpVtbl->ReleaseSync(s->mutexes[at], 0);
+    return fail(e, -1, "waiting for a shared picture's last frame failed (0x%08lX)",
+                (unsigned long)status);
+  }
+  if (scale_picture(e, source, subresource, desc.Format, desc.Width, desc.Height, s->width,
+                    s->height, why, sizeof why)) {
+    s->mutexes[at]->lpVtbl->ReleaseSync(s->mutexes[at], 0);
+    return fail(e, -1, "%s", why);
+  }
+  e->context->lpVtbl->CopyResource(e->context, (ID3D11Resource *)s->pictures[at],
+                                   (ID3D11Resource *)e->scaler.picture);
+  s->value++;
+  status = s->signals->lpVtbl->Signal(s->signals, s->fence, s->value);
+  if (FAILED(status)) {
+    s->mutexes[at]->lpVtbl->ReleaseSync(s->mutexes[at], 0);
+    return fail(e, -1, "signalling a shared picture's fence failed (0x%08lX)",
+                (unsigned long)status);
+  }
+  s->written[at] = s->value;
+  s->next = at ^ 1;
+  s->mutexes[at]->lpVtbl->ReleaseSync(s->mutexes[at], 0);
+  *handle = s->textures[at];
+  *value = s->value;
+  return 1;
+}
+
+/* The fence's handle as the UI's process holds it: one fence for a stream's
+ * pictures, waited on by the value each is published with. */
+unsigned long long yapfast_d3d11enc_shared_fence(struct yapfast_d3d11enc_shared *s) {
+  return s ? s->fence_handle : 0;
+}
+
+/* The adapter the shared pictures were made on, as the UI compares its own
+ * window's device against. */
+unsigned long long yapfast_d3d11enc_shared_luid(struct yapfast_d3d11enc_shared *s) {
+  return s ? s->luid : 0;
+}
+
+/* The size a shared picture is, which is the size it is drawn at and the size the
+ * UI opens it at. */
+void yapfast_d3d11enc_shared_size(struct yapfast_d3d11enc_shared *s, unsigned *width,
+                                  unsigned *height) {
+  if (!s) return;
+  if (width) *width = s->width;
+  if (height) *height = s->height;
+}
+
+/* The texture the last draw wrote, as the ID3D11Texture2D it is on this device:
+ * what a test reads back to see the picture the UI would show, and nothing the
+ * stream path needs, which knows the handle it was answered with. */
+void *yapfast_d3d11enc_shared_picture(struct yapfast_d3d11enc_shared *s) {
+  return s ? s->pictures[s->next ^ 1] : NULL;
+}
+
+/* The textures go with the share, and the UI's handles go with the UI: a handle
+ * duplicated into its table is valid there until it closes it, which is the
+ * lifetime of the window showing the stream. */
+void yapfast_d3d11enc_shared_free(struct yapfast_d3d11enc_shared *s) {
+  if (!s) return;
+  for (unsigned at = 0; at < 2; at++) {
+    if (s->mutexes[at]) s->mutexes[at]->lpVtbl->Release(s->mutexes[at]);
+    if (s->pictures[at]) s->pictures[at]->lpVtbl->Release(s->pictures[at]);
+  }
+  if (s->signals) s->signals->lpVtbl->Release(s->signals);
+  if (s->fence) s->fence->lpVtbl->Release(s->fence);
+  free(s);
 }
