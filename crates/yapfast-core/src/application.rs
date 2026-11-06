@@ -3370,8 +3370,14 @@ impl Application {
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
             Event::Video(video) => {
-                self.state.video =
-                    video.filter(|video| self.state.selected.as_ref() == Some(&video.room));
+                self.state.video = video.filter(|video| {
+                    self.state.selected.as_ref() == Some(&video.room)
+                        || self
+                            .state
+                            .aside
+                            .as_ref()
+                            .is_some_and(|aside| aside.room == video.room)
+                });
             }
             // Do Not Disturb holds back message notifications, as in Discord.
             Event::Notify(_) if self.state.do_not_disturb() => {}

@@ -2722,6 +2722,18 @@ fn videos_play_in_the_open_room_until_it_closes() {
             .as_slice(),
         [Effect::Backend(Command::Video(chat::VideoCommand::Pause))]
     ));
+    app.state.aside = Some(aside::Aside {
+        room: "thread".into(),
+        ..Default::default()
+    });
+    app.apply(Event::Video(Some(video("thread"))));
+    assert!(
+        app.state
+            .video
+            .as_ref()
+            .is_some_and(|video| video.room == "thread"),
+        "the thread beside's video shows"
+    );
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
     assert!(app.state.video.is_none(), "leaving the room stops it");
 }

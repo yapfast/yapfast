@@ -158,7 +158,7 @@ pub(crate) struct Chat {
     finished: UnboundedReceiver<Done>,
     pictures: discord::Pictures,
     saving: tokio::time::Interval,
-    /// The video playing in the open channel.
+    /// The video playing in the open channel or the thread beside it.
     video: Option<crate::playback::Playback>,
     /// How loud the last video played, and whether muted: the next plays
     /// the same.
@@ -249,8 +249,18 @@ impl Chat {
                 }
                 return;
             }
-            // A video plays only while its channel is open.
+            // A video plays only while its channel is open, or its thread
+            // beside it.
             Command::Open(_) | Command::CloseRoom => self.stop_video(events),
+            Command::Aside(ref beside) => {
+                let shown = self.channels.aside.as_ref().map(|aside| &aside.room);
+                if self.video.as_ref().is_some_and(|playback| {
+                    shown == Some(&playback.video.room)
+                        && beside.as_ref() != Some(&playback.video.room)
+                }) {
+                    self.stop_video(events);
+                }
+            }
             _ => {}
         }
         self::command(
@@ -297,9 +307,7 @@ impl Chat {
         };
         let found = self
             .channels
-            .open
-            .as_ref()
-            .filter(|channel| channel.room == video.room)
+            .shown_mut(&video.room)
             .and_then(|channel| channel.attachment(&video.item, index))
             .and_then(|attachment| Some((attachment.video_url.clone()?, attachment.size)));
         let Some((url, size)) = found else {

@@ -411,7 +411,8 @@ channels for `#` and emoji for `:name` as the channel's does, from the
 channel's members, in the same list just above it; the composer typed in last
 has them, and it highlights what it mentions. Its
 pictures and link previews shrink to fit its width, worked out again once it's
-resized. Files dragged over it go with its message, and
+resized, and its videos play in place as the timeline's do. Files dragged
+over it go with its message, and
 the card saying where moves over it; the rest of the window takes them for the
 channel. Wayland's data device says where the pointer is; winit doesn't on X11
 and Windows, so Yapfast asks the X server, or Windows, while files hover. Its

@@ -298,7 +298,8 @@ an error.
   HEVC, which iPhones record, doesn't, as libwebrtc's FFmpeg lacks it.
   The file downloads into `discord-videos/` beside the account file, and
   plays as it arrives: the worker's reads wait for the download. It goes
-  when the video stops, as when the channel closes. Sound plays on the
+  when the video stops, as when its channel, or its thread beside the
+  channel, closes. Sound plays on the
   call's speakers through `audio_io.rs`, on Linux and Windows. Over the
   mute button a slider sets how loud, as does the wheel; its travel is
   squared, so its middle sounds about half as loud. Turning it to nothing
