@@ -1441,7 +1441,24 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_record_talk_key(move |on| {
         if let Some(window) = weak.upgrade() {
+            window.set_recording_shortcut("".into());
             window.set_talk_recording(on);
+        }
+    });
+    let weak = window.as_weak();
+    window.on_record_shortcut(move |id, on| {
+        if let Some(window) = weak.upgrade() {
+            window.set_talk_recording(false);
+            window.set_recording_shortcut(if on { id } else { "".into() });
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_clear_shortcut(move |id| {
+        if let (Some(window), Some(shortcut)) =
+            (weak.upgrade(), crate::shortcuts::Shortcut::from_id(&id))
+        {
+            state.borrow_mut().set_shortcut(&window, shortcut, None);
         }
     });
     let state = adapter.clone();
@@ -1492,7 +1509,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.close_to_tray = Some(window.get_close_to_tray());
         layout.multiple_windows = window.get_multiple_windows();
         adapter.layout.write(&adapter.root);
-        adapter.watch_talk_key(&window);
+        adapter.watch_shortcuts(&window);
         let start = window.get_start_on_sign_in();
         if AUTOSTART.get() && start != autostart::enabled() {
             match autostart::set(start) {

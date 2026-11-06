@@ -367,6 +367,29 @@ pub(super) fn launched(launch: crate::instance::Launch) {
     let _ = (window, token);
 }
 
+/// A global shortcut that runs an action went down: does it in the call, if
+/// there is one, with the window or without it.
+pub(super) fn run_shortcut(shortcut: crate::shortcuts::Shortcut) {
+    use crate::shortcuts::Shortcut;
+    let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
+        return;
+    };
+    let command = {
+        let adapter = shell.adapter.borrow();
+        let voice = &adapter.app.state.voice;
+        if !voice.active() {
+            return;
+        }
+        match shortcut {
+            Shortcut::ToggleMute => voice::Command::Mute(!voice.muted),
+            Shortcut::ToggleDeafen => voice::Command::Deafen(!voice.deafened),
+            Shortcut::LeaveCall => voice::Command::Leave,
+            Shortcut::PushToTalk => return,
+        }
+    };
+    shell.act(Action::Voice(command));
+}
+
 /// What the person chose in the tray.
 fn chosen(choice: Choice) {
     let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {

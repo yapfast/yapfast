@@ -455,6 +455,20 @@ out and `YAPFAST_LEVELING=off` turns leveling off. `YAPFAST_AUDIO_FAR`, in the s
 format and as long, is what the speakers played, for echo cancellation;
 `YAPFAST_AUDIO_ECHOED` then gets the microphone with only echo cancelled.
 
+## Global shortcuts
+
+Settings → Voice & video → Global shortcuts binds keys that work in any app
+while a call is going on: toggle mute, toggle deafen and leave the call
+(`shortcuts` in `layout.json`, each by its id: `toggle-mute`, `toggle-deafen`,
+`leave-call`). They are recorded like the push-to-talk key and heard the same
+ways, below, as one more shortcut each in the same portal session, offered with
+their modifiers as the preferred trigger (`CTRL+ALT+m`); each says under it
+where it works and, on Wayland, the shortcut the desktop gave it. A shortcut
+with modifiers goes down when its key does with exactly those held and comes up
+with its key or any of its modifiers; a key without them goes down whatever else
+is held. Outside a call they do nothing. They work with the window closed to
+the tray.
+
 ## Push to talk
 
 Settings → Voice & video → Input mode chooses voice activity or push to talk,
@@ -473,8 +487,10 @@ Discord has no default key, and neither does Yapfast. "Record keybind" takes
 the next key pressed, and Escape stops without changing it; until there's a
 key, settings say the microphone sends nothing. Yapfast keeps the key by its
 scan code (`push_to_talk_key`), so it's the same key on any keyboard layout,
-with its name and, for the portal below, its keysym. One key, without
-modifiers; mouse buttons can't be recorded.
+with its name and, for the portal below, its keysym. One key, with any
+modifiers held with it (a key with Ctrl, Alt, Shift or Super takes exactly
+those), or a modifier on its own, taken once it is let go; mouse buttons can't
+be recorded.
 
 `crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether the key is
 down and the delay in atomics. The microphone reads them each 10 ms block,
@@ -486,7 +502,7 @@ account, leave it out. `matrix_voice`'s
 `persistent_encrypted_voice_and_native_audio` checks it between two processes
 on the local stack.
 
-`src/push_to_talk.rs` hears the key in other apps where the desktop lets it:
+`src/shortcuts.rs` hears the key in other apps where the desktop lets it, and the global shortcuts below with it:
 
 | Desktop | How | Checked |
 | --- | --- | --- |

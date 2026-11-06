@@ -37,7 +37,7 @@ mod paste;
 #[cfg(feature = "desktop")]
 mod protocol;
 #[cfg(feature = "desktop")]
-mod push_to_talk;
+mod shortcuts;
 #[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]

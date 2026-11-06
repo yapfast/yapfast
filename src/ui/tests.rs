@@ -804,6 +804,29 @@ fn push_to_talk_keeps_its_mode_key_and_release_delay() {
 }
 
 #[test]
+fn global_shortcuts_keep_their_keys_and_modifiers() {
+    i_slint_backend_testing::init_no_event_loop();
+    let defaults: Layout = serde_json::from_str("{}").unwrap();
+    assert!(defaults.shortcuts.is_empty(), "none unless recorded");
+    let layout: Layout = serde_json::from_value(serde_json::json!({
+        "push_to_talk_key": { "scancode": 47, "name": "V", "modifiers": 1 },
+        "shortcuts": { "toggle-mute": { "scancode": 50, "name": "M", "modifiers": 3 } },
+    }))
+    .unwrap();
+    let window = YapfastWindow::new().unwrap();
+    layout.apply(&window);
+    assert_eq!(window.get_talk_key(), "Ctrl+V");
+    let saved = serde_json::to_value(&layout).unwrap();
+    assert_eq!(saved["shortcuts"]["toggle-mute"]["scancode"], 50);
+    assert_eq!(saved["shortcuts"]["toggle-mute"]["modifiers"], 3);
+    assert_eq!(
+        layout.shortcuts["toggle-mute"].label(),
+        "Ctrl+Alt+M",
+        "settings show the modifiers first"
+    );
+}
+
+#[test]
 fn each_sounds_own_volume_counts_only_while_adjusting_each() {
     i_slint_backend_testing::init_no_event_loop();
     let defaults: Layout = serde_json::from_str("{}").unwrap();

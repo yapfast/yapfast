@@ -214,6 +214,10 @@ export component UnsavedBar inherits Rectangle {
 
 /// A row of a settings sidebar: a group's heading, a line between groups
 /// for a heading without text, or a page, red for a dangerous one.
+/// One of the global shortcuts that run an action: its name, the key it is
+/// bound to (empty for none), and where it works.
+export struct ShortcutRow { id: string, text: string, key: string, note: string }
+
 export struct SettingsRow { heading: bool, text: string, icon: image, id: int, danger: bool }
 
 // Settings, on a SettingsCard: sections on the left, under their groups'
@@ -465,6 +469,10 @@ export component VoiceSettings inherits VerticalLayout {
     /// the next key pressed becomes it.
     in property <string> talk-key;
     in-out property <bool> talk-recording;
+    /// The shortcuts that run an action in a call, and the one whose key the
+    /// next key pressed becomes, by id; empty for none.
+    in property <[ShortcutRow]> shortcut-rows;
+    in-out property <string> recording-shortcut;
     /// How long the microphone keeps sending after the key comes up, in ms.
     in-out property <int> talk-delay: 20;
     /// Where the key works: in every app, or only in Yapfast and why.
@@ -502,6 +510,9 @@ export component VoiceSettings inherits VerticalLayout {
     callback preferences-changed;
     /// Starts or stops recording the push-to-talk key.
     callback record-talk-key(bool);
+    /// Starts or stops recording the key of a shortcut, by id, or clears it.
+    callback record-shortcut(string, bool);
+    callback clear-shortcut(string);
     spacing: 16px;
     SettingsTitle { text: "Voice & video"; }
     // Each row's two columns take half the width each, whatever is in them:
@@ -715,6 +726,42 @@ export component VoiceSettings inherits VerticalLayout {
             committed => { root.preferences-changed(); }
         }
         Label { text: "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."; }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "GLOBAL SHORTCUTS"; }
+        Label { text: "Keys that work in any app while you are in a call. A key with Ctrl, Alt, Shift or Super held takes exactly those with it."; }
+        for row in root.shortcut-rows: VerticalLayout {
+            spacing: 4px;
+            Text { text: row.text; color: Theme.text; font-size: 14px; font-weight: 600; }
+            HorizontalLayout {
+                spacing: 8px; alignment: start;
+                Rectangle {
+                    width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
+                    border-width: root.recording-shortcut == row.id ? 2px : 0px; border-color: Theme.accent;
+                    accessible-role: text;
+                    accessible-label: row.text + " keybind";
+                    accessible-value: row.key != "" ? row.key : "No keybind set";
+                    Text {
+                        x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
+                        text: root.recording-shortcut == row.id ? "Press a key..." : row.key != "" ? row.key : "No keybind set";
+                        color: row.key != "" && root.recording-shortcut != row.id ? Theme.text : Theme.muted;
+                        font-weight: row.key != "" && root.recording-shortcut != row.id ? 600 : 400;
+                    }
+                }
+                ActionButton {
+                    text: root.recording-shortcut == row.id ? "Stop recording" : row.key == "" ? "Record keybind" : "Edit keybind";
+                    danger: root.recording-shortcut == row.id;
+                    clicked => { root.record-shortcut(row.id, root.recording-shortcut != row.id); }
+                }
+                if row.key != "" && root.recording-shortcut != row.id: ActionButton {
+                    text: "Clear";
+                    clicked => { root.clear-shortcut(row.id); }
+                }
+            }
+            if root.recording-shortcut == row.id: Label { text: "Press the key, with any modifiers, or just a modifier. Escape stops without changing it."; }
+            if root.recording-shortcut != row.id && row.note != "": Label { text: row.note; }
+        }
     }
     if root.discord && root.input-mode == 0: VerticalLayout {
         spacing: 8px;

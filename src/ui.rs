@@ -184,7 +184,7 @@ pub fn run(
     bind_callbacks(&window, &adapter);
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
-    adapter.borrow_mut().watch_talk_key(&window);
+    adapter.borrow_mut().watch_shortcuts(&window);
     adapter.borrow().show_protocol(&window);
     if !preview {
         adapter.borrow_mut().pending_link = open_link;
@@ -298,12 +298,35 @@ const ZOOM_NOTE: Duration = Duration::from_millis(1200);
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
 /// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
 /// it.
+/// Shows where a shortcut works: under the push-to-talk key, or on its row.
+fn show_shortcut_note(
+    window: &YapfastWindow,
+    shortcut: crate::shortcuts::Shortcut,
+    reach: &crate::shortcuts::Reach,
+) {
+    let note = reach.note(shortcut);
+    if shortcut == crate::shortcuts::Shortcut::PushToTalk {
+        window.set_talk_note(note.into());
+        return;
+    }
+    let rows = window.get_shortcut_rows();
+    for index in 0..rows.row_count() {
+        if let Some(mut row) = rows.row_data(index)
+            && row.id == shortcut.id()
+        {
+            row.note = note.into();
+            rows.set_row_data(index, row);
+            break;
+        }
+    }
+}
+
 fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
         winit::{
             event::{ElementState, KeyEvent, WindowEvent},
-            keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
+            keyboard::{Key, KeyCode, PhysicalKey},
         },
     };
     /// The K key: the letter K in the keyboard's layout, or in a layout
@@ -360,6 +383,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let following = Rc::new(slint::Timer::default());
         let mut made = false;
         let placing = Rc::new(Cell::new(false));
+        let recorder = RefCell::new(crate::shortcuts::Recorder::default());
         let weak = window.as_weak();
         window
             .window()
@@ -489,26 +513,42 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         }
                     });
                 }
-                crate::push_to_talk::window_event(event);
-                // While recording the push-to-talk key, the next key becomes
-                // it, and Escape stops; either way only the recorder sees it.
+                crate::shortcuts::window_event(event);
+                // While recording a shortcut's key, the next key becomes it,
+                // with the modifiers held, or a modifier alone once let go;
+                // Escape stops. Either way only the recorder sees it.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
-                    && key.state == ElementState::Pressed
                     && let Some(window) = weak.upgrade()
-                    && window.get_talk_recording()
+                    && (window.get_talk_recording() || !window.get_recording_shortcut().is_empty())
                 {
-                    if !key.repeat {
-                        window.set_talk_recording(false);
-                        let recorded = (key.logical_key != Key::Named(NamedKey::Escape))
-                            .then(|| crate::push_to_talk::Keybind::recorded(key))
-                            .flatten();
-                        if let Some(recorded) = recorded {
+                    let target = if window.get_talk_recording() {
+                        crate::shortcuts::Shortcut::PushToTalk
+                    } else {
+                        crate::shortcuts::Shortcut::from_id(&window.get_recording_shortcut())
+                            .unwrap_or(crate::shortcuts::Shortcut::PushToTalk)
+                    };
+                    let recorded = recorder
+                        .borrow_mut()
+                        .event(key, crate::shortcuts::held_modifiers());
+                    match recorded {
+                        crate::shortcuts::Recorded::Nothing => {}
+                        crate::shortcuts::Recorded::Cancelled => {
+                            window.set_talk_recording(false);
+                            window.set_recording_shortcut("".into());
+                        }
+                        crate::shortcuts::Recorded::Key(recorded) => {
+                            window.set_talk_recording(false);
+                            window.set_recording_shortcut("".into());
                             let (adapter, weak) = (adapter.clone(), weak.clone());
                             slint::Timer::single_shot(Duration::ZERO, move || {
                                 if let (Some(adapter), Some(window)) =
                                     (adapter.upgrade(), weak.upgrade())
                                 {
-                                    adapter.borrow_mut().set_talk_key(&window, recorded);
+                                    adapter.borrow_mut().set_shortcut(
+                                        &window,
+                                        target,
+                                        Some(recorded),
+                                    );
                                 }
                             });
                         }
@@ -652,9 +692,7 @@ fn type_anywhere(window: &YapfastWindow) {
             return false;
         }
         // Holding the key to talk shouldn't also write it.
-        if window.get_voice_active()
-            && !window.get_muted()
-            && crate::push_to_talk::pressed_talk_key()
+        if window.get_voice_active() && !window.get_muted() && crate::shortcuts::pressed_talk_key()
         {
             return false;
         }
@@ -1029,7 +1067,10 @@ struct Layout {
     /// held, the key, and how long the microphone sends after it comes up,
     /// in ms; Discord's 20 unless changed.
     input_mode: InputMode,
-    push_to_talk_key: Option<crate::push_to_talk::Keybind>,
+    push_to_talk_key: Option<crate::shortcuts::Keybind>,
+    /// The keys of the shortcuts that run an action in a call, by
+    /// [`crate::shortcuts::Shortcut::id`]; none unless recorded.
+    shortcuts: std::collections::BTreeMap<String, crate::shortcuts::Keybind>,
     push_to_talk_release_delay: Option<u32>,
     /// How loud every call sends the microphone and plays, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
@@ -1279,7 +1320,7 @@ impl Layout {
         window.set_talk_key(
             self.push_to_talk_key
                 .as_ref()
-                .map(|key| key.name.as_str())
+                .map(crate::shortcuts::Keybind::label)
                 .unwrap_or_default()
                 .into(),
         );
@@ -1718,9 +1759,11 @@ struct Adapter {
     /// show the voice gate's sensitivity.
     #[cfg(feature = "discord")]
     gate_meter: Option<yapfast_core::discord_audio::GateMeter>,
-    /// Watches the push-to-talk key while push to talk is on and it's set,
-    /// with or without the window.
-    talk_key: Option<crate::push_to_talk::Watcher>,
+    /// Watches the global shortcuts that are set, the push-to-talk key
+    /// while push to talk is on, with or without the window.
+    shortcuts: Option<crate::shortcuts::Watcher>,
+    /// The shortcut rows settings list.
+    shortcut_rows: Rc<VecModel<ShortcutRow>>,
     /// Previews of the pictures waiting in the composer, by file; `None` while
     /// one is read, or when it can't be.
     thumbnails: HashMap<PathBuf, Option<pictures::Thumbnail>>,
@@ -1935,7 +1978,8 @@ impl Adapter {
                 watched: None,
                 #[cfg(feature = "discord")]
                 gate_meter: None,
-                talk_key: None,
+                shortcuts: None,
+                shortcut_rows: Rc::new(VecModel::default()),
                 thumbnails: HashMap::new(),
                 pasted: None,
                 drag_over: false,
@@ -1954,42 +1998,115 @@ impl Adapter {
         }))
     }
 
-    /// Starts, changes or stops watching the push-to-talk key as settings
-    /// say, and shows where it works.
-    fn watch_talk_key(&mut self, window: &YapfastWindow) {
-        let wanted = self
-            .layout
-            .push_to_talk_key
-            .as_ref()
-            .filter(|_| self.layout.input_mode == InputMode::PushToTalk);
+    /// The shortcuts to watch as settings say: the push-to-talk key while
+    /// push to talk is on, and each action's key that is set.
+    fn wanted_shortcuts(&self) -> Vec<crate::shortcuts::Binding> {
+        use crate::shortcuts::Shortcut;
+        let mut wanted = Vec::new();
+        if self.layout.input_mode == InputMode::PushToTalk
+            && let Some(key) = &self.layout.push_to_talk_key
+        {
+            wanted.push((Shortcut::PushToTalk, key.clone()));
+        }
+        for shortcut in Shortcut::ACTIONS {
+            if let Some(key) = self.layout.shortcuts.get(shortcut.id()) {
+                wanted.push((shortcut, key.clone()));
+            }
+        }
+        wanted
+    }
+
+    /// Starts, changes or stops watching the global shortcuts as settings say,
+    /// and shows where each works.
+    fn watch_shortcuts(&mut self, window: &YapfastWindow) {
+        let wanted = self.wanted_shortcuts();
         if self
-            .talk_key
+            .shortcuts
             .as_ref()
-            .map(crate::push_to_talk::Watcher::key)
-            != wanted
+            .map_or(&[][..], crate::shortcuts::Watcher::bindings)
+            != wanted.as_slice()
         {
             // The old one goes first, ending its portal session.
-            self.talk_key = None;
-            self.talk_key = wanted.cloned().map(|key| {
+            self.shortcuts = None;
+            self.shortcuts = (!wanted.is_empty()).then(|| {
                 let weak = window.as_weak();
-                crate::push_to_talk::Watcher::start(key, &self.runtime, move |reach| {
-                    let _ = weak.upgrade_in_event_loop(move |window| {
-                        window.set_talk_note(reach.note().into());
-                    });
-                })
+                crate::shortcuts::Watcher::start(
+                    wanted,
+                    &self.runtime,
+                    move |shortcut, reach| {
+                        let _ = weak.upgrade_in_event_loop(move |window| {
+                            show_shortcut_note(&window, shortcut, &reach);
+                        });
+                    },
+                    |shortcut| {
+                        let _ =
+                            slint::invoke_from_event_loop(move || shell::run_shortcut(shortcut));
+                    },
+                )
             });
         }
-        let note = self.talk_key.as_ref().map(|watcher| watcher.reach().note());
+        self.show_shortcuts(window);
+    }
+
+    /// Shows each shortcut's key and where it works.
+    fn show_shortcuts(&self, window: &YapfastWindow) {
+        use crate::shortcuts::Shortcut;
+        let rows: Vec<ShortcutRow> = Shortcut::ACTIONS
+            .into_iter()
+            .map(|shortcut| {
+                let key = self.layout.shortcuts.get(shortcut.id());
+                ShortcutRow {
+                    id: shortcut.id().into(),
+                    text: shortcut.description().into(),
+                    key: key.map(|key| key.label()).unwrap_or_default().into(),
+                    note: self
+                        .shortcuts
+                        .as_ref()
+                        .and_then(|watcher| watcher.reach(shortcut))
+                        .filter(|_| key.is_some())
+                        .map(|reach| reach.note(shortcut))
+                        .unwrap_or_default()
+                        .into(),
+                }
+            })
+            .collect();
+        update_model(&self.shortcut_rows, rows);
+        window.set_shortcut_rows(ModelRc::from(self.shortcut_rows.clone()));
+        let note = self
+            .shortcuts
+            .as_ref()
+            .and_then(|watcher| watcher.reach(Shortcut::PushToTalk))
+            .map(|reach| reach.note(Shortcut::PushToTalk));
         window.set_talk_note(note.unwrap_or_default().into());
     }
 
-    /// Makes a recorded key the push-to-talk key.
-    fn set_talk_key(&mut self, window: &YapfastWindow, key: crate::push_to_talk::Keybind) {
-        tracing::info!(key = key.name, "push-to-talk key recorded");
-        window.set_talk_key(key.name.as_str().into());
-        self.layout.push_to_talk_key = Some(key);
+    /// Makes a recorded key a shortcut's key, or clears it.
+    fn set_shortcut(
+        &mut self,
+        window: &YapfastWindow,
+        shortcut: crate::shortcuts::Shortcut,
+        key: Option<crate::shortcuts::Keybind>,
+    ) {
+        tracing::info!(
+            shortcut = shortcut.id(),
+            key = key.as_ref().map(crate::shortcuts::Keybind::label),
+            "shortcut recorded"
+        );
+        if shortcut == crate::shortcuts::Shortcut::PushToTalk {
+            window.set_talk_key(
+                key.as_ref()
+                    .map(|key| key.label())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            self.layout.push_to_talk_key = key;
+        } else if let Some(key) = key {
+            self.layout.shortcuts.insert(shortcut.id().to_owned(), key);
+        } else {
+            self.layout.shortcuts.remove(shortcut.id());
+        }
         self.layout.write(&self.root);
-        self.watch_talk_key(window);
+        self.watch_shortcuts(window);
     }
 
     /// Shows whether Discord protocol links open here, as the desktop
@@ -2004,7 +2121,7 @@ impl Adapter {
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
-        self.watch_talk_key(window);
+        self.watch_shortcuts(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds
