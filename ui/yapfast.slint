@@ -464,6 +464,16 @@ export component YapfastWindow inherits Window {
     in property <[MentionRow]> mentions;
     in-out property <int> mention-index;
     callback composer-caret(string, int);
+    callback aside-composer-caret(string, int);
+    // The suggestions are for the thread's composer beside the channel, which
+    // was typed in last, and show above it rather than the channel's.
+    in property <bool> suggesting-aside;
+    property <int> aside-caret-tick;
+    property <int> aside-caret-offset;
+    public function place-aside-composer-caret(offset: int) {
+        root.aside-caret-offset = offset;
+        root.aside-caret-tick += 1;
+    }
     callback mention-chosen(int);
     callback mention-dismissed;
     // Emoji for the `:name` being typed, the chosen one highlighted.
@@ -3064,7 +3074,7 @@ export component YapfastWindow inherits Window {
                                             placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected && !root.room-direct && root.room-parent == "" ? "Message #" + root.room-name : root.room-selected ? "Message " + root.room-name : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
-                                            suggesting: root.mentions.length > 0 || root.emoji-suggestions.length > 0;
+                                            suggesting: !root.suggesting-aside && (root.mentions.length > 0 || root.emoji-suggestions.length > 0);
                                             caret(text, offset) => { root.composer-caret(text, offset); }
                                             suggestion-moved(step) => {
                                                 if root.mentions.length > 0 {
@@ -3193,6 +3203,29 @@ export component YapfastWindow inherits Window {
                         more(x, y) => { root.open-context-menu("thread-sidebar:" + root.aside-room, false, x, y); }
                         earlier => { root.aside-earlier(); }
                         draft-edited(text) => { root.aside-draft-edited(text); }
+                        caret-tick: root.aside-caret-tick; caret-offset: root.aside-caret-offset;
+                        mentions: root.suggesting-aside ? root.mentions : [];
+                        mention-index: root.mention-index;
+                        emoji-suggestions: root.suggesting-aside ? root.emoji-suggestions : [];
+                        emoji-suggestion-query: root.emoji-suggestion-query;
+                        emoji-suggestion-index: root.emoji-suggestion-index;
+                        caret(text, offset) => { root.aside-composer-caret(text, offset); }
+                        suggestion-moved(step) => {
+                            if root.mentions.length > 0 {
+                                root.mention-index = Math.mod(root.mention-index + step + root.mentions.length, root.mentions.length);
+                            } else {
+                                root.emoji-suggestion-index = Math.mod(root.emoji-suggestion-index + step + root.emoji-suggestions.length, root.emoji-suggestions.length);
+                            }
+                        }
+                        suggestion-chosen => {
+                            if root.mentions.length > 0 { root.mention-chosen(root.mention-index); }
+                            else { root.emoji-suggestion-chosen(root.emoji-suggestion-index); }
+                        }
+                        suggestion-dismissed => {
+                            if root.mentions.length > 0 { root.mention-dismissed(); } else { root.emoji-suggestion-dismissed(); }
+                        }
+                        mention-chosen(index) => { root.mention-chosen(index); }
+                        emoji-suggestion-chosen(index) => { root.emoji-suggestion-chosen(index); }
                         send => { root.aside-send(); }
                         cancel-compose => { root.aside-cancel-compose(); }
                         viewport(top, bottom) => { root.aside-viewport(top, bottom); }
@@ -3375,7 +3408,7 @@ export component YapfastWindow inherits Window {
     }
     // Mention suggestions, just above the composer and as wide as it, over a
     // reply's or an edit's bar; see MentionList.
-    if root.mentions.length > 0 && root.composer-enabled: MentionList {
+    if root.mentions.length > 0 && root.composer-enabled && !root.suggesting-aside: MentionList {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
@@ -3383,7 +3416,7 @@ export component YapfastWindow inherits Window {
         mention-chosen(index) => { root.mention-chosen(index); }
     }
     // Emoji suggestions, in the same place; see EmojiSuggestions.
-    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled: EmojiSuggestions {
+    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside: EmojiSuggestions {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;

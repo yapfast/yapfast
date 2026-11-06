@@ -346,6 +346,79 @@ fn files_dropped_on_the_thread_beside_go_with_its_message() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
+    use yapfast_core::chat::{ChatMember, Role};
+    let (window, adapter, _folder) = discord_server_window_changed(0, |server, _| {
+        server
+            .threads
+            .push(yapfast_core::yapfast_discord::ready::Channel {
+                id: "30".into(),
+                name: "Plans".into(),
+                parent: Some("11".into()),
+                thread: Some(Box::new(yapfast_core::yapfast_discord::ready::Thread {
+                    joined: true,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            });
+    });
+    window.show().unwrap();
+    adapter
+        .borrow_mut()
+        .app
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("discord:10:11".into()));
+    adapter
+        .borrow_mut()
+        .action(&window, Action::OpenAside("discord:10:30".into()));
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.room_ready = true;
+        adapter.app.state.aside.as_mut().unwrap().ready = true;
+        adapter.app.apply(Event::Members {
+            room: "discord:10:11".into(),
+            members: Ok(vec![ChatMember {
+                id: "3".into(),
+                name: "Carol".into(),
+                username: Some("carol".into()),
+                role: Role::Member,
+                avatar: None,
+                group: None,
+                presence: None,
+                color: None,
+                activity: None,
+                activities: Default::default(),
+                roles: Default::default(),
+                timed_out_until: None,
+            }]),
+        });
+        adapter.refresh(&window);
+    }
+    // `@` in the thread's composer suggests the channel's people, and the one
+    // chosen goes in that composer, not the channel's.
+    window.invoke_aside_composer_caret("hey @ca".into(), 7);
+    assert!(window.get_suggesting_aside());
+    assert_eq!(window.get_mentions().row_count(), 1);
+    window.invoke_mention_chosen(0);
+    assert_eq!(adapter.borrow().app.state.aside_draft(), "hey @Carol ");
+    assert_eq!(adapter.borrow().app.state.draft(), "");
+    // It's marked as the channel's composer marks its own.
+    let marks = i_slint_core::yapfast_marks::marks_of("hey @Carol ").expect("marked");
+    assert_eq!(marks[0].0, 4..10);
+    // `:name` too.
+    window.invoke_aside_composer_caret("hey @Carol :pizz".into(), 16);
+    assert!(window.get_emoji_suggestions().row_count() > 0);
+    window.invoke_emoji_suggestion_chosen(0);
+    assert_eq!(adapter.borrow().app.state.aside_draft(), "hey @Carol 🍕 ");
+    // Typing in the channel's composer takes the suggestions back.
+    window.invoke_composer_caret("@".into(), 1);
+    assert!(!window.get_suggesting_aside());
+}
+
+#[test]
 fn the_keyboard_steps_through_messages_and_acts_on_them() {
     use slint::platform::{Key, WindowEvent};
     let window = showing(

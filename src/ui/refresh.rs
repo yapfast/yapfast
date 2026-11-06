@@ -243,6 +243,11 @@ impl SwitcherShown {
     }
 }
 
+/// What a message row in the thread beside the channel takes across beside
+/// its content: the space before the avatar, the avatar and the space after
+/// it, and the space at the end, as `ThreadPanel` lays it out.
+const ASIDE_GUTTER: i32 = 16 + 40 + 16 + 16;
+
 impl Adapter {
     /// Shows what a burst of backend events can have changed.
     pub(super) fn show(&mut self, window: &YapfastWindow, reach: Reach) {
@@ -2767,6 +2772,7 @@ impl Adapter {
     /// The thread beside the open channel: its rows, built again only for
     /// messages that changed, and its composer.
     pub(super) fn show_aside(&mut self, window: &YapfastWindow) {
+        self.mark_mentions();
         let state = &self.app.state;
         let Some(aside) = &state.aside else {
             if window.get_aside_open() {
@@ -2815,6 +2821,12 @@ impl Adapter {
             Some(Compose::Edit { .. }) => "Editing your message".into(),
             None => SharedString::default(),
         });
+        // Pictures and link previews fit the panel's width beside the avatar.
+        let fit = window.get_aside_shown() as i32 - ASIDE_GUTTER;
+        if self.aside_fit != fit {
+            self.aside_fit = fit;
+            self.aside_restyle = true;
+        }
         if Arc::ptr_eq(&self.aside_messages, &aside.messages) && !self.aside_restyle {
             return;
         }
@@ -2831,7 +2843,12 @@ impl Adapter {
             &self.aside_messages,
             &aside.messages,
             &marks,
-            |message| layout.restyle(message, message_row(message, marks.revealed)),
+            |message| {
+                layout.restyle(
+                    message,
+                    message_row_within(message, marks.revealed, Some(fit)),
+                )
+            },
         );
         self.aside_messages = aside.messages.clone();
     }
@@ -2840,8 +2857,19 @@ impl Adapter {
     /// show them. Who it may mention is found again only when the draft or
     /// what they come from changed.
     fn mark_mentions(&mut self) {
+        self.mark_mentions_of(false);
+        self.mark_mentions_of(true);
+    }
+
+    /// [`Self::mark_mentions`] of the channel's composer, or the thread's beside it.
+    fn mark_mentions_of(&mut self, aside: bool) {
         let state = &self.app.state;
-        let draft = state.draft();
+        let draft = if aside {
+            state.aside_draft()
+        } else {
+            state.draft()
+        };
+        let slot = usize::from(aside);
         let sources = MentionSources {
             messages: Arc::as_ptr(&state.messages) as usize,
             members: state.members.iter().flatten().map(Vec::len).sum(),
@@ -2849,8 +2877,7 @@ impl Adapter {
             groups: state.mention_groups.len(),
             color: theme::mention_color(),
         };
-        if self
-            .mentions_marked
+        if self.mentions_marked[slot]
             .as_ref()
             .is_some_and(|marked| marked.draft == draft && marked.sources == sources)
         {
@@ -2866,13 +2893,14 @@ impl Adapter {
             sources,
         };
         i_slint_core::yapfast_marks::mark(
+            slot,
             marked.draft.as_str().into(),
             marks.into_iter().map(|(range, color)| {
                 let rgb = color.unwrap_or(sources.color) & 0xff_ffff;
                 (range, slint::Color::from_argb_encoded(0xff00_0000 | rgb))
             }),
         );
-        self.mentions_marked = Some(marked);
+        self.mentions_marked[slot] = Some(marked);
     }
 
     pub(super) fn show_composer(&mut self, window: &YapfastWindow) {

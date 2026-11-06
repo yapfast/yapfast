@@ -1570,6 +1570,8 @@ struct Adapter {
     /// The same for the thread beside the open channel.
     aside_messages: Arc<Vec<Arc<ChatMessage>>>,
     aside_rows: Vec<MessageRow>,
+    /// The width the thread beside the channel last fitted its rows to.
+    aside_fit: i32,
     /// The thread's rows are built again at its next showing, as the
     /// timeline's were.
     aside_restyle: bool,
@@ -1641,7 +1643,7 @@ struct Adapter {
     /// Where the `@` of the word being mentioned is in the composer text.
     mention_at: Option<usize>,
     /// What the composer's mentions were last coloured for.
-    mentions_marked: Option<refresh::MentionsMarked>,
+    mentions_marked: [Option<refresh::MentionsMarked>; i_slint_core::yapfast_marks::SLOTS],
     /// Suggestions for the `@` here were closed with Escape; they stay closed until
     /// the cursor leaves the word.
     mention_dismissed: Option<usize>,
@@ -1649,6 +1651,9 @@ struct Adapter {
     emoji_word: Option<(usize, String)>,
     /// Like `mention_dismissed`, for the `:` here.
     emoji_dismissed: Option<usize>,
+    /// The suggestions are for the composer of the thread beside the channel,
+    /// typed in last, rather than the channel's.
+    suggesting_aside: bool,
     /// The room whose composer last reported its cursor, and the cursor's byte
     /// offset, where the picker's emoji go.
     caret: Option<(String, usize)>,
@@ -1718,6 +1723,27 @@ struct Adapter {
 }
 
 impl Adapter {
+    /// What the channel's composer holds, or the thread's beside it with `aside`.
+    fn composer_text(&self, aside: bool) -> String {
+        let state = &self.app.state;
+        if aside {
+            state.aside_draft()
+        } else {
+            state.draft()
+        }
+        .to_owned()
+    }
+
+    /// Puts `text` in the channel's composer, or the thread's beside it.
+    fn set_composer_text(&mut self, window: &YapfastWindow, aside: bool, text: String) {
+        let action = if aside {
+            Action::SetAsideDraft(text)
+        } else {
+            Action::SetDraft(text)
+        };
+        self.action(window, action);
+    }
+
     fn new(
         runtime: Arc<BackgroundRuntime>,
         root: PathBuf,
@@ -1856,13 +1882,15 @@ impl Adapter {
                 restyle: false,
                 theme_editor: None,
                 aside_messages: Arc::new(Vec::new()),
+                aside_fit: 0,
                 aside_rows: Vec::new(),
                 aside_restyle: false,
                 mention_at: None,
-                mentions_marked: None,
+                mentions_marked: [None, None],
                 mention_dismissed: None,
                 emoji_word: None,
                 emoji_dismissed: None,
+                suggesting_aside: false,
                 caret: None,
                 notifier: crate::notify::Notifier::start(open_from_notification),
                 viewer_image: None,
