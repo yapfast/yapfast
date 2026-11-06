@@ -32,7 +32,8 @@ fn main() {
 /// finds a picture by its name: a count, then for each picture where its name
 /// starts and how long it is, and where it starts in the font and how long it
 /// is, then the names. `src/twemoji.rs` reads both, and the picture's place in
-/// the sorted list is its glyph.
+/// the sorted list is its glyph. Each picture gets the transparent margin the font's
+/// bitmaps have; `emoji_font_tables::MARGIN` says why.
 fn pack_twemoji() {
     let folder = Path::new("vendor/twemoji/72x72");
     let mut pictures: Vec<(String, Vec<u8>)> = fs::read_dir(folder)
@@ -55,6 +56,18 @@ fn pack_twemoji() {
         !pictures.is_empty(),
         "vendor/twemoji/72x72 holds no pictures"
     );
+    // Each picture is a few milliseconds' work, so they share the machine's threads.
+    let threads = std::thread::available_parallelism().map_or(1, usize::from);
+    let share = pictures.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        for pictures in pictures.chunks_mut(share) {
+            scope.spawn(move || {
+                for (_, bytes) in pictures {
+                    *bytes = with_margin(bytes);
+                }
+            });
+        }
+    });
     // Names sort, so the program can look one up by binary search.
     pictures.sort_by(|left, right| left.0.cmp(&right.0));
     let also: Vec<(u32, char)> = pictures
@@ -96,6 +109,58 @@ fn pack_twemoji() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("twemoji.ttf"), font).expect("writing Twemoji's font");
     fs::write(out.join("twemoji.index"), index).expect("writing Twemoji's index");
+}
+
+/// A PNG with the font's margin around it, kept small as Twemoji's are: most have a
+/// few dozen colours, so they keep a palette, which takes half the bytes.
+fn with_margin(png: &[u8]) -> Vec<u8> {
+    let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .expect("a picture of Twemoji's")
+        .into_rgba8();
+    let margin = emoji_font_tables::TWEMOJI_MARGIN;
+    let side = picture.width() + 2 * margin;
+    assert_eq!(
+        side,
+        u32::from(emoji_font_tables::TWEMOJI.side),
+        "Twemoji's pictures are 72 pixels square"
+    );
+    let mut bitmap = image::RgbaImage::new(side, side);
+    image::imageops::overlay(&mut bitmap, &picture, i64::from(margin), i64::from(margin));
+    // What can't be seen is one colour, the margin's.
+    for pixel in bitmap.pixels_mut().filter(|pixel| pixel[3] == 0) {
+        pixel.0 = [0; 4];
+    }
+    let mut colours: Vec<[u8; 4]> = bitmap.pixels().map(|pixel| pixel.0).collect();
+    colours.sort_unstable();
+    colours.dedup();
+
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, side, side);
+    encoder.set_compression(png::Compression::High);
+    encoder.set_depth(png::BitDepth::Eight);
+    let data: Vec<u8> = if colours.len() <= 256 {
+        encoder.set_color(png::ColorType::Indexed);
+        encoder.set_palette(
+            colours
+                .iter()
+                .flat_map(|colour| colour[..3].to_vec())
+                .collect::<Vec<u8>>(),
+        );
+        encoder.set_trns(colours.iter().map(|colour| colour[3]).collect::<Vec<u8>>());
+        encoder.set_filter(png::Filter::NoFilter);
+        bitmap
+            .pixels()
+            .map(|pixel| colours.binary_search(&pixel.0).expect("a colour it holds") as u8)
+            .collect()
+    } else {
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_filter(png::Filter::Adaptive);
+        bitmap.into_raw()
+    };
+    let mut writer = encoder.write_header().expect("a PNG's header");
+    writer.write_image_data(&data).expect("encoding a picture");
+    writer.finish().expect("encoding a picture");
+    out
 }
 
 fn glyph_at(index: usize) -> char {

@@ -215,10 +215,7 @@ fn link_end(text: &str) -> Option<usize> {
 fn square_png(emoji: &str) -> Option<Vec<u8>> {
     use image::{ImageEncoder, imageops};
     let side = emoji_font::SIDE;
-    let bytes = crate::twemoji::picture_bytes(emoji)?;
-    let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
-        .ok()?
-        .into_rgba8();
+    let decoded = twemoji::published(emoji)?;
     // Scaled with its alpha premultiplied: mixed on straight colour, the
     // filter's overshoot where a picture fades out leaves a row of its colour
     // at an alpha too small to show alone and too wide to miss, which draws as
@@ -459,6 +456,74 @@ mod tests {
             .count();
         // 16 pixel text draws a picture 22 pixels on a side, the square most of it.
         assert!((200..=484).contains(&painted), "{painted} red pixels");
+    }
+
+    /// Skia scales a bitmap glyph without smoothing its edges. 😄 reaches all four of
+    /// its picture's, so without a margin it came out flat where the cut fell, at some
+    /// sizes and positions and not others.
+    #[test]
+    fn a_picture_keeps_its_round_edges_wherever_it_lands() {
+        use skia_safe::{Font, Point, image::CachingHint, surfaces};
+        let typeface = typeface();
+        let glyph = typeface.unichar_to_glyph(twemoji::glyph("😄").unwrap() as i32);
+        const SIZE: usize = 96;
+        for text_size in [16.0, 17.6, 19.2, 20.0, 24.0, 32.0] {
+            for shift in [0.0, 0.25, 0.5, 0.75] {
+                let mut font = Font::from_typeface(typeface.clone(), text_size);
+                font.set_subpixel(true);
+                let mut surface = surfaces::raster_n32_premul((SIZE as i32, SIZE as i32)).unwrap();
+                surface.canvas().draw_glyphs_at(
+                    &[glyph],
+                    &[Point::new(20.0 + shift, 60.0)][..],
+                    Point::default(),
+                    &font,
+                    &skia_safe::Paint::default(),
+                );
+                let image = surface.image_snapshot();
+                let mut pixels = vec![0u8; SIZE * SIZE * 4];
+                assert!(image.read_pixels(
+                    image.image_info(),
+                    &mut pixels,
+                    SIZE * 4,
+                    (0, 0),
+                    CachingHint::Allow
+                ));
+                let alpha = |x: usize, y: usize| pixels[(y * SIZE + x) * 4 + 3];
+                let rows: Vec<usize> = (0..SIZE)
+                    .filter(|&y| (0..SIZE).any(|x| alpha(x, y) > 0))
+                    .collect();
+                let columns: Vec<usize> = (0..SIZE)
+                    .filter(|&x| (0..SIZE).any(|y| alpha(x, y) > 0))
+                    .collect();
+                let (height, width) = (rows.len(), columns.len());
+                let at = format!("{text_size} pixel text, shifted {shift}");
+                assert!(
+                    width.abs_diff(height) <= 1,
+                    "{width} wide, {height} tall at {at}"
+                );
+                // A circle's outermost pixels are few, and a cut one's many.
+                let solid = |count: usize| count * 100 / width;
+                let top = (0..SIZE).filter(|&x| alpha(x, rows[0]) > 200).count();
+                let bottom = (0..SIZE)
+                    .filter(|&x| alpha(x, *rows.last().unwrap()) > 200)
+                    .count();
+                let left = (0..SIZE).filter(|&y| alpha(columns[0], y) > 200).count();
+                let right = (0..SIZE)
+                    .filter(|&y| alpha(*columns.last().unwrap(), y) > 200)
+                    .count();
+                for (edge, count) in [
+                    ("top", top),
+                    ("bottom", bottom),
+                    ("left", left),
+                    ("right", right),
+                ] {
+                    assert!(
+                        solid(count) < 40,
+                        "the {edge} is flat, {count} of {width} pixels, at {at}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -26,25 +26,36 @@ pub struct Strike {
     pub advance: u8,
 }
 
-/// The side of the bitmaps of the fonts built as Yapfast runs.
+/// The side of the pictures of the fonts built as Yapfast runs.
 pub const SIDE: u32 = 136;
+
+/// The transparent margin each of those pictures has in its bitmap. Skia scales a
+/// bitmap without smoothing its edges, so a picture that reaches one, as most emoji
+/// do, is cut along it to the nearest whole pixel; with this, what it cuts is nothing,
+/// and the picture keeps its own fading edge. A scale down to 22 pixels leaves this
+/// more than a pixel.
+pub const MARGIN: u32 = 8;
 
 const STRIKE: Strike = Strike {
     ppem: 100,
-    side: SIDE as u8,
-    bearing_x: 2,
-    bearing_y: 102,
+    side: (SIDE + 2 * MARGIN) as u8,
+    bearing_x: 2 - MARGIN as i8,
+    bearing_y: 102 + MARGIN as i8,
     advance: 140,
 };
 
-/// Twemoji's pictures as they are published, 72 pixels square, at the same
-/// shape as [`STRIKE`] to the nearest pixel.
+/// [`MARGIN`], of Twemoji's pictures, which are about half the size.
+pub const TWEMOJI_MARGIN: u32 = 4;
+
+/// Twemoji's pictures, 72 pixels square as they are published with
+/// [`TWEMOJI_MARGIN`] around them, at the same shape as [`STRIKE`] to the nearest
+/// pixel.
 #[allow(dead_code, reason = "build.rs builds this font")]
 pub const TWEMOJI: Strike = Strike {
     ppem: 53,
-    side: 72,
-    bearing_x: 1,
-    bearing_y: 54,
+    side: (72 + 2 * TWEMOJI_MARGIN) as u8,
+    bearing_x: 1 - TWEMOJI_MARGIN as i8,
+    bearing_y: 54 + TWEMOJI_MARGIN as i8,
     advance: 74,
 };
 
@@ -547,8 +558,9 @@ mod tests {
     fn spaces_emoji_as_wide_as_they_are_drawn() {
         let font = build("Test", &[('\u{100000}', vec![1, 2, 3])], &[]);
         let hmtx = &font[table_at(&font, b"hmtx")];
-        // 140 pixels at 100 per em: 1.4 em, then 0.02 em before the picture.
-        assert_eq!(hmtx[4..8], [0x05, 0x78, 0x00, 0x14]);
+        // 140 pixels at 100 per em: 1.4 em, then 0.06 em before the picture's
+        // margin, which leaves the picture itself 0.02 em in.
+        assert_eq!(hmtx[4..8], [0x05, 0x78, 0xFF, 0xC4]);
         let hhea = &font[table_at(&font, b"hhea")];
         assert_eq!(i16::from_be_bytes([hhea[4], hhea[5]]), ASCENDER);
         assert_eq!(

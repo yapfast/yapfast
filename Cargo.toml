@@ -93,6 +93,8 @@ i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional 
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
 [build-dependencies]
 emojis = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+png = "0.18"
 
 [[example]]
 name = "tray_host"

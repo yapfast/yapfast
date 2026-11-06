@@ -11559,6 +11559,7 @@ dependencies = [
  "ksni",
  "libc",
  "memmap2",
+ "png",
  "qrcode",
  "rfd",
  "serde",

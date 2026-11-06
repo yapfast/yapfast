@@ -21,8 +21,9 @@ MIT licence of its code, none of which is here. Attribution, as CC-BY 4.0 asks:
 - **Source:** https://github.com/discord/twemoji at the commit above,
   `assets/72x72/`
 - **Licence:** CC-BY 4.0, https://creativecommons.org/licenses/by/4.0/
-- **Changes:** none to the pictures; the files are copied as published, and the
-  program holds them in a font instead of shipping them as files.
+- **Changes:** the files here are copied as published. When the program is
+  built, each picture gets a transparent margin 4 pixels wide, and the program
+  holds them in a font instead of shipping them as files.
 
 `scripts/release_package.py` puts this licence and attribution beside the other
 dependencies' in each package's `licenses/` folder and `THIRD-PARTY.json`, under

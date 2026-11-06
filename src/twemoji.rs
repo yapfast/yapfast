@@ -55,8 +55,7 @@ pub fn has_picture(glyph: &str) -> bool {
 }
 
 fn decode(glyph: &str, pixels: u32) -> Option<slint::Image> {
-    let bytes = picture_bytes(glyph)?;
-    let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Png).ok()?;
+    let decoded = image::DynamicImage::ImageRgba8(published(glyph)?);
     let scaled = if (decoded.width(), decoded.height()) == (pixels, pixels) {
         decoded
     } else {
@@ -86,7 +85,19 @@ fn names(glyph: &str) -> [String; 2] {
     [exact, dropped]
 }
 
-pub(crate) fn picture_bytes(glyph: &str) -> Option<&'static [u8]> {
+/// The picture of `glyph` as Twemoji publishes it, without the margin it has in the
+/// font.
+pub(crate) fn published(glyph: &str) -> Option<image::RgbaImage> {
+    use crate::emoji_font_tables::TWEMOJI_MARGIN as MARGIN;
+    let bitmap =
+        image::load_from_memory_with_format(picture_bytes(glyph)?, image::ImageFormat::Png)
+            .ok()?
+            .into_rgba8();
+    let side = bitmap.width() - 2 * MARGIN;
+    Some(image::imageops::crop_imm(&bitmap, MARGIN, MARGIN, side, side).to_image())
+}
+
+fn picture_bytes(glyph: &str) -> Option<&'static [u8]> {
     let (_, picture) = entry(find(glyph)?);
     Some(picture)
 }

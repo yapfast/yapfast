@@ -164,7 +164,8 @@ pub fn only_emoji(text: &str) -> bool {
     (1..=30).contains(&count)
 }
 
-/// A picture fitted into the font's square, centred, as a PNG.
+/// A picture fitted into the font's square, centred, as a PNG, with the margin the
+/// font's bitmaps have.
 fn square_png(picture: &Picture) -> Option<Vec<u8>> {
     use image::{ImageEncoder, RgbaImage, imageops};
     let side = emoji_font::SIDE;
@@ -175,16 +176,23 @@ fn square_png(picture: &Picture) -> Option<Vec<u8>> {
         ((picture.height as f32 * scale).round() as u32).clamp(1, side),
     );
     let fitted = imageops::resize(&source, width, height, imageops::FilterType::CatmullRom);
-    let mut square = RgbaImage::new(side, side);
+    let margin = crate::emoji_font_tables::MARGIN;
+    let bitmap = side + 2 * margin;
+    let mut square = RgbaImage::new(bitmap, bitmap);
     imageops::overlay(
         &mut square,
         &fitted,
-        i64::from((side - width) / 2),
-        i64::from((side - height) / 2),
+        i64::from(margin + (side - width) / 2),
+        i64::from(margin + (side - height) / 2),
     );
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
-        .write_image(square.as_raw(), side, side, image::ExtendedColorType::Rgba8)
+        .write_image(
+            square.as_raw(),
+            bitmap,
+            bitmap,
+            image::ExtendedColorType::Rgba8,
+        )
         .ok()?;
     Some(png)
 }

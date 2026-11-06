@@ -342,8 +342,10 @@ an error.
   draws its picture once rewritten and the system font's until then. A
   `:shortcode:` sent without taking its completion draws as its emoji. A
   picture is 22px in the 16px text, and 48px in the large text a message of
-  emoji alone shows. A click on an emoji, custom or Unicode,
-  opens its card: its name
+  emoji alone shows. That is taller than the line, so a `StyledText` and the
+  composer let text past its box by 4px rather than cutting an emoji off, and
+  each bitmap has a transparent margin, as Skia scales one without smoothing its
+  edges. A click on an emoji, custom or Unicode, opens its card: its name
   between colons, a line saying what it is, and, for a server's, the server it
   is from, which opens on a click. `GET /guilds/{guild.id}/preview` says how
   many of the server's members are online and whether Discover lists it, so
