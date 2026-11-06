@@ -93,6 +93,57 @@ impl Activity {
     }
 }
 
+/// How the one line under a name shows an activity, as Discord's member list
+/// does: a small icon for its kind, then the custom status after a bullet,
+/// or the activity's own name when there is no custom status.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Subline {
+    /// 0 for none, then 1 a controller (playing), 2 a music note
+    /// (listening), 3 a screen (watching), 4 a camera (streaming) and 5 a
+    /// trophy (competing).
+    pub icon: u8,
+    /// A bullet follows the icon: the line is a custom status.
+    pub bullet: bool,
+    /// What replaces the line, the activity's name; none keeps the line.
+    pub name: Option<String>,
+}
+
+/// The [`Subline`] for someone's activities and the line
+/// [`crate::member_list::activity`] wrote for them.
+pub fn subline(activities: &[Activity], line: Option<&str>) -> Subline {
+    let Some(first) = activities
+        .iter()
+        .find(|activity| activity.kind != Kind::Hang)
+    else {
+        return Subline::default();
+    };
+    let icon = match first.kind {
+        Kind::Playing => 1,
+        Kind::Listening => 2,
+        Kind::Watching => 3,
+        Kind::Streaming => 4,
+        Kind::Competing => 5,
+        Kind::Hang => 0,
+    };
+    if line.is_some() && line == first.line().as_deref() {
+        let name = match first.kind {
+            Kind::Streaming => first.details.as_deref().unwrap_or(&first.name),
+            _ => &first.name,
+        };
+        Subline {
+            icon,
+            bullet: false,
+            name: Some(name.to_owned()),
+        }
+    } else {
+        Subline {
+            icon,
+            bullet: line.is_some_and(|line| !line.is_empty()),
+            name: None,
+        }
+    }
+}
+
 /// The activities of a presence, but a custom status, in Discord's order.
 pub fn activities(activities: &Value) -> Activities {
     activities
@@ -306,6 +357,37 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn subline_names_the_activity_without_a_status_and_bullets_a_status() {
+        let parsed = activities(&json!([
+            {"type": 0, "name": "Factorio"},
+        ]));
+        let without = subline(&parsed, Some("Playing Factorio"));
+        assert_eq!(
+            without,
+            Subline {
+                icon: 1,
+                bullet: false,
+                name: Some("Factorio".into())
+            }
+        );
+        let with = subline(&parsed, Some("IT, AI and Games"));
+        assert_eq!(
+            with,
+            Subline {
+                icon: 1,
+                bullet: true,
+                name: None
+            }
+        );
+        assert!(!subline(&parsed, None).bullet);
+        assert_eq!(subline(&[], Some("brb")), Subline::default());
+        let music = activities(&json!([{"type": 2, "name": "Spotify"}]));
+        assert_eq!(subline(&music, Some("Listening to Spotify")).icon, 2);
+        let hang = activities(&json!([{"type": 6, "state": "custom", "details": "Chilling"}]));
+        assert_eq!(subline(&hang, Some("Chilling")), Subline::default());
+    }
 
     #[test]
     fn reads_a_game_with_its_pictures_and_times() {

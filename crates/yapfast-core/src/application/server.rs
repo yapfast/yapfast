@@ -78,6 +78,17 @@ impl Application {
         Some((server, channel, snapshot.user_id.as_deref()?))
     }
 
+    /// The user id of the owner of the Discord server a place is in, when
+    /// it's known.
+    pub fn server_owner(&self, place: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some((server, _, _)) = self.discord_place(place) {
+            return server.owner_id.clone();
+        }
+        let _ = place;
+        None
+    }
+
     /// A Discord server's roles, highest first, without @everyone; empty for
     /// a place that isn't one, or a server whose roles aren't known.
     pub fn server_roles(&self, place: &str) -> Vec<ServerRole> {
@@ -122,6 +133,17 @@ impl Application {
         }
         let _ = (place, permission);
         false
+    }
+
+    /// Whether this account may do what `permission` names in the Discord
+    /// server a place is in, whatever that channel's overwrites say, as
+    /// Discord's member menu asks for Manage Roles.
+    pub fn may_in_server(&self, place: &str, permission: Permission) -> bool {
+        #[cfg(feature = "discord")]
+        if let Some((server, _, _)) = self.discord_place(place) {
+            return self.may(&discord::server_id(&server.id), permission);
+        }
+        self.may(place, permission)
     }
 
     /// Whether this account outranks `user`, holding `roles`, in the Discord

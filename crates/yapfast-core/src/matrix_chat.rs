@@ -1072,6 +1072,7 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                 let mut members: Vec<_> = members
                     .iter()
                     .map(|member| ChatMember {
+                        bot: false,
                         id: member.user_id().to_string(),
                         name: member
                             .display_name()
@@ -1145,6 +1146,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             hide_muted: false,
             community: false,
             pinned: Vec::new(),
+            ..Default::default()
         });
     }
     for room in client
@@ -1204,6 +1206,10 @@ async fn room_index(client: &Client) -> RoomIndex {
             parent: None,
             forum: false,
             unlisted: false,
+            tag: None,
+            official: false,
+            empty: false,
+            symbol: 0,
             preview: None,
         });
     }
@@ -2029,6 +2035,7 @@ async fn publish_timeline(
                         avatar: None,
                         body: summary(&embedded.content),
                         item,
+                        color: None,
                     }
                 }
                 TimelineDetails::Error(_) => Reply {
@@ -2036,6 +2043,7 @@ async fn publish_timeline(
                     avatar: None,
                     body: "The original message could not be loaded.".into(),
                     item,
+                    color: None,
                 },
                 _ => {
                     if open.requested.insert(reply.event_id.to_string()) {
@@ -2051,6 +2059,7 @@ async fn publish_timeline(
                         avatar: None,
                         body: "Loading the original message...".into(),
                         item,
+                        color: None,
                     }
                 }
             });

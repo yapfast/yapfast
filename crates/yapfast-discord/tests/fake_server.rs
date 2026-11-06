@@ -1322,6 +1322,152 @@ impl Fixture {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_profile_effect_a_profile_names() {
+    use yapfast_discord::profile_effect::Kind;
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        bob,
+        ..
+    } = Fixture::start("fetches_the_profile_effect_a_profile_names").await;
+    // Bob's profile names an effect; Carol's, none.
+    let profile = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    let sku = profile.effect.expect("Bob equips an effect");
+    let carol = discord
+        .profile(&guild, "1400000000000000003", |_| {})
+        .await
+        .unwrap();
+    assert_eq!(carol.effect, None);
+    // The shop describes its layers: an intro that plays once and a loop.
+    let effect = discord.profile_effect(&sku).await.unwrap().unwrap();
+    assert_eq!(
+        (effect.kind, effect.label.as_str()),
+        (Kind::Persistent, "Falling petals")
+    );
+    assert_eq!(effect.layers.len(), 2);
+    let (intro, looping) = (&effect.layers[0], &effect.layers[1]);
+    assert_eq!(
+        (intro.start, intro.duration, intro.looped, intro.z),
+        (0, 2000, false, 101)
+    );
+    assert_eq!(
+        (
+            looping.start,
+            looping.duration,
+            looping.loop_delay,
+            looping.looped,
+            looping.y
+        ),
+        (1500, 3000, 1000, true, 20)
+    );
+    // Its pictures are on the CDN.
+    let layer = discord.download(&looping.src, 1 << 20).await.unwrap();
+    assert_eq!(&layer[16..24], &[0, 0, 1, 194, 0, 0, 3, 112], "450x880");
+    let still = discord
+        .download(effect.still.as_deref().unwrap(), 1 << 20)
+        .await
+        .unwrap();
+    assert!(still.starts_with(b"\x89PNG"));
+    // Asked again, it comes from what was kept; a SKU that isn't one is nothing.
+    assert!(Arc::ptr_eq(
+        &effect,
+        &discord.profile_effect(&sku).await.unwrap().unwrap()
+    ));
+    assert!(discord.profile_effect("1").await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn shows_decorations_and_nameplates() {
+    let Fixture {
+        _fake,
+        discord,
+        snapshot,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("shows_decorations_and_nameplates").await;
+    // Alice's own user, from READY, has both; her account card shows them.
+    let account = snapshot.account.as_ref().unwrap();
+    assert!(account.decoration.as_deref().is_some_and(|url| {
+        url.ends_with("/media/v1/collectibles-shop/1500000000000000003/static")
+    }));
+    let plate = account.nameplate.as_ref().unwrap();
+    assert_eq!(plate.color, Some(0xdc3e97), "bubble gum");
+    assert!(
+        plate
+            .picture
+            .ends_with("/collectibles-shop/1500000000000000004/static")
+    );
+
+    // The member list's users carry them: a decoration for Bob, a nameplate
+    // for Carol.
+    let mut live = discord.live();
+    discord.view(&guild, Some(&general));
+    let members = live_where(&mut live, |event| match event {
+        Live::Members { channel, members } if channel == general => Some(members),
+        _ => None,
+    })
+    .await;
+    let person = |name: &str| members.iter().find(|member| member.name == name).unwrap();
+    assert!(person("Bob").decoration.is_some() && person("Bob").nameplate.is_none());
+    assert!(person("Carol").decoration.is_none());
+    assert_eq!(
+        person("Carol").nameplate.as_ref().unwrap().color,
+        Some(0x730bc8)
+    );
+    // Dave has none of his own, but wears a decoration and a nameplate for
+    // this server alone, which member objects carry; Bob's name takes a
+    // style there, and Carol's everywhere.
+    assert!(
+        person("Dave")
+            .decoration
+            .as_deref()
+            .is_some_and(|url| url.ends_with("/collectibles-shop/1500000000000000005/static"))
+    );
+    assert_eq!(
+        person("Dave").nameplate.as_ref().unwrap().color,
+        Some(0x086460)
+    );
+    let bob_style = person("Bob").style.unwrap();
+    assert_eq!((bob_style.font, bob_style.effect), (14, 3));
+    assert_eq!(bob_style.colors(), [0x00ff99]);
+    let carol_style = person("Carol").style.unwrap();
+    assert_eq!((carol_style.font, carol_style.effect), (3, 2));
+    assert_eq!(carol_style.colors(), [0xff7eb3, 0x7a5cff]);
+    assert!(person("Alice").style.is_none());
+
+    // What messages learn of an author is the same as the list's.
+    discord
+        .history(&guild, &general, Span::Latest)
+        .await
+        .unwrap();
+    assert_eq!(
+        discord.decoration(Some(&guild), &bob),
+        person("Bob").decoration
+    );
+
+    // Both pictures are on the CDN, as PNGs, at the address Discord's client
+    // asks for.
+    let decoration = discord
+        .download(person("Bob").decoration.as_deref().unwrap(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(&decoration[16..24], &[0, 0, 1, 32, 0, 0, 1, 32], "288x288");
+    let strip = discord
+        .download(
+            &person("Carol").nameplate.as_ref().unwrap().picture,
+            1 << 20,
+        )
+        .await
+        .unwrap();
+    assert_eq!(&strip[16..24], &[0, 0, 1, 192, 0, 0, 0, 84], "448x84");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn reads_history_and_member_lists() {
     let Fixture {
         _fake,
@@ -2414,13 +2560,14 @@ async fn shows_profiles() {
     } = Fixture::start("shows_profiles").await;
     // Bob's profile: in the server, his server bio wins over his own; from
     // a DM, his own shows.
-    let in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    let mut in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
     assert_eq!(in_server.name, "Bob");
     assert_eq!(in_server.pronouns.as_deref(), Some("he/him"));
     assert_eq!(in_server.bio.as_deref(), Some("Keeps #general tidy."));
     assert!(
         in_server
             .banner
+            .as_ref()
             .is_some_and(|banner| banner.contains("/banners/"))
     );
     assert_eq!(in_server.roles.len(), 1, "Bob is a Mod");
@@ -2429,6 +2576,53 @@ async fn shows_profiles() {
     assert_eq!(in_server.mutual_servers[0].id, guild);
     assert_eq!(in_server.mutual_friends.len(), 1);
     assert_eq!(in_server.mutual_friends[0].name, "Carol");
+    // Bob wears the server's tag; Carol has none.
+    let tag = in_server.tag.as_ref().expect("Bob has a server tag");
+    assert_eq!(tag.text, "BOB");
+    assert_eq!(tag.guild, guild);
+    assert!(
+        tag.badge_url()
+            .is_some_and(|url| url.contains("/clan-badges/"))
+    );
+    assert_eq!(
+        discord.server_tag(&bob).map(|tag| tag.text),
+        Some("BOB".into())
+    );
+    let badges: Vec<_> = in_server
+        .badges
+        .iter()
+        .map(|badge| badge.description.as_str())
+        .collect();
+    assert_eq!(
+        badges,
+        ["HypeSquad Bravery", "Active Developer", "Spielzeit"]
+    );
+    assert!(in_server.badges[0].link.is_some() && in_server.badges[1].link.is_none());
+    // The levels come after the profile, from /users/{id}/badges, and only the
+    // badge that levels up has one.
+    assert!(in_server.badges.iter().all(|badge| badge.level.is_none()));
+    assert!(
+        discord
+            .badge_levels(&guild, &bob, &mut in_server, None)
+            .await
+    );
+    assert!(
+        in_server.badges[..2]
+            .iter()
+            .all(|badge| badge.level.is_none())
+    );
+    let level = in_server.badges[2]
+        .level
+        .as_ref()
+        .expect("playing time has a level");
+    assert_eq!(level.kind.as_deref(), Some("Spielzeit"));
+    assert_eq!(level.title, "Eisern");
+    assert_eq!(level.progress, "1.816 Stunden gespielt");
+    assert!(
+        level
+            .picture
+            .ends_with("d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg")
+    );
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
