@@ -3032,6 +3032,10 @@ fn message_actions_reach_the_shared_application_in_the_preview() {
     assert_eq!(window.get_confirm_delete(), own.item);
     window.invoke_confirm_delete_message();
     assert!(row(&own.item).deleted && window.get_confirm_delete().is_empty());
+
+    // Shift's quick Delete deletes the reply at once, without asking.
+    window.invoke_delete_now(reply.item.clone());
+    assert!(row(&reply.item).deleted && window.get_confirm_delete().is_empty());
 }
 
 #[test]
