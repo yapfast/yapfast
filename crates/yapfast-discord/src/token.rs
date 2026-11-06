@@ -112,6 +112,9 @@ pub(crate) fn cache_key() -> Result<crate::cache::Key> {
 
 pub fn forget() -> Result<()> {
     crate::cache::forget();
+    if let Some(id) = crate::accounts::active()? {
+        return crate::accounts::remove(&id);
+    }
     if crate::client::test_server().is_some() {
         *test_link()
             .lock()
