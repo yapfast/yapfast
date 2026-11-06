@@ -5,7 +5,7 @@
 //! [`yapfast_core::push_to_talk::hold`] when the key goes down or comes up.
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
 use serde::{Deserialize, Serialize};
@@ -176,10 +176,29 @@ impl Reach {
 /// global key; [`NONE`] otherwise.
 static FOCUSED_KEY: AtomicU32 = AtomicU32::new(NONE);
 const NONE: u32 = u32::MAX;
+/// The key's scan code while push to talk watches it, and whether the window's
+/// latest key press was it.
+static TALK_KEY: AtomicU32 = AtomicU32::new(NONE);
+static PRESSED_TALK_KEY: AtomicBool = AtomicBool::new(false);
+
+/// Whether the key press Slint is handling is the push-to-talk key, which
+/// shouldn't also type into the composer.
+pub fn pressed_talk_key() -> bool {
+    PRESSED_TALK_KEY.load(Ordering::Relaxed)
+}
 
 /// Holds the key from the window's own events while no global key works.
 /// Losing the focus lets it go, as the key's release won't come.
 pub fn window_event(event: &WindowEvent) {
+    if let WindowEvent::KeyboardInput { event, .. } = event
+        && event.state == ElementState::Pressed
+    {
+        let key = TALK_KEY.load(Ordering::Relaxed);
+        PRESSED_TALK_KEY.store(
+            key != NONE && event.physical_key.to_scancode() == Some(key),
+            Ordering::Relaxed,
+        );
+    }
     let key = FOCUSED_KEY.load(Ordering::Relaxed);
     if key == NONE {
         return;
@@ -216,6 +235,7 @@ impl Watcher {
         let reach = Arc::new(Mutex::new(Reach::Asking));
         let shared = reach.clone();
         let scancode = key.scancode;
+        TALK_KEY.store(scancode, Ordering::Relaxed);
         let report = Arc::new(move |now: Reach| {
             let focused = matches!(now, Reach::Focused(_));
             FOCUSED_KEY.store(if focused { scancode } else { NONE }, Ordering::Relaxed);
@@ -261,6 +281,7 @@ impl Watcher {
 impl Drop for Watcher {
     fn drop(&mut self) {
         FOCUSED_KEY.store(NONE, Ordering::Relaxed);
+        TALK_KEY.store(NONE, Ordering::Relaxed);
         yapfast_core::push_to_talk::hold(false);
     }
 }

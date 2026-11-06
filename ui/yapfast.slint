@@ -541,7 +541,7 @@ export component YapfastWindow inherits Window {
     in-out property <int> active-index: -1;
     // The message list has the keyboard: Up and Down step through messages and
     // letters act on the active one.
-    property <bool> browsing: timeline-keys.has-focus;
+    out property <bool> browsing: timeline-keys.has-focus;
     // A popup the keyboard asked for, "menu" or "react", which the active row opens
     // beside itself.
     property <string> keyboard-popup;
@@ -1342,35 +1342,56 @@ export component YapfastWindow inherits Window {
     callback aside-resized(length);
 
     public function focus-composer() { composer.focus-input(); }
-    // Something over the conversation, or in place of it, that typing
-    // mustn't reach behind: the settings, a full profile or a card, a
-    // dialog, a panel such as the pins, the image viewer or the call in
-    // full screen. Those with a field of their own take the text first.
+    // Something over the conversation that typing and Escape mustn't reach
+    // behind, as Discord's focus locks, modals and layers stop them: the
+    // settings, a full profile or a card, a dialog, a panel such as the pins,
+    // the image viewer or the call in full screen. Those with a field of their
+    // own take the text first.
     property <bool> composer-covered: root.settings-open || root.server-settings-open
         || root.channel-settings-open || root.profile-editor-open || root.profile-open
-        || root.role-open || root.server-card-open || root.topic-open || root.pins-open
-        || root.threads-open || root.add-people-open || root.viewer-open
+        || root.role-open || root.server-card-open || root.emoji-card-open || root.topic-open
+        || root.pins-open || root.threads-open || root.add-people-open || root.viewer-open
         || (VideoPlayer.expanded && VideoPlayer.item != "") || root.stage-full
         || root.switcher-open || root.mfa-open || root.add-friend-open || root.invite-open
         || root.join-open || root.event-open || root.gift-open || root.oauth-open
         || root.channel-open || root.move-sync-open || root.leave-open || root.person-open
         || root.status-open || root.poll-open || root.new-dm-open || root.reactions-open
         || root.forward-open || root.leaving-link != "" || root.switch-prompt != ""
-        || root.confirm-delete != "" || root.incoming-open
-        // Or the composer isn't there: a call, a forum, a message request, the
-        // friends list, the friend requests or Browse Channels.
-        || !root.room-selected || root.voice-panel || root.room-forum || root.room-request
-        || root.friends-open || root.requests-open || root.browse-open;
-    /// What's typed with nothing focused goes on the end of the message, as in Discord;
-    /// whether it could.
-    public function type-into-composer(text: string) -> bool {
-        if !root.workspace || !root.composer-enabled || root.composer-covered {
-            return false;
+        || root.confirm-delete != "" || root.incoming-open;
+    // The channel has no composer here: a call, a forum, a message request, the
+    // friends list, the friend requests or Browse Channels.
+    property <bool> composer-missing: !root.room-selected || root.voice-panel || root.room-forum
+        || root.room-request || root.friends-open || root.requests-open || root.browse-open;
+    // Typing goes to the composer used last, as in Discord: the panel's from
+    // when it opens, until the channel's takes the keyboard.
+    property <bool> aside-composer-last;
+    changed aside-docked => { root.aside-composer-last = root.aside-docked; }
+    property <int> aside-typing-tick;
+    /// A key was typed with nothing focused: focuses the composer it goes to,
+    /// with its caret at the end; whether there is one.
+    public function type-into-composer() -> bool {
+        if !root.workspace || root.composer-covered { return false; }
+        if root.aside-docked && root.aside-composer-last {
+            if !root.new-thread-open && !root.aside-composer-enabled { return false; }
+            root.aside-typing-tick += 1;
+            return true;
         }
-        root.draft += text;
-        root.draft-edited(root.draft);
+        if !root.composer-enabled || root.composer-missing { return false; }
         composer.focus-input();
         composer.place-caret(1000000);
+        return true;
+    }
+    /// Escape that nothing above took, from anywhere, in Discord's order: the
+    /// search, then a reply or an edit in the channel, then in the thread
+    /// beside it, then the new thread's form; whether it did anything.
+    public function escape-composing() -> bool {
+        if !root.workspace || root.composer-covered { return false; }
+        if root.search-open { root.search-text = ""; root.search(""); return true; }
+        if root.compose-label != "" { root.cancel-compose(); return true; }
+        if !root.aside-docked { return false; }
+        if root.new-thread-open { root.close-new-thread(); return true; }
+        if root.aside-compose-label == "" { return false; }
+        root.aside-cancel-compose();
         return true;
     }
     // The menu is open on a message of the thread beside, whose composer
@@ -1849,6 +1870,7 @@ export component YapfastWindow inherits Window {
         root.menu-message = message;
         root.menu-selection = root.selection-at(root.anchor-x, root.anchor-y);
         root.menu-aside = false;
+        root.aside-composer-last = false;
         root.menu-media = media;
         root.menu-video = video;
         root.menu-link = media >= 0 ? root.attachment-link(message.item, media) : root.link-at(root.anchor-x, root.anchor-y);
@@ -3123,12 +3145,8 @@ export component YapfastWindow inherits Window {
                                             }
                                             up-from-empty => { root.edit-last(); }
                                             up-to-messages => { root.browse-messages(); }
-                                            // Escape stops a reply or an edit, as in Discord.
-                                            escaped => {
-                                                if root.compose-label == "" { return false; }
-                                                root.cancel-compose();
-                                                return true;
-                                            }
+                                            escaped => { return root.escape-composing(); }
+                                            got-focus => { root.aside-composer-last = false; }
                                             paste => { root.paste-into-composer(); }
                                             expressions(tab) => {
                                                 if tab == 0 && !root.can-pick-gifs { return; }
@@ -3208,6 +3226,9 @@ export component YapfastWindow inherits Window {
                         can-private: root.new-thread-can-private; only-private: root.new-thread-only-private;
                         private: root.new-thread-private; starting: root.new-thread-starting;
                         error: root.new-thread-error; leaving: root.new-thread-leaving;
+                        typing-tick: root.aside-typing-tick;
+                        composer-focused => { root.aside-composer-last = true; }
+                        escape-composing => { return root.escape-composing(); }
                         init => { self.focus-composer(); }
                         name-edited(text) => { root.new-thread-name-edited(text); }
                         body-edited(text) => { root.new-thread-body-edited(text); }
@@ -3224,6 +3245,9 @@ export component YapfastWindow inherits Window {
                         name: root.aside-name; messages: root.aside-messages; ready: root.aside-ready;
                         loading: root.aside-loading; start: root.aside-start; failed: root.aside-failed;
                         focus-tick: root.aside-focus-tick;
+                        typing-tick: root.aside-typing-tick;
+                        composer-focused => { root.aside-composer-last = true; }
+                        escape-composing => { return root.escape-composing(); }
                         busy: root.busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }
@@ -3270,8 +3294,8 @@ export component YapfastWindow inherits Window {
                         edit(item) => { root.edit(item); }
                         react(item, key) => { root.react(item, key); }
                         open-picker(item, x, y, width, height) => { root.anchor(x, y, width, height, false); root.open-picker(item); }
-                        open-menu(message, x, y, width, height) => { root.anchor(x, y, width, height, width == 0px); root.open-menu(message); root.menu-aside = true; }
-                        open-media-menu(message, index, video, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-message-menu(message, index, video); root.menu-aside = true; }
+                        open-menu(message, x, y, width, height) => { root.anchor(x, y, width, height, width == 0px); root.open-menu(message); root.menu-aside = true; root.aside-composer-last = true; }
+                        open-media-menu(message, index, video, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-message-menu(message, index, video); root.menu-aside = true; root.aside-composer-last = true; }
                         confirm-delete-message => { root.confirm-delete-message(); }
                         cancel-delete => { root.cancel-delete(); }
                         author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }

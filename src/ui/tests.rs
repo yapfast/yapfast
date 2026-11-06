@@ -305,6 +305,99 @@ fn typing_with_nothing_focused_goes_to_the_composer() {
     assert_eq!(window.get_draft(), "Hello y");
 }
 
+#[test]
+fn keys_nothing_took_do_what_discords_do() {
+    use slint::platform::Key;
+    let window = one_message("Hi");
+    window.set_draft("Hello".into());
+    type_anywhere(&window);
+
+    // Not behind an emoji's card, whose Escape stays its own.
+    window.set_emoji_card_open(true);
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "Hello");
+    window.set_emoji_card_open(false);
+
+    // Enter doesn't send, unlike Discord's.
+    let sent = Rc::new(Cell::new(0));
+    let count = sent.clone();
+    window.on_send(move || count.set(count.get() + 1));
+    tap(&window, Key::Return.into());
+    tap(&window, Key::Return.into());
+    assert_eq!(sent.get(), 0);
+
+    // Backspace edits the end of the draft.
+    tap(&window, Key::Backspace.into());
+    assert_eq!(window.get_draft(), "Hell");
+
+    // Tab with nothing focused goes to the composer, and types nothing.
+    let window = one_message("Hi");
+    window.set_draft("Hello".into());
+    type_anywhere(&window);
+    tap(&window, Key::Tab.into());
+    assert_eq!(window.get_draft(), "Hello");
+    tap(&window, "!".into());
+    assert_eq!(window.get_draft(), "Hello!");
+
+    // Stepping through the messages, only letters and digits leave them.
+    window.invoke_browse_messages();
+    tap(&window, "?".into());
+    assert_eq!(window.get_draft(), "Hello!");
+    assert!(window.get_browsing());
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "Hello!x");
+    assert!(!window.get_browsing());
+}
+
+#[test]
+fn escape_from_anywhere_cancels_the_channels_reply_then_the_threads() {
+    use slint::platform::Key;
+    let window = one_message("Hi");
+    type_anywhere(&window);
+    let channel = Rc::new(Cell::new(0));
+    let count = channel.clone();
+    window.on_cancel_compose(move || count.set(count.get() + 1));
+    let thread = Rc::new(Cell::new(0));
+    let count = thread.clone();
+    window.on_aside_cancel_compose(move || count.set(count.get() + 1));
+    window.set_aside_open(true);
+    window.set_compose_label("Replying to Sam".into());
+    window.set_aside_compose_label("Replying to Sam".into());
+
+    // Over a card, Escape isn't for them.
+    window.set_emoji_card_open(true);
+    tap(&window, Key::Escape.into());
+    window.set_emoji_card_open(false);
+    assert_eq!((channel.get(), thread.get()), (0, 0));
+
+    tap(&window, Key::Escape.into());
+    assert_eq!((channel.get(), thread.get()), (1, 0));
+    window.set_compose_label("".into());
+    tap(&window, Key::Escape.into());
+    assert_eq!((channel.get(), thread.get()), (1, 1));
+}
+
+#[test]
+fn typing_goes_to_the_composer_used_last() {
+    let window = one_message("Hi");
+    type_anywhere(&window);
+    window.set_aside_composer_enabled(true);
+    window.set_aside_open(true);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+
+    // The panel's from when it opens.
+    tap(&window, "a".into());
+    assert_eq!(window.get_aside_draft(), "a");
+    assert_eq!(window.get_draft(), "");
+
+    // The channel's once it has the keyboard, which the panel's then lets go.
+    window.invoke_focus_composer();
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    tap(&window, "b".into());
+    assert_eq!(window.get_draft(), "b");
+    assert_eq!(window.get_aside_draft(), "a");
+}
+
 #[cfg(feature = "discord")]
 #[test]
 fn files_dropped_on_the_window_stage_or_say_why_not() {

@@ -637,13 +637,28 @@ fn open_from_notification(room: String) {
     });
 }
 
-/// Sends what's typed with nothing focused, such as after a menu closes, to the composer.
+/// Sends keys nothing took, such as after a menu closes, to the composer, as Discord does.
 fn type_anywhere(window: &YapfastWindow) {
     let window = window.as_weak();
     i_slint_core::yapfast_typing::on_unclaimed(move |text| {
-        window
-            .upgrade()
-            .is_some_and(|window| window.invoke_type_into_composer(text.into()))
+        let Some(window) = window.upgrade() else {
+            return false;
+        };
+        if text.chars().eq([char::from(slint::platform::Key::Escape)]) {
+            return window.invoke_escape_composing();
+        }
+        // Stepping through the messages, only letters and digits leave them.
+        if window.get_browsing() && !text.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return false;
+        }
+        // Holding the key to talk shouldn't also write it.
+        if window.get_voice_active()
+            && !window.get_muted()
+            && crate::push_to_talk::pressed_talk_key()
+        {
+            return false;
+        }
+        window.invoke_type_into_composer()
     });
 }
 

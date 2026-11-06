@@ -144,12 +144,14 @@ that ends it goes no further. Yapfast marks where it began through
 `yapfast_autoscroll.rs` and the changes marked `Yapfast:` about it in
 `items/flickable.rs`, `items/text.rs` and `window.rs`.
 
-Text typed while no item takes it, as after a menu closes, goes to the
-function given to `yapfast_typing::on_unclaimed`, which Yapfast points at the
-composer, as Discord's window sends typing anywhere to it. Only printable text
-goes, without Ctrl, Alt or Super held and with no popup open. Upstream drops
-it, since with no item focused a key has nowhere to go. This is
-`yapfast_typing.rs` and the change marked `Yapfast:` about it in `window.rs`.
+A key no item takes, as after a menu closes, goes to the function given to
+`yapfast_typing::on_unclaimed`, which Yapfast points at the composer, as
+Discord's window sends typing anywhere to it. Printable text, Backspace, Delete
+and Escape go, and Tab with nothing focused, without Ctrl, Alt or Super held and
+with no popup open. For text, Backspace and Delete the function moves the focus,
+and the key then goes to the item now focused. Upstream drops them, since with
+no item focused a key has nowhere to go. This is `yapfast_typing.rs` and the
+change marked `Yapfast:` about it in `window.rs`.
 
 Reapply them to the matching release when upgrading Slint. Styled paragraphs now
 have byte ranges as if joined by newlines, where upstream gives them all `0..0`.
