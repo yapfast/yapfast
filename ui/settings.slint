@@ -1334,9 +1334,17 @@ export struct BlockedRow { id: string, name: string, username: string, avatar-ur
 export component DiscordSettings inherits VerticalLayout {
     in property <bool> matrix-build;
     in property <[DiscordAccountRow]> accounts;
-    in property <int> account-count;
+    in property <int> link-phase;
+    in property <image> link-code;
+    in property <string> link-name;
+    in property <string> link-note;
+    callback link-discord;
+    callback link-discord-token(string);
+    callback open-discord-captcha;
+    callback cancel-discord-link;
     callback select-account(string);
     callback remove-account(string);
+    private property <bool> adding-account;
     in property <bool> show-hidden-channels;
     in property <bool> sync-discord-reads;
     in property <bool> show-idle;
@@ -1375,6 +1383,27 @@ export component DiscordSettings inherits VerticalLayout {
             }
         }
         Label { text: "Switching accounts restarts Yapfast so the Discord connection and its data are loaded for the selected identity."; }
+    }
+    if root.accounts.length > 0: HorizontalLayout {
+        ActionButton {
+            text: "Add another account"; icon: @image-url("icons/user-plus.svg");
+            clicked => { root.adding-account = true; root.link-discord(); }
+        }
+        ActionButton {
+            text: "Restart to apply account"; icon: @image-url("icons/refresh-cw.svg"); ghost: true;
+            clicked => { root.cancel-discord-link(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    if root.adding-account: VerticalLayout {
+        spacing: 8px;
+        DiscordLinkPanel {
+            phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
+            begin => { root.link-discord(); }
+            reopen => { root.open-discord-captcha(); }
+            link-token(token) => { root.link-discord-token(token); }
+        }
+        ActionButton { text: "Close"; ghost: true; clicked => { root.cancel-discord-link(); root.adding-account = false; } }
     }
     if root.matrix-build: HorizontalLayout {
         spacing: 12px;
