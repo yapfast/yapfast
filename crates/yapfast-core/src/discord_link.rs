@@ -106,7 +106,7 @@ async fn run(progress: impl Fn(Progress)) {
     })
     .await;
     let linked = match linked {
-        Ok(login) => save_account(login).await
+        Ok(login) => save_account(login).await,
         Err(error) => Err(error),
     };
     progress(match linked {
