@@ -22,6 +22,7 @@ mod browse;
 mod calls;
 mod channel_settings;
 mod compose;
+mod cosmetics;
 mod discord_account;
 mod forum;
 mod gifs;
@@ -53,6 +54,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
@@ -361,6 +363,19 @@ pub struct ProfileView {
     pub kept: bool,
     /// Why Discord didn't give the rest.
     pub note: Option<String>,
+    /// The full profile's Board, Activity or Wishlist tab has been opened,
+    /// so a profile that comes later is asked after in turn.
+    pub board_open: bool,
+    pub activity_open: bool,
+    pub wishlist_open: bool,
+}
+
+/// A tab on the full profile that asks Discord for more when it first opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileTab {
+    Board,
+    Activity,
+    Wishlist,
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
@@ -493,19 +508,45 @@ pub struct AppState {
     pub reply_ping: bool,
     /// Tracking parameters come out of the links in sent messages.
     pub strip_tracking: bool,
+    /// Nameplates aren't fetched or shown, in member lists or on the
+    /// account's card.
+    pub hide_nameplates: bool,
     /// Messages from people this account blocked don't show at all, rather
     /// than collapsed.
     pub hide_blocked: bool,
+    /// Which of the cosmetics people wear show, and are fetched.
+    pub cosmetics: Cosmetics,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
     /// their user id. Discord drops a watch made before.
     pub pending_watch: Option<(String, String)>,
+    /// A video call's room: the camera goes on once its call connects.
+    pub pending_camera: Option<String>,
+    /// The conversations visited before this one, newest last, and those
+    /// stepped back from, for the title bar's back and forward arrows.
+    pub nav_back: Vec<String>,
+    pub nav_forward: Vec<String>,
+    /// A step through that history is under way: it records no visit.
+    pub nav_walking: bool,
     pub account: Option<String>,
     /// The account's name, avatar address and connection status, where the
     /// network gives them; a Discord-only build shows Discord's.
     pub account_name: Option<String>,
+    /// The account's Discord username, shown in place of its status while
+    /// the pointer is on the account card.
+    pub account_username: Option<String>,
     pub account_avatar: Option<String>,
+    /// The decoration around the account's avatar and its nameplate, which
+    /// the account card at the bottom of the sidebar shows; Discord's.
+    pub account_decoration: Option<String>,
+    /// The profile effects fetched lately, oldest first, which the profiles
+    /// shown name.
+    pub profile_effects: Vec<Arc<crate::chat::ProfileEffect>>,
+    pub account_nameplate: Option<crate::chat::Nameplate>,
+    /// The account's own Discord profile, for its card's banner, theme, name
+    /// and badges, once its card asked for it.
+    pub account_profile: Option<Arc<Profile>>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -802,6 +843,43 @@ impl AppState {
             || self.viewer.is_some()
     }
 
+    /// The most conversations the back arrow remembers.
+    const HISTORY: usize = 50;
+
+    /// Notes that the conversation on screen gives way to `next`, which
+    /// forgets what going back would have gone forward to.
+    pub(crate) fn record_visit(&mut self, next: &str) {
+        let Some(previous) = self
+            .selected
+            .as_deref()
+            .filter(|previous| *previous != next)
+        else {
+            return;
+        };
+        if self.nav_back.last().map(String::as_str) != Some(previous) {
+            let previous = previous.to_owned();
+            self.nav_back.push(previous);
+            if self.nav_back.len() > Self::HISTORY {
+                self.nav_back.remove(0);
+            }
+        }
+        self.nav_forward.clear();
+    }
+
+    /// Whether the title bar's back arrow has somewhere to go.
+    pub fn can_go_back(&self) -> bool {
+        self.nav_back
+            .iter()
+            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+    }
+
+    /// Whether the title bar's forward arrow has somewhere to go.
+    pub fn can_go_forward(&self) -> bool {
+        self.nav_forward
+            .iter()
+            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+    }
+
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
         match &self.navigation {
             Navigation::DirectMessages => room.direct,
@@ -907,11 +985,15 @@ impl AppState {
         };
         if let Some(message) = self.messages.iter().rev().find(sender) {
             return Some(ChatMember {
+                bot: false,
                 id: user.to_owned(),
                 name: message.author.clone(),
                 username: None,
                 role: Role::Member,
                 avatar: message.avatar.clone(),
+                decoration: None,
+                nameplate: None,
+                style: None,
                 group: None,
                 presence: None,
                 color: message.color,
@@ -919,6 +1001,9 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                tag: None,
+                group_icon: None,
+                role_icon: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -931,11 +1016,15 @@ impl AppState {
             .find(|person| person.id == user)
         {
             return Some(ChatMember {
+                bot: false,
                 id: user.to_owned(),
                 name: person.name.clone(),
                 username: None,
                 role: Role::Member,
                 avatar: person.avatar.clone(),
+                decoration: None,
+                nameplate: None,
+                style: None,
                 group: None,
                 presence: None,
                 color: None,
@@ -943,6 +1032,9 @@ impl AppState {
                 activities: Default::default(),
                 roles: Default::default(),
                 timed_out_until: None,
+                tag: None,
+                group_icon: None,
+                role_icon: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -955,11 +1047,15 @@ impl AppState {
         // Matrix links name no one; their id does.
         let name = mentioned.or_else(|| user.starts_with('@').then(|| user.to_owned()))?;
         Some(ChatMember {
+            bot: false,
             id: user.to_owned(),
             name,
             username: None,
             role: Role::Member,
             avatar: None,
+            decoration: None,
+            nameplate: None,
+            style: None,
             group: None,
             presence: None,
             color: None,
@@ -967,6 +1063,9 @@ impl AppState {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            tag: None,
+            group_icon: None,
+            role_icon: None,
         })
     }
 
@@ -1474,6 +1573,13 @@ pub enum Action {
     Logout,
     Preview,
     RequestJoinVoice(String),
+    /// Join a room's call with the camera on, as Discord's video call button does.
+    StartVideoCall(String),
+    /// Go back to the conversation visited before this one, as Discord's
+    /// title bar arrow and Alt+Left do.
+    NavigateBack,
+    /// Go forward again after going back.
+    NavigateForward,
     /// Answer a Discord DM call ringing this account: open the conversation
     /// and join, leaving any other call, or decline it.
     AcceptCall(String),
@@ -1824,6 +1930,12 @@ pub enum Action {
         ask: PersonAsk,
     },
     AnswerPerson(String),
+    /// Save this account's note on a Discord user, as the full profile's
+    /// note field does; empty removes it.
+    SaveNote {
+        user: String,
+        note: String,
+    },
     ClosePersonDialog,
     // A server member's menu; see `members.rs`.
     /// Put a mention of someone in the open channel's composer.
@@ -1922,9 +2034,30 @@ pub enum Action {
     },
     /// Take tracking parameters out of links in sent messages.
     StripTracking(bool),
+    /// Turns nameplates off, or on again.
+    HideNameplates(bool),
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
+    /// A tab of the full profile opened.
+    OpenProfileTab(ProfileTab),
+    /// The account's card opened: ask for its own profile, which it draws from.
+    LoadOwnProfile,
+    /// Pick the server whose tag to wear in the profile editor; empty for none.
+    ChooseServerTag(String),
+    /// Set the name style from its window; colours are hex, joined by commas.
+    ChooseNameStyle {
+        font: u8,
+        effect: u8,
+        colours: String,
+    },
+    /// The profile editor's wishlist tab opened.
+    OpenWishlist,
+    /// Which cosmetics show, from Settings → Appearance → Profiles. What's
+    /// shown loses what's turned off at once; what's turned on shows as its
+    /// pictures arrive, and a profile's effect once the profile is fetched
+    /// again.
+    SetCosmetics(Cosmetics),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -1939,6 +2072,9 @@ pub enum Action {
     /// opens: how many of its members are online, and whether Discover lists
     /// it. Nothing is asked twice for the same server.
     PreviewServer(String),
+    /// Fetch a member's profile ahead of it being opened, so it opens at once.
+    /// The pointer rested on them; nothing shows.
+    PrefetchProfile(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -2127,17 +2263,38 @@ fn pictures_on_screen<'a>(
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
 ) -> impl Iterator<Item = &'a str> {
+    let cosmetics = state.cosmetics;
     state
         .servers
         .iter()
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
+        .chain(cosmetics.decoration(state.account_decoration.as_deref()))
+        .chain(
+            state
+                .account_profile
+                .iter()
+                .filter_map(|profile| profile.banner.as_deref()),
+        )
+        .chain(
+            state
+                .account_nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates)
+                .map(|plate| plate.picture.as_str()),
+        )
         .chain(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .filter_map(|room| room.avatar.as_deref())
+                .flat_map(move |room| {
+                    [
+                        room.avatar.as_deref(),
+                        cosmetics.decoration(room.decoration.as_deref()),
+                    ]
+                })
+                .flatten()
                 .take(LISTED_PICTURES),
         )
         .chain(
@@ -2285,8 +2442,14 @@ fn pictures_on_screen<'a>(
                 .profile
                 .iter()
                 .chain(&state.panel_profile)
-                .flat_map(|view| {
+                .flat_map(move |view| {
                     let profile = &view.profile;
+                    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
+                        state
+                            .profile_effects
+                            .iter()
+                            .find(|effect| effect.sku == sku)
+                    });
                     [&profile.avatar, &profile.banner]
                         .into_iter()
                         .chain(
@@ -2297,6 +2460,9 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
+                        .chain(cosmetics.decoration(profile.decoration.as_deref()))
+                        .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
+                        .chain(effect.into_iter().flat_map(|effect| effect.pictures()))
                 }),
         )
         .chain(
@@ -2316,12 +2482,17 @@ fn pictures_on_screen<'a>(
             timeline
                 .iter()
                 .filter(move |_| list_avatars)
-                .flat_map(|message| {
+                .flat_map(move |message| {
                     let reply = message
                         .reply
                         .as_ref()
                         .and_then(|reply| reply.avatar.as_deref());
-                    message.avatar.as_deref().into_iter().chain(reply)
+                    message
+                        .avatar
+                        .as_deref()
+                        .into_iter()
+                        .chain(cosmetics.decoration(message.decoration.as_deref()))
+                        .chain(reply)
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2344,7 +2515,18 @@ fn pictures_on_screen<'a>(
                         .filter(move |_| list_avatars)
                         .flat_map(|role| role.members.iter().flatten()),
                 )
-                .filter_map(|member| member.avatar.as_deref()),
+                .flat_map(move |member| {
+                    [
+                        member.avatar.as_deref(),
+                        cosmetics.decoration(member.decoration.as_deref()),
+                        member
+                            .nameplate
+                            .as_ref()
+                            .filter(|_| !state.hide_nameplates)
+                            .map(|plate| plate.picture.as_str()),
+                    ]
+                })
+                .flatten(),
         )
         .chain(
             state
@@ -2749,6 +2931,9 @@ impl Application {
             Action::Logout => self.logout(),
             Action::Preview => self.start_preview(),
             Action::RequestJoinVoice(id) => self.request_join_voice(id),
+            Action::StartVideoCall(id) => self.request_video_call(id),
+            Action::NavigateBack => self.walk_history(true),
+            Action::NavigateForward => self.walk_history(false),
             Action::AcceptCall(id) => self.accept_call(id),
             Action::DeclineCall(room) => vec![Effect::Backend(Command::Discord(
                 DiscordCommand::DeclineCall { room },
@@ -3014,6 +3199,7 @@ impl Application {
             }
             Action::MentionPerson(user) => self.mention_person(user),
             Action::CallPerson(user) => self.call_person(user),
+            Action::SaveNote { user, note } => self.save_note(user, note),
             Action::AskMember { place, user, ask } => self.ask_member(place, user, ask),
             Action::ChoosePersonOption(choice) => {
                 if let Some(dialog) = &mut self.state.person_dialog {
@@ -3179,6 +3365,7 @@ impl Application {
             Action::CancelVoiceSwitch => {
                 self.state.switch_voice = None;
                 self.state.pending_watch = None;
+                self.state.pending_camera = None;
                 vec![]
             }
             Action::ShowVoicePerson { room, user } => self.show_voice_person(room, user),
@@ -3207,6 +3394,29 @@ impl Application {
                 self.state.strip_tracking = strip;
                 vec![]
             }
+            Action::HideNameplates(hide) => {
+                self.state.hide_nameplates = hide;
+                vec![]
+            }
+            Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::LoadOwnProfile => self.load_own_profile(),
+            Action::OpenWishlist => self.open_wishlist(),
+            Action::ChooseServerTag(server) => {
+                self.choose_server_tag(server);
+                vec![]
+            }
+            Action::ChooseNameStyle {
+                font,
+                effect,
+                colours,
+            } => {
+                self.choose_name_style(font, effect, &colours);
+                vec![]
+            }
+            Action::SetCosmetics(cosmetics) => {
+                self.state.cosmetics = cosmetics;
+                vec![]
+            }
             Action::HideBlocked(hide) => {
                 if self.state.hide_blocked == hide {
                     return vec![];
@@ -3231,6 +3441,7 @@ impl Application {
                 vec![]
             }
             Action::ShowProfile { user, large } => self.show_profile(user, large),
+            Action::PrefetchProfile(user) => self.prefetch_profile(user),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::PreviewServer(server) => self.preview_server(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
@@ -3331,9 +3542,17 @@ impl Application {
                 {
                     self.state.pending_watch = None;
                 }
+                // The same for a video call's camera.
+                if let Some(room) = &self.state.pending_camera
+                    && self.state.voice.room.as_ref() == Some(room)
+                    && state.room.as_ref() != Some(room)
+                {
+                    self.state.pending_camera = None;
+                }
                 self.state.voice = state;
                 let mut effects = sounds;
                 effects.extend(self.watch_when_connected());
+                effects.extend(self.film_when_connected());
                 return effects;
             }
             Event::Connected {
@@ -3429,8 +3648,21 @@ impl Application {
                     self.state.notice = Some(message);
                 }
             }
-            Event::Profile { user, result } => self.show_fetched_profile(user, result),
-            Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
+            Event::Profile { user, result } => return self.show_fetched_profile(user, result),
+            Event::KeptProfile { user, profile } => return self.show_kept_profile(user, profile),
+            Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
+            Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
+            Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
+            Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
+            Event::ProfileEffect(effect) => {
+                // The few of the cards seen lately.
+                let profile_effects = &mut self.state.profile_effects;
+                profile_effects.retain(|kept| kept.sku != effect.sku);
+                profile_effects.push(effect);
+                if profile_effects.len() > 8 {
+                    profile_effects.remove(0);
+                }
+            }
             Event::Members { room, members } => {
                 // A list that came stays when a later check finds none came.
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));
@@ -3533,11 +3765,11 @@ impl Application {
             Event::ServerDeleted { server, result } => self.server_deleted(server, result),
             Event::ServerTransferred { server, result } => self.server_transferred(server, result),
             Event::ServerPincodeSent { server, result } => self.server_pincode_sent(server, result),
-            Event::OwnProfile { server, result } => self.own_profile_loaded(server, result),
+            Event::OwnProfile { server, result } => return self.own_profile_loaded(server, result),
             Event::ProfilePicture { kind, path, result } => {
                 self.profile_picture_read(kind, path, result);
             }
-            Event::ProfileSaved { server, result } => self.profile_saved(server, result),
+            Event::ProfileSaved { server, result } => return self.profile_saved(server, result),
             Event::MfaRequired { id, methods } => return self.mfa_required(id, methods),
             Event::MfaFinished { id, result } => return self.mfa_finished(id, result),
             Event::MfaTexted { id, result } => self.mfa_texted(id, result),
@@ -3631,6 +3863,15 @@ impl Application {
             }
             Event::DiscordUnlinked => return self.forget_discord(),
             Event::Note { user, result } => {
+                if let Ok(note) = &result {
+                    for view in [&mut self.state.profile, &mut self.state.panel_profile]
+                        .into_iter()
+                        .flatten()
+                        .filter(|view| view.profile.id == user)
+                    {
+                        view.profile.note.clone_from(note);
+                    }
+                }
                 if let Some(dialog) = self
                     .state
                     .person_dialog

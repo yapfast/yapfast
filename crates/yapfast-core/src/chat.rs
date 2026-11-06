@@ -15,8 +15,8 @@ use crate::{
 pub const MAX_MESSAGE_BYTES: usize = 16_000;
 /// Larger downloads only get a file card, never an inline preview.
 pub(crate) const MAX_PREVIEW_DOWNLOAD_BYTES: usize = 20 * 1024 * 1024;
-pub const PREVIEW_WIDTH: u32 = 360;
-pub const PREVIEW_HEIGHT: u32 = 270;
+pub const PREVIEW_WIDTH: u32 = 550;
+pub const PREVIEW_HEIGHT: u32 = 400;
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
@@ -36,6 +36,20 @@ pub use yapfast_discord::activity::{Activities, Activity, Kind as ActivityKind};
 pub enum Activity {}
 #[cfg(not(feature = "discord"))]
 pub type Activities = Arc<[Activity]>;
+
+/// The icons of [`ChatRoom::symbol`].
+pub mod symbol {
+    pub const TEXT: u8 = 0;
+    pub const RULES: u8 = 1;
+    pub const ANNOUNCEMENT: u8 = 2;
+    pub const STAGE: u8 = 3;
+    pub const MEDIA: u8 = 4;
+    /// A text channel that is age-restricted.
+    pub const AGE_RESTRICTED: u8 = 5;
+    /// Set on any of the above for a channel @everyone may not see, which
+    /// Discord marks with a padlock on the icon.
+    pub const PRIVATE: u8 = 0x80;
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
@@ -92,6 +106,10 @@ pub struct ChatRoom {
     /// The address of a Discord DM's picture: the other person's avatar or
     /// the group's icon. See [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The address of the decoration the other person in a one-to-one DM
+    /// wears around their avatar, and how they draw their name.
+    pub decoration: Option<String>,
+    pub style: Option<NameStyle>,
     /// The largest file a message here may carry, in bytes.
     pub upload_limit: u64,
     /// A one-to-one Discord DM's other person: whether they're around, when
@@ -109,6 +127,16 @@ pub struct ChatRoom {
     /// Show All Channels off for one this account doesn't follow; or a
     /// thread of one.
     pub unlisted: bool,
+    /// Which icon the channel list draws for it, one of [`symbol`], by its
+    /// kind: a rules channel, an announcement channel, a stage and so on.
+    pub symbol: u8,
+    /// The server tag the other person in a one-to-one DM wears by their
+    /// name, as the DM list shows it.
+    pub tag: Option<ServerTag>,
+    /// The other person is Discord's official account, which the DM list marks.
+    pub official: bool,
+    /// A one-to-one DM with no messages yet, where the DM list offers to wave.
+    pub empty: bool,
     /// A Discord message request's latest message, when it's known.
     pub preview: Option<Box<RequestPreview>>,
 }
@@ -412,7 +440,7 @@ pub struct VoicePerson {
     pub elsewhere: bool,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Default, PartialEq, Eq, Hash)]
 pub struct ChatServer {
     pub id: String,
     pub name: String,
@@ -425,6 +453,8 @@ pub struct ChatServer {
     pub unavailable: bool,
     /// The address of the server's icon; see [`DiscordCommand::Pictures`].
     pub icon: Option<String>,
+    /// The tag its members can wear, if it offers one.
+    pub tag: Option<ServerTag>,
     /// The folder it sits in on the rail. A folder's servers come one after
     /// another in [`RoomIndex::servers`].
     pub folder: Option<ServerFolder>,
@@ -437,6 +467,27 @@ pub struct ChatServer {
     /// The room ids of the channels this account pinned to the top of its
     /// channel list, a Discord server's, in the order they show there.
     pub pinned: Vec<String>,
+    /// The address of its banner, which tops its channel list.
+    pub banner: Option<String>,
+    /// Verified or partnered, which its name carries a tick for.
+    pub verified: bool,
+    /// Its scheduled events that haven't ended, soonest first, which its
+    /// channel list counts in an "N Events" row.
+    pub events: Vec<ServerEvent>,
+}
+
+/// A Discord server's scheduled event, as its events list shows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ServerEvent {
+    pub id: String,
+    pub name: String,
+    /// When it starts, in seconds since the epoch.
+    pub start: i64,
+    /// Where it is, if it says.
+    pub location: Option<String>,
+    /// Under way now.
+    pub active: bool,
+    pub interested: u64,
 }
 
 /// Where a Discord channel or category goes in its server's channel list.
@@ -601,6 +652,150 @@ pub enum Role {
     Member,
 }
 
+/// The server tag a Discord user wears beside their name: a few letters
+/// from a server they represent, with that server's badge.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ServerTag {
+    pub text: String,
+    /// The address of the badge's picture; see [`DiscordCommand::Pictures`].
+    pub badge: Option<String>,
+}
+
+/// A nameplate someone equips from Discord's shop: a strip of picture behind
+/// their row in a member list or their account card, in a palette's colour.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Nameplate {
+    /// The address of its picture; see [`DiscordCommand::Pictures`].
+    pub picture: String,
+    /// The RGB colour its gradient takes from its palette; none leaves the
+    /// picture bare.
+    pub color: Option<u32>,
+}
+
+/// A Discord display name style: how someone's name is drawn, with up to
+/// five colours. See `yapfast_discord::collectibles::Style` for the ids.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NameStyle {
+    pub font: u8,
+    pub effect: u8,
+    len: u8,
+    colors: [u32; 5],
+}
+
+impl NameStyle {
+    /// A style of `font` and `effect` in up to five of `colors`, as the
+    /// profile editor chooses one.
+    pub fn new(font: u8, effect: u8, colors: &[u32]) -> Self {
+        let mut kept = [0; 5];
+        let len = colors.len().min(5);
+        kept[..len].copy_from_slice(&colors[..len]);
+        Self {
+            font,
+            effect,
+            len: len as u8,
+            colors: kept,
+        }
+    }
+
+    /// The RGB colours it asks for.
+    pub fn colors(&self) -> &[u32] {
+        &self.colors[..usize::from(self.len)]
+    }
+}
+
+#[cfg(feature = "discord")]
+impl From<yapfast_discord::collectibles::Style> for NameStyle {
+    fn from(style: yapfast_discord::collectibles::Style) -> Self {
+        let mut colors = [0; 5];
+        let given = style.colors();
+        colors[..given.len()].copy_from_slice(given);
+        Self {
+            font: style.font,
+            effect: style.effect,
+            len: given.len() as u8,
+            colors,
+        }
+    }
+}
+
+#[cfg(feature = "discord")]
+impl From<yapfast_discord::collectibles::Nameplate> for Nameplate {
+    fn from(plate: yapfast_discord::collectibles::Nameplate) -> Self {
+        Self {
+            picture: plate.picture,
+            color: plate.color,
+        }
+    }
+}
+
+/// One layer of a profile effect: an animated picture laid over a profile
+/// card at a place, shown from a time for a duration, and again after a delay
+/// when it loops. Times are milliseconds after the card opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffectLayer {
+    /// The address of its picture; see [`DiscordCommand::Pictures`].
+    pub src: String,
+    pub x: i32,
+    pub y: i32,
+    pub start: u32,
+    pub duration: u32,
+    pub looped: bool,
+    pub loop_delay: u32,
+}
+
+/// A Discord profile effect, which plays over a profile card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileEffect {
+    /// The SKU a profile names it by.
+    pub sku: String,
+    /// It plays through once and holds `still`, rather than playing while
+    /// Discord's window has the focus.
+    pub persistent: bool,
+    /// The picture a persistent one holds when it has played through.
+    pub still: Option<String>,
+    /// Its layers, the lowest first.
+    pub layers: Vec<EffectLayer>,
+}
+
+impl ProfileEffect {
+    /// The addresses of its pictures.
+    pub fn pictures(&self) -> impl Iterator<Item = &str> {
+        self.still
+            .as_deref()
+            .into_iter()
+            .chain(self.layers.iter().map(|layer| layer.src.as_str()))
+    }
+}
+
+/// Marks the address of a profile effect's picture, which decodes at the
+/// card's size rather than an avatar's.
+pub const EFFECT_PICTURE: &str = "#effect";
+
+#[cfg(feature = "discord")]
+impl From<&yapfast_discord::profile_effect::Effect> for ProfileEffect {
+    fn from(effect: &yapfast_discord::profile_effect::Effect) -> Self {
+        let marked = |src: &str| format!("{src}{EFFECT_PICTURE}");
+        Self {
+            sku: effect.sku.clone(),
+            persistent: effect.kind != yapfast_discord::profile_effect::Kind::Intermittent,
+            still: effect.still.as_deref().map(marked),
+            layers: effect
+                .layers
+                .iter()
+                .map(|layer| EffectLayer {
+                    src: marked(&layer.src),
+                    x: layer.x,
+                    y: layer.y,
+                    start: layer.start,
+                    duration: layer.duration,
+                    looped: layer.looped,
+                    loop_delay: layer.loop_delay,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// A person's profile, as their profile card shows it. Matrix gives what the
 /// member list knows; Discord adds the rest.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -612,6 +807,15 @@ pub struct Profile {
     pub handle: String,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The address of the decoration they wear around it.
+    pub decoration: Option<String>,
+    /// How they draw their name.
+    pub style: Option<NameStyle>,
+    /// The SKU of the profile effect they equip, which
+    /// [`Event::ProfileEffect`] describes.
+    pub effect: Option<String>,
+    /// The two colours of their profile's theme, when they set one.
+    pub theme: Option<[u32; 2]>,
     /// The address of their banner, and its colour when there's no picture.
     pub banner: Option<String>,
     pub accent: Option<u32>,
@@ -631,6 +835,132 @@ pub struct Profile {
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
+    /// The server tag they wear by their name, on Discord.
+    pub tag: Option<ServerTag>,
+    /// The badges their Discord profile shows, in Discord's order.
+    pub badges: Vec<ProfileBadge>,
+    /// The custom emoji in their bio, which show as their pictures once
+    /// those arrive; the bio names each as `:name:`.
+    pub bio_emoji: Vec<CustomEmoji>,
+    /// The note this account keeps on them, as the full profile edits it.
+    pub note: String,
+    /// The accounts on other services their profile shows.
+    pub connections: Vec<ProfileConnection>,
+    /// The widgets on their Discord board.
+    pub widgets: Vec<ProfileWidget>,
+    /// Where their Discord wishlist is, if they have one that's said.
+    pub wishlist_place: Option<WishlistPlace>,
+    /// Their Discord wishlist, as far as it's been asked for.
+    pub wishlist: Wishlist,
+    /// Their board's games and applications were asked after, and came.
+    pub board_asked: bool,
+    pub board_named: bool,
+    /// What they did lately, once asked for.
+    pub recent: Vec<RecentActivity>,
+    pub recent_asked: bool,
+}
+
+/// A past thing on someone's Activity tab.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecentActivity {
+    pub title: String,
+    pub subtitle: String,
+    pub picture: Option<String>,
+    pub music: bool,
+    /// When it ended, in Unix milliseconds.
+    pub at: Option<u64>,
+}
+
+/// A widget on a Discord board.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileWidget {
+    pub title: String,
+    /// The application it shows, whose name is its title once it's asked.
+    pub application: Option<String>,
+    pub games: Vec<ProfileGame>,
+    /// It lists games, rather than something shown only in Discord.
+    pub lists_games: bool,
+}
+
+/// A game on a widget.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileGame {
+    pub id: String,
+    pub name: String,
+    /// The address of its picture.
+    pub icon: Option<String>,
+    /// What they said about it.
+    pub comment: Option<String>,
+}
+
+/// Where a Discord wishlist is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WishlistPlace {
+    pub id: String,
+    /// Only its owner may see it.
+    pub private: bool,
+}
+
+/// An item on a Discord wishlist.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WishlistItem {
+    pub name: String,
+    /// The address of its picture, for those that have one.
+    pub picture: Option<String>,
+}
+
+/// A Discord wishlist, as far as Yapfast has asked for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Wishlist {
+    /// Nobody opened it yet.
+    #[default]
+    Unasked,
+    /// Discord is being asked.
+    Loading,
+    Loaded(Vec<WishlistItem>),
+    /// Discord won't show it to this account.
+    Hidden,
+    /// Discord didn't answer or wasn't understood.
+    Failed,
+}
+
+/// An account on another service on a profile, such as Steam.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileConnection {
+    /// The service: `steam`, `twitch`, `github`.
+    pub kind: String,
+    pub name: String,
+    pub verified: bool,
+    /// Where the account is, when it can be opened.
+    pub url: Option<String>,
+    /// When the account was made, as a date, when the service says.
+    pub since: Option<String>,
+}
+
+/// A badge on a profile, such as HypeSquad Bravery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileBadge {
+    /// What it says on hover.
+    pub description: String,
+    /// The address of its picture; see [`DiscordCommand::Pictures`].
+    pub icon: String,
+    /// Where a click on it goes, when it goes anywhere.
+    pub link: Option<String>,
+    /// What its tooltip shows when it levels up.
+    pub level: Option<ProfileBadgeLevel>,
+}
+
+/// The level a badge has reached, as its tooltip shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileBadgeLevel {
+    /// The kind of badge, above the level's name.
+    pub kind: Option<String>,
+    /// The level's name.
+    pub title: String,
+    /// How far along they are.
+    pub progress: String,
+    /// The address of the large picture of the level.
+    pub picture: String,
 }
 
 /// A server a profile's person shares with this account.
@@ -669,6 +999,8 @@ pub struct ProfileRole {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatMember {
     pub id: String,
+    /// A Discord application's account, which the list marks APP.
+    pub bot: bool,
     /// The display name, or the user ID without one, as on the member's messages.
     pub name: String,
     /// Their Discord username, such as `ann`.
@@ -676,9 +1008,20 @@ pub struct ChatMember {
     pub role: Role,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The address of the decoration they wear around it, and their
+    /// nameplate, which a member list draws behind their row.
+    pub decoration: Option<String>,
+    pub nameplate: Option<Nameplate>,
+    /// How they draw their name.
+    pub style: Option<NameStyle>,
     /// The heading Discord lists them under, with its size, such as
     /// `Online — 12`. Matrix members are grouped by `role` instead.
     pub group: Option<String>,
+    /// The address of the picture of the role their group is, and of the
+    /// highest of their roles that has one, which a member list draws by
+    /// the group's heading and by their name.
+    pub group_icon: Option<String>,
+    pub role_icon: Option<String>,
     /// Whether they're around; Matrix members have no presence here.
     pub presence: Option<Presence>,
     /// The RGB colour of their name, from their highest coloured Discord role.
@@ -693,6 +1036,8 @@ pub struct ChatMember {
     /// When their Discord timeout ends, in Unix milliseconds, while they're
     /// timed out as far as Yapfast knows.
     pub timed_out_until: Option<u64>,
+    /// The server tag they wear by their name, on Discord.
+    pub tag: Option<ServerTag>,
 }
 
 /// Someone to start a DM with.
@@ -759,6 +1104,8 @@ pub struct Reply {
     pub body: String,
     /// The original message's item, to jump to it; none when it's gone.
     pub item: Option<String>,
+    /// The author's role colour, where the network gives one.
+    pub color: Option<u32>,
 }
 
 /// A Discord thread a message leads to: the one started from it, or that
@@ -1047,6 +1394,9 @@ impl Eq for Pixels {}
 pub struct Animation {
     /// How long each frame shows, in milliseconds.
     pub delays: Vec<u32>,
+    /// How many times its file says it plays, before holding its last frame;
+    /// 0 for ever.
+    pub plays: u32,
     file: AnimationFile,
     format: AnimationFormat,
 }
@@ -1406,11 +1756,17 @@ pub struct ChatMessage {
     pub spoilers: bool,
     /// The address of the author's avatar; see [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// The address of the decoration the author wears around it, and how
+    /// they draw their name.
+    pub decoration: Option<String>,
+    pub style: Option<NameStyle>,
     /// The RGB colour of the author's name, from their highest coloured
     /// Discord role.
     pub color: Option<u32>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
+    /// The server tag the author wears by their name, on Discord.
+    pub tag: Option<ServerTag>,
     /// Forwarded on Discord: its body, files and embeds are the original's.
     pub forwarded: bool,
     pub body: String,
@@ -2429,14 +2785,31 @@ pub enum DiscordCommand {
         change: MemberChange,
     },
     /// Fetch a Discord user's profile, as a member of a room's server or as
-    /// the other person in a DM. It comes back as [`Event::Profile`].
+    /// the other person in a DM. It comes back as [`Event::Profile`], and
+    /// the effect it names as [`Event::ProfileEffect`] when `effect` asks
+    /// for it; without, the shop isn't asked what the effect is made of.
     Profile {
         room: String,
         user: String,
+        effect: bool,
     },
     /// Download server icons and avatars by address. Each that arrives comes
     /// back as [`Event::Picture`]; one that fails doesn't.
     Pictures(Vec<String>),
+    /// A Discord wishlist by its id; [`Event::Wishlist`] follows.
+    Wishlist {
+        id: String,
+    },
+    /// Name the games and applications on someone's board, read-only;
+    /// [`Event::ProfileBoard`] follows.
+    ProfileBoard {
+        user: String,
+        widgets: Vec<ProfileWidget>,
+    },
+    /// What someone did lately, read-only; [`Event::ProfileRecent`] follows.
+    ProfileRecent {
+        user: String,
+    },
     /// This account's profile for its editor: in a Discord server, by its
     /// server id, or its main profile; [`Event::OwnProfile`] follows.
     OwnProfile {
@@ -3114,6 +3487,12 @@ pub struct ProfileChange {
     pub banner: Option<Option<PickedPicture>>,
     /// The main profile's banner colour, `None` for Discord's default.
     pub accent: Option<Option<u32>>,
+    /// The main profile's two theme colours, `None` for none.
+    pub theme: Option<Option<[u32; 2]>>,
+    /// The main profile's name style, `None` for none.
+    pub name_style: Option<Option<NameStyle>>,
+    /// The server whose tag the main profile wears, `None` for no tag.
+    pub primary_server: Option<Option<String>>,
 }
 
 /// A change to how the Discord account stands with someone.
@@ -3274,6 +3653,30 @@ pub enum Event {
     Profile {
         user: String,
         result: Result<Profile, String>,
+    },
+    /// The badges of a profile [`Event::Profile`] brought, now with the levels
+    /// their tooltips show, which Discord answers after the profile.
+    BadgeLevels {
+        user: String,
+        badges: Vec<ProfileBadge>,
+    },
+    /// The layers of a profile effect a [`Profile::effect`] names.
+    ProfileEffect(Arc<ProfileEffect>),
+    /// The wishlist [`DiscordCommand::Wishlist`] asked for, as it turned out.
+    Wishlist {
+        id: String,
+        wishlist: Wishlist,
+    },
+    /// The board [`DiscordCommand::ProfileBoard`] named, with what Discord
+    /// didn't say left as it was.
+    ProfileBoard {
+        user: String,
+        widgets: Vec<ProfileWidget>,
+    },
+    /// What [`DiscordCommand::ProfileRecent`] found; nothing if Discord didn't say.
+    ProfileRecent {
+        user: String,
+        recent: Vec<RecentActivity>,
     },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
@@ -3848,6 +4251,7 @@ fn decode_kept_lottie(
         rgba: Pixels::new(frames.width, frames.height, frames.next()?),
         animation: Some(Animation {
             delays: std::mem::take(&mut frames.delays),
+            plays: 0,
             file: AnimationFile::of(data, kept),
             format: AnimationFormat::Lottie,
         }),
@@ -3865,6 +4269,9 @@ fn decode_kept_picture(
     #[cfg(feature = "discord")]
     if crate::video::is_video(data) {
         return crate::video::decode_kept_animation(data, width, height, kept);
+    }
+    if is_svg(data) {
+        return svg_picture(data, width, height);
     }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(data))
         .with_guessed_format()
@@ -3890,6 +4297,46 @@ fn decode_kept_picture(
         width: picture.width(),
         height: picture.height(),
         rgba: Pixels::new(picture.width(), picture.height(), picture.into_raw()),
+        animation: None,
+    })
+}
+
+/// Whether `data` is an SVG, as Discord's badge pictures are.
+fn is_svg(data: &[u8]) -> bool {
+    let start = &data[..data.len().min(256)];
+    let start = start.trim_ascii_start();
+    start.starts_with(b"<svg") || start.starts_with(b"<?xml")
+}
+
+/// An SVG drawn to fit `width` by `height`, keeping its shape.
+fn svg_picture(data: &[u8], width: u32, height: u32) -> Option<Picture> {
+    use resvg::{tiny_skia, usvg};
+    let tree = usvg::Tree::from_data(data, &usvg::Options::default()).ok()?;
+    let size = tree.size();
+    let scale = (width as f32 / size.width()).min(height as f32 / size.height());
+    let (w, h) = (
+        ((size.width() * scale).round() as u32).max(1),
+        ((size.height() * scale).round() as u32).max(1),
+    );
+    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    // tiny-skia keeps premultiplied colour; pictures hold straight alpha.
+    let rgba: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let pixel = pixel.demultiply();
+            [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
+        })
+        .collect();
+    Some(Picture {
+        width: w,
+        height: h,
+        rgba: Pixels::new(w, h, rgba),
         animation: None,
     })
 }
@@ -3924,6 +4371,11 @@ fn decode_animation(
         rgba: Pixels::new(width, height, first),
         animation: Some(Animation {
             delays,
+            plays: if format == AnimationFormat::Png {
+                apng_plays(data)
+            } else {
+                0
+            },
             file: AnimationFile::of(data, kept),
             format,
         }),
@@ -3996,6 +4448,56 @@ fn apng_delays(data: &[u8]) -> Option<Vec<u32>> {
     }
     delays.truncate(usize::try_from(count?).ok()?);
     Some(delays)
+}
+
+/// How many times an animated PNG says it plays, from its `acTL` chunk; 0
+/// for ever, as the standard says.
+fn apng_plays(data: &[u8]) -> u32 {
+    let mut at = 8usize;
+    while let Some(header) = data.get(at..at + 8) {
+        let Ok(size) = <[u8; 4]>::try_from(&header[..4]).map(u32::from_be_bytes) else {
+            return 0;
+        };
+        if &header[4..] == b"acTL" {
+            return data
+                .get(at + 12..at + 16)
+                .and_then(|plays| <[u8; 4]>::try_from(plays).ok())
+                .map_or(0, u32::from_be_bytes);
+        }
+        if &header[4..] == b"IDAT" {
+            return 0;
+        }
+        at += 12 + size as usize;
+    }
+    0
+}
+
+#[cfg(test)]
+mod apng_plays_tests {
+    use super::apng_plays;
+
+    #[test]
+    fn an_animated_png_says_how_many_times_it_plays() {
+        let chunk = |name: &[u8; 4], body: &[u8]| {
+            let mut bytes = (body.len() as u32).to_be_bytes().to_vec();
+            bytes.extend_from_slice(name);
+            bytes.extend_from_slice(body);
+            bytes.extend_from_slice(&[0; 4]);
+            bytes
+        };
+        let png = |plays: u32| {
+            let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+            data.extend(chunk(b"IHDR", &[0; 13]));
+            let mut control = 2u32.to_be_bytes().to_vec();
+            control.extend_from_slice(&plays.to_be_bytes());
+            data.extend(chunk(b"acTL", &control));
+            data.extend(chunk(b"IDAT", &[0]));
+            data
+        };
+        assert_eq!(apng_plays(&png(1)), 1);
+        assert_eq!(apng_plays(&png(0)), 0, "for ever");
+        assert_eq!(apng_plays(b"not a picture"), 0);
+    }
 }
 
 /// An animated WebP's frames' durations, in milliseconds, from their `ANMF`
@@ -4097,6 +4599,7 @@ impl Animation {
     pub(crate) fn video(data: &[u8], kept: Option<&std::path::Path>, delays: Vec<u32>) -> Self {
         Self {
             delays,
+            plays: 0,
             file: AnimationFile::of(data, kept),
             format: AnimationFormat::Video,
         }
@@ -4703,7 +5206,18 @@ mod tests {
         let large = decode_view(&png(3840, 1200)).unwrap();
         assert_eq!((large.width, large.height), (1920, 600));
         let preview = decode_preview(&png(800, 500)).unwrap();
-        assert_eq!((preview.width, preview.height), (360, 225));
+        // Discord's previews go up to 550 by 400.
+        assert_eq!((preview.width, preview.height), (550, 344));
+    }
+
+    #[test]
+    fn an_svg_is_drawn_to_fit_keeping_its_shape() {
+        let svg = br##"<svg viewBox="0 0 156 100" xmlns="http://www.w3.org/2000/svg" width="156" height="100">
+            <rect width="156" height="100" fill="#ff0000"/></svg>"##;
+        let picture = decode_picture(svg, 128, 128).unwrap();
+        assert_eq!((picture.width, picture.height), (128, 82));
+        assert_eq!(&picture.rgba[..4], &[255, 0, 0, 255]);
+        assert!(decode_picture(b"<svg", 128, 128).is_none());
     }
 
     #[test]
