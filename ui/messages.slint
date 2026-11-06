@@ -1178,8 +1178,13 @@ export component EmojiPicker inherits Rectangle {
                         vertical-stretch: 1;
                         for row in root.emoji-rows: VerticalLayout {
                             height: root.row-height; padding-left: 8px; padding-right: 8px;
+                            // A heading takes a row of its own, and sits at the row's
+                            // foot so it meets the emoji under it.
+                            if row.heading != "": Rectangle { vertical-stretch: 1; }
                             if row.heading != "": HorizontalLayout {
-                                padding-left: 4px; padding-bottom: 4px; spacing: 6px; alignment: start;
+                                // Flush with the buttons below, as the sticker picker's
+                                // headings hang off their tiles.
+                                padding-left: 2px; padding-bottom: 4px; spacing: 6px; alignment: start;
                                 if row.glyph != SectionGlyph.none: Image {
                                     width: 16px; height: 16px;
                                     source: row.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
