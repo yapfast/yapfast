@@ -500,6 +500,29 @@ impl Adapter {
         );
         window.set_discord_build(cfg!(feature = "discord"));
         window.set_matrix_build(cfg!(feature = "matrix"));
+        #[cfg(feature = "discord")]
+        {
+            let accounts = yapfast_discord::accounts::list().unwrap_or_else(|error| {
+                tracing::warn!(%error, "could not list linked Discord accounts");
+                Vec::new()
+            });
+            let active = yapfast_discord::accounts::active().unwrap_or_else(|error| {
+                tracing::warn!(%error, "could not read active Discord account");
+                None
+            });
+            window.set_discord_accounts(ModelRc::new(VecModel::from(
+                accounts
+                    .into_iter()
+                    .map(|account| DiscordAccountRow {
+                        id: account.id.clone().into(),
+                        username: account.username.into(),
+                        active: active.as_deref() == Some(account.id.as_str()),
+                    })
+                    .collect::<Vec<_>>(),
+            )));
+        }
+        #[cfg(not(feature = "discord"))]
+        window.set_discord_accounts(ModelRc::new(VecModel::from(Vec::<DiscordAccountRow>::new())));
         // Without Matrix, the account's dot is its Discord status.
         window.set_account_presence(
             if cfg!(feature = "matrix") || state.preview {
