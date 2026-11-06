@@ -1542,6 +1542,9 @@ struct Adapter {
     runtime: Arc<BackgroundRuntime>,
     root: PathBuf,
     layout: Layout,
+    /// The rows of the emoji picker's grid that may hold pictures it drew, first
+    /// and last: see `fill_shown_glyphs`.
+    emoji_rows_filled: (usize, usize),
     app: Application,
     models: Models,
     icons: Icons,
@@ -1809,6 +1812,7 @@ impl Adapter {
                 runtime,
                 root,
                 layout,
+                emoji_rows_filled: (0, 0),
                 app,
                 models,
                 icons,

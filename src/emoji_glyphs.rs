@@ -14,6 +14,7 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use skia_safe::{AlphaType, ColorType, Font, FontHinting, FontStyle, ImageInfo, surfaces};
+use slint::fontique_011::shared_collection;
 
 use crate::emoji;
 
@@ -27,6 +28,11 @@ const MOST: usize = 1024;
 thread_local! {
     static PICTURES: RefCell<HashMap<(String, u32), Option<slint::Image>>> = RefCell::default();
     static TYPEFACE: RefCell<Option<Option<skia_safe::Typeface>>> = RefCell::default();
+}
+
+/// Lets go of the pictures kept, for when nothing shows them; a cell keeps its own.
+pub fn forget() {
+    PICTURES.with_borrow_mut(HashMap::clear);
 }
 
 /// The emoji drawn at `px` logical pixels, for a display of `scale`; the picture
@@ -44,6 +50,32 @@ pub fn picture(glyph: &str, px: f32, scale: f32) -> Option<slint::Image> {
     })
 }
 
+/// The system emoji font: as Skia's own manager finds it, or from text's font
+/// collection, which is the only one that knows the font Linux registers.
+fn emoji_typeface() -> Option<skia_safe::Typeface> {
+    let family = emoji::family();
+    let manager = skia_safe::FontMgr::new();
+    manager
+        .legacy_make_typeface(Some(family), FontStyle::normal())
+        // It answers a name it doesn't know with a font of its own choosing.
+        .filter(|typeface| typeface.family_name() == family)
+        .or_else(|| {
+            let font = shared_collection()
+                .family_by_name(family)?
+                .fonts()
+                .first()?
+                .load(None)?;
+            // The collection shares this blob's bytes for as long as the process
+            // runs, and this keeps a handle on them for the typeface, so they
+            // neither move nor go. Nothing copies them.
+            let font: &'static _ = Box::leak(Box::new(font));
+            let bytes: &'static [u8] = font.data();
+            // SAFETY: `bytes` stay in place until the process ends.
+            let data = unsafe { skia_safe::Data::new_bytes(bytes) };
+            manager.new_from_data(data, None)
+        })
+}
+
 /// The picture of an emoji drawn at `pixels` square, or none for a sequence the
 /// font would have to shape, and for a glyph the font doesn't draw.
 fn rasterize(glyph: &str, pixels: u32) -> Option<slint::Image> {
@@ -52,14 +84,8 @@ fn rasterize(glyph: &str, pixels: u32) -> Option<slint::Image> {
     if characters.next().is_some() {
         return None;
     }
-    let typeface = TYPEFACE.with_borrow_mut(|cached| {
-        cached
-            .get_or_insert_with(|| {
-                skia_safe::FontMgr::new()
-                    .legacy_make_typeface(Some(emoji::family()), FontStyle::normal())
-            })
-            .clone()
-    })?;
+    let typeface =
+        TYPEFACE.with_borrow_mut(|cached| cached.get_or_insert_with(emoji_typeface).clone())?;
     let mut font = Font::from_typeface(typeface, pixels as f32);
     // As the renderer draws text, so the picture matches the glyph it replaces.
     font.set_subpixel(true);

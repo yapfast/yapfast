@@ -158,10 +158,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   keep their size and their spacing as it widens, so what the width has over
   stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
   which is the artwork Discord's client uses and which the program carries
-  (`vendor/twemoji`, CC-BY 4.0), decoded once at the size the grid draws and
-  kept; drawing the system emoji font instead cost a colour font's paint graph
+  (`vendor/twemoji`, CC-BY 4.0), decoded at the size the grid draws as its row
+  shows; drawing the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
-  slowly. A code point Twemoji has no picture for is still drawn by the
+  slowly. A row more than eight past those shown lets go of its pictures, and
+  a picker that closes lets go of its grid, so the list costs what is near the
+  view. A code point Twemoji has no picture for is still drawn by the
   system font. A cell whose custom emoji is animated keeps that still as its
   placeholder until the emoji's frames arrive, which decode at 48px times the
   screen's scale factor, up to 96px, off the thread that draws, so a grid of

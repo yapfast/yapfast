@@ -7043,6 +7043,86 @@ fn only_the_rows_the_picker_shows_are_drawn() {
 }
 
 #[test]
+fn rows_far_from_those_the_picker_shows_let_go_of_their_pictures() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    let rows = window.get_emoji_rows();
+    let drawn = |range: std::ops::Range<usize>| -> usize {
+        range
+            .filter_map(|index| rows.row_data(index))
+            .map(|row| {
+                row.cells
+                    .iter()
+                    .filter(|cell| cell.picture.size().width > 0)
+                    .count()
+            })
+            .sum()
+    };
+    assert!(drawn(0..8) > 20, "the top is drawn");
+    // A short scroll keeps what it left, for a scroll back.
+    window.invoke_emoji_scrolled_to(6.0 * emoji::CELL, 6.0 * emoji::CELL);
+    assert!(drawn(0..4) > 10, "the rows just left keep their pictures");
+    // A long one lets go of it, whether it went by steps or at once, as the
+    // sidebar jumps; the rows it reached are drawn, and those between were not.
+    window.invoke_emoji_scrolled_to(40.0 * emoji::CELL, 6.0 * emoji::CELL);
+    assert_eq!(drawn(0..24), 0, "the rows far above let go");
+    assert!(drawn(40..46) > 20, "the rows reached are drawn");
+    window.invoke_emoji_scrolled_to(100.0 * emoji::CELL, 6.0 * emoji::CELL);
+    assert_eq!(drawn(40..46), 0, "a jump lets go of where it came from");
+    assert!(drawn(100..106) > 20, "and draws where it went");
+    // Back at the top, the pictures are drawn again.
+    window.invoke_emoji_scrolled_to(0.0, 6.0 * emoji::CELL);
+    assert!(drawn(0..6) > 20, "a row drawn before is drawn again");
+    assert_eq!(drawn(100..106), 0);
+}
+
+#[test]
+fn a_closed_picker_keeps_no_grid_and_builds_it_as_it_opens() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    assert!(window.get_emoji_rows().row_count() > 100);
+    window.invoke_emoji_picker_closed();
+    assert_eq!(window.get_emoji_rows().row_count(), 0);
+    // A window resized meanwhile doesn't build it for nothing.
+    window.set_emoji_panel_width(648.);
+    window.invoke_emoji_reflow();
+    assert_eq!(window.get_emoji_rows().row_count(), 0);
+    window.invoke_emoji_search("".into());
+    let rows = window.get_emoji_rows();
+    assert!(rows.row_count() > 100);
+    let drawn: usize = (0..8)
+        .filter_map(|index| rows.row_data(index))
+        .map(|row| {
+            row.cells
+                .iter()
+                .filter(|cell| cell.picture.size().width > 0)
+                .count()
+        })
+        .sum();
+    assert!(drawn > 20, "the picker that opens is drawn: {drawn}");
+}
+
+#[test]
 fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
     let row = |cells: Vec<EmojiCell>| EmojiRow {
         heading: "".into(),
