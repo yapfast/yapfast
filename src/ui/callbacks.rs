@@ -192,6 +192,7 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     }
     fetch_shown_pictures(&mut adapter, window, 0, GRID_ROWS);
     fill_shown_glyphs(window, &mut adapter, 0, GRID_ROWS);
+}
 
 /// Whether a window shows what it's drawn: one hidden to the tray, or
 /// minimised, shows nothing, so a picture made for it is work nobody sees.
@@ -204,7 +205,6 @@ fn on_screen(window: &YapfastWindow) -> bool {
             .with_winit_window(|winit| winit.is_minimized())
             .flatten()
             .is_none_or(|minimised| !minimised)
->>>>>>> 44f6b382 (perf(stream): stop presenting pictures nothing can see)
 }
 
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
