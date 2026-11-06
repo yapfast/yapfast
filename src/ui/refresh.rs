@@ -4429,23 +4429,31 @@ impl Adapter {
         }
     }
 
-    /// Which of the call's tiles shows large, the streams with tiles of their
-    /// own, and what the corner shows while the call is off screen.
+    /// The stream the corner shows, of those showing in the call: the large
+    /// one, or else the first.
+    fn corner_stream(&self) -> Option<&voice::Watching> {
+        let voice = &self.app.state.voice;
+        let large = |watching: &&voice::Watching| matches!(&self.call_focus, Some(Focus::Stream(user)) if *user == watching.user);
+        voice
+            .watching
+            .iter()
+            .find(large)
+            .or_else(|| voice.watching.first())
+    }
+
+    /// Which of the call's tiles shows large, or the streams that share the
+    /// room, the streams with tiles of their own, and what the corner shows
+    /// while the call is off screen.
     pub(super) fn show_stage(&mut self, window: &YapfastWindow) {
         let voice = &self.app.state.voice;
-        let watching = voice
+        let showing: Vec<String> = voice
             .watching
-            .as_ref()
-            .map(|watching| watching.user.as_str());
-        if watching != self.watched.as_deref() {
-            // A stream starts large, and leaves when watching it stops.
-            if let Some(user) = watching {
-                self.call_focus = Some(Focus::Stream(user.to_owned()));
-            } else if matches!(&self.call_focus, Some(Focus::Stream(user)) if self.watched.as_ref() == Some(user))
-            {
-                self.call_focus = None;
-            }
-            self.watched = watching.map(str::to_owned);
+            .iter()
+            .map(|watching| watching.user.clone())
+            .collect();
+        if showing != self.streams_shown {
+            follow_streams(&mut self.call_focus, &self.streams_shown, &showing);
+            self.streams_shown = showing;
         }
         let stage = Stage {
             participants: if voice.active() {
@@ -4465,7 +4473,16 @@ impl Adapter {
             &self.models.stream_tiles,
             stage.streams().map(|person| person as i32).collect(),
         );
-        window.set_watch_user(watching.unwrap_or_default().into());
+        let wall = if focused.is_none() {
+            stage.wall(&self.streams_shown)
+        } else {
+            Vec::new()
+        };
+        let (places, rows) = places(stage.tiles(), &wall);
+        window.set_wall_count(wall.len() as i32);
+        update_model(&self.models.wall, places);
+        update_model(&self.models.strip, rows);
+        let watching = self.corner_stream().map(|stream| stream.user.as_str());
         let pip = stage.pip(self.call_focus.as_ref(), watching);
         window.set_pip_kind(match pip {
             Pip::None => 0,
@@ -4478,6 +4495,137 @@ impl Adapter {
             _ => -1,
         });
         window.set_pip_slot(slot(stage.pip_slot(pip, watching)));
+        self.show_corner_stream(window);
+        self.wall = wall;
+    }
+
+    /// The stream the corner shows, with its picture only as it changes: a
+    /// picture set again is compared with the last, pixel by pixel.
+    fn show_corner_stream(&self, window: &YapfastWindow) {
+        let corner = self.corner_stream();
+        let user = corner.map_or("", |watching| watching.user.as_str());
+        if window.get_watch_user() != user {
+            window.set_watch_user(user.into());
+            window.set_watch_frame(
+                self.stream_row(user)
+                    .and_then(|row| self.models.stream_frames.row_data(row))
+                    .unwrap_or_default(),
+            );
+        }
+        window.set_watch_title(
+            corner
+                .map(|watching| format!("{}'s screen", watching.name))
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_watch_status(corner.map(watch_status).unwrap_or_default());
+        update_model(
+            &self.models.watch_viewers,
+            corner
+                .map(|watching| self.viewers(watching))
+                .unwrap_or_default(),
+        );
+        window.set_watch_viewer_names(viewer_names(&self.models.watch_viewers));
+    }
+
+    /// Someone's row in the models that follow the participants.
+    pub(super) fn stream_row(&self, user: &str) -> Option<usize> {
+        let voice = &self.app.state.voice;
+        voice
+            .participants
+            .iter()
+            .position(|person| person.id == user)
+            .filter(|row| *row < self.models.stream_frames.row_count())
+    }
+
+    /// Who watches a stream, but its streamer, in the call's order, as their
+    /// rows show them.
+    fn viewers(&self, watching: &voice::Watching) -> Vec<PersonRow> {
+        self.models
+            .participants
+            .iter()
+            .filter(|row| {
+                row.id.as_str() != watching.user
+                    && watching.viewers.iter().any(|id| row.id == id.as_str())
+            })
+            .collect()
+    }
+
+    /// Each participant's stream, in their order, and how many aren't watched.
+    pub(super) fn show_streams(&self, window: &YapfastWindow) {
+        let voice = &self.app.state.voice;
+        let people: &[voice::Participant] = if voice.active() {
+            &voice.participants
+        } else {
+            &[]
+        };
+        let mut viewers = self.models.stream_viewers.borrow_mut();
+        if viewers.len() < people.len() {
+            viewers.resize_with(people.len(), Default::default);
+        }
+        let rows = people
+            .iter()
+            .zip(viewers.iter())
+            .map(|(person, viewers)| {
+                let watching = voice
+                    .watching
+                    .iter()
+                    .find(|watching| watching.user == person.id);
+                update_model(
+                    viewers,
+                    watching
+                        .map(|watching| self.viewers(watching))
+                        .unwrap_or_default(),
+                );
+                StreamRow {
+                    watched: watching.is_some(),
+                    status: watching.map(watch_status).unwrap_or_default(),
+                    viewers: ModelRc::from(viewers.clone()),
+                    viewer_names: viewer_names(viewers),
+                }
+            })
+            .collect();
+        update_model(&self.models.streams, rows);
+        window.set_unwatched_streams(voice.unwatched().count() as i32);
+        window.set_watching(!voice.watching.is_empty());
+    }
+
+    /// Each stream's picture, in the participants' order: it moves with them,
+    /// and goes when the stream does. Setting a row
+    /// compares nothing, and only a row that changes is set.
+    fn place_stream_frames(&self, people: &[voice::Participant]) {
+        let frames = &self.models.stream_frames;
+        let watched = |person: &voice::Participant| {
+            let voice = &self.app.state.voice;
+            voice
+                .watching
+                .iter()
+                .any(|watching| watching.user == person.id)
+        };
+        if self
+            .frame_ids
+            .iter()
+            .map(String::as_str)
+            .ne(people.iter().map(|p| p.id.as_str()))
+        {
+            let kept = people.iter().map(|person| {
+                self.frame_ids
+                    .iter()
+                    .position(|id| *id == person.id)
+                    .and_then(|row| frames.row_data(row))
+                    .unwrap_or_default()
+            });
+            frames.set_vec(kept.collect::<Vec<_>>());
+        }
+        for (row, person) in people.iter().enumerate() {
+            if !watched(person)
+                && frames
+                    .row_data(row)
+                    .is_some_and(|frame| frame.size().width > 0)
+            {
+                frames.set_row_data(row, slint::Image::default());
+            }
+        }
     }
 
     /// The call: the voice dock, sharing and watching a screen, a DM's call,
@@ -4561,21 +4709,6 @@ impl Adapter {
         );
         if voice.sharing.is_none() {
             window.set_share_frame(slint::Image::default());
-        }
-        window.set_watching(voice.watching.is_some());
-        match &voice.watching {
-            Some(watching) => {
-                window.set_watch_title(format!("{}'s screen", watching.name).into());
-                window.set_watch_status(
-                    if watching.frames.is_none() {
-                        format!("Connecting to {}'s stream...", watching.name)
-                    } else {
-                        format!("Waiting for {}'s picture...", watching.name)
-                    }
-                    .into(),
-                );
-            }
-            None => window.set_watch_frame(slint::Image::default()),
         }
         window.set_voice_channel(
             voice
@@ -4779,23 +4912,8 @@ impl Adapter {
                 .map(|sharing| viewers(&sharing.viewers, None))
                 .unwrap_or_default(),
         );
-        update_model(
-            &self.models.watch_viewers,
-            voice
-                .watching
-                .as_ref()
-                .map(|watching| viewers(&watching.viewers, Some(&watching.user)))
-                .unwrap_or_default(),
-        );
-        let names = |model: &VecModel<PersonRow>| -> SharedString {
-            if model.row_count() == 0 {
-                return SharedString::new();
-            }
-            let names: Vec<String> = model.iter().map(|row| row.name.to_string()).collect();
-            format!("Watching: {}", names.join(", ")).into()
-        };
-        window.set_share_viewer_names(names(&self.models.share_viewers));
-        window.set_watch_viewer_names(names(&self.models.watch_viewers));
+        window.set_share_viewer_names(viewer_names(&self.models.share_viewers));
+        self.show_streams(window);
         // A picture per participant, kept while their camera stays on and
         // they stay in that place.
         let frames = &self.models.participant_frames;
@@ -4804,6 +4922,7 @@ impl Adapter {
         } else {
             0
         };
+        self.place_stream_frames(&voice.participants[..count]);
         for (index, person) in voice.participants.iter().take(count).enumerate() {
             let moved = self.frame_ids.get(index) != Some(&person.id);
             if (person.video.is_none() || moved) && index < frames.row_count() {
@@ -6086,4 +6205,23 @@ fn sound_rows(
         }
     }
     rows
+}
+
+/// "Watching: Sam, Kim", for the names over a stream.
+fn viewer_names(viewers: &VecModel<PersonRow>) -> SharedString {
+    if viewers.row_count() == 0 {
+        return SharedString::new();
+    }
+    let names: Vec<String> = viewers.iter().map(|row| row.name.to_string()).collect();
+    format!("Watching: {}", names.join(", ")).into()
+}
+
+/// What shows until a stream's first picture.
+fn watch_status(watching: &voice::Watching) -> SharedString {
+    if watching.frames.is_none() {
+        format!("Connecting to {}'s stream...", watching.name)
+    } else {
+        format!("Waiting for {}'s picture...", watching.name)
+    }
+    .into()
 }

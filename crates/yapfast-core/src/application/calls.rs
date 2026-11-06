@@ -98,7 +98,7 @@ fn viewer_sound(before: &voice::State, after: &voice::State) -> Option<Sound> {
         let mine = state.sharing.as_ref().map(|_| None);
         let watched = state
             .watching
-            .as_ref()
+            .iter()
             .map(|watching| Some(watching.user.clone()));
         mine.into_iter().chain(watched).collect()
     };
@@ -256,6 +256,20 @@ impl Application {
             Some((_, user)) => self.voice_command(voice::Command::Watch(user)),
             None => vec![],
         }
+    }
+
+    /// Watches every stream in the call that isn't being watched.
+    pub(super) fn watch_all_streams(&mut self) -> Vec<Effect> {
+        let unwatched: Vec<String> = self
+            .state
+            .voice
+            .unwatched()
+            .map(|person| person.id.clone())
+            .collect();
+        unwatched
+            .into_iter()
+            .flat_map(|user| self.voice_command(voice::Command::Watch(user)))
+            .collect()
     }
 
     /// A call command, with the sound of muting or deafening in a call.
