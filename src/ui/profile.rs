@@ -13,7 +13,7 @@ pub(super) fn friend_offer(relation: Relation) -> i32 {
         Relation::Stranger => 1,
         Relation::Outgoing => 2,
         Relation::Incoming => 3,
-        Relation::Me | Relation::Friend => 0,
+        Relation::Me | Relation::Friend | Relation::Bot => 0,
     }
 }
 

@@ -1394,6 +1394,7 @@ component SoundButton inherits Rectangle {
         opacity: root.enabled ? 1 : 0.5;
         if root.sound.emoji.glyph != "": EmojiFace {
             emoji: root.sound.emoji; font: root.emoji-font; side: 18px; width: 18px;
+            animation-key: root.sound.emoji.key;
         }
         Text {
             text: root.sound.name; color: Theme.text; font-size: 14px; overflow: elide;

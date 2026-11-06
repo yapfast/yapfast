@@ -1,12 +1,15 @@
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover, MenuItem, TextField } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
 /// emoji is Discord's `name:id`. A custom emoji shows its `picture` once it has
 /// arrived; until then its glyph is its name.
-export struct EmojiCell { glyph: string, name: string, key: string, picture: image }
+/// An emoji as a button, tooltip or grid cell shows it. `usable` is false for a
+/// custom emoji this account may not use where it is looking, which the picker
+/// shows greyed with a lock, as Discord's does.
+export struct EmojiCell { glyph: string, name: string, key: string, picture: image, usable: bool }
 /// A heading, or up to a row's worth of emoji, in the emoji picker.
 export struct EmojiRow { heading: string, cells: [EmojiCell] }
 /// A place the emoji picker's sidebar jumps to: the row of its heading, and the
@@ -14,20 +17,37 @@ export struct EmojiRow { heading: string, cells: [EmojiCell] }
 export struct EmojiSection { icon: EmojiCell, row: int, end: int }
 
 // An emoji at `side`: its picture, its glyph, or, for a custom emoji whose
-// picture hasn't arrived, a quiet square in its place.
+// picture hasn't arrived, a quiet square in its place. One whose animation
+// plays here draws that animation's frame in its picture's place.
 export component EmojiFace inherits Rectangle {
     in property <EmojiCell> emoji;
     in property <string> font;
     in property <length> side: 20px;
-    if root.emoji.picture.width > 0: Image {
-        source: root.emoji.picture; width: root.side; height: root.side; image-fit: contain;
+    /// The key its animation is registered under, when it plays here: the
+    /// picker's grid animates its cells, a tooltip or a status emoji does
+    /// not, and stays still. "" draws no frame at all.
+    in property <string> animation-key;
+    // Its frame while the animation plays, as `Avatar` reads `PictureStore`,
+    // so the tick that moves the clock draws this face again; empty until
+    // then, or for a still emoji.
+    property <image> animation-frame: root.animation-key == "" ? @image-url("") : EmojiAnimations.frame(root.animation-key, EmojiAnimations.revision);
+    // The frame once it is there, else the still it shows until then.
+    property <image> shown-picture: root.animation-frame.width > 0 ? root.animation-frame : root.emoji.picture;
+    if root.shown-picture.width > 0: Image {
+        source: root.shown-picture; width: root.side; height: root.side; image-fit: contain;
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
     }
-    if root.emoji.picture.width == 0 && root.emoji.glyph != root.emoji.name: Text {
+    if root.shown-picture.width == 0 && root.emoji.glyph != root.emoji.name: Text {
         text: root.emoji.glyph; font-family: root.font; font-size: root.side;
+        // An emoji font's line box is taller than its size, so the text needs
+        // more room than the glyph takes: at the size itself, Skia cut the top
+        // and bottom off the system's emoji, and some fonts' glyphs wholly.
+        width: parent.width; height: root.side * 1.5; y: (parent.height - self.height) / 2;
         horizontal-alignment: center; vertical-alignment: center;
     }
-    if root.emoji.picture.width == 0 && root.emoji.glyph == root.emoji.name: Rectangle {
+    if root.shown-picture.width == 0 && root.emoji.glyph == root.emoji.name: Rectangle {
         width: root.side * 0.8; height: root.side * 0.8; border-radius: root.side * 0.2;
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
         background: Theme.overlay.with-alpha(0.07);
     }
 }
@@ -40,10 +60,18 @@ export component EmojiButton inherits Rectangle {
     in property <length> glyph: 20px;
     in property <color> fill: transparent;
     in property <bool> tip: true;
+    /// Whether this account may use the emoji here. One it may not shows
+    /// greyed, with a lock over its corner, and clicking it offers Nitro.
+    in property <bool> usable: true;
     /// What clicking does with the emoji, for screen readers.
     in property <string> verb: "React with";
+    /// The key its animation is registered under, when it plays here; "" for
+    /// a button that stays still.
+    in property <string> animation-key;
     callback clicked;
     callback hovered;
+    /// A locked emoji was pressed.
+    callback locked;
     width: root.size; height: root.size;
     border-radius: 6px;
     background: pointer.has-hover ? Theme.overlay.with-alpha(0.12) : root.fill;
@@ -51,10 +79,16 @@ export component EmojiButton inherits Rectangle {
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
-    accessible-label: root.verb + " " + root.emoji.name;
+    accessible-label: root.usable ? root.verb + " " + root.emoji.name : "Locked, Nitro only: " + root.emoji.name;
+    opacity: root.usable ? 1 : 0.4;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
-    EmojiFace { emoji: root.emoji; font: root.font; side: root.glyph; }
+    EmojiFace { emoji: root.emoji; font: root.font; side: root.glyph; animation-key: root.animation-key; }
+    if !root.usable: Image {
+        source: @image-url("icons/lock.svg"); width: 14px; height: 14px;
+        x: root.width - self.width - 4px; y: root.height - self.height - 4px;
+        colorize: Theme.text;
+    }
     focus := FocusScope {
         key-pressed(event) => {
             if event.text == "\n" || event.text == " " {
@@ -64,7 +98,10 @@ export component EmojiButton inherits Rectangle {
         }
         pointer := TouchArea {
             mouse-cursor: MouseCursor.pointer;
-            clicked => { Tip.text = ""; root.clicked(); }
+            clicked => {
+                Tip.text = "";
+                if root.usable { root.clicked(); } else { root.locked(); }
+            }
             changed has-hover => {
                 if self.has-hover {
                     root.hovered();
@@ -625,6 +662,179 @@ export struct MessageRow {
     poll: PollCard, has-poll: bool,
 }
 
+// The card a click on an emoji in a message's text opens, as Discord's shows
+// it: the emoji, its name, and what it is, and, for one of a server's, the
+// server it came from, which opens on a click.
+export struct EmojiCard {
+    /// Its name between colons: a Unicode emoji's first shortcode, such as
+    /// ":sob:", or a custom emoji's own, such as ":pog:".
+    name: string,
+    /// The emoji itself, for one Twemoji has no picture of.
+    glyph: string,
+    /// Its picture, at the 48px the card draws it.
+    picture: image,
+    /// A custom emoji's picture by address, asked for as the card shows it:
+    /// its still may not have arrived when the card opens.
+    picture-url: string,
+    /// The name its animation is registered under, when it is a custom emoji
+    /// that animates; "" draws the still alone.
+    picture-key: string,
+    /// What it is.
+    description: string,
+    /// The server it is from, when it is one's: its id, its name, the address
+    /// of its icon at the 32px the card draws, the letter it shows without
+    /// one, how many of its members are online, such as "3,999 Online", and a
+    /// note such as "Discoverable Server"; "" for what Discord hasn't said.
+    server: string,
+    server-name: string,
+    server-picture-url: string,
+    server-initial: string,
+    server-online: string,
+    server-note: string,
+}
+
+// An emoji's card, 288px wide: the emoji, its name and what it is in 88px, and
+// below it the server it is from, as tall as its lines.
+export component EmojiCardView inherits Rectangle {
+    in property <EmojiCard> card;
+    /// The id of the server clicked: it opens.
+    callback open-server(string);
+    /// Its picture, asked for as the card shows it, as `Avatar` asks for one.
+    property <image> emoji-picture: root.card.picture-url != ""
+        ? PictureStore.picture(root.card.picture-url, PictureStore.revision)
+        : root.card.picture;
+    function request-emoji-picture() {
+        if root.card.picture-url != "" && root.emoji-picture.width == 0 {
+            PictureStore.request(root.card.picture-url);
+        }
+    }
+    changed emoji-picture => { root.request-emoji-picture(); }
+    /// The emoji's own frame while its animation plays, by the name the rows
+    /// register it under; empty for a still emoji.
+    property <image> card-animation: root.card.picture-key == ""
+        ? @image-url("")
+        : EmojiAnimations.frame(root.card.picture-key, EmojiAnimations.revision);
+    /// The server's icon, asked for as it shows, as `Avatar` asks for one.
+    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision);
+    function request-server-picture() {
+        if root.card.server-picture-url != "" && root.server-picture.width == 0 {
+            PictureStore.request(root.card.server-picture-url);
+        }
+    }
+    init => { root.request-emoji-picture(); root.request-server-picture(); }
+    changed server-picture => { root.request-server-picture(); }
+    /// How many of its members are online, then what the server is, on one
+    /// line, as Discord's card has them.
+    property <string> server-counts: root.card.server-online != "" && root.card.server-note != ""
+        ? root.card.server-online + " · " + root.card.server-note
+        : root.card.server-online + root.card.server-note;
+    width: 288px; height: body.preferred-height;
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    accessible-role: groupbox; accessible-label: root.card.name;
+    // Clicks on the card stay on it, instead of closing it.
+    TouchArea { }
+    body := VerticalLayout {
+        alignment: start; spacing: 0px;
+        // As tall as the name and the description's two lines and their
+        // padding: 88px when the lines come to 36px.
+        Rectangle {
+            HorizontalLayout {
+                padding: 16px; spacing: 10px;
+                VerticalLayout {
+                    padding-top: 4px;
+                    // Its frame while it animates, as the picker reads it, and
+                    // the still it shows until then, or for a still emoji.
+                    if root.card-animation.width > 0 || root.emoji-picture.width > 0: Image {
+                        source: root.card-animation.width > 0 ? root.card-animation : root.emoji-picture;
+                        width: 48px; height: 48px; image-fit: contain;
+                    }
+                    if root.card-animation.width == 0 && root.emoji-picture.width == 0: Text {
+                        text: root.card.glyph; width: 48px; height: 48px;
+                        horizontal-alignment: center; vertical-alignment: center; font-size: 40px;
+                    }
+                }
+                VerticalLayout {
+                    width: 198px; spacing: 0px;
+                    Text {
+                        min-width: 0px;
+                        text: root.card.name; height: 20px; font-size: 16px; font-weight: 600;
+                        color: Theme.text; vertical-alignment: center; overflow: elide;
+                    }
+                    // Two lines, clipped only where a third would start, so a
+                    // line the box had no room for is not elided away.
+                    Text {
+                        min-width: 0px;
+                        text: root.card.description; font-size: 14px;
+                        color: Theme.secondary; wrap: word-wrap; max-lines: 2;
+                    }
+                }
+            }
+        }
+        if root.card.server != "": Rectangle {
+            background: Theme.panel;
+            border-bottom-left-radius: 7px; border-bottom-right-radius: 7px;
+            VerticalLayout {
+                // The card's 16px, and the title's 8px below it.
+                padding: 16px; spacing: 8px;
+                Text {
+                    text: "This emoji is from"; min-width: 0px;
+                    font-size: 12px; font-weight: 500;
+                    color: Theme.muted; horizontal-alignment: start;
+                    overflow: elide;
+                }
+                // The server, which opens on a click: as tall as its lines, so
+                // the hover sits on them and no more.
+                Rectangle {
+                    border-radius: 6px;
+                    background: server-hover.has-hover ? Theme.hover : transparent;
+                    accessible-role: button;
+                    accessible-label: root.card.server-name;
+                    accessible-action-default => { root.open-server(root.card.server); }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        // Each is as tall as the layout, so the icon centres
+                        // against the two lines beside it.
+                        Rectangle {
+                            width: 32px;
+                            Rectangle {
+                                y: (parent.height - self.height) / 2;
+                                width: 32px; height: 32px; border-radius: 8px; clip: true;
+                                background: root.server-picture.width > 0 ? transparent : Theme.field;
+                                if root.server-picture.width > 0: Image {
+                                    source: root.server-picture; width: 32px; height: 32px; image-fit: cover;
+                                }
+                                if root.server-picture.width == 0: Text {
+                                    text: root.card.server-initial; font-size: 14px; font-weight: 700;
+                                    color: Theme.text; horizontal-alignment: center; vertical-alignment: center;
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 2px;
+                            Text {
+                                min-width: 0px; height: 20px;
+                                text: root.card.server-name; font-size: 16px; font-weight: 600;
+                                color: Theme.text; vertical-alignment: center; overflow: elide;
+                            }
+                            // One line, so nothing can come between the count,
+                            // the separator and what the server is.
+                            if root.server-counts != "": Text {
+                                text: root.server-counts; height: 16px; font-size: 12px;
+                                color: Theme.text; vertical-alignment: center; overflow: elide;
+                            }
+                        }
+                    }
+                    server-hover := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.open-server(root.card.server); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The emoji picker: a search, the emoji in rows under their headings, a
 // sidebar that jumps to each heading, and the hovered one with its name.
 // Escape closes it.
@@ -642,12 +852,27 @@ export component EmojiPicker inherits Rectangle {
     callback emoji-search(string);
     callback pick(EmojiCell);
     callback close-picker;
+    /// A locked emoji was pressed: offer Nitro, which unlocks it.
+    callback unlock-nitro;
+    /// How far the grid is scrolled and how tall it shows, so the adapter
+    /// fetches the pictures of the custom emoji in sight rather than all of them.
+    callback scrolled-to(length, length);
     /// Inside the picker above the composer, which draws the frame.
     in property <bool> bare;
+    /// The emoji a row the grid was built for. A row takes as many 56px buttons
+    /// as its width holds, and widening it adds a column rather than room
+    /// between the buttons.
+    in property <int> columns: 1;
     // Rows are all one height, so a row's place is known before the ListView
-    // lays it out, and a jump lands on its heading.
-    property <length> row-height: 40px;
+    // lays it out, and a jump lands on its heading. A button is 56px, as
+    // Discord's, and holds the space its glyph leaves around it.
+    property <length> row-height: 56px;
     property <length> scrolled: -grid.content-y;
+    property <length> shown-height: grid.height;
+    function report() { root.scrolled-to(root.scrolled, root.shown-height); }
+    init => { root.report(); }
+    changed scrolled => { root.report(); }
+    changed shown-height => { root.report(); }
     function jump(row: int) {
         if root.emoji-query != "" {
             root.emoji-query = "";
@@ -713,10 +938,15 @@ export component EmojiPicker inherits Rectangle {
                             if row.cells.length > 0: HorizontalLayout {
                                 alignment: start;
                                 for cell in row.cells: EmojiButton {
-                                    emoji: cell; font: root.emoji-font; size: 40px; glyph: 26px; tip: false;
+                                    emoji: cell; font: root.emoji-font; size: 56px; glyph: 36px; tip: false;
+                                    usable: cell.usable;
+                                    // Its own `name:id`, which its animation is registered under; a
+                                    // Unicode emoji's shortcode has none, and keeps its still.
+                                    animation-key: cell.key;
                                     verb: root.react-item == "yapfast:status" ? "Choose" : root.react-item == "yapfast:composer" ? "Insert" : "React with";
                                     hovered => { root.emoji-hover = cell; }
                                     clicked => { root.pick(cell); }
+                                    locked => { root.unlock-nitro(); }
                                 }
                             }
                         }
@@ -797,6 +1027,7 @@ export component MessageMenu inherits Rectangle {
         if root.menu-can-react: HorizontalLayout {
             spacing: 4px; padding-bottom: 4px;
             for cell in root.menu-reactions: EmojiButton {
+                animation-key: cell.key;
                 emoji: cell; font: root.emoji-font; size: 50px; height: 40px; glyph: 22px; fill: Theme.field;
                 clicked => { root.react(root.menu-message.item, cell.key); }
             }

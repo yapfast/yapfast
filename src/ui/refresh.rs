@@ -318,6 +318,8 @@ impl Adapter {
         self.show_dialogs(window);
         self.show_reactions(window);
         self.show_gifs(window);
+        self.show_emoji_card(window);
+        self.show_emoji_animations(window);
         self.show_composer(window);
         self.show_messages(window, &changes);
         self.show_aside(window);
@@ -355,6 +357,93 @@ impl Adapter {
                 self.layout = layout;
             }
         }
+    }
+
+    /// Drives the animated emoji: the frames the rows and the picker show are
+    /// wanted, decoded ahead of the draw, and the clock moves only while
+    /// something plays and the window is focused, used and not minimised.
+    fn show_emoji_animations(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let mut shown: Vec<(String, Option<char>, String)> = state
+            .messages
+            .iter()
+            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
+            .flat_map(|message| &message.emoji)
+            .filter(|emoji| emoji.animated)
+            .map(|emoji| {
+                (
+                    emoji::custom_key(emoji),
+                    custom_emoji::glyph(&emoji.id),
+                    emoji.picture.clone(),
+                )
+            })
+            .collect();
+        // The card shows one emoji, which may be from a message no longer on
+        // screen, and a call's soundboard shows its sounds' own.
+        let card = self.emoji_card.as_ref().and_then(|target| target.custom());
+        let on_card = card.and_then(|id| {
+            state
+                .messages
+                .iter()
+                .flat_map(|message| &message.emoji)
+                .find(|emoji| emoji.id == id)
+        });
+        if let Some(emoji) = on_card.filter(|emoji| emoji.animated) {
+            shown.push((
+                emoji::custom_key(emoji),
+                custom_emoji::glyph(&emoji.id),
+                emoji.picture.clone(),
+            ));
+        }
+        // The bars and menus over messages show their emoji as cells too, and
+        // what each decodes is the picture the account may use here.
+        let mut cells: Vec<String> = Vec::new();
+        for model in [&self.models.bar_reactions, &self.models.menu_reactions] {
+            for index in 0..model.row_count() {
+                if let Some(cell) = model.row_data(index) {
+                    cells.push(cell.key.to_string());
+                }
+            }
+        }
+        for emoji in self.app.usable_emoji().iter().flat_map(|set| &set.emoji) {
+            let key = emoji::custom_key(emoji);
+            if emoji.animated && cells.contains(&key) {
+                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture.clone()));
+            }
+        }
+        for sound in state
+            .voice
+            .soundboard
+            .iter()
+            .flat_map(|groups| groups.iter())
+            .flat_map(|group| &group.sounds)
+        {
+            if let Some(picture) = &sound.picture {
+                shown.push((format!("sound:{picture}"), None, picture.clone()));
+            }
+        }
+        let pictures = &state.pictures;
+        // Idle holds the clock as an unfocused window does, whatever the Animate
+        // setting says; a minimised window has lost focus, and `playing` is
+        // already false for it.
+        let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
+        self.animations.show(shown, pictures);
+        self.animations.run(window, pictures);
+        self.animations.sync(window, playing, self.weak.clone());
+    }
+
+    /// The card an emoji in a message opened, built again while it is open, so
+    /// it shows what Discord said of its server once that arrives.
+    fn show_emoji_card(&mut self, window: &YapfastWindow) {
+        let Some(target) = self.emoji_card.as_ref() else {
+            return;
+        };
+        if !window.get_emoji_card_open() {
+            return;
+        }
+        let Adapter { app, pictures, .. } = self;
+        let card = messages::emoji_card_for(app, target, pictures);
+        window.set_emoji_card(card);
     }
 
     /// Whether Yapfast is signed in or previewing, what the account is doing, and
@@ -1542,21 +1631,28 @@ impl Adapter {
                 })
                 .collect(),
         );
+        let scale = window.window().scale_factor();
         update_model(
             &self.models.bar_reactions,
-            self.app
-                .frequent_reactions(3)
-                .iter()
-                .map(|key| emoji::cell(key))
-                .collect(),
+            emoji::with_pictures(
+                self.app
+                    .frequent_reactions(3)
+                    .iter()
+                    .map(|key| emoji::cell(key))
+                    .collect(),
+                scale,
+            ),
         );
         update_model(
             &self.models.menu_reactions,
-            self.app
-                .frequent_reactions(4)
-                .iter()
-                .map(|key| emoji::cell(key))
-                .collect(),
+            emoji::with_pictures(
+                self.app
+                    .frequent_reactions(4)
+                    .iter()
+                    .map(|key| emoji::cell(key))
+                    .collect(),
+                scale,
+            ),
         );
         let role = state.role.as_ref();
         window.set_role_open(role.is_some());
@@ -2942,7 +3038,10 @@ impl Adapter {
         if window.get_emoji_suggestion_index() >= cells.len() as i32 {
             window.set_emoji_suggestion_index(0);
         }
-        update_model(&self.models.emoji_suggestions, cells);
+        update_model(
+            &self.models.emoji_suggestions,
+            emoji::with_pictures(cells, window.window().scale_factor()),
+        );
     }
 
     /// The messages, built again only where they changed, and where the list
@@ -2973,7 +3072,7 @@ impl Adapter {
                 self.restyle = true;
             }
             let usable = if pictures_arrived {
-                self.app.usable_emoji()
+                self.app.emoji_sets()
             } else {
                 Vec::new()
             };
@@ -4655,8 +4754,16 @@ fn sound_rows(
                             sound.emoji.as_str().into()
                         },
                         name: sound.name.as_str().into(),
-                        key: SharedString::new(),
+                        // A sound's custom emoji has no name of its own here, so
+                        // its picture names its animation.
+                        key: sound
+                            .picture
+                            .as_deref()
+                            .map_or_else(SharedString::new, |picture| {
+                                format!("sound:{picture}").into()
+                            }),
                         picture: cached_picture(pictures, state, sound.picture.as_deref()),
+                        usable: true,
                     },
                     favorite: sound.favorite,
                 })

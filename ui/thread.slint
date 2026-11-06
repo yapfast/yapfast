@@ -237,6 +237,7 @@ export component ThreadPanel inherits Rectangle {
                                 if message.can-react && root.composer-enabled: HorizontalLayout {
                                     spacing: 0px;
                                     for cell[slot] in root.bar-reactions: EmojiButton {
+                                        animation-key: cell.key;
                                         visible: slot < 2; width: slot < 2 ? 32px : 0px;
                                         emoji: cell; font: root.emoji-font;
                                         clicked => { root.react(message.item, cell.key); }

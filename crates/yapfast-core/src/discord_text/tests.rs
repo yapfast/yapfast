@@ -390,6 +390,88 @@ fn votes_count_live_and_last_through_an_update_without_them() {
 }
 
 #[test]
+fn a_reply_keeps_its_original_through_an_update_that_leaves_it_out() {
+    use yapfast_discord::message::Reply;
+    let reply = |reply, content: &str| Message {
+        reply: Some(reply),
+        content: content.into(),
+        ..message("5", None)
+    };
+    let original = Reply::Message {
+        id: "4".into(),
+        author_id: "2".into(),
+        author: "ann".into(),
+        content: "lunch?".into(),
+    };
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.loaded(Load::Latest, shown(vec![reply(original.clone(), "a gif")]));
+    // The update that brings a link's preview doesn't say what became of the
+    // original; it's still there.
+    let unknown = Reply::Unknown { id: "4".into() };
+    assert!(open.live(&Live::Updated(reply(unknown, "a gif, previewed"))));
+    assert_eq!(open.shown.messages[&5].reply, Some(original));
+    assert_eq!(open.shown.messages[&5].content, "a gif, previewed");
+    // One that says it was deleted is believed.
+    assert!(open.live(&Live::Updated(reply(Reply::Deleted, "a gif, previewed"))));
+    assert_eq!(open.shown.messages[&5].reply, Some(Reply::Deleted));
+}
+
+#[test]
+fn a_reply_on_screen_looks_its_original_up_once() {
+    use yapfast_discord::message::Reply;
+    let unknown = |id: &str, original: &str| Message {
+        reply: Some(Reply::Unknown {
+            id: original.into(),
+        }),
+        ..message(id, None)
+    };
+    let shows = |open: &OpenChannel, order: u64| open.shown.messages[&order].reply.clone();
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.loaded(
+        Load::Latest,
+        shown(vec![
+            message("4", None),
+            unknown("5", "4"),
+            unknown("6", "1"),
+            unknown("7", "1"),
+            unknown("8", "2"),
+            unknown("9", ""),
+        ]),
+    );
+    // Nothing is asked for until a reply shows.
+    assert!(open.originals_wanted().is_empty());
+    open.visible(["5", "6", "7"].map(|id| format!("d:{id}")).to_vec());
+    // The one loaded is quoted without asking; two replies share one question.
+    assert_eq!(open.originals_wanted(), ["1"]);
+    assert!(matches!(shows(&open, 5), Some(Reply::Message { id, .. }) if id == "4"));
+    assert!(open.originals_wanted().is_empty(), "asked once");
+    // The answer quotes it in every reply to it, and no other.
+    let original = Reply::Message {
+        id: "1".into(),
+        author_id: "2".into(),
+        author: "ann".into(),
+        content: "lunch?".into(),
+    };
+    open.original("1", Ok(Some(original.clone())));
+    assert_eq!(shows(&open, 6), Some(original.clone()));
+    assert_eq!(shows(&open, 7), Some(original));
+    assert_eq!(shows(&open, 8), Some(Reply::Unknown { id: "2".into() }));
+    // A reply to it that comes later isn't left waiting.
+    assert!(open.live(&Live::Created(unknown("10", "1"))));
+    open.visible(["10"].map(|id| format!("d:{id}")).to_vec());
+    assert_eq!(open.originals_wanted(), ["1"]);
+    open.original("1", Err("refused".into()));
+    // One that's gone says so; a failure leaves the reply as it was, unasked again.
+    open.visible(["8", "9"].map(|id| format!("d:{id}")).to_vec());
+    assert_eq!(open.originals_wanted(), ["2"], "not one with no id");
+    open.original("2", Err("refused".into()));
+    assert_eq!(shows(&open, 8), Some(Reply::Unknown { id: "2".into() }));
+    assert!(open.originals_wanted().is_empty());
+    open.original("2", Ok(None));
+    assert_eq!(shows(&open, 8), Some(Reply::Deleted));
+}
+
+#[test]
 fn messages_render_again_once_what_they_show_changes() {
     use yapfast_discord::marked::{ChannelMarks, MarkedServer, ServerMarks};
     let server = |name: &str, unread: bool| {
@@ -1646,4 +1728,40 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     // Nor a message Discord doesn't have.
     forward("d:1".into(), &room, None);
     assert!(matches!(answer().await, Err(ForwardFailure::Forward(_))));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_servers_card_shows_how_many_of_its_members_are_online() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let server = discord::server_id(FAKE_GUILD);
+    command(
+        Command::Discord(DiscordCommand::ServerPreview {
+            server: server.clone(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let answer = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::ServerPreview {
+                server: asked,
+                result,
+            } = received.recv().await.unwrap()
+                && asked == server
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    let preview = answer.expect("what the server's card shows");
+    assert_eq!(preview.online, Some(3), "Dave is offline");
+    assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
 }

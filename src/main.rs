@@ -19,6 +19,12 @@ mod emoji;
 #[cfg(feature = "desktop")]
 mod emoji_font;
 #[cfg(feature = "desktop")]
+mod emoji_font_tables;
+#[cfg(feature = "desktop")]
+mod emoji_glyphs;
+#[cfg(feature = "desktop")]
+mod emoji_text;
+#[cfg(feature = "desktop")]
 mod graphics;
 #[cfg(feature = "desktop")]
 mod icon;
@@ -34,6 +40,8 @@ mod protocol;
 mod push_to_talk;
 #[cfg(feature = "desktop")]
 mod tray;
+#[cfg(feature = "desktop")]
+mod twemoji;
 #[cfg(feature = "desktop")]
 mod ui;
 #[cfg(feature = "desktop")]

@@ -93,7 +93,9 @@ An unread channel that shows nothing yet, neither kept in memory nor on
 disk, asks for the 50 around the last read one together with the newest 50,
 so it opens at the divider after one round trip rather than two. When the
 messages kept on disk reach back to the last read one, they're what shows
-around it, and only the newest page is asked for. A page around it with
+around it, at once, and only the newest page is asked for. The divider waits
+for that page, which may bring newer messages, and until then nothing reads
+the channel; offline, it goes in from what's kept. A page around it with
 fewer than half a page from it on reaches the newest message, as Discord's
 client takes it, so it shows as the newest rather than as a window.
 The open text channel lists its members on the right as Discord's sidebar
@@ -330,13 +332,47 @@ an error.
   picture arrived gets a code point in the Supplementary Private Use Area B,
   and each batch of them a colour bitmap (CBDT) font made on the fly, which
   text falls back to after Satoshi, so they wrap and select like letters.
+  A message's Unicode emoji are drawn the same way, from Twemoji's pictures,
+  in the top of that area, counting down so the two stay apart. They need no
+  font at runtime: `build.rs` makes one font of all of them, which the program
+  carries and maps rather than copies, so an emoji is as cheap as a letter. An
+  emoji of one character answers to its own code point as well as to the one
+  the rewrite gives it, so text that keeps it as typed, as the composer's draft
+  does, draws Twemoji's picture too; a sequence, which this font can't join,
+  draws its picture once rewritten and the system font's until then. A
+  `:shortcode:` sent without taking its completion draws as its emoji. A
+  picture is 22px in the 16px text, and 48px in the large text a message of
+  emoji alone shows. That is taller than the line, so a `StyledText` and the
+  composer let text past its box by 4px rather than cutting an emoji off, and
+  each bitmap has a transparent margin, as Skia scales one without smoothing its
+  edges. A click on an emoji, custom or Unicode, opens its card: its name
+  between colons, a line saying what it is, and, for a server's, the server it
+  is from, which opens on a click. `GET /guilds/{guild.id}/preview` says how
+  many of the server's members are online and whether Discover lists it, so
+  the card shows "3,999 Online" beside "Discoverable Server". It is asked
+  for once for each server and kept; until it answers the count is left out,
+  and the note follows whether Yapfast has the server as a Community. An
+  emoji of a server that can't be reached, one this account never joined or
+  one that's gone, draws no server: its card says it is from a server that is
+  either invite-only or unavailable, as Discord's does. The card
+  follows the emoji through a link
+  text falls back to (`yapfast:emoji/` and the emoji's code points, or `c/`
+  and a custom emoji's id), as a mention follows its own.
   The picker, suggestions and reaction buttons show the picture itself, so
   the hundreds a picker lists add no fonts; a quiet square holds each place
   until its picture arrives. A message of only
   emoji, up to 30, shows them large, as Discord does. Without Nitro, the
   picker offers only the open server's emoji, none animated, and sending
   turns `:name:` into Discord's `<:name:id>` only for those. Animated emoji
-  show their first frame.
+  play in message text, in a reaction chip and in the picker's grid. In the
+  text the current frame is drawn over the glyph already there, so no
+  paragraph is shaped again for a frame. Frames decode off the thread that
+  draws, ahead of the draw: the ones a refresh shows first, one decode for
+  each picture however many messages and cells show it, and a job for an
+  emoji that scrolled away before it started is dropped. The cache keeps 6 MB
+  of frames, letting go the least recently shown, never one on screen. An
+  emoji shows its still first frame until its frames arrive, and if they
+  never do.
 - Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
   GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation
@@ -349,6 +385,17 @@ an error.
   current from RELATIONSHIP_ADD and RELATIONSHIP_REMOVE.
 - A reply's quoted line jumps to the original and highlights it for a
   moment, as described under [jumping to a message](#jumping-to-a-message).
+  It says the original was deleted only when `referenced_message` is
+  `null`. A message without the field, such as the update that brings a
+  link's preview, didn't look the original up, so an update keeps the quote
+  it had. A reply never seen with it looks the original up once it's on
+  screen: from the messages loaded, or else with
+  `GET /channels/{id}/messages?limit=1&around={id}`, as Discord's client
+  does, since user accounts can't ask for one message by its id. Any other
+  message in the answer means the original is gone. Replies ask one after
+  another, with one request for an original at a time; if Discord doesn't
+  answer, the line says it couldn't be loaded and still jumps there, and asks
+  again the next time the channel opens.
 - Desktop notifications follow the person's Discord settings: each channel's,
   category's or server's level (every message, mentions only or nothing),
   falling back to the server's default, with mutes leaving only mentions. DMs
@@ -398,8 +445,10 @@ an error.
 ## GIFs
 
 The GIF button left of the emoji button, or Ctrl+G, opens a picker with two
-tabs, GIFs and Emoji, as Discord's does; Ctrl+E opens it on Emoji. Discord
-finds GIFs through Klipy, and Yapfast asks Discord as its desktop client does:
+tabs, GIFs and Emoji, as Discord's does; Ctrl+E opens it on Emoji. The two
+share the window: its left edge drags it wider, and each tab fits what it shows
+to that width. Discord finds GIFs through Klipy, and Yapfast asks Discord as
+its desktop client does:
 
 - The home is `GET /gifs/trending?media_format=tinywebp&locale=en-US`:
   trending terms, each with a picture, and one trending GIF. It shows a
@@ -415,6 +464,32 @@ finds GIFs through Klipy, and Yapfast asks Discord as its desktop client does:
   being written, and a search's pick is reported with `POST /gifs/select`
   `{id, q}`. Discord unfurls the URL into a gifv embed, whose picture Yapfast
   plays. Shift and a click puts the URL in the message instead.
+- A favourite's thumbnail is kept in `discord-gifs/`: a video, or a file up to
+  256 KiB, as it came, and any other as a VP9 WebM at the tile's width, which
+  keeps its frames and timing. One whose GIF is no longer
+  favourited goes when Discord's list comes at a start, and past 200 MiB the
+  least lately shown go.
+- A start fetches ahead, in the background, four at a time, the favourites
+  missing that need no encoding, up to 150 MiB in all: videos up to 8 MiB,
+  named by their address, and other files up to 256 KiB. Most favourites are
+  Discord's media proxy of a file, so these downloads come from Discord, though
+  outside its API's rate limits. A larger GIF is left for its tile, which
+  downloads and encodes it when it first shows: encoding every favourite at a
+  start would take hundreds of MiB. One too large or gone gets a `.skip` file,
+  so later starts don't ask for it. A host answering 429 ends the fetching until
+  the next start, and the log counts what it came to.
+- The first GIF of each of the home's trending terms is kept in
+  `discord-gif-home/`, fetched when the home's answer comes and pruned to what it
+  then offers, so those tiles animate from the disk. Nothing else of the home is
+  kept: the Favorites tile shows a favourite, which `discord-gifs/` holds, and
+  the Trending GIFs tile loads as it shows. The answer itself is kept beside
+  those pictures in `discord-gif-home.json` with the time it came, and a start
+  within a day shows it without asking Discord at all, whose trending terms move
+  daily. The favourites and the home are asked for once at a start, before the
+  picker is opened; if either fails, opening the picker tries again.
+- Discord's GIF endpoints take no page cursor — `/gifs/search` gives "as many as
+  Discord gives at once" — so trending and search show one page, as Discord's own
+  picker does, and there is nothing further to scroll for.
 - Only the GIFs in sight, and a screen either side, load and play; they come
   from Klipy's or Tenor's media hosts, at the size they show, and go when the
   picker closes. Dragging the picker wider moves and stretches the tiles

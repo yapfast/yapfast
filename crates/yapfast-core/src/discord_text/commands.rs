@@ -171,6 +171,13 @@ pub fn command(
             if !channel.synced {
                 channel.refresh(discord, done);
             }
+            if channel.latest_due(discord) {
+                let _ = events.send(Event::HistoryLoaded {
+                    room: room.clone(),
+                    direction: Direction::Kept,
+                    history: channel.history(),
+                });
+            }
             if channel.loaded {
                 publish(&mut channel, discord, done, events);
             }
@@ -322,7 +329,11 @@ pub fn command(
                 if !channel.around(discord, done, order) {
                     let _ = events.send(Event::HistoryLoaded {
                         room,
-                        direction: Direction::Around,
+                        direction: if channel.latest_due(discord) {
+                            Direction::Kept
+                        } else {
+                            Direction::Around
+                        },
                         history: channel.history(),
                     });
                     publish(channel, discord, done, events);
@@ -416,6 +427,7 @@ pub fn finished(
 ) {
     let room = match &finished {
         Done::History { room, .. }
+        | Done::Original { room, .. }
         | Done::Sent { room, .. }
         | Done::Edited { room, .. }
         | Done::Deleted { room, .. }
@@ -575,6 +587,10 @@ pub fn finished(
                 });
             }
         },
+        (Done::Original { id, result, .. }, Some(channel)) => {
+            channel.original(&id, result);
+            changed = true;
+        }
         (Done::Picture { url, picture, .. }, Some(channel)) => {
             channel.picture(url, picture);
             changed = true;

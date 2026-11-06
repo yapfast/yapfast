@@ -80,6 +80,12 @@ pub enum Done {
         generation: u64,
         result: Result<Page, String>,
     },
+    /// The original a reply answers: none once it's gone.
+    Original {
+        room: String,
+        id: String,
+        result: Result<Option<DiscordReply>, String>,
+    },
     Sent {
         room: String,
         nonce: String,
@@ -214,6 +220,10 @@ impl Chat {
         match command {
             Command::Discord(DiscordCommand::Pictures(urls)) => {
                 self.pictures.fetch(&self.discord, urls, events);
+                return;
+            }
+            Command::Discord(DiscordCommand::PrefetchPictures(urls)) => {
+                self.pictures.prefetch(&self.discord, urls);
                 return;
             }
             Command::PlayVideo {

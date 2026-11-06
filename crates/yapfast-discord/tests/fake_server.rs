@@ -9,7 +9,7 @@ use yapfast_discord::{
     api::Span,
     client,
     member_list::{ListedMember, Presence},
-    message::Shown,
+    message::{Reply, Shown},
     notifications::{Change, Level},
     ready::{Access, Deletes, PRIVATE},
     remote_auth::{self, Step},
@@ -1177,10 +1177,16 @@ impl Games {
     ];
 
     fn new() -> Games {
-        // In /tmp, as a socket's path must stay under 108 bytes.
+        // As short a path as a socket's may be, which must stay under 108
+        // bytes: /tmp, and on Windows the system's temporary directory, the
+        // shortest there is.
+        #[cfg(not(windows))]
+        let base = std::path::PathBuf::from("/tmp");
+        #[cfg(windows)]
+        let base = std::env::temp_dir();
         let directory = tempfile::Builder::new()
             .prefix("yapfast-rpc")
-            .tempdir_in("/tmp")
+            .tempdir_in(base)
             .unwrap();
         let paths = [
             directory.path().to_owned(),
@@ -1539,6 +1545,56 @@ async fn reads_history_and_member_lists() {
         !general.unread && general.last_read.to_string() == newest
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_reply_looks_up_the_original_discord_left_out() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("a_reply_looks_up_the_original_discord_left_out").await;
+    let history = async || {
+        discord
+            .history(&guild, &general, Span::Latest)
+            .await
+            .unwrap()
+            .messages
+    };
+    let first = history().await.swap_remove(0);
+    let reply = control(
+        server,
+        "POST",
+        &format!("/_control/unlooked-reply?channel={general}&to={}", first.id),
+        "",
+    );
+    let replied = history()
+        .await
+        .into_iter()
+        .find(|message| message.id == reply.trim())
+        .unwrap();
+    assert_eq!(
+        replied.reply,
+        Some(Reply::Unknown {
+            id: first.id.clone()
+        })
+    );
+    let original = discord.original(&guild, &general, &first.id).await.unwrap();
+    assert!(
+        matches!(&original, Some(Reply::Message { id, content, .. })
+            if *id == first.id && *content == first.content),
+        "{original:?}"
+    );
+    // Asking around one that's gone answers with its neighbor.
+    let gone = (first.id.parse::<u64>().unwrap() - 1).to_string();
+    assert_eq!(
+        discord.original(&guild, &general, &gone).await.unwrap(),
+        None
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2376,6 +2432,35 @@ async fn shows_profiles() {
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn previews_a_server_for_the_card_of_its_emoji() {
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        ..
+    } = Fixture::start("previews_a_server_for_the_card_of_its_emoji").await;
+    let preview = discord.guild_preview(&guild).await.unwrap();
+    assert_eq!(preview.guild, guild);
+    assert_eq!(preview.name, "Server");
+    assert!(
+        preview
+            .icon
+            .is_some_and(|icon| icon.contains(&format!("/icons/{guild}/")))
+    );
+    assert_eq!(preview.members, Some(4), "Alice, Bob, Carol and Dave");
+    assert_eq!(preview.online, Some(3), "Dave is offline");
+    assert!(
+        !preview.discoverable,
+        "the fake's server lists no DISCOVERABLE"
+    );
+    assert!(
+        discord.guild_preview("1400000000000000999").await.is_err(),
+        "not one of Alice's servers"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

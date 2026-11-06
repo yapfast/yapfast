@@ -4997,6 +4997,7 @@ fn custom_emoji_are_requested_only_for_nearby_messages_and_stale_views_are_ignor
                 text: ":test:".into(),
                 id: index.to_string(),
                 animated: false,
+                usable: true,
             }],
             ..message(&format!("e:${index}"), false)
         })
@@ -5203,6 +5204,80 @@ fn discord_messages(ids: impl IntoIterator<Item = u64>, own: &[u64]) -> Vec<Chat
     ids.into_iter()
         .map(|id| message(&format!("d:{id}"), own.contains(&id)))
         .collect()
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_new_divider_waits_for_the_newest_page_when_kept_messages_show_first() {
+    let general = "discord:10:21";
+    let open = || {
+        let mut app = connected();
+        app.apply(unread_channel(true, 103));
+        app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+        app.dispatch(Action::SelectRoom(general.into()));
+        app.apply(window(general, chat::Direction::Kept, true));
+        app.apply(Event::Timeline {
+            room: general.into(),
+            messages: timeline(discord_messages(95..=106, &[])),
+        });
+        app
+    };
+    let newest = |app: &mut Application, ids: std::ops::RangeInclusive<u64>| {
+        app.apply(Event::Timeline {
+            room: general.into(),
+            messages: timeline(discord_messages(ids, &[])),
+        })
+    };
+    // What was kept holds unread messages, and shows at once, but newer ones
+    // may be missing: no divider yet, and the view at its end reads nothing.
+    let mut app = open();
+    assert_eq!(app.state.first_unread, None);
+    assert_eq!(app.state.unread_jump, 0);
+    assert!(app.dispatch(Action::Reading(true)).is_empty());
+    assert!(newest(&mut app, 95..=130).is_empty());
+    assert_eq!(app.state.first_unread, None, "nor as a timeline comes");
+
+    // The newest page came: the view goes to the divider, reading nothing.
+    assert!(
+        app.apply(window(general, chat::Direction::Latest, true))
+            .is_empty()
+    );
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
+    assert_eq!(app.state.unread_jump, 1);
+    assert!(!app.state.reading && !app.state.caught_up);
+    assert!(matches!(
+        app.dispatch(Action::Reading(true)).as_slice(),
+        [Effect::Backend(Command::MarkRead { room, .. })] if room == general
+    ));
+
+    // Without the newest page, it goes in from what's kept.
+    let mut app = open();
+    app.apply(Event::HistoryLoaded {
+        room: general.into(),
+        direction: chat::Direction::Latest,
+        history: chat::History::Failed,
+    });
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
+
+    // A newest page that no longer reaches the last read message asks for the
+    // messages around it, once.
+    let mut app = open();
+    let effects = newest(&mut app, 200..=249);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Around { room, .. })] if room == general
+    ));
+    assert!(
+        app.apply(window(general, chat::Direction::Latest, true))
+            .is_empty()
+    );
+    assert_eq!(app.state.first_unread, None);
+    app.apply(window(general, chat::Direction::Around, false));
+    app.apply(Event::Timeline {
+        room: general.into(),
+        messages: timeline(discord_messages(90..=115, &[])),
+    });
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:104"));
 }
 
 #[test]
@@ -5702,6 +5777,98 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         ..Default::default()
     }));
     app
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_emoji_names_the_server_that_lists_it() {
+    use yapfast_discord::ready::{Emoji, Server};
+    use yapfast_discord::service::{Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![marked(
+            Server {
+                id: "10".into(),
+                name: "Test".into(),
+                emojis: Arc::new(vec![Emoji {
+                    id: "77".into(),
+                    name: "gg".into(),
+                    animated: false,
+                    available: true,
+                }]),
+                ..Default::default()
+            },
+            &[],
+        )],
+        ..Default::default()
+    }));
+    // The server's id as the rail and navigation name it, not Discord's own.
+    let server = app.emoji_server("77").expect("the server that lists it");
+    assert_eq!(server, "discord:10");
+    assert!(app.state.servers.iter().any(|listed| listed.id == server));
+    assert_eq!(app.emoji_server("78"), None, "no server lists it");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_servers_card_asks_for_what_it_shows_once() {
+    use yapfast_discord::ready::Server;
+    use yapfast_discord::service::{Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![marked(
+            Server {
+                id: "10".into(),
+                name: "Test".into(),
+                ..Default::default()
+            },
+            &[],
+        )],
+        ..Default::default()
+    }));
+    let asked = |effects: &[Effect]| -> Vec<String> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::ServerPreview { server })) => {
+                    Some(server.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        asked(&app.dispatch(Action::PreviewServer("discord:10".into()))),
+        ["discord:10"]
+    );
+    assert!(
+        app.state.server_previews.is_empty(),
+        "nothing shows until Discord answers"
+    );
+    app.apply(Event::ServerPreview {
+        server: "discord:10".into(),
+        result: Ok(chat::ServerPreview {
+            online: Some(3999),
+            discoverable: true,
+        }),
+    });
+    let preview = app
+        .state
+        .server_previews
+        .get("discord:10")
+        .expect("what Discord said");
+    assert_eq!(preview.online, Some(3999));
+    assert!(preview.discoverable);
+    assert!(
+        asked(&app.dispatch(Action::PreviewServer("discord:10".into()))).is_empty(),
+        "the server's answer stands"
+    );
+    assert!(
+        asked(&app.dispatch(Action::PreviewServer("friends".into()))).is_empty(),
+        "only Discord's servers have one"
+    );
 }
 
 #[test]
@@ -8488,6 +8655,69 @@ fn votes_go_to_discord_and_the_window_lists_who_voted() {
 
 #[cfg(feature = "discord")]
 #[test]
+fn a_start_asks_for_the_gif_pickers_home_and_favourites_once() {
+    let asks = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Discord(
+                        DiscordCommand::GifCategories | DiscordCommand::FavoriteGifs
+                    ))
+                )
+            })
+            .count()
+    };
+    let snapshot = || discord_event(yapfast_discord::service::Snapshot::default());
+    let mut app = Application::default();
+    assert_eq!(asks(&app.apply(snapshot())), 2);
+    // Discord failing doesn't make every later snapshot ask again; opening the
+    // picker does.
+    app.apply(Event::GifCategories(Err("down".into())));
+    app.apply(Event::FavoriteGifs(Err("down".into())));
+    assert_eq!(asks(&app.apply(snapshot())), 0);
+}
+
+#[test]
+fn discords_list_of_favourite_gifs_is_what_is_fetched_ahead() {
+    use crate::chat::{FavoriteGif, Gif};
+    let mut app = Application::default();
+    let gif = |name: &str, src: &str| Gif {
+        url: format!("https://klipy.com/gifs/{name}"),
+        src: src.into(),
+        ..Default::default()
+    };
+    let favorite = |name: &str, src: &str| FavoriteGif::of(&gif(name, src), &[]);
+    // The list kept on disk may be out of date, and fetches nothing.
+    let kept = app.apply(Event::KeptFavoriteGifs(vec![favorite("old", "old.webp")]));
+    assert!(kept.is_empty());
+    // Each picture once.
+    let effects = app.apply(Event::FavoriteGifs(Ok(vec![
+        favorite("one", "one.webp"),
+        favorite("again", "one.webp"),
+        favorite("two", "two.webp"),
+        favorite("none", ""),
+    ])));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::PrefetchFavorites(urls)))]
+            if urls == &["one.webp", "two.webp"]
+    ));
+}
+
+#[test]
+fn no_favourite_gifs_left_still_lets_go_of_those_kept() {
+    let mut app = Application::default();
+    let effects = app.apply(Event::FavoriteGifs(Ok(vec![])));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::PrefetchFavorites(urls)))]
+            if urls.is_empty()
+    ));
+}
+
+#[test]
 fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
     use crate::chat::{FavoriteGif, Gif};
     let mut app = connected();
@@ -8545,13 +8775,10 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             .collect()
     };
 
-    // Pointing at the star asks for the favourites, once, and those kept
-    // on disk show until Discord's come.
+    // The start asked for the favourites already, so pointing at the star asks
+    // for nothing more; those kept on disk show until Discord's come.
     let asked = backend(app.dispatch(Action::LoadFavoriteGifs));
-    assert!(matches!(
-        asked.as_slice(),
-        [Command::Discord(DiscordCommand::FavoriteGifs)]
-    ));
+    assert!(asked.is_empty(), "the start asked for the favourites");
     let other = |name: &str| Gif {
         url: format!("https://klipy.com/gifs/{name}"),
         src: format!("https://static.klipy.com/{name}.webp"),
@@ -8572,11 +8799,23 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
     assert!(app.state.favorite_gifs_changed > changed);
     let elsewhere = FavoriteGif::of(&other("new"), &[]);
     let saved = backend(app.apply(Event::FavoriteGifs(Ok(vec![elsewhere.clone()]))));
-    assert!(matches!(
-        saved.as_slice(),
-        [Command::Discord(DiscordCommand::SetFavoriteGifs(favorites))]
-            if favorites == &[elsewhere.clone(), FavoriteGif::of(&gif, std::slice::from_ref(&elsewhere))]
-    ));
+    // Their pictures are fetched ahead as well, which
+    // `discords_list_of_favourite_gifs_is_what_is_fetched_ahead` covers; what
+    // Discord is told is the set of favourites.
+    let sent = saved
+        .iter()
+        .find_map(|command| match command {
+            Command::Discord(DiscordCommand::SetFavoriteGifs(favorites)) => Some(favorites),
+            _ => None,
+        })
+        .expect("the favourites are sent to Discord");
+    assert_eq!(
+        sent,
+        &[
+            elsewhere.clone(),
+            FavoriteGif::of(&gif, std::slice::from_ref(&elsewhere))
+        ]
+    );
     assert!(app.state.is_favorite_gif(&gif.url) && !app.state.is_favorite_gif(&old.url));
     // Those kept on disk don't replace Discord's.
     app.apply(Event::KeptFavoriteGifs(vec![old]));
@@ -8636,15 +8875,13 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
             .collect()
     };
 
-    // Opening asks for the home and the favourites, once.
+    // The start asked for the home and the favourites so their pictures could
+    // be fetched ahead; opening asks for nothing more.
     let asked = backend(app.dispatch(Action::OpenGifs));
-    assert!(matches!(
-        asked.as_slice(),
-        [
-            Command::Discord(DiscordCommand::GifCategories),
-            Command::Discord(DiscordCommand::FavoriteGifs)
-        ]
-    ));
+    assert!(
+        asked.is_empty(),
+        "the start asked for the home and the favourites"
+    );
     app.apply(Event::GifCategories(Ok((
         vec![GifCategory {
             name: "happy".into(),

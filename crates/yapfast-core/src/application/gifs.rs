@@ -79,6 +79,8 @@ pub struct GifPicker {
     /// than those kept on disk.
     favorites_asked: bool,
     favorites_fresh: bool,
+    /// This start asked for what the picker fetches ahead.
+    prefetched: bool,
     /// Stars used before Discord's favourites came, each adding a GIF or
     /// taking one out: they show at once and reach Discord's once they come,
     /// so a change made elsewhere meanwhile stays.
@@ -150,6 +152,27 @@ impl Application {
             && let Some(asked) = picker.results_for.clone()
         {
             effects.extend(self.ask_gifs(asked));
+        }
+        effects.extend(self.load_favorite_gifs());
+        effects
+    }
+
+    /// Asks for the favourite GIFs and the picker's home once, at a start, so
+    /// their pictures are fetched ahead before the picker is ever opened.
+    /// Opening the picker finds both answered, or tries again if one failed.
+    pub(super) fn prefetch_gifs(&mut self) -> Vec<Effect> {
+        if self.state.preview || std::mem::replace(&mut self.state.gifs.prefetched, true) {
+            return vec![];
+        }
+        // The home's answer first: it is one small request, and its terms' pictures
+        // are what the home draws. The favourites' list is the larger call, and
+        // the GIFs it leads to take the longest to fetch, so it follows.
+        let mut effects = vec![];
+        if self.state.gifs.categories.is_empty() && !self.state.gifs.home_loading {
+            self.state.gifs.home_loading = true;
+            effects.push(Effect::Backend(Command::Discord(
+                DiscordCommand::GifCategories,
+            )));
         }
         effects.extend(self.load_favorite_gifs());
         effects
@@ -456,13 +479,14 @@ impl Application {
                 }
                 self.state.favorite_gifs = Some(favorites);
                 self.state.favorite_gifs_changed += 1;
-                if !starred {
-                    return vec![];
+                let mut effects: Vec<Effect> = self.prefetch_favorites().into_iter().collect();
+                if starred {
+                    let favorites = self.state.favorite_gifs.clone().unwrap_or_default();
+                    effects.push(Effect::Backend(Command::Discord(
+                        DiscordCommand::SetFavoriteGifs(favorites),
+                    )));
                 }
-                let favorites = self.state.favorite_gifs.clone().unwrap_or_default();
-                vec![Effect::Backend(Command::Discord(
-                    DiscordCommand::SetFavoriteGifs(favorites),
-                ))]
+                effects
             }
             // The stars used meanwhile wait for the next try.
             Err(error) => {
@@ -484,6 +508,25 @@ impl Application {
         }
         self.state.favorite_gifs = Some(favorites);
         self.state.favorite_gifs_changed += 1;
+    }
+
+    /// Fetches ahead what's cheap to keep of Discord's list of favourite GIFs,
+    /// on Discord's worker, keeping the cache to the list as it does. Nothing
+    /// is held: the files go to the disk, and a tile decodes one when it shows
+    /// it. The list kept on disk may be out of date, so it doesn't ask.
+    fn prefetch_favorites(&self) -> Option<Effect> {
+        let mut seen = HashSet::new();
+        let urls = self
+            .state
+            .favorite_gifs
+            .as_ref()?
+            .iter()
+            .filter(|favorite| !favorite.src.is_empty() && seen.insert(favorite.src.as_str()))
+            .map(|favorite| favorite.src.clone())
+            .collect();
+        Some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchFavorites(urls),
+        )))
     }
 
     pub(super) fn gif_picture_came(&mut self, url: String, picture: Option<Arc<Picture>>) {

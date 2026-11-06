@@ -1067,6 +1067,29 @@ impl Pictures {
         }
     }
 
+    /// Downloads `urls` to the disk cache alone: nothing is decoded, nothing is
+    /// sent to show, and nothing is held, so a start that has never kept a
+    /// picture can fetch a whole account's custom emoji in the background at
+    /// no memory cost. The downloads keep the fetcher's turns and backoff, so
+    /// whatever is on screen goes first, and Discord's limits hold.
+    pub(crate) fn prefetch(&mut self, discord: &Discord, urls: Vec<String>) {
+        while self.tasks.try_join_next().is_some() {}
+        self.batches += 1;
+        let batch = self.batches;
+        for url in urls {
+            let (discord, turns, backoff) =
+                (discord.clone(), self.turns.clone(), self.backoff.clone());
+            self.tasks.spawn(async move {
+                // The download checks the disk first and keeps what it gets;
+                // the bytes themselves are dropped here.
+                match download(&discord, &url, &turns, batch, &backoff).await {
+                    Some(data) => tracing::debug!(bytes = data.len(), "prefetched a picture"),
+                    None => tracing::debug!("a prefetched picture failed"),
+                }
+            });
+        }
+    }
+
     /// Shows `urls`: those kept on disk at once, the rest as they download,
     /// a few at a time, the newest batch asked for first. A picture whose
     /// download may work later is tried again, after a wait every download
