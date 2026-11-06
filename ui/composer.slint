@@ -211,6 +211,8 @@ export struct MentionRow {
     group: bool,
     // What a group's mark shows: "@", or "#" for a channel.
     sigil: string,
+    // A voice channel, whose mark is a speaker instead.
+    voice: bool,
     // Their username, or what a group reaches, such as "Everyone in this channel".
     detail: string,
     // The heading over the first member and the first role, such as "MEMBERS".
@@ -255,7 +257,8 @@ export component MentionList inherits SuggestionFrame {
                         if mention.group: Rectangle {
                             width: 24px; height: 24px; border-radius: 12px;
                             background: (mention.has-color ? mention.color : Theme.muted).with-alpha(0.2);
-                            Text { text: mention.sigil; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 700; }
+                            if !mention.voice: Text { text: mention.sigil; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 700; }
+                            if mention.voice: Image { source: @image-url("icons/volume-2.svg"); width: 14px; height: 14px; colorize: Theme.secondary; }
                         }
                     }
                     Text {

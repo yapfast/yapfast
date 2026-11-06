@@ -1315,6 +1315,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     Action::ShowProfile { user, large: false }
                 }
                 mention::Target::Role(role) => Action::ShowRole(role),
+                // Opens its chat; a voice channel's doesn't join the call.
+                mention::Target::Channel(room) => Action::Open(room),
                 // As in Discord's client, @everyone and @here open nothing.
                 mention::Target::Everyone => return,
             };

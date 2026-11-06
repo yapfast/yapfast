@@ -1026,6 +1026,7 @@ impl AppState {
                 color,
                 group: false,
                 channel: false,
+                voice: false,
             });
         }
         candidates.extend(self.mention_groups.iter().map(|group| Candidate {
@@ -1036,6 +1037,7 @@ impl AppState {
             color: group.color,
             group: true,
             channel: group.channel,
+            voice: group.voice,
         }));
         candidates
     }

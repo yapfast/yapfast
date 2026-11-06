@@ -110,7 +110,7 @@ impl Application {
         if !message.can_edit || !self.state.can_write_in(&id) {
             return vec![];
         }
-        let body = message.body.clone();
+        let body = mention::as_typed(&message.body, &message.mentions);
         let draft = match self.state.compose.get(&id) {
             Some(Compose::Edit { draft, .. }) => draft.clone(),
             _ => self.state.drafts.get(&id).cloned().unwrap_or_default(),

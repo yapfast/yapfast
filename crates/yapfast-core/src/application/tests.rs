@@ -3182,12 +3182,14 @@ fn discord_mentions_search_the_server_and_name_roles() {
                 mention: "<@&30>".into(),
                 color: Some(0x3498db),
                 channel: false,
+                voice: false,
             },
             MentionGroup {
                 name: "general".into(),
                 mention: "<#11>".into(),
                 color: None,
                 channel: true,
+                voice: false,
             },
         ],
     });

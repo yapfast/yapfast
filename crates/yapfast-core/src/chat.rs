@@ -718,6 +718,8 @@ pub struct MentionGroup {
     pub color: Option<u32>,
     /// A channel, which `#` mentions, rather than a role or group.
     pub channel: bool,
+    /// A voice channel, which the suggestions mark with a speaker.
+    pub voice: bool,
 }
 
 /// Whether a Discord member is around, as their status dot shows.
