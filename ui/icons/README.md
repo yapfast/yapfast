@@ -54,3 +54,5 @@ licence (GPL-3.0-only, the Royalty-free License 2.0 or the Software License 3.0)
 - Drawn for Yapfast: pen, for the profile editor name field.
 - Drawn for Yapfast: brush and chevrons-right, for the profile editor's Show
   Styles and Hide Styles.
+- Drawn for Yapfast: stream-badge, a screen with a play mark cut out of it, on
+  a server where someone shares their screen.

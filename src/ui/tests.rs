@@ -4005,6 +4005,160 @@ fn a_call_shows_on_its_servers_icon_and_its_closed_folder() {
 }
 
 #[test]
+fn a_stream_shows_on_its_servers_icon_and_its_closed_folder() {
+    use yapfast_core::chat::{ChatRoom, ChatServer, ServerFolder, VoicePerson};
+    let folder = ServerFolder {
+        id: "discord-folder:7".into(),
+        name: None,
+        color: None,
+    };
+    let server = |id: &str, channel: &str, folder: Option<&ServerFolder>| ChatServer {
+        id: id.into(),
+        name: id.into(),
+        channels: vec![channel.into()],
+        discord: true,
+        folder: folder.cloned(),
+        ..Default::default()
+    };
+    let lounge = |id: &str, streaming: bool| ChatRoom {
+        id: id.into(),
+        network: Network::Discord,
+        capabilities: Network::Discord.capabilities(),
+        name: id.into(),
+        direct: false,
+        voice: true,
+        encrypted: false,
+        members: 0,
+        unread: 0,
+        mentions: 0,
+        muted: false,
+        last_read: None,
+        locked: false,
+        join_locked: false,
+        read_only: false,
+        slowed: false,
+        timed_out_until: None,
+        category: String::new(),
+        category_id: None,
+        request: false,
+        person: None,
+        people: vec![VoicePerson {
+            id: "ann".into(),
+            name: "Ann".into(),
+            streaming,
+            ..Default::default()
+        }],
+        ringing: Vec::new(),
+        incoming: false,
+        avatar: None,
+        decoration: None,
+        style: None,
+        upload_limit: 0,
+        presence: None,
+        activity: None,
+        activities: Default::default(),
+        parent: None,
+        forum: false,
+        unlisted: false,
+        tag: None,
+        official: false,
+        empty: false,
+        symbol: 0,
+        preview: None,
+    };
+    let mut state = AppState::default();
+    state.servers = [
+        server("Alpha", "alpha-lounge", None),
+        server("Bravo", "bravo-lounge", Some(&folder)),
+    ]
+    .map(Arc::new)
+    .into();
+    let rooms = [lounge("alpha-lounge", false), lounge("bravo-lounge", true)];
+    let rooms_by_id: HashMap<&str, &ChatRoom> =
+        rooms.iter().map(|room| (room.id.as_str(), room)).collect();
+    let live = |state: &AppState, open: &[&str]| -> Vec<(String, bool)> {
+        let open = open.iter().map(|&id| id.to_owned()).collect();
+        refresh::rail_rows(state, &rooms_by_id, &open)
+            .iter()
+            .map(|row| (row.id.to_string(), row.live))
+            .collect()
+    };
+    // Someone in Bravo's voice channel shares their screen, which its closed
+    // folder shows, and the server itself once the folder opens.
+    assert_eq!(
+        live(&state, &[]),
+        [("Alpha".into(), false), ("discord-folder:7".into(), true)]
+    );
+    assert_eq!(
+        live(&state, &["discord-folder:7"]),
+        [
+            ("Alpha".into(), false),
+            ("discord-folder:7".into(), true),
+            ("Bravo".into(), true),
+        ]
+    );
+    // In that call, the server shows the call instead.
+    state.voice.room = Some("bravo-lounge".into());
+    state.voice.phase = yapfast_core::voice::Phase::Connected;
+    assert_eq!(
+        live(&state, &["discord-folder:7"]),
+        [
+            ("Alpha".into(), false),
+            ("discord-folder:7".into(), false),
+            ("Bravo".into(), false),
+        ]
+    );
+}
+
+#[test]
+fn someone_in_voice_wears_their_name_style_and_tag_as_the_switches_allow() {
+    use yapfast_core::{
+        application::Cosmetics,
+        chat::{NameStyle, ServerTag, VoicePerson},
+    };
+    let ann = VoicePerson {
+        id: "2".into(),
+        name: "Ann".into(),
+        style: Some(NameStyle::new(14, 2, &[0xff0000, 0x0000ff])),
+        tag: Some(ServerTag {
+            text: "GUYS".into(),
+            badge: Some("https://cdn.example/badge.png".into()),
+        }),
+        ..Default::default()
+    };
+    let row = || PersonRow {
+        name: "Ann".into(),
+        ..Default::default()
+    };
+    let shown = refresh::voice_looks(row(), Some(&ann), Cosmetics::default());
+    assert_eq!(
+        (shown.name_style.effect, shown.name_style.family.as_str()),
+        (2, "Mainframe")
+    );
+    assert_eq!(shown.name_style.count, 2);
+    assert_eq!(
+        (shown.tag.as_str(), shown.tag_badge.as_str()),
+        ("GUYS", "https://cdn.example/badge.png")
+    );
+    // Off in Appearance, neither shows.
+    let off = Cosmetics {
+        name_styles: false,
+        server_tags: false,
+        ..Cosmetics::default()
+    };
+    let plain = refresh::voice_looks(row(), Some(&ann), off);
+    assert_eq!(plain.name_style.effect, 0);
+    assert!(plain.tag.is_empty() && plain.tag_badge.is_empty());
+    // Someone the call's room doesn't list keeps the plain row.
+    assert_eq!(
+        refresh::voice_looks(row(), None, Cosmetics::default())
+            .name_style
+            .effect,
+        0
+    );
+}
+
+#[test]
 fn closing_the_viewer_lets_go_of_its_picture() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

@@ -287,7 +287,8 @@ server they represent, then up to four letters. It comes from the
 `/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, false once
 they stop wearing it; one without a tag, or turned off, shows nothing. The
 chip sits after the name on each message that starts a group, after the name
-in the member list, and beside the handle on a profile card. A tag without a
+in the member list and under a voice channel, and beside the handle on a
+profile card. A tag without a
 badge shows its letters alone. Yapfast learns tags from every user object it
 sees, with the names and avatars, so a tag changes on screen as soon as a
 message, a member list row or a profile carries the new one; a user object
@@ -494,7 +495,12 @@ on a user object or a member object (which wins in its server, as the
 decorations do): a font, an effect and up to five colours. Yapfast draws it
 where Discord's client does: a message's author, a member list's rows, a
 one-to-one DM's row and the profile card's name (`StyledName` in
-`ui/controls.slint`; `src/ui/name_style.rs` makes the colours).
+`ui/controls.slint`; `src/ui/name_style.rs` makes the colours). The names
+under a voice channel, and in the call this account is in, take it too: the
+font alone, with no colours or effect even hovered, as names in a server show
+(`VoiceName` in `ui/rail.slint`); a call tile's name takes the font. Voice
+states carry no style, so a voice member's comes from what `Names` knows of
+them, the server's own first, as their member row's does.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, Medieval 7, 8Bit 8, Vampyre 10, Tempo 12, Monkey Bars 13,

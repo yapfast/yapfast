@@ -2909,6 +2909,8 @@ fn asks_once_for_the_pictures_on_screen() {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                style: None,
+                tag: None,
                 server_muted: false,
                 server_deafened: false,
             }],
@@ -4571,6 +4573,8 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         streaming: false,
         video: false,
         elsewhere: false,
+        style: None,
+        tag: None,
         server_muted: false,
         server_deafened: false,
     };
@@ -4660,6 +4664,8 @@ fn do_not_disturb_shows_a_call_without_notifying() {
         streaming: false,
         video: false,
         elsewhere: false,
+        style: None,
+        tag: None,
         server_muted: false,
         server_deafened: false,
     };

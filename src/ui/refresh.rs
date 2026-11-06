@@ -83,6 +83,29 @@ impl Reach {
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// Someone's row under a voice channel or in a call, with their name style
+/// and server tag as their member row has them, so far as the profile
+/// switches let them show.
+pub(super) fn voice_looks(
+    row: PersonRow,
+    person: Option<&yapfast_core::chat::VoicePerson>,
+    cosmetics: Cosmetics,
+) -> PersonRow {
+    let Some(person) = person else {
+        return row;
+    };
+    let tag = cosmetics.tag(person.tag.as_ref());
+    PersonRow {
+        name_style: name_style::row(cosmetics.style(person.style), &row.name),
+        tag: tag.map_or_else(Default::default, |tag| tag.text.as_str().into()),
+        tag_badge: tag
+            .and_then(|tag| tag.badge.as_deref())
+            .unwrap_or_default()
+            .into(),
+        ..row
+    }
+}
+
 /// A server's Discord id, from Yapfast's id for it.
 fn discord_server_id(id: &str) -> &str {
     id.rsplit(':').next().unwrap_or(id)
@@ -884,27 +907,30 @@ impl Adapter {
                         let people: Vec<_> = room
                             .people
                             .iter()
-                            .map(|person| PersonRow {
-                                id: person.id.clone().into(),
-                                name: person.name.clone().into(),
-                                initial: initial(&person.name),
-                                tint: tint(&person.id),
-                                picture: cached_picture(
-                                    &mut self.pictures,
-                                    state,
-                                    person.avatar.as_deref(),
-                                ),
-                                muted: person.muted,
-                                deafened: person.deafened,
-                                server_muted: person.server_muted,
-                                server_deafened: person.server_deafened,
-                                live: person.streaming,
-                                video: person.video,
-                                local: state.discord_user.as_ref() == Some(&person.id),
-                                elsewhere: person.elsewhere,
-                                person: person.id.clone().into(),
-                                connected: true,
-                                ..Default::default()
+                            .map(|person| {
+                                let row = PersonRow {
+                                    id: person.id.clone().into(),
+                                    name: person.name.clone().into(),
+                                    initial: initial(&person.name),
+                                    tint: tint(&person.id),
+                                    picture: cached_picture(
+                                        &mut self.pictures,
+                                        state,
+                                        person.avatar.as_deref(),
+                                    ),
+                                    muted: person.muted,
+                                    deafened: person.deafened,
+                                    server_muted: person.server_muted,
+                                    server_deafened: person.server_deafened,
+                                    live: person.streaming,
+                                    video: person.video,
+                                    local: state.discord_user.as_ref() == Some(&person.id),
+                                    elsewhere: person.elsewhere,
+                                    person: person.id.clone().into(),
+                                    connected: true,
+                                    ..Default::default()
+                                };
+                                voice_looks(row, Some(person), cosmetics)
                             })
                             .collect();
                         ModelRc::new(VecModel::from(people))
@@ -3863,14 +3889,17 @@ impl Adapter {
         );
         let call_people: Vec<_> = present
             .iter()
-            .map(|person| PersonRow {
-                id: person.id.as_str().into(),
-                name: person.name.as_str().into(),
-                initial: initial(&person.name),
-                tint: tint(&person.id),
-                picture: cached_picture(&mut self.pictures, state, person.avatar.as_deref()),
-                connected: true,
-                ..Default::default()
+            .map(|person| {
+                let row = PersonRow {
+                    id: person.id.as_str().into(),
+                    name: person.name.as_str().into(),
+                    initial: initial(&person.name),
+                    tint: tint(&person.id),
+                    picture: cached_picture(&mut self.pictures, state, person.avatar.as_deref()),
+                    connected: true,
+                    ..Default::default()
+                };
+                voice_looks(row, Some(person), state.cosmetics)
             })
             .collect();
         update_model(&self.models.call_people, call_people);
@@ -3911,51 +3940,63 @@ impl Adapter {
         );
         window.set_voice_error(voice.error.as_deref().unwrap_or_default().into());
         window.set_voice_warning(voice.warning.as_deref().unwrap_or_default().into());
+        // The call's room lists who is in it as Discord sees them, with the
+        // name styles and tags the call's participants don't carry.
+        let in_call = voice
+            .room
+            .as_ref()
+            .and_then(|id| state.rooms.iter().find(|room| &room.id == id))
+            .map_or(&[][..], |room| room.people.as_slice());
         update_model(
             &self.models.participants,
             if voice.active() {
                 voice
                     .participants
                     .iter()
-                    .map(|person| PersonRow {
-                        id: person.id.clone().into(),
-                        local: person.local,
-                        name: display_part(&person.user).into(),
-                        initial: initial(display_part(&person.user)),
-                        tint: tint(display_part(if person.local {
-                            account
-                        } else {
-                            &person.user
-                        })),
-                        speaking: person.speaking && !person.muted && person.connected,
-                        connected: person.connected,
-                        status: if let Some(problem) = &person.problem {
-                            problem.as_str()
-                        } else if !person.connected {
-                            "Connection lost"
-                        } else if person.deafened {
-                            "Deafened"
-                        } else if person.muted {
-                            "Muted"
-                        } else if person.speaking {
-                            "Speaking"
-                        } else {
-                            "Listening"
-                        }
-                        .into(),
-                        muted: person.muted,
-                        deafened: person.deafened,
-                        live: person.streaming,
-                        video: person.video.is_some(),
-                        elsewhere: false,
-                        server_muted: person.server_muted,
-                        server_deafened: person.server_deafened,
-                        person: person.person.clone().into(),
-                        picture: cached_picture(
-                            &mut self.pictures,
-                            state,
-                            person.avatar.as_deref(),
-                        ),
+                    .map(|person| {
+                        let listed = in_call.iter().find(|listed| listed.id == person.person);
+                        let row = PersonRow {
+                            id: person.id.clone().into(),
+                            local: person.local,
+                            name: display_part(&person.user).into(),
+                            initial: initial(display_part(&person.user)),
+                            tint: tint(display_part(if person.local {
+                                account
+                            } else {
+                                &person.user
+                            })),
+                            speaking: person.speaking && !person.muted && person.connected,
+                            connected: person.connected,
+                            status: if let Some(problem) = &person.problem {
+                                problem.as_str()
+                            } else if !person.connected {
+                                "Connection lost"
+                            } else if person.deafened {
+                                "Deafened"
+                            } else if person.muted {
+                                "Muted"
+                            } else if person.speaking {
+                                "Speaking"
+                            } else {
+                                "Listening"
+                            }
+                            .into(),
+                            muted: person.muted,
+                            deafened: person.deafened,
+                            live: person.streaming,
+                            video: person.video.is_some(),
+                            elsewhere: false,
+                            server_muted: person.server_muted,
+                            server_deafened: person.server_deafened,
+                            person: person.person.clone().into(),
+                            picture: cached_picture(
+                                &mut self.pictures,
+                                state,
+                                person.avatar.as_deref(),
+                            ),
+                            ..Default::default()
+                        };
+                        voice_looks(row, listed, state.cosmetics)
                     })
                     .collect()
             } else {
@@ -4478,6 +4519,16 @@ pub(super) fn rail_rows(
     let in_call = |server: &yapfast_core::chat::ChatServer| {
         call.is_some_and(|room| server.channels.iter().any(|channel| channel == room))
     };
+    // Someone shares their screen in one of its voice channels, which Discord
+    // marks on the server's icon while this account isn't in its call.
+    let streaming = |server: &yapfast_core::chat::ChatServer| {
+        server
+            .channels
+            .iter()
+            .filter_map(|channel| rooms_by_id.get(channel.as_str()))
+            .any(|room| room.voice && room.people.iter().any(|person| person.streaming))
+    };
+    let live = |server: &yapfast_core::chat::ChatServer| !in_call(server) && streaming(server);
     let mut rows = Vec::with_capacity(state.servers.len());
     let mut servers = state.servers.iter().peekable();
     while let Some(server) = servers.next() {
@@ -4485,6 +4536,7 @@ pub(super) fn rail_rows(
             let (unread, mentions) = marks(server);
             rows.push(ServerRow {
                 call: in_call(server),
+                live: live(server),
                 ..server_row(server, selected(server), unread, mentions)
             });
             continue;
@@ -4522,6 +4574,8 @@ pub(super) fn rail_rows(
             unread,
             badge: count_badge(mentions),
             call: inside.iter().any(|server| in_call(server)),
+            live: !inside.iter().any(|server| in_call(server))
+                && inside.iter().any(|server| streaming(server)),
             discord: true,
             folder: true,
             open,
@@ -4547,6 +4601,7 @@ pub(super) fn rail_rows(
                     last: index == last,
                     tint,
                     call: in_call(server),
+                    live: live(server),
                     ..server_row(server, selected(server), unread, mentions)
                 });
             }

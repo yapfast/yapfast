@@ -18,6 +18,10 @@ export struct ServerRow {
     /// This account is in a call in one of its voice channels; on a closed
     /// folder, in one of its servers'.
     call: bool,
+    /// Someone streams in one of its voice channels while this account isn't
+    /// in its call, as Discord marks it; on a closed folder, in one of its
+    /// servers'.
+    live: bool,
     picture-url: string,
     /// A folder of servers rather than a server: `id` is the folder's, `name`
     /// its tooltip, and `selected`, `unread` and `badge` sum up its servers.
@@ -111,6 +115,18 @@ component CallBubble inherits Rectangle {
     }
 }
 
+// Someone sharing their screen in a server: a white screen on red, on a thin
+// ring of the rail's colour, where the call's bubble would be.
+component StreamBubble inherits Rectangle {
+    width: 20px; height: 20px; border-radius: self.width / 2;
+    background: Theme.rail;
+    Rectangle {
+        width: 16px; height: 16px; border-radius: self.width / 2;
+        background: Theme.danger;
+        Image { source: @image-url("icons/stream-badge.svg"); width: 11px; height: 11px; colorize: #ffffff; }
+    }
+}
+
 // A server or the DM home: a circle that becomes a squircle, with a pill at the rail edge.
 export component RailItem inherits Rectangle {
     in property <string> label;
@@ -139,6 +155,9 @@ export component RailItem inherits Rectangle {
     in property <string> badge;
     /// In a call here, shown at the top right.
     in property <bool> call;
+    /// Someone streams here while this account isn't in its call, shown in
+    /// the same place.
+    in property <bool> live;
     /// Marks a Discord server.
     in property <bool> discord;
     callback clicked;
@@ -192,6 +211,7 @@ export component RailItem inherits Rectangle {
         size: 16px; ring: Theme.rail;
     }
     if root.call: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
+    if root.live && !root.call: StreamBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     // The mention count, on a ring of the rail's colour.
     if root.badge != "": Rectangle {
         x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
@@ -251,6 +271,8 @@ component FolderItem inherits Rectangle {
     in property <string> badge;
     /// In a call in one of its servers, shown at the top right while closed.
     in property <bool> call;
+    /// Someone streams in one of its servers, shown there too.
+    in property <bool> live;
     callback clicked;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
@@ -300,6 +322,7 @@ component FolderItem inherits Rectangle {
         size: 16px; ring: Theme.rail;
     }
     if root.call && !root.open: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
+    if root.live && !root.call && !root.open: StreamBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     if root.badge != "" && !root.open: Rectangle {
         x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
@@ -643,6 +666,32 @@ export component ChannelRow inherits Rectangle {
     }
 }
 
+// Someone's name under a voice channel, then their server tag, shortened with
+// "…" to fit. A name style shows its font alone, with no colours or effect
+// even while the row is pointed at, so a list of people talking stays calm.
+component VoiceName inherits HorizontalLayout {
+    in property <PersonRow> person;
+    in property <int> font-weight;
+    in property <color> ink;
+    // Voice channels are in servers, where a style shows as its font alone:
+    // solid with no colours, which StyledName draws in the row's own colour.
+    pure function at-rest(style: NameStyleRow) -> NameStyleRow {
+        return { effect: style.effect > 0 ? 1 : 0, family: style.family, weight: style.weight };
+    }
+    horizontal-stretch: 1; alignment: start; spacing: 4px;
+    if root.person.name-style.effect == 0: Text {
+        text: root.person.name; font-size: 15px; font-weight: root.font-weight; color: root.ink;
+        vertical-alignment: center; overflow: elide;
+    }
+    if root.person.name-style.effect > 0: StyledName {
+        text: root.person.name; font-size: 15px; font-weight: root.font-weight; ink: root.ink;
+        style: root.at-rest(root.person.name-style);
+    }
+    if root.person.tag != "": Middle {
+        ServerTagChip { text: root.person.tag; badge: root.person.tag-badge; }
+    }
+}
+
 // Where a channel or category dragged in the channel list would drop: a
 // line across the edge of the row it's over, as Discord draws it.
 component DropLine inherits Rectangle {
@@ -877,10 +926,11 @@ export component ServerRail inherits Rectangle {
                 if server.folder: FolderItem {
                     y: 0px;
                     label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
+                        + (server.live && !server.call && !server.open ? ", someone is live" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
                     tip: server.name;
                     open: server.open; tint: server.tint; servers: server.preview;
-                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call; live: server.live;
                     clicked => { root.toggle-folder(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
@@ -898,11 +948,11 @@ export component ServerRail inherits Rectangle {
                     y: 0px;
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
-                        + (server.call ? ", in a call" : "")
+                        + (server.call ? ", in a call" : server.live ? ", someone is live" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
                     tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
                     selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
-                    call: server.call;
+                    call: server.call; live: server.live;
                     opacity: server.unavailable ? 0.5 : 1;
                     clicked => { root.navigate-server(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
@@ -1259,9 +1309,11 @@ export component RoomList inherits Rectangle {
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; } }
-                            Text {
-                                text: person.name; font-size: 15px; font-weight: 500; color: Theme.secondary;
-                                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                            // Their name in its style, then their server tag, as
+                            // a member row shows them; see VoiceName.
+                            VoiceName {
+                                person: person;
+                                font-weight: 500; ink: Theme.secondary;
                             }
                             if person.video && !person.elsewhere: Image {
                                 source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
@@ -1313,10 +1365,10 @@ export component RoomList inherits Rectangle {
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; speaking: person.speaking; } }
-                            Text {
-                                text: person.name; font-size: 15px; font-weight: person.speaking ? 700 : 500;
-                                color: person.speaking ? Theme.text : person.connected ? Theme.secondary : Theme.muted;
-                                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                            VoiceName {
+                                person: person;
+                                font-weight: person.speaking ? 700 : 500;
+                                ink: person.speaking ? Theme.text : person.connected ? Theme.secondary : Theme.muted;
                             }
                             if person.video: Image {
                                 source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;

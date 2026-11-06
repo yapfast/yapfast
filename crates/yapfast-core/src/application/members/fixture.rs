@@ -114,6 +114,8 @@ pub fn member_server(alice: &[&str]) -> Application {
                     streaming: false,
                     video: false,
                     elsewhere: false,
+                    style: None,
+                    tag: None,
                 },
                 yapfast_discord::service::VoiceMember {
                     user_id: "1".into(),
@@ -126,6 +128,8 @@ pub fn member_server(alice: &[&str]) -> Application {
                     streaming: false,
                     video: false,
                     elsewhere: true,
+                    style: None,
+                    tag: None,
                 },
             ],
         )]
