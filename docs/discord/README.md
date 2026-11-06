@@ -129,6 +129,14 @@ sign-in screen, and signing out there unlinks. Either way, Yapfast first says
 that Discord doesn't allow third-party clients, so linking puts the account at
 risk, and shows the code only when asked.
 
+Yapfast can keep several Discord accounts on one device. Settings lists the
+linked identities and lets someone add another account, select one for the next
+start, or remove one without deleting the others. Only one Discord gateway
+session runs at a time: switching the selected identity restarts Yapfast so the
+backend, voice connection and account-scoped cache all belong to that identity.
+When upgrading from the former single-token store, the old login is migrated
+into the account list when another account is first linked.
+
 The remote login gateway (`wss://remote-auth-gateway.discord.gg/?v=2`, with
 Discord's web origin) works as Discord's own login page does,
 `yapfast_discord::remote_auth`:
