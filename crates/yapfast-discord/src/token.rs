@@ -124,14 +124,14 @@ pub(crate) fn cache_key() -> Result<crate::cache::Key> {
 
 pub fn forget() -> Result<()> {
     crate::cache::forget();
-    if let Some(id) = crate::accounts::active()? {
-        return crate::accounts::remove(&id);
-    }
     if crate::client::test_server().is_some() {
         *test_link()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         return Ok(());
+    }
+    if let Some(id) = crate::accounts::active()? {
+        return crate::accounts::remove(&id);
     }
     for account in [ACCOUNT, EARLIER_ACCOUNT, CACHE_KEY] {
         match named(account)?.delete_credential() {
