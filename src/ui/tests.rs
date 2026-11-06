@@ -2134,6 +2134,389 @@ fn dragging_the_sidebar_edge_resizes_it_within_limits_and_remembers_it() {
 }
 
 #[test]
+fn the_side_panels_fold_only_when_turned_on_and_remember_it() {
+    i_slint_backend_testing::init_no_event_loop();
+    // Off unless turned on, so the panels show as they always have.
+    let defaults: Layout = serde_json::from_str("{}").unwrap();
+    assert_eq!(
+        (defaults.fold_channels, defaults.fold_members),
+        (None, None)
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let looks = window.global::<Looks>();
+    assert!(!looks.get_fold_channels() && !looks.get_fold_members());
+    assert!(window.get_sidebar_open());
+    assert_eq!(window.get_sidebar_reserved(), window.get_sidebar_shown());
+    assert_eq!(window.get_sidebar_fold(), 0.0);
+    // The switches in Appearance save both, and the next window starts with them.
+    looks.set_fold_channels(true);
+    looks.set_fold_members(true);
+    window.invoke_preferences_changed();
+    let saved = Layout::read(directory.path());
+    assert_eq!(
+        (saved.fold_channels, saved.fold_members),
+        (Some(true), Some(true))
+    );
+    let json = serde_json::to_value(&saved).unwrap();
+    assert_eq!(json["fold_channels"], true);
+    assert_eq!(json["fold_members"], true);
+    let next = YapfastWindow::new().unwrap();
+    adapter.borrow_mut().attach(&next);
+    let next_looks = next.global::<Looks>();
+    assert!(next_looks.get_fold_channels() && next_looks.get_fold_members());
+    // Turned off again, they stay off.
+    looks.set_fold_members(false);
+    window.invoke_preferences_changed();
+    assert_eq!(Layout::read(directory.path()).fold_members, Some(false));
+}
+
+#[test]
+fn side_panel_settings_start_as_they_come_and_are_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Missing from layout.json, they take their defaults: no folding, and
+    // what the folded panels show all on.
+    let looks = window.global::<Looks>();
+    assert!(!looks.get_fold_channels() && !looks.get_fold_members());
+    assert_eq!(looks.get_unroll_delay(), 120);
+    assert_eq!(looks.get_fold_delay(), 300);
+    assert!(looks.get_unrolled_shadow() && looks.get_folded_unread() && looks.get_folded_voice());
+    assert!(looks.get_folded_server() && looks.get_folded_dock() && looks.get_pin_button());
+    assert!(looks.get_animations());
+    looks.set_unroll_delay(450);
+    looks.set_fold_delay(0);
+    looks.set_unrolled_shadow(false);
+    looks.set_folded_unread(false);
+    looks.set_folded_voice(false);
+    looks.set_folded_server(false);
+    looks.set_folded_dock(false);
+    looks.set_pin_button(false);
+    looks.set_animations(false);
+    window.invoke_preferences_changed();
+    let saved = Layout::read(directory.path());
+    assert_eq!((saved.unroll_delay, saved.fold_delay), (Some(450), Some(0)));
+    assert_eq!(saved.unrolled_shadow, Some(false));
+    assert_eq!(saved.animations, Some(false));
+    // A new start shows them as they were left.
+    let again = YapfastWindow::new().unwrap();
+    saved.apply(&again);
+    let looks = again.global::<Looks>();
+    assert_eq!((looks.get_unroll_delay(), looks.get_fold_delay()), (450, 0));
+    assert!(
+        !looks.get_unrolled_shadow() && !looks.get_folded_unread() && !looks.get_folded_voice()
+    );
+    assert!(!looks.get_folded_server() && !looks.get_folded_dock() && !looks.get_pin_button());
+    assert!(!looks.get_animations());
+    // Delays out of the sliders' range come back within it.
+    Layout {
+        unroll_delay: Some(5000),
+        fold_delay: Some(-20),
+        ..Default::default()
+    }
+    .apply(&again);
+    assert_eq!(
+        (looks.get_unroll_delay(), looks.get_fold_delay()),
+        (1000, 0)
+    );
+}
+
+#[test]
+fn a_folded_sidebar_opens_while_the_pointer_is_on_it_or_its_edge() {
+    use slint::platform::WindowEvent;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // Long enough for the open delay or the close delay, and for the
+    // sidebar to finish unrolling or rolling up.
+    let settle = || {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(400));
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(300));
+        slint::platform::update_timers_and_animations();
+    };
+    // Turning the fold on rolls the open sidebar up to its sliver.
+    window.global::<Looks>().set_fold_channels(true);
+    settle();
+    let point = |x: f32| {
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, 400.),
+        });
+        settle();
+    };
+    // Folded, it keeps a sliver beside the rail.
+    assert_eq!(window.get_sidebar_reserved(), 34.);
+    assert!(!window.get_sidebar_open());
+    assert_eq!(window.get_sidebar_fold(), 1.0);
+    // The rail alone leaves it folded.
+    point(30.);
+    assert!(!window.get_sidebar_open());
+    // The sliver opens it, still taking only the sliver's width.
+    point(90.);
+    assert!(window.get_sidebar_open());
+    assert_eq!(window.get_sidebar_reserved(), 34.);
+    assert_eq!(window.get_sidebar_fold(), 0.0);
+    // On its unrolled width, it stays open, and on the edge that resizes it.
+    point(200.);
+    assert!(window.get_sidebar_open());
+    point(72. + window.get_sidebar_shown() + 2.);
+    assert!(window.get_sidebar_open());
+    // Once open, going back over the rail keeps it.
+    point(30.);
+    assert!(window.get_sidebar_open());
+    // Leaving for the conversation folds it again.
+    point(800.);
+    assert!(!window.get_sidebar_open());
+    point(90.);
+    assert!(window.get_sidebar_open());
+    window.window().dispatch_event(WindowEvent::PointerExited);
+    settle();
+    assert!(!window.get_sidebar_open());
+    // Turned off, it shows in full whatever the pointer does.
+    window.global::<Looks>().set_fold_channels(false);
+    assert!(window.get_sidebar_open());
+    settle();
+    assert_eq!(window.get_sidebar_reserved(), window.get_sidebar_shown());
+    window.hide().unwrap();
+}
+
+#[test]
+fn a_folded_sidebar_waits_before_it_opens_and_before_it_folds() {
+    use slint::platform::WindowEvent;
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_workspace(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    window.global::<Looks>().set_fold_channels(true);
+    let point = |x: f32| {
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, 400.),
+        });
+        slint::platform::update_timers_and_animations();
+    };
+    let wait = |ms: u64| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+        slint::platform::update_timers_and_animations();
+    };
+    // Passing over the sliver quicker than the open delay leaves it folded.
+    point(90.);
+    wait(60);
+    point(800.);
+    wait(200);
+    assert!(!window.get_sidebar_open());
+    // Resting on it past the delay opens it.
+    point(90.);
+    wait(130);
+    assert!(window.get_sidebar_open());
+    // Leaving, it waits the close delay before it folds.
+    point(800.);
+    wait(200);
+    assert!(window.get_sidebar_open());
+    wait(150);
+    assert!(!window.get_sidebar_open());
+    window.hide().unwrap();
+}
+
+#[test]
+fn a_pinned_channel_list_stays_unrolled_and_snaps_without_animations() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    let looks = window.global::<Looks>();
+    looks.set_animations(false);
+    window.set_workspace(true);
+    // Folding is off unless turned on.
+    assert_eq!(window.get_sidebar_fold(), 0.0);
+    looks.set_fold_channels(true);
+    assert_eq!(window.get_sidebar_fold(), 1.0, "folded to its sliver");
+    window.set_sidebar_pinned(true);
+    assert_eq!(window.get_sidebar_fold(), 0.0, "unrolled at once");
+    window.set_sidebar_pinned(false);
+    assert_eq!(window.get_sidebar_fold(), 1.0);
+    // Not folding, the pin changes nothing.
+    looks.set_fold_channels(false);
+    assert_eq!(window.get_sidebar_fold(), 0.0);
+}
+
+#[test]
+fn a_pinned_panel_takes_its_room_beside_the_conversation() {
+    use slint::platform::WindowEvent;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    let looks = window.global::<Looks>();
+    looks.set_animations(false);
+    looks.set_fold_channels(true);
+    looks.set_fold_members(true);
+    let settle = || {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(400));
+        slint::platform::update_timers_and_animations();
+    };
+    settle();
+    // The message list's left edge on the window and its width: where the
+    // conversation sits between the two panels.
+    let messages = || {
+        use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+        use std::ops::ControlFlow;
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let list = ItemRc::new_root(inner.component())
+            .visit_descendants(|item| {
+                let label = item.accessible_string_property(AccessibleStringProperty::Label);
+                if label.as_deref() == Some("Messages") {
+                    ControlFlow::Break(item.clone())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .expect("the message list");
+        let geometry = list.geometry();
+        (list.map_to_window(geometry.origin).x, geometry.width())
+    };
+    let shown = window.get_sidebar_shown();
+    // Folded and unpinned, both lists keep only their slivers and unroll
+    // over the conversation.
+    assert_eq!(window.get_sidebar_reserved(), 34.);
+    assert_eq!(window.get_members_reserve(), 56.);
+    let (folded_x, folded_width) = messages();
+    assert!(
+        folded_x < 72. + shown,
+        "the conversation starts by the sliver"
+    );
+    // Unrolled by the pointer, the channel list lies over the conversation,
+    // which stays where it was, and shadows it.
+    window.window().dispatch_event(WindowEvent::PointerMoved {
+        position: slint::LogicalPosition::new(90., 400.),
+    });
+    settle();
+    assert!(window.get_sidebar_open());
+    assert_eq!(messages(), (folded_x, folded_width));
+    assert_eq!(window.get_sidebar_shadow(), 1.0);
+    window.window().dispatch_event(WindowEvent::PointerMoved {
+        position: slint::LogicalPosition::new(600., 400.),
+    });
+    settle();
+    assert!(!window.get_sidebar_open());
+    assert_eq!(window.get_sidebar_shadow(), 0.0);
+    // Pinned, it takes its whole width beside the rail, the conversation
+    // starts after it, and nothing lies over the conversation to shadow it.
+    window.set_sidebar_pinned(true);
+    settle();
+    assert_eq!(window.get_sidebar_fold(), 0.0);
+    assert_eq!(window.get_sidebar_reserved(), shown);
+    let (pinned_x, pinned_width) = messages();
+    assert_eq!(pinned_x, folded_x + shown - 34.);
+    assert_eq!(pinned_width, folded_width - (shown - 34.));
+    assert_eq!(window.get_sidebar_shadow(), 0.0);
+    // The member list, pinned, keeps its 240px beside the conversation,
+    // which narrows by what the sliver didn't take; it casts no shadow then.
+    assert!(window.get_members_shadow());
+    window.set_members_pinned(true);
+    settle();
+    assert_eq!(window.get_members_reserve(), 240.);
+    assert_eq!(messages(), (pinned_x, pinned_width - (240. - 56.)));
+    assert!(!window.get_members_shadow());
+    // Unpinned, both give their room back.
+    window.set_sidebar_pinned(false);
+    window.set_members_pinned(false);
+    settle();
+    assert_eq!(window.get_sidebar_reserved(), 34.);
+    assert_eq!(window.get_members_reserve(), 56.);
+    assert_eq!(messages(), (folded_x, folded_width));
+    assert!(window.get_members_shadow());
+    // Not folding, the pins change nothing: the panels sit beside it anyway.
+    looks.set_fold_channels(false);
+    looks.set_fold_members(false);
+    settle();
+    assert_eq!(window.get_members_reserve(), 240.);
+    assert_eq!(window.get_sidebar_reserved(), shown);
+    assert_eq!(window.get_sidebar_shadow(), 0.0);
+    assert!(!window.get_members_shadow());
+    window.hide().unwrap();
+}
+
+#[test]
+fn the_member_lists_pin_sits_at_its_top_right_and_keeps_it_unrolled() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    let looks = window.global::<Looks>();
+    looks.set_animations(false);
+    looks.set_fold_members(true);
+    let click = |x, y| {
+        let position = slint::LogicalPosition::new(x, y);
+        let button = slint::platform::PointerEventButton::Left;
+        let window = window.window();
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
+        window.dispatch_event(slint::platform::WindowEvent::PointerPressed { position, button });
+        window.dispatch_event(slint::platform::WindowEvent::PointerReleased { position, button });
+    };
+    window.set_members_pinned(true);
+    // Unrolled, its pin is a 28px button 8px in from the right, just under
+    // the conversation's 48px header; further down, the same column is the
+    // list's own.
+    click(1098., 400.);
+    assert!(window.get_members_pinned());
+    click(1098., 68.);
+    assert!(!window.get_members_pinned());
+    window.hide().unwrap();
+}
+
+#[test]
 fn a_window_made_again_shows_what_the_last_one_did() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

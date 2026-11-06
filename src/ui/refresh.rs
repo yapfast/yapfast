@@ -571,6 +571,20 @@ impl Adapter {
                 .find(|server| &server.id == id)
                 .map_or("Server".into(), |server| server.name.clone().into()),
         });
+        // Its icon, or initial, stands for it at the top of the folded list.
+        let open_server = match &state.navigation {
+            Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+            Navigation::DirectMessages => None,
+        };
+        window.set_sidebar_initial(
+            open_server.map_or_else(SharedString::default, |server| initials(&server.name)),
+        );
+        window.set_sidebar_picture_url(
+            open_server
+                .and_then(|server| server.icon.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
         // A Discord server's name opens its menu, as Discord's does.
         window.set_header_server(match &state.navigation {
             Navigation::Server(id)
@@ -834,6 +848,12 @@ impl Adapter {
                             .collect();
                         ModelRc::new(VecModel::from(people))
                     },
+                    // Marked by the folded stack's "+N".
+                    people_live_beyond: room
+                        .people
+                        .iter()
+                        .skip(3)
+                        .any(|person| person.streaming && !person.elsewhere),
                     call: room.direct && !room.people.is_empty(),
                     // Discord sends the presence of friends and of those
                     // sharing a server; anyone else in a one-to-one DM shows
@@ -3495,6 +3515,14 @@ impl Adapter {
         );
         window.set_voice_error(voice.error.as_deref().unwrap_or_default().into());
         window.set_voice_warning(voice.warning.as_deref().unwrap_or_default().into());
+        window.set_participants_live_beyond(
+            voice.active()
+                && voice
+                    .participants
+                    .iter()
+                    .skip(3)
+                    .any(|person| person.streaming),
+        );
         update_model(
             &self.models.participants,
             if voice.active() {

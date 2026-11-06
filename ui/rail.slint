@@ -1,5 +1,11 @@
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Looks, Theme, Tip, Middle, Label } from "theme.slint";
+
+// How far the channel list is folded to its sliver, from 0 open to 1 folded: folded,
+// its headings fade and its rows show only their icons, in line with where they sit.
+export global SidebarFold {
+    in-out property <float> amount;
+}
 import { Avatar, PictureStore, StatusText, VoiceSpot } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
@@ -46,6 +52,9 @@ export struct RoomRow {
     person: bool,
     /// Who is in a Discord voice channel, shown without joining it.
     people: [PersonRow],
+    /// Someone past the first three of `people` is streaming, which their
+    /// folded stack marks by its "+N".
+    people-live-beyond: bool,
     /// A DM with a call going on.
     call: bool,
     /// A one-to-one Discord DM's other person: "online", "mobile", "idle",
@@ -324,6 +333,35 @@ component FolderItem inherits Rectangle {
     }
 }
 
+// Marks a folded voice face, or its "+N", whose person is streaming: a red
+// dot ringed in the sidebar's colour so it reads over the picture.
+component LiveDot inherits Rectangle {
+    width: 9px; height: 9px; border-radius: 4.5px; background: Theme.sidebar;
+    accessible-role: image; accessible-label: "Live";
+    Rectangle { x: 1px; y: 1px; width: 7px; height: 7px; border-radius: 3.5px; background: Theme.danger; }
+}
+
+// A server's icon, or its initial, small: what stands for the open server at
+// the top of the folded channel list.
+export component ServerMark inherits Rectangle {
+    in property <string> initial;
+    in property <string> picture-url;
+    in property <string> label;
+    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision) : @image-url("");
+    function request-picture() {
+        if root.picture-url != "" && root.shown-picture.width == 0 {
+            PictureStore.request(root.picture-url);
+        }
+    }
+    init => { root.request-picture(); }
+    changed picture-url => { root.request-picture(); }
+    width: 28px; height: 28px; border-radius: 9px;
+    background: Theme.raised; clip: true;
+    accessible-role: image; accessible-label: root.label;
+    if root.shown-picture.width > 0: Image { source: root.shown-picture; width: parent.width; height: parent.height; image-fit: cover; }
+    if root.shown-picture.width == 0: Text { text: root.initial; font-size: 11px; font-weight: 700; color: Theme.text; }
+}
+
 // A presence dot on a ring cut from the background, as in Discord: green when
 // online, a green phone standing up from it when online only on a phone, a
 // moon when idle, a bar when they don't want to be disturbed, and a grey ring
@@ -333,31 +371,33 @@ export component StatusDot inherits Rectangle {
     in property <color> ring;
     property <bool> mobile: root.presence == "mobile";
     property <bool> online: root.presence == "online" || root.mobile || root.presence == "idle" || root.presence == "dnd";
-    width: 16px; height: 16px; border-radius: 8px;
+    /// A pixel of the usual 16px dot, so a smaller one keeps its shape.
+    property <length> unit: root.width / 16;
+    width: 16px; height: 16px; border-radius: root.width / 2;
     background: root.mobile ? transparent : root.ring;
     accessible-role: image;
     accessible-label: root.presence == "dnd" ? "Do not disturb" : root.presence == "idle" ? "Idle" : root.presence == "online" ? "Online" : root.mobile ? "Online on mobile" : "Offline";
     if !root.mobile: Rectangle {
-        width: 10px; height: 10px; border-radius: 5px;
+        width: 10 * root.unit; height: 10 * root.unit; border-radius: 5 * root.unit;
         background: root.presence == "dnd" ? Theme.danger : root.presence == "idle" ? Theme.accent : root.presence == "online" ? Theme.live : Theme.faint;
     }
     if !root.online: Rectangle {
-        width: 4px; height: 4px; border-radius: 2px; background: root.ring;
+        width: 4 * root.unit; height: 4 * root.unit; border-radius: 2 * root.unit; background: root.ring;
     }
     if root.presence == "idle": Rectangle {
-        x: 2px; y: 2px; width: 6px; height: 6px; border-radius: 3px; background: root.ring;
+        x: 2 * root.unit; y: 2 * root.unit; width: 6 * root.unit; height: 6 * root.unit; border-radius: 3 * root.unit; background: root.ring;
     }
     if root.presence == "dnd": Rectangle {
-        width: 6px; height: 2px; border-radius: 1px; background: root.ring;
+        width: 6 * root.unit; height: 2 * root.unit; border-radius: 1 * root.unit; background: root.ring;
     }
     // The phone keeps the dot's ring and bottom edge, and stands taller.
     if root.mobile: Rectangle {
-        y: root.height - self.height; height: root.height + 5px;
-        border-radius: 4px; background: root.ring;
+        y: root.height - self.height; height: root.height + 5 * root.unit;
+        border-radius: 4 * root.unit; background: root.ring;
         Rectangle {
-            width: 10px; height: 15px; border-radius: 2px; background: Theme.live;
-            Rectangle { x: 2px; y: 2px; width: 6px; height: 9px; border-radius: 1px; background: root.ring; }
-            Rectangle { x: 4px; y: 12px; width: 2px; height: 2px; border-radius: 1px; background: root.ring; }
+            width: 10 * root.unit; height: 15 * root.unit; border-radius: 2 * root.unit; background: Theme.live;
+            Rectangle { x: 2 * root.unit; y: 2 * root.unit; width: 6 * root.unit; height: 9 * root.unit; border-radius: 1 * root.unit; background: root.ring; }
+            Rectangle { x: 4 * root.unit; y: 12 * root.unit; width: 2 * root.unit; height: 2 * root.unit; border-radius: 1 * root.unit; background: root.ring; }
         }
     }
 }
@@ -423,10 +463,27 @@ export component ChannelRow inherits Rectangle {
     callback context-menu(length, length);
     property <bool> in-voice: root.voice-channel != "";
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
+    /// A row of the channel list, which folds with it; elsewhere, such as
+    /// the settings' sidebars, it never folds.
+    in property <bool> in-sidebar;
+    property <float> fold: root.in-sidebar ? SidebarFold.amount : 0;
+    // Folded, unread rows light up and mentions count on the icon.
+    property <float> marked: Looks.folded-unread ? root.fold : 0;
     height: root.person ? 42px : 34px;
     border-radius: 6px;
-    background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
-    animate background { duration: 90ms; }
+    property <color> fill: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
+    animate fill { duration: 90ms; }
+    // Its ground, which folds with the channel list to a square around the icon
+    // alone, as wide of it on each side as the sliver leaves. A person's
+    // picture shrinks to the same size as it folds.
+    property <length> ground-size: 28px;
+    Rectangle {
+        x: 4px * root.fold;
+        width: (1 - root.fold) * parent.width + root.fold * root.ground-size;
+        y: root.fold * (parent.height - root.ground-size) / 2;
+        height: (1 - root.fold) * parent.height + root.fold * root.ground-size;
+        border-radius: 6px; background: root.fill;
+    }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -434,10 +491,12 @@ export component ChannelRow inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
-    // Unread activity is marked at the sidebar's edge, as on the server rail.
+    // Unread activity is marked at the sidebar's edge, as on the server rail;
+    // folded, at the sliver's.
     if root.unread && !root.selected: Rectangle {
         // A thread sits further in, past the line from its channel.
-        x: root.thread ? -36px : -8px; y: (parent.height - self.height) / 2; width: 4px; height: 8px;
+        x: (root.thread ? -36px : -8px) * (1 - root.marked) + 1px * root.marked;
+        y: (parent.height - self.height) / 2; width: 4px; height: 8px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px; background: Theme.text;
     }
     focus := FocusScope {
@@ -485,20 +544,30 @@ export component ChannelRow inherits Rectangle {
             HorizontalLayout {
                 padding-left: 8px; padding-right: 8px; spacing: root.person ? 12px : 8px;
                 opacity: root.muted && !root.selected && !pointer.has-hover ? 0.5 : 1;
-                if root.person: Middle {
+                // Folded, the picture shrinks into the sliver's middle with its dot.
+                if root.person: Rectangle {
+                    width: 32px;
                     Avatar {
-                        size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
+                        size: 32px - 8px * root.fold; x: -2px * root.fold; y: (parent.height - self.height) / 2;
+                        initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
                         if root.discord: DiscordBadge {
-                            x: -2px; y: -2px; size: 13px;
+                            x: -2px; y: -2px; size: 13px; opacity: 1 - root.fold;
                             ring: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
                         }
                         if root.presence != "": StatusDot {
-                            x: 20px; y: 20px; presence: root.presence;
+                            property <length> dot: 16px - 4px * root.fold;
+                            x: parent.width - self.dot + 4px - 1px * root.fold; y: self.x;
+                            width: self.dot; height: self.dot; presence: root.presence;
                             ring: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                if !root.person && !root.thread: Image {
+                    source: root.icon; width: 20px; image-fit: contain;
+                    colorize: root.danger ? Theme.danger
+                        : root.unread && !root.selected ? Theme.text.mix(Theme.secondary, root.marked)
+                        : root.selected || root.unread ? Theme.secondary : Theme.faint;
+                }
                 VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     Text {
@@ -568,6 +637,17 @@ export component ChannelRow inherits Rectangle {
                     }
                 }
             }
+        }
+    }
+    // Folded, a mention count sits on the icon's corner, on a ring of the sliver.
+    if root.badge != "" && root.marked > 0: Rectangle {
+        x: 33px - self.width; y: (parent.height - root.ground-size) / 2 - 3px;
+        width: max(14px, folded-badge.preferred-width + 6px) + 4px; height: 14px + 4px; border-radius: self.height / 2;
+        background: Theme.sidebar; opacity: root.marked;
+        Rectangle {
+            width: parent.width - 4px; height: parent.height - 4px; border-radius: self.height / 2;
+            background: Theme.danger;
+            folded-badge := Text { text: root.badge; color: Theme.on-danger; font-size: 10px; font-weight: 700; }
         }
     }
 }
@@ -709,6 +789,8 @@ export component ServerRail inherits Rectangle {
     in property <[ServerRow]> servers;
     /// Without Matrix every server is Discord's, so names don't say so.
     in property <bool> matrix-build: true;
+    /// Room kept free at the bottom, as for the account pill over a folded sidebar.
+    in property <length> reserve-bottom;
     callback navigate-dms;
     callback navigate-server(string);
     callback toggle-folder(string);
@@ -722,7 +804,7 @@ export component ServerRail inherits Rectangle {
     callback join-server;
     width: 72px; background: Theme.rail;
     VerticalLayout {
-        padding-top: 12px; padding-bottom: 12px; spacing: 8px;
+        padding-top: 12px; padding-bottom: 12px + root.reserve-bottom; spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
             icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: 32px;
@@ -735,6 +817,10 @@ export component ServerRail inherits Rectangle {
         // matters on accounts in many servers. Unread DMs scroll with them.
         ListView {
             vertical-stretch: 1;
+            // Its scrollbar would stand as a stray line beside the folded
+            // channel list, where the account pill shortens the rail; the
+            // wheel still scrolls it.
+            vertical-scrollbar-policy: SidebarFold.amount > 0 ? ScrollBarPolicy.always-off : ScrollBarPolicy.as-needed;
             for server in root.servers: Rectangle {
                 height: server.divider ? 2px + 8px : 48px + 8px;
                 if server.divider: Rectangle {
@@ -805,12 +891,14 @@ component DmScreenLinks inherits VerticalLayout {
     callback open-requests;
     padding-top: 6px; padding-bottom: 6px; spacing: 2px;
     ChannelRow {
+        in-sidebar: true;
         text: "Friends";
         icon: @image-url("icons/users.svg");
         selected: root.friends-open;
         clicked => { root.open-friends(); }
     }
     ChannelRow {
+        in-sidebar: true;
         text: "Requests";
         label: "Requests" + (root.requests-badge != "" ? ", " + root.requests-badge + " waiting" : "");
         icon: @image-url("icons/inbox.svg");
@@ -826,6 +914,7 @@ component BrowseLink inherits VerticalLayout {
     callback open-browse;
     padding-top: 6px; padding-bottom: 6px;
     ChannelRow {
+        in-sidebar: true;
         text: "Browse channels";
         icon: @image-url("icons/hash.svg");
         selected: root.browsing;
@@ -846,6 +935,8 @@ export component RoomList inherits Rectangle {
     /// The voice channel this account is connected to, whose participants are listed under it.
     in property <string> voice-channel;
     in property <[PersonRow]> participants;
+    /// Someone past the first three of `participants` is streaming.
+    in property <bool> participants-live-beyond;
     /// Said under the rooms, such as when none match the filter.
     in property <string> sidebar-empty;
     callback select-room(string);
@@ -938,6 +1029,14 @@ export component RoomList inherits Rectangle {
         }
     }
     min-height: 96px; vertical-stretch: 1;
+    // Folded, who's in a voice channel stacks under its icon: three
+    // pictures, then how many more.
+    property <float> voice-fold: Looks.folded-voice ? SidebarFold.amount : 0;
+    pure function person-height(index: int) -> length {
+        // Folded, the faces overlap down the sliver, each 10px below the last, so a
+        // server with many voice channels doesn't run long.
+        30px * (1 - root.voice-fold) + root.voice-fold * (index == 0 ? 16px : index < 3 ? 10px : index == 3 ? 15px : 0px)
+    }
     property <bool> screens: root.dms-selected && root.discord-linked && !root.preview;
     VerticalLayout {
         // With no rooms the list is empty; what it would start with shows above it.
@@ -957,6 +1056,8 @@ export component RoomList inherits Rectangle {
         // A list view makes only the rows in sight, which matters with hundreds of DMs.
         list := ListView {
             vertical-stretch: 1;
+            // Folded, it shows no scrollbar; the wheel still scrolls it.
+            vertical-scrollbar-policy: SidebarFold.amount > 0 ? ScrollBarPolicy.always-off : ScrollBarPolicy.as-needed;
             for room[index] in root.rooms: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
                 padding-bottom: index == root.rooms.length - 1 ? 12px : 2px;
@@ -977,14 +1078,14 @@ export component RoomList inherits Rectangle {
                 }
                 // Their heading neither folds nor has a menu.
                 if room.heading != "" && room.pinned && !room.direct: HorizontalLayout {
-                    height: 36px; padding-left: 16px;
+                    height: 36px; padding-left: 16px; opacity: 1 - SidebarFold.amount;
                     Text {
                         text: room.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
                         vertical-alignment: center; overflow: elide; accessible-role: text;
                     }
                 }
                 if room.heading != "" && !(room.pinned && !room.direct): CategoryHeading {
-                    text: room.heading; collapsed: room.collapsed;
+                    text: room.heading; collapsed: room.collapsed; opacity: 1 - SidebarFold.amount;
                     toggled => { root.toggle-category(room.category); }
                     context-menu(x, y) => { root.open-category-menu(room.id, x, y); }
                     draggable: room.heading-place > 0; tracking: root.arranging > 0;
@@ -1011,14 +1112,16 @@ export component RoomList inherits Rectangle {
                     spacing: 0px;
                     Rectangle {
                         width: 28px;
+                        // Folded, the thread's row shows no icon, and the line would hang alone in the sliver.
                         Path {
-                            x: 0px; y: -2px; width: 28px; height: 38px;
+                            x: 0px; y: -2px; width: 28px; height: 38px; opacity: 1 - SidebarFold.amount;
                             viewbox-width: 28; viewbox-height: 38;
                             commands: room.thread-continues ? "M 18 0 L 18 38 M 18 13 Q 18 19 24 19 L 28 19" : "M 18 0 L 18 13 Q 18 19 24 19 L 28 19";
                             stroke: Theme.faint; stroke-width: 1.5px;
                         }
                     }
                     ChannelRow {
+                        in-sidebar: true;
                         text: room.name; thread: true;
                         opacity: root.dimmed(false) ? 0.3 : 1;
                         tracking: root.arranging > 0;
@@ -1032,6 +1135,7 @@ export component RoomList inherits Rectangle {
                     }
                 }
                 if !room.hidden && !room.thread: ChannelRow {
+                    in-sidebar: true;
                     text: room.name;
                     label: room.name + (room.discord ? ", Discord" : "")
                         + (room.presence == "dnd" ? ", do not disturb" : room.presence == "mobile" ? ", online on mobile" : room.presence != "" ? ", " + room.presence : "")
@@ -1075,14 +1179,15 @@ export component RoomList inherits Rectangle {
                 // only shows the call Yapfast is in, below.
                 if room.voice && room.id != root.voice-channel && room.people.length > 0: VerticalLayout {
                     padding-left: 32px; padding-bottom: 4px; spacing: 0px;
-                    for person in room.people: Rectangle {
+                    for person[place] in room.people: Rectangle {
                         // A click opens their profile beside the row and a right
                         // click their menu, as in Discord; their LIVE tag watches
                         // their stream. This account in the call on another
                         // client is dimmed until hovered, without its icons.
                         property <string> tip: person.elsewhere ? "Connected on another client" : "";
-                        height: 30px; border-radius: 4px;
-                        background: person-touch.has-hover ? Theme.hover : transparent;
+                        height: root.person-height(place); border-radius: 4px;
+                        visible: root.voice-fold < 1 || place <= 3;
+                        background: person-touch.has-hover && root.voice-fold < 1 ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         opacity: person.elsewhere && !person-touch.has-hover ? 0.5 : 1;
                         accessible-role: button;
@@ -1110,8 +1215,35 @@ export component RoomList inherits Rectangle {
                                 }
                             }
                         }
+                        // The folded faces, drawn together from the third up so the first
+                        // lies on top, each ringed in the sidebar's colour.
+                        if place == 0 && root.voice-fold > 0: Rectangle {
+                            x: -24px; y: -1px; width: 18px; height: 40px; opacity: root.voice-fold;
+                            if room.people.length > 2: Rectangle {
+                                x: 0px; y: 20px; width: 18px; height: 18px; border-radius: 9px; background: Theme.sidebar;
+                                Avatar { x: 1px; y: 1px; size: 16px; initial: room.people[2].initial; tint: room.people[2].tint; picture: room.people[2].picture; }
+                                if room.people[2].live && !room.people[2].elsewhere: LiveDot { x: 11px; y: 11px; }
+                            }
+                            if room.people.length > 1: Rectangle {
+                                x: 0px; y: 10px; width: 18px; height: 18px; border-radius: 9px; background: Theme.sidebar;
+                                Avatar { x: 1px; y: 1px; size: 16px; initial: room.people[1].initial; tint: room.people[1].tint; picture: room.people[1].picture; }
+                                if room.people[1].live && !room.people[1].elsewhere: LiveDot { x: 11px; y: 11px; }
+                            }
+                            if room.people.length > 0: Rectangle {
+                                x: 0px; y: 0px; width: 18px; height: 18px; border-radius: 9px; background: Theme.sidebar;
+                                Avatar { x: 1px; y: 1px; size: 16px; initial: room.people[0].initial; tint: room.people[0].tint; picture: room.people[0].picture; }
+                                if room.people[0].live && !room.people[0].elsewhere: LiveDot { x: 11px; y: 11px; }
+                            }
+                        }
+                        if place == 3 && root.voice-fold > 0 && room.people-live-beyond: LiveDot {
+                            x: -7px; y: (parent.height - self.height) / 2; opacity: root.voice-fold;
+                        }
+                        if place == 3 && root.voice-fold > 0: Text {
+                            x: -26px; width: 24px; text: "+" + (room.people.length - 3); opacity: root.voice-fold;
+                            color: Theme.muted; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center;
+                        }
                         HorizontalLayout {
-                            spacing: 8px; padding-left: 4px; padding-right: 8px;
+                            spacing: 8px; padding-left: 4px; padding-right: 8px; opacity: 1 - root.voice-fold;
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; } }
                             Text {
                                 text: person.name; font-size: 15px; font-weight: 500; color: Theme.secondary;
@@ -1142,11 +1274,12 @@ export component RoomList inherits Rectangle {
                 }
                 if room.voice && room.id == root.voice-channel: VerticalLayout {
                     padding-left: 32px; padding-bottom: 4px; spacing: 0px;
-                    for person in root.participants: Rectangle {
+                    for person[place] in root.participants: Rectangle {
                         // A click opens their profile and a right click their
                         // menu, as above.
-                        height: 30px; border-radius: 4px;
-                        background: participant-touch.has-hover ? Theme.hover : transparent;
+                        height: root.person-height(place); border-radius: 4px;
+                        visible: root.voice-fold < 1 || place <= 3;
+                        background: participant-touch.has-hover && root.voice-fold < 1 ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         accessible-role: button; accessible-label: person.name;
                         accessible-description: "Show their profile";
@@ -1164,8 +1297,35 @@ export component RoomList inherits Rectangle {
                                 }
                             }
                         }
+                        // The folded faces, drawn together from the third up so the first
+                        // lies on top, each ringed in the sidebar's colour.
+                        if place == 0 && root.voice-fold > 0: Rectangle {
+                            x: -24px; y: -1px; width: 18px; height: 40px; opacity: root.voice-fold;
+                            if root.participants.length > 2: Rectangle {
+                                x: 0px; y: 20px; width: 18px; height: 18px; border-radius: 9px; background: Theme.sidebar;
+                                Avatar { x: 1px; y: 1px; size: 16px; initial: root.participants[2].initial; tint: root.participants[2].tint; picture: root.participants[2].picture; speaking: root.participants[2].speaking; }
+                                if root.participants[2].live && !root.participants[2].elsewhere: LiveDot { x: 11px; y: 11px; }
+                            }
+                            if root.participants.length > 1: Rectangle {
+                                x: 0px; y: 10px; width: 18px; height: 18px; border-radius: 9px; background: Theme.sidebar;
+                                Avatar { x: 1px; y: 1px; size: 16px; initial: root.participants[1].initial; tint: root.participants[1].tint; picture: root.participants[1].picture; speaking: root.participants[1].speaking; }
+                                if root.participants[1].live && !root.participants[1].elsewhere: LiveDot { x: 11px; y: 11px; }
+                            }
+                            if root.participants.length > 0: Rectangle {
+                                x: 0px; y: 0px; width: 18px; height: 18px; border-radius: 9px; background: Theme.sidebar;
+                                Avatar { x: 1px; y: 1px; size: 16px; initial: root.participants[0].initial; tint: root.participants[0].tint; picture: root.participants[0].picture; speaking: root.participants[0].speaking; }
+                                if root.participants[0].live && !root.participants[0].elsewhere: LiveDot { x: 11px; y: 11px; }
+                            }
+                        }
+                        if place == 3 && root.voice-fold > 0 && root.participants-live-beyond: LiveDot {
+                            x: -7px; y: (parent.height - self.height) / 2; opacity: root.voice-fold;
+                        }
+                        if place == 3 && root.voice-fold > 0: Text {
+                            x: -26px; width: 24px; text: "+" + (root.participants.length - 3); opacity: root.voice-fold;
+                            color: Theme.muted; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center;
+                        }
                         HorizontalLayout {
-                            spacing: 8px; padding-left: 4px; padding-right: 8px;
+                            spacing: 8px; padding-left: 4px; padding-right: 8px; opacity: 1 - root.voice-fold;
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; speaking: person.speaking; } }
                             Text {
                                 text: person.name; font-size: 15px; font-weight: person.speaking ? 700 : 500;
