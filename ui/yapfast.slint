@@ -24,12 +24,12 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText } from "controls.slint";
+import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1049,6 +1049,20 @@ export component YapfastWindow inherits Window {
     in-out property <bool> deafen-on-join;
     in-out property <bool> level-voice: true;
     in-out property <int> noise-suppression;
+    /// The suppression the call panel's toggle turns back on: the one last
+    /// used before Off, DeepFilterNet unless another was.
+    property <int> noise-last: 0;
+    /// Turns noise suppression off, or back on to the kind last used, and
+    /// saves it, as the call panel's toggle does.
+    public function toggle-noise() {
+        if root.noise-suppression == 2 {
+            root.noise-suppression = root.noise-last;
+        } else {
+            root.noise-last = root.noise-suppression;
+            root.noise-suppression = 2;
+        }
+        root.preferences-changed();
+    }
     in-out property <int> noise-strength;
     in-out property <bool> dereverb;
     in-out property <int> sensitivity: -60;
@@ -1602,13 +1616,27 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.menu-y - self.height - 6px);
         width: 280px;
         close-policy: PopupClosePolicy.close-on-click-outside;
-        DeviceMenu {
-            heading: "INPUT DEVICE"; devices: root.microphones; current: root.microphone-index;
+        QuickDeviceMenu {
+            kind: "Input"; devices: root.microphones; current: root.microphone-index;
             empty: "No microphones found. Connect one, then reopen this menu.";
+            volume <=> root.microphone-volume;
             select(index) => { root.select-microphone(index); }
             settings => { root.open-settings(); }
+            volume-changed => { root.call-volumes-changed(); }
+            volume-committed => { root.preferences-changed(); }
             Rectangle { height: 1px; background: Theme.line; }
             InputLevel { input-level: root.input-level; muted: root.muted; meter-note: root.meter-note; }
+            // The quick pick of noise suppression, as in Voice settings.
+            if root.discord-linked: Rectangle { height: 1px; background: Theme.line; }
+            if root.discord-linked: VerticalLayout {
+                padding-left: 8px; padding-right: 8px; padding-bottom: 4px; spacing: 6px;
+                Text { text: "NOISE SUPPRESSION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                Choices {
+                    label: "Noise suppression in Discord calls"; options: ["DeepFilterNet", "RNNoise", "Off"];
+                    current <=> root.noise-suppression;
+                    chosen => { root.preferences-changed(); }
+                }
+            }
         }
     }
     output-menu := PopupWindow {
@@ -1616,11 +1644,14 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.menu-y - self.height - 6px);
         width: 280px;
         close-policy: PopupClosePolicy.close-on-click-outside;
-        DeviceMenu {
-            heading: "OUTPUT DEVICE"; devices: root.speakers; current: root.speaker-index;
+        QuickDeviceMenu {
+            kind: "Output"; devices: root.speakers; current: root.speaker-index;
             empty: "No speakers found. Connect one, then reopen this menu.";
+            volume <=> root.speaker-volume;
             select(index) => { root.select-speaker(index); }
             settings => { root.open-settings(); }
+            volume-changed => { root.call-volumes-changed(); }
+            volume-committed => { root.preferences-changed(); }
         }
     }
     // The quality picked in the share menu, from the last choice each time it opens.
@@ -2248,6 +2279,8 @@ export component YapfastWindow inherits Window {
                     share-watchers: root.share-viewers.length;
                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                     can-soundboard: root.can-soundboard;
+                    noise-on: root.noise-suppression != 2; can-noise: root.discord-linked;
+                    toggle-noise => { root.toggle-noise(); }
                     leave-voice => { root.leave-voice(); }
                     dismiss-voice-error => { root.dismiss-voice-error(); }
                     toggle-camera => { root.toggle-camera(); }
