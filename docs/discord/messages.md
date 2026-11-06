@@ -332,13 +332,45 @@ an error.
   picture arrived gets a code point in the Supplementary Private Use Area B,
   and each batch of them a colour bitmap (CBDT) font made on the fly, which
   text falls back to after Satoshi, so they wrap and select like letters.
+  A message's Unicode emoji are drawn the same way, from Twemoji's pictures,
+  in the top of that area, counting down so the two stay apart. They need no
+  font at runtime: `build.rs` makes one font of all of them, which the program
+  carries and maps rather than copies, so an emoji is as cheap as a letter. An
+  emoji of one character answers to its own code point as well as to the one
+  the rewrite gives it, so text that keeps it as typed, as the composer's draft
+  does, draws Twemoji's picture too; a sequence, which this font can't join,
+  draws its picture once rewritten and the system font's until then. A
+  `:shortcode:` sent without taking its completion draws as its emoji. A
+  picture is 22px in the 16px text, and 48px in the large text a message of
+  emoji alone shows. A click on an emoji, custom or Unicode,
+  opens its card: its name
+  between colons, a line saying what it is, and, for a server's, the server it
+  is from, which opens on a click. `GET /guilds/{guild.id}/preview` says how
+  many of the server's members are online and whether Discover lists it, so
+  the card shows "3,999 Online" beside "Discoverable Server". It is asked
+  for once for each server and kept; until it answers the count is left out,
+  and the note follows whether Yapfast has the server as a Community. An
+  emoji of a server that can't be reached, one this account never joined or
+  one that's gone, draws no server: its card says it is from a server that is
+  either invite-only or unavailable, as Discord's does. The card
+  follows the emoji through a link
+  text falls back to (`yapfast:emoji/` and the emoji's code points, or `c/`
+  and a custom emoji's id), as a mention follows its own.
   The picker, suggestions and reaction buttons show the picture itself, so
   the hundreds a picker lists add no fonts; a quiet square holds each place
   until its picture arrives. A message of only
   emoji, up to 30, shows them large, as Discord does. Without Nitro, the
   picker offers only the open server's emoji, none animated, and sending
   turns `:name:` into Discord's `<:name:id>` only for those. Animated emoji
-  show their first frame.
+  play in message text, in a reaction chip and in the picker's grid. In the
+  text the current frame is drawn over the glyph already there, so no
+  paragraph is shaped again for a frame. Frames decode off the thread that
+  draws, ahead of the draw: the ones a refresh shows first, one decode for
+  each picture however many messages and cells show it, and a job for an
+  emoji that scrolled away before it started is dropped. The cache keeps 6 MB
+  of frames, letting go the least recently shown, never one on screen. An
+  emoji shows its still first frame until its frames arrive, and if they
+  never do.
 - Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
   GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation

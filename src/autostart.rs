@@ -66,6 +66,21 @@ pub(crate) fn windows_argument(argument: &str) -> String {
     if !argument.is_empty() && !argument.contains([' ', '\t', '"']) {
         return argument.to_owned();
     }
+    windows_quoted(argument)
+}
+
+/// The program a command line runs, always quoted as Windows registers one:
+/// a protocol handler's, and the `Run` key's, name it that way whatever the
+/// path holds, so a path that later gains a space still runs that program
+/// rather than a longer name of its own.
+#[cfg(any(windows, test))]
+pub(crate) fn windows_program(program: &str) -> String {
+    windows_quoted(program)
+}
+
+/// `argument` quoted and escaped as Windows splits a command line.
+#[cfg(any(windows, test))]
+fn windows_quoted(argument: &str) -> String {
     // Backslashes count only before a quote, where each is doubled.
     let mut quoted = String::from('"');
     let mut backslashes = 0;
@@ -225,7 +240,11 @@ mod windows {
     pub fn write(command: &[String]) -> io::Result<()> {
         let line: Vec<String> = command
             .iter()
-            .map(|argument| super::windows_argument(argument))
+            .enumerate()
+            .map(|(at, argument)| match at {
+                0 => super::windows_program(argument),
+                _ => super::windows_argument(argument),
+            })
             .collect();
         let value = wide(&line.join(" "));
         let status = unsafe {
@@ -378,7 +397,7 @@ mod none {
 
 #[cfg(test)]
 mod tests {
-    use super::windows_argument;
+    use super::{windows_argument, windows_program};
 
     #[test]
     fn quotes_windows_arguments_as_windows_splits_them() {
@@ -390,5 +409,17 @@ mod tests {
         assert_eq!(windows_argument(r"C:\A B\"), r#""C:\A B\\""#);
         assert_eq!(windows_argument(r#"say "hi""#), r#""say \"hi\"""#);
         assert_eq!(windows_argument(""), r#""""#);
+    }
+
+    #[test]
+    fn quotes_a_program_whether_or_not_it_needs_it() {
+        assert_eq!(
+            windows_program(r"C:\Apps\Yapfast\yapfast.exe"),
+            r#""C:\Apps\Yapfast\yapfast.exe""#
+        );
+        assert_eq!(
+            windows_program(r"C:\A B\yapfast.exe"),
+            r#""C:\A B\yapfast.exe""#
+        );
     }
 }

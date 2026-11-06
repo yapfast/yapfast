@@ -4,7 +4,10 @@
 //! roles and settings into every room or member.
 
 use super::*;
-use crate::chat::{NotificationChange, Notifications, Permission, ServerNotifications, ServerRole};
+use crate::chat::{
+    DiscordCommand, NotificationChange, Notifications, Permission, ServerNotifications,
+    ServerPreview, ServerRole,
+};
 
 #[cfg(feature = "discord")]
 use crate::chat::NotifyLevel;
@@ -256,6 +259,39 @@ impl Application {
                 ))]
             }
             _ => vec![],
+        }
+    }
+
+    /// Asks Discord what a server's card shows, for the card an emoji of it
+    /// opens: how many of its members are online, and whether Discover lists
+    /// it. A server's answer stands, so a card opened again asks nothing.
+    pub(super) fn preview_server(&mut self, server: String) -> Vec<Effect> {
+        if self.state.preview
+            || !self.state.discord_online
+            || self.state.server_previews.contains_key(&server)
+            || Network::of(&server) != Network::Discord
+        {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::ServerPreview { server },
+        ))]
+    }
+
+    /// Keeps what Discord said a server's card shows, for the cards that open
+    /// again, or says it didn't answer.
+    pub(super) fn show_server_preview(
+        &mut self,
+        server: String,
+        result: Result<ServerPreview, String>,
+    ) {
+        match result {
+            Ok(preview) => {
+                self.state.server_previews.insert(server, preview);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not show what a server's card shows");
+            }
         }
     }
 }

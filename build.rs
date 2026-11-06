@@ -1,6 +1,6 @@
 //! Gives the Windows executable its icon: compiles packaging/windows/yapfast.rc
-//! with the available resource compiler and links the result. Packs Twemoji's
-//! pictures into the program. On Linux, lets a plain `cargo build` link
+//! with the available resource compiler and links the result. Makes Twemoji's
+//! pictures a font for the program to carry. On Linux, lets a plain `cargo build` link
 //! rust-skia's own Skia archive beside libwebrtc.
 
 use std::{
@@ -9,10 +9,15 @@ use std::{
     process::Command,
 };
 
+#[allow(dead_code, reason = "the program builds other fonts from it")]
+#[path = "src/emoji_font_tables.rs"]
+mod emoji_font_tables;
+
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows");
     println!("cargo:rerun-if-env-changed=SKIA_BINARIES_URL");
     println!("cargo:rerun-if-changed=vendor/twemoji/72x72");
+    println!("cargo:rerun-if-changed=src/emoji_font_tables.rs");
     if env::var_os("CARGO_FEATURE_DESKTOP").is_some() {
         pack_twemoji();
     }
@@ -23,9 +28,11 @@ fn main() {
     }
 }
 
-/// Writes Twemoji's pictures into one file the program carries: a count, then
-/// each picture's name, where it starts and how long it is, then the names and
-/// the pictures. `src/twemoji.rs` reads it, and finds one by its name.
+/// Writes Twemoji's pictures as one font the program carries, and an index that
+/// finds a picture by its name: a count, then for each picture where its name
+/// starts and how long it is, and where it starts in the font and how long it
+/// is, then the names. `src/twemoji.rs` reads both, and the picture's place in
+/// the sorted list is its glyph.
 fn pack_twemoji() {
     let folder = Path::new("vendor/twemoji/72x72");
     let mut pictures: Vec<(String, Vec<u8>)> = fs::read_dir(folder)
@@ -50,29 +57,59 @@ fn pack_twemoji() {
     );
     // Names sort, so the program can look one up by binary search.
     pictures.sort_by(|left, right| left.0.cmp(&right.0));
-    // An entry is its name's length, u16, then where its picture starts and how
-    // long it is, u32 each.
-    const ENTRY: usize = 10;
-    let header = 4 + pictures.len() * ENTRY;
-    let names_length: usize = pictures.iter().map(|(name, _)| name.len()).sum();
-    let mut pictures_start = header + names_length;
-    let mut packed = Vec::new();
-    packed.extend_from_slice(&(pictures.len() as u32).to_le_bytes());
-    for (name, bytes) in &pictures {
-        assert!(name.len() <= u16::MAX as usize && u32::try_from(bytes.len()).is_ok());
-        packed.extend_from_slice(&(name.len() as u16).to_le_bytes());
-        packed.extend_from_slice(&(pictures_start as u32).to_le_bytes());
-        packed.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-        pictures_start += bytes.len();
+    let also: Vec<(u32, char)> = pictures
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (name, _))| Some((own_code_point(name)?, glyph_at(index))))
+        .collect();
+    let names: Vec<String> = pictures.iter().map(|(name, _)| name.clone()).collect();
+    let glyphs: Vec<(char, Vec<u8>)> = pictures
+        .into_iter()
+        .enumerate()
+        .map(|(index, (_, bytes))| (glyph_at(index), bytes))
+        .collect();
+    let font = emoji_font_tables::build_strike(
+        &emoji_font_tables::TWEMOJI,
+        "Yapfast Twemoji",
+        &glyphs,
+        &also,
+    );
+    // An entry is where its name starts, u32, and how long it is, u16, then where
+    // its picture starts and how long it is, u32 each.
+    const ENTRY: usize = 14;
+    let mut name_at = 4 + names.len() * ENTRY;
+    let mut index = Vec::new();
+    index.extend_from_slice(&(names.len() as u32).to_le_bytes());
+    for (name, picture) in names
+        .iter()
+        .zip(emoji_font_tables::pictures_at(&font, &glyphs))
+    {
+        index.extend_from_slice(&(name_at as u32).to_le_bytes());
+        index.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        index.extend_from_slice(&(picture.start as u32).to_le_bytes());
+        index.extend_from_slice(&(picture.len() as u32).to_le_bytes());
+        name_at += name.len();
     }
-    for (name, _) in &pictures {
-        packed.extend_from_slice(name.as_bytes());
+    for name in &names {
+        index.extend_from_slice(name.as_bytes());
     }
-    for (_, bytes) in &pictures {
-        packed.extend_from_slice(bytes);
-    }
-    let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("twemoji.bin");
-    fs::write(&output, packed).expect("writing the packed pictures");
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    fs::write(out.join("twemoji.ttf"), font).expect("writing Twemoji's font");
+    fs::write(out.join("twemoji.index"), index).expect("writing Twemoji's index");
+}
+
+fn glyph_at(index: usize) -> char {
+    char::from_u32(emoji_font_tables::TWEMOJI_LAST - index as u32).expect("a code point")
+}
+
+/// The code point a picture also draws at, so text that keeps an emoji as typed,
+/// such as a composer's, draws it too: an emoji of that one character, which
+/// leaves out what only shows as an emoji with a selector after it, and what joins
+/// others, as a skin tone does, since this font doesn't join them.
+fn own_code_point(name: &str) -> Option<u32> {
+    let point = u32::from_str_radix(name, 16).ok()?;
+    let text = char::from_u32(point)?.to_string();
+    (emojis::get(&text)?.as_str() == text).then_some(point)
 }
 
 fn windows_icon() {

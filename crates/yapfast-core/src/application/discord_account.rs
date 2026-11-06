@@ -277,7 +277,7 @@ impl Application {
                     usable: true,
                     picture: yapfast_discord::ready::custom_emoji(
                         &emoji.id,
-                        false,
+                        emoji.animated,
                         chat::EMOJI_PICTURE_SIZE,
                     ),
                 })

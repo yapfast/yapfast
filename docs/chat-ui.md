@@ -107,6 +107,24 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
   Escape returns to the composer.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
+- Emoji in message text are drawn by Twemoji's picture of them, as the picker's
+  are, in a colour bitmap font made of them when Yapfast is built
+  (`src/emoji_text.rs`); see [Discord](discord/messages.md) for
+  how that font is made. A glyph whose emoji is animated has the emoji's
+  current frame drawn over it as the text draws, so the text, its wrapping and
+  its selection are untouched: a custom emoji moves in message text, in a
+  reaction chip and in the picker's grid, and Twemoji's Unicode emoji have no
+  animation, so they stay as they are. The still first frame is what shows
+  until frames arrive, and if they never do. A picture is drawn 22px in the
+  message text and 48px in the large text a message of emoji alone shows, and
+  the composer shows one as a picture too, since each glyph also answers to
+  the emoji's own code point. A `:shortcode:` sent without taking its
+  completion draws as its emoji. An emoji is a link, but one whose text is the
+  picture alone draws without the underline a link gets, which would show
+  across the bottom of it. Clicking one opens its card, 288px wide and opening
+  below it: its name such as `:sob:`, a line saying what it is, and, for a
+  server's emoji, the server it is from, with how many of its members are
+  online and whether Discover lists it, whose icon and name open that server.
 - Mention someone by typing `@` and picking from the room's members. The
   message links to them (`[Name](https://matrix.to/#/@user:server)`) and lists
   them in `m.mentions`, so their client notifies them. Who else is typing
@@ -145,20 +163,27 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   for every emoji on screen, every frame, and made a stretched picker scroll
   slowly. A row more than eight past those shown lets go of its pictures, and
   a picker that closes lets go of its grid, so the list costs what is near the
-  view. A code point Twemoji has no picture for, and emoji in message text,
-  are still drawn by the system font. Every server's emoji show, as Discord's
-  picker shows them: the ones this account may not use where it is looking —
-  another server's, or an animated one without Nitro — are greyed with a lock
-  in their corner, and pressing one opens Discord's Nitro page. A start whose
-  picture cache is empty fetches all of them into it in the background, off the
-  thread that draws, decoding none and holding none, so the first look finds
-  them. A drag that changed
-  the width keeps it in `layout.json` (`picker_width`), and it comes back at
-  the next start. See [Discord](discord/messages.md#gifs).
+  view. A code point Twemoji has no picture for is still drawn by the
+  system font. A cell whose custom emoji is animated keeps that still as its
+  placeholder until the emoji's frames arrive, which decode at 48px times the
+  screen's scale factor, up to 96px, off the thread that draws, so a grid of
+  animated emoji scrolls as fast as one of stills. Every server's emoji show,
+  as Discord's picker shows them: the ones this account may not use where it
+  is looking — another server's, or an animated one without Nitro — are
+  greyed with a lock in their corner, and pressing one opens Discord's Nitro
+  page. A start whose picture cache is empty fetches all of them into it in
+  the background, off the thread that draws, decoding none and holding none,
+  so the first look finds them. A drag that changed the width keeps it in
+  `layout.json` (`picker_width`), and it comes back at the next start. See
+  [Discord](discord/messages.md#gifs).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the
-  window has the focus again.
+  window has the focus again. Animated emoji stop too when nobody has
+  touched the window for 15 seconds and while it is minimised, and go on
+  from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
+  at Always, plays them unfocused, but not while minimised, and at Never
+  keeps them all still.
 - Who reacted, as in Discord's client: half a second on a reaction shows a
   tooltip, ":tada: reacted by Ann, Bo, Cy, and 2 others", naming the first
   three by their name there, once they come (`Command::Reactors`, three at a

@@ -1729,3 +1729,39 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     forward("d:1".into(), &room, None);
     assert!(matches!(answer().await, Err(ForwardFailure::Forward(_))));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_servers_card_shows_how_many_of_its_members_are_online() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let server = discord::server_id(FAKE_GUILD);
+    command(
+        Command::Discord(DiscordCommand::ServerPreview {
+            server: server.clone(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let answer = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::ServerPreview {
+                server: asked,
+                result,
+            } = received.recv().await.unwrap()
+                && asked == server
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    let preview = answer.expect("what the server's card shows");
+    assert_eq!(preview.online, Some(3), "Dave is offline");
+    assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
+}

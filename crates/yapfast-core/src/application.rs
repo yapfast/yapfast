@@ -516,6 +516,10 @@ pub struct AppState {
     /// Shared with the networks' lists they're shown from.
     pub rooms: Vec<Arc<ChatRoom>>,
     pub servers: Vec<Arc<ChatServer>>,
+    /// What the card of a server's emoji shows of it beyond its name and icon,
+    /// by server id, once Discord answered for it: how many of its members are
+    /// online, and whether Discover lists it.
+    pub server_previews: HashMap<String, chat::ServerPreview>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
     /// The `@` word being typed in the composer, if any.
@@ -702,6 +706,11 @@ impl AppState {
             .as_ref()
             .and_then(|id| self.drafts.get(id))
             .map_or("", String::as_str)
+    }
+
+    /// The draft of the room with this id, such as the thread beside's.
+    pub fn draft_in(&self, room: &str) -> &str {
+        self.drafts.get(room).map_or("", String::as_str)
     }
 
     /// The files waiting in the selected room's composer.
@@ -1913,6 +1922,10 @@ pub enum Action {
         user: String,
         large: bool,
     },
+    /// Ask Discord what a server's card shows, for the card an emoji of it
+    /// opens: how many of its members are online, and whether Discover lists
+    /// it. Nothing is asked twice for the same server.
+    PreviewServer(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -3206,6 +3219,7 @@ impl Application {
             }
             Action::ShowProfile { user, large } => self.show_profile(user, large),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
+            Action::PreviewServer(server) => self.preview_server(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
                 if let Some(view) = &mut self.state.profile {
@@ -3556,6 +3570,7 @@ impl Application {
                 result,
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
+            Event::ServerPreview { server, result } => self.show_server_preview(server, result),
             Event::EmojisChanged {
                 server,
                 upload,
@@ -3831,6 +3846,20 @@ impl Application {
         false
     }
 
+    /// The server whose emoji this is, by its server id, when it is one's this
+    /// account is in; an emoji's card names it.
+    pub fn emoji_server(&self, id: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            return snapshot
+                .servers
+                .iter()
+                .find(|server| server.emojis.iter().any(|emoji| emoji.id == id))
+                .map(|server| discord::server_id(&server.id));
+        }
+        None
+    }
+
     /// Every custom emoji of every server the account is in, by server, the
     /// room's own server first, each saying whether this account may use it in
     /// the room it is looking at. The picker shows all of them, the ones it may
@@ -3856,6 +3885,7 @@ impl Application {
                 .map(|server| {
                     let ours = Some(server.id.as_str()) == here;
                     chat::EmojiSet {
+                        id: server.id.clone(),
                         server: server.name.clone(),
                         icon: server.icon.clone(),
                         emoji: server
@@ -3869,7 +3899,7 @@ impl Application {
                                 usable: nitro || (ours && !emoji.animated),
                                 picture: yapfast_discord::ready::custom_emoji(
                                     &emoji.id,
-                                    false,
+                                    emoji.animated,
                                     chat::EMOJI_PICTURE_SIZE,
                                 ),
                             })

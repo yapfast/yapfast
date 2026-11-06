@@ -28,7 +28,7 @@ import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, 
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiSection, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
+import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -50,9 +50,9 @@ export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, Motion } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiSection, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
@@ -639,6 +639,10 @@ export component YapfastWindow inherits Window {
     }
     callback enlarge-profile();
     callback close-profile();
+    /// The emoji a click in a message's text opened, and its card, which sits
+    /// beside it until a click outside or Escape closes it.
+    in-out property <bool> emoji-card-open;
+    in property <EmojiCard> emoji-card;
     /// Send someone a message in their DM from their card: who, and what.
     callback message-from-profile(string, string);
     in property <bool> viewer-open;
@@ -2872,6 +2876,7 @@ export component YapfastWindow inherits Window {
                                                         if message.can-react && root.composer-enabled: HorizontalLayout {
                                                             spacing: 0px;
                                                             for cell in root.bar-reactions: EmojiButton {
+                                                                animation-key: cell.key;
                                                                 emoji: cell; font: root.emoji-font;
                                                                 clicked => { root.react(message.item, cell.key); }
                                                             }
@@ -3739,6 +3744,30 @@ export component YapfastWindow inherits Window {
                 root.server-card-open = false;
                 root.close-profile();
                 root.navigate-server(root.server-card.id);
+            }
+        }
+    }
+    // An emoji's card, under the emoji a message's text was clicked on. A click
+    // outside or Escape closes it.
+    emoji-card-motion := PopupMotion { open: root.emoji-card-open; }
+    if emoji-card-motion.shown: Rectangle {
+        TouchArea { clicked => { root.emoji-card-open = false; } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.emoji-card-open = false; return accept; }
+                return reject;
+            }
+        }
+        EmojiCardView {
+            opacity: Popup.opacity(emoji-card-motion.amount); transform-scale: Popup.scale(emoji-card-motion.amount);
+            x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
+            y: root.anchor-y + root.anchor-height + 4px + self.height <= root.height - 8px
+                ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
+            card: root.emoji-card;
+            open-server(server) => {
+                root.emoji-card-open = false;
+                root.navigate-server(server);
             }
         }
     }

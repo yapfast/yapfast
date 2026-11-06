@@ -823,10 +823,24 @@ fn messages(lines: &[(&str, &str)]) -> YapfastWindow {
     )
 }
 
+/// Starts the testing backend on this test's thread, once: a test that sets
+/// anything up before it builds a window calls it first, as a font of emoji
+/// would otherwise start the platform's own.
+fn init_backend() {
+    thread_local! {
+        static STARTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    STARTED.with(|started| {
+        if !started.replace(true) {
+            i_slint_backend_testing::init_no_event_loop();
+        }
+    });
+}
+
 /// A window showing these messages, each starting a group and sent at 19:2 and its
 /// index, with the composer.
 fn showing(chat: Vec<ChatMessage>) -> YapfastWindow {
-    i_slint_backend_testing::init_no_event_loop();
+    init_backend();
     let window = YapfastWindow::new().unwrap();
     copy_whole_messages(&window);
     // Without the adapter's clipboard reading, Ctrl+V pastes text, as it
@@ -1085,6 +1099,166 @@ fn a_link_showing_other_text_asks_before_it_opens() {
             .all(|link| link == "yapfast:leave/https://evil.example/yapfast"),
         "{opened:?}"
     );
+}
+
+#[test]
+fn a_click_on_an_emoji_in_a_message_reaches_its_card() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    // The window's setup registers Twemoji's font, as the program's does.
+    init_backend();
+    emoji_text::register();
+    let window = one_message("😭 that hurt");
+    let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+    let record = opened.clone();
+    window.on_open_link(move |link| record.borrow_mut().push(link.into()));
+    let button = PointerEventButton::Left;
+    // The emoji starts the message, which sits at the end of the list.
+    for y in (620..700).step_by(4) {
+        for x in (370..430).step_by(4) {
+            let position = slint::LogicalPosition::new(x as f32, y as f32);
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerPressed { position, button });
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerReleased { position, button });
+        }
+    }
+    let opened = opened.borrow();
+    assert!(
+        opened.iter().any(|link| link == "yapfast:emoji/1f62d"),
+        "{opened:?}"
+    );
+}
+
+#[test]
+fn an_emoji_card_says_what_the_emoji_is() {
+    let mut pictures = HashMap::new();
+    let state = yapfast_core::application::AppState::default();
+    let default = emoji_card(
+        &emoji_text::Target::Unicode("😭".to_owned()),
+        None,
+        &state,
+        &mut pictures,
+    );
+    assert_eq!(default.name, ":sob:");
+    assert_eq!(
+        default.description,
+        "This is a default emoji. It can be used anywhere."
+    );
+    assert_eq!(default.server, "", "no server to show");
+    assert_eq!(default.glyph, "😭", "shown when Twemoji has no picture");
+    // A server's emoji, whose server this account can't reach, says so, and
+    // shows no server.
+    let custom = emoji_card(
+        &emoji_text::Target::Custom("42".to_owned()),
+        None,
+        &state,
+        &mut pictures,
+    );
+    assert_eq!(custom.description, "Invite-Only Server");
+    // Nothing of the server shows: no name, no count, no separator.
+    assert_eq!(custom.server, "");
+    assert_eq!(custom.server_online, "");
+    assert_eq!(custom.server_note, "");
+}
+
+/// The clock an animated emoji draws from moves only while playing, so an
+/// unfocused or idle window holds every emoji still; it is the vendored
+/// registry's, which this crate can reach and its own tests cannot run.
+#[test]
+fn an_animated_emoji_draws_a_frame_only_while_playing() {
+    use i_slint_core::yapfast_emoji as registry;
+    let (glyph, key) = ('\u{10ffe0}', "test-animation:1");
+    let frame =
+        || slint::Image::from_rgba8(slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(2, 2));
+    let animation = Rc::new(registry::Animation::new(vec![frame(), frame()], &[10, 10]));
+    registry::insert(key, Some(glyph), animation);
+    // The glyph message text draws, and the name the picker knows, both name it.
+    assert!(registry::frame_of_glyph(glyph).is_some());
+    assert!(registry::frame_of_key(key).is_some());
+    registry::set_playing(false);
+    let paused = registry::elapsed();
+    registry::advance(Duration::from_millis(40));
+    assert_eq!(registry::elapsed(), paused, "a paused clock holds still");
+    registry::set_playing(true);
+    registry::advance(Duration::from_millis(40));
+    assert!(registry::elapsed() > paused, "and moves while playing");
+    registry::set_playing(false);
+    registry::remove(key);
+    assert!(
+        registry::frame_of_glyph(glyph).is_none(),
+        "the still draws again"
+    );
+}
+
+#[test]
+fn an_emoji_card_says_how_many_of_its_servers_members_are_online() {
+    let mut pictures = HashMap::new();
+    let mut state = yapfast_core::application::AppState::default();
+    let server = yapfast_core::chat::ChatServer {
+        id: "discord:10".into(),
+        name: "Equicord".into(),
+        channels: Vec::new(),
+        discord: true,
+        muted: false,
+        unavailable: false,
+        icon: Some("https://cdn.discordapp.com/icons/10/abc.png".into()),
+        folder: None,
+        hide_muted: false,
+        community: true,
+        pinned: Vec::new(),
+    };
+    let target = emoji_text::Target::Custom("42".to_owned());
+    // Before Discord answers, the note follows the features Yapfast has.
+    let known = emoji_card(&target, Some(&server), &state, &mut pictures);
+    assert_eq!(known.server_online, "", "nothing said yet");
+    assert_eq!(known.server_note, "Discoverable Server");
+    assert_eq!(
+        known.server_picture_url, "https://cdn.discordapp.com/icons/10/abc.png",
+        "the card asks for the icon by address, so it loads"
+    );
+    state.server_previews.insert(
+        server.id.clone(),
+        yapfast_core::chat::ServerPreview {
+            online: Some(3999),
+            discoverable: true,
+        },
+    );
+    let answered = emoji_card(&target, Some(&server), &state, &mut pictures);
+    assert_eq!(
+        answered.server_online, "3,999 Online",
+        "grouped as Discord writes it"
+    );
+    assert_eq!(answered.server_note, "Discoverable Server");
+    // A server Discover doesn't list shows its count alone, whatever feature
+    // Yapfast knew of it.
+    state.server_previews.insert(
+        server.id.clone(),
+        yapfast_core::chat::ServerPreview {
+            online: Some(12),
+            discoverable: false,
+        },
+    );
+    // A server that isn't a Community shows its count alone.
+    let mut quiet = server.clone();
+    quiet.community = false;
+    let private = emoji_card(&target, Some(&quiet), &state, &mut pictures);
+    assert_eq!(private.server_online, "12 Online");
+    assert_eq!(private.server_note, "");
+    // A Community keeps its note even when the preview answers without the
+    // feature, which is what Discord's own card does.
+    let noted = emoji_card(&target, Some(&server), &state, &mut pictures);
+    assert_eq!(noted.server_online, "12 Online");
+    assert_eq!(noted.server_note, "Discoverable Server");
+    // A server out of reach, as in an outage, shows no server either.
+    let mut away = server.clone();
+    away.unavailable = true;
+    let unreachable = emoji_card(&target, Some(&away), &state, &mut pictures);
+    assert_eq!(unreachable.description, "Invite-Only Server");
+    assert_eq!(unreachable.server, "", "no server to open");
+    assert_eq!(unreachable.server_online, "", "and nothing of it to show");
+    assert_eq!(unreachable.server_note, "");
 }
 
 #[test]
