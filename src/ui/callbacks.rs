@@ -1454,6 +1454,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.clock_seconds = window.get_clock_seconds();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
+        layout.boost_gems = Some(window.get_boost_gems());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.animate = chosen(&ANIMATES, window.get_animate());

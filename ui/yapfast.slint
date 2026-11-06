@@ -1041,6 +1041,7 @@ export component YapfastWindow inherits Window {
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size: 1;
     in-out property <bool> link-previews: true;
+    in-out property <bool> boost-gems: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
@@ -3311,7 +3312,7 @@ export component YapfastWindow inherits Window {
                         save-attachment(id, index) => { root.save-attachment(id, index); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: 240px; rows: root.roster; note: root.roster-note; selected: root.profile-member;
+                        width: 240px; rows: root.roster; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
                     }
@@ -3551,7 +3552,7 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 2: MessageSettings {
             message-font-size: root.message-font-size;
             twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; text-size <=> root.text-size;
-            link-previews <=> root.link-previews; share-typing <=> root.share-typing;
+            link-previews <=> root.link-previews; boost-gems <=> root.boost-gems; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
             matrix: root.matrix-build; discord: root.discord-linked;

@@ -693,6 +693,9 @@ pub struct ChatMember {
     /// When their Discord timeout ends, in Unix milliseconds, while they're
     /// timed out as far as Yapfast knows.
     pub timed_out_until: Option<u64>,
+    /// Since when they've boosted the Discord server, in Unix milliseconds,
+    /// while they do.
+    pub boosting_since: Option<u64>,
 }
 
 /// Someone to start a DM with.
