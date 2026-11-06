@@ -442,6 +442,11 @@ bool drain(Decoder *decoder, bool *produced) {
         MFT_OUTPUT_DATA_BUFFER buffer = {};
         DWORD status = 0;
         HRESULT result = decoder->decoder->ProcessOutput(0, 1, &buffer, &status);
+        // The output buffer's event collection, if the decoder set one, is the
+        // caller's to release however the call answered: a stream change or a
+        // picture-less answer must not leave it behind, and the need-more-input
+        // return must not either.
+        if (buffer.pEvents) buffer.pEvents->Release();
         if (result == MF_E_TRANSFORM_NEED_MORE_INPUT) return true;
         if (result == MF_E_TRANSFORM_STREAM_CHANGE || result == MF_E_TRANSFORM_TYPE_NOT_SET) {
             // The stream's sequence header says a size or a kind of picture
@@ -484,7 +489,6 @@ bool drain(Decoder *decoder, bool *produced) {
         }
         if (media) media->Release();
         buffer.pSample->Release();
-        if (buffer.pEvents) buffer.pEvents->Release();
     }
     return true;
 }

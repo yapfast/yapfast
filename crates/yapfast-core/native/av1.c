@@ -4,6 +4,7 @@
  * until the next call on the decoder. A unit's last OBU may give no size,
  * as DAVE leaves it; dav1d reads it to the end of the unit. */
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,6 +17,15 @@ struct yapfast_av1 {
   Dav1dContext *context;
   Dav1dPicture picture;
   int holds;
+  /* The unit's bytes, kept from one unit to the next and handed to dav1d
+   * wrapped rather than copied into a buffer it allocates. dav1d may still be
+   * reading a unit after dav1d_send_data takes it, so `unit_held` says whether
+   * it has these bytes: they are rewritten only when it doesn't, and a unit
+   * that arrives while it does gets a buffer of its own. Only one unit ever
+   * holds this buffer, so one flag describes it. */
+  uint8_t *unit;
+  size_t unit_size;
+  atomic_int unit_held;
 };
 
 struct yapfast_picture {
@@ -32,13 +42,17 @@ struct yapfast_picture {
 void yapfast_av1_free(struct yapfast_av1 *decoder) {
   if (!decoder) return;
   if (decoder->holds) dav1d_picture_unref(&decoder->picture);
+  /* Closing waits for every unit still being decoded, so nothing reads the
+   * buffer after this. */
   dav1d_close(&decoder->context);
+  free(decoder->unit);
   free(decoder);
 }
 
 struct yapfast_av1 *yapfast_av1_new(unsigned threads) {
   struct yapfast_av1 *decoder = calloc(1, sizeof *decoder);
   if (!decoder) return NULL;
+  atomic_init(&decoder->unit_held, 0);
   Dav1dSettings settings;
   dav1d_default_settings(&settings);
   settings.n_threads = (int)threads;
@@ -56,6 +70,43 @@ struct yapfast_av1 *yapfast_av1_new(unsigned threads) {
   return decoder;
 }
 
+/* dav1d let go of the last reference to the wrapped unit: the decoder's bytes
+ * are its own again, and the next unit may overwrite them. This may run on a
+ * dav1d worker thread, which is why the flag is atomic: releasing is what tells
+ * this side that a rewrite can't race the reader. */
+static void unit_released(const uint8_t *bytes, void *cookie) {
+  struct yapfast_av1 *decoder = cookie;
+  (void)bytes;
+  atomic_store(&decoder->unit_held, 0);
+}
+
+/* Gives `unit` the bytes of a temporal unit in the decoder's own buffer, grown
+ * to fit and wrapped for dav1d, so a unit doesn't cost an allocation of its
+ * whole size and a free. A unit arriving while dav1d still reads the last one
+ * gets a buffer of its own instead. Returns 0, or -3 when out of memory. */
+static int make_unit(struct yapfast_av1 *decoder, const unsigned char *data, size_t size,
+                     Dav1dData *unit) {
+  if (atomic_load(&decoder->unit_held)) {
+    uint8_t *copy = dav1d_data_create(unit, size);
+    if (!copy) return -3;
+    memcpy(copy, data, size);
+    return 0;
+  }
+  if (size > decoder->unit_size) {
+    /* The old buffer is still the one dav1d knows, so it is replaced only once
+     * the new one is in hand; and it is only grown here, when dav1d holds no
+     * reference to it. */
+    uint8_t *grown = realloc(decoder->unit, size);
+    if (!grown) return -3;
+    decoder->unit = grown;
+    decoder->unit_size = size;
+  }
+  memcpy(decoder->unit, data, size);
+  if (dav1d_data_wrap(unit, decoder->unit, size, unit_released, decoder) < 0) return -3;
+  atomic_store(&decoder->unit_held, 1);
+  return 0;
+}
+
 /* Decodes one temporal unit. Returns 1 with a picture, 0 when the decoder
  * has none yet, or a negative number when the unit couldn't be decoded. */
 int yapfast_av1_decode(struct yapfast_av1 *decoder, const unsigned char *data, size_t size,
@@ -65,10 +116,8 @@ int yapfast_av1_decode(struct yapfast_av1 *decoder, const unsigned char *data, s
     decoder->holds = 0;
   }
   if (!size) return -1;
-  Dav1dData unit;
-  uint8_t *copy = dav1d_data_create(&unit, size);
-  if (!copy) return -3;
-  memcpy(copy, data, size);
+  Dav1dData unit = {0};
+  if (make_unit(decoder, data, size, &unit) < 0) return -3;
   int sent = dav1d_send_data(decoder->context, &unit);
   int got = dav1d_get_picture(decoder->context, &decoder->picture);
   /* dav1d held a picture back from before: with it taken, the unit fits. */

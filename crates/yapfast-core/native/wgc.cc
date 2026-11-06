@@ -363,7 +363,16 @@ static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
     IDXGIAdapter1 *each = NULL;
     DXGI_ADAPTER_DESC1 described;
     unsigned outputs = 0;
-    if (factory->EnumAdapters1(i, &each) == DXGI_ERROR_NOT_FOUND) break;
+    HRESULT listed = factory->EnumAdapters1(i, &each);
+    /* Only NOT_FOUND ends the list: every other failure leaves `each` as it
+     * was, which is nothing to ask for a description, and a driver hiccup here
+     * must not reach GetDesc1 through a null. */
+    if (listed == DXGI_ERROR_NOT_FOUND) break;
+    if (FAILED(listed)) {
+      refused(why, size, "IDXGIFactory1::EnumAdapters1", listed);
+      break;
+    }
+    if (!each) break;
     if (FAILED(each->GetDesc1(&described))) {
       each->Release();
       continue;
@@ -371,7 +380,11 @@ static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
     for (UINT o = 0;; o++) {
       IDXGIOutput *display_output = NULL;
       DXGI_OUTPUT_DESC output;
-      if (each->EnumOutputs(o, &display_output) == DXGI_ERROR_NOT_FOUND) break;
+      HRESULT listed_output = each->EnumOutputs(o, &display_output);
+      /* The same rule as the adapters: NOT_FOUND is the end of the list, and
+       * anything else is not a display to read. */
+      if (listed_output == DXGI_ERROR_NOT_FOUND) break;
+      if (FAILED(listed_output) || !display_output) break;
       outputs++;
       if (!found && SUCCEEDED(display_output->GetDesc(&output)) && output.Monitor == monitor) {
         found = 1;
@@ -395,9 +408,13 @@ static int adapter_for_monitor(HMONITOR monitor, IDXGIAdapter1 **adapter_out,
   }
   factory->Release();
   if (!found) {
-    say(why, size,
-        "no adapter drives the display being captured (HMONITOR %p); the adapters here drive %s",
-        (void *)monitor, seen[0] ? seen : "nothing");
+    /* An enumeration that failed above has said what it was; that is more use
+     * than the absence of an adapter it could have found. */
+    if (!why || !size || !why[0]) {
+      say(why, size,
+          "no adapter drives the display being captured (HMONITOR %p); the adapters here drive %s",
+          (void *)monitor, seen[0] ? seen : "nothing");
+    }
     return -1;
   }
   *index_out = found_index;

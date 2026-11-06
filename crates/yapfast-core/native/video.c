@@ -5,6 +5,7 @@
  * caller supplies the file through two functions, so it can arrive while it
  * plays. Pictures show in 4:2:0, 4:2:2 or 4:4:4 at 8 or 10 bits, or in
  * 4:2:0 at 12, as far as libyuv goes. */
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,6 +89,15 @@ struct yapfast_video {
   Dav1dData dav1d_pending;
   Dav1dPicture dav1d_picture;
   int dav1d_holds;
+  /* The bytes of `dav1d_pending`, kept from one unit to the next and handed to
+   * dav1d wrapped rather than copied into a buffer it allocates. dav1d may
+   * still be reading a unit after dav1d_send_data takes it, so
+   * `dav1d_unit_held` says whether it has these bytes: they are rewritten only
+   * when it doesn't, and a unit that arrives while it does gets a buffer of
+   * its own. Only one unit ever holds this buffer, so one flag describes it. */
+  uint8_t *dav1d_unit;
+  size_t dav1d_unit_size;
+  atomic_int dav1d_unit_held;
   /* The picture yapfast_video_next gave last. */
   struct planes planes;
   int sound_stream;
@@ -101,8 +111,10 @@ struct yapfast_video {
   float *samples;
   size_t samples_size;
   int sample_frames;
-  /* Pictures' packets read ahead of the sound, oldest at `held_first`. */
-  AVPacket *held[HELD_PACKETS];
+  /* The pictures' packets read ahead of the sound, oldest at `held_first`, as
+   * packets rather than pointers to ones made for each: a slot is allocated
+   * once with the video and its buffers reused through av_packet_move_ref. */
+  AVPacket held[HELD_PACKETS];
   int held_first;
   int held_count;
   size_t held_bytes;
@@ -130,7 +142,7 @@ static int64_t seek(void *opaque, int64_t offset, int whence) {
 /* Lets go of the pictures' packets held back. */
 static void drop_held(struct yapfast_video *video) {
   for (int index = 0; index < video->held_count; index++) {
-    av_packet_free(&video->held[(video->held_first + index) % HELD_PACKETS]);
+    av_packet_unref(&video->held[(video->held_first + index) % HELD_PACKETS]);
   }
   video->held_first = 0;
   video->held_count = 0;
@@ -150,8 +162,11 @@ void yapfast_video_free(struct yapfast_video *video) {
   if (video->dav1d) {
     if (video->dav1d_holds) dav1d_picture_unref(&video->dav1d_picture);
     dav1d_data_unref(&video->dav1d_pending);
+    /* Closing waits for every unit still being decoded, so nothing reads the
+     * buffer after this. */
     dav1d_close(&video->dav1d);
   }
+  free(video->dav1d_unit);
   avcodec_free_context(&video->sound_context);
   av_frame_free(&video->sound_frame);
   free(video->samples);
@@ -233,6 +248,7 @@ struct yapfast_video *yapfast_video_open(void *source, yapfast_read read, yapfas
   av_log_set_level(AV_LOG_QUIET);
   struct yapfast_video *video = calloc(1, sizeof *video);
   if (!video) return NULL;
+  atomic_init(&video->dav1d_unit_held, 0);
   video->source = source;
   video->read = read;
   video->seek = seek_to;
@@ -511,6 +527,47 @@ static int demux(struct yapfast_video *video, AVPacket *packet) {
   }
 }
 
+/* dav1d let go of the last reference to the wrapped unit: the decoder's bytes
+ * are its own again, and the next unit may overwrite them. This may run on a
+ * dav1d worker thread, which is why the flag is atomic: releasing is what tells
+ * this side that a rewrite can't race the reader. */
+static void unit_released(const uint8_t *bytes, void *cookie) {
+  struct yapfast_video *video = cookie;
+  (void)bytes;
+  atomic_store(&video->dav1d_unit_held, 0);
+}
+
+/* Hands `packet`'s bytes to dav1d as the unit in `dav1d_pending`, in the
+ * video's own buffer grown to fit and wrapped, so a unit doesn't cost an
+ * allocation of its whole size and a free on every packet. A unit arriving
+ * while dav1d still reads the last one, which is what `dav1d_unit_held` says,
+ * gets a buffer of its own rather than overwriting bytes still being read.
+ * Returns 0, or FAILED when out of memory. */
+static int wrap_unit(struct yapfast_video *video, const AVPacket *packet) {
+  size_t size = (size_t)packet->size;
+  if (atomic_load(&video->dav1d_unit_held)) {
+    uint8_t *copy = dav1d_data_create(&video->dav1d_pending, size);
+    if (!copy) return FAILED;
+    memcpy(copy, packet->data, size);
+    return 0;
+  }
+  if (size > video->dav1d_unit_size) {
+    /* The old buffer is the one dav1d knows, so it is replaced only once the
+     * new one is in hand; and it is only grown here, when dav1d holds no
+     * reference to it. */
+    uint8_t *grown = realloc(video->dav1d_unit, size);
+    if (!grown) return FAILED;
+    video->dav1d_unit = grown;
+    video->dav1d_unit_size = size;
+  }
+  memcpy(video->dav1d_unit, packet->data, size);
+  if (dav1d_data_wrap(&video->dav1d_pending, video->dav1d_unit, size, unit_released, video) < 0) {
+    return FAILED;
+  }
+  atomic_store(&video->dav1d_unit_held, 1);
+  return 0;
+}
+
 /* Hands the picture decoder its next packet, held back or read from the
  * file, or tells it the file ended. */
 static int feed(struct yapfast_video *video) {
@@ -518,10 +575,9 @@ static int feed(struct yapfast_video *video) {
   if (video->decoder == DECODER_DAV1D && video->dav1d_pending.sz > 0) return FAILED;
   AVPacket *packet = video->packet;
   if (video->held_count > 0) {
-    AVPacket **held = &video->held[video->held_first];
-    video->held_bytes -= (size_t)(*held)->size;
-    av_packet_move_ref(packet, *held);
-    av_packet_free(held);
+    AVPacket *held = &video->held[video->held_first];
+    video->held_bytes -= (size_t)held->size;
+    av_packet_move_ref(packet, held);
     video->held_first = (video->held_first + 1) % HELD_PACKETS;
     video->held_count--;
   } else if (video->read_all) {
@@ -548,12 +604,10 @@ static int feed(struct yapfast_video *video) {
     default: {
       /* dav1d takes no empty data. */
       if (packet->size <= 0) break;
-      uint8_t *data = dav1d_data_create(&video->dav1d_pending, (size_t)packet->size);
-      if (!data) {
+      if (wrap_unit(video, packet) < 0) {
         result = FAILED;
         break;
       }
-      memcpy(data, packet->data, (size_t)packet->size);
       video->dav1d_pending.m.timestamp = packet->pts;
       break;
     }
@@ -572,13 +626,10 @@ static int feed_sound(struct yapfast_video *video) {
   AVPacket *packet = video->packet;
   int read = demux(video, packet);
   if (read <= 0) return read;
-  AVPacket *held = av_packet_alloc();
-  if (!held) {
-    av_packet_unref(packet);
-    return FAILED;
-  }
+  /* The ring's slots last as long as the video, so holding a packet moves its
+   * buffers into one rather than making a packet to keep it in. */
+  AVPacket *held = &video->held[(video->held_first + video->held_count) % HELD_PACKETS];
   av_packet_move_ref(held, packet);
-  video->held[(video->held_first + video->held_count) % HELD_PACKETS] = held;
   video->held_count++;
   video->held_bytes += (size_t)held->size;
   return 0;
