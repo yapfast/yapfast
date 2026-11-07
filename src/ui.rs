@@ -36,6 +36,7 @@ use yapfast_core::{
 use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
+mod alone;
 mod appearance;
 mod away;
 mod browser;
@@ -1096,6 +1097,9 @@ struct Layout {
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
     deafen_on_join: bool,
+    /// Minutes to leave a private Discord call after everyone else has gone;
+    /// ten minutes unless changed, zero to stay connected.
+    alone_timeout: Option<u32>,
     /// Your voice is evened out in calls; on unless turned off.
     level_voice: Option<bool>,
     /// What takes out noise in Discord calls, and how far; DeepFilterNet,
@@ -1280,6 +1284,12 @@ impl Layout {
             .min(yapfast_core::push_to_talk::MOST_RELEASE_DELAY)
     }
 
+    /// How long a private Discord call may be empty, or `None` to keep it.
+    fn alone_timeout(&self) -> Option<Duration> {
+        let minutes = self.alone_timeout.unwrap_or(10).min(120);
+        (minutes > 0).then(|| Duration::from_secs(u64::from(minutes) * 60))
+    }
+
     fn read(root: &std::path::Path) -> Self {
         let mut layout: Self = std::fs::read(root.join(LAYOUT))
             .ok()
@@ -1372,6 +1382,7 @@ impl Layout {
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
+        window.set_alone_timeout(self.alone_timeout.unwrap_or(10).min(120) as i32);
         window.set_level_voice(self.level_voice.unwrap_or(true));
         yapfast_core::leveling::set_enabled(self.level_voice.unwrap_or(true));
         window.set_noise_suppression(choice(&SUPPRESSORS, self.noise_suppression));
@@ -1697,6 +1708,7 @@ struct Adapter {
     window: slint::Weak<YapfastWindow>,
     away: away::Away,
     call_timer: call_timer::CallTimer,
+    alone: alone::AloneTimer,
     /// Ticks ActivityClock while a profile on screen times an activity.
     activity_clock: slint::Timer,
     navigation: Navigation,
@@ -1996,6 +2008,7 @@ impl Adapter {
                 window: window.as_weak(),
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
+                alone: alone::AloneTimer::default(),
                 activity_clock: slint::Timer::default(),
                 navigation: Navigation::default(),
                 forwarding: false,
@@ -2576,7 +2589,13 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
+        let leaving = matches!(&action, Action::Voice(voice::Command::Leave));
         let effects = self.app.dispatch(action);
+        if leaving {
+            self.stop_alone_timer();
+        } else {
+            self.sync_alone_timer();
+        }
         self.execute(effects);
         if channel_setting {
             self.show_channel_settings(window);
@@ -2608,6 +2627,7 @@ impl Adapter {
         } else {
             Reach::EVERYTHING
         };
+        self.sync_alone_timer();
         self.execute(effects);
         reach
     }
