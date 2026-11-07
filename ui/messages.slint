@@ -2215,9 +2215,10 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
-                // Always there, as what it holds would otherwise change the
-                // width the body is measured at; empty for a short body.
-                HorizontalLayout {
+                // Made only while long messages fold. It's there for a short
+                // body too, empty, as a row that came and went with the
+                // body's length would change the width it's measured at.
+                if root.collapse-long: HorizontalLayout {
                     alignment: start;
                     // 3px below the body, as the parts of a message are.
                     height: body-fold.long ? self.preferred-height + 3px : 0px;
