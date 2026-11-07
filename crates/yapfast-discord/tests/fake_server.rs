@@ -3159,6 +3159,71 @@ async fn calls_and_goes_live() {
     snapshot_where(&discord, |snapshot| in_lounge(snapshot).is_none()).await;
 }
 
+/// Address discovery's UDP asks can be lost, on a lossy link or behind a
+/// NAT: a call and a stream ask again until the voice server answers, and a
+/// stream whose server never answers gives up after five asks, five seconds.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn asks_again_when_address_discovery_is_lost() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        bob,
+        ..
+    } = Fixture::start("asks_again_when_address_discovery_is_lost").await;
+    let asks = || -> serde_json::Value {
+        serde_json::from_str(&control(server, "GET", "/_control/discovery-drop", "")).unwrap()
+    };
+    let assigned = discord.join(&guild, &lounge).await.unwrap();
+    post_control(server, "/_control/discovery-drop?count=2", "");
+    let _call = timeout(
+        WAIT,
+        Call::connect(&assigned, &guild, &lounge, Arc::new(Quiet)),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+    assert_eq!(asks(), serde_json::json!({"dropped": 2, "answered": 1}));
+
+    // Watching Bob, the stream's first three asks are lost.
+    let watched = discord
+        .watch(&stream::key(&guild, &lounge, &bob))
+        .await
+        .unwrap();
+    post_control(server, "/_control/discovery-drop?count=3", "");
+    let decodes = vec![Codec::H264, Codec::Vp8];
+    let again = (watched.clone(), decodes.clone());
+    tokio::task::spawn_blocking(move || watch_frames(&again.0, again.1, 3))
+        .await
+        .unwrap();
+    assert_eq!(asks(), serde_json::json!({"dropped": 5, "answered": 2}));
+
+    // A voice server that never answers.
+    post_control(server, "/_control/discovery-drop?count=100", "");
+    let started = std::time::Instant::now();
+    let receiver = StreamReceiver::start(watched, decodes).unwrap();
+    let reason = loop {
+        assert!(started.elapsed() < WAIT, "{:?}", receiver.link());
+        if let Link::Ended(reason) = receiver.link() {
+            break reason;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let took = started.elapsed();
+    assert_eq!(
+        reason,
+        "the voice server didn't answer address discovery, asked 5 times over 5 s"
+    );
+    assert!(
+        (Duration::from_secs(5)..Duration::from_secs(7)).contains(&took),
+        "{took:?}"
+    );
+    assert_eq!(asks(), serde_json::json!({"dropped": 10, "answered": 2}));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn follows_the_call_across_rooms_and_clients() {
