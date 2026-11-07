@@ -2948,7 +2948,7 @@ export component YapfastWindow inherits Window {
                             if root.forum-post-item != "": react-pill := Rectangle {
                                 x: 16px; y: 7px; height: 31px; width: react-row.preferred-width + 24px;
                                 border-radius: 8px;
-                                background: react-touch.has-hover ? Theme.hover : Theme.field.mix(Theme.chat, 0.5);
+                                background: react-touch.has-hover ? Theme.field : Theme.raised;
                                 react-row := HorizontalLayout {
                                     x: 12px; spacing: 8px; alignment: start;
                                     Middle { Image { source: @image-url("icons/smile.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
@@ -2956,17 +2956,23 @@ export component YapfastWindow inherits Window {
                                 }
                                 react-touch := TouchArea {
                                     mouse-cursor: MouseCursor.pointer;
-                                    clicked => { root.open-picker(root.forum-post-item); }
+                                    clicked => {
+                                        root.anchor(react-pill.absolute-position.x, react-pill.absolute-position.y, react-pill.width, react-pill.height, false);
+                                        root.open-picker(root.forum-post-item);
+                                    }
                                 }
                                 accessible-role: button; accessible-label: "React to post";
-                                accessible-action-default => { root.open-picker(root.forum-post-item); }
+                                accessible-action-default => {
+                                    root.anchor(react-pill.absolute-position.x, react-pill.absolute-position.y, react-pill.width, react-pill.height, false);
+                                    root.open-picker(root.forum-post-item);
+                                }
                             }
                             HorizontalLayout {
                                 alignment: end; padding-right: 16px; padding-top: 7px; padding-bottom: 7px; spacing: 4px;
                                 if root.forum-post-follow > 0: Rectangle {
                                     width: follow-row.preferred-width + 24px;
                                     border-radius: 8px;
-                                    background: follow-touch.has-hover ? Theme.hover : Theme.field.mix(Theme.chat, 0.5);
+                                    background: follow-touch.has-hover ? Theme.field : Theme.raised;
                                     follow-row := HorizontalLayout {
                                         x: 12px; spacing: 6px; alignment: start;
                                         if root.forum-post-follow == 2: Middle { Image { source: @image-url("icons/check.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
@@ -2982,7 +2988,7 @@ export component YapfastWindow inherits Window {
                                 }
                                 Rectangle {
                                     width: 32px; border-radius: 8px;
-                                    background: link-touch.has-hover ? Theme.hover : Theme.field.mix(Theme.chat, 0.5);
+                                    background: link-touch.has-hover ? Theme.field : Theme.raised;
                                     Image { source: @image-url("icons/link.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; }
                                     link-touch := TouchArea {
                                         mouse-cursor: MouseCursor.pointer;
