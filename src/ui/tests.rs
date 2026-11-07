@@ -2468,6 +2468,333 @@ fn a_finished_activity_says_how_long_ago_in_discords_steps() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn split_view_opens_from_a_channels_menu_beside_the_open_one() {
+    use yapfast_core::yapfast_discord::ready;
+    let (window, adapter, directory) = discord_server_window_changed(0, |server, _| {
+        server.text_channels.push(ready::Channel {
+            id: "12".into(),
+            name: "news".into(),
+            parent: Some("4".into()),
+            ..Default::default()
+        });
+    });
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1400., 760.));
+    adapter
+        .borrow_mut()
+        .app
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("discord:10:11".into()));
+    let texts = |window: &YapfastWindow| -> Vec<String> {
+        window
+            .get_menu_rows()
+            .iter()
+            .map(|row| row.text.to_string())
+            .collect()
+    };
+    let offered = |window: &YapfastWindow| {
+        texts(window)
+            .iter()
+            .any(|text| text == "Open in split view")
+    };
+
+    // Off unless turned on.
+    window.invoke_prepare_menu("discord:10:12".into(), false);
+    assert!(!offered(&window));
+    window.set_split_view(true);
+    window.invoke_preferences_changed();
+    assert!(Layout::read(directory.path()).split_view);
+    window.invoke_prepare_menu("discord:10:12".into(), false);
+    assert!(offered(&window));
+    window.invoke_prepare_menu("discord:10:11".into(), false);
+    assert!(!offered(&window), "not the channel already open");
+
+    window.invoke_choose_menu("discord:10:12".into(), false, "open-in-split".into());
+    assert!(window.get_aside_open() && window.get_aside_split());
+    assert_eq!(window.get_aside_name(), "news");
+    assert_eq!(window.get_aside_room(), "discord:10:12");
+    assert!(!window.get_aside_dm());
+    assert_eq!(
+        adapter.borrow().app.state.selected.as_deref(),
+        Some("discord:10:11")
+    );
+
+    // It takes half the room beside the sidebar until dragged, and keeps
+    // its own width apart from a thread's.
+    let half = (1400. - 72. - 240.) / 2.;
+    assert_eq!(window.get_aside_shown(), half);
+    window.set_split_width(600.);
+    window.invoke_aside_resized(600.);
+    let layout = Layout::read(directory.path());
+    assert_eq!((layout.split_width, layout.aside_width), (Some(600.), None));
+
+    // Closing it lets its messages go.
+    window.invoke_aside_close();
+    assert!(!window.get_aside_open());
+    assert!(adapter.borrow().app.state.aside.is_none());
+    assert_eq!(window.get_aside_messages().row_count(), 0);
+
+    // So does turning the switch off.
+    window.invoke_open_split("discord:10:12".into());
+    assert!(window.get_aside_split());
+    window.set_split_view(false);
+    window.invoke_preferences_changed();
+    assert!(!window.get_aside_open());
+    assert!(!Layout::read(directory.path()).split_view);
+    window.hide().unwrap();
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn split_view_takes_drops_pings_and_links_moves_typing_and_marks_new_messages() {
+    use yapfast_core::{mention, yapfast_discord::ready};
+    let (window, adapter, directory) = discord_server_window_changed(0, |server, _| {
+        server.text_channels.push(ready::Channel {
+            id: "12".into(),
+            name: "news".into(),
+            parent: Some("4".into()),
+            ..Default::default()
+        });
+    });
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1400., 760.));
+    adapter
+        .borrow_mut()
+        .app
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("discord:10:11".into()));
+    window.set_split_view(true);
+    window.invoke_preferences_changed();
+    let split = |adapter: &Rc<RefCell<Adapter>>| {
+        let adapter = adapter.borrow();
+        let aside = adapter.app.state.aside.as_ref()?;
+        aside.split.then(|| aside.room.clone())
+    };
+    // As when signed in, which the fixture isn't; a refresh says otherwise.
+    let signed_in = || {
+        window.set_workspace(true);
+        i_slint_core::properties::ChangeTracker::run_change_handlers();
+    };
+
+    // Dragging a row: the drop zone lights up only with the pointer over
+    // the conversation's right half, and Escape cancels, opening nothing.
+    signed_in();
+    let row = RoomRow {
+        id: "discord:10:12".into(),
+        name: "news".into(),
+        ..Default::default()
+    };
+    window.invoke_begin_split_drag(row.clone(), 600., 400.);
+    assert!(window.get_split_dragging() && !window.get_split_drop_hovered());
+    window.set_split_drag_x(1200.);
+    assert!(window.get_split_drop_hovered());
+    window.invoke_cancel_split_drag();
+    assert!(!window.get_split_dragging() && !window.get_split_drop_hovered());
+    assert_eq!(split(&adapter), None);
+
+    // A row dropped on the conversation's left half opens nothing; on its
+    // right half, split view.
+    window.invoke_split_drop("discord:10:12".into(), 600., 400.);
+    assert_eq!(split(&adapter), None);
+    window.invoke_split_drop("discord:10:12".into(), 1200., 400.);
+    assert_eq!(split(&adapter).as_deref(), Some("discord:10:12"));
+    // It's kept for the next start.
+    assert_eq!(
+        Layout::read(directory.path()).split_room.as_deref(),
+        Some("discord:10:12")
+    );
+
+    // Swapping sides.
+    assert!(window.get_aside_can_swap());
+    window.invoke_aside_swap();
+    assert_eq!(
+        adapter.borrow().app.state.selected.as_deref(),
+        Some("discord:10:12")
+    );
+    assert_eq!(split(&adapter).as_deref(), Some("discord:10:11"));
+
+    // Typing goes to split view as it opens; a press on the conversation,
+    // even on a message's text, moves it there, and a message that comes to
+    // split view meanwhile marks its header, until typing goes back.
+    signed_in();
+    window.set_aside_newest("d:1".into());
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    window.set_aside_newest("d:2".into());
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    assert!(!window.get_aside_unseen(), "typing goes to split view");
+    window.invoke_pane_pressed(600., 400.);
+    window.set_aside_newest("d:3".into());
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    assert!(window.get_aside_unseen());
+    window.invoke_pane_pressed(1200., 400.);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    assert!(!window.get_aside_unseen());
+    // Ctrl+Tab moves typing from side to side.
+    assert!(window.invoke_switch_split_side());
+    window.set_aside_newest("d:4".into());
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    assert!(window.get_aside_unseen());
+    assert!(window.invoke_switch_split_side());
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    assert!(!window.get_aside_unseen());
+
+    // Ctrl+W closes it, and then is free again.
+    assert!(window.invoke_close_split());
+    assert_eq!(split(&adapter), None);
+    assert_eq!(Layout::read(directory.path()).split_room, None);
+    signed_in();
+    assert!(!window.invoke_close_split());
+    assert!(!window.invoke_switch_split_side());
+
+    // With Ctrl held, a channel's mention in a message and an unread DM on
+    // the rail open in split view; without it, as they did.
+    CONTROL.set(true);
+    let link = mention::link(&mention::Target::Channel("discord:10:11".into()));
+    window.invoke_open_link(link.as_str().into());
+    assert_eq!(split(&adapter).as_deref(), Some("discord:10:11"));
+    signed_in();
+    assert!(window.invoke_close_split());
+    window.invoke_open_ping("discord:10:11".into());
+    assert_eq!(split(&adapter).as_deref(), Some("discord:10:11"));
+    CONTROL.set(false);
+    window.invoke_open_link(link.as_str().into());
+    assert_eq!(
+        adapter.borrow().app.state.selected.as_deref(),
+        Some("discord:10:11")
+    );
+    window.hide().unwrap();
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn split_views_parts_each_turn_off_and_its_animations_snap() {
+    use yapfast_core::{mention, yapfast_discord::ready};
+    let (window, adapter, directory) = discord_server_window_changed(0, |server, _| {
+        server.text_channels.push(ready::Channel {
+            id: "12".into(),
+            name: "news".into(),
+            parent: Some("4".into()),
+            ..Default::default()
+        });
+    });
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1400., 760.));
+    adapter
+        .borrow_mut()
+        .app
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("discord:10:11".into()));
+    window.set_split_view(true);
+    window.invoke_preferences_changed();
+    let signed_in = || {
+        window.set_workspace(true);
+        settle(&window);
+        i_slint_core::properties::ChangeTracker::run_change_handlers();
+    };
+    let split = |adapter: &Rc<RefCell<Adapter>>| {
+        let adapter = adapter.borrow();
+        let aside = adapter.app.state.aside.as_ref()?;
+        aside.split.then(|| aside.room.clone())
+    };
+    let turn = |set: &dyn Fn(bool), on: bool| {
+        set(on);
+        window.invoke_preferences_changed();
+        signed_in();
+    };
+
+    // Dragging rows: the list's rows don't start a drag.
+    signed_in();
+    assert!(window.get_split_rows_drag());
+    turn(&|on| window.set_split_drag(on), false);
+    assert!(!window.get_split_rows_drag());
+    assert_eq!(Layout::read(directory.path()).split_drag, Some(false));
+    turn(&|on| window.set_split_drag(on), true);
+
+    // Ctrl+click: the rows click as they would without it, and mentions
+    // and unread DMs open as usual.
+    assert!(window.get_split_rows_click());
+    turn(&|on| window.set_split_click(on), false);
+    assert!(!window.get_split_rows_click());
+    assert_eq!(Layout::read(directory.path()).split_click, Some(false));
+    CONTROL.set(true);
+    let link = mention::link(&mention::Target::Channel("discord:10:11".into()));
+    window.invoke_open_link(link.as_str().into());
+    window.invoke_open_ping("discord:10:11".into());
+    CONTROL.set(false);
+    assert_eq!(split(&adapter), None);
+    turn(&|on| window.set_split_click(on), true);
+
+    // The notification button.
+    assert!(adapter.borrow().layout.notification_style().split);
+    turn(&|on| window.set_split_notify(on), false);
+    assert!(!adapter.borrow().layout.notification_style().split);
+    assert_eq!(Layout::read(directory.path()).split_notify, Some(false));
+    turn(&|on| window.set_split_notify(on), true);
+
+    // Reopening on start.
+    window.invoke_open_split("discord:10:11".into());
+    let layout = Layout::read(directory.path());
+    assert_eq!(layout.split_on_start().as_deref(), Some("discord:10:11"));
+    turn(&|on| window.set_split_restore(on), false);
+    let layout = Layout::read(directory.path());
+    assert_eq!(
+        (layout.split_restore, layout.split_room.as_deref()),
+        (Some(false), None)
+    );
+    assert_eq!(layout.split_on_start(), None);
+    turn(&|on| window.set_split_restore(on), true);
+
+    // The unread dot: typing on the conversation's side, a message comes.
+    window.set_aside_newest("d:1".into());
+    signed_in();
+    window.invoke_pane_pressed(600., 400.);
+    turn(&|on| window.set_split_dot(on), false);
+    window.set_aside_newest("d:1".into());
+    signed_in();
+    window.set_aside_newest("d:2".into());
+    signed_in();
+    assert!(!window.get_aside_unseen());
+    turn(&|on| window.set_split_dot(on), true);
+    // A refresh showed its timeline, as it has, again.
+    window.set_aside_newest("d:3".into());
+    signed_in();
+    window.set_aside_newest("d:4".into());
+    signed_in();
+    assert!(window.get_aside_unseen());
+    assert_eq!(Layout::read(directory.path()).split_dot, Some(true));
+
+    // With split-animate off, the ghost sits exactly on the pointer.
+    let ghost = RoomRow {
+        id: "discord:10:12".into(),
+        name: "news".into(),
+        ..Default::default()
+    };
+    window.set_split_animate(false);
+    window.invoke_begin_split_drag(ghost, 500., 300.);
+    window.set_split_drag_x(900.);
+    window.set_split_drag_y(420.);
+    assert_eq!(
+        (window.get_split_ghost_x(), window.get_split_ghost_y()),
+        (900., 420.)
+    );
+    window.invoke_cancel_split_drag();
+    window.hide().unwrap();
+}
+
+#[test]
 fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     use yapfast_core::chat::{ChatMember, Nameplate, Role};
     i_slint_backend_testing::init_no_event_loop();

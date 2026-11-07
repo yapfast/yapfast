@@ -512,6 +512,9 @@ pub struct AppState {
     pub activity_people: Option<(String, Arc<[crate::chat::FeedPerson]>)>,
     /// The panel shows its header alone.
     pub activity_cards_hidden: bool,
+    /// Split view, a Yapfast addition: a Discord channel or DM can show
+    /// beside the open room ([`AppState::can_split`]).
+    pub split_view: bool,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -583,7 +586,8 @@ pub struct AppState {
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
     pub voice_chat: bool,
-    /// A Discord thread shown beside the selected channel.
+    /// A Discord thread shown beside the selected channel, or in split view
+    /// any Discord channel or DM.
     pub aside: Option<aside::Aside>,
     pub room_ready: bool,
     pub messages: Arc<Vec<Arc<ChatMessage>>>,
@@ -1420,6 +1424,18 @@ pub enum Action {
     /// Show a Discord thread beside the open channel, as its link in a
     /// message does; anything else opens as [`Action::Open`] does.
     OpenAside(String),
+    /// Show a Discord channel, thread or DM beside the open room, in split
+    /// view; with split view off, or for a room it can't show, select it as
+    /// [`Action::SelectRoom`] does.
+    OpenSplit(String),
+    /// Turn split view on or off.
+    SplitView(bool),
+    /// Show the room in split view in the main view, and the main view's
+    /// room in split view.
+    SwapSplit,
+    /// Show this room in split view once it's listed and a room is open, as
+    /// it was when Yapfast last closed.
+    RestoreSplit(String),
     CloseAside,
     /// Show the thread beside the open channel in place of it.
     ExpandAside,
@@ -2183,6 +2199,12 @@ pub struct Application {
     pending_open: Option<String>,
     /// A thread to show beside the selected channel once it's listed.
     pending_aside: Option<String>,
+    /// The room split view showed when Yapfast last closed, to show again
+    /// once it's listed and a room is open.
+    pending_split: Option<String>,
+    /// The room shown before the one on screen, where the conversation goes
+    /// when the room on screen moves to split view.
+    previous_room: Option<String>,
     /// A thread just started, whose first message, its draft, goes once
     /// it shows beside its channel.
     first_message: Option<String>,
@@ -2839,6 +2861,13 @@ impl Application {
             Action::ShowVoiceChat(chat) => self.show_voice_chat(chat),
             Action::GoToCall => self.go_to_call(),
             Action::OpenAside(id) => self.open_aside(id),
+            Action::OpenSplit(id) => self.open_split(id),
+            Action::SplitView(on) => self.set_split_view(on),
+            Action::SwapSplit => self.swap_split(),
+            Action::RestoreSplit(room) => {
+                self.pending_split = Some(room);
+                self.restore_split()
+            }
             Action::CloseAside => self.close_aside(),
             Action::ExpandAside => self.expand_aside(),
             Action::AsideEarlier => self.aside_earlier(),
