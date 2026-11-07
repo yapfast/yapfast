@@ -142,6 +142,10 @@ pub struct LinkStats {
     pub privacy_code: Option<String>,
     /// The screen this account shares, while it's live.
     pub stream: Option<StreamStats>,
+    /// The stream this account watches, whose worker says how it is decoded
+    /// and shown: the half of a watch no packet shows, and what to look at
+    /// when a stream arrives wrong.
+    pub watching: Option<StreamStats>,
 }
 
 /// How this account's shared screen goes out, as its stream worker reports
@@ -184,6 +188,61 @@ pub struct StreamStats {
     /// Shared sound a full backlog dropped since the stream started, in
     /// milliseconds.
     pub sound_dropped_ms: u64,
+    /// What decodes the stream, as it names itself, when this account is
+    /// watching one: "h265 (d3d11va)" is the card's decoder, "libvpx" the
+    /// processor's. Unknown while nothing decodes.
+    pub decoder: Option<String>,
+    /// How the pictures reach the window, which is the difference between a
+    /// copy of every frame through the processor and none.
+    pub presentation: Option<Presentation>,
+    /// The adapter the capture ran on, the one the encoder ran on and the one
+    /// the window draws on, as their DXGI LUIDs: a picture is shared only
+    /// between the last two when they are the same, so a share that copies
+    /// every frame says here whether that is why. Unknown where the machine
+    /// wasn't asked.
+    pub capture_luid: Option<u64>,
+    pub encode_luid: Option<u64>,
+    pub present_luid: Option<u64>,
+    /// Why the stream isn't on the path it asked for, in one line from the
+    /// code that fell back: "sharing from the processor" is the card's
+    /// capture refusing, and an empty line is a stream with nothing to
+    /// explain.
+    pub fallback: Option<String>,
+    /// Whether a preview is being made for the UI's tile now, which is the
+    /// work a hidden window's share doesn't do.
+    pub preview: bool,
+    /// How long a frame waited between the capture having it and the encoder
+    /// being given it, in milliseconds: the delay this side adds before the
+    /// network's own. Unknown while nothing is sent.
+    pub queue_delay_ms: Option<u32>,
+    /// The bytes the encoder's output buffers hold now, and the most they
+    /// have held: what a pool that grew for one large frame kept.
+    pub pool_live: Option<u64>,
+    pub pool_peak: Option<u64>,
+    /// Whether a stream is giving memory back because the machine is short,
+    /// and which signal said so. `None` is a stream with the room to work.
+    pub memory: Option<String>,
+}
+
+/// How a stream's pictures reach the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub enum Presentation {
+    /// Copied out of the frames file as pixels, which costs a copy of every
+    /// frame through the processor.
+    Copy,
+    /// Shown from the worker's own texture, shared with the window's process:
+    /// no pixel of it is copied anywhere.
+    Shared,
+}
+
+impl Presentation {
+    /// What the Stream tab calls it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Copy => "copied to the processor",
+            Self::Shared => "the worker's own texture",
+        }
+    }
 }
 
 /// Reads the call's [`LinkStats`], which the call measures all along and

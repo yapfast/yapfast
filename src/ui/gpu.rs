@@ -34,7 +34,11 @@ use yapfast_core::frames::{Frame, Frames, Picture};
 
 #[cfg(windows)]
 use std::{
-    cell::RefCell, collections::HashMap, collections::VecDeque, ffi::c_void, sync::Weak,
+    cell::RefCell,
+    collections::HashMap,
+    collections::VecDeque,
+    ffi::c_void,
+    sync::Weak,
     time::{Duration, Instant},
 };
 
@@ -46,7 +50,13 @@ use slint::wgpu_30::wgpu;
 use windows::{
     Win32::{
         Foundation::{CloseHandle, HANDLE},
-        Graphics::Direct3D12::{ID3D12Fence, ID3D12Resource},
+        Graphics::{
+            Direct3D12::{
+                D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_TEXTURE2D, ID3D12Fence,
+                ID3D12Resource,
+            },
+            Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM},
+        },
         System::Threading::{CreateEventW, ResetEvent, WaitForSingleObject},
     },
     core::PCWSTR,
@@ -285,13 +295,19 @@ struct Stream {
     /// address that a new one takes over without inheriting what was opened
     /// for the one before it.
     frames: Weak<Frames>,
-    /// The textures opened, by the handle the worker published them under: it
-    /// draws in one texture per slot, so each is opened once and shown for as
-    /// long as it holds pictures.
+    /// The number of the set of textures and fence the pictures are of, as the
+    /// last one named it; zero until one does. A picture that names another set
+    /// is the worker's textures rebuilt, and what was opened for the older set
+    /// goes with it: a handle's value can't say that, since Windows hands a
+    /// closed value out again.
+    set: u64,
+    /// The textures opened, by the set and the handle the worker published them
+    /// under: it draws in one texture per slot, so each is opened once and
+    /// shown for as long as it holds pictures of that set.
     textures: Vec<Opened>,
-    /// The fence the stream's pictures are drawn behind, and the handle it was
-    /// opened from: a worker that makes another one is followed.
-    fence: Option<(u64, ID3D12Fence)>,
+    /// The fence the stream's pictures are drawn behind, and the set and handle
+    /// it was opened from: a worker that makes another set is followed.
+    fence: Option<(u64, u64, ID3D12Fence)>,
     /// How many pictures in a row arrived before the GPU had drawn them.
     late: u32,
     /// The pictures this window has taken and not yet finished with, oldest
@@ -316,6 +332,11 @@ struct Lease {
 
 #[cfg(windows)]
 struct Opened {
+    /// The set the texture was opened for, and the handle it was opened from:
+    /// the two together are what a picture names it by, since the handle was
+    /// closed as soon as the resource was open and Windows gives a value out
+    /// again once it is.
+    set: u64,
     handle: u64,
     texture: wgpu::Texture,
 }
@@ -348,6 +369,23 @@ impl Present {
         let stream = streams.entry(key).or_insert_with(|| Stream::new(frames));
         if !std::ptr::eq(stream.frames.as_ptr(), Arc::as_ptr(frames)) {
             *stream = Stream::new(frames);
+        }
+        // A picture of a set this entry hasn't opened is the worker's textures
+        // rebuilt: the three textures and the fence opened for the older set are
+        // let go, and the new one is opened from this picture on. The number is
+        // what says so and the handles can't, because Windows hands a closed
+        // handle's value out again.
+        //
+        // A set numbered before the one already open is a picture read from
+        // before the worker rebuilt them: what was opened for that set was let
+        // go when this one was, and its handle was closed as it was opened, so
+        // it is passed over and the picture on the screen stays. Opening it
+        // again would be opening a number that may be somebody else's by now.
+        if picture.set < stream.set {
+            return None;
+        }
+        if picture.set > stream.set {
+            stream.reopen(picture.set);
         }
         // Slots the window's queue has finished with are the worker's again,
         // and this is where it hears it: a picture taken is on the screen until
@@ -426,9 +464,8 @@ impl Present {
     /// textures, its fence handle and the worker's slots for as long as a
     /// window keeps the entry, which nothing else would ever revisit.
     fn housekeeping(&mut self) {
-        self.streams.retain(|_, stream| {
-            !stream.refused && stream.frames.strong_count() > 0
-        });
+        self.streams
+            .retain(|_, stream| !stream.refused && stream.frames.strong_count() > 0);
     }
 }
 
@@ -447,12 +484,24 @@ impl Stream {
     fn new(frames: &Arc<Frames>) -> Self {
         Self {
             frames: Arc::downgrade(frames),
+            set: 0,
             textures: Vec::new(),
             fence: None,
             late: 0,
             leases: VecDeque::new(),
             refused: false,
         }
+    }
+
+    /// Starts on another set of the worker's textures: what was opened for the
+    /// set before is let go, and the new one is opened from the picture that
+    /// named it. A picture already on the screen is a lease like any other, so
+    /// the slot it is in is still the worker's only once this window's queue has
+    /// drawn a frame without it.
+    fn reopen(&mut self, set: u64) {
+        self.set = set;
+        self.textures.clear();
+        self.fence = None;
     }
 
     /// Retires the pictures the window's queue has drawn a frame without: the
@@ -479,12 +528,13 @@ impl Stream {
         if let Some(opened) = self
             .textures
             .iter()
-            .find(|opened| opened.handle == picture.texture)
+            .find(|opened| (opened.set, opened.handle) == (picture.set, picture.texture))
         {
             return Ok(opened.texture.clone());
         }
         let texture = unsafe { open(device, picture) }?;
         self.textures.push(Opened {
+            set: picture.set,
             handle: picture.texture,
             texture: texture.clone(),
         });
@@ -505,14 +555,84 @@ impl Stream {
         if self
             .fence
             .as_ref()
-            .is_none_or(|(handle, _)| *handle != picture.fence)
+            .is_none_or(|(set, handle, _)| (*set, *handle) != (picture.set, picture.fence))
         {
-            self.fence = Some((picture.fence, unsafe { open_fence(device, picture.fence) }?));
+            let fence = unsafe { open_fence(device, picture.fence) }?;
+            self.fence = Some((picture.set, picture.fence, fence));
         }
-        let Some((_, fence)) = &self.fence else {
+        let Some((_, _, fence)) = &self.fence else {
             return Ok(false);
         };
         Ok(wait(event, fence, picture.fence_value))
+    }
+}
+
+/// Opens the resource a stream's shared handle names, on the window's device, and
+/// closes the handle.
+///
+/// `OpenSharedHandle` is not a transfer: it opens the object the handle names and
+/// leaves the handle itself in this process's table, where nothing would ever
+/// close it — the worker's set releases only its own references, which are what
+/// keep the object alive over there. The object that comes back holds the
+/// resource, so the handle has done its work the moment the open answers, and it
+/// goes whether the open answered or not: a handle kept after it would outlive
+/// the stream, and a handle opened twice is a handle whose value is nobody's.
+#[cfg(windows)]
+fn open_shared<T: windows::core::Interface>(
+    device: &wgpu::Device,
+    handle: u64,
+    what: &str,
+) -> std::result::Result<T, String> {
+    let hal = unsafe { device.as_hal::<wgpu::hal::dx12::Api>() }
+        .ok_or("the window's device is not Direct3D 12")?;
+    let mut opened: Option<T> = None;
+    shared_handles::opened();
+    // SAFETY: the handle is one the worker duplicated into this process, and the
+    // device is the one it was shared for.
+    let status = unsafe {
+        hal.raw_device()
+            .OpenSharedHandle(HANDLE(handle as *mut c_void), &mut opened)
+    };
+    // SAFETY: the handle is this process's, and nothing has closed it yet.
+    unsafe {
+        let _ = CloseHandle(HANDLE(handle as *mut c_void));
+    }
+    shared_handles::closed();
+    status.map_err(|error| format!("could not open the shared {what}: {error}"))?;
+    opened.ok_or_else(|| format!("the shared {what} handle opened nothing"))
+}
+
+/// What the importer opened out of streams' shared sets, and what it has closed
+/// again.
+///
+/// Windows answers no cheap count of a process's handles, so a test's only
+/// evidence that an import closes what it opened is a count kept where the two
+/// happen. Two stores per imported handle, which is once per set and not once
+/// per picture.
+#[cfg(windows)]
+mod shared_handles {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static OPENED: AtomicU64 = AtomicU64::new(0);
+    static CLOSED: AtomicU64 = AtomicU64::new(0);
+
+    /// Says a stream's shared handle is about to be opened.
+    pub fn opened() {
+        OPENED.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Says that handle is closed, which every open does, worked or not.
+    pub fn closed() {
+        CLOSED.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// How many handles were opened and how many closed so far, for a test.
+    #[cfg(test)]
+    pub fn counted() -> (u64, u64) {
+        (
+            OPENED.load(Ordering::Relaxed),
+            CLOSED.load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -521,24 +641,26 @@ impl Stream {
 /// it by asking Skia for a surface over the same Direct3D 12 resource, which is
 /// the hop the spike proved.
 ///
+/// The texture is imported as the resource says it is rather than as this side
+/// hoped: the description is read from the resource itself, because Direct3D 12
+/// takes the size and the format given to `texture_from_raw` on trust, and a
+/// texture declared RGBA where the producer draws BGRA is a picture read through
+/// the wrong channels.
+///
 /// Safety: the handle must be a shared texture the worker duplicated into this
-/// process, and it must be `R8G8B8A8_UNORM`, one mip, one sample, and
-/// `picture.width` by `picture.height` as the header says: Direct3D 12 takes
-/// the size and the format on trust.
+/// process and this process hasn't opened or closed before: it is closed here,
+/// as the resource it names is opened, and a handle opened twice is one whose
+/// value may be somebody else's by the second time.
 #[cfg(windows)]
 unsafe fn open(
     device: &wgpu::Device,
     picture: &Picture,
 ) -> std::result::Result<wgpu::Texture, String> {
-    let hal = unsafe { device.as_hal::<wgpu::hal::dx12::Api>() }
-        .ok_or("the window's device is not Direct3D 12")?;
-    let mut resource: Option<ID3D12Resource> = None;
-    unsafe {
-        hal.raw_device()
-            .OpenSharedHandle(HANDLE(picture.texture as *mut c_void), &mut resource)
-            .map_err(|error| format!("could not open the shared texture: {error}"))?;
-    }
-    let resource = resource.ok_or("the shared handle opened nothing")?;
+    let resource: ID3D12Resource = open_shared(device, picture.texture, "texture")?;
+    // SAFETY: the resource is open on the window's device for as long as it is
+    // held here, and reading its description is all this asks of it.
+    let described = unsafe { resource.GetDesc() };
+    let format = shared_format(&described, picture.width, picture.height)?;
     let size = wgpu::Extent3d {
         width: picture.width,
         height: picture.height,
@@ -547,7 +669,7 @@ unsafe fn open(
     let hal_texture = unsafe {
         wgpu::hal::dx12::Device::texture_from_raw(
             resource,
-            wgpu::TextureFormat::Rgba8Unorm,
+            format,
             wgpu::TextureDimension::D2,
             size,
             1,
@@ -560,7 +682,7 @@ unsafe fn open(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
+        format,
         // What Slint asks of a texture it shows, and what the worker's
         // Direct3D 11 texture was made for: a shader resource and a render
         // target.
@@ -582,24 +704,77 @@ unsafe fn open(
     })
 }
 
-/// Opens the fence a stream's pictures are drawn behind.
+/// The wgpu format a shared picture is imported with, as the resource describes
+/// itself, or why this path can't show it.
+///
+/// wgpu is told what the resource is and not what the producer meant to make:
+/// the producer draws into `DXGI_FORMAT_B8G8R8A8_UNORM`, so the texture is
+/// imported as `Bgra8Unorm`, and a picture declared RGBA where the pixels are
+/// BGRA is a colour nobody drew.
+///
+/// Everything else Direct3D 12 would take on trust is checked here too, because
+/// a raw resource is not validated: a texture of another size is read past its
+/// end or short of it, one with more mips or samples than the picture is read
+/// wrongly, and one that isn't 2D is not a picture at all.
+#[cfg(windows)]
+fn shared_format(
+    described: &D3D12_RESOURCE_DESC,
+    width: u32,
+    height: u32,
+) -> std::result::Result<wgpu::TextureFormat, String> {
+    if described.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D {
+        return Err(format!(
+            "the shared resource is dimension {}, and a picture is a 2D texture",
+            described.Dimension.0
+        ));
+    }
+    if described.DepthOrArraySize != 1 {
+        return Err(format!(
+            "the shared texture has {} slices, not one",
+            described.DepthOrArraySize
+        ));
+    }
+    if described.MipLevels != 1 {
+        return Err(format!(
+            "the shared texture has {} mip levels, not one",
+            described.MipLevels
+        ));
+    }
+    if described.SampleDesc.Count != 1 {
+        return Err(format!(
+            "the shared texture has {} samples, not one",
+            described.SampleDesc.Count
+        ));
+    }
+    if described.Width != u64::from(width) || described.Height != height {
+        return Err(format!(
+            "the shared texture is {}x{}, and the picture says {width}x{height}",
+            described.Width, described.Height
+        ));
+    }
+    if described.Format == DXGI_FORMAT_B8G8R8A8_UNORM {
+        Ok(wgpu::TextureFormat::Bgra8Unorm)
+    } else if described.Format == DXGI_FORMAT_R8G8B8A8_UNORM {
+        Ok(wgpu::TextureFormat::Rgba8Unorm)
+    } else {
+        Err(format!(
+            "the shared texture is DXGI format {}, which this path can't show",
+            described.Format.0
+        ))
+    }
+}
+
+/// Opens the fence a stream's pictures are drawn behind, and closes the handle.
 ///
 /// Safety: the handle must be a shared fence the worker duplicated into this
-/// process.
+/// process, and one this process hasn't opened or closed before: it is closed
+/// here.
 #[cfg(windows)]
 unsafe fn open_fence(
     device: &wgpu::Device,
     handle: u64,
 ) -> std::result::Result<ID3D12Fence, String> {
-    let hal = unsafe { device.as_hal::<wgpu::hal::dx12::Api>() }
-        .ok_or("the window's device is not Direct3D 12")?;
-    let mut fence: Option<ID3D12Fence> = None;
-    unsafe {
-        hal.raw_device()
-            .OpenSharedHandle(HANDLE(handle as *mut c_void), &mut fence)
-            .map_err(|error| format!("could not open the shared fence: {error}"))?;
-    }
-    fence.ok_or_else(|| "the shared fence handle opened nothing".to_string())
+    open_shared(device, handle, "fence")
 }
 
 /// Waits for a picture to be drawn, and says whether it was.
@@ -684,7 +859,11 @@ fn wait_drawn(device: &wgpu::Device) {
 #[cfg(all(windows, test))]
 mod tests {
     use super::*;
-    use yapfast_core::frames::{Drawn, Writer};
+    use windows::Win32::Graphics::{
+        Direct3D12::D3D12_RESOURCE_DIMENSION_TEXTURE1D,
+        Dxgi::Common::{DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_SAMPLE_DESC},
+    };
+    use yapfast_core::frames::{Drawn, SharedTexture, Writer};
 
     /// A fence answers with the largest value there is once its device has been
     /// removed, which is not a picture drawn: showing pixels is the fallback,
@@ -727,7 +906,7 @@ mod tests {
         let drawn = Drawn {
             luid: !luid,
             fence: 1,
-            texture: 1,
+            texture: SharedTexture { handle: 1, set: 1 },
             fence_value: 1,
             width: 4,
             height: 2,
@@ -754,5 +933,195 @@ mod tests {
             !writer.publish_into(slot, &drawn),
             "the stream is asked for pixels from its next frame"
         );
+    }
+
+    /// A description of a shared texture as `ID3D12Resource::GetDesc` answers for
+    /// one of the producer's: `DXGI_FORMAT_B8G8R8A8_UNORM`, one mip, one sample,
+    /// 640 by 360. Every test below changes one thing about it.
+    fn described() -> D3D12_RESOURCE_DESC {
+        D3D12_RESOURCE_DESC {
+            Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+            Width: 640,
+            Height: 360,
+            DepthOrArraySize: 1,
+            MipLevels: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            ..D3D12_RESOURCE_DESC::default()
+        }
+    }
+
+    /// A picture is imported as the resource says it is, not as this side used to
+    /// assume: the producer draws BGRA, so wgpu is told BGRA, and RGBA is imported
+    /// as RGBA because that is the other format this path could be handed.
+    #[test]
+    fn a_shared_picture_is_imported_in_the_format_its_resource_has() {
+        assert_eq!(
+            shared_format(&described(), 640, 360),
+            Ok(wgpu::TextureFormat::Bgra8Unorm),
+            "the producer draws BGRA"
+        );
+        let rgba = D3D12_RESOURCE_DESC {
+            Format: DXGI_FORMAT_R8G8B8A8_UNORM,
+            ..described()
+        };
+        assert_eq!(
+            shared_format(&rgba, 640, 360),
+            Ok(wgpu::TextureFormat::Rgba8Unorm)
+        );
+    }
+
+    /// Everything else the raw import takes on trust is checked, and the reason
+    /// says what was wrong: a texture Direct3D 12 is told the wrong size, mips,
+    /// samples or format of is read wrongly or past its end, and nothing here
+    /// would say so.
+    #[test]
+    fn a_resource_that_is_not_the_picture_is_refused_in_words() {
+        let refused = |described: D3D12_RESOURCE_DESC, width: u32, height: u32, said: &str| {
+            let error = shared_format(&described, width, height)
+                .expect_err("a resource that can't be shown");
+            assert!(
+                error.contains(said),
+                "the reason \"{error}\" doesn't name {said:?}"
+            );
+        };
+        refused(described(), 1280, 720, "640x360");
+        refused(described(), 640, 720, "640x360");
+        refused(
+            D3D12_RESOURCE_DESC {
+                MipLevels: 2,
+                ..described()
+            },
+            640,
+            360,
+            "2 mip levels",
+        );
+        refused(
+            D3D12_RESOURCE_DESC {
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 4,
+                    Quality: 0,
+                },
+                ..described()
+            },
+            640,
+            360,
+            "4 samples",
+        );
+        refused(
+            D3D12_RESOURCE_DESC {
+                Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE1D,
+                ..described()
+            },
+            640,
+            360,
+            "a picture is a 2D texture",
+        );
+        refused(
+            D3D12_RESOURCE_DESC {
+                DepthOrArraySize: 2,
+                ..described()
+            },
+            640,
+            360,
+            "2 slices",
+        );
+        refused(
+            D3D12_RESOURCE_DESC {
+                // DXGI's ten-bit RGB, which no shader here reads.
+                Format: DXGI_FORMAT_R10G10B10A2_UNORM,
+                ..described()
+            },
+            640,
+            360,
+            "24",
+        );
+    }
+
+    /// A real shared set, opened through this window's device: the picture is
+    /// imported in the format the producer's own resource has, and the handles the
+    /// import was given are closed as the resources they name are opened.
+    ///
+    /// Windows answers no cheap count of this process's handles, so the evidence
+    /// is the count the importer keeps: what it opened and what it closed are the
+    /// same number. The delta is taken here rather than the total, so a test that
+    /// ran before it says nothing, and the two are only equal if this test opened
+    /// nothing it left open.
+    ///
+    /// Ignored because it makes a Direct3D 12 device and an NVENC session.
+    #[test]
+    #[ignore = "makes a Direct3D 12 device and opens an NVENC session"]
+    fn a_shared_set_is_imported_as_its_resource_and_leaves_no_handle_open() {
+        use yapfast_core::{
+            d3d11::{D3d11Encoder, Shared},
+            yapfast_discord::rtp::Codec,
+        };
+
+        install().expect("the window's own device");
+        let device =
+            PRESENT.with_borrow(|present| present.as_ref().expect("just made").device.clone());
+        let (width, height) = (64u32, 36u32);
+        let mut encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
+            .expect("an NVENC encoder on this machine");
+        let source = encoder.source(1).expect("a texture to draw on");
+        // This process stands in for the UI's: DuplicateHandle answers it as
+        // readily as another one, and a handle is a handle whoever holds it.
+        let mut shared = Shared::new(&encoder, width, height, std::process::id())
+            .expect("a picture shared with this process");
+        let (first, _) = shared
+            .draw(0, &mut encoder, source.texture())
+            .expect("the first picture drawn");
+        let (second, fence_value) = shared
+            .draw(1, &mut encoder, source.texture())
+            .expect("the second picture drawn");
+
+        // The resource's own description, read here rather than taken from the
+        // header: this is what the import has to agree with.
+        let resource: ID3D12Resource =
+            open_shared(&device, first.handle, "texture").expect("a shared texture opened");
+        let described = unsafe { resource.GetDesc() };
+        drop(resource);
+        assert_eq!(
+            described.Format, DXGI_FORMAT_B8G8R8A8_UNORM,
+            "the producer no longer draws BGRA, and the import has to follow it"
+        );
+
+        let picture = Picture {
+            luid: shared.luid(),
+            fence: shared.fence(),
+            texture: second.handle,
+            set: second.set,
+            fence_value,
+            generation: 1,
+            slot: 1,
+            width,
+            height,
+        };
+        let (before_opened, before_closed) = shared_handles::counted();
+        let shown = unsafe { open(&device, &picture) }.expect("the picture imported");
+        assert_eq!(
+            shown.format(),
+            shared_format(&described, width, height).expect("a texture this path shows"),
+            "the imported texture is declared as the resource is"
+        );
+        assert_eq!(shown.format(), wgpu::TextureFormat::Bgra8Unorm);
+        let fence = unsafe { open_fence(&device, picture.fence) }.expect("the fence opened");
+        drop(fence);
+        let (opened, closed) = shared_handles::counted();
+        let (opened, closed) = (opened - before_opened, closed - before_closed);
+        assert_eq!(opened, 2, "a texture and a fence");
+        assert_eq!(
+            closed, opened,
+            "the importer opened a handle it didn't close"
+        );
+
+        drop(shown);
+        // The set goes as a stopped stream's does: the handles it duplicated
+        // here and nothing opened are closed in this process by the worker's side.
+        drop(shared);
+        eprintln!("two {width}x{height} pictures at {opened} handles opened, {closed} closed");
     }
 }

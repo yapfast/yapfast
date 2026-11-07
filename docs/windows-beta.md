@@ -107,8 +107,12 @@ communications ducking setting turns other sound down during a call.
 Sharing, watching and playing a video run in the stream worker, as on Linux:
 Yapfast starts its own executable with `--stream-worker`, which writes its logs
 where Yapfast does: Yapfast's console, or Yapfast's log file. The video frames reach
-the window through a temporary file both processes map. Windows won't delete
-a mapped file, so there Yapfast creates it with `FILE_FLAG_DELETE_ON_CLOSE` and
+the window through a temporary file both processes map. A share the card
+captured hands its preview over as a shared texture instead: the window opens it
+on the adapter it draws with, where that is the capture's own, and the file
+carries the slots, so a picture is only written over once the window's queue has
+finished with it. Windows won't delete a mapped file, so there Yapfast creates it
+with `FILE_FLAG_DELETE_ON_CLOSE` and
 `FILE_ATTRIBUTE_TEMPORARY`, which keeps it in memory while it fits, and
 Windows removes it once both processes close it. On Linux it's still unlinked once the worker has it open.
 
@@ -117,7 +121,11 @@ lists what there is to share above the resolution: the screens as pictures, two
 to a row, named "Entire screen" (or "Screen 1", "Screen 2", … with several),
 then each window with a title. Yapfast's own windows aren't listed. libwebrtc's
 capturers make the list, on a short-lived thread as the menu opens, and the
-worker finds the picked one by its id. The menu opens with the screens' names;
+worker finds the picked one by its id. What shares a window afterwards is
+Windows Graphics Capture for that window, where the card can take it, and the
+processor's capturer for the same window where it can't: Desktop Duplication
+shares displays only, so a window is never answered with the desktop it happens
+to sit on. The menu opens with the screens' names;
 their pictures come from a worker job (`Job::Glance`) that takes one frame of
 each screen, scaled down to its card, and exits, so capturing them takes memory
 only until they're in. A window closed after it was listed ends sharing with

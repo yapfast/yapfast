@@ -75,6 +75,8 @@ pub mod noise;
 pub mod picture;
 #[cfg(feature = "discord")]
 pub mod playback;
+#[cfg(feature = "discord")]
+pub mod pressure;
 pub mod push_to_talk;
 #[cfg(feature = "discord")]
 pub mod ring;

@@ -2337,21 +2337,28 @@ void yapfast_d3d11enc_source_free(struct yapfast_d3d11enc_source *source) {
  *
  * The window draws on a Direct3D 12 device in the UI's process, and a texture
  * this device shares is one it opens and shows without a pixel of it crossing
- * the processor. Two of them, alternating: a shared handle names a texture that
- * the UI opens and keeps for as long as the handle it was published under, so
- * one texture would be overwritten under the picture somebody is looking at.
- * Two give the UI a whole frame to finish with the one it has.
+ * the processor. Three of them, one for each slot of the frames file: a shared
+ * handle names a texture that the UI opens and keeps for as long as it shows it,
+ * so one texture would be overwritten under the picture somebody is looking at,
+ * and a slot is only drawn into once its reader has moved past the picture that
+ * was there.
+ *
+ * The set is numbered, and the number only grows: a stream whose pictures change
+ * size, or that stops and starts again, is another three textures and another
+ * fence, and the number is what the UI tells the two apart by. A handle can't say
+ * it, because Windows hands a closed handle's value out again.
  *
  * The fence is the promise. A value is signalled on the GPU after the copy into
- * one of the two, and it is the value, not the publish, that says the picture is
- * drawn: the UI waits for it before showing anything, and this file waits for
+ * one of the three, and it is the value, not the publish, that says the picture
+ * is drawn: the UI waits for it before showing anything, and this file waits for
  * the last value a texture was written at before writing it again. The keyed
  * mutex Direct3D 11 requires beside an NT handle is taken for the copy and given
  * back at once, since the Direct3D 12 view of the resource has no mutex to take,
  * and the fence is what orders the two devices. */
 /* The pictures a worker draws a stream's preview into, one for each slot of the
  * frames file: a slot is drawn into only when its reader has moved on, so the
- * number of pictures has to match the number of slots. */
+ * number of pictures has to match the number of slots. One fence is shared by
+ * all three, and it is what says a copy into any of them is finished. */
 #define SHARED_PICTURES 3
 
 struct yapfast_d3d11enc_shared {
@@ -2360,6 +2367,17 @@ struct yapfast_d3d11enc_shared {
   /* The handles, as the UI's process holds them: what is published is these and
    * never the ones this process made, which mean nothing over there. */
   unsigned long long textures[SHARED_PICTURES];
+  /* This process's own handle of each of those objects, kept until the set goes:
+   * the UI closes the handle it opens, and Windows hands a closed value out
+   * again, so this is what says whether the number a picture was published under
+   * is still this set's object rather than somebody else's handle by now. */
+  HANDLE kept[SHARED_PICTURES + 1];
+  /* Every handle this set duplicated into the UI's process, in the order they
+   * were made, and the process to close what is left of them in. */
+  unsigned long long handed[SHARED_PICTURES + 1];
+  unsigned ui;
+  /* The number of this set, which only grows; see above. */
+  unsigned long long set;
   /* The fence value each texture was last written at. */
   unsigned long long written[SHARED_PICTURES];
   ID3D11Fence *fence;
@@ -2378,10 +2396,18 @@ struct yapfast_d3d11enc_shared {
  * can't be finished is let go of in the same call that tried to make it. */
 void yapfast_d3d11enc_shared_free(struct yapfast_d3d11enc_shared *s);
 
+/* The handle a texture's copy is drawn with, kept until the set goes: see
+ * `kept` above. */
+static unsigned long long next_set(void) {
+  static volatile LONG64 sets;
+  return (unsigned long long)InterlockedIncrement64(&sets);
+}
+
 /* A handle as another process holds it. A handle's value means nothing outside
  * the process that took it, so what the UI opens is a duplicate made in its
- * table. The duplicate is not closed here: it is the UI's to close, and closing
- * that number in this process would close whatever this process has there. */
+ * table. The duplicate is not closed here: it is the UI's to close as it opens
+ * the resource the handle names, and closing that number in this process would
+ * close whatever this process has there. */
 static int duplicate_into(HANDLE source, unsigned process, unsigned long long *out, char *why,
                           size_t size) {
   HANDLE target = OpenProcess(PROCESS_DUP_HANDLE, FALSE, (DWORD)process), copy = NULL;
@@ -2404,7 +2430,49 @@ static int duplicate_into(HANDLE source, unsigned process, unsigned long long *o
   return 0;
 }
 
-/* One of the two textures, and the mutex and handle that go with it. */
+/* The handles this set duplicated into the UI's process and nothing opened: the
+ * ones a set that couldn't be finished left behind, and the ones of a set that
+ * is going that the UI never opened a picture of.
+ *
+ * The UI closes each handle the moment the resource it names is open, so a value
+ * that was closed may name another handle of the UI's by now. That is what
+ * `kept` is for: the value is duplicated back here and compared with this
+ * process's own handle of the object, and only a value that is still this set's
+ * object is closed over there. A set that is going away with the UI process
+ * already gone needs nothing: the handles went with the process. */
+static void give_back(struct yapfast_d3d11enc_shared *s) {
+  HANDLE ui;
+  if (!s->ui) return;
+  ui = OpenProcess(PROCESS_DUP_HANDLE, FALSE, (DWORD)s->ui);
+  if (!ui) return;
+  for (unsigned at = 0; at < SHARED_PICTURES + 1; at++) {
+    HANDLE copy = NULL;
+    if (!s->handed[at] || !s->kept[at]) continue;
+    if (!DuplicateHandle(ui, (HANDLE)(uintptr_t)s->handed[at], GetCurrentProcess(), &copy, 0, FALSE,
+                         DUPLICATE_SAME_ACCESS)) {
+      /* Nothing has that number: the UI closed it, and the set left nothing
+       * there to give back. */
+      s->handed[at] = 0;
+      continue;
+    }
+    if (CompareObjectHandles(copy, s->kept[at])) {
+      /* This process takes a duplicate of it and closes the UI's in the same
+       * call: `DUPLICATE_CLOSE_SOURCE` closes the source handle of the process
+       * it is read from, and the duplicate it answers with is closed here at
+       * once. A NULL out-pointer would leave the UI a handle for every one this
+       * closes, which is the leak this whole path exists to end. */
+      HANDLE closing = NULL;
+      if (DuplicateHandle(ui, (HANDLE)(uintptr_t)s->handed[at], GetCurrentProcess(), &closing, 0,
+                          FALSE, DUPLICATE_CLOSE_SOURCE))
+        CloseHandle(closing);
+    }
+    CloseHandle(copy);
+    s->handed[at] = 0;
+  }
+  CloseHandle(ui);
+}
+
+/* One of the three textures, and the mutex and handle that go with it. */
 static int shared_texture(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shared *s,
                           unsigned at, unsigned process, char *why, size_t size) {
   D3D11_TEXTURE2D_DESC desc;
@@ -2455,11 +2523,12 @@ static int shared_texture(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_sh
     CloseHandle(handle);
     return -1;
   }
-  CloseHandle(handle);
+  s->handed[at] = s->textures[at];
+  s->kept[at] = handle;
   return 0;
 }
 
-/* The fence the two textures are drawn behind, and its handle. Shared between
+/* The fence the three textures are drawn behind, and its handle. Shared between
  * the APIs as Direct3D 12's fence because that is where the UI opens it; the
  * same object answers Direct3D 11's fence, which is the half that signals it. */
 static int shared_fence(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shared *s,
@@ -2495,14 +2564,15 @@ static int shared_fence(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shar
     CloseHandle(handle);
     return -1;
   }
-  CloseHandle(handle);
+  s->handed[SHARED_PICTURES] = s->fence_handle;
+  s->kept[SHARED_PICTURES] = handle;
   return 0;
 }
 
-/* Two tile-sized pictures and one fence, on the device `e` encodes from, with
- * both textures' and the fence's handles duplicated into `process`: the UI's,
- * which is the one that opens them. Answers NULL with `yapfast_d3d11enc_error`
- * saying why, which is the caller's cue to keep writing pixels. */
+/* Three tile-sized pictures and one fence, on the device `e` encodes from, with
+ * all four handles duplicated into `process`: the UI's, which is the one that
+ * opens them. Answers NULL with `yapfast_d3d11enc_error` saying why, which is
+ * the caller's cue to keep writing pixels. */
 struct yapfast_d3d11enc_shared *yapfast_d3d11enc_shared_new(
     struct yapfast_d3d11enc *e, unsigned width, unsigned height, unsigned process,
     unsigned long long *fence, unsigned long long *luid, char *why, size_t size) {
@@ -2519,6 +2589,11 @@ struct yapfast_d3d11enc_shared *yapfast_d3d11enc_shared_new(
   if (!s) return nothing(e, "no memory for a shared picture");
   s->width = width;
   s->height = height;
+  /* The UI's process before anything is duplicated into it: a set that can't be
+   * finished gives back what it had already put there, which it can only do by
+   * name. */
+  s->ui = process;
+  s->set = next_set();
   /* The adapter is the UI's test as much as the picture's: Direct3D opens a
    * shared texture on the adapter that made it and on no other, so the LUID is
    * what the UI compares its own window's device against before opening
@@ -2617,6 +2692,12 @@ unsigned long long yapfast_d3d11enc_shared_fence(struct yapfast_d3d11enc_shared 
   return s ? s->fence_handle : 0;
 }
 
+/* The number of this set of pictures and fence, which only grows: the UI lets go
+ * of what it opened for the set before when a picture names this one. */
+unsigned long long yapfast_d3d11enc_shared_set(struct yapfast_d3d11enc_shared *s) {
+  return s ? s->set : 0;
+}
+
 /* The adapter the shared pictures were made on, as the UI compares its own
  * window's device against. */
 unsigned long long yapfast_d3d11enc_shared_luid(struct yapfast_d3d11enc_shared *s) {
@@ -2639,16 +2720,20 @@ void *yapfast_d3d11enc_shared_picture(struct yapfast_d3d11enc_shared *s) {
   return s ? s->pictures[s->drawn] : NULL;
 }
 
-/* The textures go with the share, and the UI's handles go with the UI: a handle
- * duplicated into its table is valid there until it closes it, which is the
- * lifetime of the window showing the stream. */
+/* The textures go with the share, and the UI's handles go with the UI: what the
+ * UI opened, it closed as it opened it, and what it never opened is closed here
+ * over there before the set is let go, so a set that failed halfway or was
+ * stopped leaves no handle of the UI's behind. */
 void yapfast_d3d11enc_shared_free(struct yapfast_d3d11enc_shared *s) {
   if (!s) return;
+  give_back(s);
   for (unsigned at = 0; at < SHARED_PICTURES; at++) {
     if (s->mutexes[at]) s->mutexes[at]->lpVtbl->Release(s->mutexes[at]);
     if (s->pictures[at]) s->pictures[at]->lpVtbl->Release(s->pictures[at]);
+    if (s->kept[at]) CloseHandle(s->kept[at]);
   }
   if (s->signals) s->signals->lpVtbl->Release(s->signals);
   if (s->fence) s->fence->lpVtbl->Release(s->fence);
+  if (s->kept[SHARED_PICTURES]) CloseHandle(s->kept[SHARED_PICTURES]);
   free(s);
 }

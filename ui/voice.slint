@@ -109,6 +109,9 @@ export global CallLink {
     /// any.
     in property <bool> streaming;
     in property <string> encoder;
+    /// What decodes a stream this account watches ("the card's decoder"), and
+    /// nothing while it shares one.
+    in property <string> decoder;
     in property <string> codec;
     /// The way the picture is captured and the size of what is captured, such
     /// as "Windows Graphics Capture · 3440×1440 screen": the half of a share
@@ -125,6 +128,24 @@ export global CallLink {
     in property <string> skipped;
     in property <string> sound-waiting;
     in property <string> sound-dropped;
+    /// How the pictures reach the window ("the worker's own texture" or
+    /// "copied to the processor"), and the adapter the window draws on: a
+    /// share that copies every frame says here whether the two adapters are
+    /// why.
+    in property <string> presentation;
+    in property <string> presented-on;
+    /// How long a frame waited between the capture having it and the encoder
+    /// being given it, and what the encoder's output buffers hold now and at
+    /// their most.
+    in property <string> queue-delay;
+    in property <string> buffers;
+    /// How a share gave memory back because the machine was short, and why it
+    /// isn't on the path it asked for; empty while neither says anything.
+    in property <string> memory;
+    in property <string> fallback;
+    /// The stream's latest report as text for a bug report: what a picture is
+    /// made and shown by, and nothing about anything else.
+    callback diagnostics() -> string;
     callback read();
 }
 
@@ -250,23 +271,38 @@ export component CallLinkCard inherits Rectangle {
         }
         if root.shown == 2: VerticalLayout {
             spacing: 8px;
-            LinkRow { label: "Encoder:"; value: CallLink.encoder; }
+            if CallLink.encoder != "": LinkRow { label: "Encoder:"; value: CallLink.encoder; }
+            if CallLink.decoder != "": LinkRow { label: "Decoded by:"; value: CallLink.decoder; }
             LinkRow { label: "Codec:"; value: CallLink.codec; }
             if CallLink.settings-dropped != "": LinkRow {
                 label: "Settings the encoder dropped:"; value: CallLink.settings-dropped;
             }
             LinkRow { label: "Resolution:"; value: CallLink.picture; }
             if CallLink.capture != "": LinkRow { label: "Capture:"; value: CallLink.capture; }
-            LinkRow { label: "Sending:"; value: CallLink.sent; }
-            LinkRow { label: "Aiming for:"; value: CallLink.target; }
-            LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
-            LinkRow { label: "Packets resent:"; value: CallLink.resent; }
-            LinkRow { label: "Frames a full queue skipped:"; value: CallLink.skipped; }
-            LinkRow { label: "Shared sound waiting:"; value: CallLink.sound-waiting; }
-            LinkRow { label: "Shared sound dropped:"; value: CallLink.sound-dropped; }
+            if CallLink.sent != "": LinkRow { label: "Sending:"; value: CallLink.sent; }
+            if CallLink.target != "": LinkRow { label: "Aiming for:"; value: CallLink.target; }
+            if CallLink.keyframes != "": LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
+            if CallLink.resent != "": LinkRow { label: "Packets resent:"; value: CallLink.resent; }
+            if CallLink.skipped != "": LinkRow { label: "Frames a full queue skipped:"; value: CallLink.skipped; }
+            if CallLink.sound-waiting != "": LinkRow { label: "Shared sound waiting:"; value: CallLink.sound-waiting; }
+            if CallLink.sound-dropped != "": LinkRow { label: "Shared sound dropped:"; value: CallLink.sound-dropped; }
+            LinkRow { label: "Shown by:"; value: CallLink.presentation; }
+            if CallLink.presented-on != "": LinkRow { label: "The window draws on:"; value: CallLink.presented-on; }
+            LinkRow { label: "Frame wait before encoding:"; value: CallLink.queue-delay; }
+            if CallLink.buffers != "": LinkRow { label: "Encoder buffers:"; value: CallLink.buffers; }
+            if CallLink.memory != "": LinkRow { label: "Memory:"; value: CallLink.memory; }
+            if CallLink.fallback != "": LinkRow { label: "Not on the card's own path:"; value: CallLink.fallback; }
             Text {
                 text: "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.";
                 color: Theme.muted; font-size: 13px; wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: center;
+                ActionButton {
+                    text: root.copied ? "Copied" : "Copy diagnostics"; small: true;
+                    icon: @image-url("icons/copy.svg");
+                    clicked => { root.copy(CallLink.diagnostics()); root.copied = true; }
+                }
             }
         }
         if root.shown == 1: VerticalLayout {

@@ -35,6 +35,10 @@ enum { CODEC_H264, CODEC_HEVC, CODEC_AV1 };
 
 struct yapfast_hwenc {
   AVCodecContext *codec;
+  /* FFmpeg's own name for the encoder that opened, such as "h264_nvenc",
+   * which is what Rust matches its choice of backend back to: `config` and
+   * the report name VA-API's device as well. */
+  const char *engine;
   /* VA-API's device, and the frame its encoder reads, on the GPU. */
   AVBufferRef *device;
   AVFrame *surface;
@@ -274,7 +278,8 @@ static int open_vaapi(struct yapfast_hwenc *h, AVCodecContext *codec, struct va_
 static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va_device device,
                         const struct nvenc_tuning *nvenc, unsigned codec_id, unsigned width,
                         unsigned height, unsigned fps, unsigned kbps) {
-  int vaapi = device.path != NULL, amf = strstr(found->name, "_amf") != NULL;
+  int vaapi = device.path != NULL, amf = strstr(found->name, "_amf") != NULL,
+      qsv = strstr(found->name, "_qsv") != NULL;
   AVCodecContext *codec = h->codec = avcodec_alloc_context3(found);
   if (!codec) return AVERROR(ENOMEM);
   codec->width = (int)width;
@@ -314,6 +319,17 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     rate = "VBR";
     ret = open_vaapi(h, codec, device);
     if (ret < 0) return ret;
+  } else if (qsv) {
+    /* Quick Sync takes its frames as NV12 and has settings of its own; this
+     * shim drives the three backends it was written for, so a build with
+     * --enable-libvpl says so here rather than opening Intel's encoder with
+     * NVENC's settings and reporting FFmpeg's complaint about them as the
+     * reason. Intel's GPUs are encoded through VA-API on Linux and not on this
+     * path in this build (README.yapfast.md). */
+    snprintf(first_error, sizeof first_error,
+             "Quick Sync is not driven by this shim: it needs a build with oneVPL and settings of "
+             "its own");
+    return AVERROR(ENOSYS);
   } else if (amf) {
     /* Or FFmpeg holds each frame's packet back until the next frame. */
     codec->flags |= AV_CODEC_FLAG_LOW_DELAY;
@@ -417,13 +433,59 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   return av_frame_get_buffer(h->frame, 0);
 }
 
-/* The encoders to try for each codec, best first; each system builds in
- * those it has. */
-static const char *const ENCODERS[][4] = {
-    [CODEC_H264] = {"h264_nvenc", "h264_amf", "h264_vaapi", NULL},
-    [CODEC_HEVC] = {"hevc_nvenc", "hevc_amf", "hevc_vaapi", NULL},
-    [CODEC_AV1] = {"av1_nvenc", "av1_amf", "av1_vaapi", NULL},
+/* The encoders to try for each codec, best first, which is this build's own
+ * order for a machine whose adapters Rust couldn't list; each system builds in
+ * those it has.
+ *
+ * Quick Sync is named here so that a machine with Intel's GPU is told this
+ * build hasn't got h264_qsv rather than nothing at all: it needs FFmpeg
+ * configured with --enable-libvpl and oneVPL built beside it, which update.sh
+ * does not do yet (README.yapfast.md). */
+static const char *const ENCODERS[][5] = {
+    [CODEC_H264] = {"h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi", NULL},
+    [CODEC_HEVC] = {"hevc_nvenc", "hevc_amf", "hevc_qsv", "hevc_vaapi", NULL},
+    [CODEC_AV1] = {"av1_nvenc", "av1_amf", "av1_qsv", "av1_vaapi", NULL},
 };
+
+/* The encoders to try, in the order asked for: Rust names them where it chose
+ * an adapter, and this build's own order is used where it named none. Names are
+ * copied out of a comma-separated string so each can be asked about, and hold
+ * well under `text`'s width, which is a name FFmpeg knows rather than a
+ * sentence. */
+enum { MAX_ENCODERS = 8 };
+struct encoders {
+  const char *names[MAX_ENCODERS + 1];
+  char text[MAX_ENCODERS][24];
+};
+
+/* Fills `e` with the encoders to try: the comma-separated `list`, best first,
+ * or this codec's own order when `list` is NULL. Names beyond the room are
+ * dropped rather than failed on: they are a mistake on Rust's side, and the
+ * encoders that fit are still ones worth opening. */
+static void parse_encoders(struct encoders *e, const char *list, unsigned codec_id) {
+  size_t count = 0;
+  if (!list) {
+    for (const char *const *name = ENCODERS[codec_id]; *name && count < MAX_ENCODERS; name++)
+      e->names[count++] = *name;
+  } else {
+    const char *start = list;
+    while (*start && count < MAX_ENCODERS) {
+      while (*start == ',' || *start == ' ') start++;
+      if (!*start) break;
+      const char *end = start;
+      while (*end && *end != ',') end++;
+      size_t length = (size_t)(end - start);
+      while (length && start[length - 1] == ' ') length--;
+      if (length >= sizeof e->text[count]) length = sizeof e->text[count] - 1;
+      memcpy(e->text[count], start, length);
+      e->text[count][length] = 0;
+      e->names[count] = e->text[count];
+      count++;
+      start = *end ? end + 1 : end;
+    }
+  }
+  e->names[count] = NULL;
+}
 
 #ifdef __linux__
 /* The libva drivers for each kernel driver whose GPUs encode, best first.
@@ -450,7 +512,33 @@ static void kernel_driver(int n, char *name, size_t size) {
   target[length] = 0;
   const char *base = strrchr(target, '/');
   base = base ? base + 1 : target;
-  if (strlen(base) < size) memcpy(name, base, strlen(base) + 1);
+    if (strlen(base) < size) memcpy(name, base, strlen(base) + 1);
+}
+
+/* The vendor id of the GPU behind render node `n`, from sysfs: 0x10DE,
+ * 0x1002 or 0x8086 for the three makers whose GPUs encode, and 0 when it can't
+ * be read, which matches every preference below rather than none. */
+static unsigned node_vendor(int n) {
+  char path[64], text[16];
+  snprintf(path, sizeof path, "/sys/class/drm/renderD%d/device/vendor", 128 + n);
+  FILE *file = fopen(path, "r");
+  if (!file) return 0;
+  if (!fgets(text, sizeof text, file)) text[0] = 0;
+  fclose(file);
+  return (unsigned)strtoul(text, NULL, 16);
+}
+
+/* Whether a GPU of `vendor` is the kind `preference` asks for, which is
+ * gpu::Preference's rule on this side of the call: the card with memory of its
+ * own, or the GPU built into the processor. A word this doesn't know, or none
+ * at all, matches every GPU, so nothing is lost where the setting isn't
+ * passed. */
+static int preferred(const char *preference, unsigned vendor) {
+  if (!preference || !preference[0]) return 1;
+  int card = vendor == 0x10DE || vendor == 0x1002, die = vendor == 0x8086;
+  if (!strcmp(preference, "dedicated")) return card;
+  if (!strcmp(preference, "integrated")) return die;
+  return 1;
 }
 #endif
 
@@ -460,6 +548,13 @@ struct opening {
    * them: it says how hard the one that opens should work, not which one to
    * try. */
   const struct nvenc_tuning *nvenc;
+  /* "dedicated" or "integrated", the kind of GPU the stream asked for: the
+   * render nodes VA-API chooses between itself are tried in that order first.
+   * NULL, or a word this doesn't know, prefers every GPU alike. */
+  const char *preference;
+  /* The encoders to try, best first: Rust's order where it chose an adapter,
+   * and this build's own where it named none. */
+  struct encoders encoders;
   char *report;
   size_t report_size, used;
 };
@@ -492,6 +587,7 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
   int ret = open_encoder(h, found, device, o->nvenc, o->codec_id, o->width, o->height, o->fps,
                          o->kbps);
   if (ret >= 0) {
+    h->engine = name;
     snprintf(o->report, o->report_size, "%s", label);
     return h;
   }
@@ -502,36 +598,55 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
   return NULL;
 }
 
-/* Opens the first encoder of `codec_id` that works, VA-API's on each GPU
- * that has a driver for it, and writes its name to `report`, or each one's
- * failure when none does. Every encoder the list names is accounted for,
- * including the ones that were passed over before they could be tried: a
- * stream that fell back to x264 says which encoders this machine hasn't
- * got, as well as which it has and wouldn't open. */
-struct yapfast_hwenc *yapfast_hwenc_new(unsigned codec_id, unsigned width, unsigned height,
-                                        unsigned fps, unsigned kbps, const char *tuning,
-                                        char *report, size_t report_size) {
+/* What Rust asks for, beyond the picture: the frame's shape and rate, the
+ * bitrate to aim at, and the choice the adapter preference makes. */
+struct yapfast_hwenc_open {
+  unsigned codec_id, width, height, fps, kbps;
+  /* The NVENC tuning asked for by name, or NULL for the shipped one. */
+  const char *tuning;
+  /* FFmpeg's encoders to try, best first and separated by commas, which is how
+   * Rust puts the adapter it chose first; NULL for this build's own order,
+   * which is what a platform that can't list its adapters is given. */
+  const char *encoders;
+  /* "dedicated" or "integrated": the kind of GPU the stream asked for, for the
+   * render nodes VA-API chooses between itself; NULL for any. */
+  const char *preference;
+};
+
+/* Opens the first encoder of the request's codec that works, in the order the
+ * request asks for them — Rust's, when it chose an adapter, and this build's
+ * own otherwise — VA-API's on each GPU that has a driver for it, and writes the
+ * one that opened to `report`, or each one's failure when none does. Every
+ * encoder the list names is accounted for, including the ones that were passed
+ * over before they could be tried: a stream that fell back to x264 says which
+ * encoders this machine hasn't got, as well as which it has and wouldn't
+ * open. */
+struct yapfast_hwenc *yapfast_hwenc_new(const struct yapfast_hwenc_open *ask, char *report,
+                                        size_t report_size) {
   if (report_size) report[0] = 0;
-  if (codec_id > CODEC_AV1) return NULL;
+  if (!ask || ask->codec_id > CODEC_AV1) return NULL;
+  unsigned codec_id = ask->codec_id;
   /* The tuning Rust named, before any encoder is tried: a name from outside
    * this set says the two sides disagree, which is worth refusing rather
    * than encoding with the tuning nobody asked for. */
-  const struct nvenc_tuning *nvenc = nvenc_tuning(tuning);
+  const struct nvenc_tuning *nvenc = nvenc_tuning(ask->tuning);
   if (!nvenc) {
-    if (report_size) snprintf(report, report_size, "no tuning called %s", tuning);
+    if (report_size) snprintf(report, report_size, "no tuning called %s", ask->tuning);
     return NULL;
   }
   av_log_set_level(AV_LOG_ERROR);
   av_log_set_callback(keep_error);
   struct opening o = {.codec_id = codec_id,
-                      .width = width,
-                      .height = height,
-                      .fps = fps,
-                      .kbps = kbps,
+                      .width = ask->width,
+                      .height = ask->height,
+                      .fps = ask->fps,
+                      .kbps = ask->kbps,
                       .nvenc = nvenc,
+                      .preference = ask->preference,
                       .report = report,
                       .report_size = report_size};
-  for (const char *const *name = ENCODERS[codec_id]; *name; name++) {
+  parse_encoders(&o.encoders, ask->encoders, codec_id);
+  for (const char *const *name = o.encoders.names; *name; name++) {
     const AVCodec *found = avcodec_find_encoder_by_name(*name);
     if (!found) {
       /* An encoder this FFmpeg wasn't built with. It is named anyway, so a
@@ -547,19 +662,25 @@ struct yapfast_hwenc *yapfast_hwenc_new(unsigned codec_id, unsigned width, unsig
       continue;
     }
 #ifdef __linux__
-    /* Each GPU's render node, and the libva driver that encodes on it. */
+    /* Each GPU's render node, and the libva driver that encodes on it: the kind
+     * of GPU the stream asked for first, since a preference is which GPU
+     * encodes and not whether one does. Without a preference every GPU is that
+     * kind, so the second pass finds nothing to try. */
     int tried = 0;
-    for (int n = 0; n < 8; n++) {
-      char kernel[32], path[32];
-      kernel_driver(n, kernel, sizeof kernel);
-      if (!kernel[0]) continue;
-      snprintf(path, sizeof path, "/dev/dri/renderD%d", 128 + n);
-      for (size_t i = 0; i < sizeof VA_DRIVERS / sizeof *VA_DRIVERS; i++) {
-        if (strcmp(kernel, VA_DRIVERS[i][0])) continue;
-        for (const char *const *driver = VA_DRIVERS[i] + 1; *driver; driver++) {
-          tried++;
-          h = try_open(&o, found, (struct va_device){path, *driver});
-          if (h) return h;
+    for (int pass = 0; pass < 2; pass++) {
+      for (int n = 0; n < 8; n++) {
+        char kernel[32], path[32];
+        kernel_driver(n, kernel, sizeof kernel);
+        if (!kernel[0]) continue;
+        if (preferred(o.preference, node_vendor(n)) != (pass == 0)) continue;
+        snprintf(path, sizeof path, "/dev/dri/renderD%d", 128 + n);
+        for (size_t i = 0; i < sizeof VA_DRIVERS / sizeof *VA_DRIVERS; i++) {
+          if (strcmp(kernel, VA_DRIVERS[i][0])) continue;
+          for (const char *const *driver = VA_DRIVERS[i] + 1; *driver; driver++) {
+            tried++;
+            h = try_open(&o, found, (struct va_device){path, *driver});
+            if (h) return h;
+          }
         }
       }
     }
@@ -701,6 +822,19 @@ unsigned yapfast_hwenc_late(struct yapfast_hwenc *h) { return h->late; }
 void yapfast_hwenc_config(struct yapfast_hwenc *h, char *config, size_t size) {
   if (size) snprintf(config, size, "%s", h->config);
 }
+
+/* FFmpeg's own name for the encoder that opened, such as "h264_nvenc", which
+ * is what Rust matches its choice of backend back to: the report beside it and
+ * `yapfast_hwenc_config` name VA-API's device as well. */
+void yapfast_hwenc_engine(struct yapfast_hwenc *h, char *name, size_t size) {
+  if (size) snprintf(name, size, "%s", h->engine ? h->engine : "");
+}
+
+/* Whether this FFmpeg was built with the encoder `name`, which is how Rust
+ * learns what the shipped build has rather than what its configure line was
+ * meant to enable: an encoder the build hasn't got is one no stream can offer,
+ * and one it has may still fail to open on a machine. */
+int yapfast_hwenc_has(const char *name) { return avcodec_find_encoder_by_name(name) != NULL; }
 
 /* Changes the bitrate aimed for, from the next frame on, without a
  * keyframe: patches/ in vendor/ffmpeg-src make NVENC, AMF and VA-API follow

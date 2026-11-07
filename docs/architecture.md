@@ -46,8 +46,20 @@ the conversation view, which `video_player.rs` plays in the stream worker.
 `stream_worker.rs` runs Go Live and video playback in a child process,
 `yapfast --stream-worker`, so their memory goes when they stop. `video.rs`
 reads video files, `encode.rs` encodes Go Live and the camera, and
-`decode.rs` decodes a watched stream, each through C in `native/*.c`.
-`audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
+`decode.rs` decodes a watched stream, each through C in `native/*.c`. A screen
+or a window is captured by `wgc.rs` (Windows Graphics Capture) or `dup.rs`
+(Desktop Duplication) where the card can take it, and by libwebrtc's capturer in
+memory otherwise. `frames.rs` is the file the worker and the window both map: a
+stream's pictures, and the slots a card-drawn preview is handed over in, which
+`src/ui/gpu.rs` opens on the window's own device. `stream_audio.rs` is a
+stream's sound both ways: what other applications play for a share, and the
+player that puts the sound coming the other way in order.
+`pressure.rs` reads how much memory the machine and the card have left, once a
+second from the stream's own loop, and says what a share gives up while they are
+short. An encoded frame is a buffer from the sender's pool, which the encoder
+copies its own access unit into once, so a pool that has to grow costs a copy
+rather than a second encode. `audio_io.rs` and `audio_io/` are Yapfast's own
+sound devices.
 
 `vendor/` holds patched Slint, webrtc-sys, matrix-rtc-livekit, davey and
 tungstenite, plus x264's and FFmpeg's C source; see

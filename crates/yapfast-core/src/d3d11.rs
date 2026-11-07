@@ -55,6 +55,7 @@ use yapfast_discord::{rtp::Codec, stream_connection::Pool};
 
 use crate::{
     encode::{Configuration, Frame},
+    frames::SharedTexture,
     gpu,
 };
 
@@ -69,7 +70,7 @@ struct RawSource {
     _private: [u8; 0],
 }
 
-/// The two shared pictures and the fence they are drawn behind, as
+/// The three shared pictures and the fence they are drawn behind, as
 /// native/d3d11enc.c keeps them.
 #[repr(C)]
 struct RawShared {
@@ -167,6 +168,9 @@ unsafe extern "C" {
         value: *mut c_ulonglong,
     ) -> c_int;
     fn yapfast_d3d11enc_shared_picture(shared: *mut RawShared) -> *mut c_void;
+    /// The number of the set of pictures and fence, which only grows: what the
+    /// UI tells one set of the worker's textures from the next by.
+    fn yapfast_d3d11enc_shared_set(shared: *mut RawShared) -> c_ulonglong;
     fn yapfast_d3d11enc_shared_free(shared: *mut RawShared);
     fn yapfast_d3d11enc_source_new(
         encoder: *mut Raw,
@@ -303,17 +307,47 @@ fn wide(text: &[u16]) -> String {
 /// that on the first frame it reads it, by asking the texture which device it is
 /// on and comparing that pointer with its own: a texture from another device is
 /// memory it can't read, and two devices made on one adapter are still two.
+///
+/// It is a borrowed raw pointer and a number, and it carries no lifetime: it is
+/// good only while the capture, source, scaler or share it came from is alive,
+/// and every call it is given to reads the object's vtable through the pointer.
+/// Nothing here can check that. The safe ways to hold one are the ones an owner
+/// answered with — [`Source::texture`], [`D3d11Encoder::scale`],
+/// [`Shared::picture`] — and forging one is `unsafe`.
 #[derive(Clone, Copy, Debug)]
 pub struct Texture {
     /// The `ID3D11Texture2D` itself.
-    pub handle: *mut c_void,
+    handle: *mut c_void,
     /// Which subresource of it, for a texture array; 0 for an ordinary one.
-    pub subresource: u32,
+    subresource: u32,
 }
 
 impl Texture {
-    /// The whole of an ordinary texture.
-    pub fn new(handle: *mut c_void) -> Self {
+    /// The whole of an ordinary texture that the caller itself holds: the
+    /// surface a capture has just filled, or one a test drew into.
+    ///
+    /// # Safety
+    ///
+    /// `handle` must be an `ID3D11Texture2D` on the device of every
+    /// [`D3d11Encoder`] it is given to, and it must stay alive — not released,
+    /// and not handed back to the capture that made it — until the last call
+    /// that reads it has returned. The shim dereferences the object on the
+    /// first frame it reads and on every scale, readback and encode after that,
+    /// so a null, freed or foreign texture is a fault there rather than an
+    /// error here, and no call in this file can tell.
+    pub unsafe fn new(handle: *mut c_void) -> Self {
+        Self {
+            handle,
+            subresource: 0,
+        }
+    }
+
+    /// The whole of a texture the shim itself answered with: a source's own
+    /// surface, a scaler's picture, or a share's last picture. Its device is the
+    /// encoder that answered it and it lives as long as that does, which is why
+    /// this is not `unsafe` and not public: only the owners in this file can
+    /// name it.
+    fn kept(handle: *mut c_void) -> Self {
         Self {
             handle,
             subresource: 0,
@@ -666,6 +700,12 @@ impl D3d11Encoder {
     /// texture, and the same picture, until a scale to another size replaces it:
     /// encode it before scaling again. A scale to the source's own size is a
     /// copy, which is exact.
+    ///
+    /// `texture` must be one this encoder's device can read — a capture's
+    /// surface, a [`Source::texture`], or a picture a scale answered — and must
+    /// stay alive until this returns: the shim reads the object through the
+    /// pointer, so a texture whose owner has gone is a fault here rather than an
+    /// error.
     pub fn scale(
         &mut self,
         texture: Texture,
@@ -693,7 +733,7 @@ impl D3d11Encoder {
                 self.error()
             );
         }
-        Ok(Texture::new(scaled))
+        Ok(Texture::kept(scaled))
     }
     /// Reads `texture` back at `width` by `height` as BGRA — `blue`, `green`,
     /// `red`, `alpha`, one row after another with no padding — into `pixels`,
@@ -706,6 +746,9 @@ impl D3d11Encoder {
     /// is a smaller look at a picture and never a stretched one — scaling up is
     /// [`Self::scale`]'s business, not a preview's — so a larger size is refused
     /// rather than answered.
+    ///
+    /// `texture` carries the same requirement as it does for [`Self::scale`]: on
+    /// this encoder's device, and alive until this returns.
     pub fn readback(
         &mut self,
         texture: Texture,
@@ -765,6 +808,9 @@ impl D3d11Encoder {
     /// frame the encoder produced is copied into a buffer of the pool's, which
     /// grows to hold it first if it has to: the picture is not submitted again,
     /// since the encoder has already encoded it and moved on.
+    ///
+    /// `texture` carries the same requirement as it does for [`Self::scale`]: on
+    /// this encoder's device, and alive until this returns.
     pub fn encode_texture(
         &mut self,
         texture: Texture,
@@ -852,16 +898,22 @@ impl Drop for D3d11Encoder {
     }
 }
 
-/// A picture drawn on the card for the UI's window to show where it lies: two
+/// A picture drawn on the card for the UI's window to show where it lies: three
 /// tile-sized BGRA textures and one fence on an encoder's device, sharing the
-/// handles of all three into the UI's process.
+/// handles of all four into the UI's process.
 ///
 /// The UI's window draws on a Direct3D 12 device of its own and opens the handle
 /// of the texture a picture was published under, so what crosses the process
-/// boundary is a handle and two numbers rather than the tile's pixels. Two
-/// textures alternate, so the one the UI is showing is never the one being
-/// drawn, and the fence value that comes back with each picture is what says it
-/// is drawn: see [`crate::frames::Drawn`], which is what a caller publishes.
+/// boundary is a handle and two numbers rather than the tile's pixels. Three
+/// textures, one per slot of the frames file, so the one the UI is showing is
+/// never the one being drawn, and the fence value that comes back with each
+/// picture is what says it is drawn: see [`crate::frames::Drawn`], which is what
+/// a caller publishes.
+///
+/// It is a set, and it has a number that only grows: a stream that changes size,
+/// or stops and starts again, is another three textures and another fence, and
+/// the UI lets go of the ones it opened for the set before. A handle's value is
+/// no use for that, since Windows hands a closed handle's value out again.
 ///
 /// It holds textures on its encoder's device, so it goes before the encoder it
 /// draws for, and it is worth nothing without the UI's process being alive:
@@ -871,17 +923,22 @@ pub struct Shared {
     size: (u32, u32),
     luid: u64,
     fence: u64,
+    set: u64,
 }
 
-// SAFETY: the two textures and the fence are the device's, and every call that
+// SAFETY: the textures and the fence are the device's, and every call that
 // draws takes the share by `&mut self` while the handle shared out is a number.
 unsafe impl Send for Shared {}
 
 impl Shared {
-    /// Two pictures of `width` by `height` and one fence on `tile`'s device, with
-    /// the handles of all three duplicated into `ui`, the process that opens
+    /// Three pictures of `width` by `height` and one fence on `tile`'s device,
+    /// with the handles of all four duplicated into `ui`, the process that opens
     /// them. Answers why not where the card or the UI's process won't have them:
     /// a caller that gets an error writes the tile's pixels as it always did.
+    ///
+    /// A set that can't be finished leaves nothing behind: the handles it
+    /// duplicated into the UI's process so far are closed there before this
+    /// answers, since no picture is ever published of a set that wasn't made.
     pub fn new(tile: &D3d11Encoder, width: u32, height: u32, ui: u32) -> Result<Self> {
         let (mut fence, mut luid) = (0, 0);
         let mut why = [0u8; 192];
@@ -910,6 +967,9 @@ impl Shared {
             size: (width, height),
             luid,
             fence,
+            // SAFETY: raw is the set that was just made, and it lives as long as
+            // this does.
+            set: unsafe { yapfast_d3d11enc_shared_set(raw) },
         })
     }
 
@@ -931,10 +991,18 @@ impl Shared {
         self.fence
     }
 
+    /// The number of this set of pictures and fence, which only grows: the UI
+    /// tells a set it has already opened from the one after it by this, and not
+    /// by a handle, since a handle's value is given out again once it is closed.
+    pub fn set(&self) -> u64 {
+        self.set
+    }
+
     /// Scales `texture` into shared picture `at` on the GPU, in one pass
     /// through the driver's video processor or its shader, and answers that
     /// picture's handle as the UI's process holds it with the fence value that
-    /// says it is drawn.
+    /// says it is drawn. The handle travels with the number of the set it is of,
+    /// which is what the UI keys the pictures it has opened by.
     ///
     /// The caller names the picture because the frames file's slot decides
     /// which one may be drawn into: a slot is only drawn into once its reader
@@ -943,12 +1011,16 @@ impl Shared {
     ///
     /// The value is signalled after the scale is queued and nothing here waits
     /// for it: the UI does, and so does the next draw into the same picture.
+    ///
+    /// `texture` carries the same requirement as it does for
+    /// [`D3d11Encoder::scale`]: one this tile's device can read, and alive until
+    /// this returns.
     pub fn draw(
         &mut self,
         at: u32,
         tile: &mut D3d11Encoder,
         texture: Texture,
-    ) -> Result<(u64, u64)> {
+    ) -> Result<(SharedTexture, u64)> {
         let (mut handle, mut value) = (0, 0);
         // SAFETY: raw and the encoder are both open, the texture is the caller's
         // and outlives the call, and the out-pointers are two locals.
@@ -972,24 +1044,33 @@ impl Shared {
                 tile.error()
             );
         }
-        Ok((handle, value))
+        Ok((
+            SharedTexture {
+                handle,
+                set: self.set,
+            },
+            value,
+        ))
     }
 
     /// The picture the last draw wrote, as a texture on the encoder's device:
     /// what a test reads back to see the tile the UI would show, and what the
-    /// stream never needs, since it publishes the handle instead.
+    /// stream never needs, since it publishes the handle instead. It is this
+    /// share's own texture, drawn into again by the next draw, so it is good
+    /// only while the share is.
     pub fn picture(&self) -> Texture {
         // SAFETY: raw is an open share, and the texture it names lives as long as
         // it does.
-        Texture::new(unsafe { yapfast_d3d11enc_shared_picture(self.raw) })
+        Texture::kept(unsafe { yapfast_d3d11enc_shared_picture(self.raw) })
     }
 }
 
 impl Drop for Shared {
     fn drop(&mut self) {
         // SAFETY: raw came from the shim's constructor and is freed once. The
-        // handles duplicated into the UI's process are that process's, and go
-        // when it closes them.
+        // handles duplicated into the UI's process are that process's to close as
+        // it opens them, and the shim closes the ones it duplicated there and
+        // nothing opened before it lets the set go.
         unsafe { yapfast_d3d11enc_shared_free(self.raw) };
     }
 }
@@ -1013,11 +1094,13 @@ impl Source {
         unsafe { yapfast_d3d11enc_source_draw(self.raw, frame) };
     }
 
-    /// The texture to encode next, which the source keeps and refills.
+    /// The texture to encode next, which the source keeps and refills: it is the
+    /// source's own, good only while the source is, and its device is the one the
+    /// source was made on.
     pub fn texture(&self) -> Texture {
         // SAFETY: raw is a source that hasn't been freed, and its texture lives
         // as long as it does.
-        Texture::new(unsafe { yapfast_d3d11enc_source_texture(self.raw) })
+        Texture::kept(unsafe { yapfast_d3d11enc_source_texture(self.raw) })
     }
     /// Draws four solid quadrants instead of the moving picture: one known colour
     /// in each corner of the texture, which is the picture a scaler is held to.
@@ -1422,8 +1505,13 @@ mod tests {
             .draw(1, &mut encoder, source.texture())
             .expect("the second picture drawn");
         assert_ne!(
-            first, second,
+            first.handle, second.handle,
             "both pictures are one texture, which is one written under the UI"
+        );
+        assert_eq!(
+            (first.set, second.set),
+            (shared.set(), shared.set()),
+            "one set of pictures, and the pictures say which"
         );
         assert!(
             second_value > first_value,
@@ -1441,8 +1529,34 @@ mod tests {
         }
         eprintln!(
             "two {width}x{height} pictures at {} and {} behind a fence at {second_value}",
-            first, second
+            first.handle, second.handle
         );
+    }
+
+    /// A set is three textures and one fence with a number of its own, and a set
+    /// built after another is a larger number: the UI lets go of what it opened
+    /// for the older one when a picture names the newer, and only a number can
+    /// say that, since Windows hands a closed handle's value out again.
+    #[test]
+    #[ignore = "needs an NVIDIA GPU: it opens an NVENC session on one"]
+    fn a_shared_set_has_a_number_that_only_grows() {
+        let _gpu = one_gpu_test_at_a_time();
+        let (width, height) = (64u32, 36u32);
+        let encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
+            .expect("an NVENC encoder on this machine");
+        // This process, which DuplicateHandle answers as readily as another one.
+        let first =
+            Shared::new(&encoder, width, height, std::process::id()).expect("a picture to share");
+        assert_ne!(first.set(), 0, "a set has no number");
+        let second = Shared::new(&encoder, width, height, std::process::id())
+            .expect("another picture to share");
+        assert!(
+            second.set() > first.set(),
+            "the second set is numbered {} after {}",
+            second.set(),
+            first.set()
+        );
+        eprintln!("sets {} and {}", first.set(), second.set());
     }
     /// A readback at a picture's own size is that picture's pixels, exactly: the
     /// copy is a copy, with no scaler in it to move a value, so the two pixels
@@ -1635,10 +1749,20 @@ mod tests {
         let scaled = (width, height) != (captured_width, captured_height);
         let texture = if scaled {
             encoder
-                .scale(Texture::new(texture), width, height, Resize::Shrink)
+                .scale(
+                    // SAFETY: the capture's own texture, alive until it goes out of
+                    // scope at the end of this test, and on the device the encoder
+                    // was opened on.
+                    unsafe { Texture::new(texture) },
+                    width,
+                    height,
+                    Resize::Shrink,
+                )
                 .expect("the capture's picture scaled to the encoder's size")
         } else {
-            Texture::new(texture)
+            // SAFETY: as above: the capture's own texture, alive for the rest of
+            // the test.
+            unsafe { Texture::new(texture) }
         };
 
         eprintln!(

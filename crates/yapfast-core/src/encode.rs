@@ -6,8 +6,8 @@
 //! that give their sizes.
 
 use std::{
-    ffi::{c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
-    sync::Arc,
+    ffi::{c_char, c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -20,6 +20,8 @@ use yapfast_discord::{
     rtp::Codec,
     stream_connection::{Encoded, Pool},
 };
+
+use crate::gpu::{self, Candidate, Luid, Reach};
 // FFmpeg's and x264's libraries, which native/hwenc.c and native/h264.c
 // call: linked only while named.
 #[cfg(hwenc)]
@@ -108,15 +110,17 @@ unsafe extern "C" {
 
 #[cfg(hwenc)]
 unsafe extern "C" {
-    #[allow(clippy::too_many_arguments)]
+    /// Whether this FFmpeg build has the encoder `name`, which is how this side
+    /// learns what the shipped build was configured with: an encoder the build
+    /// hasn't got is one no stream can offer, and one it has may still fail to
+    /// open on this machine.
+    fn yapfast_hwenc_has(name: *const c_char) -> c_int;
+    /// What an encoder is asked for beyond the picture: the frame's shape and
+    /// rate, the bitrate to aim at, the tuning, the encoders to try and the
+    /// kind of GPU the stream asked for.
     fn yapfast_hwenc_new(
-        codec: c_uint,
-        width: c_uint,
-        height: c_uint,
-        fps: c_uint,
-        kbps: c_uint,
-        tuning: *const std::ffi::c_char,
-        report: *mut std::ffi::c_char,
+        ask: *const OpenRequest,
+        report: *mut c_char,
         report_size: usize,
     ) -> *mut Raw;
     #[allow(clippy::too_many_arguments)]
@@ -136,11 +140,35 @@ unsafe extern "C" {
     fn yapfast_hwenc_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
     fn yapfast_hwenc_staging(encoder: *mut Raw) -> usize;
     fn yapfast_hwenc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
-    fn yapfast_hwenc_notes(encoder: *mut Raw, notes: *mut std::ffi::c_char, notes_size: usize);
-    fn yapfast_hwenc_config(encoder: *mut Raw, config: *mut std::ffi::c_char, config_size: usize);
-    fn yapfast_hwenc_tuning(encoder: *mut Raw, tuning: *mut std::ffi::c_char, tuning_size: usize);
+    fn yapfast_hwenc_notes(encoder: *mut Raw, notes: *mut c_char, notes_size: usize);
+    /// FFmpeg's own name for the encoder that opened, such as "h264_nvenc",
+    /// which is what this side matches its choice of backend back to: the
+    /// report beside it names VA-API's device too.
+    fn yapfast_hwenc_engine(encoder: *mut Raw, name: *mut c_char, name_size: usize);
+    fn yapfast_hwenc_config(encoder: *mut Raw, config: *mut c_char, config_size: usize);
+    fn yapfast_hwenc_tuning(encoder: *mut Raw, tuning: *mut c_char, tuning_size: usize);
     fn yapfast_hwenc_late(encoder: *mut Raw) -> c_uint;
     fn yapfast_hwenc_free(encoder: *mut Raw);
+}
+
+/// What native/hwenc.c is asked for, laid out as its `struct yapfast_hwenc_open`.
+#[cfg(hwenc)]
+#[repr(C)]
+struct OpenRequest {
+    codec: c_uint,
+    width: c_uint,
+    height: c_uint,
+    fps: c_uint,
+    kbps: c_uint,
+    /// The tuning asked for by name, or null for the shipped one.
+    tuning: *const c_char,
+    /// FFmpeg's encoders to try, best first and separated by commas: how the
+    /// adapter preference reaches the device choice. Null for this build's own
+    /// order, which is what a platform that can't list its adapters gets.
+    encoders: *const c_char,
+    /// "dedicated" or "integrated", for the render nodes VA-API chooses
+    /// between itself; null when nothing is preferred.
+    preference: *const c_char,
 }
 
 /// RTP's video clock.
@@ -244,6 +272,15 @@ pub struct Encoder {
     /// How many frames the GPU's encoder has answered late so far, as last
     /// read, so that a warning names each new one once.
     late: u32,
+    /// The hardware encoder that opened, and what reaching it costs; `None`
+    /// for an encoder on the processor.
+    chosen: Option<Candidate>,
+    /// The adapter the capture filled its frames on, when the caller said:
+    /// which encoder is asked first, and which a failure reopens.
+    capture: Option<Luid>,
+    /// FFmpeg's names for the hardware encoders this encoder has run as, so a
+    /// failure reopens one this stream hasn't already seen fail.
+    tried: Vec<String>,
     /// How many pictures the native encoder has been asked for: a test holds
     /// it to one a picture, since a picture encoded twice is one referencing
     /// the copy the receiver never got.
@@ -282,6 +319,16 @@ struct Opened {
     set_bitrate: SetBitrate,
     free: Free,
     configuration: Configuration,
+    /// FFmpeg's own name for it ("h264_nvenc"), where
+    /// [`Configuration::engine`] names VA-API's device as well.
+    #[cfg_attr(not(hwenc), allow(dead_code))]
+    name: String,
+    /// The candidate that opened: which backend, on which adapter, and what a
+    /// captured frame costs to reach it. `None` for an encoder on the
+    /// processor, and for a hardware one opened where this machine's adapters
+    /// couldn't be listed.
+    #[cfg_attr(not(hwenc), allow(dead_code))]
+    candidate: Option<Candidate>,
 }
 
 /// What one call of an encoder made of a frame.
@@ -308,13 +355,47 @@ impl Encoder {
         effort: Effort,
         hardware: bool,
     ) -> Result<Self> {
+        Self::open(codec, width, height, fps, kbps, effort, hardware, None)
+    }
+
+    /// An encoder like [`Self::new`], for a capture whose frames were filled on
+    /// `capture`: the adapter is what the preference and the adapter list put
+    /// first, and a stream whose capture is on another adapter is told which
+    /// encoder crossed to it rather than which one merely opened. `None` is a
+    /// frame with no adapter of its own — a camera's, a clip's — and the
+    /// preference alone decides.
+    #[allow(clippy::too_many_arguments)]
+    pub fn on_adapter(
+        codec: Codec,
+        width: u32,
+        height: u32,
+        fps: u32,
+        kbps: u32,
+        effort: Effort,
+        hardware: bool,
+        capture: Option<Luid>,
+    ) -> Result<Self> {
+        Self::open(codec, width, height, fps, kbps, effort, hardware, capture)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn open(
+        codec: Codec,
+        width: u32,
+        height: u32,
+        fps: u32,
+        kbps: u32,
+        effort: Effort,
+        hardware: bool,
+        capture: Option<Luid>,
+    ) -> Result<Self> {
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             bail!("{codec:?} frames need an even size, not {width}x{height}");
         }
-        let opened = match hardware
-            .then(|| open_hardware(codec, width, height, fps, kbps, Tuning::default()))
-        {
-            Some(Some(opened)) => opened,
+        let opened = match hardware.then(|| {
+            open_hardware(codec, width, height, fps, kbps, Tuning::default(), capture, &[])
+        }) {
+            Some(Ok(opened)) => opened,
             _ => open_software(codec, width, height, fps, kbps, effort)?,
         };
         let pixels = (width * height) as usize;
@@ -333,6 +414,9 @@ impl Encoder {
             height,
             fps,
             late: 0,
+            chosen: opened.candidate,
+            capture,
+            tried: vec![opened.name],
             #[cfg(test)]
             submitted: 0,
             planes: Vec::new(),
@@ -357,6 +441,19 @@ impl Encoder {
         !matches!(self.engine(), "libvpx" | "x264")
     }
 
+    /// The hardware encoder that runs, and what reaching it costs: the
+    /// backend, the adapter it is on and whether a captured frame crosses to
+    /// it. `None` for an encoder on the processor, whose frames are already
+    /// the processor's, and for a hardware one opened where this machine's
+    /// adapters couldn't be listed.
+    ///
+    /// A hardware encoder here is fed from system memory either way: the
+    /// zero-copy path is the native D3D11 one in `d3d11.rs`, not this. What
+    /// this says is which adapter the upload ends up on.
+    pub fn selection(&self) -> Option<Candidate> {
+        self.chosen
+    }
+
     /// Puts `opened` in place of the encoder running now.
     fn replace(&mut self, opened: Opened) {
         // SAFETY: raw came from its codec's constructor and is freed once.
@@ -368,6 +465,8 @@ impl Encoder {
         self.set_bitrate = opened.set_bitrate;
         self.free = opened.free;
         self.configuration = opened.configuration;
+        self.chosen = opened.candidate;
+        self.tried.push(opened.name);
     }
 
     pub fn codec(&self) -> Codec {
@@ -381,6 +480,20 @@ impl Encoder {
     /// The bitrate aimed for, in kbit/s.
     pub fn bitrate(&self) -> u32 {
         self.kbps
+    }
+
+    /// The bytes the encoder's output buffers hold now, and the most they have
+    /// held: what a stream's report shows so a pool that grew for one large
+    /// frame says what it kept.
+    pub fn pool_bytes(&self) -> (u64, u64) {
+        let (live, peak) = self.out.bytes();
+        (live as u64, peak as u64)
+    }
+
+    /// Gives back the output buffers lying idle, for a machine short of memory:
+    /// a buffer being encoded into or waiting to be sent is never touched.
+    pub fn trim_pool(&self) {
+        self.out.trim();
     }
 
     /// How many buffers the encoder's pool has allocated: the tests hold it
@@ -561,19 +674,62 @@ impl Encoder {
         keyframe: bool,
     ) -> Result<Written> {
         match self.encode_once(planes, pts, keyframe) {
-            Err(error) if self.hardware() && self.codec == Codec::H264 => {
+            Err(error) if self.hardware() => {
                 tracing::warn!(
                     engine = self.engine(),
                     %error,
-                    "the GPU's encoder failed; encoding with x264"
+                    "the GPU's encoder failed; reopening another"
                 );
-                let (codec, width, height, fps) = (self.codec, self.width, self.height, self.fps);
-                let opened = open_software(codec, width, height, fps, self.kbps, self.effort)?;
-                self.replace(opened);
+                self.reopen()?;
+                // The picture is submitted again, with a keyframe: the
+                // receiver never got the one that failed, so the frame it
+                // holds is one this stream's pictures no longer reference.
                 self.encode_once(planes, pts, true)
             }
             written => written,
         }
+    }
+
+    /// Replaces the encoder that failed with the next one that opens: another
+    /// hardware encoder on this machine — the same codec, on another adapter or
+    /// backend, which is what the adapter preference's fallbacks are for — or,
+    /// when none is left, the processor's, which H264 alone has.
+    ///
+    /// The codec is kept rather than renegotiated: a stream's viewers were
+    /// promised it, so a failure changes the encoder and not the format.
+    fn reopen(&mut self) -> Result<()> {
+        let (codec, width, height, fps, kbps, effort) =
+            (self.codec, self.width, self.height, self.fps, self.kbps, self.effort);
+        if let Some(opened) = open_hardware(
+            codec,
+            width,
+            height,
+            fps,
+            kbps,
+            Tuning::default(),
+            self.capture,
+            &self.tried,
+        )
+        .ok()
+        {
+            tracing::warn!(
+                engine = opened.name.as_str(),
+                fallback = true,
+                "the GPU's encoder was replaced by another on this machine"
+            );
+            self.replace(opened);
+            return Ok(());
+        }
+        // Nothing left on a GPU, so it is the processor's or nothing: H265 and
+        // AV1 have no encoder there, and the error stays the GPU's.
+        let opened = open_software(codec, width, height, fps, kbps, effort)?;
+        tracing::warn!(
+            engine = self.engine(),
+            fallback = true,
+            "the GPU's encoder failed; encoding on the processor"
+        );
+        self.replace(opened);
+        Ok(())
     }
 
     /// How many frames the GPU's encoder has answered late, and which
@@ -668,6 +824,8 @@ fn open_software(
             set_bitrate: yapfast_vp8_set_bitrate,
             free: yapfast_vp8_free,
             configuration: software_configuration("libvpx", effort),
+            name: "libvpx".to_owned(),
+            candidate: None,
         },
         Codec::H264 => Opened {
             raw: unsafe { yapfast_h264_new(width, height, fps, kbps, threads, effort as c_uint) },
@@ -677,6 +835,8 @@ fn open_software(
             set_bitrate: yapfast_h264_set_bitrate,
             free: yapfast_h264_free,
             configuration: software_configuration("x264", effort),
+            name: "x264".to_owned(),
+            candidate: None,
         },
         Codec::H265 | Codec::Av1 => bail!(
             "{} encodes only on a GPU, and this one has no encoder for it",
@@ -711,8 +871,104 @@ fn software_configuration(engine: &str, effort: Effort) -> Configuration {
     }
 }
 
-/// The GPU's encoder for `codec`, if it has one that opens.
+/// The codecs hardware encoding may offer at all, most wanted first: Discord's
+/// viewers stream the first one every one of them decodes, so AV1 comes before
+/// H265 before H264.
+pub const HARDWARE_CODECS: [Codec; 3] = [Codec::Av1, Codec::H265, Codec::H264];
+
+/// FFmpeg's name for `codec`'s encoder on `backend`, or `None` where that
+/// backend has none for it — VP8 is the processor's alone — so no candidate is
+/// opened on a name that doesn't exist.
+fn engine_name(backend: gpu::Backend, codec: Codec) -> Option<&'static str> {
+    use gpu::Backend::{Amf, Nvenc, Qsv, Vaapi};
+    Some(match (codec, backend) {
+        (Codec::Vp8, _) => return None,
+        (Codec::H264, Nvenc) => "h264_nvenc",
+        (Codec::H265, Nvenc) => "hevc_nvenc",
+        (Codec::Av1, Nvenc) => "av1_nvenc",
+        (Codec::H264, Amf) => "h264_amf",
+        (Codec::H265, Amf) => "hevc_amf",
+        (Codec::Av1, Amf) => "av1_amf",
+        (Codec::H264, Qsv) => "h264_qsv",
+        (Codec::H265, Qsv) => "hevc_qsv",
+        (Codec::Av1, Qsv) => "av1_qsv",
+        (Codec::H264, Vaapi) => "h264_vaapi",
+        (Codec::H265, Vaapi) => "hevc_vaapi",
+        (Codec::Av1, Vaapi) => "av1_vaapi",
+    })
+}
+
+/// Whether this FFmpeg build has the encoder `name`: what its configure line
+/// enabled, which is not the same as this machine being able to open it.
 #[cfg(hwenc)]
+fn has(name: &str) -> bool {
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return false;
+    };
+    // SAFETY: a name with a zero of its own, which the shim only asks FFmpeg
+    // about.
+    unsafe { yapfast_hwenc_has(name.as_ptr()) != 0 }
+}
+
+#[cfg(not(hwenc))]
+fn has(_: &str) -> bool {
+    false
+}
+
+/// The encoders a stream may try for one codec, in the order it may try them.
+#[cfg(hwenc)]
+struct Plan {
+    /// What to open, best first: the encoder on the adapter the preference
+    /// picks, then the one on the adapter the capture filled its frames on,
+    /// then the rest of the machine.
+    tried: Vec<(Candidate, &'static str)>,
+    /// The encoders that order wanted and this FFmpeg wasn't built with, by
+    /// name: what a machine with Intel's GPU is told when the build has no
+    /// Quick Sync.
+    missing: Vec<&'static str>,
+}
+
+/// The encoders to try for `codec` and the ones this build hasn't got.
+///
+/// Empty when this machine's adapters couldn't be listed, which leaves
+/// native/hwenc.c's own order — the encoder FFmpeg finds first — exactly as it
+/// was before the adapter choice existed.
+#[cfg(hwenc)]
+fn plan(codec: Codec, capture: Option<Luid>) -> Plan {
+    let mut plan = Plan {
+        tried: Vec::new(),
+        missing: Vec::new(),
+    };
+    let adapters = gpu::machine();
+    if adapters.is_empty() {
+        return plan;
+    }
+    for candidate in gpu::candidates(gpu::preference(), &adapters, capture) {
+        let Some(name) = engine_name(candidate.backend, codec) else {
+            continue;
+        };
+        // One name, one open: two adapters of one vendor offer the encoder of
+        // the same name, and opening it twice tells the second nothing.
+        if plan.tried.iter().any(|(_, tried)| *tried == name)
+            || plan.missing.contains(&name)
+        {
+            continue;
+        }
+        if has(name) {
+            plan.tried.push((candidate, name));
+        } else {
+            plan.missing.push(name);
+        }
+    }
+    plan
+}
+
+/// The GPU's encoder for `codec`, if it has one that opens: the first of the
+/// candidates that isn't in `skip`, in the order the adapter preference puts
+/// them. The error is what was tried and why each was passed over, in the
+/// encoders' own words, for a log or the stream's report.
+#[cfg(hwenc)]
+#[allow(clippy::too_many_arguments)]
 fn open_hardware(
     codec: Codec,
     width: u32,
@@ -720,33 +976,78 @@ fn open_hardware(
     fps: u32,
     kbps: u32,
     tuning: Tuning,
-) -> Option<Opened> {
-    let number = match codec {
-        Codec::H264 => 0,
-        Codec::H265 => 1,
-        Codec::Av1 => 2,
-        Codec::Vp8 => return None,
+    capture: Option<Luid>,
+    skip: &[String],
+) -> Result<Opened, String> {
+    let Some(number) = ([Codec::H264, Codec::H265, Codec::Av1])
+        .iter()
+        .position(|one| *one == codec)
+    else {
+        return Err(format!("{} has no hardware encoder", codec.name()));
+    };
+    let plan = plan(codec, capture);
+    let trying: Vec<(Candidate, &'static str)> = plan
+        .tried
+        .iter()
+        .copied()
+        .filter(|(_, name)| !skip.iter().any(|tried| tried == name))
+        .collect();
+    // The names to try, best first, which is how the adapter preference reaches
+    // the device choice; null when nothing could choose, which leaves the
+    // shim's own order.
+    let listed = if trying.is_empty() {
+        None
+    } else {
+        let names: Vec<&'static str> = trying.iter().map(|(_, name)| *name).collect();
+        Some(std::ffi::CString::new(names.join(",")).map_err(|_| "a name with a zero in it".to_owned())?)
+    };
+    // The kind of GPU the stream asked for. native/hwenc.c uses it for the
+    // render nodes VA-API chooses between itself on Linux; nothing else here
+    // has a device choice of its own to give it.
+    let preference = match gpu::preference() {
+        gpu::Preference::Dedicated => c"dedicated",
+        gpu::Preference::Integrated => c"integrated",
+    };
+    let request = OpenRequest {
+        codec: number as c_uint,
+        width,
+        height,
+        fps,
+        kbps,
+        tuning: tuning.name().as_ptr(),
+        encoders: listed.as_ref().map_or(std::ptr::null(), |names| names.as_ptr()),
+        preference: preference.as_ptr(),
     };
     let mut report = [0u8; 512];
-    // SAFETY: plain values and a buffer of the size given, which the shim
-    // ends with a zero.
-    let raw = unsafe {
-        yapfast_hwenc_new(
-            number,
-            width,
-            height,
-            fps,
-            kbps,
-            tuning.name().as_ptr(),
-            report.as_mut_ptr().cast(),
-            report.len(),
-        )
-    };
+    // SAFETY: the request's strings outlive the call, and the report is a
+    // buffer of the size given, which the shim ends with a zero.
+    let raw = unsafe { yapfast_hwenc_new(&request, report.as_mut_ptr().cast(), report.len()) };
     let report = c_text(&report);
     if raw.is_null() {
-        tracing::info!(?codec, tried = report, "no GPU encoder opened");
-        return None;
+        let mut why = report;
+        // An encoder the build hasn't got can't be reported on: naming it as one
+        // this FFmpeg was never built with is what tells an Intel machine the
+        // encoder it has is not in this build.
+        if !plan.missing.is_empty() {
+            if !why.is_empty() {
+                why.push_str("; ");
+            }
+            why.push_str(&plan.missing.join(", "));
+            why.push_str(": not in this FFmpeg");
+        }
+        tracing::info!(?codec, tried = why.as_str(), "no GPU encoder opened");
+        return Err(why);
     }
+    // Which encoder opened: FFmpeg's own name for it, since the report beside it
+    // names VA-API's device as well.
+    let mut name = [0u8; 32];
+    // SAFETY: raw is an open encoder, and the buffer is as large as its size.
+    unsafe { yapfast_hwenc_engine(raw, name.as_mut_ptr().cast(), name.len()) };
+    let name = c_text(&name);
+    let candidate = trying
+        .iter()
+        .find(|(_, tried)| *tried == name)
+        .map(|(candidate, _)| *candidate);
     // The settings the encoder needs made it open; the ones only better are
     // its to drop, so the stream says which it isn't getting — in the log at
     // the open, and in every report while it runs.
@@ -780,7 +1081,26 @@ fn open_hardware(
         config = c_text(&config),
         "encoding on the GPU"
     );
-    Some(Opened {
+    // Said once at the open, since it holds for as long as the encoder does:
+    // this encoder reads its frames from system memory, and the adapter it is
+    // on is the one the upload lands on.
+    if let Some(candidate) = candidate {
+        if candidate.reach == Reach::Crosses {
+            tracing::warn!(
+                engine = report.as_str(),
+                backend = candidate.backend.name(),
+                "the GPU's encoder is on another adapter than the capture: every frame is copied 
+                 across to it"
+            );
+        } else {
+            tracing::info!(
+                engine = report.as_str(),
+                backend = candidate.backend.name(),
+                "encoding on the GPU's encoder from the processor: every frame is uploaded to it"
+            );
+        }
+    }
+    Ok(Opened {
         raw,
         encode: yapfast_hwenc_encode,
         drain: yapfast_hwenc_drain,
@@ -793,7 +1113,15 @@ fn open_hardware(
             tuning: opened_with,
             settings_dropped,
         },
+        name,
+        candidate,
     })
+}
+
+/// Lets go of an encoder that was opened only to see that it opens.
+fn close(opened: Opened) {
+    // SAFETY: raw came from a codec's constructor and is freed once.
+    unsafe { (opened.free)(opened.raw) };
 }
 /// The optional settings an encoder's shim says its driver didn't keep, by
 /// name and separated by commas, and empty when it kept them all. Taking the
@@ -821,8 +1149,168 @@ fn c_text(bytes: &[u8]) -> String {
 }
 
 #[cfg(not(hwenc))]
-fn open_hardware(_: Codec, _: u32, _: u32, _: u32, _: u32, _: Tuning) -> Option<Opened> {
-    None
+#[allow(clippy::too_many_arguments)]
+fn open_hardware(
+    _: Codec,
+    _: u32,
+    _: u32,
+    _: u32,
+    _: u32,
+    _: Tuning,
+    _: Option<Luid>,
+    _: &[String],
+) -> Result<Opened, String> {
+    Err("this build has no hardware encoders".to_owned())
+}
+
+/// What hardware encoding offers for one codec at one picture size and rate:
+/// what opened, or why nothing did.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Capability {
+    pub codec: Codec,
+    /// What runs for it, when anything did: the encoder, the adapter it is on
+    /// and what reaching it costs.
+    pub open: Option<Candidate>,
+    /// Why nothing opened, in the encoders' and this machine's own words.
+    pub why: String,
+}
+
+/// What hardware encoding offers at one picture size and rate: each codec the
+/// GPU might encode, with the encoder that opened for it or why none did.
+///
+/// The only way to know is to open one — FFmpeg has no way to ask whether it
+/// will — so each candidate is opened and let go, once for the session rather
+/// than once per frame, and thrown away when the GPU's device is lost.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Capabilities {
+    /// The picture size and rate it was probed at: an answer about one size
+    /// says nothing about another.
+    shape: (u32, u32, u32),
+    codecs: Vec<Capability>,
+}
+
+impl Capabilities {
+    /// The shape this was probed at: `width`, `height` and frames a second.
+    pub fn shape(&self) -> (u32, u32, u32) {
+        self.shape
+    }
+
+    /// The codecs a GPU encodes here, most wanted first: what a stream offers
+    /// a viewer ahead of the encoder on the processor.
+    pub fn codecs(&self) -> impl Iterator<Item = Codec> + '_ {
+        self.codecs
+            .iter()
+            .filter(|one| one.open.is_some())
+            .map(|one| one.codec)
+    }
+
+    /// Whether hardware encoding opens `codec` at this shape. Only what opened
+    /// is advertised: an encoder that doesn't open here is one a viewer would
+    /// be promised and sent nothing for.
+    pub fn opens(&self, codec: Codec) -> bool {
+        self.selection(codec).is_some()
+    }
+
+    /// The encoder that opened for `codec`, and what reaching it costs; `None`
+    /// when none did.
+    pub fn selection(&self, codec: Codec) -> Option<Candidate> {
+        self.codecs
+            .iter()
+            .find(|one| one.codec == codec)
+            .and_then(|one| one.open)
+    }
+
+    /// Each codec that didn't open, with what was tried and why each encoder
+    /// was passed over: a machine told it has no hardware encoder is told which
+    /// one it hasn't got.
+    pub fn refused(&self) -> impl Iterator<Item = (Codec, &str)> + '_ {
+        self.codecs
+            .iter()
+            .filter(|one| one.open.is_none())
+            .map(|one| (one.codec, one.why.as_str()))
+    }
+
+    /// Everything the probe found, as one line for a log or a report: each
+    /// codec with the encoder that opened and where, or why nothing did.
+    pub fn report(&self) -> String {
+        let (width, height, fps) = self.shape;
+        let mut line = format!("{width}x{height} at {fps} fps:");
+        for one in &self.codecs {
+            match one.open {
+                Some(open) => line.push_str(&format!(
+                    " {} {}, {}",
+                    one.codec.name(),
+                    open.backend.name(),
+                    match open.reach {
+                        Reach::Uploaded => "frames uploaded",
+                        Reach::Crosses => "frames copied across adapters",
+                    }
+                )),
+                None => line.push_str(&format!(" no {} ({})", one.codec.name(), one.why)),
+            }
+        }
+        line
+    }
+}
+
+/// What hardware encoding offers at `width` by `height`, `fps` frames a second:
+/// probed once and kept, since a stream's negotiation asks for the same shape at
+/// every start and only opening an encoder answers it.
+///
+/// The bitrate is what the open is given and not part of what is kept: an
+/// encoder is refused for a size and a rate, not for the cap it was asked to
+/// aim at.
+pub fn capabilities(width: u32, height: u32, fps: u32, kbps: u32) -> Capabilities {
+    let mut kept = CAPABILITIES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(cached) = kept
+        .as_ref()
+        .filter(|cached| cached.shape == (width, height, fps))
+    {
+        return cached.clone();
+    }
+    let probed = probe(width, height, fps, kbps);
+    *kept = Some(probed.clone());
+    probed
+}
+
+/// Forgets what the last probe found, for a GPU's device that was lost or
+/// replaced: an encoder that opened on a device that is gone proves nothing
+/// about the one that replaced it, so the next stream opens each again.
+pub fn forget_capabilities() {
+    let mut kept = CAPABILITIES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *kept = None;
+}
+
+/// The probe's last answer, kept for the session.
+static CAPABILITIES: Mutex<Option<Capabilities>> = Mutex::new(None);
+
+/// Opens each hardware codec once, without a capture adapter: a stream's
+/// negotiation asks what the GPU has, not what one capture's frames would cost.
+fn probe(width: u32, height: u32, fps: u32, kbps: u32) -> Capabilities {
+    let mut codecs = Vec::with_capacity(HARDWARE_CODECS.len());
+    for codec in HARDWARE_CODECS {
+        let (open, why) =
+            match open_hardware(codec, width, height, fps, kbps, Tuning::default(), None, &[]) {
+                Ok(opened) => {
+                    let candidate = opened.candidate;
+                    // The probe is the open: a stream opens the encoder it offers
+                    // with, so this one goes now rather than being kept against
+                    // the shape it was opened for.
+                    close(opened);
+                    (candidate, String::new())
+                }
+                Err(why) => (None, why),
+            };
+        codecs.push(Capability { codec, open, why });
+    }
+    Capabilities {
+        shape: (width, height, fps),
+        codecs,
+    }
 }
 
 impl Drop for Encoder {
@@ -1325,22 +1813,22 @@ mod tests {
     #[test]
     fn a_backend_passed_over_says_why() {
         let mut report = [0u8; 512];
+        // Nothing named but the picture: this build's own order of encoders and
+        // the shipped tuning, which is what a machine whose adapters can't be
+        // listed is given.
+        let ask = OpenRequest {
+            codec: 0,
+            width: 8192,
+            height: 8192,
+            fps: 30,
+            kbps: 500,
+            tuning: std::ptr::null(),
+            encoders: std::ptr::null(),
+            preference: std::ptr::null(),
+        };
         // SAFETY: plain values and a buffer of the size given, which the shim
         // ends with a zero.
-        let raw = unsafe {
-            yapfast_hwenc_new(
-                0,
-                8192,
-                8192,
-                30,
-                500,
-                // No tuning named: the shipped one, which is what a stream
-                // that says nothing about its quality is given.
-                std::ptr::null(),
-                report.as_mut_ptr().cast(),
-                report.len(),
-            )
-        };
+        let raw = unsafe { yapfast_hwenc_new(&ask, report.as_mut_ptr().cast(), report.len()) };
         if !raw.is_null() {
             // SAFETY: raw came from the call above and is freed once.
             unsafe { yapfast_hwenc_free(raw) };

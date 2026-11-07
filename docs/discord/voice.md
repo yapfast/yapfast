@@ -111,7 +111,27 @@ is — "Windows Graphics Capture · 3440×1440 screen", or "the processor's
 capturer" — which is the half of a share no packet shows: the same screen looks
 the same whether the card or the processor took it. Discord's client shows its
 stream's numbers only in developer mode.
-The stream worker reports them once a second while live
+
+Beside those it says how the pictures reach the window — "the worker's own
+texture", the card's own memory shown where it was drawn, or "copied to the
+processor" frame by frame — the adapter the window draws on ("adapter
+0x1488a"), how long a frame waited between the capture having it and the encoder
+being given it, what the encoder's output buffers hold now and the most they
+have held, and, when there is one, why the share isn't on the card's own path:
+the window drawing on another adapter, the card refusing a shared picture, a
+source the card can't capture. A row that nothing answered reads "unknown"
+rather than zero, since a number nobody measured is not a measurement. While a
+share is giving memory back because the machine is short, the tab names the
+signal that said so; the policy is in [Go
+Live](go-live.md#the-stream-tab-and-what-a-share-gives-back-when-the-machine-is-short).
+
+*Copy diagnostics* copies the share's latest report as JSON, made when it is
+asked for and not before: no token, no server, no window title, and nothing of
+the picture or the sound — only what its numbers were. It is there for a bug
+report, so it says what a share looked like and why, and nothing about the
+account or the conversation.
+
+The stream worker reports all of this once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps
 the last report beside its own numbers, without refreshing the UI's state,
 and the popout reads it as it reads the pings. A report more than 3 s old
@@ -123,6 +143,14 @@ report at once, so a stream that ended never shows as live. It also names any se
 refused, when one did, so a stream never silently runs without the tuning it
 asked for. `talks_to_the_fake_server`
 checks the bytes counted and a resend.
+
+While this account watches someone's stream, the tab is about that stream:
+what decodes it — "the card's decoder" where the machine's own decoder leaves
+the picture on the card, "the processor's decoder" otherwise — the codec, the
+size and frame rate shown, and how the picture reaches the window, which for a
+watched stream is a copy of every picture into the shared frames. Nothing is
+sent, so the rows that would give a bitrate, a keyframe count or a send queue's
+losses stay away rather than showing a share's numbers.
 
 Matrix calls don't have these yet. LiveKit's SDK measures its signal
 connection's round trip but doesn't expose it, and `Room::get_stats`

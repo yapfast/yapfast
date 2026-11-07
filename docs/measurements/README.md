@@ -118,6 +118,15 @@ private `records.md` beside this file.
 
 ## GPU capture and encode, on Windows
 
+What ships now is the path these numbers argued for: on Windows, Windows
+Graphics Capture, or Desktop Duplication where Graphics Capture can't be had,
+fills a D3D11 texture, and where the card opens its encoder on the capture's own
+device, NVENC reads that texture where it lies, so no pixel of the frame is
+copied by the processor. Where it can't, the libyuv conversion comes back.
+[Go Live](../discord/go-live.md) says how a worker chooses between them. What
+follows is what the spikes measured on the way here, and then the same path as
+the crate's own test measures it; neither is a benchmark of the shipped build.
+
 The spike's result is now reproduced **inside the crate**: a D3D11 texture goes
 into NVENC through `native/d3d11enc.c`, and a test that runs only where an
 NVIDIA GPU is present encodes thirty frames of each codec from that texture.
@@ -130,9 +139,9 @@ and encodes that very 4520×1920 texture on the capture's own device — 250,984
 bytes, keyframe first, and not one pixel of the frame copied by the processor.
 
 
-An experiment, not shipped behaviour: the spike is in `.local/spike/wgc-nvenc/` in the
-working tree and is not committed. Machine: RTX 4090 (driver 617.14), Windows
-build 26200, a 3440×1440 monitor in HDR, an Intel UHD 770 also present.
+These numbers came from `.local/spike/wgc-nvenc/`, an experiment that was never
+committed: machine RTX 4090 (driver 617.14), Windows build 26200, a 3440×1440
+monitor in HDR, an Intel UHD 770 also present.
 
 A real desktop captured by Windows Graphics Capture into a D3D11 texture and
 handed to NVENC (`NV_ENC_DEVICE_TYPE_DIRECTX`) encodes with no CPU pixel copy:
@@ -207,17 +216,13 @@ Same machine, Windows 11 25H2 build 26200, from the spike in
 
 ### A decoded picture straight to the screen, without the processor
 
-Whether a decoded stream can reach Skia's GPU renderer without being copied to
-CPU memory first — spike in `.local/spike/gpu-present/`, not committed.
-
-**Since these numbers were taken, it has shipped**: `src/ui/gpu.rs` shows a
-stream's own D3D12 texture through the window's device, and
-`docs/discord/go-live.md` describes how the worker and the window hand pictures
-to each other now — shared handles, one fence per stream, and slots the window
-hands back only after its rendering queue has drawn a frame without them.
-Everything below is the spike's own record of what it measured then, not a
-description of the current code and not a fresh benchmark; the current path's
-costs are in the sections above.
+This one ships. `src/ui/gpu.rs` shows a stream's own D3D12 texture through the
+window's device, and [Go Live](../discord/go-live.md) describes how the worker
+and the window hand pictures to each other now — shared handles, one fence per
+stream, and slots the window hands back only after its rendering queue has drawn
+a frame without them. It began as a spike in `.local/spike/gpu-present/`, never
+committed, and everything below is that spike's own record of what it measured
+then, not a description of the current code and not a fresh benchmark.
 
 **Both hops work on this machine.** A D3D11 texture created with
 `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` (either flag alone fails) crosses a process
@@ -239,36 +244,47 @@ is no partial-rendering state for a notifier to switch off. Measured at
 *cheaper*, which is what "partial repainting was never active here" predicts.
 Idle was 0.00 % either way.
 
-**What it would buy**: the UI's copy-on-write of one 1280×720 RGBA picture costs
+**What it bought**: the UI's copy-on-write of one 1280×720 RGBA picture cost
 **1.1–1.9 ms a frame**, 3–6 % CPU at 30 fps per stream. At a 480×270 tile it is a
 fifth of that.
 
-**What it would cost**: the keyed mutex does not survive the D3D12 hop
+**What it cost**: the keyed mutex does not survive the D3D12 hop
 (`IDXGIKeyedMutex` on a D3D12 resource is `E_NOINTERFACE`), proved by a D3D11
-reader without the mutex seeing zeros where a D3D12 reader saw the frame — so a
-real implementation needs fences or double buffering. The producer also becomes
-adapter-bound, and failures only appear at `OpenSharedHandle`, so a per-stream
-LUID check is the fallback gate. Note the card enumerates twice here
+reader without the mutex seeing zeros where a D3D12 reader saw the frame — so the
+shipped path uses the worker's fence instead. The producer also becomes
+adapter-bound, and failures only appear at `OpenSharedHandle`, so the worker's
+LUID decides before anything is opened, and a mismatch is a decision rather than
+a failure to retry. Note the card enumerates twice here
 (`0x1488A`, `0x2079F`), so LUIDs must be compared, not names.
 
-### Assessed, measured, and not built
+### Assessed, measured, and what came of it
 
-Section 12 was first assessed as "not buildable here"; it has since been
-measured instead, and the numbers are in `docs/measurements/README.md`:
+Section 12 was first assessed as "not buildable here"; most of it has since been
+measured and shipped instead, and the numbers are in the sections above:
 
 - **Windows GPU capture-to-NVENC works**, with no CPU pixel copy: a real desktop
-  through Windows Graphics Capture into a D3D11 texture into NVENC. It is worth
+  through Windows Graphics Capture into a D3D11 texture into NVENC. It was worth
   the conversion and upload that stop happening — a couple of milliseconds a
   frame at 1080p, and about 4.4 ms of CPU copy at 3440×1440 — not the twenty
   times first rumoured. **Windows Graphics Capture, borderless, with the
-  libwebrtc capturer as fallback**, is the decision; Windows 10 needs Desktop
-  Duplication, which cannot remove the border and breaks on HDR frames.
-- **Hardware decode** still needs an FFmpeg with `d3d11va` — the vendored one
-  has neither hwaccel nor a single parser — so it remains gated on that build
-  and on a display path that doesn't read every frame back to the CPU.
-- **Intel QSV** needs oneVPL headers the vendor lacks, and additionally
-  `--enable-d3d11va` on Windows; on this machine's UHD 770 it would buy H.264
-  and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
+  libwebrtc capturer as fallback**, was the decision, and it is what ships,
+  windows as well as displays: a chosen window is captured with Graphics
+  Capture's `CreateForWindow`, Desktop Duplication stays display-only, and a
+  window the card can't take goes through the processor's capturer for that same
+  window. Windows 10 still needs Desktop Duplication, which cannot remove the
+  border and breaks on HDR frames.
+- **Hardware decode** was expected to wait for an FFmpeg with `d3d11va`, which
+  the vendored one has neither hwaccel nor a single parser for. It shipped
+  another way: `native/d3d11dec.cc` decodes H264, HEVC and AV1 with the machine's
+  own decoder through Media Foundation on a Direct3D 11 device, leaves each
+  picture in a texture, and scales it to the tile in the video processor's pass,
+  so only the tile is ordered back to the processor. A stream the machine has no
+  decoder for, a codec the card's pass can't take, and a session the card gives
+  up on all decode in software, as before. No measurement of the card's decoder
+  is recorded here.
+- **Intel QSV** is not built: it needs oneVPL headers the vendor lacks, and
+  additionally `--enable-d3d11va` on Windows; on this machine's UHD 770 it would
+  buy H.264 and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
 - GPU conversion and the Linux surface paths gain nothing further on their own.
 
 ### Encoder preset, colour claim, and Opus complexity

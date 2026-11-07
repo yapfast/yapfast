@@ -58,8 +58,8 @@ use crate::{
     encode::{self, Effort, Encoder},
     frames::{Drawn, Frames, Writer},
     picture::{self, I420, Tone},
-    stream_audio,
-    voice::{Resolution, StreamQuality, StreamStats},
+    pressure, stream_audio,
+    voice::{Presentation, Resolution, StreamQuality, StreamStats},
 };
 
 /// The argument that starts Yapfast as a stream worker.
@@ -496,6 +496,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 preview_due: None,
                 thumbnail: None,
                 lost: None,
+                diagnosis: Diagnosis::default(),
             };
             report(Report::Ready);
             match source {
@@ -596,6 +597,35 @@ struct Sink {
     /// When the stream connection ended, while Discord may still name a
     /// server it moved the stream to.
     lost: Option<Instant>,
+    /// Where the pictures come from and how they reach the window, which is
+    /// the half of a share no packet shows.
+    diagnosis: Diagnosis,
+}
+
+/// What a share can say about itself that the picture can't: how its frames
+/// reach the window, on which adapter each step ran, why it isn't on the path
+/// it asked for, how long a frame waited, and what the machine's memory has it
+/// give back.
+#[derive(Default)]
+struct Diagnosis {
+    /// How the pictures reach the window, once one has: the worker's own
+    /// texture when the window took one, a copy of the pixels otherwise.
+    /// Unknown until a picture has gone one way or the other.
+    presentation: Option<Presentation>,
+    /// The adapter the card drew this share on, when it drew one: the capture
+    /// and the encoder are the same device there, which is what makes a frame
+    /// cost no copy.
+    gpu_luid: Option<u64>,
+    /// Why the share isn't on the path it asked for, as the code that fell
+    /// back said it. One line, kept rather than grown.
+    fallback: Option<String>,
+    /// How long the last picture waited between the capture having it and the
+    /// encoder being given it, in milliseconds.
+    queue_delay_ms: Option<u32>,
+    /// When the capture handed over the picture the encoder is about to read.
+    captured_at: Option<Instant>,
+    /// What a machine short of memory has the share give back.
+    memory: crate::pressure::Policy,
 }
 
 /// Where a share's pictures come from, which is what decides who encodes
@@ -662,6 +692,18 @@ impl Encoding {
             Self::Picture(encoder) => encoder.set_bitrate(kbps),
             #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.set_bitrate(kbps),
+        }
+    }
+
+    /// Gives back the output buffers lying idle, for a machine short of
+    /// memory: a buffer being encoded into or waiting to be sent is untouched.
+    fn trim_pool(&mut self) {
+        match self {
+            Self::Picture(encoder) => encoder.trim_pool(),
+            // The card's session keeps its surfaces with the capture that
+            // made them, and gives them up with it rather than here.
+            #[cfg(any(wgc, dup))]
+            Self::Texture(_) => {}
         }
     }
 
@@ -739,16 +781,26 @@ struct Video {
 /// rather than growing with the frames.
 pub(crate) fn encoder_report(encoder: &Encoder) -> StreamStats {
     let (width, height) = encoder.size();
+    let (pool_live, pool_peak) = encoder.pool_bytes();
     StreamStats {
         engine: encoder.engine().to_owned(),
         codec: encoder.codec().name().to_owned(),
         width,
         height,
         settings_dropped: encoder.configuration().settings_dropped.clone(),
+        pool_live: Some(pool_live),
+        pool_peak: Some(pool_peak),
         ..StreamStats::default()
     }
 }
 impl Video {
+    /// Gives back what the encoder can spare, for a machine short of memory.
+    fn trim_pool(&mut self) {
+        if let Some(encoder) = self.encoder.as_mut() {
+            encoder.trim_pool();
+        }
+    }
+
     /// How the stream goes out, with the kbit/s sent since it last said.
     fn sending(&mut self, fps: u32) -> StreamStats {
         let sent = self.sender.sent();
@@ -835,7 +887,7 @@ impl Sink {
         let Some(made) = made else {
             return Ok(());
         };
-        self.delivered(codec, made)
+        self.delivered(codec, made, keyframe)
     }
 
     /// The same for a frame the card captured as a texture `content` big, at
@@ -879,13 +931,22 @@ impl Sink {
             (codec, encoder.encode_texture(texture, pts, keyframe))
         };
         let (codec, made) = made;
-        if let Some(frame) = made? {
-            video.sender.send(stream_connection::Frame {
-                data: frame.data,
-                codec,
-                timestamp: frame.timestamp,
-                keyframe: frame.keyframe,
-            });
+        match made? {
+            Some(frame) => {
+                video.sender.send(stream_connection::Frame {
+                    data: frame.data,
+                    codec,
+                    timestamp: frame.timestamp,
+                    keyframe: frame.keyframe,
+                });
+            }
+            // A session that answered with nothing for this picture — a
+            // hardware encoder's first frame often does — has not made the
+            // whole frame a viewer asked for, so the request is put back
+            // rather than taken for answered: a still desktop would otherwise
+            // never produce it.
+            None if keyframe => video.sender.force_keyframe(),
+            None => {}
         }
         Ok(())
     }
@@ -910,7 +971,7 @@ impl Sink {
         if !self.preview_shown && !due {
             return Ok(());
         }
-        let (width, height) = preview_size(content.0, content.1);
+        let (width, height) = preview_size(content.0, content.1, self.constrained());
         let length = (width * height * 4) as usize;
         if pixels.len() < length {
             pixels.resize(length, 0);
@@ -1124,6 +1185,15 @@ impl Sink {
         }
         let pts = self.started.elapsed().as_micros() as u64 * encode::CLOCK / 1_000_000;
         let keyframe = video.sender.take_keyframe_request();
+        // How long the picture waited on this side of the stream: the capture
+        // had it when the pass began, and the encoder is given it now. A frame
+        // that came from the capturer's own thread says nothing, since nothing
+        // here saw when it arrived.
+        self.diagnosis.queue_delay_ms = self
+            .diagnosis
+            .captured_at
+            .take()
+            .map(|at| u32::try_from(at.elapsed().as_millis()).unwrap_or(u32::MAX));
         Ok(Some((pts, keyframe)))
     }
 
@@ -1131,7 +1201,12 @@ impl Sink {
     /// and the ceiling on keyframe requests have always seen them: the same
     /// bytes, the same time on the stream clock and the same `keyframe` flag,
     /// whichever encoder made them.
-    fn delivered(&mut self, codec: Codec, made: Result<Option<encode::Frame>>) -> Result<()> {
+    fn delivered(
+        &mut self,
+        codec: Codec,
+        made: Result<Option<encode::Frame>>,
+        keyframe: bool,
+    ) -> Result<()> {
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
@@ -1142,6 +1217,10 @@ impl Sink {
                 timestamp: frame.timestamp,
                 keyframe: frame.keyframe,
             }),
+            // Nothing came out of this picture: the whole frame a viewer asked
+            // for is still owed, so the request goes back rather than being
+            // taken for answered.
+            Ok(None) if keyframe => video.sender.force_keyframe(),
             Ok(None) => {}
             // Only the GPU encodes AV1 and H265: Discord chooses another
             // codec instead, which the next frame encodes.
@@ -1172,6 +1251,12 @@ impl Sink {
         self.preview_due.is_some_and(|due| due <= Instant::now())
     }
 
+    /// Whether a machine short of memory has this share giving back what it can
+    /// spare: a smaller preview, and buffers it will never use again.
+    fn constrained(&self) -> bool {
+        self.diagnosis.memory.constrained().is_some()
+    }
+
     /// Whether the stream needs a picture now, whatever the screen is doing: a
     /// connection that hasn't opened yet, an encoder the card took away or a
     /// codec Discord chose since the last frame, or a viewer whose decoder lost
@@ -1196,6 +1281,8 @@ impl Sink {
     fn to_the_processor(&mut self) {
         self.let_go();
         self.footage = Footage::InMemory;
+        self.diagnosis.presentation = Some(Presentation::Copy);
+        self.diagnosis.fallback = Some("the processor captures this source".to_owned());
         if let Some(video) = self.video.as_mut() {
             video.sender.force_keyframe();
         }
@@ -1294,7 +1381,31 @@ impl Sink {
 
     /// Takes Yapfast's controls, reports the stream starting, and fails once
     /// its connection ended. Gives the source a [`Control::Switch`] asked for.
-    fn check(&mut self, report: &mut dyn FnMut(Report)) -> Result<Option<Source>> {
+    fn check(
+        &mut self,
+        reading: pressure::Reading,
+        report: &mut dyn FnMut(Report),
+    ) -> Result<Option<Source>> {
+        // The machine's memory, sampled by the loop once a second rather than
+        // from a thread of its own: a share gives back what it can spare while
+        // it is short, and says so in its report until it has had the room back
+        // for a while. The stream that goes out is never what is given up.
+        let now = Instant::now();
+        match self.diagnosis.memory.update(reading, now) {
+            pressure::Change::Enter(reason) => {
+                tracing::info!(
+                    why = reason.name(),
+                    "the machine is short of memory; a share keeps only what it sends"
+                );
+                if let Some(video) = self.video.as_mut() {
+                    video.trim_pool();
+                }
+            }
+            pressure::Change::Leave => {
+                tracing::info!("the machine has room again; a share takes its own back")
+            }
+            pressure::Change::Same => {}
+        }
         let mut switch = None;
         while let Ok(control) = self.controls.try_recv() {
             match control {
@@ -1332,9 +1443,34 @@ impl Sink {
             // picture: a screen shared from the card and the same screen
             // shared from the processor look alike once they arrive.
             sending.capture = self.capture.clone();
+            // And where it went: the adapters, the way the window shows it,
+            // whether a preview is being made, why the share isn't on the path
+            // it asked for, and what the machine had it give back.
+            sending.presentation = self.diagnosis.presentation;
+            sending.capture_luid = self.diagnosis.gpu_luid;
+            sending.encode_luid = self.diagnosis.gpu_luid;
+            sending.present_luid = self.writer.presented_on();
+            sending.preview = self.preview_shown;
+            sending.fallback = self.diagnosis.fallback.clone();
+            sending.queue_delay_ms = self.diagnosis.queue_delay_ms;
+            sending.memory = self
+                .diagnosis
+                .memory
+                .constrained()
+                .map(|reason| reason.name().to_owned());
             report(Report::Sending(sending));
         }
         Ok(switch)
+    }
+}
+
+/// What decodes a watched stream: the card, where the machine's decoder left
+/// the picture there and only the tile comes back, or the processor, which
+/// reads every frame.
+fn decoder_name(decoder: Option<&Live>) -> String {
+    match decoder {
+        Some(decoder) if decoder.on_the_card() => "the card's decoder".to_owned(),
+        _ => "the processor's decoder".to_owned(),
     }
 }
 
@@ -1552,6 +1688,10 @@ fn watch(
     // changes: a hidden or minimised window shows none, and a picture nobody
     // can see isn't converted or written. The stream is decoded all the same.
     let mut visible = true;
+    // When the watch last said how it is decoding and showing the stream: the
+    // same once a second a share's report keeps, so a viewer's Stream tab has
+    // something true to show too.
+    let mut told = Instant::now() - SENDING_EVERY;
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
             match control {
@@ -1586,6 +1726,9 @@ fn watch(
         else {
             continue;
         };
+        // What decodes this stream, read before the decoder is borrowed to
+        // decode: a watch says it once a second while it plays.
+        let decoder = decoder_name(decoding.decoder.as_ref());
         let picture = match decoding.decode(&frame) {
             Decoded::Picture(picture) => picture,
             Decoded::Held | Decoded::Waiting => continue,
@@ -1615,6 +1758,25 @@ fn watch(
             }
             None => false,
         };
+        // How the watch is doing, said once a second while it plays: a hidden
+        // tile is still a stream being decoded, and its report says so rather
+        // than going quiet and leaving the call's Stream tab with nothing.
+        if told.elapsed() >= SENDING_EVERY {
+            told = Instant::now();
+            let (width, height) = picture.size();
+            report(Report::Sending(StreamStats {
+                codec: frame.codec.name().to_owned(),
+                decoder: Some(decoder.clone()),
+                // A watched picture is converted into the frames file for the
+                // window to show: this side copies it, and says so.
+                presentation: Some(Presentation::Copy),
+                present_luid: writer.presented_on(),
+                width,
+                height,
+                preview: visible,
+                ..StreamStats::default()
+            }));
+        }
         match worth_showing(visible, showing, Instant::now(), newer) {
             Worth::Show => {}
             Worth::Replaced => {
@@ -1640,12 +1802,18 @@ fn watch(
             Worth::Unseen => continue,
         }
         let mut abandoned = false;
+        // The picture's own time on the stream, which the frames file carries to
+        // the window: the sender's 90 kHz RTP clock in milliseconds, so a
+        // picture is told from the one before it and can be matched against the
+        // sound when the two are put on one timeline.
+        let time_ms = u64::from(frame.timestamp) * 1_000 / 90_000;
         let (width, height) = match picture {
             Frame::Software(picture) => write_picture(
                 &mut writer,
                 &picture.i420(),
                 &mut scratch,
                 (max_width, max_height),
+                time_ms,
             ),
             // The machine's decoder left the picture on the graphics card, at
             // the size the stream was encoded at: the card scales it to the
@@ -1655,7 +1823,7 @@ fn watch(
             Frame::Hardware(hardware) => {
                 let (stream_width, stream_height) = hardware.size();
                 let (width, height) = fit(stream_width, stream_height, max_width, max_height);
-                let written = writer.write_rendered(width, height, |pixels| {
+                let written = writer.write_timed_rendered(width, height, time_ms, |pixels| {
                     hardware.rgba(pixels, width, height).is_ok()
                 });
                 if !written {
@@ -1674,7 +1842,19 @@ fn watch(
         // picture is measured from is when this one reached the screen.
         showing = Some(Instant::now());
         if first {
-            tracing::info!(width, height, codec = ?frame.codec, "showing the stream");
+            // What decodes it and where it goes, which is the half a viewer
+            // can't tell from the picture: the card leaves it on the card and
+            // only the tile comes back, and the processor reads every frame.
+            tracing::info!(
+                width,
+                height,
+                codec = ?frame.codec,
+                on_the_card = decoding
+                    .decoder
+                    .as_ref()
+                    .is_some_and(Live::on_the_card),
+                "showing the stream"
+            );
             report(Report::Streaming);
         }
     }
@@ -1692,9 +1872,10 @@ fn write_picture(
     picture: &I420<'_>,
     scratch: &mut Vec<u8>,
     (max_width, max_height): (u32, u32),
+    time_ms: u64,
 ) -> (u32, u32) {
     let (width, height) = fit(picture.width, picture.height, max_width, max_height);
-    writer.write(width, height, |pixels| {
+    writer.write_timed(width, height, time_ms, |pixels| {
         picture.to_rgba(scratch, pixels, width, height)
     });
     (width, height)
@@ -1812,6 +1993,7 @@ fn test_pattern(
     let mut slot = 0u64;
     let mut rgba = vec![0; (width * height * 4) as usize];
     let mut picture = I420Buffer::new(width, height);
+    let mut sampler = pressure::Sampler::new();
     while let Some(frame) = next_frame(started, &mut slot, sink.fps, stop) {
         let shift = (frame * 4) as u32;
         for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
@@ -1839,7 +2021,7 @@ fn test_pattern(
         );
         sink.frame(&picture)?;
         // Colour bars are all it shares.
-        let _switch = sink.check(report)?;
+        let _switch = sink.check(sampler.read(Instant::now()), report)?;
     }
     Ok(())
 }
@@ -1890,11 +2072,24 @@ pub fn fit(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u3
 /// fills the texture the UI shows — so it keeps every pixel the stream has, a
 /// portrait screen included. The pixels read back for a stream the card can't
 /// share a picture with stop at [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`], since
-/// that copy is made on the processor for every frame it is made for.
+/// that copy is made on the processor for every frame it is made for. A machine
+/// short of memory takes the smaller box as well, whatever the path: the tile
+/// is the one thing a share can give up, and the stream it sends is untouched.
 #[cfg(any(wgc, dup))]
-fn preview_size(width: u32, height: u32) -> (u32, u32) {
+fn preview_size(width: u32, height: u32, constrained: bool) -> (u32, u32) {
+    if constrained {
+        return fit(width, height, CONSTRAINED_WIDTH, CONSTRAINED_HEIGHT);
+    }
     fit(width, height, PREVIEW_LONG_EDGE, PREVIEW_LONG_EDGE)
 }
+
+/// The box a preview is scaled into when the machine is short of memory, which
+/// is smaller than any tile it is shown in and never upscales: what it saves is
+/// the texture, the readback and the scale itself, not the picture that goes out.
+#[cfg(any(wgc, dup))]
+const CONSTRAINED_WIDTH: u32 = 640;
+#[cfg(any(wgc, dup))]
+const CONSTRAINED_HEIGHT: u32 = 360;
 
 /// The frame rate a share of `width` by `height` runs at: the one asked for, or
 /// 30 above 1080 lines, where the same bits a second buy twice the picture at
@@ -1980,7 +2175,14 @@ enum After {
 /// or nobody's.
 #[cfg(any(wgc, dup))]
 fn on_the_card(source: &Source) -> bool {
-    matches!(source, Source::Screen | Source::Display(_))
+    match source {
+        Source::Screen | Source::Display(_) => true,
+        // A window is the card's where Windows Graphics Capture can take one:
+        // DXGI duplicates a display and nothing else, and the person chose the
+        // window rather than the display it sits on.
+        Source::Window(_) => cfg!(wgc),
+        Source::Camera(_) | Source::TestPattern => false,
+    }
 }
 
 fn capture_screen(
@@ -2018,6 +2220,7 @@ fn capture_screen(
                 }
                 Err(why) => {
                     tracing::info!(why = format!("{why:#}"), "sharing from the processor");
+                    sink.diagnosis.fallback = Some("the card's capture wouldn't open".to_owned());
                     break wanted;
                 }
             }
@@ -2035,6 +2238,7 @@ fn capture_screen(
     // skipped, not captured in a burst.
     let mut slot = 0u64;
     let mut reported = None;
+    let mut sampler = pressure::Sampler::new();
     while next_frame(started, &mut slot, fps, stop).is_some() {
         run_glib();
         capture.capture_frame();
@@ -2081,10 +2285,14 @@ fn capture_screen(
                 }
             }
         }
+        // The machine is read before the sink is locked: the capturer's own
+        // thread takes that lock to hand a frame over, and a question about the
+        // adapter is not something to hold it for.
+        let reading = sampler.read(Instant::now());
         let switch = sink
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .check(report)?;
+            .check(reading, report)?;
         if let Some(source) = switch {
             // A switch asked for while another waits replaces it.
             switching = None;
@@ -2116,7 +2324,9 @@ enum Card {
     #[cfg(wgc)]
     Graphics {
         capture: wgc::Capture,
-        monitor: wgc::Monitor,
+        /// What it captures: a display, or a window the person chose, which is
+        /// never reinterpreted as the display it happens to be on.
+        target: wgc::Target,
     },
     /// DXGI's Desktop Duplication, which has no border and paints the pointer
     /// into the frame itself. It is the rung a Windows whose Graphics Capture
@@ -2254,11 +2464,11 @@ impl Card {
     fn reopen(self) -> Result<Self> {
         match self {
             #[cfg(wgc)]
-            Self::Graphics { capture, monitor } => {
+            Self::Graphics { capture, target } => {
                 drop(capture);
                 Ok(Self::Graphics {
-                    capture: wgc::Capture::open(monitor)?,
-                    monitor,
+                    capture: wgc::Capture::open(target)?,
+                    target,
                 })
             }
             #[cfg(dup)]
@@ -2441,8 +2651,14 @@ fn graphics_capture(
     sink: &Sink,
     (max_width, max_height): (u32, u32),
 ) -> Result<Card> {
-    let monitor = screen_of(source)?;
-    let capture = wgc::Capture::open(monitor)?;
+    // A window is captured as itself, by the item `CreateForWindow` makes: the
+    // person chose that window, and the display it sits on is not what they
+    // chose. A screen or a display is the monitor the shell's list named.
+    let target = match source {
+        Source::Window(id) => wgc::Target::from(wgc::Window::new(*id as usize as *mut c_void)),
+        _ => wgc::Target::from(screen_of(source)?),
+    };
+    let capture = wgc::Capture::open(target)?;
     let (width, height) = capture.content_size();
     if width == 0 || height == 0 {
         bail!("the screen is {width}x{height}, which is nothing to capture");
@@ -2458,7 +2674,7 @@ fn graphics_capture(
         d3d11::Surfaces::Ring,
     )
     .context("the card won't open an encoder on the device it captures with")?;
-    Ok(Card::Graphics { capture, monitor })
+    Ok(Card::Graphics { capture, target })
 }
 
 /// The Desktop Duplication rung: DXGI hands over the compositor's own surface,
@@ -2670,6 +2886,7 @@ fn capture_textures(
     // frame skipped, not one captured twice.
     let mut slot = 0u64;
     let mut reported = None;
+    let mut sampler = pressure::Sampler::new();
     // The session a preview's tile is read back through, opened on the capture's
     // device when something first wants a preview and let go when nothing does.
     // A session of its own, because the encoder scales into one texture it keeps
@@ -2713,6 +2930,11 @@ fn capture_textures(
                 Arrival::Still
             }
         };
+        // When the capture answered with a picture, which is what this side's
+        // queue delay is measured from.
+        if arrival == Arrival::Frame {
+            sink.diagnosis.captured_at = Some(Instant::now());
+        }
         // Everything the sink has to say about this pass: the controls, which is
         // also where its reports go, whether a preview is wanted, the UI's
         // process, and the frame itself when one arrived. None of it is done
@@ -2723,7 +2945,7 @@ fn capture_textures(
         // read by two threads at once; the compiler holds it to that, and the
         // GPU work below — scale, encode, readback, the picture the UI shows —
         // runs with nothing held at all.
-        let switched = sink.check(report)?;
+        let switched = sink.check(sampler.read(Instant::now()), report)?;
         let wanted = sink.preview_wanted();
         // A preview that has just been asked for is owed a picture now, even if
         // the screen doesn't change: waiting for the pointer to move is what a
@@ -2748,7 +2970,10 @@ fn capture_textures(
                 let content = capture.content_size();
                 let sent = fit(content.0, content.1, max_width, max_height);
                 taken = sink.textured(
-                    d3d11::Texture::new(capture.texture()),
+                    // SAFETY: the capture's own surface, on the device the capture
+                    // holds, alive for as long as the capture is and not filled
+                    // again until this frame has been encoded.
+                    unsafe { d3d11::Texture::new(capture.texture()) },
                     content,
                     sent,
                     capture.device(),
@@ -2776,7 +3001,9 @@ fn capture_textures(
                     let content = capture.content_size();
                     let sent = fit(content.0, content.1, max_width, max_height);
                     taken = sink.textured(
-                        d3d11::Texture::new(capture.texture()),
+                        // SAFETY: as above: the capture's own surface, on the
+                        // capture's device, alive for as long as the capture is.
+                        unsafe { d3d11::Texture::new(capture.texture()) },
                         content,
                         sent,
                         capture.device(),
@@ -2889,7 +3116,7 @@ fn capture_textures(
         match (wanted, tile.is_some()) {
             (true, false) => {
                 let content = capture.content_size();
-                let preview = preview_size(content.0, content.1);
+                let preview = preview_size(content.0, content.1, sink.constrained());
                 match d3d11::D3d11Encoder::open_on(
                     capture.device(),
                     stream_connection::SEND_CODEC,
@@ -2913,6 +3140,8 @@ fn capture_textures(
                                         "showing the pixels of a stream: the card won't share a picture"
                                     );
                                     showable = false;
+                                    sink.diagnosis.fallback =
+                                        Some("the card won't share a picture".to_owned());
                                 }
                             }
                         }
@@ -2957,7 +3186,10 @@ fn capture_textures(
             read = Some(Instant::now());
             let taken = sink.preview_from_card(
                 tile,
-                d3d11::Texture::new(capture.texture()),
+                // SAFETY: the capture's own surface, on the capture's device,
+                // alive for as long as the capture is: the readback is done
+                // before this frame returns.
+                unsafe { d3d11::Texture::new(capture.texture()) },
                 capture.content_size(),
                 &mut pixels,
             );
@@ -2984,8 +3216,15 @@ fn capture_textures(
             && (arrival == Arrival::Frame || preview_pending)
             && let Some(slot) = sink.writer.claim()
         {
-            let taken =
-                sink.share_from_card(slot, tile, shared, d3d11::Texture::new(capture.texture()));
+            let taken = sink.share_from_card(
+                slot,
+                tile,
+                shared,
+                // SAFETY: the capture's own surface, on the capture's device,
+                // alive for as long as the capture is: the copy into the shared
+                // picture is queued before this frame returns.
+                unsafe { d3d11::Texture::new(capture.texture()) },
+            );
             match taken {
                 Ok(true) => previewed = true,
                 // The UI looked and can't show a picture from this card, or its
@@ -3004,6 +3243,15 @@ fn capture_textures(
         if withdrawn {
             showable = false;
             shared = None;
+            sink.diagnosis.presentation = Some(Presentation::Copy);
+            sink.diagnosis.fallback = Some("the window can't show the card's picture".to_owned());
+        }
+        // What the window does with the pictures is the one thing only the two
+        // processes together know: a picture the window took is shown from the
+        // card's own memory, and anything else is a copy of the pixels.
+        if previewed && let Some(shared) = shared.as_ref() {
+            sink.diagnosis.presentation = Some(Presentation::Shared);
+            sink.diagnosis.gpu_luid = Some(shared.luid());
         }
         // The preview that was owed has been made, whichever way it went out.
         if previewed {
@@ -3823,6 +4071,28 @@ mod tests {
         );
     }
 
+    /// A window is the card's only where Windows Graphics Capture can take
+    /// one: DXGI duplicates a display and nothing else, and a person who chose
+    /// a window never gets the desktop it happens to sit on.
+    #[cfg(any(wgc, dup))]
+    #[test]
+    fn a_window_is_the_cards_only_where_capture_takes_one() {
+        assert_eq!(on_the_card(&Source::Window(0x1234)), cfg!(wgc));
+        assert!(on_the_card(&Source::Screen));
+        assert!(on_the_card(&Source::Display(0)), "the primary display");
+        assert!(!on_the_card(&Source::Camera("cam".into())));
+        assert!(!on_the_card(&Source::TestPattern));
+    }
+
+    /// A duplication asked for a window says so rather than capturing the
+    /// display behind it: the person chose the window.
+    #[cfg(dup)]
+    #[test]
+    fn a_duplication_never_takes_a_window_for_a_display() {
+        let why = duplication_target(&Source::Window(0x1234)).unwrap_err();
+        assert!(format!("{why:#}").contains("window"), "{why:#}");
+    }
+
     #[test]
     fn fits_frames_with_even_sizes() {
         assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
@@ -3852,9 +4122,17 @@ mod tests {
     #[cfg(any(wgc, dup))]
     #[test]
     fn a_preview_on_the_card_keeps_the_streams_pixels() {
-        assert_eq!(preview_size(3440, 1440), (1920, 802));
-        assert_eq!(preview_size(1080, 1920), (1080, 1920));
-        assert_eq!(preview_size(1280, 720), (1280, 720), "never larger");
+        assert_eq!(preview_size(3440, 1440, false), (1920, 802));
+        // A machine short of memory takes the smaller box, and never upscales.
+        assert_eq!(preview_size(3440, 1440, true), (640, 266));
+        assert_eq!(preview_size(1080, 1920, false), (1080, 1920));
+        assert_eq!(preview_size(1080, 1920, true), (360, 640));
+        assert_eq!(preview_size(1280, 720, false), (1280, 720), "never larger");
+        assert_eq!(
+            preview_size(320, 180, true),
+            (320, 180),
+            "and never larger here"
+        );
     }
 
     /// Only a worker that decodes pictures takes a share of the machine's
@@ -4000,7 +4278,7 @@ mod tests {
         // A 64 by 36 picture in a 32 by 18 tile is scaled down to the tile.
         let large = picture(64, 36);
         let shown = planes(&large);
-        let size = write_picture(&mut writer, &shown, &mut scratch, (32, 18));
+        let size = write_picture(&mut writer, &shown, &mut scratch, (32, 18), 0);
         assert_eq!(size, (32, 18));
         assert_eq!(
             frames.take(|width, height, pixels| (width, height, pixels.len())),
@@ -4011,7 +4289,7 @@ mod tests {
         // a stream up to the tile it shows in.
         let small = picture(16, 10);
         let shown = planes(&small);
-        let size = write_picture(&mut writer, &shown, &mut scratch, (32, 18));
+        let size = write_picture(&mut writer, &shown, &mut scratch, (32, 18), 0);
         assert_eq!(size, (16, 10));
         assert_eq!(
             frames.take(|width, height, pixels| (width, height, pixels.len())),
@@ -4192,6 +4470,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         let (offers, encoder) = sink.offers(320, 180, None).unwrap();
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
@@ -4234,6 +4513,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         // The device the stream's own session opens on is the capture's, which
         // a test can only ask for by capturing something. A machine with no
@@ -4289,6 +4569,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         let bounds = (SHARE_WIDTH, SHARE_HEIGHT);
         for (source, why) in [
@@ -4873,6 +5154,7 @@ root.mainloop()
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         // A 1080p picture, mid-grey: luma and chroma halfway.
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
@@ -4916,6 +5198,7 @@ root.mainloop()
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
@@ -4928,14 +5211,14 @@ root.mainloop()
         // A share started while the worker thought nothing watched it: the
         // control comes, and the next frame has a picture for the UI.
         controls.send(Control::Preview(true)).unwrap();
-        sink.check(&mut report).unwrap();
+        sink.check(pressure::Reading::default(), &mut report).unwrap();
         sink.frame(&picture).unwrap();
         let (width, height) = frames
             .take(|width, height, _| (width, height))
             .expect("the frame after the control");
         assert_eq!((width, height), (PREVIEW_WIDTH, PREVIEW_HEIGHT));
         controls.send(Control::Preview(false)).unwrap();
-        sink.check(&mut report).unwrap();
+        sink.check(pressure::Reading::default(), &mut report).unwrap();
         sink.frame(&picture).unwrap();
         assert_eq!(
             frames.take(|_, _, _| ()),
@@ -4968,6 +5251,7 @@ root.mainloop()
             preview_due: Some(Instant::now()),
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
@@ -5004,13 +5288,14 @@ root.mainloop()
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         let mut report = |_| {};
-        assert_eq!(sink.check(&mut report).unwrap(), None);
+        assert_eq!(sink.check(pressure::Reading::default(), &mut report).unwrap(), None);
         controls.send(Control::Switch(Source::Display(1))).unwrap();
         controls.send(Control::Switch(Source::Window(2))).unwrap();
-        assert_eq!(sink.check(&mut report).unwrap(), Some(Source::Window(2)));
-        assert_eq!(sink.check(&mut report).unwrap(), None);
+        assert_eq!(sink.check(pressure::Reading::default(), &mut report).unwrap(), Some(Source::Window(2)));
+        assert_eq!(sink.check(pressure::Reading::default(), &mut report).unwrap(), None);
     }
 
     #[test]
@@ -5035,6 +5320,7 @@ root.mainloop()
             preview_due: Some(Instant::now()),
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
@@ -5183,6 +5469,7 @@ root.mainloop()
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         {
@@ -5230,6 +5517,7 @@ root.mainloop()
             preview_due: None,
             thumbnail: None,
             lost: None,
+            diagnosis: Diagnosis::default(),
         }));
         let captured = Arc::new(Mutex::new(Captured::default()));
         // Held as the loop holds it while it reads the capture's status.
@@ -5534,6 +5822,7 @@ root.mainloop()
             codec: Codec::Vp8,
             data: b"not video".to_vec(),
             keyframe,
+            timestamp: 0,
         };
         let mut decoding = Decoding::new();
         // libvpx says so, and the watch is left waiting.
@@ -5554,6 +5843,7 @@ root.mainloop()
             codec,
             data: b"not video".to_vec(),
             keyframe,
+            timestamp: 0,
         };
         let mut decoding = Decoding::new();
         assert!(matches!(
@@ -5588,6 +5878,7 @@ root.mainloop()
             codec,
             data: b"not video".to_vec(),
             keyframe,
+            timestamp: 0,
         };
         let mut decoding = Decoding {
             make: no_h265,

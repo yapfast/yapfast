@@ -36,6 +36,34 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             voice.participants.len() > 1,
         );
     });
+    // The stream's latest report as text for a bug report, made when it is
+    // asked for and not before: the same numbers the tab shows, and nothing
+    // about anything else. A watched stream is reported by its own worker, so
+    // a viewer has one to copy too.
+    let state = Rc::downgrade(adapter);
+    window.global::<CallLink>().on_diagnostics(move || {
+        let Some(adapter) = state.upgrade() else {
+            return Default::default();
+        };
+        let Ok(adapter) = adapter.try_borrow() else {
+            return Default::default();
+        };
+        let stats = adapter
+            .app
+            .state
+            .voice
+            .link
+            .as_ref()
+            .map(yapfast_core::voice::Link::read)
+            .unwrap_or_default();
+        stats
+            .stream
+            .as_ref()
+            .or(stats.watching.as_ref())
+            .map(diagnostics)
+            .unwrap_or_default()
+            .into()
+    });
 }
 
 /// Shows `stats`, with the privacy code only while `others` are in the call
@@ -57,23 +85,212 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
     if !shown.iter().eq(groups.iter().cloned()) {
         link.set_code(slint::ModelRc::new(slint::VecModel::from(groups)));
     }
-    link.set_streaming(stats.stream.is_some());
-    if let Some(stream) = &stats.stream {
-        link.set_encoder(encoder(&stream.engine).into());
+    // Whichever stream there is to talk about: the one this account shares,
+    // whose worker says how it goes out, or the one it watches, whose worker
+    // says how it is decoded and shown. A watched stream has no bitrate of its
+    // own to report, and the rows for one are left empty rather than filled
+    // with a share's numbers.
+    let shown = stats.stream.as_ref().or(stats.watching.as_ref());
+    let sharing = stats.stream.is_some();
+    link.set_streaming(shown.is_some());
+    if let Some(stream) = shown {
+        link.set_encoder(
+            if sharing {
+                encoder(&stream.engine)
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_decoder(stream.decoder.as_deref().unwrap_or_default().into());
         link.set_codec(stream.codec.as_str().into());
-        link.set_capture(stream.capture.as_str().into());
-        link.set_settings_dropped(stream.settings_dropped.as_str().into());
+        link.set_capture(if sharing { stream.capture.as_str() } else { "" }.into());
+        link.set_settings_dropped(
+            if sharing {
+                stream.settings_dropped.as_str()
+            } else {
+                ""
+            }
+            .into(),
+        );
         link.set_picture(
             format!("{}×{} at {} fps", stream.width, stream.height, stream.fps).into(),
         );
-        link.set_sent(rate(stream.sent_kbps).into());
-        link.set_target(rate(stream.target_kbps).into());
-        link.set_keyframes(stream.keyframe_requests.to_string().into());
-        link.set_resent(stream.resent.to_string().into());
-        link.set_skipped(stream.skipped.to_string().into());
-        link.set_sound_waiting(format!("{} ms", stream.sound_held_ms).into());
-        link.set_sound_dropped(format!("{} ms", stream.sound_dropped_ms).into());
+        link.set_sent(
+            if sharing {
+                rate(stream.sent_kbps)
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_target(
+            if sharing {
+                rate(stream.target_kbps)
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_keyframes(
+            if sharing {
+                stream.keyframe_requests.to_string()
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_resent(
+            if sharing {
+                stream.resent.to_string()
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_skipped(
+            if sharing {
+                stream.skipped.to_string()
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_sound_waiting(
+            if sharing {
+                format!("{} ms", stream.sound_held_ms)
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_sound_dropped(
+            if sharing {
+                format!("{} ms", stream.sound_dropped_ms)
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        link.set_presentation(
+            stream
+                .presentation
+                .map_or_else(|| "unknown".to_owned(), |shown| shown.name().to_owned())
+                .into(),
+        );
+        link.set_presented_on(adapter_name(stream.present_luid).into());
+        link.set_queue_delay(wait(stream.queue_delay_ms).into());
+        link.set_buffers(buffers(stream.pool_live, stream.pool_peak).into());
+        link.set_memory(stream.memory.clone().unwrap_or_default().into());
+        link.set_fallback(
+            stream
+                .fallback
+                .as_deref()
+                .map(shared_only)
+                .unwrap_or_default()
+                .to_owned()
+                .into(),
+        );
     }
+}
+
+/// An adapter as a row names one: its LUID in hex, which is the same on every
+/// run and is what two adapters are compared by. Empty where nothing asked.
+fn adapter_name(luid: Option<u64>) -> String {
+    luid.map(|luid| format!("adapter {luid:#x}"))
+        .unwrap_or_default()
+}
+
+/// A wait in milliseconds, or "unknown" where nothing measured one.
+fn wait(value: Option<u32>) -> String {
+    value.map_or_else(|| "unknown".to_owned(), |ms| format!("{ms} ms"))
+}
+
+/// What the encoder's output buffers hold now and the most they have held, as
+/// people read bytes: "512 KiB, at most 1.0 MiB". Empty where unknown.
+fn buffers(live: Option<u64>, peak: Option<u64>) -> String {
+    let (Some(live), Some(peak)) = (live, peak) else {
+        return String::new();
+    };
+    let bytes = |bytes: u64| {
+        const KIB: u64 = 1024;
+        const MIB: u64 = 1024 * KIB;
+        if bytes >= MIB {
+            format!("{:.1} MiB", bytes as f64 / MIB as f64)
+        } else {
+            format!("{} KiB", bytes / KIB)
+        }
+    };
+    format!("{}, at most {}", bytes(live), bytes(peak))
+}
+
+/// The part of a report's line that names what ran, never what was captured:
+/// a window's title or a screen's name is the person's own business, and a
+/// capture's or a fallback's line can carry it.
+fn shared_only(line: &str) -> &str {
+    line.split_once(" · ").map_or(line, |(what, _)| what)
+}
+
+/// The stream's latest report as one block of text to paste into a bug
+/// report: what makes a picture and what shows it, and the numbers that say
+/// why it looks or behaves as it does.
+///
+/// A value the worker or the window didn't answer is written as "unknown"
+/// rather than as zero, so a report never claims a machine said something it
+/// didn't, and nothing that isn't about the stream goes in: no token, no
+/// server, no window title, no media.
+fn diagnostics(stream: &voice::StreamStats) -> String {
+    let mut report = serde_json::Map::new();
+    let mut put = |key: &str, value: serde_json::Value| {
+        report.insert(key.to_owned(), value);
+    };
+    put("encoder", stream.engine.as_str().into());
+    put("codec", stream.codec.as_str().into());
+    put("capture", shared_only(&stream.capture).into());
+    put("decoder", stream.decoder.as_deref().into());
+    put(
+        "presentation",
+        stream
+            .presentation
+            .map_or_else(|| "unknown".to_owned(), |shown| shown.name().to_owned())
+            .into(),
+    );
+    for (key, luid) in [
+        ("capture_adapter", stream.capture_luid),
+        ("encoder_adapter", stream.encode_luid),
+        ("window_adapter", stream.present_luid),
+    ] {
+        put(
+            key,
+            luid.map_or_else(|| "unknown".to_owned(), |luid| format!("{luid:#x}"))
+                .into(),
+        );
+    }
+    put(
+        "fallback",
+        stream.fallback.as_deref().map(shared_only).into(),
+    );
+    put("memory", stream.memory.as_deref().into());
+    put("preview_shown", stream.preview.into());
+    put("width", stream.width.into());
+    put("height", stream.height.into());
+    put("fps", stream.fps.into());
+    put("target_kbps", stream.target_kbps.into());
+    put("sent_kbps", stream.sent_kbps.into());
+    put("keyframe_requests", stream.keyframe_requests.into());
+    put("resent", stream.resent.into());
+    put("skipped", stream.skipped.into());
+    put("sound_held_ms", stream.sound_held_ms.into());
+    put("sound_dropped_ms", stream.sound_dropped_ms.into());
+    for (key, value) in [
+        ("queue_delay_ms", stream.queue_delay_ms.map(u64::from)),
+        ("pool_live_bytes", stream.pool_live),
+        ("pool_peak_bytes", stream.pool_peak),
+    ] {
+        put(key, value.into());
+    }
+    serde_json::to_string_pretty(&serde_json::Value::Object(report))
+        .unwrap_or_else(|_| String::new())
 }
 
 /// Where the stream's encoder runs, by its name: "h264_nvenc" is NVENC on
@@ -153,6 +370,58 @@ fn groups(code: &str) -> Vec<slint::SharedString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_export_names_no_window_and_says_unknown_rather_than_zero() {
+        let stats = voice::StreamStats {
+            // A capture's line can carry a window's title, which is the
+            // person's own business and nobody else's.
+            capture: "Windows Graphics Capture · 3440×1440 · Notepad — untitled".to_owned(),
+            engine: "h264_nvenc/d3d11".to_owned(),
+            codec: "H264".to_owned(),
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            ..Default::default()
+        };
+        let exported = diagnostics(&stats);
+        assert!(!exported.contains("Notepad"), "{exported}");
+        assert!(
+            exported.contains("\"Windows Graphics Capture\""),
+            "{exported}"
+        );
+        // What nothing answered is unknown, not zero.
+        assert!(
+            exported.contains("\"presentation\": \"unknown\""),
+            "{exported}"
+        );
+        assert!(
+            exported.contains("\"window_adapter\": \"unknown\""),
+            "{exported}"
+        );
+        assert!(exported.contains("\"pool_live_bytes\": null"), "{exported}");
+        // What it does know is there, as the number it is.
+        assert!(exported.contains("\"width\": 1920"), "{exported}");
+        assert!(
+            exported.contains("\"encoder\": \"h264_nvenc/d3d11\""),
+            "{exported}"
+        );
+        // A stream with nothing to explain exports no reason at all.
+        assert!(exported.contains("\"fallback\": null"), "{exported}");
+    }
+
+    #[test]
+    fn a_wait_and_a_pool_read_as_people_read_them() {
+        assert_eq!(wait(Some(12)), "12 ms");
+        assert_eq!(wait(None), "unknown");
+        assert_eq!(
+            buffers(Some(512 * 1024), Some(1024 * 1024)),
+            "512 KiB, at most 1.0 MiB"
+        );
+        assert_eq!(buffers(None, None), "");
+        assert_eq!(adapter_name(Some(0x1488a)), "adapter 0x1488a");
+        assert_eq!(adapter_name(None), "");
+    }
 
     #[test]
     fn graphs_the_pings_up_to_a_round_top() {

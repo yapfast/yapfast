@@ -87,6 +87,10 @@ struct Header {
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
     _reserved: u32,
+    /// The number of the newest picture the reader has taken, which only
+    /// grows: a worker asks its slots whether it is past them, since a picture
+    /// the reader went past is one it will never show.
+    taken: AtomicU64,
     /// Each slot's frame size, as width and height in pixels.
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
@@ -122,6 +126,18 @@ struct Shared {
     /// The number of the picture, which only grows: a reader compares it with
     /// the one it showed to tell a new picture from the one before it.
     generation: AtomicU64,
+    /// The number of the set of textures and fence this slot's picture is of,
+    /// which only grows within the slot: a set is three textures and one fence,
+    /// rebuilt when a stream's pictures change size or a share is stopped and
+    /// started, and a reader that has opened a picture of one tells the sets
+    /// apart by this rather than by a handle, since Windows hands a closed
+    /// handle's value out again.
+    ///
+    /// It belongs to the slot rather than to the file because a slot is read
+    /// only with the picture the worker published in it: the set the header
+    /// held while the reader read a slot another picture was published into
+    /// would pair this slot's handle with the number of a set it is not of.
+    set: AtomicU64,
     /// The newest generation of this slot the reader has finished with, which
     /// only grows and is the reader's alone to write: a worker draws into the
     /// slot again only once this is the generation that is there. Zero until
@@ -166,6 +182,11 @@ pub struct Picture {
     pub fence_value: u64,
     /// The number of the picture, which only grows.
     pub generation: u64,
+    /// The number of the set of textures and fence it was drawn in, which only
+    /// grows: a picture of a set the reader hasn't opened is a worker that
+    /// rebuilt them, and what was opened for the set before it goes. A handle
+    /// can't say that, because its value is handed out again once it's closed.
+    pub set: u64,
     /// The slot it is in, which [`Frames::retire`] names it by: a picture's
     /// generation says which picture of that slot it is, and the two together
     /// are what the worker keeps a slot for.
@@ -173,6 +194,22 @@ pub struct Picture {
     /// The picture's size, in pixels.
     pub width: u32,
     pub height: u32,
+}
+
+/// The handle of a texture shared into the UI's process, and the number of the
+/// set of textures and fence it was shared in.
+///
+/// The two travel together because a handle's value names a texture only in the
+/// process that holds it, and Windows gives a value out again once the handle
+/// that had it is closed: a picture that carried the handle alone could be taken
+/// for one of the set after it, and its reader would show the wrong texture or
+/// open a number that is no texture at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SharedTexture {
+    /// The handle, as the UI's process holds it.
+    pub handle: u64,
+    /// The number of the set it was duplicated in, which only grows.
+    pub set: u64,
 }
 
 /// What a worker hands [`Writer::publish`]: the picture it drew, without the
@@ -186,8 +223,8 @@ pub struct Drawn {
     /// as it is in the UI's process.
     pub fence: u64,
     /// The shared handle of the texture holding the picture, as it is in the
-    /// UI's process.
-    pub texture: u64,
+    /// UI's process, with the number of the set it was shared in.
+    pub texture: SharedTexture,
     /// The value that fence reaches when the picture is drawn: it must only
     /// grow, and the worker must signal it after the drawing, before it
     /// publishes.
@@ -645,11 +682,21 @@ impl Frames {
                 texture,
                 fence_value: shared.value.load(Ordering::Relaxed),
                 generation: shared.generation.load(Ordering::Relaxed),
+                set: shared.set.load(Ordering::Relaxed),
                 slot: front.slot,
                 width,
                 height,
             })
         };
+        // The newest picture the reader has taken, which says which of the
+        // others it went past: a slot whose picture is older than this one is
+        // one the reader will never show, and the worker may draw there again
+        // without waiting for a retirement that will never come.
+        if texture != 0 {
+            header
+                .taken
+                .store(shared.generation.load(Ordering::Acquire), Ordering::Release);
+        }
         let time = header.times[front.slot as usize].load(Ordering::Relaxed);
         Some((show(frame), time))
     }
@@ -708,10 +755,7 @@ impl Frames {
             // is a retirement of something already finished with.
             return false;
         }
-        shared
-            .retired
-            .fetch_max(generation, Ordering::AcqRel)
-            < generation
+        shared.retired.fetch_max(generation, Ordering::AcqRel) < generation
     }
 
     /// Says the UI can show this stream's pictures from the GPU, on `luid`,
@@ -788,6 +832,15 @@ impl Writer {
     /// ones duplicated there.
     pub fn ui_process(&self) -> u32 {
         self.mapping.header().ui_pid.load(Ordering::Acquire)
+    }
+
+    /// The adapter the UI's window draws on, when it has said its pictures can
+    /// be shown there: what a stream reports so a share that copies every frame
+    /// can say whether the two adapters are why.
+    pub fn presented_on(&self) -> Option<u64> {
+        let header = self.mapping.header();
+        (header.ui.load(Ordering::Acquire) == UI_USABLE)
+            .then(|| header.ui_luid.load(Ordering::Acquire))
     }
 
     /// The largest frame, in pixels, that fits.
@@ -950,12 +1003,32 @@ impl Writer {
     /// until the next one replaces it and the rendering queue has drawn that,
     /// which can be a frame or more after the take — so only the reader knows,
     /// and it says so with [`Frames::retire`].
+    /// The slot in hand comes first, but not alone: a window showing the newest
+    /// picture keeps the worker from the slot it would have drawn in next, and
+    /// another slot the reader has finished with — or never filled — is just as
+    /// good, and is what keeps a share from stalling on a rotation it can't
+    /// turn.
     pub fn claim(&self) -> Option<u32> {
         let header = self.mapping.header();
-        let slot = &header.pictures[self.back as usize];
-        let generation = slot.generation.load(Ordering::Acquire);
-        let retired = slot.retired.load(Ordering::Acquire);
-        (generation == 0 || retired >= generation).then_some(self.back)
+        // The slot the reader may be handed next: it belongs to the reader
+        // until it has taken it.
+        let middle = header.middle.load(Ordering::Acquire) & !FRESH;
+        let taken = header.taken.load(Ordering::Acquire);
+        let free = |slot: u32| {
+            if slot == middle {
+                return false;
+            }
+            let shared = &header.pictures[slot as usize];
+            let generation = shared.generation.load(Ordering::Acquire);
+            generation == 0
+                || shared.retired.load(Ordering::Acquire) >= generation
+                // A picture older than the newest one taken is one the reader
+                // went past: it will never be shown, so its slot is free.
+                || generation < taken
+        };
+        std::iter::once(self.back)
+            .chain((0..SLOTS).filter(|&slot| slot != self.back))
+            .find(|&slot| free(slot))
     }
 
     /// Publishes a picture drawn on the GPU into `slot`, which
@@ -964,7 +1037,7 @@ impl Writer {
     /// another adapter — and the caller writes the frame's pixels instead.
     ///
     /// The worker must, before calling this:
-    /// * draw into a `DXGI_FORMAT_R8G8B8A8_UNORM` texture of the picture's
+    /// * draw into a `DXGI_FORMAT_B8G8R8A8_UNORM` texture of the picture's
     ///   size, one mip, one sample, made with
     ///   `D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX`
     ///   (the second is what Direct3D 11 requires of a shared NT handle) and,
@@ -982,6 +1055,11 @@ impl Writer {
     /// The slots still hold a frame's size, and a file whose slots are too
     /// small for this picture is not grown: a GPU picture isn't in the file,
     /// and the pixel path above grows the file for itself when it writes one.
+    ///
+    /// A picture of a set older than the one this slot holds is refused, `false`
+    /// and nothing written: the number a set is known by only grows, and a
+    /// reader that has opened the newer one would take a handle of the older for
+    /// one of its own.
     pub fn publish_into(&mut self, slot: u32, drawn: &Drawn) -> bool {
         let header = self.mapping.header();
         // Nothing said yet is not an answer — the worker may publish before
@@ -992,12 +1070,23 @@ impl Writer {
             UI_USABLE if header.ui_luid.load(Ordering::Relaxed) == drawn.luid => {}
             _ => return false,
         }
-        debug_assert_eq!(slot, self.back, "a picture goes where it was claimed");
+        debug_assert!(
+            slot != header.middle.load(Ordering::Acquire) & !FRESH,
+            "a picture goes into a slot the reader isn't handed next"
+        );
+        let shared = &header.pictures[slot as usize];
+        if drawn.texture.set < shared.set.load(Ordering::Acquire) {
+            return false;
+        }
         header.luid.store(drawn.luid, Ordering::Relaxed);
         header.fence.store(drawn.fence, Ordering::Relaxed);
         self.published += 1;
-        let shared = &header.pictures[slot as usize];
-        shared.texture.store(drawn.texture, Ordering::Relaxed);
+        // The set before the handle that is of it, so a reader never pairs a
+        // picture with the number of another set.
+        shared.set.store(drawn.texture.set, Ordering::Relaxed);
+        shared
+            .texture
+            .store(drawn.texture.handle, Ordering::Relaxed);
         shared.value.store(drawn.fence_value, Ordering::Relaxed);
         shared.generation.store(self.published, Ordering::Relaxed);
         let [w, h] = &header.sizes[slot as usize];
@@ -1140,10 +1229,18 @@ mod tests {
     /// [`Writer::publish_into`]: handles 512 and 1024 are no real handles, but
     /// they say which texture a test published.
     fn drawn(texture: u64, width: u32, height: u32) -> Drawn {
+        drawn_in(1, texture, width, height)
+    }
+
+    /// The same, drawn in the set of textures and fence numbered `set`.
+    fn drawn_in(set: u64, texture: u64, width: u32, height: u32) -> Drawn {
         Drawn {
             luid: 0x1488a,
             fence: 512,
-            texture,
+            texture: SharedTexture {
+                handle: texture,
+                set,
+            },
             fence_value: texture * 2,
             width,
             height,
@@ -1197,6 +1294,7 @@ mod tests {
                 texture: 9,
                 fence_value: 18,
                 generation: 1,
+                set: 1,
                 slot: 0,
                 width: 4,
                 height: 2,
@@ -1281,25 +1379,25 @@ mod tests {
         let mut writer = Writer::open(&path).unwrap();
         frames.unlink();
 
-        // The ring gives the worker two slots: the one it writes and the one
-        // the reader has.
-        for texture in 9..11 {
-            let slot = writer.claim().expect("an empty slot");
+        // The file has three slots, and none has held a picture yet: the
+        // worker takes them one at a time, and the reader is handed the newest.
+        for texture in 9..12 {
+            let slot = writer.claim().expect("a slot that never held a picture");
             assert!(writer.publish_into(slot, &drawn(texture, 4, 2)));
         }
-        // Both hold pictures nothing has finished with, so the next one would
-        // go over a picture the window may be showing: the frame's preview is
+        // All three hold pictures nobody has taken, so the next one would go
+        // over a picture the window may be showing: the frame's preview is
         // dropped.
-        assert_eq!(writer.claim(), None, "nothing has been finished with");
+        assert_eq!(writer.claim(), None, "nothing has been taken yet");
 
         let newest = picture(&frames).expect("the newest picture");
-        assert_eq!((newest.slot, newest.generation), (1, 2));
-        // Taking a picture is not finishing with it: the window shows it.
-        assert_eq!(
-            writer.claim(),
-            None,
-            "a picture taken is one on the screen, not one finished with"
-        );
+        assert_eq!((newest.slot, newest.generation), (2, 3));
+        // The pictures the reader went past are ones it will never show, so
+        // their slots are the worker's again the moment it takes a newer one.
+        // The picture it took is not: a taken picture is one on the screen.
+        let slot = writer.claim().expect("a slot the reader went past");
+        assert_ne!(slot, newest.slot, "not the picture on the screen");
+        assert!(writer.publish_into(slot, &drawn(12, 4, 2)));
 
         // Finishing with a generation a slot doesn't hold says nothing about
         // the picture that is there, and a slot finished with twice frees
@@ -1308,28 +1406,98 @@ mod tests {
             !frames.retire(newest.slot, newest.generation - 1),
             "not the picture the slot holds"
         );
-        assert_eq!(writer.claim(), None, "still the picture on the screen");
-        assert!(frames.retire(0, 1), "the reader finished with the first");
-        assert!(!frames.retire(0, 1), "finished with it once");
-        assert_eq!(writer.claim(), Some(0), "the slot it finished with");
-        assert!(writer.publish_into(0, &drawn(12, 4, 2)));
+        assert!(frames.retire(newest.slot, newest.generation));
+        assert!(!frames.retire(newest.slot, newest.generation), "once");
 
-        // The picture just drawn is a generation of its own, and the ring goes
-        // on to the slot that never held one, which is the worker's from the
-        // start. Only after that does it come back to a picture the reader has
-        // to finish with.
-        assert_eq!(writer.claim(), Some(2), "a slot that never held a picture");
-        assert!(writer.publish_into(2, &drawn(13, 4, 2)));
-        assert_eq!(
-            writer.claim(),
-            None,
-            "the picture in slot 0, which nobody has finished with"
-        );
-        assert!(frames.retire(0, 3), "the third picture in that slot");
-        assert_eq!(writer.claim(), Some(0));
+        // The worker draws there again, and the slot is the reader's once more
+        // for the picture it just drew.
+        let slot = writer.claim().expect("the slot the reader finished with");
+        assert!(writer.publish_into(slot, &drawn(13, 4, 2)));
+        let newest = picture(&frames).expect("the picture just published");
+        assert!(newest.generation > 3);
+        assert!(frames.retire(newest.slot, newest.generation));
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A picture says which set of the worker's textures and fence it was drawn
+    /// in, and that number only grows, slot by slot. A handle's value can be
+    /// handed out again once the handle that had it is closed, so a reader that
+    /// keys what it opened by the handle alone can't tell the set it has from the
+    /// one after it; the number is what tells them apart.
+    #[test]
+    fn a_published_set_number_only_grows() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        publish(&mut writer, &drawn_in(7, 9, 4, 2));
+        assert_eq!(
+            picture(&frames).map(|picture| (picture.set, picture.texture)),
+            Some((7, 9))
+        );
+        publish(&mut writer, &drawn_in(7, 11, 4, 2));
+        assert_eq!(
+            picture(&frames).map(|picture| (picture.set, picture.texture)),
+            Some((7, 11)),
+            "the same set, another of its three textures"
+        );
+
+        // A set the worker built after that one, and the handle of a texture of
+        // the set before it: only the number says the two are different.
+        publish(&mut writer, &drawn_in(8, 9, 4, 2));
+        let next = picture(&frames).expect("the picture of the next set");
+        assert_eq!((next.set, next.texture), (8, 9));
+
+        // A set numbered before the one the picture holds is a worker that
+        // went backwards, and nothing of it is published: the reader would take
+        // its handle for one of the set it has, and a picture is not written
+        // where the number it is known by would go back.
+        let slot = writer.claim().expect("a slot the reader has finished with");
+        assert!(
+            !writer.publish_into(slot, &drawn_in(6, 13, 4, 2)),
+            "an older set was published"
+        );
+        assert_eq!(writer.claim(), Some(slot), "nothing was written there");
+        assert!(writer.publish_into(slot, &drawn_in(9, 13, 4, 2)));
+        assert_eq!(
+            picture(&frames).map(|picture| (picture.set, picture.texture)),
+            Some((9, 13)),
+            "the slot holds the newer set's picture"
+        );
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// The worker is never held up by the one slot it would have drawn in next:
+    /// a window showing the newest picture keeps that slot, and the slot the
+    /// reader never took is free to draw in instead. A rotation the worker
+    /// couldn't turn would freeze the preview for the rest of the share.
+    #[test]
+    fn a_slot_the_reader_keeps_does_not_hold_up_the_worker() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        publish(&mut writer, &drawn(9, 4, 2));
+        publish(&mut writer, &drawn(10, 4, 2));
+        // The reader takes the newest and goes on showing it: the slot the
+        // worker would draw in next is one it hasn't finished with.
+        let newest = picture(&frames).expect("the newest picture");
+        assert_eq!((newest.slot, newest.generation), (1, 2));
+        let slot = writer
+            .claim()
+            .expect("the slot the reader never took is free");
+        assert_ne!(slot, newest.slot);
+        assert!(writer.publish_into(slot, &drawn(11, 4, 2)));
+
+        // The reader finishing with what it showed frees that slot in turn.
+        assert!(frames.retire(newest.slot, newest.generation));
+        assert!(writer.claim().is_some(), "a slot is free again");
     }
 
     /// A picture carries the size it was drawn at and a number that only

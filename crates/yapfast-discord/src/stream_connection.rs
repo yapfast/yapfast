@@ -237,16 +237,19 @@ impl Drop for Encoded {
         let Some(pool) = self.pool.take() else {
             return;
         };
-        // A buffer another size than the pool's is no use to it: keeping one
-        // would hold memory it can never hand out.
-        if self.buffer.capacity() != pool.capacity() {
-            return;
-        }
+        let capacity = self.buffer.capacity();
         let buffer = std::mem::take(&mut self.buffer);
-        let mut idle = lock(&pool.idle);
-        if idle.len() < BUFFERS {
-            idle.push(buffer);
+        // A buffer another size than the pool's is no use to it, and neither is
+        // one past the few a stream works through: both are let go, and what the
+        // pool holds goes down with them.
+        if capacity == pool.capacity() {
+            let mut idle = lock(&pool.idle);
+            if idle.len() < BUFFERS {
+                idle.push(buffer);
+                return;
+            }
         }
+        pool.release(capacity);
     }
 }
 
@@ -271,6 +274,12 @@ pub struct Pool {
     max: usize,
     idle: Mutex<Vec<Vec<u8>>>,
     created: AtomicUsize,
+    /// The bytes the pool's buffers hold now, idle and out on loan, and the
+    /// most they have held: a stream's report shows both, so a pool that grew
+    /// for one large frame says what it kept rather than how many buffers it
+    /// made.
+    live: AtomicUsize,
+    peak: AtomicUsize,
 }
 
 impl Pool {
@@ -283,6 +292,8 @@ impl Pool {
             max,
             idle: Mutex::new(Vec::new()),
             created: AtomicUsize::new(0),
+            live: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
         }
     }
 
@@ -293,9 +304,14 @@ impl Pool {
         let idle = lock(&self.idle).pop();
         let buffer = match idle {
             Some(buffer) if buffer.capacity() == capacity => buffer,
-            // A buffer of a size the pool has outgrown is no use to it.
-            _ => {
+            // A buffer of a size the pool has outgrown is no use to it: it is
+            // let go, and what the pool holds goes down with it.
+            stale => {
+                if let Some(stale) = stale {
+                    self.release(stale.capacity());
+                }
                 self.created.fetch_add(1, Ordering::Relaxed);
+                self.hold(capacity);
                 vec![0; capacity]
             }
         };
@@ -320,7 +336,7 @@ impl Pool {
         // Growing is the one moment they are all in one place to give back, so it
         // is where they go; a buffer still out is dropped by `Encoded`'s own size
         // check when it comes back.
-        lock(&self.idle).clear();
+        self.trim();
         self.capacity
             .store((capacity * 2).min(self.max), Ordering::Relaxed);
         true
@@ -329,6 +345,38 @@ impl Pool {
     /// The size of buffer it hands out now.
     pub fn capacity(&self) -> usize {
         self.capacity.load(Ordering::Relaxed)
+    }
+
+    /// The bytes the pool's buffers hold now, idle and out on loan, and the most
+    /// they have held: a stream's report shows both, so a pool that grew for one
+    /// large frame says what it kept rather than how many buffers it made.
+    pub fn bytes(&self) -> (usize, usize) {
+        (
+            self.live.load(Ordering::Relaxed),
+            self.peak.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Gives back the idle buffers now, for a machine short of memory. What is
+    /// out on loan comes back to the pool's own check and stays or goes by the
+    /// size it was made at, so nothing in flight is ever resized or freed.
+    pub fn trim(&self) {
+        let mut idle = lock(&self.idle);
+        let bytes: usize = idle.iter().map(Vec::capacity).sum();
+        idle.clear();
+        drop(idle);
+        self.release(bytes);
+    }
+
+    /// Counts a buffer the pool has just made, and the high-water mark with it.
+    fn hold(&self, capacity: usize) {
+        let live = self.live.fetch_add(capacity, Ordering::Relaxed) + capacity;
+        self.peak.fetch_max(live, Ordering::Relaxed);
+    }
+
+    /// Counts a buffer the pool has let go of.
+    fn release(&self, capacity: usize) {
+        self.live.fetch_sub(capacity, Ordering::Relaxed);
     }
 
     /// How many buffers the pool has allocated so far, for tests and logs: a
@@ -394,6 +442,10 @@ pub struct ReceivedFrame {
     pub codec: Codec,
     pub data: Vec<u8>,
     pub keyframe: bool,
+    /// The sender's RTP timestamp for the picture, on its 90 kHz clock: the
+    /// one thing that ties a decoded picture to the sound that came with it,
+    /// which the frames file and the reports carry on from here.
+    pub timestamp: u32,
 }
 
 /// One Opus frame of a watched stream's sound as it came: its payload, its
@@ -1666,6 +1718,7 @@ async fn receive_stream(
                     codec,
                     data,
                     keyframe: frame.keyframe,
+                    timestamp: frame.timestamp,
                 };
                 if let Err(channel::TrySendError::Full(_)) = frames.try_send(frame) {
                     // The decoder is behind; the frames after this one

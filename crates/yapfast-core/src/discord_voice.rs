@@ -473,8 +473,10 @@ pub(crate) async fn call(
     let mut ringback: Option<Ringer> = None;
     // Discord wouldn't ring them, which the call says until someone comes.
     let mut unrung = false;
-    // How the shared screen last said it goes out, and when.
+    // How the shared screen last said it goes out, and when, and how the
+    // stream being watched last said it is decoded and shown.
     let sending: Sending = Arc::default();
+    let watched: Sending = Arc::default();
     let mut soundboard = Soundboard::start(discord, guild);
     let (sound_events, mut sounds) = mpsc::unbounded_channel();
     {
@@ -506,16 +508,24 @@ pub(crate) async fn call(
         state.phase = Phase::Connected;
         let link = call.stats();
         state.link = Some(Link::new({
-            let (link, sending) = (link.clone(), sending.clone());
+            let (link, sending, watched) = (link.clone(), sending.clone(), watched.clone());
             move || {
                 let read = link.read();
                 let sending = sending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let watched = watched.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 LinkStats {
                     pings: read.pings.into(),
                     loss: read.loss,
                     privacy_code: read.privacy_code,
                     // The worker says each second while the stream is live.
                     stream: sending
+                        .as_ref()
+                        .filter(|(said, _)| said.elapsed() < SENDING_STALE)
+                        .map(|(_, stats)| stats.clone()),
+                    // A watched stream's worker says the same each second
+                    // while it plays: how it is decoded, and how its pictures
+                    // reach the window.
+                    watching: watched
                         .as_ref()
                         .filter(|(said, _)| said.elapsed() < SENDING_STALE)
                         .map(|(_, stats)| stats.clone()),
@@ -951,10 +961,17 @@ pub(crate) async fn call(
                                 watching.opening = false;
                             }
                         }
+                        // How the watched stream is decoded and shown, which
+                        // the call's Stream tab reads while it plays.
+                        WatchEvent::Report(Some(Report::Sending(stats))) => {
+                            *watched
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                Some((std::time::Instant::now(), stats));
+                        }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
                             Report::Sharing { .. }
-                            | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }
                             | Report::Finished

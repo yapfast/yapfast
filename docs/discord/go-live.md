@@ -88,8 +88,9 @@ encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
 work sends H264. Each encoded frame owns the buffer it was encoded into: the
 encoder takes one of three and the frame gives it back when its packets are
-planned, so its
-bytes reach DAVE without a copy. The buffers start at 512 KiB, or at a
+planned, so its bytes reach DAVE without a copy; a picture the encoder produced
+past the buffer it was given is copied out of the encoder's own staging buffer
+once, and never encoded a second time. The buffers start at 512 KiB, or at a
 frame's own cap where that is smaller, and double as a frame needs, up to 2
 bytes a pixel and 4 KiB more; three of those are 1.5 MiB at rest, and 12 MiB
 at 1080p only if every buffer grew to the cap. A frame beyond the three
@@ -214,6 +215,26 @@ the outline is something the person being shared with can see. Settings can name
 either rung, for a machine where another application already holds an output's
 duplication and the choice falls to the other. Discord's still is made from the
 same scaled picture, so it still refreshes while the local preview is hidden.
+
+A desktop that isn't changing is still a stream that can be asked for a picture.
+The capture keeps the last picture it made in its own texture, and a viewer
+joining, a decoder that lost its place and asked for a whole frame, a preview
+coming back or Discord's still being due are all served from it at the next
+pass of the loop — throttled by the same keyframe and still intervals, and by
+the send queue's own backpressure, so a request is only answered by a picture
+that can be queued. Nothing is captured or encoded again for them, and a
+desktop that neither moves nor is wanted encodes nothing at all; a picture the
+capture no longer holds, after a resize or a device the card took away, waits
+for a real frame rather than refreshing the source before it.
+
+Windows Graphics Capture takes a window as readily as a display: `create for
+window` rather than `create for monitor`, with the window validated as a
+top-level one first. A window that closes or excludes itself from capture ends
+that share rather than refreshing protected content, and a minimised one has no
+picture to give. Where the window can't be captured on the card, the processor's
+capturer shares the same window — never the desktop it happens to be on — and the
+stream goes on from there with a whole frame, since the pictures have changed
+kind.
 
 Discord shows a still of each stream, in the call and to people outside it.
 Like Discord's client, Yapfast makes one once the stream connects and the
@@ -479,3 +500,37 @@ and [the issue about it](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/
 The Stream tab gives the size Yapfast encodes, before the rounding.
 
 Wine has no AMF runtime, so there AMF fails to open and x264 encodes.
+
+## The Stream tab, and what a share gives back when the machine is short
+
+The call's Stream tab shows how a share goes out and what makes it: the
+encoder and codec, what captured it and what that captured, the size and frame
+rate, the bitrate sent and aimed for, the keyframes viewers asked for, the
+packets resent, the frames a full queue skipped, and the shared sound waiting
+or dropped. Beside those it says how the pictures reach the window — the
+worker's own texture, or a copy of every frame — and the adapter the window
+draws on, the wait a frame had between the capture having it and the encoder
+being given it, what the encoder's output buffers hold now and at their most,
+and, when there is one, why the share isn't on the path it asked for. A value
+nothing answered reads "unknown" rather than zero.
+
+*Copy diagnostics* copies the same report as JSON, for a bug report, and
+nothing else: no token, no server, no window title, and no media. What the
+encoded frame's bytes were is never part of it; how many there were is.
+
+A worker samples the machine once a second — the physical memory the system
+could still give a process, and the budget the active adapter's driver says it
+has left — from the same loop that paces the stream, so there is no thread to
+own or stop. When either is under 10% the share gives back what it can spare:
+the local preview is scaled into a 640×360 box instead of its 1920 and the
+encoder's idle output buffers are let go. What the window has already opened is
+its own to release, and a share's memory policy doesn't reach across the
+process boundary to take it back. It takes the room back only after every signal has
+been above 20% for ten seconds, so a page coming free doesn't flip it back and
+forth. What a viewer sees is untouched: the network's resolution, bitrate and
+codec, the decoder's reference pictures and the sound stay exactly as they
+were, because a share that lowered its resolution would be a worse stream, not
+a cheaper one. A machine that can't be asked — no DXGI budget, or a platform
+with no sampler — is not a machine that is short, and keeps normal behaviour.
+The thresholds are policy, not measurements: they are named constants in
+`crates/yapfast-core/src/pressure.rs`.
