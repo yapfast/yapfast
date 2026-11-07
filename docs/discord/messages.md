@@ -19,10 +19,13 @@ live. A jump to a message that isn't loaded shows the messages around it; see
 [jumping to a message](#jumping-to-a-message). Opening a channel subscribes to
 its server, as the web client does, because Discord sends large servers'
 messages only to subscribers. Yapfast sends, replies, edits, deletes, reacts
-and sends files through Discord's cloud uploads. Mentions and timestamps show
-as text, custom emoji and stickers as pictures, every attachment shows, images
-with previews scaled by Discord's media proxy, and channels the account can't
-send in are read-only. Bots and webhooks have an APP tag after their name. An
+and sends files through Discord's cloud uploads. Mentions show as text, and
+timestamps (`<t:SECONDS:STYLE>`) as Discord's client writes each style (`t`,
+`T`, `d`, `D`, `f`, `F`, `R`), on the 12-hour clock when that's set; the
+profile editor's preview writes its bio's the same way. Custom emoji and
+stickers show as pictures, every attachment shows, images with previews
+scaled by Discord's media proxy, and channels the account can't send in are
+read-only. Bots and webhooks have an APP tag after their name. An
 author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
 authors' member profiles.

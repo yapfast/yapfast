@@ -1916,8 +1916,9 @@ impl Names {
             let (name, id) = emoji.split_once(':')?;
             (digits(id) && !name.is_empty()).then(|| format!(":{name}:"))
         } else if let Some(time) = tag.strip_prefix("t:") {
-            let seconds = time.split(':').next()?.parse::<i64>().ok()?;
-            Some(date_time(seconds))
+            let mut parts = time.split(':');
+            let seconds = parts.next()?.parse::<i64>().ok()?;
+            Some(timestamp(seconds, parts.next()))
         } else {
             None
         }
@@ -1984,9 +1985,110 @@ fn escape_markdown(text: &str) -> String {
     escaped
 }
 
-/// A Unix time in the local time zone, such as `2026-10-06 14:05`.
-fn date_time(seconds: i64) -> String {
-    local(seconds).format("%Y-%m-%d %H:%M").to_string()
+/// `text` with each `<t:SECONDS>` or `<t:SECONDS:STYLE>` written as the
+/// time it names, as [`Names::render`] writes them in messages; for text
+/// that isn't rendered otherwise, such as a bio being written.
+pub fn render_timestamps(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("<t:") {
+        out.push_str(&rest[..start]);
+        let tag = &rest[start + 3..];
+        let parsed = tag.find('>').and_then(|end| {
+            let mut parts = tag[..end].split(':');
+            let seconds = parts.next()?.parse::<i64>().ok()?;
+            let style = parts.next();
+            parts
+                .next()
+                .is_none()
+                .then(|| (timestamp(seconds, style), end))
+        });
+        match parsed {
+            Some((time, end)) => {
+                out.push_str(&time);
+                rest = &tag[end + 1..];
+            }
+            None => {
+                out.push_str("<t:");
+                rest = tag;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Whether `<t:…>` timestamps show a 12-hour clock, as the app's setting
+/// says; the UI sets it at start and when the setting changes.
+static TWELVE_HOUR_CLOCK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Shows `<t:…>` timestamps on a 12-hour clock from now on, or a 24-hour one.
+pub fn set_twelve_hour_clock(on: bool) {
+    TWELVE_HOUR_CLOCK.store(on, Relaxed);
+}
+
+/// A `<t:SECONDS:STYLE>` timestamp in the local time zone, as Discord's
+/// client shows each style: `t` 14:05, `T` 14:05:09, `d` 06/10/2026,
+/// `D` 6 October 2026, `f` (and no style) 6 October 2026 14:05,
+/// `F` Tuesday, 6 October 2026 14:05, `R` 3 hours ago. Messages render
+/// once, so `R` says how long ago it was when the message arrived.
+fn timestamp(seconds: i64, style: Option<&str>) -> String {
+    let twelve_hour = TWELVE_HOUR_CLOCK.load(Relaxed);
+    timestamp_at(
+        seconds,
+        style,
+        chrono::Local::now().timestamp(),
+        twelve_hour,
+    )
+}
+
+fn timestamp_at(seconds: i64, style: Option<&str>, now: i64, twelve_hour: bool) -> String {
+    let at = local(seconds);
+    let (time, time_seconds) = if twelve_hour {
+        ("%-I:%M %p", "%-I:%M:%S %p")
+    } else {
+        ("%H:%M", "%H:%M:%S")
+    };
+    let format = match style {
+        Some("t") => time.to_owned(),
+        Some("T") => time_seconds.to_owned(),
+        Some("d") => "%d/%m/%Y".to_owned(),
+        Some("D") => "%-d %B %Y".to_owned(),
+        Some("F") => format!("%A, %-d %B %Y {time}"),
+        Some("R") => return relative(seconds - now),
+        _ => format!("%-d %B %Y {time}"),
+    };
+    at.format(&format).to_string()
+}
+
+/// `seconds` from now in Discord's words: `in 5 minutes`, `2 days ago`.
+fn relative(seconds: i64) -> String {
+    const MINUTE: i64 = 60;
+    const HOUR: i64 = 60 * MINUTE;
+    const DAY: i64 = 24 * HOUR;
+    const MONTH: i64 = 30 * DAY;
+    const YEAR: i64 = 365 * DAY;
+    let span = i64::try_from(seconds.unsigned_abs()).unwrap_or(i64::MAX);
+    // Rounded to the nearest unit; each range starts where that rounds to 2.
+    let count = |unit: i64, name: &str| format!("{} {name}", (span + unit / 2) / unit);
+    let words = match span {
+        ..45 => "a few seconds".to_owned(),
+        45..90 => "a minute".to_owned(),
+        90..2700 => count(MINUTE, "minutes"),
+        2700..5400 => "an hour".to_owned(),
+        5400..79200 => count(HOUR, "hours"),
+        79200..129600 => "a day".to_owned(),
+        129600..2246400 => count(DAY, "days"),
+        2246400..3974400 => "a month".to_owned(),
+        3974400..27648000 => count(MONTH, "months"),
+        27648000..47260800 => "a year".to_owned(),
+        _ => count(YEAR, "years"),
+    };
+    if seconds >= 0 {
+        format!("in {words}")
+    } else {
+        format!("{words} ago")
+    }
 }
 
 /// A day in Unix milliseconds as profiles show it, in the local time zone: `6 Oct 2026`.
@@ -2529,11 +2631,11 @@ mod tests {
         assert_eq!(
             names.render(
                 Some(&server),
-                "<@2> <@!1> <@&30> in <#11> <:pog:5> <a:dance:6> <t:1791295500:R> <@9> a < b"
+                "<@2> <@!1> <@&30> in <#11> <:pog:5> <a:dance:6> <t:1791295500:t> <@9> a < b"
             ),
             format!(
                 "@Annie @me @Mods in #general :pog: :dance: {} @Discord user a < b",
-                date_time(1_791_295_500)
+                local(1_791_295_500).format("%H:%M")
             )
         );
         assert_eq!(
@@ -2923,5 +3025,78 @@ mod tests {
         names.learn_user(&json!({"id": "1", "public_flags": 0}));
         assert!(!names.is_official("1"));
         assert!(!names.is_official("2"));
+    }
+
+    #[test]
+    fn timestamps_in_plain_text_become_times() {
+        let at = 1_791_295_500;
+        let time = timestamp(at, Some("t"));
+        assert_eq!(
+            render_timestamps(&format!("My 12AM is your <t:{at}:t>!")),
+            format!("My 12AM is your {time}!")
+        );
+        assert_eq!(render_timestamps("<t:nope> and <t:1"), "<t:nope> and <t:1");
+    }
+
+    #[test]
+    fn timestamps_show_their_style() {
+        let at = 1_791_295_500;
+        let local = local(at);
+        let shown = |style, twelve_hour| timestamp_at(at, style, at, twelve_hour);
+        let day = local.format("%-d %B %Y").to_string();
+        assert_eq!(shown(Some("t"), false), local.format("%H:%M").to_string());
+        assert_eq!(
+            shown(Some("t"), true),
+            local.format("%-I:%M %p").to_string()
+        );
+        assert_eq!(
+            shown(Some("T"), false),
+            local.format("%H:%M:%S").to_string()
+        );
+        assert_eq!(
+            shown(Some("d"), false),
+            local.format("%d/%m/%Y").to_string()
+        );
+        assert_eq!(shown(Some("D"), false), day);
+        assert_eq!(
+            shown(Some("f"), false),
+            format!("{day} {}", local.format("%H:%M"))
+        );
+        assert_eq!(shown(None, false), shown(Some("f"), false));
+        assert_eq!(shown(Some("unknown"), false), shown(Some("f"), false));
+        assert_eq!(
+            shown(Some("F"), true),
+            format!(
+                "{}, {day} {}",
+                local.format("%A"),
+                local.format("%-I:%M %p")
+            )
+        );
+        assert_eq!(
+            timestamp_at(at, Some("R"), at + 10, false),
+            "a few seconds ago"
+        );
+        assert_eq!(timestamp_at(at, Some("R"), at - 60, false), "in a minute");
+        assert_eq!(
+            timestamp_at(at, Some("R"), at + 5 * 60, false),
+            "5 minutes ago"
+        );
+        assert_eq!(
+            timestamp_at(at, Some("R"), at - 3 * 3600, false),
+            "in 3 hours"
+        );
+        assert_eq!(timestamp_at(at, Some("R"), at + 86_400, false), "a day ago");
+        assert_eq!(
+            timestamp_at(at, Some("R"), at + 10 * 86_400, false),
+            "10 days ago"
+        );
+        assert_eq!(
+            timestamp_at(at, Some("R"), at - 90 * 86_400, false),
+            "in 3 months"
+        );
+        assert_eq!(
+            timestamp_at(at, Some("R"), at + 3 * 365 * 86_400, false),
+            "3 years ago"
+        );
     }
 }
