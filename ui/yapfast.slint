@@ -3304,7 +3304,7 @@ export component YapfastWindow inherits Window {
                                 background: ClientStyle.enabled ? Theme.composer : Theme.field;
                                 // Discord's outline: faint, and a notch lighter with the keys.
                                 border-width: 1px;
-                                border-color: composer.focused ? Theme.muted.with-alpha(0.55) : ClientStyle.enabled ? Theme.outline-field : Theme.line;
+                                border-color: composer.focused ? Theme.outline-field-focus : ClientStyle.enabled ? Theme.outline-field : Theme.line;
                                 animate border-color { duration: Theme.quick; }
                                 border-radius: 10px;
                                 border-top-left-radius: root.compose-label != "" ? 0px : 10px;

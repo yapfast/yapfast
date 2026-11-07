@@ -103,8 +103,10 @@ Text, secondary text, muted text and disabled controls take `--text-default`,
 Primary and destructive buttons use `--control-primary-background-*` and
 `--control-critical-primary-background-*`. Hovers, selections, borders and
 secondary buttons composite Discord's translucent neutral washes over their
-surfaces. Onyx uses its stronger border washes, 20% for subtle outlines
-and the composer border, and 24% for normal separators. Only Onyx adds an outline around the account card and a permanent divider
+surfaces. Onyx uses stronger border washes, 20% for subtle outlines and
+24% for normal separators, with a softer 12% wash around the composer.
+The Onyx composer border is `#202024` normally and `#2b2b2f` when focused;
+`outline-field-focus` controls the focused colour. Only Onyx adds an outline around the account card and a permanent divider
 between the sidebar and chat in the Discord layout. The divider sits inside
 the sidebar edge so it does not cover the 2px mention marker in chat. These use the editable
 `outline-panel` and `outline-sidebar` colours, which are transparent in the
