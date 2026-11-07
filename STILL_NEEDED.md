@@ -1,7 +1,7 @@
 # What is still needed
 
 The state of the streaming work on `improve/streaming-codecs-audio` against
-[ASTRA.md](ASTRA.md), written at commit `442d7c91`. Six commits sit on the
+[ASTRA.md](ASTRA.md), as of the head of this branch. Six commits sit on the
 reviewed head `55e74718`:
 
 | Commit | What it settles |
@@ -76,6 +76,68 @@ Then a real Intel machine has to encode with `h264_qsv`/`hevc_qsv` and a viewer
 has to decode it. Nothing in the Rust side advertises QSV yet beyond the
 capability probe, so `encode.rs`'s probe must list the QSV encoders once the
 build carries them.
+
+### 3. FFmpeg's own hardware decode (d3d11va, parsers, decoders)
+
+This is the change that lets Yapfast stop owning a decoder. The vendored FFmpeg
+is built with `CONFIG_HWACCELS 0`, `CONFIG_PARSERS 0`, `CONFIG_D3D11VA 0` and a
+single decoder (`hevc`), so a watched stream's pictures are decoded either by
+Media Foundation in `native/d3d11dec.cc` — H264, HEVC and AV1 through the
+machine's own MFTs, about 400 lines of COM we maintain — or in software. Enabling
+FFmpeg's hwaccel moves the decode itself to a framework that already handles
+DXVA profile selection, reference surfaces, stream change, flush and driver
+quirks, across every vendor.
+
+It is the same `update.sh` regeneration as the QSV work above, so the two should
+land in one pass over `vendor/ffmpeg-src`. On the Windows configure line (and the
+Linux one where it applies):
+
+```sh
+--enable-d3d11va
+--enable-hwaccel=h264_d3d11va,hevc_d3d11va,av1_d3d11va,vp9_d3d11va
+--enable-decoder=h264,hevc,av1,vp9
+--enable-parser=h264,hevc,av1,vp9
+```
+
+What that buys:
+
+- H264, HEVC, AV1 and VP9 hardware decode on any vendor's card, from one path,
+  instead of three codec-specific Media Foundation negotiations.
+- AV1 hardware decode without the machine having Microsoft's AV1 Video Extension
+  installed, which Media Foundation needs and Windows 10 often lacks. Discord
+  negotiates AV1, so this is a real difference between machines.
+- VP9 hardware decode, which the video player path can use and Media Foundation
+  does not expose.
+- FFmpeg's own decoders also serve the *software* path for every codec the build
+  carries, so `DECODES` no longer has to be a least-common-denominator list.
+
+What it does not buy, and must be kept:
+
+- d3d11va outputs NV12/P010 textures; it does no colour matrix, range conversion
+  or scaling. The `ID3D11VideoProcessorEnumerator`/`VideoProcessorBlt` pass in
+  `native/d3d11dec.cc` stays — it is what turns a decoded surface into the tile
+  in one go.
+- The D3D11 device sharing (the same device the encoder and the window use, so a
+  decoded picture is never copied), the tile slots, the readback of just the
+  tile, the frames-file publication and the software fallback all stay.
+- The picture has to be handed to FFmpeg's `AVD3D11VADeviceContext.Device`
+  (ours), and `AVD3D11VAFramesContext` surfaces have to be pre-allocated
+  (`initial_pool_size`) so a stream allocates no textures per frame.
+
+What can then be deleted, once a measured comparison says FFmpeg's path is at
+least as good on this machine and on one without the AV1 extension:
+
+| Goes | Stays |
+| --- | --- |
+| `native/d3d11dec.cc`'s Media Foundation half: MFT activation, output-type negotiation, decode calls, stream change, flush, the per-codec GUID table | the video-processor pass, the tile slots and their readback, the device and its sharing, the fallback decisions |
+| `decode.rs`'s Media Foundation glue (`Hardware`, `Decoded::Held`, the codec-to-GUID mapping) | `decode.rs`'s seam: which decoder runs, the keyframe wait, the software fallback |
+| the `Libvpx`/`H264`-through-libwebrtc software pair, if the vendored FFmpeg's decoders measure no worse | `native/decode.c`'s frame plumbing, or the whole file if FFmpeg's decoders take the software path too |
+
+Order of work: enable it in the build → add the FFmpeg decode path beside the
+Media Foundation one behind the same `decode.rs` seam → compare CPU per frame at
+1080p and 4K, time to first picture, codec coverage per machine, and behaviour on
+a driver reset → delete the loser. The repo's rule for presets and paths is that
+a choice earns its place with a measurement, and a decoder path is no different.
 
 ## Still to do, in the order that makes sense
 
@@ -195,4 +257,5 @@ and the compile-fail tests for it.
 | 10 | Feature 6: memory-pressure policy | done, worker and window sides |
 | 11 | Docs cleanup and final check | docs done; **`scripts/check` not run** |
 | 12 | Merge `upstream-yapfast/main` | **blocked on the Skia 0.157 archive** |
-| 13 | oneVPL in the vendored FFmpeg | **blocked, needs nix + an Intel machine** |
+| 13 | oneVPL in the vendored FFmpeg | **blocked, needs nix + an Intel machine**; same `update.sh` pass as 14 |
+| 14 | FFmpeg's own d3d11va decode, decoders and parsers — retires the Media Foundation decoder | **blocked on the same regeneration**; order and the code it lets us delete are in section 3 |
