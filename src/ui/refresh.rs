@@ -623,8 +623,7 @@ impl Adapter {
             .map(|room| (room.id.as_str(), &**room))
             .collect();
         self.rail_call = call_room(state).map(str::to_owned);
-        let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
-        update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
+        show_rail(&self.models, rail(state, &rooms_by_id, &self.layout));
         let mut listed_text = false;
         let mut listed_voice = false;
         let mut category = None;
@@ -3406,8 +3405,7 @@ impl Adapter {
                 .iter()
                 .map(|room| (room.id.as_str(), &**room))
                 .collect();
-            let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
-            update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
+            show_rail(&self.models, rail(state, &rooms_by_id, &self.layout));
         }
         let timed = matches!(state.voice.phase, Phase::Connected | Phase::Reconnecting)
             .then(|| state.voice.room.clone())
@@ -4135,21 +4133,52 @@ pub(super) fn unread_dm_rows(state: &AppState) -> Vec<ServerRow> {
         .collect()
 }
 
-/// The whole rail: unread DMs, a line, then the servers and folders. Unread
-/// DMs come and go above the servers, so the model keeps rows by id rather
-/// than all moving down one.
+/// The whole rail: unread DMs, a line, then the servers and folders; and the
+/// column beside it, empty unless folders open there. Unread DMs come and go
+/// above the servers, so the model keeps rows by id rather than all moving
+/// down one.
 fn rail(
     state: &AppState,
     rooms_by_id: &HashMap<&str, &yapfast_core::chat::ChatRoom>,
-    open_folders: &std::collections::BTreeSet<String>,
-) -> Vec<ServerRow> {
+    layout: &super::Layout,
+) -> (Vec<ServerRow>, Vec<ServerRow>) {
     let mut rail = unread_dm_rows(state);
     rail.push(ServerRow {
         divider: true,
         ..Default::default()
     });
-    rail.extend(rail_rows(state, rooms_by_id, open_folders));
-    rail
+    let rows = rail_rows(state, rooms_by_id, &layout.open_folders);
+    if !layout.folders_beside {
+        rail.extend(rows);
+        return (rail, Vec::new());
+    }
+    let (servers, beside) = split_beside(rows);
+    rail.extend(servers);
+    (rail, beside)
+}
+
+fn show_rail(models: &super::Models, (rail, beside): (Vec<ServerRow>, Vec<ServerRow>)) {
+    update_model_by_id(&models.servers, rail, |row| row.id.clone());
+    update_model_by_id(&models.folder_servers, beside, |row| row.id.clone());
+}
+
+/// The rail's rows with open folders' servers moved to the column beside
+/// it: the rail keeps each folder, `aside` while it's open, and the column
+/// has each open folder again with its servers after it, in the rail's order.
+pub(super) fn split_beside(rows: Vec<ServerRow>) -> (Vec<ServerRow>, Vec<ServerRow>) {
+    let mut rail = Vec::with_capacity(rows.len());
+    let mut beside = Vec::new();
+    for row in rows {
+        if row.nested {
+            beside.push(row);
+        } else if row.folder && row.open {
+            beside.push(row.clone());
+            rail.push(ServerRow { aside: true, ..row });
+        } else {
+            rail.push(row);
+        }
+    }
+    (rail, beside)
 }
 
 /// The rail's rows: each server, and each folder with its servers after it
