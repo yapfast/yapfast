@@ -1531,6 +1531,7 @@ struct Icons {
     block: slint::Image,
     mute: slint::Image,
     unmute: slint::Image,
+    folder: slint::Image,
     // A server member's menu.
     mention: slint::Image,
     rename: slint::Image,
@@ -1807,6 +1808,7 @@ impl Adapter {
             block: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/ban.svg"))?,
             mute: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/bell-off.svg"))?,
             unmute: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/bell.svg"))?,
+            folder: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/folder.svg"))?,
             mention: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/at-sign.svg"))?,
             rename: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pencil.svg"))?,
             roles: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/shield.svg"))?,

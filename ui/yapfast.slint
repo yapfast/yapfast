@@ -634,6 +634,15 @@ export component YapfastWindow inherits Window {
     in property <[[MenuRow]]> menu-submenus;
     callback prepare-menu(string, bool);
     callback choose-menu(string, bool, string);
+    /// What's typed in the search of a list in the menu: the menu's target,
+    /// the id of the row whose list it is, and the text. The list's rows are
+    /// set again to match.
+    callback search-menu(string, string, string);
+    /// What right-clicking an item of a list in the menu opens beside it:
+    /// asked for with the menu's target, the id of the list's row and the
+    /// item's, and set in `menu-item-rows`.
+    callback list-item-menu(string, string, string);
+    in property <[MenuRow]> menu-item-rows;
     /// The room id of the category a channel, by its room id, is listed
     /// under, whose heading's menu is asked for; empty for none.
     pure callback category-of(string) -> string;
@@ -1804,6 +1813,9 @@ export component YapfastWindow inherits Window {
                 context-menu.close();
             }
             toggled(id) => { root.choose-menu(root.menu-target, root.menu-person, id); }
+            searched(row, text) => { root.search-menu(root.menu-target, row, text); }
+            item-rows: root.menu-item-rows;
+            item-menu(row, item) => { root.list-item-menu(root.menu-target, row, item); }
             close => { context-menu.close(); }
         }
     }

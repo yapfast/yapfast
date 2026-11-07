@@ -3807,6 +3807,117 @@ fn a_right_click_on_a_folder_asks_for_its_menu() {
     );
 }
 
+#[test]
+fn a_menus_lists_open_below_their_rows_on_a_click_and_their_rows_choose_in_place() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    let folder = "discord-folder:7";
+    window.set_workspace(true);
+    window.set_servers(ModelRc::new(VecModel::from(vec![ServerRow {
+        id: folder.into(),
+        name: "Friends".into(),
+        folder: true,
+        ..Default::default()
+    }])));
+    // Mute, whose times apply and leave the menu open, then Servers, whose
+    // servers close it; a server right-clicked gives its own choices.
+    let time = |n: usize| MenuRow {
+        id: format!("mute-{n}").into(),
+        text: format!("For {n} minutes").into(),
+        keep_open: true,
+        ..Default::default()
+    };
+    let server = |n: usize| MenuRow {
+        id: format!("folder-server:{n}").into(),
+        text: format!("Server {n}").into(),
+        subtitle: "Only @mentions".into(),
+        ..Default::default()
+    };
+    let weak = window.as_weak();
+    window.on_prepare_menu(move |_, _| {
+        let row = |id: &str, subtitle: &str| MenuRow {
+            id: id.into(),
+            text: id.into(),
+            subtitle: subtitle.into(),
+            expands: true,
+            ..Default::default()
+        };
+        menus::show(
+            &weak.unwrap(),
+            (
+                vec![row("mute", "times"), row("servers", "7 servers")],
+                vec![(1..=3).map(time).collect(), (1..=7).map(server).collect()],
+            ),
+        );
+    });
+    let weak = window.as_weak();
+    window.on_list_item_menu(move |_, _, item| {
+        let choice = MenuRow {
+            id: format!("{item}|level-all").into(),
+            text: "All messages".into(),
+            keep_open: true,
+            ..Default::default()
+        };
+        weak.unwrap()
+            .set_menu_item_rows(ModelRc::new(VecModel::from(vec![choice])));
+    });
+    let chosen = Rc::new(RefCell::new(Vec::new()));
+    let record = chosen.clone();
+    window.on_choose_menu(move |_, _, id| record.borrow_mut().push(id.to_string()));
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    settle(&window);
+    let press = |x: f32, y: f32, button| {
+        let position = slint::LogicalPosition::new(x, y);
+        let dispatch = |event| window.window().dispatch_event(event);
+        dispatch(WindowEvent::PointerMoved { position });
+        dispatch(WindowEvent::PointerPressed { position, button });
+        dispatch(WindowEvent::PointerReleased { position, button });
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+        settle(&window);
+    };
+    let left = PointerEventButton::Left;
+    let y = (60..300)
+        .step_by(8)
+        .map(|y| y as f32)
+        .find(|&y| {
+            press(36., y, PointerEventButton::Right);
+            window.get_menu_rows().row_count() > 0
+        })
+        .expect("the folder is on the rail");
+    // Rows with a second line are 44px, with 2px between, under 6px.
+    let mute = y + 6. + 22.;
+    let times = |n: f32| mute + 22. + 2. + 16. + n * 34.;
+    press(136., mute, left);
+    press(136., times(0.), left);
+    press(136., times(2.), left);
+    assert_eq!(
+        *chosen.borrow(),
+        ["mute-1", "mute-3"],
+        "the list opened on a click, and stayed open after the first choice"
+    );
+    // Clicked again, it closes: where the times were is Servers now.
+    press(136., mute, left);
+    let servers = mute + 46.;
+    press(136., servers, left);
+    let first = servers + 22. + 2. + 22.;
+    // A right click gives a server's own choices beside it, which apply
+    // and leave the menu open.
+    press(136., first, PointerEventButton::Right);
+    assert_eq!(window.get_menu_item_rows().row_count(), 1);
+    // Beside the menu, 188px wide from the pointer, level with the server.
+    press(36. + 188. + 4. + 80., first, left);
+    assert_eq!(chosen.borrow()[2], "folder-server:1|level-all");
+    // A left click on a server goes to it, and closes the menu.
+    press(136., first, left);
+    assert_eq!(chosen.borrow()[3], "folder-server:1");
+    press(136., first, left);
+    assert_eq!(chosen.borrow().len(), 4, "the menu closed");
+}
+
 #[cfg(feature = "discord")]
 #[test]
 fn a_profile_shows_activities_as_discord_cards() {
@@ -4390,6 +4501,379 @@ fn discord_server_window_changed(
             ..Default::default()
         })));
     (window, adapter, directory)
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_folders_menu_changes_its_servers_together_and_each_alone() {
+    use yapfast_core::{
+        chat::{Muting, NotificationChange, NotifyLevel},
+        yapfast_discord::{
+            marked::{MarkedServer, ServerMarks},
+            notifications::{Level, Mute, Notifications},
+            ready::{self, permission},
+            service::{Snapshot, Status},
+            settings::Folder,
+        },
+    };
+    let (window, adapter, _directory) = discord_server_window();
+    let server = |id: &str, name: &str, notifications: Notifications| {
+        let server = ready::server(&serde_json::json!({
+            "id": id, "owner_id": "99",
+            "properties": {"name": name, "default_message_notifications": 1},
+            "roles": [{"id": id, "name": "@everyone", "position": 0,
+                       "permissions": permission::VIEW_CHANNEL.to_string()}],
+            "channels": [{"id": format!("{id}1"), "type": 0, "name": "general", "position": 0}],
+        }))
+        .unwrap();
+        MarkedServer {
+            server: Arc::new(server),
+            marks: Arc::new(ServerMarks {
+                notifications: Arc::new(notifications),
+                ..Default::default()
+            }),
+        }
+    };
+    let snapshot = |second: Notifications| Snapshot {
+        status: Status::Online,
+        user_id: Some("1".into()),
+        servers: vec![
+            server(
+                "10",
+                "Games",
+                Notifications {
+                    level: Some(Level::Nothing),
+                    suppress_everyone: true,
+                    ..Default::default()
+                },
+            ),
+            server("20", "Work", second),
+        ],
+        folders: vec![Folder {
+            id: "7".into(),
+            name: Some("Stuff".into()),
+            color: None,
+            servers: vec!["10".into(), "20".into()],
+        }],
+        ..Default::default()
+    };
+    adapter
+        .borrow_mut()
+        .app
+        .apply(Event::Discord(Arc::new(snapshot(Notifications {
+            suppress_everyone: true,
+            ..Default::default()
+        }))));
+    let folder = "discord-folder:7";
+    let texts = |rows: ModelRc<MenuRow>| -> Vec<String> {
+        rows.iter().map(|row| row.text.to_string()).collect()
+    };
+    window.invoke_prepare_menu(folder.into(), false);
+    let rows = window.get_menu_rows();
+    assert_eq!(
+        texts(rows.clone()),
+        [
+            "Mark folder as read",
+            "Mute folder",
+            "Notification settings",
+            "Servers"
+        ],
+        "no folder open"
+    );
+    assert!(
+        rows.row_data(0).unwrap().disabled,
+        "greyed with nothing to read, as in Discord"
+    );
+    // Mute folder and Notification settings open their lists below
+    // themselves, whose choices apply and leave the menu open.
+    let mute = rows.row_data(1).unwrap();
+    assert!(mute.expands && mute.click_id.is_empty() && !mute.search);
+    assert!(rows.row_data(2).unwrap().expands);
+    let lists = window.get_menu_submenus();
+    assert!(lists.row_data(1).unwrap().iter().all(|row| row.keep_open));
+    assert!(lists.row_data(2).unwrap().iter().all(|row| row.keep_open));
+    // Choosing a level checks it in place.
+    window.invoke_choose_menu(folder.into(), false, "level-all".into());
+    let levels = window.get_menu_submenus().row_data(2).unwrap();
+    assert!(levels.row_data(0).unwrap().checked && !levels.row_data(1).unwrap().checked);
+    window.invoke_prepare_menu(folder.into(), false);
+    // The servers' levels differ, so the folder's names none.
+    assert_eq!(rows.row_data(2).unwrap().subtitle, "");
+    let servers = rows.row_data(3).unwrap();
+    assert_eq!(servers.subtitle, "2 servers");
+    assert!(
+        servers.separated && servers.expands && !servers.search,
+        "a list in the menu, with a search only past 5"
+    );
+    let submenus = window.get_menu_submenus();
+    assert_eq!(
+        submenus.row_data(1).unwrap().row_count(),
+        6,
+        "the mute times"
+    );
+    let levels = submenus.row_data(2).unwrap();
+    let checked: Vec<bool> = levels.iter().map(|row| row.checked).collect();
+    assert_eq!(
+        checked,
+        [false, false, false, true, false],
+        "no level shared; both suppress @everyone"
+    );
+    // Servers lists them, each saying how it notifies.
+    let listed = submenus.row_data(3).unwrap();
+    assert_eq!(texts(listed.clone()), ["Games", "Work"]);
+    let subtitles: Vec<String> = listed.iter().map(|row| row.subtitle.to_string()).collect();
+    assert_eq!(subtitles, ["Nothing", "Only @mentions"]);
+    assert_eq!(listed.row_data(0).unwrap().id, "folder-server:discord:10");
+
+    // The folder's choices change every server; a switch goes on unless
+    // all have it on already.
+    {
+        let app = &adapter.borrow().app;
+        let change = |id: &str| menus::folder_change(app, folder, id);
+        assert_eq!(
+            change("mute-180"),
+            Some(NotificationChange::Mute(Muting::Minutes(180)))
+        );
+        assert_eq!(
+            change("level-mentions"),
+            Some(NotificationChange::Level(Some(NotifyLevel::Mentions)))
+        );
+        assert_eq!(
+            change("suppress-everyone"),
+            Some(NotificationChange::SuppressEveryone(false))
+        );
+        assert_eq!(
+            change("suppress-roles"),
+            Some(NotificationChange::SuppressRoles(true))
+        );
+        assert_eq!(change("level-default"), None, "a folder has no default");
+    }
+
+    // Once every server is muted, the folder unmutes, saying when the last
+    // mute ends, and a muted server's own menu unmutes it.
+    let end = yapfast_core::clock::now_ms() + 3_600_000;
+    let mut muted = snapshot(Notifications {
+        mute: Mute {
+            muted: true,
+            until: Some(end),
+        },
+        ..Default::default()
+    });
+    let mut first = (*muted.servers[0].marks).clone();
+    Arc::make_mut(&mut first.notifications).mute = Mute {
+        muted: true,
+        until: None,
+    };
+    muted.servers[0].marks = Arc::new(first);
+    adapter
+        .borrow_mut()
+        .app
+        .apply(Event::Discord(Arc::new(muted)));
+    window.invoke_toggle_folder(folder.into());
+    window.invoke_prepare_menu(folder.into(), false);
+    let rows = window.get_menu_rows();
+    assert_eq!(
+        texts(rows.clone()),
+        [
+            "Mark folder as read",
+            "Unmute folder",
+            "Notification settings",
+            "Servers",
+            "Close all folders"
+        ]
+    );
+    assert_eq!(
+        rows.row_data(1).unwrap().subtitle,
+        "",
+        "Games is muted until it's turned back on"
+    );
+    let listed = window.get_menu_submenus().row_data(3).unwrap();
+    assert_eq!(listed.row_data(0).unwrap().subtitle, "Muted");
+    assert!(
+        listed
+            .row_data(1)
+            .unwrap()
+            .subtitle
+            .starts_with("Muted until")
+    );
+    // Right-clicking Work there gives its own choices beside it: unmute,
+    // as it's muted, then its levels and switches.
+    window.invoke_list_item_menu(
+        folder.into(),
+        "folder-servers".into(),
+        "folder-server:discord:20".into(),
+    );
+    let work = window.get_menu_item_rows();
+    let unmute = work.row_data(0).unwrap();
+    assert_eq!(
+        (unmute.text.as_str(), unmute.id.as_str()),
+        ("Unmute server", "discord:20|unmute-server")
+    );
+    assert!(unmute.subtitle.starts_with("Muted until") && unmute.keep_open);
+    assert_eq!(work.row_count(), 6);
+    {
+        let app = &adapter.borrow().app;
+        assert_eq!(
+            menus::folder_change(app, folder, "unmute-folder"),
+            Some(NotificationChange::Mute(Muting::Off))
+        );
+    }
+    // Close all folders closes the open one.
+    window.invoke_choose_menu(folder.into(), false, "close-all-folders".into());
+    assert!(adapter.borrow().layout.open_folders.is_empty());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_big_folders_servers_list_searches_and_each_server_opens_its_choices() {
+    use yapfast_core::yapfast_discord::{
+        marked::MarkedServer,
+        ready::{self, permission},
+        service::{Snapshot, Status},
+        settings::Folder,
+    };
+    let (window, adapter, _directory) = discord_server_window();
+    let texts = |rows: ModelRc<MenuRow>| -> Vec<String> {
+        rows.iter().map(|row| row.text.to_string()).collect()
+    };
+    let folder = "discord-folder:7";
+    // A folder of `count` servers, 10, 20 and on.
+    let show = |count: u64| {
+        let ids: Vec<String> = (1..=count).map(|n| (n * 10).to_string()).collect();
+        let servers = ids
+            .iter()
+            .map(|id| MarkedServer {
+                server: Arc::new(
+                    ready::server(&serde_json::json!({
+                        "id": id, "owner_id": "99",
+                        "properties": {"name": format!("S{id}"), "default_message_notifications": 1},
+                        "roles": [{"id": id, "name": "@everyone", "position": 0,
+                                   "permissions": permission::VIEW_CHANNEL.to_string()}],
+                        "channels": [],
+                    }))
+                    .unwrap(),
+                ),
+                marks: Arc::default(),
+            })
+            .collect();
+        adapter
+            .borrow_mut()
+            .app
+            .apply(Event::Discord(Arc::new(Snapshot {
+                status: Status::Online,
+                user_id: Some("1".into()),
+                servers,
+                folders: vec![Folder {
+                    id: "7".into(),
+                    name: None,
+                    color: None,
+                    servers: ids,
+                }],
+                ..Default::default()
+            })));
+        window.invoke_prepare_menu(folder.into(), false);
+        texts(window.get_menu_rows())
+    };
+    // Eight still get a row each.
+    let servers_row = |count: u64| {
+        assert_eq!(
+            show(count),
+            [
+                "Mark folder as read",
+                "Mute folder",
+                "Notification settings",
+                "Servers"
+            ]
+        );
+        window.get_menu_rows().row_data(3).unwrap()
+    };
+    // Five are listed plainly, opening below the row.
+    let five = servers_row(5);
+    assert_eq!(five.subtitle, "5 servers");
+    assert!(five.expands && !five.search);
+    assert_eq!(
+        window.get_menu_submenus().row_data(3).unwrap().row_count(),
+        5
+    );
+
+    // Past five, the list scrolls and gets a search, which narrows it by
+    // name, ignoring case.
+    let twelve = servers_row(12);
+    assert!(twelve.search);
+    let listed = || texts(window.get_menu_submenus().row_data(3).unwrap());
+    assert_eq!(listed().len(), 12);
+    let first = window
+        .get_menu_submenus()
+        .row_data(3)
+        .unwrap()
+        .row_data(0)
+        .unwrap();
+    assert_eq!(
+        (first.subtitle.as_str(), first.id.as_str()),
+        ("Only @mentions", "folder-server:discord:10")
+    );
+    window.invoke_search_menu(folder.into(), "folder-servers".into(), "s11".into());
+    assert_eq!(listed(), ["S110"]);
+    window.invoke_search_menu(folder.into(), "folder-servers".into(), "2".into());
+    assert_eq!(listed(), ["S20", "S120"]);
+    window.invoke_search_menu(folder.into(), "folder-servers".into(), "zzz".into());
+    assert_eq!(listed(), ["No servers match"]);
+    let none = window
+        .get_menu_submenus()
+        .row_data(3)
+        .unwrap()
+        .row_data(0)
+        .unwrap();
+    assert!(none.disabled);
+    window.invoke_search_menu(folder.into(), "folder-servers".into(), "".into());
+    assert_eq!(listed().len(), 12, "all back once it's cleared");
+
+    // Right-clicking a server found by the search gives its own choices
+    // beside it, each applying and leaving the menu open.
+    window.invoke_search_menu(folder.into(), "folder-servers".into(), "S11".into());
+    let found = window
+        .get_menu_submenus()
+        .row_data(3)
+        .unwrap()
+        .row_data(0)
+        .unwrap();
+    window.invoke_list_item_menu(folder.into(), "folder-servers".into(), found.id.clone());
+    let choices = window.get_menu_item_rows();
+    assert_eq!(
+        texts(choices.clone()),
+        [
+            "Mute for 15 minutes",
+            "Mute for 1 hour",
+            "Mute for 3 hours",
+            "Mute for 8 hours",
+            "Mute for 24 hours",
+            "Mute until I turn it back on",
+            "All messages",
+            "Only @mentions",
+            "Nothing",
+            "Suppress @everyone and @here",
+            "Suppress all role @mentions"
+        ]
+    );
+    assert_eq!(choices.row_data(1).unwrap().id, "discord:110|mute-60");
+    assert!(choices.iter().all(|row| row.keep_open));
+    window.invoke_choose_menu(folder.into(), false, "discord:110|level-nothing".into());
+    let choices = window.get_menu_item_rows();
+    assert!(
+        choices.row_data(8).unwrap().checked && !choices.row_data(7).unwrap().checked,
+        "checked in place"
+    );
+    // A mute checks among the times alone; the level stays checked.
+    window.invoke_choose_menu(folder.into(), false, "discord:110|mute-60".into());
+    let choices = window.get_menu_item_rows();
+    assert!(choices.row_data(1).unwrap().checked && choices.row_data(8).unwrap().checked);
+
+    // Choosing the server itself goes to it.
+    window.invoke_choose_menu(folder.into(), false, found.id);
+    assert_eq!(
+        adapter.borrow().app.state.navigation,
+        Navigation::Server("discord:110".into())
+    );
 }
 
 #[test]
