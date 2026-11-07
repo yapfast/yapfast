@@ -75,6 +75,8 @@ events! {
     GuildRoleUpdate = "GUILD_ROLE_UPDATE",
     GuildRoleDelete = "GUILD_ROLE_DELETE",
     GuildEmojisUpdate = "GUILD_EMOJIS_UPDATE",
+    /// This account's note on someone changed.
+    UserNoteUpdate = "USER_NOTE_UPDATE",
     /// A server's scheduled event, which its header counts.
     GuildScheduledEventCreate = "GUILD_SCHEDULED_EVENT_CREATE",
     GuildScheduledEventUpdate = "GUILD_SCHEDULED_EVENT_UPDATE",
@@ -181,6 +183,7 @@ mod tests {
             ("GUILD_ROLE_UPDATE", Event::GuildRoleUpdate),
             ("GUILD_ROLE_DELETE", Event::GuildRoleDelete),
             ("GUILD_EMOJIS_UPDATE", Event::GuildEmojisUpdate),
+            ("USER_NOTE_UPDATE", Event::UserNoteUpdate),
             (
                 "GUILD_SCHEDULED_EVENT_CREATE",
                 Event::GuildScheduledEventCreate,

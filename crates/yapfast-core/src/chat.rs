@@ -37,20 +37,6 @@ pub enum Activity {}
 #[cfg(not(feature = "discord"))]
 pub type Activities = Arc<[Activity]>;
 
-/// The icons of [`ChatRoom::symbol`].
-pub mod symbol {
-    pub const TEXT: u8 = 0;
-    pub const RULES: u8 = 1;
-    pub const ANNOUNCEMENT: u8 = 2;
-    pub const STAGE: u8 = 3;
-    pub const MEDIA: u8 = 4;
-    /// A text channel that is age-restricted.
-    pub const AGE_RESTRICTED: u8 = 5;
-    /// Set on any of the above for a channel @everyone may not see, which
-    /// Discord marks with a padlock on the icon.
-    pub const PRIVATE: u8 = 0x80;
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
     pub id: String,
@@ -123,9 +109,6 @@ pub struct ChatRoom {
     /// Show All Channels off for one this account doesn't follow; or a
     /// thread of one.
     pub unlisted: bool,
-    /// Which icon the channel list draws for it, one of [`symbol`], by its
-    /// kind: a rules channel, an announcement channel, a stage and so on.
-    pub symbol: u8,
     /// The server tag the other person in a one-to-one DM wears by their
     /// name, as the DM list shows it.
     pub tag: Option<ServerTag>,
@@ -788,8 +771,8 @@ pub struct ChatMember {
     /// The address of the picture of the role their group is, and of the
     /// highest of their roles that has one, which a member list draws by
     /// the group's heading and by their name.
-    pub group_icon: Option<String>,
-    pub role_icon: Option<String>,
+    pub group_icon: Option<Arc<str>>,
+    pub role_icon: Option<Arc<str>>,
     /// Whether they're around; Matrix members have no presence here.
     pub presence: Option<Presence>,
     /// The RGB colour of their name, from their highest coloured Discord role.
@@ -3989,9 +3972,6 @@ fn decode_kept_picture(
     if crate::video::is_video(data) {
         return crate::video::decode_kept_animation(data, width, height, kept);
     }
-    if is_svg(data) {
-        return svg_picture(data, width, height);
-    }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(data))
         .with_guessed_format()
         .ok()?;
@@ -4020,15 +4000,9 @@ fn decode_kept_picture(
     })
 }
 
-/// Whether `data` is an SVG, as Discord's badge pictures are.
-fn is_svg(data: &[u8]) -> bool {
-    let start = &data[..data.len().min(256)];
-    let start = start.trim_ascii_start();
-    start.starts_with(b"<svg") || start.starts_with(b"<?xml")
-}
-
-/// An SVG drawn to fit `width` by `height`, keeping its shape.
-fn svg_picture(data: &[u8], width: u32, height: u32) -> Option<Picture> {
+/// An SVG drawn to fit `width` by `height`, keeping its shape. Only for Discord's
+/// own assets: [`decode_picture`] leaves SVGs out, as anyone can upload a file.
+pub fn decode_svg(data: &[u8], width: u32, height: u32) -> Option<Picture> {
     use resvg::{tiny_skia, usvg};
     let tree = usvg::Tree::from_data(data, &usvg::Options::default()).ok()?;
     let size = tree.size();
@@ -4877,10 +4851,14 @@ mod tests {
     fn an_svg_is_drawn_to_fit_keeping_its_shape() {
         let svg = br##"<svg viewBox="0 0 156 100" xmlns="http://www.w3.org/2000/svg" width="156" height="100">
             <rect width="156" height="100" fill="#ff0000"/></svg>"##;
-        let picture = decode_picture(svg, 128, 128).unwrap();
+        let picture = decode_svg(svg, 128, 128).unwrap();
         assert_eq!((picture.width, picture.height), (128, 82));
         assert_eq!(&picture.rgba[..4], &[255, 0, 0, 255]);
-        assert!(decode_picture(b"<svg", 128, 128).is_none());
+        assert!(decode_svg(b"<svg", 128, 128).is_none());
+        assert!(
+            decode_picture(svg, 128, 128).is_none(),
+            "only when asked for"
+        );
     }
 
     #[test]

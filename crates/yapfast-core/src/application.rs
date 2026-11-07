@@ -1352,6 +1352,9 @@ pub enum Action {
         key: String,
     },
     RequestDelete(String),
+    /// Delete a message without asking first, as Shift and a click on its
+    /// Delete do in Discord's client.
+    DeleteNow(String),
     /// Vote for these answers of a Discord message's poll, by item, in
     /// place of this account's vote; none takes it back.
     Vote {
@@ -2316,6 +2319,10 @@ fn pictures_on_screen<'a>(
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
+                        .chain(profile.badges.iter().flat_map(|badge| {
+                            std::iter::once(badge.icon.as_str())
+                                .chain(badge.level.iter().map(|level| level.picture.as_str()))
+                        }))
                 }),
         )
         .chain(
@@ -2646,6 +2653,7 @@ impl Application {
             }
             Action::React { item, key } => self.react(item, key),
             Action::RequestDelete(item) => self.request_delete(item),
+            Action::DeleteNow(item) => self.delete_now(item),
             Action::Vote { item, answers } => self.vote(item, answers),
             Action::OpenPollDraft => self.open_poll_draft(),
             Action::EditPoll(edit) => self.edit_poll(edit),

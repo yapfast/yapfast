@@ -29,8 +29,8 @@ pub struct ListedMember {
     pub group: String,
     /// The address of the picture of the role their group is, and of the
     /// highest of their roles that has one.
-    pub group_icon: Option<String>,
-    pub role_icon: Option<String>,
+    pub group_icon: Option<Arc<str>>,
+    pub role_icon: Option<Arc<str>>,
     /// The server tag they wear by their name.
     pub tag: Option<Tag>,
     pub presence: Presence,

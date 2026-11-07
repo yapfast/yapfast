@@ -244,6 +244,185 @@ fn the_composers_menu_cuts_copies_and_pastes_through_the_application() {
     assert_eq!(window.get_draft(), "hellohello");
 }
 
+/// Presses and lets go of a key, as typed.
+fn tap(window: &YapfastWindow, text: SharedString) {
+    use slint::platform::WindowEvent;
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text });
+}
+
+#[test]
+fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let other = window.get_messages().iter().find(|row| !row.own).unwrap();
+    window.invoke_reply(other.item.clone());
+    assert!(window.get_compose_label().starts_with("Replying to Sam"));
+    window.invoke_focus_composer();
+    for letter in "ok".chars() {
+        tap(&window, letter.into());
+    }
+    tap(&window, Key::Escape.into());
+    assert_eq!(window.get_compose_label(), "", "Escape cancels the reply");
+    assert_eq!(window.get_draft(), "ok", "and leaves what was written");
+
+    // With nothing to cancel, Escape changes nothing, and the composer
+    // keeps the keyboard.
+    tap(&window, Key::Escape.into());
+    tap(&window, "!".into());
+    assert_eq!(window.get_compose_label(), "");
+    assert_eq!(window.get_draft(), "ok!");
+}
+
+#[test]
+fn typing_with_nothing_focused_goes_to_the_composer() {
+    use slint::platform::{Key, WindowEvent};
+    let window = one_message("Hi");
+    window.set_draft("Hello".into());
+    // Nothing has the keyboard, and without the hook the key goes nowhere.
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "Hello");
+    type_anywhere(&window);
+
+    // Not over the settings or another overlay.
+    window.set_settings_open(true);
+    tap(&window, "x".into());
+    window.set_settings_open(false);
+    window.set_pins_open(true);
+    tap(&window, "x".into());
+    window.set_pins_open(false);
+    assert_eq!(window.get_draft(), "Hello");
+
+    // Nor with Ctrl held.
+    window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Control.into(),
+    });
+    tap(&window, "x".into());
+    window.window().dispatch_event(WindowEvent::KeyReleased {
+        text: Key::Control.into(),
+    });
+    assert_eq!(window.get_draft(), "Hello");
+
+    // Nor keys that type nothing.
+    tap(&window, Key::DownArrow.into());
+    assert_eq!(window.get_draft(), "Hello");
+
+    tap(&window, " ".into());
+    assert_eq!(window.get_draft(), "Hello ", "the text goes on the end");
+    // The composer has the keyboard now, and its caret is at the end.
+    tap(&window, "w".into());
+    tap(&window, Key::Backspace.into());
+    tap(&window, "y".into());
+    assert_eq!(window.get_draft(), "Hello y");
+}
+
+#[test]
+fn keys_nothing_took_do_what_discords_do() {
+    use slint::platform::Key;
+    let window = one_message("Hi");
+    window.set_draft("Hello".into());
+    type_anywhere(&window);
+
+    // Not behind an emoji's card, whose Escape stays its own.
+    window.set_emoji_card_open(true);
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "Hello");
+    window.set_emoji_card_open(false);
+
+    // Enter doesn't send, unlike Discord's.
+    let sent = Rc::new(Cell::new(0));
+    let count = sent.clone();
+    window.on_send(move || count.set(count.get() + 1));
+    tap(&window, Key::Return.into());
+    tap(&window, Key::Return.into());
+    assert_eq!(sent.get(), 0);
+
+    // Backspace edits the end of the draft.
+    tap(&window, Key::Backspace.into());
+    assert_eq!(window.get_draft(), "Hell");
+
+    // Tab with nothing focused goes to the composer, and types nothing.
+    let window = one_message("Hi");
+    window.set_draft("Hello".into());
+    type_anywhere(&window);
+    tap(&window, Key::Tab.into());
+    assert_eq!(window.get_draft(), "Hello");
+    tap(&window, "!".into());
+    assert_eq!(window.get_draft(), "Hello!");
+
+    // Stepping through the messages, only letters and digits leave them.
+    window.invoke_browse_messages();
+    tap(&window, "?".into());
+    assert_eq!(window.get_draft(), "Hello!");
+    assert!(window.get_browsing());
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "Hello!x");
+    assert!(!window.get_browsing());
+}
+
+#[test]
+fn escape_from_anywhere_cancels_the_channels_reply_then_the_threads() {
+    use slint::platform::Key;
+    let window = one_message("Hi");
+    type_anywhere(&window);
+    let channel = Rc::new(Cell::new(0));
+    let count = channel.clone();
+    window.on_cancel_compose(move || count.set(count.get() + 1));
+    let thread = Rc::new(Cell::new(0));
+    let count = thread.clone();
+    window.on_aside_cancel_compose(move || count.set(count.get() + 1));
+    window.set_aside_open(true);
+    window.set_compose_label("Replying to Sam".into());
+    window.set_aside_compose_label("Replying to Sam".into());
+
+    // Over a card, Escape isn't for them.
+    window.set_emoji_card_open(true);
+    tap(&window, Key::Escape.into());
+    window.set_emoji_card_open(false);
+    assert_eq!((channel.get(), thread.get()), (0, 0));
+
+    tap(&window, Key::Escape.into());
+    assert_eq!((channel.get(), thread.get()), (1, 0));
+    window.set_compose_label("".into());
+    tap(&window, Key::Escape.into());
+    assert_eq!((channel.get(), thread.get()), (1, 1));
+}
+
+#[test]
+fn typing_goes_to_the_composer_used_last() {
+    let window = one_message("Hi");
+    type_anywhere(&window);
+    window.set_aside_composer_enabled(true);
+    window.set_aside_open(true);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+
+    // The panel's from when it opens.
+    tap(&window, "a".into());
+    assert_eq!(window.get_aside_draft(), "a");
+    assert_eq!(window.get_draft(), "");
+
+    // The channel's once it has the keyboard, which the panel's then lets go.
+    window.invoke_focus_composer();
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    tap(&window, "b".into());
+    assert_eq!(window.get_draft(), "b");
+    assert_eq!(window.get_aside_draft(), "a");
+}
+
 #[cfg(feature = "discord")]
 #[test]
 fn files_dropped_on_the_window_stage_or_say_why_not() {
@@ -1607,7 +1786,6 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Start call",
             "Add note",
             "Add friend nickname",
-            "Apps",
             "Remove friend",
             "Ignore",
             "Block",
@@ -1627,7 +1805,12 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     };
     assert_eq!(
         marked(|row| row.separated),
-        ["Apps", "Change nickname", "Time out Dave", "Copy ID"]
+        [
+            "Remove friend",
+            "Change nickname",
+            "Time out Dave",
+            "Copy ID"
+        ]
     );
     assert_eq!(
         marked(|row| row.danger),
@@ -1641,7 +1824,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     );
 
     // Roles: every one, ticked where held, greyed where out of reach.
-    let roles = window.get_menu_submenus().row_data(11).unwrap();
+    let roles = window.get_menu_submenus().row_data(10).unwrap();
     let shown: Vec<(String, bool, bool)> = roles
         .iter()
         .map(|row| (row.text.to_string(), row.checked, row.disabled))
@@ -1649,17 +1832,22 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     let row = |name: &str, checked, disabled| (name.to_owned(), checked, disabled);
     assert_eq!(
         shown,
-        // Only the roles within reach are listed, as Discord's menu does.
-        [row("Crew", true, false), row("Wardens", false, false)]
+        [
+            row("Leads", false, true),
+            row("Staff", false, true),
+            row("Crew", true, false),
+            row("Bot", false, true),
+            row("Wardens", false, false),
+        ]
     );
     assert!(roles.iter().all(|row| row.checkbox));
     window.invoke_choose_menu("4".into(), true, "role:20".into());
     assert!(
         !window
             .get_menu_submenus()
-            .row_data(11)
+            .row_data(10)
             .unwrap()
-            .row_data(0)
+            .row_data(2)
             .unwrap()
             .checked,
         "Crew unticks at once, and the menu stays open"
@@ -1753,11 +1941,10 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
         .iter()
         .position(|row| row.text == "Invite to server")
         .unwrap();
-    assert_eq!(rows[at - 1].text, "Apps");
     assert_eq!(rows[at + 1].text, "Remove friend");
     assert!(
-        !rows[at].separated,
-        "in the group of how she stands with them"
+        rows[at].separated,
+        "it starts the group of how she stands with them"
     );
     let servers = window.get_menu_submenus().row_data(at).unwrap();
     let servers: Vec<(String, String)> = servers
@@ -2878,6 +3065,10 @@ fn message_actions_reach_the_shared_application_in_the_preview() {
     assert_eq!(window.get_confirm_delete(), own.item);
     window.invoke_confirm_delete_message();
     assert!(row(&own.item).deleted && window.get_confirm_delete().is_empty());
+
+    // Shift's quick Delete deletes the reply at once, without asking.
+    window.invoke_delete_now(reply.item.clone());
+    assert!(row(&reply.item).deleted && window.get_confirm_delete().is_empty());
 }
 
 #[test]
@@ -3730,7 +3921,6 @@ fn friends_in_a_servers_voice_channel_show_where() {
         tag: None,
         official: false,
         empty: false,
-        symbol: 0,
         preview: None,
     };
     let mut state = AppState::default();
@@ -6431,7 +6621,6 @@ fn requests_list_someone_once_with_their_message() {
         tag: None,
         official: false,
         empty: false,
-        symbol: 0,
         preview: Some(Box::new(RequestPreview {
             text: format!("Hi from {person}"),
             at: 1_700_000_000_000,
@@ -7984,4 +8173,25 @@ fn dominant_colour_of_an_avatar_is_its_vivid_colour() {
         profile::dominant_color(&slint::Image::from_rgba8(empty)),
         None
     );
+}
+
+#[test]
+fn an_avatars_colour_is_worked_out_once_it_has_arrived() {
+    use slint::{Rgba8Pixel, SharedPixelBuffer};
+    let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(4, 4);
+    buffer
+        .make_mut_slice()
+        .fill(Rgba8Pixel::new(200, 20, 20, 255));
+    let avatar = slint::Image::from_rgba8(buffer);
+    let waiting = slint::Image::default();
+    assert_eq!(profile::avatar_color(Some("a.png"), &waiting), None);
+    let color = profile::avatar_color(Some("a.png"), &avatar);
+    assert!(color.is_some());
+    assert_eq!(
+        profile::avatar_color(Some("a.png"), &waiting),
+        color,
+        "kept by address, without reading the picture again"
+    );
+    assert_eq!(profile::avatar_color(Some("b.png"), &waiting), None);
+    assert_eq!(profile::avatar_color(None, &avatar), None);
 }

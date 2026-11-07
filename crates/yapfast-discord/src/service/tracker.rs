@@ -1199,11 +1199,6 @@ impl Tracker {
         if let Some(list) = settings::server_list(encoded) {
             self.order = list.order;
             self.folders = list.folders;
-            tracing::info!(
-                "the server list has {} folders over {} servers",
-                self.folders.len(),
-                self.order.len()
-            );
             self.sort_servers();
         }
     }

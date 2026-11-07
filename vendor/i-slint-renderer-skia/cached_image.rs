@@ -3,7 +3,7 @@
 
 use i_slint_core::graphics::{
     Image, ImageCacheKey, ImageInner, IntSize, OpaqueImage, OpaqueImageVTable, SharedImageBuffer,
-    cache as core_cache,
+    SharedPixelBuffer, cache as core_cache,
 };
 use i_slint_core::items::ImageFit;
 use i_slint_core::lengths::{LogicalSize, ScaleFactor};
@@ -11,6 +11,21 @@ use i_slint_core::lengths::{LogicalSize, ScaleFactor};
 struct SkiaCachedImage {
     image: skia_safe::Image,
     cache_key: ImageCacheKey,
+}
+
+struct PixelBytes<Pixel>(SharedPixelBuffer<Pixel>);
+
+impl<Pixel: Clone + bytemuck::Pod> AsRef<[u8]> for PixelBytes<Pixel> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+/// Wraps the pixels in Skia data that shares the buffer instead of copying it.
+fn shared_pixel_data<Pixel: Clone + bytemuck::Pod + Send + Sync>(
+    pixels: &SharedPixelBuffer<Pixel>,
+) -> skia_safe::Data {
+    skia_safe::Data::new_with_owner(PixelBytes(pixels.clone()))
 }
 
 i_slint_core::OpaqueImageVTable_static! {
@@ -27,22 +42,20 @@ impl OpaqueImage for SkiaCachedImage {
     }
 }
 
+/// `transform_scale` is how much the canvas transform magnifies the image,
+/// see [`i_slint_core::graphics::transformed_scalable_render_size`].
 pub(crate) fn as_skia_image(
     image: Image,
     target_size_fn: &dyn Fn() -> LogicalSize,
     image_fit: ImageFit,
     scale_factor: ScaleFactor,
+    transform_scale: f32,
     canvas: &skia_safe::Canvas,
     surface: Option<&dyn crate::Surface>,
 ) -> Option<skia_safe::Image> {
     let image_inner: &ImageInner = (&image).into();
     match image_inner {
         ImageInner::None => None,
-        // Yapfast: a picture made in code, such as a video frame, which Slint
-        // never caches, is read where it is rather than copied each time.
-        ImageInner::EmbeddedImage { buffer, cache_key: ImageCacheKey::Invalid } => {
-            borrowed_skia_image(buffer).or_else(|| image_buffer_to_skia_image(buffer))
-        }
         ImageInner::EmbeddedImage { buffer, cache_key } => {
             let result = image_buffer_to_skia_image(buffer);
             if let Some(img) = result.as_ref() {
@@ -57,17 +70,18 @@ pub(crate) fn as_skia_image(
         }
         ImageInner::Svg(svg) => {
             // Query target_width/height here again to ensure that changes will invalidate the item rendering cache.
-            let target_size = i_slint_core::graphics::scalable_render_size(
+            let target_size = i_slint_core::graphics::transformed_scalable_render_size(
                 svg.size(),
                 image_fit,
-                target_size_fn() * scale_factor,
+                target_size_fn(),
                 scale_factor,
                 Default::default(),
+                transform_scale,
             )?;
-            let pixels = match svg.render(Some(target_size)).ok()? {
-                SharedImageBuffer::RGB8(_) => unreachable!(),
-                SharedImageBuffer::RGBA8(_) => unreachable!(),
-                SharedImageBuffer::RGBA8Premultiplied(pixels) => pixels,
+            let SharedImageBuffer::RGBA8Premultiplied(pixels) =
+                svg.render(Some(target_size)).ok()?
+            else {
+                unreachable!()
             };
 
             let image_info = crate::image_info(
@@ -78,11 +92,10 @@ pub(crate) fn as_skia_image(
 
             skia_safe::images::raster_from_data(
                 &image_info,
-                skia_safe::Data::new_copy(pixels.as_bytes()),
+                shared_pixel_data(&pixels),
                 pixels.width() as usize * 4,
             )
         }
-        ImageInner::StaticTextures(_) => todo!(),
         ImageInner::BackendStorage(x) => {
             vtable::VRc::borrow(x).downcast::<SkiaCachedImage>().map(|x| x.image.clone())
         }
@@ -94,6 +107,16 @@ pub(crate) fn as_skia_image(
             target_size_fn,
             ImageFit::Preserve,
             scale_factor,
+            transform_scale,
+            canvas,
+            surface,
+        ),
+        ImageInner::AnimatedImage(animated) => as_skia_image(
+            animated.first_frame(),
+            target_size_fn,
+            image_fit,
+            scale_factor,
+            transform_scale,
             canvas,
             surface,
         ),
@@ -101,53 +124,10 @@ pub(crate) fn as_skia_image(
         ImageInner::WGPUTexture(any_wgpu_texture) => {
             surface.and_then(|surface| surface.import_wgpu_texture(canvas, any_wgpu_texture))
         }
-        #[allow(unreachable_patterns)]
-        _ => None,
+        _ => image_inner
+            .render_to_buffer(None)
+            .and_then(|buffer| image_buffer_to_skia_image(&buffer)),
     }
-}
-
-std::thread_local! {
-    /// Yapfast: each Skia image that reads a Slint buffer in place, with the
-    /// buffer, which keeps the pixels alive and unchanged while the image
-    /// lives: Slint copies a shared buffer before anyone writes to it.
-    static BORROWED: core::cell::RefCell<Vec<(skia_safe::Image, SharedImageBuffer)>> =
-        Default::default();
-}
-
-/// Yapfast: lets go of the buffers whose images nothing but [`BORROWED`] holds.
-pub(crate) fn release_borrowed() {
-    // An image whose count is one may go to another thread: skia-safe's
-    // public way to ask whether anything else holds it.
-    use skia_safe::ConditionallySend;
-    BORROWED.with_borrow_mut(|borrowed| borrowed.retain(|(image, _)| !image.can_send()));
-}
-
-/// Yapfast: a Skia image reading an RGBA buffer's pixels in place.
-fn borrowed_skia_image(buffer: &SharedImageBuffer) -> Option<skia_safe::Image> {
-    let (pixels, alpha_type) = match buffer {
-        SharedImageBuffer::RGBA8(pixels) => (pixels, skia_safe::AlphaType::Unpremul),
-        SharedImageBuffer::RGBA8Premultiplied(pixels) => (pixels, skia_safe::AlphaType::Premul),
-        SharedImageBuffer::RGB8(_) => return None,
-    };
-    let bytes = pixels.as_bytes();
-    let alpha_type = if bytes.as_chunks::<4>().0.iter().all(|px| px[3] == 255) {
-        skia_safe::AlphaType::Opaque
-    } else {
-        alpha_type
-    };
-    let image_info = crate::image_info(
-        skia_safe::ISize::new(pixels.width() as i32, pixels.height() as i32),
-        skia_safe::ColorType::RGBA8888,
-        alpha_type,
-    );
-    // SAFETY: BORROWED keeps the buffer, and so these bytes, until nothing
-    // else holds the image.
-    let data = unsafe { skia_safe::Data::new_bytes(bytes) };
-    let image =
-        skia_safe::images::raster_from_data(&image_info, data, pixels.width() as usize * 4)?;
-    release_borrowed();
-    BORROWED.with_borrow_mut(|borrowed| borrowed.push((image.clone(), buffer.clone())));
-    Some(image)
 }
 
 fn image_buffer_to_skia_image(buffer: &SharedImageBuffer) -> Option<skia_safe::Image> {
@@ -174,7 +154,7 @@ fn image_buffer_to_skia_image(buffer: &SharedImageBuffer) -> Option<skia_safe::I
                 .flat_map(|rgb| IntoIterator::into_iter([rgb[0], rgb[1], rgb[2], 255]))
                 .collect::<Vec<u8>>();
             (
-                skia_safe::Data::new_copy(&rgba),
+                skia_safe::Data::new_with_owner(rgba),
                 pixels.width() as usize * 4,
                 pixels.size(),
                 skia_safe::ColorType::RGBA8888,
@@ -182,19 +162,36 @@ fn image_buffer_to_skia_image(buffer: &SharedImageBuffer) -> Option<skia_safe::I
             )
         }
         SharedImageBuffer::RGBA8(pixels) => (
-            skia_safe::Data::new_copy(pixels.as_bytes()),
+            shared_pixel_data(pixels),
             pixels.width() as usize * 4,
             pixels.size(),
             skia_safe::ColorType::RGBA8888,
             opaque_or(pixels.as_bytes(), skia_safe::AlphaType::Unpremul),
         ),
         SharedImageBuffer::RGBA8Premultiplied(pixels) => (
-            skia_safe::Data::new_copy(pixels.as_bytes()),
+            shared_pixel_data(pixels),
             pixels.width() as usize * 4,
             pixels.size(),
             skia_safe::ColorType::RGBA8888,
             opaque_or(pixels.as_bytes(), skia_safe::AlphaType::Premul),
         ),
+        #[cfg(feature = "image-pixel-format-rgb565")]
+        SharedImageBuffer::RGB565(pixels) => (
+            shared_pixel_data(pixels),
+            pixels.width() as usize * 2,
+            pixels.size(),
+            skia_safe::ColorType::RGB565,
+            skia_safe::AlphaType::Opaque,
+        ),
+        #[cfg(feature = "image-pixel-format-gray8")]
+        SharedImageBuffer::Gray8(pixels) => (
+            shared_pixel_data(pixels),
+            pixels.width() as usize,
+            pixels.size(),
+            skia_safe::ColorType::Gray8,
+            skia_safe::AlphaType::Opaque,
+        ),
+        _ => return None,
     };
     let image_info = crate::image_info(
         skia_safe::ISize::new(size.width as i32, size.height as i32),
