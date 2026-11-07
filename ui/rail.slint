@@ -527,7 +527,7 @@ export component ChannelRow inherits Rectangle {
                 VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
-                        spacing: 4px;
+                        alignment: start; spacing: 4px;
                         Text {
                             text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;

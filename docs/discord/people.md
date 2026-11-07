@@ -282,15 +282,17 @@ Someone's server tag shows as a small chip, as in Discord: the badge of the
 server they represent, then up to four letters. It comes from the
 `primary_guild` of their user object, which has the `tag`, the
 `identity_guild_id`, a `badge` hash that Yapfast fetches from
-`/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, false once
-they stop wearing it; one without a tag, or turned off, shows nothing. The
-chip sits after the name on each message that starts a group, after the name
-in the member list, and beside the handle on a profile card. A tag without a
-badge shows its letters alone. Yapfast learns tags from every user object it
-sees, with the names and avatars, so a tag changes on screen as soon as a
-message, a member list row or a profile carries the new one; a user object
-without `primary_guild`, as a partial one is, changes nothing, and `null`
-takes it away. They are kept with the names across restarts.
+`/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, which is true while
+they wear it. It's false once they stop, and null until they take up a tag
+their server changed; as in Discord's client, those and one without a tag show
+nothing. The chip sits after the name on each message that starts a group,
+after the name in the member list and in a one-to-one DM's row, and beside the
+handle on a profile card. A tag without a badge shows its letters alone.
+Yapfast learns tags from every user object it sees, with the names and avatars,
+so a tag changes on screen as soon as a message, a member list row or a profile
+carries the new one; a user object without `primary_guild`, as a partial one
+is, changes nothing, and `null` takes it away. They are kept with the names
+across restarts.
 
 The card shows the person's badges, as Discord's does, in a row of pictures
 under the name and handle: HypeSquad, Active Developer, a Nitro subscriber's

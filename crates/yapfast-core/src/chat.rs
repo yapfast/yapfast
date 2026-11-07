@@ -631,11 +631,11 @@ pub enum Role {
 
 /// The server tag a Discord user wears beside their name: a few letters
 /// from a server they represent, with that server's badge.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ServerTag {
-    pub text: String,
+    pub text: Arc<str>,
     /// The address of the badge's picture; see [`DiscordCommand::Pictures`].
-    pub badge: Option<String>,
+    pub badge: Option<Arc<str>>,
 }
 
 /// A person's profile, as their profile card shows it. Matrix gives what the

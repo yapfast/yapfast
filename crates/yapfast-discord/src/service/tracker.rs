@@ -1512,13 +1512,7 @@ impl Tracker {
                 self.presences.get(user),
             )
                 .hash(&mut hasher);
-            (
-                names
-                    .server_tag(user)
-                    .map(|tag| (&tag.guild, &tag.text, &tag.badge)),
-                names.is_official(user),
-            )
-                .hash(&mut hasher);
+            (names.server_tag(user), names.is_official(user)).hash(&mut hasher);
         }
         let ringing = self.calls.get(&private.id);
         ringing.is_some().hash(&mut hasher);

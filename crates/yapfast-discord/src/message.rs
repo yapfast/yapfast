@@ -995,20 +995,19 @@ pub fn is_official(user: &Value) -> bool {
 /// The server tag someone wears beside their name, as Discord's `primary_guild`
 /// gives it: up to four characters from a server they chose to represent,
 /// with that server's badge.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Tag {
-    /// The server it comes from.
-    pub guild: String,
-    pub text: String,
-    /// The hash of the server's tag badge, when it has one.
-    pub badge: Option<String>,
+    pub text: Arc<str>,
+    /// The address of the picture of the server's tag badge, when it has one.
+    pub badge: Option<Arc<str>>,
 }
 
 impl Tag {
     /// A user object's `primary_guild`; none for a person who doesn't wear
-    /// it, who turned it off or whose server has no tag.
+    /// it, who turned it off, whose server has no tag, or who hasn't taken up
+    /// their server's changed tag yet, for whom `identity_enabled` is null.
     pub fn parse(primary: &Value) -> Option<Self> {
-        if primary["identity_enabled"].as_bool() == Some(false) {
+        if primary["identity_enabled"].as_bool() != Some(true) {
             return None;
         }
         let guild = primary["identity_guild_id"]
@@ -1019,18 +1018,12 @@ impl Tag {
             .map(str::trim)
             .filter(|t| !t.is_empty())?;
         Some(Self {
-            guild: guild.to_owned(),
-            text: text.to_owned(),
+            text: text.into(),
             badge: primary["badge"]
                 .as_str()
                 .filter(|hash| !hash.is_empty())
-                .map(str::to_owned),
+                .map(|hash| ready::guild_tag_badge(guild, hash).into()),
         })
-    }
-
-    /// The address of the badge's picture.
-    pub fn badge_url(&self) -> Option<String> {
-        Some(ready::guild_tag_badge(&self.guild, self.badge.as_deref()?))
     }
 }
 
@@ -1048,9 +1041,9 @@ pub struct SavedNames {
     usernames: Vec<(String, String)>,
     #[serde(default)]
     bots: Vec<String>,
-    /// Each person's tag: user id, server id, text and badge hash.
+    /// Each person's tag: user id, text and badge address.
     #[serde(default)]
-    tags: Vec<(String, String, String, Option<String>)>,
+    tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
 }
 
 /// [`Names`] serialized as [`SavedNames`]; see [`Names::saving`].
@@ -1128,7 +1121,7 @@ impl serde::Serialize for SavingNames<'_> {
                 names
                     .tags
                     .iter()
-                    .map(|(user, tag)| (Text(*user), &tag.guild, &tag.text, &tag.badge))
+                    .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
             }),
         )?;
         saved.end()
@@ -1256,9 +1249,7 @@ impl Names {
             tags: saved
                 .tags
                 .into_iter()
-                .filter_map(|(user, guild, text, badge)| {
-                    Some((id(&user)?, Tag { guild, text, badge }))
-                })
+                .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
                 .collect(),
             ..Self::default()
         };
@@ -2452,11 +2443,12 @@ mod tests {
         };
         names.learn_user(&wears(true));
         let tag = names.server_tag("2").unwrap();
-        assert_eq!((tag.guild.as_str(), tag.text.as_str()), ("10", "CODE"));
+        assert_eq!(&*tag.text, "CODE");
         assert!(
-            tag.badge_url()
+            tag.badge
+                .as_deref()
                 .unwrap()
-                .ends_with("/clan-badges/10/abc123.png?size=64")
+                .ends_with("/clan-badges/10/abc123.png?size=32")
         );
         assert_eq!(names.server_tag("3"), None);
 
@@ -2469,17 +2461,25 @@ mod tests {
         let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
         assert_eq!(restored.server_tag("2"), names.server_tag("2"));
 
-        // Leaving it off, or taking it away, removes it.
+        // Leaving it off, or taking it away, removes it, and redraws them.
+        let version = names.version();
         names.learn_user(&wears(false));
         assert_eq!(names.server_tag("2"), None);
+        assert!(names.version() > version);
         names.learn_user(&wears(true));
         names.learn_user(&json!({"id": "2", "primary_guild": null}));
+        assert_eq!(names.server_tag("2"), None);
+
+        // Nor does one who hasn't taken up their server's changed tag wear it.
+        names.learn_user(&wears(true));
+        names.learn_user(&json!({"id": "2", "primary_guild": {
+            "identity_guild_id": "10", "identity_enabled": null, "tag": "OLD"}}));
         assert_eq!(names.server_tag("2"), None);
 
         // A server without a badge, or one with no text, shows as it can.
         names.learn_user(&json!({"id": "2", "primary_guild": {
             "identity_guild_id": "10", "identity_enabled": true, "tag": "AB", "badge": null}}));
-        assert_eq!(names.server_tag("2").unwrap().badge_url(), None);
+        assert_eq!(names.server_tag("2").unwrap().badge, None);
         names.learn_user(&json!({"id": "2", "primary_guild": {
             "identity_guild_id": "10", "identity_enabled": true, "tag": " "}}));
         assert_eq!(names.server_tag("2"), None);

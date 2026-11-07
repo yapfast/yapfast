@@ -1550,8 +1550,9 @@ pub fn custom_emoji(id: &str, animated: bool, size: u32) -> String {
 }
 
 /// The badge of a server's tag, which people wearing it show by their name.
+/// Shown at 14px; this is sharp at twice that.
 pub fn guild_tag_badge(guild: &str, hash: &str) -> String {
-    format!("{}/clan-badges/{guild}/{hash}.png?size=64", cdn())
+    format!("{}/clan-badges/{guild}/{hash}.png?size=32", cdn())
 }
 
 /// The picture of a profile badge, such as HypeSquad Bravery, by the icon

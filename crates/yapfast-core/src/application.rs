@@ -2142,7 +2142,8 @@ fn visible_range(
 
 /// The server icons and avatars on screen: the rail, the first DMs listed,
 /// the people in the listed voice channels, the call, `timeline` and the
-/// member list, profiles and people to start a DM with.
+/// member list, profiles and people to start a DM with, with the server tags
+/// and role icons by their names.
 fn pictures_on_screen<'a>(
     state: &'a AppState,
     timeline: &'a [Arc<ChatMessage>],
@@ -2158,7 +2159,12 @@ fn pictures_on_screen<'a>(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .filter_map(|room| room.avatar.as_deref())
+                .flat_map(|room| {
+                    room.avatar
+                        .as_deref()
+                        .into_iter()
+                        .chain(tag_badge(&room.tag))
+                })
                 .take(LISTED_PICTURES),
         )
         .chain(
@@ -2318,6 +2324,7 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
+                        .chain(tag_badge(&profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         .chain(profile.badges.iter().flat_map(|badge| {
                             std::iter::once(badge.icon.as_str())
@@ -2347,7 +2354,12 @@ fn pictures_on_screen<'a>(
                         .reply
                         .as_ref()
                         .and_then(|reply| reply.avatar.as_deref());
-                    message.avatar.as_deref().into_iter().chain(reply)
+                    message
+                        .avatar
+                        .as_deref()
+                        .into_iter()
+                        .chain(reply)
+                        .chain(tag_badge(&message.tag))
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2370,7 +2382,16 @@ fn pictures_on_screen<'a>(
                         .filter(move |_| list_avatars)
                         .flat_map(|role| role.members.iter().flatten()),
                 )
-                .filter_map(|member| member.avatar.as_deref()),
+                .flat_map(|member| {
+                    [
+                        member.avatar.as_deref(),
+                        member.group_icon.as_deref(),
+                        member.role_icon.as_deref(),
+                        tag_badge(&member.tag),
+                    ]
+                    .into_iter()
+                    .flatten()
+                }),
         )
         .chain(
             state
@@ -2379,6 +2400,11 @@ fn pictures_on_screen<'a>(
                 .flat_map(NewDm::people)
                 .filter_map(|person| person.avatar.as_deref()),
         )
+}
+
+/// The address of the picture of a server tag's badge.
+fn tag_badge(tag: &Option<chat::ServerTag>) -> Option<&str> {
+    tag.as_ref()?.badge.as_deref()
 }
 
 /// Discord's CDN keeps custom emoji under /emojis/.

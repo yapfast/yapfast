@@ -194,8 +194,8 @@ fn in_voice(snapshot: &Snapshot, channel: &str) -> Vec<VoicePerson> {
 pub fn server_tag(tag: Option<yapfast_discord::message::Tag>) -> Option<chat::ServerTag> {
     let tag = tag?;
     Some(chat::ServerTag {
-        badge: tag.badge_url(),
         text: tag.text,
+        badge: tag.badge,
     })
 }
 
