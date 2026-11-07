@@ -137,7 +137,9 @@ impl Application {
         if !self.state.can_join_voice(&id) {
             return vec![];
         }
-        let mut effects = self.dispatch(Action::Open(id.clone()));
+        // What's on screen stays, as in Discord's client: the call shows in
+        // the voice dock, and the DM opens from there or from its row.
+        let mut effects = vec![];
         if self.state.voice.room.as_ref() != Some(&id) || !self.state.voice.active() {
             if self.state.voice.active() {
                 effects.extend(self.voice_command(voice::Command::Leave));

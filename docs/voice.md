@@ -11,10 +11,14 @@ unmuting when deafened undeafens too. The voice view shows the participants and
 their mute, deafen and speaking state; a deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
-Yapfast calls only your own shows. Clicking a voice channel joins it. Clicking
-another one during a call opens a dialog that asks before leaving the current
-one. Coming back to a server that had a voice channel selected shows it without
-joining.
+Yapfast calls only your own shows. Clicking a voice channel joins it and leaves
+what's on screen as it was, as Discord's client does: the call shows in the
+dock, and clicking the channel again, or the channel's line in the dock, opens
+it. A voice channel whose chat mentions you opens on its chat as it joins, as
+in Discord, and one you can't join opens without joining. Clicking another one
+during a call opens a dialog that asks before leaving the current one, and
+confirming joins it the same way. Coming back to a server that had a voice
+channel selected shows it without joining.
 
 The native LiveKit audio engine captures and plays audio through system
 devices. Settings › Voice & video selects the microphone and speakers too.

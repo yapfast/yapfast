@@ -2268,7 +2268,7 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
     click(1080., 24.);
     assert!(window.get_member_list());
     // Voice channels and one-to-one DMs have no member list.
-    window.invoke_select_room("lounge".into());
+    window.invoke_open_conversation("lounge".into());
     assert!(!window.get_members_available());
     window.invoke_navigate_dms();
     assert!(!window.get_members_available());
@@ -2946,9 +2946,18 @@ fn callbacks_preserve_drafts_scope_voice_and_clear_session_inputs() {
     window.invoke_toggle_mute();
     assert!(!window.get_unmute_on_join() && adapter.borrow().layout.unmute_on_join == Some(false));
     let voice_room = rooms.iter().find(|room| room.voice).unwrap();
-    // Clicking a voice channel joins it.
+    // Clicking a voice channel joins it and leaves the channel on screen,
+    // as Discord's client does; clicking it again shows the call.
     window.invoke_select_room(voice_room.id.clone().into());
-    assert!(window.get_voice_here() && window.get_voice_active() && window.get_muted());
+    assert!(window.get_voice_active() && window.get_muted() && window.get_voice_visible());
+    assert!(!window.get_voice_here());
+    assert_eq!(window.get_voice_channel(), voice_room.id.as_str());
+    assert_eq!(
+        adapter.borrow().app.state.selected.as_deref(),
+        Some(text_rooms[0].id.as_str())
+    );
+    window.invoke_select_room(voice_room.id.clone().into());
+    assert!(window.get_voice_here());
     window.invoke_navigate_dms();
     assert!(window.get_voice_active() && window.get_voice_visible());
     assert!(!window.get_voice_here());
