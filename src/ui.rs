@@ -1087,6 +1087,9 @@ struct Layout {
     strip_tracking: Option<bool>,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
+    /// Long messages fold to a few lines, with Show more; off unless turned
+    /// on.
+    collapse_long: bool,
     /// When animations play.
     animate: Animate,
     /// Joining a call turns the microphone on; on unless turned off.
@@ -1363,6 +1366,7 @@ impl Layout {
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
+        window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);

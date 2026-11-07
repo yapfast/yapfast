@@ -655,6 +655,9 @@ export struct MessageRow {
     /// The body in blocks, when it has headings, subtext, quotes or code;
     /// otherwise empty, and the body is `styled`.
     blocks: [TextBlock],
+    /// Show more was clicked on its long body, which then shows whole
+    /// though long messages fold.
+    expanded: bool,
     /// Says a card is hidden, for a message that is only one, with link previews off.
     hidden-card: string,
     delivery: string, delivery-failed: bool, can-retry: bool, can-cancel: bool,
@@ -2045,6 +2048,15 @@ export component MessageContent inherits VerticalLayout {
     callback view-image(string, int);
     callback save-attachment(string, int);
     callback media-menu(string, int, bool, length, length);
+    /// Long bodies fold to twelve lines of text, with Show more.
+    in property <bool> collapse-long;
+    /// Show more or Show less was clicked: the message's item, whether it
+    /// shows whole now, and where its top is in the window.
+    callback fold(string, bool, length);
+    // A body folds to twelve lines of text, once it's a few lines longer
+    // than that, so Show more never uncovers only a line or two. A line of
+    // message text is 1.3 times its size, as the font lays it out.
+    property <length> line-height: root.message-font-size * 1.3;
     HorizontalLayout {
         padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
         Rectangle {
@@ -2172,23 +2184,57 @@ export component MessageContent inherits VerticalLayout {
                 Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                 Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
-            if message.body != "" && message.blocks.length == 0: StyledText {
-                // An overlong word breaks, as in Discord's client, rather than widening the row.
-                min-width: 0px;
-                text: message.styled; link-color: Theme.link;
-                default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
-                // Discord's large emoji are 48 pixels where text's are 22.
-                default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
-                // A mention's card opens beside the pointer.
-                link-clicked(link) => { root.link-clicked(link); }
-                accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
-            }
-            if message.blocks.length > 0: Rectangle {
-                accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
-                TextBlocks {
-                    blocks: message.blocks; font-size: root.message-font-size;
-                    color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
-                    open-link(link) => { root.link-clicked(link); }
+            // The body, cut off at its folded height while it folds, with
+            // Show more under it. The view keeps the message's top.
+            if message.body != "": body-fold := VerticalLayout {
+                property <bool> long: root.collapse-long && body.preferred-height > root.line-height * 15;
+                property <bool> folded: self.long && !message.expanded;
+                Rectangle {
+                    height: body-fold.folded ? root.line-height * 12 : body.preferred-height;
+                    clip: body-fold.folded;
+                    body := VerticalLayout {
+                        y: 0px; height: self.preferred-height;
+                        if message.blocks.length == 0: StyledText {
+                            // An overlong word breaks, as in Discord's client, rather than widening the row.
+                            min-width: 0px;
+                            text: message.styled; link-color: Theme.link;
+                            default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
+                            // Discord's large emoji are 48 pixels where text's are 22.
+                            default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
+                            // A mention's card opens beside the pointer.
+                            link-clicked(link) => { root.link-clicked(link); }
+                            accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
+                        }
+                        if message.blocks.length > 0: Rectangle {
+                            accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
+                            TextBlocks {
+                                blocks: message.blocks; font-size: root.message-font-size;
+                                color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                                open-link(link) => { root.link-clicked(link); }
+                            }
+                        }
+                    }
+                }
+                // Made only while long messages fold. It's there for a short
+                // body too, empty, as a row that came and went with the
+                // body's length would change the width it's measured at.
+                if root.collapse-long: HorizontalLayout {
+                    alignment: start;
+                    // 3px below the body, as the parts of a message are.
+                    height: body-fold.long ? self.preferred-height + 3px : 0px;
+                    visible: body-fold.long;
+                    Text {
+                        vertical-alignment: bottom;
+                        text: message.expanded ? "Show less" : "Show more";
+                        color: fold-touch.has-hover ? Theme.text : Theme.link;
+                        font-size: root.message-font-size * 0.875; font-weight: 600;
+                        accessible-role: button; accessible-label: self.text;
+                        accessible-action-default => { root.fold(message.item, !message.expanded, root.absolute-position.y); }
+                        fold-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.fold(message.item, !message.expanded, root.absolute-position.y); }
+                        }
+                    }
                 }
             }
             if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }

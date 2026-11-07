@@ -1329,6 +1329,30 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             adapter.action(&window, Action::ShowHiddenChannels(shown));
         }
     });
+    // Show more or Show less on a long message: only its own rows change,
+    // in the timeline and the thread beside it.
+    let state = adapter.clone();
+    window.on_fold_message(move |item, whole| {
+        let mut adapter = state.borrow_mut();
+        let key = messages::fold_key(&item);
+        if whole {
+            adapter.revealed.insert(key);
+        } else {
+            adapter.revealed.remove(&key);
+        }
+        let adapter = &mut *adapter;
+        for (model, rows) in [
+            (&adapter.models.messages, &mut adapter.rows),
+            (&adapter.models.aside_messages, &mut adapter.aside_rows),
+        ] {
+            for (index, row) in rows.iter_mut().enumerate() {
+                if row.item == item && row.expanded != whole {
+                    row.expanded = whole;
+                    model.set_row_data(index, row.clone());
+                }
+            }
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_reveal_attachment(move |item, index| {
@@ -1558,6 +1582,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.nameplates = Some(window.get_show_nameplates());
+        layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
