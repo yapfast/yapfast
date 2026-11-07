@@ -26,6 +26,18 @@ audio handle, and restarting Yapfast requires joining again. Preview calls are
 simulated, but the preview lists and chooses real devices without remembering
 them.
 
+## Leaving an empty private call
+
+When you're the only connected person in a Discord DM or group call, Yapfast
+waits ten minutes and then leaves. Settings › Voice & video → Leave a call when
+you're alone changes the wait from 1 to 120 minutes, or Never keeps the call
+connected. `layout.json` saves the choice as `alone_timeout`, in minutes, with
+zero for Never.
+
+Someone else joining cancels the wait; leaving or switching calls cancels it
+too. Closing the window to the tray does not. Server voice channels and Matrix
+calls are unaffected: they stay connected until you leave.
+
 ## Cameras
 
 Settings › Voice & video chooses the camera, beside the microphone and
