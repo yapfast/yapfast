@@ -1,0 +1,92 @@
+# Builds RatFast on a push, without publishing a release: Actions > this
+# workflow > the run's artifacts. The Nightly workflow publishes; this one only
+# proves the branch builds and hands back the packages.
+name: Build
+
+on:
+  push:
+    branches: [ratfast-dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        run: |
+          current=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          IFS=. read -r major minor _ <<< "${current%%-*}"
+          echo "version=$major.$minor.0-ratfast.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+          # Nix refuses a shallow Git repository as a flake.
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ github.token }}
+      - run: scripts/set-version "${{ needs.version.outputs.version }}"
+      - name: Fetch the toolchain and crates
+        run: nix develop path:./nix --command cargo fetch --locked
+      - run: scripts/build-appimage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            target/dist/linux/Yapfast-*
+            target/dist/linux/yapfast-*.pkg.tar.zst
+          if-no-files-found: warn
+          compression-level: 0
+
+  windows:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ github.token }}
+      # Skia built for Windows, and the MSVC CRT and SDK it was built against,
+      # which nix/prepare-windows-skia.py checks before reusing it.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/cargo-xwin
+            .local/windows/skia-static-production/build.json
+            .local/windows/skia-static-production/prepared
+          key: windows-skia-${{ hashFiles('nix/flake.lock', 'nix/prepare-windows-skia.py', 'nix/prepare-skia-native.py', 'nix/skia-windows-builder/**') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: scripts/set-version "${{ needs.version.outputs.version }}"
+      # Wine doesn't start on the runner, so Inno Setup can't make the installer.
+      - run: nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: target/dist/discord/Yapfast-*
+          if-no-files-found: warn
+          compression-level: 0
