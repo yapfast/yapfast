@@ -768,7 +768,11 @@ pub fn live(
     // The thread beside the open channel follows as it does.
     if let Some(aside) = channels.aside.as_mut() {
         match &event {
-            Ok(Live::Members { .. }) => {}
+            Ok(Live::Members { .. }) => {
+                if aside.names_changed(discord) {
+                    publish(aside, discord, done, events);
+                }
+            }
             Ok(event) => {
                 if aside.live(event) {
                     publish(aside, discord, done, events);
@@ -790,6 +794,11 @@ pub fn live(
                     room: channel.room.clone(),
                     members: Ok(members.into_iter().map(chat_member).collect()),
                 });
+            }
+            // The list taught Names its members' roles and nicknames, which
+            // the messages show: their authors' colours follow.
+            if channel.names_changed(discord) {
+                publish(channel, discord, done, events);
             }
         }
         Ok(event) => {

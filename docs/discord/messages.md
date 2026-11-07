@@ -25,7 +25,9 @@ with previews scaled by Discord's media proxy, and channels the account can't
 send in are read-only. Bots and webhooks have an APP tag after their name. An
 author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
-authors' member profiles.
+authors' member profiles. A profile that's opened and a member list that
+arrives teach them too, and the open channel and the thread beside it
+re-render with the colours.
 
 Yapfast keeps the open channel's messages in memory, and those of the 40
 channels open before it, so going back to one shows it at once. A closed
