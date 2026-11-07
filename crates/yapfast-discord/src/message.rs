@@ -5,7 +5,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
@@ -1077,7 +1077,7 @@ impl serde::Serialize for SavingNames<'_> {
             }
         }
         let names = self.0;
-        let mut saved = serializer.serialize_struct("SavedNames", 14)?;
+        let mut saved = serializer.serialize_struct("SavedNames", 15)?;
         saved.serialize_field(
             "users",
             &List(|| names.users.iter().map(|(user, name)| (Text(*user), name))),
@@ -1261,6 +1261,9 @@ pub struct Names {
     /// Display name styles, of those who have one, everywhere and per server.
     styles: HashMap<Id, Style>,
     member_styles: HashMap<(Id, Id), Style>,
+    /// The addresses of collectibles' pictures by SKU, one for all who wear
+    /// it and every message and row that shows them. The shop's size bounds it.
+    collectible_pictures: Mutex<HashMap<Id, Arc<str>>>,
     /// Members' roles by server and user id, for the colour of their name.
     /// Member lists and the core share each, rather than copying it.
     roles: HashMap<(Id, Id), Arc<[String]>>,
@@ -1746,25 +1749,47 @@ impl Names {
 
     /// The address of the decoration a user wears around their avatar: the
     /// one they set for `guild` where they have one, else their own.
-    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<String> {
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<Arc<str>> {
+        Some(self.collectible_picture(self.decoration_sku(guild, user)?))
+    }
+
+    /// The SKU behind [`Self::decoration`], which says when it changes
+    /// without making the address.
+    pub fn decoration_sku(&self, guild: Option<&str>, user: &str) -> Option<Id> {
         let user_id = id(user)?;
         self.touch(user_id);
-        let sku = guild
+        guild
             .and_then(|guild| member_key(guild, user))
             .and_then(|key| self.member_decorations.get(&key))
-            .or_else(|| self.decorations.get(&user_id))?;
-        Some(collectibles::picture(*sku))
+            .or_else(|| self.decorations.get(&user_id))
+            .copied()
+    }
+
+    fn collectible_picture(&self, sku: Id) -> Arc<str> {
+        self.collectible_pictures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(sku)
+            .or_insert_with(|| collectibles::picture(sku).into())
+            .clone()
     }
 
     /// The nameplate a user equips, in `guild` or everywhere.
     pub fn nameplate(&self, guild: Option<&str>, user: &str) -> Option<Nameplate> {
+        let plate = self.plate(guild, user)?;
+        Some(plate.shown(self.collectible_picture(plate.sku)))
+    }
+
+    /// What [`Self::nameplate`] shows, which says when it changes without
+    /// making the address.
+    pub fn plate(&self, guild: Option<&str>, user: &str) -> Option<Plate> {
         let user_id = id(user)?;
         self.touch(user_id);
         guild
             .and_then(|guild| member_key(guild, user))
             .and_then(|key| self.member_nameplates.get(&key))
             .or_else(|| self.nameplates.get(&user_id))
-            .map(Plate::shown)
+            .copied()
     }
 
     /// The display name style a user draws their name with, in `guild` or
@@ -2609,7 +2634,7 @@ mod tests {
                 .ends_with("/collectibles-shop/77/static")
         );
         let plate = names.nameplate(None, "2").unwrap();
-        assert_eq!(plate.color, Some(0x086460));
+        assert_eq!(plate.colors, Some([0x086460, 0x7deed7]));
         assert!(plate.picture.ends_with("/collectibles-shop/88/static"));
         let style = names.style(None, "2").unwrap();
         assert_eq!((style.font, style.effect), (3, 2));
@@ -2648,7 +2673,7 @@ mod tests {
             "collectibles": {"nameplate": {"sku_id": "90", "palette": "sky"}},
             "display_name_styles": {"font_id": 4, "effect_id": 3, "colors": [2]}}),
         );
-        let ends = |url: Option<String>, sku: &str| {
+        let ends = |url: Option<Arc<str>>, sku: &str| {
             url.is_some_and(|url| url.ends_with(&format!("/collectibles-shop/{sku}/static")))
         };
         assert!(
@@ -2661,8 +2686,8 @@ mod tests {
         );
         assert!(ends(names.decoration(None, "2"), "77"));
         assert_eq!(
-            names.nameplate(Some("10"), "2").unwrap().color,
-            Some(0x0080b7)
+            names.nameplate(Some("10"), "2").unwrap().colors,
+            Some([0x0080b7, 0x56ccff])
         );
         assert_eq!(names.nameplate(Some("11"), "2"), None);
         assert_eq!(names.style(Some("10"), "2").unwrap().font, 4);

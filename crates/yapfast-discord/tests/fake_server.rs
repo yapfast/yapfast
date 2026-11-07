@@ -1338,15 +1338,14 @@ async fn shows_decorations_and_nameplates() {
         url.ends_with("/media/v1/collectibles-shop/1500000000000000003/static")
     }));
     let plate = account.nameplate.as_ref().unwrap();
-    assert_eq!(plate.color, Some(0xdc3e97), "bubble gum");
+    assert_eq!(plate.colors, Some([0xdc3e97, 0xf957b3]), "bubble gum");
     assert!(
         plate
             .picture
             .ends_with("/collectibles-shop/1500000000000000004/static")
     );
 
-    // The member list's users carry them: a decoration for Bob, a nameplate
-    // for Carol.
+    // The member list's users carry them: both for Bob, a nameplate for Carol.
     let mut live = discord.live();
     discord.view(&guild, Some(&general));
     let members = live_where(&mut live, |event| match event {
@@ -1355,11 +1354,11 @@ async fn shows_decorations_and_nameplates() {
     })
     .await;
     let person = |name: &str| members.iter().find(|member| member.name == name).unwrap();
-    assert!(person("Bob").decoration.is_some() && person("Bob").nameplate.is_none());
+    assert!(person("Bob").decoration.is_some() && person("Bob").nameplate.is_some());
     assert!(person("Carol").decoration.is_none());
     assert_eq!(
-        person("Carol").nameplate.as_ref().unwrap().color,
-        Some(0x730bc8)
+        person("Carol").nameplate.as_ref().unwrap().colors,
+        Some([0x730bc8, 0x972fed])
     );
     // Dave has none of his own, but wears a decoration and a nameplate for
     // this server alone, which member objects carry; Bob's name takes a
@@ -1371,8 +1370,8 @@ async fn shows_decorations_and_nameplates() {
             .is_some_and(|url| url.ends_with("/collectibles-shop/1500000000000000005/static"))
     );
     assert_eq!(
-        person("Dave").nameplate.as_ref().unwrap().color,
-        Some(0x086460)
+        person("Dave").nameplate.as_ref().unwrap().colors,
+        Some([0x086460, 0x7deed7])
     );
     let bob_style = person("Bob").style.unwrap();
     assert_eq!((bob_style.font, bob_style.effect), (14, 3));

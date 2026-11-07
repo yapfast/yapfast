@@ -2281,7 +2281,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     window.show().unwrap();
     let plate = |picture: &str| Nameplate {
         picture: picture.into(),
-        color: Some(0x730bc8),
+        colors: Some([0x730bc8, 0x972fed]),
     };
     let member = |id: &str, name: &str| ChatMember {
         id: id.into(),
@@ -2316,7 +2316,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
             ChatMember {
                 nameplate: Some(Nameplate {
                     picture: "bare.png".into(),
-                    color: None,
+                    colors: None,
                 }),
                 ..member("3", "Eve")
             },
@@ -2333,6 +2333,10 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     assert_eq!(
         bob.nameplate_color,
         slint::Color::from_rgb_u8(0x73, 0x0b, 0xc8)
+    );
+    assert_eq!(
+        bob.nameplate_light,
+        slint::Color::from_rgb_u8(0x97, 0x2f, 0xed)
     );
     assert!(dave.decoration_url.is_empty() && dave.nameplate_url.is_empty());
     // A palette Yapfast doesn't know leaves the picture without a colour.
@@ -2404,6 +2408,46 @@ fn a_nameplates_picture_is_asked_for_when_its_row_shows() {
     window
         .window()
         .set_size(slint::LogicalSize::new(1120., 760.));
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+    assert!(requested.borrow().contains("plate/still"));
+    assert_eq!(
+        requested.borrow().len(),
+        1,
+        "not its animation, until it plays"
+    );
+    window.hide().unwrap();
+}
+
+#[test]
+fn a_dms_nameplate_is_asked_for_only_once_its_row_is_selected() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    window.set_workspace(true);
+    let requested = Rc::new(RefCell::new(HashSet::new()));
+    let requests = requested.clone();
+    window
+        .global::<PictureStore>()
+        .on_picture(|_, _| slint::Image::default());
+    window.global::<PictureStore>().on_request(move |url| {
+        requests.borrow_mut().insert(url.to_string());
+    });
+    let row = |selected: bool| RoomRow {
+        id: "dm".into(),
+        name: "Bob".into(),
+        person: true,
+        selected,
+        nameplate_url: "plate/still".into(),
+        ..Default::default()
+    };
+    let rooms = Rc::new(VecModel::from(vec![row(false)]));
+    window.set_rooms(rooms.clone().into());
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+    assert!(requested.borrow().is_empty(), "a list at rest holds none");
+    rooms.set_row_data(0, row(true));
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
     assert!(requested.borrow().contains("plate/still"));
     window.hide().unwrap();
@@ -4060,6 +4104,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         incoming: false,
         avatar: None,
         decoration: None,
+        nameplate: None,
         style: None,
         upload_limit: 0,
         presence: None,
@@ -6762,6 +6807,7 @@ fn requests_list_someone_once_with_their_message() {
         incoming: false,
         avatar: None,
         decoration: None,
+        nameplate: None,
         style: None,
         upload_limit: 0,
         presence: None,

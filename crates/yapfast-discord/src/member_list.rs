@@ -28,7 +28,7 @@ pub struct ListedMember {
     pub avatar: String,
     /// The decoration they wear around their avatar, and the nameplate
     /// behind their row.
-    pub decoration: Option<String>,
+    pub decoration: Option<Arc<str>>,
     pub nameplate: Option<Nameplate>,
     /// How they draw their name, when they have a display name style.
     pub style: Option<Style>,

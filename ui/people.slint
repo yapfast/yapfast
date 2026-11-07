@@ -17,8 +17,9 @@ export struct MemberRow {
     activity: string, activity-emoji: string,
     picture-url: string,
     /// The address of the decoration around their avatar, and of their
-    /// nameplate's picture with its palette's colour; empty for none.
-    decoration-url: string, nameplate-url: string, nameplate-color: color,
+    /// nameplate's picture with its palette's colours on a dark theme and a
+    /// light one; empty for none.
+    decoration-url: string, nameplate-url: string, nameplate-color: color, nameplate-light: color,
     /// How their name is drawn.
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
@@ -105,7 +106,7 @@ export component MemberPanel inherits Rectangle {
                   height: 42px; border-radius: 8px;
                   background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f : transparent;
                   if member.nameplate-url != "": Nameplate {
-                      radius: 8px; picture-url: member.nameplate-url; palette: member.nameplate-color;
+                      radius: 8px; picture-url: member.nameplate-url; palette: Theme.dark ? member.nameplate-color : member.nameplate-light;
                       hovered: member-pointer.has-hover; selected: member.id == root.selected;
                       animate: member-pointer.has-hover || member.id == root.selected;
                       ground: member.id == root.selected ? Theme.active : member-pointer.has-hover ? Theme.hover : Theme.sidebar;
@@ -130,7 +131,7 @@ export component MemberPanel inherits Rectangle {
                     Middle {
                         Rectangle {
                             width: 32px; height: 32px;
-                            Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; prefetch: true; opacity: member.presence == "offline" ? 0.4 : 1; }
+                            Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; opacity: member.presence == "offline" ? 0.4 : 1; }
                             if member.presence != "" && member.presence != "offline": StatusDot { x: 20px; y: 20px; presence: member.presence; ring: Theme.sidebar; }
                         }
                     }

@@ -370,6 +370,8 @@ const ALICE = "1400000000000000001";
 
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
+// How many times a collectible's animated picture was asked for.
+let collectibleAnimations = 0;
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
 type User = {
   id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean;
@@ -384,10 +386,10 @@ const users: Record<string, User> = {
     id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1", decoration: "1500000000000000003",
     nameplate: { sku: "1500000000000000004", palette: "bubble_gum" },
   },
-  // Bob wears a decoration, and Carol a nameplate; Alice, whose card shows
-  // both, has both.
+  // Bob, who has a DM, wears both, as Alice's card does; Carol a nameplate.
   bob: {
     id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1", decoration: "1500000000000000001",
+    nameplate: { sku: "1500000000000000006", palette: "sky" },
   },
   carol: {
     id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1",
@@ -669,16 +671,22 @@ function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style">) 
   };
 }
 
-function collectiblePicture(sku: string): Uint8Array {
+function collectiblePicture(sku: string, animated: boolean): Uint8Array {
   if (nameplateSkus.has(sku)) {
     const [width, height] = [448, 84];
-    return png(width, height, (x) => [255, 255, 255, Math.round((255 * x) / width)]);
+    const strip = (shade: number) => (x: number) => [255, shade, 255, Math.round((255 * x) / width)];
+    return animated
+      ? apng(width, height, [strip(255), strip(120)])
+      : png(width, height, strip(255));
   }
   const size = 288;
-  return png(size, size, (x, y) => {
+  const ring = (red: number) => (x: number, y: number) => {
     const radius = Math.hypot(x - size / 2, y - size / 2) / (size / 2);
-    return radius > 0.83 && radius < 1 ? [255, 120, 180, 255] : [0, 0, 0, 0];
-  });
+    return radius > 0.83 && radius < 1 ? [red, 120, 180, 255] : [0, 0, 0, 0];
+  };
+  return animated
+    ? apng(size, size, [ring(255), ring(90), ring(255), ring(90)])
+    : png(size, size, ring(255));
 }
 
 // --- Server members ---------------------------------------------------------
@@ -1004,6 +1012,51 @@ function png(width: number, height: number, pixel: (x: number, y: number) => num
     chunk("IDAT", deflateSync(raw)),
     chunk("IEND", new Uint8Array()),
   ];
+  return new Uint8Array(Buffer.concat(parts));
+}
+
+/** An animated PNG that loops, each of its frames showing for a tenth of a second. */
+function apng(width: number, height: number, frames: ((x: number, y: number) => number[])[]): Uint8Array {
+  // The first frame's data is the PNG's own IDAT; each other's goes in an fdAT
+  // after its number. Numbers count the fcTL and fdAT chunks in turn.
+  let sequence = 0;
+  const number = (value: number) => {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value);
+    return bytes;
+  };
+  const control = () => {
+    const body = new Uint8Array(26);
+    const view = new DataView(body.buffer);
+    view.setUint32(0, sequence++);
+    view.setUint32(4, width);
+    view.setUint32(8, height);
+    view.setUint16(20, 1);
+    view.setUint16(22, 10);
+    return chunk("fcTL", body);
+  };
+  const image = (pixel: (x: number, y: number) => number[]) => {
+    const raw = new Uint8Array((width * 4 + 1) * height);
+    for (let y = 0; y < height; y++) {
+      const row = y * (width * 4 + 1);
+      for (let x = 0; x < width; x++) raw.set(pixel(x, y), row + 1 + x * 4);
+    }
+    return deflateSync(raw);
+  };
+  const header = new Uint8Array(13);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  header.set([8, 6, 0, 0, 0], 8);
+  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header)];
+  parts.push(chunk("acTL", new Uint8Array([...number(frames.length), ...number(0)])));
+  frames.forEach((frame, index) => {
+    parts.push(control());
+    parts.push(index === 0
+      ? chunk("IDAT", image(frame))
+      : chunk("fdAT", new Uint8Array([...number(sequence++), ...image(frame)])));
+  });
+  parts.push(chunk("IEND", new Uint8Array()));
   return new Uint8Array(Buffer.concat(parts));
 }
 
@@ -7821,7 +7874,8 @@ const server = Bun.serve<SocketData>({
     // Activities' pictures: games' icons and assets, and Spotify's covers.
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
-      return new Response(collectiblePicture(collectible[1]!), { headers: { "content-type": "image/png" } });
+      if (collectible[2] === "animated") collectibleAnimations++;
+      return new Response(collectiblePicture(collectible[1]!, collectible[2] === "animated"), { headers: { "content-type": "image/png" } });
     }
     if (req.method === "GET" && /^\/(app-icons\/\d+\/[a-z0-9]+\.png|app-assets\/\d+\/[a-z0-9]+\.png|spotify\/[A-Za-z0-9]+)$/.test(path)) {
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
@@ -8019,6 +8073,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/list-requests") return Response.json(listRequests);
     if (path === "/_control/note-reads") return Response.json(noteReads);
     if (path === "/_control/badge-reads") return Response.json(badgeReads);
+    if (path === "/_control/collectible-animations") return Response.json(collectibleAnimations);
     if (req.method === "POST" && path === "/_control/note-elsewhere") {
       const id = url.searchParams.get("user") ?? "";
       const note = url.searchParams.get("note") ?? "";

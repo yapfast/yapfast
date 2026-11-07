@@ -2,7 +2,7 @@ import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
-import { Avatar, PictureStore, StatusText, VoiceSpot, ServerTagChip } from "controls.slint";
+import { Avatar, Nameplate, PictureStore, StatusText, VoiceSpot, ServerTagChip } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
 
@@ -42,9 +42,10 @@ export struct RoomRow {
     /// A DM's avatar or group icon, and whether it's a Discord DM.
     picture: image, discord: bool,
     picture-url: string,
-    /// The address of the decoration around a one-to-one DM's avatar, and how
-    /// its person's name is drawn.
-    decoration-url: string,
+    /// The address of the decoration around a one-to-one DM's avatar, its
+    /// person's nameplate's picture with its palette's colours on a dark theme
+    /// and a light one, and how their name is drawn.
+    decoration-url: string, nameplate-url: string, nameplate-color: color, nameplate-light: color,
     /// Listed but not open to join, such as a Discord channel the account's roles keep it out of.
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
@@ -393,6 +394,10 @@ export component ChannelRow inherits Rectangle {
     in property <image> picture;
     in property <string> picture-url;
     in property <string> decoration-url;
+    /// As RoomRow has them.
+    in property <string> nameplate-url;
+    in property <color> nameplate-color;
+    in property <color> nameplate-light;
     /// Marks a Discord DM, as the rail marks Discord servers.
     in property <bool> discord;
     in property <bool> selected;
@@ -463,6 +468,18 @@ export component ChannelRow inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    // Discord's client draws a DM row's plate only while the row is selected,
+    // pointed at or focused, so a long list holds none. It stops short of the
+    // focus ring.
+    if root.nameplate-url != "" && (root.selected || pointer.has-hover || focus.has-focus): Nameplate {
+        x: root.border-width; y: root.border-width;
+        width: root.width - root.border-width * 2; height: root.height - root.border-width * 2;
+        radius: root.border-radius - root.border-width; channel: true;
+        picture-url: root.nameplate-url; palette: Theme.dark ? root.nameplate-color : root.nameplate-light;
+        hovered: pointer.has-hover; selected: root.selected; animate: pointer.has-hover || root.selected;
+        ground: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
+        content-width: text-column.x + min(text-column.preferred-width, text-column.width);
+    }
     // Unread activity is marked at the sidebar's edge, as on the server rail.
     if root.unread && !root.selected: Rectangle {
         // A thread sits further in, past the line from its channel.
@@ -529,7 +546,7 @@ export component ChannelRow inherits Rectangle {
                     }
                 }
                 if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint; }
-                VerticalLayout {
+                text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
                         alignment: start; spacing: 4px;
@@ -1182,7 +1199,8 @@ export component RoomList inherits Rectangle {
                     chat: room.chat;
                     open-chat => { root.open-chat(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
-                    decoration-url: room.decoration-url;
+                    decoration-url: room.decoration-url; nameplate-url: room.nameplate-url;
+                    nameplate-color: room.nameplate-color; nameplate-light: room.nameplate-light;
                     tag: room.tag; tag-badge: room.tag-badge; official: room.official; wave: room.wave;
                     waved => { root.wave(room.wave); }
                     selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;

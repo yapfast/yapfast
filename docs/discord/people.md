@@ -352,7 +352,11 @@ nameplate among `collectibles` takes them off.
   sits on an avatar, the dot is drawn over the decoration; Discord cuts a hole
   for it, which Slint can't, so the dot's ring takes the row's colour.
 - **Nameplate**, `collectibles.nameplate: {sku_id, asset, label, palette}`: a
-  strip behind a member's row and this account's card. The row fills with a
+  strip behind a member's row, a one-to-one DM's row and this account's card.
+  A DM's row shows it only while the row is selected, pointed at or focused, as
+  in Discord's client, so a long DM list holds none at rest. Its gradient doesn't
+  brighten under the pointer, and its picture starts fading in 5 pixels before
+  the text's end. A member's row fills with a
   gradient in the palette's colour, `transparent` to 8% at 20% across, 8% to
   50%, then 20% at the right edge (30% hovered, 50% selected), with the plate's
   picture at the right end, the row's height tall, at 60% opacity (90%
@@ -361,11 +365,12 @@ nameplate among `collectibles` takes them off.
   with `mask-image`; Slint has no masks, so Yapfast draws the row's colour over
   it in the same gradient. The account card's plate is a 10% to 40% gradient
   under the picture at 40% opacity, with no fade, filling the card and a pixel
-  over its top and bottom. A row with a plate keeps 40 pixels free at its
+  over its top and bottom. A row with a plate keeps 12 pixels free at its
   right, and an offline member's is faded with the rest of the row. The twelve
   palettes (`crimson`, `berry`, `sky`, `teal`, `forest`, `bubble_gum`,
   `violet`, `cobalt`, `clover`, `lemon`, `white`, `black`) have the colours
-  of the client's own `darkBackground` (`collectibles.rs`); a palette it
+  of the client's own `darkBackground` and `lightBackground`, by the theme
+  (`collectibles.rs`); a palette it
   doesn't know, such as `custom_palette`, shows the plate's picture without
   the gradient. Show nameplates in Appearance (on unless turned off, kept in
   `layout.json` as `nameplates`) hides every plate: none is fetched or drawn.
@@ -373,21 +378,21 @@ nameplate among `collectibles` takes them off.
 Both pictures are served by `https://cdn.discordapp.com/media/v1/collectibles-shop/{sku_id}/static`,
 a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The
 client asks for `/animated`, an APNG, or `/video`, a WebM, and Yapfast
-asks for `/animated` (Discord's own client does on Linux and Safari). Which
-surface animates follows `useAvatarDecoration` and `useNameplateAnimation`: a
-decoration plays always on messages and the profile card, but only while the
-pointer is on its row in the member list, a DM's row and the account card; a
-nameplate plays while its row is pointed at or selected, and the account
-card's while the card is. Everything holds still when Yapfast's window isn't
-focused (`Motion.playing`), and a surface that stops being pointed at goes back
-to the still picture. The animated picture is fetched the first time
-something asks for it, and decodes the frame showing: `Picture`'s frames come
-from the kept file one at a time, as a GIF's do, and a decoder is let go a
-second after its last frame shows, so nothing animating off screen keeps
-anything. The pictures are kept in the picture cache with avatars. A
-decoration decodes at up to 192 pixels and a plate whole, where other
-pictures take 128, and the still ones stay while the screen shows their
-person (`pictures_on_screen`).
+asks for `/animated` (Discord's own client does on Linux and Safari). A
+decoration plays on the profile card, on a message while the pointer is on the
+message that starts its group, and in the member list, a DM's row and the
+account card while the pointer is on them. Discord's client plays a chat
+decoration while the pointer is on any message of the group. A nameplate plays
+while its row is pointed at or selected, and the account card's while the card
+is. Everything holds still when Yapfast's window isn't focused
+(`Motion.playing`), and a surface that stops being pointed at goes back to the
+still picture. The animated picture is fetched the first time it's to play,
+and decodes the frame showing: `Picture`'s frames come from the kept file one
+at a time, as a GIF's do, and a decoder is let go a second after its last frame
+shows, so nothing animating off screen keeps anything. The pictures are kept in
+the picture cache with avatars. A decoration decodes at up to 160 pixels and a
+plate at up to 448 by 84, where other pictures take 128, and the still ones stay
+while the screen shows their person (`pictures_on_screen`).
 
 What a member sets for one server alone, `avatar_decoration_data`,
 `collectibles` and `display_name_styles` on a member object (member lists,

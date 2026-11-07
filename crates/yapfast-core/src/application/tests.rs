@@ -3984,7 +3984,7 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
             decoration: Some("mine.png".into()),
             nameplate: Some(Nameplate {
                 picture: "plate.png".into(),
-                color: Some(0x730bc8),
+                colors: Some([0x730bc8, 0x972fed]),
             }),
             premium_type: 0,
             mfa_enabled: false,
@@ -3997,7 +3997,7 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
     app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
     let view = app.state.profile.as_ref().unwrap();
     assert_eq!(view.profile.decoration.as_deref(), Some("ring.png"));
-    let style = view.profile.style.unwrap();
+    let style = view.profile.style.as_ref().unwrap();
     assert_eq!(
         (style.font, style.effect, style.colors()),
         (4, 3, &[0x00ff00][..])
@@ -4007,8 +4007,8 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
         assert_eq!(app.state.account_decoration.as_deref(), Some("mine.png"));
         let plate = app.state.account_nameplate.as_ref().unwrap();
         assert_eq!(
-            (plate.picture.as_str(), plate.color),
-            ("plate.png", Some(0x730bc8))
+            (&*plate.picture, plate.colors),
+            ("plate.png", Some([0x730bc8, 0x972fed]))
         );
     }
 }
@@ -5228,7 +5228,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
-            color: Some(0x730bc8),
+            colors: Some([0x730bc8, 0x972fed]),
         }),
         ..member("@bob", "Bob")
     }]));
@@ -5256,7 +5256,7 @@ fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
-            color: None,
+            colors: None,
         }),
         ..member("@bob", "Bob")
     }]));
@@ -5274,6 +5274,41 @@ fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
     }
     assert!(app.state.pictures.contains_key("bobs-ring.png"));
     assert!(!app.state.pictures.contains_key("plate.png"));
+}
+
+#[test]
+fn the_selected_dms_nameplate_stays_and_the_others_go() {
+    let mut app = connected();
+    let selected = app.state.selected.clone().unwrap();
+    let plate = |picture: &str| {
+        Some(Arc::new(chat::Nameplate {
+            picture: picture.into(),
+            colors: None,
+        }))
+    };
+    let dm = |id: &str, picture: &str| {
+        let room = app.state.rooms[0].clone();
+        Arc::new(ChatRoom {
+            id: id.into(),
+            nameplate: plate(picture),
+            ..(*room).clone()
+        })
+    };
+    let rooms = vec![dm(&selected, "shown.png"), dm("other", "other.png")];
+    app.state.rooms = rooms;
+    for url in ["shown.png", "other.png"]
+        .into_iter()
+        .map(String::from)
+        .chain((0..KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key("shown.png"));
+    assert!(!app.state.pictures.contains_key("other.png"));
 }
 
 #[test]

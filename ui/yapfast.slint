@@ -2390,7 +2390,7 @@ export component YapfastWindow inherits Window {
                         // The nameplate fills the card, a pixel beyond it above and below.
                         if AccountLook.nameplate-url != "": Nameplate {
                             x: 0px; y: -1px; width: parent.width + 1px; height: parent.height + 2px;
-                            radius: ClientStyle.enabled ? 8px : 0px; account: true; hovered: account-panel.hot; animate: account-panel.hot; picture-url: AccountLook.nameplate-url; palette: AccountLook.nameplate-color;
+                            radius: ClientStyle.enabled ? 8px : 0px; account: true; hovered: account-panel.hot; animate: account-panel.hot; picture-url: AccountLook.nameplate-url; palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
                         }
                         if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
                         HorizontalLayout {
@@ -2398,7 +2398,7 @@ export component YapfastWindow inherits Window {
                             padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
                             Rectangle {
                                 width: ClientStyle.enabled ? 50px : 58px;
-                                Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; prefetch: true; }
+                                Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
                                 if root.account-presence != "": StatusDot {
                                     x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
                                 }

@@ -88,7 +88,7 @@ pub struct Account {
     pub avatar: String,
     /// The decoration it wears around its avatar, and its nameplate.
     #[serde(default)]
-    pub decoration: Option<String>,
+    pub decoration: Option<Arc<str>>,
     #[serde(default)]
     pub nameplate: Option<crate::collectibles::Nameplate>,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
@@ -114,7 +114,10 @@ pub struct Conversation {
     pub avatar: Option<String>,
     /// The decoration the other person in a DM wears around their avatar.
     #[serde(default)]
-    pub decoration: Option<String>,
+    pub decoration: Option<Arc<str>>,
+    /// The nameplate the other person in a DM equips.
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
     /// The display name style of the other person in a DM.
     #[serde(default)]
     pub style: Option<crate::collectibles::Style>,
@@ -2954,7 +2957,7 @@ impl Discord {
 
     /// The address of the decoration a user wears around their avatar, in a
     /// server or in DMs.
-    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<String> {
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<Arc<str>> {
         self.read_names().decoration(guild.and_then(server), user)
     }
 
