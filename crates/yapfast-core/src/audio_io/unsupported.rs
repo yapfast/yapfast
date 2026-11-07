@@ -34,6 +34,11 @@ impl Output {
     pub fn latency(&self) -> Duration {
         Duration::ZERO
     }
+
+    /// Nothing is played on a build without sound, so it cannot say where it is.
+    pub fn queued(&self) -> Option<u64> {
+        None
+    }
 }
 
 pub struct Input;

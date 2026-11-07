@@ -27,7 +27,7 @@ use libpulse_simple_binding::Simple;
 use super::{Format, Waited};
 use crate::voice::NAMED;
 
-pub struct Output(Simple);
+pub struct Output(Simple, u32);
 
 impl Output {
     pub fn open(
@@ -55,7 +55,7 @@ impl Output {
             format,
             attributes.as_ref(),
         )
-        .map(Self)
+        .map(|simple| Self(simple, format.rate))
     }
 
     pub fn write(&mut self, bytes: &[u8]) -> Result<Waited> {
@@ -84,6 +84,15 @@ impl Output {
         self.0
             .get_latency()
             .map_or(Duration::ZERO, |latency| Duration::from_micros(latency.0))
+    }
+
+    /// The frames the server still holds queued for this stream, as the
+    /// latency it reports says: the rest of what was written has been played.
+    /// `None` when the server doesn't answer.
+    pub fn queued(&self) -> Option<u64> {
+        let latency = self.0.get_latency().ok()?;
+        let seconds = f64::from(latency.0) / 1_000_000.0;
+        Some((seconds * f64::from(self.1)).round() as u64)
     }
 }
 

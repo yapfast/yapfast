@@ -222,6 +222,11 @@ pub struct StreamStats {
     /// Whether a stream is giving memory back because the machine is short,
     /// and which signal said so. `None` is a stream with the room to work.
     pub memory: Option<String>,
+    /// Where a watched stream's sound is, once the device has said: the
+    /// milliseconds it has played since the player started, and the ones it
+    /// still holds queued. Unknown while nothing plays or no device can say.
+    pub sound_heard_ms: Option<u32>,
+    pub sound_queued_ms: Option<u32>,
 }
 
 /// How a stream's pictures reach the window.

@@ -1661,7 +1661,7 @@ fn watch(
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
     let mut receiver = StreamReceiver::start(server, crate::decode::DECODES.to_vec())?;
-    let _player = receiver.take_sounds().and_then(|sounds| {
+    let player = receiver.take_sounds().and_then(|sounds| {
         stream_audio::Player::start(
             sounds,
             sound.speakers,
@@ -1774,6 +1774,14 @@ fn watch(
                 width,
                 height,
                 preview: visible,
+                sound_heard_ms: player
+                    .as_ref()
+                    .and_then(stream_audio::Player::heard)
+                    .map(|(heard, _)| heard),
+                sound_queued_ms: player
+                    .as_ref()
+                    .and_then(stream_audio::Player::heard)
+                    .map(|(_, queued)| queued),
                 ..StreamStats::default()
             }));
         }

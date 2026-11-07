@@ -420,6 +420,13 @@ impl Output {
         let _ = unsafe { self.stream.client.Reset() };
     }
 
+    /// The frames the engine still holds queued, which is what it has not played
+    /// yet.
+    pub fn queued(&self) -> Option<u64> {
+        com();
+        self.stream.padding().ok().map(u64::from)
+    }
+
     pub fn latency(&self) -> Duration {
         com();
         let queued = self.stream.padding().unwrap_or(0);

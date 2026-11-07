@@ -179,6 +179,18 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
                 .into(),
         );
         link.set_presented_on(adapter_name(stream.present_luid).into());
+        link.set_heard(
+            stream
+                .sound_heard_ms
+                .map_or_else(String::new, |heard| format!("{heard} ms"))
+                .into(),
+        );
+        link.set_sound_queued(
+            stream
+                .sound_queued_ms
+                .map_or_else(String::new, |queued| format!("{queued} ms"))
+                .into(),
+        );
         link.set_queue_delay(wait(stream.queue_delay_ms).into());
         link.set_buffers(buffers(stream.pool_live, stream.pool_peak).into());
         link.set_memory(stream.memory.clone().unwrap_or_default().into());

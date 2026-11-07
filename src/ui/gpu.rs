@@ -219,6 +219,29 @@ pub fn forget(key: usize) {
 #[cfg(not(windows))]
 pub fn forget(_key: usize) {}
 
+/// Gives back what the window has opened and isn't showing, for a machine short
+/// of memory: every texture it opened for a picture it has moved past, and each
+/// stream's fence, which are opened again when a picture needs them. Nothing in
+/// use is let go — the picture on the screen holds its own reference, and the
+/// worker keeps the slots the window hasn't finished with — so acting on a
+/// short machine costs one reopen per picture, not a tear.
+#[cfg(windows)]
+pub fn trim() {
+    PRESENT.with_borrow_mut(|present| {
+        let Some(present) = present.as_mut() else {
+            return;
+        };
+        present.housekeeping();
+        for stream in present.streams.values_mut() {
+            stream.trim();
+        }
+    });
+}
+
+/// Without Direct3D there is nothing opened to give back.
+#[cfg(not(windows))]
+pub fn trim() {}
+
 /// Without Direct3D there is no shared texture to open, and a stream that
 /// publishes one is asked for pixels.
 #[cfg(not(windows))]
@@ -500,6 +523,14 @@ impl Stream {
     /// drawn a frame without it.
     fn reopen(&mut self, set: u64) {
         self.set = set;
+        self.textures.clear();
+        self.fence = None;
+    }
+
+    /// Lets go of the textures it opened and the fence, which are opened again
+    /// when the next picture needs them: a picture on the screen holds its own
+    /// reference, so what is showing isn't dropped.
+    fn trim(&mut self) {
         self.textures.clear();
         self.fence = None;
     }

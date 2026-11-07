@@ -458,6 +458,11 @@ impl Drop for Capture {
 pub struct Player {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    /// Frames the speakers have played and frames they still hold queued, as
+    /// the player's own thread last read them from the device: where the
+    /// sound really is, which is what A/V timing is measured from.
+    played: Arc<std::sync::atomic::AtomicU64>,
+    queued: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// How loud a watched stream plays, which Yapfast can change while it does.
@@ -1176,11 +1181,40 @@ impl Player {
         volume: Arc<Volume>,
     ) -> Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
-        let thread = play(sounds, speakers, hearing, volume, stop.clone())?;
+        // Unknown until the device says: the largest value there is stands for
+        // "it hasn't told us", which is not the same as playing nothing.
+        let played = Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
+        let queued = Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
+        let thread = play(
+            sounds,
+            speakers,
+            hearing,
+            volume,
+            stop.clone(),
+            played.clone(),
+            queued.clone(),
+        )?;
         Ok(Self {
             stop,
             thread: Some(thread),
+            played,
+            queued,
         })
+    }
+}
+
+impl Player {
+    /// Where the sound is, once the device has said: the milliseconds it has
+    /// played since the player started and the milliseconds it still holds
+    /// queued. `None` while no device can say, which is not the same as zero.
+    pub fn heard(&self) -> Option<(u32, u32)> {
+        let load = |value: &std::sync::atomic::AtomicU64| {
+            let frames = value.load(Ordering::Relaxed);
+            (frames != u64::MAX).then_some(frames)
+        };
+        let (played, queued) = (load(&self.played)?, load(&self.queued)?);
+        let milliseconds = |frames: u64| (frames * 1_000 / u64::from(RATE)) as u32;
+        Some((milliseconds(played), milliseconds(queued)))
     }
 }
 
@@ -1199,11 +1233,22 @@ trait Speakers {
     /// Takes one turn of interleaved samples, and takes as long to play it as
     /// a device would.
     fn write(&mut self, samples: &[i16]);
+
+    /// The frames the device has played since it opened and the frames it
+    /// still holds queued, or `None` where it cannot say — which is not the
+    /// same as playing nothing.
+    fn position(&mut self) -> Option<(u64, u64)> {
+        None
+    }
 }
 
 impl Speakers for LastingOutput<i16> {
     fn write(&mut self, samples: &[i16]) {
         LastingOutput::write(self, samples);
+    }
+
+    fn position(&mut self) -> Option<(u64, u64)> {
+        LastingOutput::position(self)
     }
 }
 
@@ -1213,6 +1258,8 @@ fn play(
     hearing: Arc<AtomicBool>,
     volume: Arc<Volume>,
     stop: Arc<AtomicBool>,
+    played: Arc<std::sync::atomic::AtomicU64>,
+    queued: Arc<std::sync::atomic::AtomicU64>,
 ) -> Result<JoinHandle<()>> {
     let (ready, started) = mpsc::sync_channel(1);
     let clock = sounds.clock();
@@ -1256,6 +1303,8 @@ fn play(
                 &volume,
                 &stop,
                 &clock,
+                &played,
+                &queued,
             );
         })
         .context("could not start playing the stream's sound")?;
@@ -1279,6 +1328,8 @@ fn turns(
     volume: &Volume,
     stop: &AtomicBool,
     clock: &StreamClock,
+    played: &std::sync::atomic::AtomicU64,
+    queued: &std::sync::atomic::AtomicU64,
 ) {
     let mut logged = Instant::now();
     // Whether the log has said that nothing maps the sound's clock to the
@@ -1311,6 +1362,13 @@ fn turns(
                 // queued, or, with no device, as long as that sound would
                 // have played.
                 output.write(out);
+                // Where the sound really is, once a turn: the frames the device
+                // has played, and what it still holds. What a device cannot say
+                // stays unknown rather than counting as nothing played.
+                if let Some((heard, held)) = output.position() {
+                    played.store(heard, Ordering::Relaxed);
+                    queued.store(held, Ordering::Relaxed);
+                }
             }
             // At most a turn, so a stop or a deafen is seen soon.
             Turn::Wait(wait) => match sounds.recv_timeout(wait.min(TURN)) {
@@ -1912,6 +1970,8 @@ mod tests {
         let receiver = SoundReceiver::new(arriving, Arc::new(StreamClock::default()));
         let clock = receiver.clock();
         let started = Instant::now();
+        let played = std::sync::atomic::AtomicU64::new(u64::MAX);
+        let queued = std::sync::atomic::AtomicU64::new(u64::MAX);
         turns(
             &receiver,
             &mut playout,
@@ -1920,6 +1980,8 @@ mod tests {
             &volume,
             &stop,
             &clock,
+            &played,
+            &queued,
         );
         sender.join().unwrap();
         assert_eq!(

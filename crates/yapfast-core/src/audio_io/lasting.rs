@@ -221,6 +221,15 @@ impl<S: Sample> LastingOutput<S> {
             self.lasting.lost(&error);
         }
     }
+
+    /// The frames the device has played since it opened and the frames it still
+    /// holds queued: where the sound is, rather than how much was handed over.
+    /// `None` while no device is open — a stream playing into a device that
+    /// went away keeps time by waiting instead — and where the backend can't
+    /// say.
+    pub fn position(&mut self) -> Option<(u64, u64)> {
+        self.lasting.stream()?.position()
+    }
 }
 
 /// A microphone that outlasts its device; see the [module](self).

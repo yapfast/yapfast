@@ -233,6 +233,13 @@ fn ended(waited: Result<Waited>) -> Result<()> {
 pub struct Output<S: Sample> {
     stream: platform::Output,
     _samples: PhantomData<S>,
+    /// Frames of each channel handed to the device since it opened, which
+    /// together with what it still holds queued is the position the sound is
+    /// really at.
+    written: u64,
+    /// The bytes one frame of every channel is, which is what turns what was
+    /// written into frames.
+    frame_bytes: usize,
 }
 
 impl<S: Sample> Output<S> {
@@ -246,10 +253,14 @@ impl<S: Sample> Output<S> {
         channels: u16,
         queue: Option<Duration>,
     ) -> Result<Self> {
-        let stream = platform::Output::open(speaker, name, Format::of::<S>(rate, channels), queue)?;
+        let format = Format::of::<S>(rate, channels);
+        let frame_bytes = format.frame_bytes();
+        let stream = platform::Output::open(speaker, name, format, queue)?;
         Ok(Self {
             stream,
             _samples: PhantomData,
+            written: 0,
+            frame_bytes,
         })
     }
 
@@ -287,7 +298,23 @@ impl<S: Sample> Output<S> {
     /// The stop that ends the stream ends the write too, with sound nobody
     /// waits for any more left behind, which is no error.
     pub fn write(&mut self, samples: &[S]) -> Result<()> {
-        ended(self.stream.write(bytes(samples)))
+        let played = ended(self.stream.write(bytes(samples)));
+        // Frames handed over, which come back as heard once the device has
+        // played them: see `position`.
+        if self.frame_bytes > 0 {
+            self.written += (samples.len() * size_of::<S>() / self.frame_bytes) as u64;
+        }
+        played
+    }
+
+    /// The frames the device has played since it opened, and the frames it
+    /// still holds queued: where the sound really is, rather than how much was
+    /// handed over. `None` where the backend can't say, which is not the same
+    /// as zero, and `None` while no device is open at all.
+    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    pub fn position(&self) -> Option<(u64, u64)> {
+        let queued = self.stream.queued()?;
+        Some((self.written.saturating_sub(queued), queued))
     }
 
     /// Waits until everything queued has played, or until the stream's stop

@@ -128,6 +128,10 @@ export global CallLink {
     in property <string> skipped;
     in property <string> sound-waiting;
     in property <string> sound-dropped;
+    /// Where a watched stream's sound is, once its device has said: the
+    /// milliseconds played and the milliseconds still queued.
+    in property <string> heard;
+    in property <string> sound-queued;
     /// How the pictures reach the window ("the worker's own texture" or
     /// "copied to the processor"), and the adapter the window draws on: a
     /// share that copies every frame says here whether the two adapters are
@@ -286,6 +290,8 @@ export component CallLinkCard inherits Rectangle {
             if CallLink.skipped != "": LinkRow { label: "Frames a full queue skipped:"; value: CallLink.skipped; }
             if CallLink.sound-waiting != "": LinkRow { label: "Shared sound waiting:"; value: CallLink.sound-waiting; }
             if CallLink.sound-dropped != "": LinkRow { label: "Shared sound dropped:"; value: CallLink.sound-dropped; }
+            if CallLink.heard != "": LinkRow { label: "Sound played:"; value: CallLink.heard; }
+            if CallLink.sound-queued != "": LinkRow { label: "Sound queued in the device:"; value: CallLink.sound-queued; }
             LinkRow { label: "Shown by:"; value: CallLink.presentation; }
             if CallLink.presented-on != "": LinkRow { label: "The window draws on:"; value: CallLink.presented-on; }
             LinkRow { label: "Frame wait before encoding:"; value: CallLink.queue-delay; }

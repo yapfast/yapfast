@@ -2371,6 +2371,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // again, is one the cached hints say nothing about, even when nothing the
     // window can see has changed between two ticks.
     let keys = std::cell::Cell::new((0usize, 0usize));
+    // And when the window last read the machine's memory, so it asks once a
+    // second rather than every tick.
+    let trimmed = std::cell::Cell::new(None::<std::time::Instant>);
     window.on_stream_tick(move || {
         let Some(window) = weak.upgrade() else {
             return;
@@ -2381,6 +2384,28 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             identity(&voice.sharing, &voice.watching)
         };
         let (was_share, was_watch) = keys.replace((share_key, watch_key));
+        // A machine that is short of memory has the window give back what it
+        // opened and isn't showing: the share's own worker says so in its
+        // report, which the call's details read each second, and this is where
+        // the window acts on it instead of letting its caches grow to the
+        // process's end. Nothing in use is let go.
+        if trimmed
+            .get()
+            .is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(1))
+        {
+            trimmed.set(Some(std::time::Instant::now()));
+            let short = {
+                let adapter = state.borrow();
+                adapter.app.state.voice.link.as_ref().is_some_and(|link| {
+                    link.read()
+                        .stream
+                        .is_some_and(|stats| stats.memory.is_some())
+                })
+            };
+            if short {
+                gpu::trim();
+            }
+        }
         // What the window opened for a stream that has ended is let go of now,
         // rather than when another stream happens to draw a picture: a stopped
         // share is the last one as often as not.
