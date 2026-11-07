@@ -973,6 +973,66 @@ fn trim() {
         // SAFETY: malloc_trim only releases free memory held by the allocator.
         unsafe { malloc_trim(0) };
     }
+    // Windows keeps what a burst of allocations freed, ready for the next
+    // burst, in heaps the low-fragmentation heap makes for those sizes.
+    // `HeapCompact` joins freed blocks but returns none of the heaps;
+    // `HeapOptimizeResources` gives back what they hold, which is what lets a
+    // closed picker's memory go.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Memory::{HeapOptimizeResources, HeapSetInformation};
+        // HEAP_OPTIMIZE_RESOURCES_INFORMATION, which windows-sys doesn't name.
+        #[repr(C)]
+        struct OptimizeResources {
+            version: u32,
+            flags: u32,
+        }
+        // HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION.
+        const CURRENT_VERSION: u32 = 1;
+        let info = OptimizeResources {
+            version: CURRENT_VERSION,
+            flags: 0,
+        };
+        // SAFETY: the information is the one HeapOptimizeResources takes, a
+        // null heap handle means every heap of the process, and optimizing
+        // them moves nothing in use.
+        unsafe {
+            HeapSetInformation(
+                std::ptr::null_mut(),
+                HeapOptimizeResources,
+                std::ptr::from_ref(&info).cast(),
+                std::mem::size_of::<OptimizeResources>(),
+            );
+        }
+    }
+}
+
+/// A picker of many pictures closed: once the frame without it is drawn,
+/// Skia lets go of what it kept to draw them, and then the heap gives back
+/// what that and the picker freed. Without this the memory stays with the
+/// process until something else needs it.
+pub(super) fn let_go_after_picker(window: &YapfastWindow) {
+    let weak = window.as_weak();
+    slint::Timer::single_shot(Duration::from_secs(1), move || {
+        i_slint_renderer_skia::yapfast_let_go_of_caches();
+        if let Some(window) = weak.upgrade() {
+            window.window().request_redraw();
+        }
+        trim_over(&[500, 2_000, 5_000]);
+    });
+}
+
+/// Trim now, then again after each of `delays` milliseconds: the last
+/// downloads, decodes and animations of a closed picker free their memory as
+/// they finish, after the trim the close itself made.
+fn trim_over(delays: &'static [u64]) {
+    let Some((&delay, rest)) = delays.split_first() else {
+        return;
+    };
+    slint::Timer::single_shot(Duration::from_millis(delay), move || {
+        trim();
+        trim_over(rest);
+    });
 }
 
 /// Print the allocator's per-arena totals to standard error: memory held from

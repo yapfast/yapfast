@@ -185,13 +185,47 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   for each size cost and is what a scroll through the grid did then; drawing
   the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
-  slowly. A screen of rows either side of those shown is drawn with them, and
-  their custom emoji's pictures fetched with them, so a scroll brings rows in
-  already drawn rather than filling them as it passes; a row a screen past
-  those shown lets go of its pictures, and a picker that closes lets go of its
-  grid, so the list costs what is near the view. A code point Twemoji has no
-  picture for is still drawn by the
-  system font. A cell whose custom emoji is animated keeps that still as its
+  slowly. It lists only the emoji Twemoji has a picture for. A screen of rows either side of those shown is drawn with them, and
+  the custom emoji's pictures of three screens either side are asked for,
+  nearest first, the ones this account may not use too. A cold cache or a
+  scroll beyond that margin can still show placeholders until downloads finish. A
+  picture asked for again moves ahead of those asked for since, so what shows
+  now downloads and decodes before what a scroll passed, and one that arrives
+  shows within a few frames without laying the rest of the window out again;
+  asking changes nothing on screen, so a scroll lays nothing out either. A
+  section's rail button and heading are a quiet square until its server's
+  icon, or for a server without one its first emoji, comes, which every
+  section asks for as the picker opens. A row further than those three
+  screens lets go of its custom emoji's pictures and the application's copies
+  and pending requests at the same time, even when none has arrived yet, so
+  scrolling through every server's emoji holds a few screens of them however far it goes; a
+  row scrolled back to reads them from the disk cache again. Downloads of
+  pictures let go of before they came are called off, and one that comes all
+  the same isn't kept. Startup queues the account's custom emoji pictures for
+  the disk cache, even when avatars or some emoji were cached already. Later
+  snapshots queue newly added emoji too; opening the picker shares that URL
+  tracking rather than repeating startup's requests. Background downloads run
+  behind visible pictures and decode nothing. Up to eight background workers
+  drain a deduplicated URL queue; a visible request promotes an active background
+  job instead of downloading the same picture twice. Cancelling a foreground
+  request returns its URL to background warming instead of abandoning it. At most twelve encoded
+  pictures are held across downloading and decoding, with eight network turns
+  and four decode turns; cancelling a queued request releases its turn waiter,
+  and a blocking decode keeps its permits until it actually finishes. Once
+  cached, emoji load from disk rather than waiting for the CDN. A second after
+  the emoji or the sticker picker closes, Skia lets go of the textures and
+  copies it kept to draw their pictures, and the heap gives back what that
+  freed (`let_go_after_picker`). On Windows that is `HeapOptimizeResources`,
+  which returns the low-fragmentation heaps a burst of pictures grew; `HeapCompact`
+  joins freed blocks but gives none of their memory back. What the close
+  called off frees more as it finishes, so the heap is asked again half a
+  second later and twice more after, and a fast scroll over hundreds of
+  emoji leaves no more behind than it found. An
+  animated one starts as soon as its picture arrives. A row a screen past
+  those shown lets go of its Twemoji pictures, and a picker that closes lets
+  go of its grid and of every custom emoji's picture but those the messages
+  on screen, the topic and the hover bar's reactions show; the disk cache
+  keeps them, and the next look reads them from there. A cell whose custom emoji is animated keeps that still as its
   placeholder until the emoji's frames arrive, which decode at 48px times the
   screen's scale factor, up to 96px, off the thread that draws, so a grid of
   animated emoji scrolls as fast as one of stills. Every server's emoji show,
