@@ -10372,26 +10372,53 @@ fn discord_emoji_favourites_and_uses_rank_and_last_through_partial_updates() {
         total,
         recent: days.iter().map(|days| now - days * 86_400_000).collect(),
     };
-    app.apply(Event::DiscordEmojis(Ok(crate::chat::DiscordEmojis {
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
         favorites: Some(vec!["skull_crossbones".into()]),
         used: Some(vec![
-            ("thumbsup".into(), used(2, &[30])),
+            ("thumbsup".into(), used(2, &[300])),
             ("joy".into(), used(9, &[0, 0])),
             ("sob".into(), used(1, &[])),
         ]),
-    })));
-    // Used most lately first; one not used lately isn't frequent.
-    assert_eq!(app.discord_frequent_emojis(now), ["joy", "thumbsup"]);
+        reactions: Some(vec![("fire".into(), used(1, &[0]))]),
+    }));
+    // Used most lately first; even an old use counts for something, but one
+    // with no recent uses isn't frequent.
+    let lists = &app.state.discord_emojis;
+    assert_eq!(lists.frequent, ["joy", "thumbsup"]);
+    assert_eq!(lists.reactions, ["fire"]);
     // An update that leaves the uses out didn't change them.
-    app.apply(Event::DiscordEmojis(Ok(crate::chat::DiscordEmojis {
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
         favorites: Some(vec!["heart".into()]),
-        used: None,
-    })));
-    assert_eq!(
-        app.state.discord_emojis.favorites.as_deref(),
-        Some(&["heart".to_owned()][..])
-    );
-    assert_eq!(app.discord_frequent_emojis(now), ["joy", "thumbsup"]);
+        ..Default::default()
+    }));
+    let lists = &app.state.discord_emojis;
+    assert_eq!(lists.favorites, ["heart"]);
+    assert_eq!(lists.frequent, ["joy", "thumbsup"]);
+    assert_eq!(lists.reactions, ["fire"]);
+}
+
+#[test]
+fn only_as_many_frequent_emoji_as_discord_keeps_stay() {
+    let mut app = connected();
+    let now = crate::clock::now_ms();
+    let used = (0..100)
+        .map(|index| {
+            (
+                format!("emoji{index:03}"),
+                crate::chat::PlaceUses {
+                    total: 100 - index,
+                    recent: vec![now],
+                },
+            )
+        })
+        .collect();
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
+        used: Some(used),
+        ..Default::default()
+    }));
+    let frequent = &app.state.discord_emojis.frequent;
+    assert_eq!(frequent.len(), 42);
+    assert_eq!(frequent[0], "emoji000");
 }
 
 #[cfg(feature = "discord")]

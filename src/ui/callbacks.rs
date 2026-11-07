@@ -20,9 +20,10 @@ fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: us
     if wanted.is_empty() {
         return;
     }
+    // A locked one shows too, greyed.
     let pictures = adapter
         .app
-        .usable_emoji()
+        .emoji_sets()
         .iter()
         .flat_map(|set| &set.emoji)
         .filter(|emoji| wanted.contains(&emoji::custom_key(emoji)))
@@ -170,29 +171,40 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     let mut adapter = adapter.borrow_mut();
     let (rows, sections) = {
         let custom = adapter.app.emoji_sets();
-        // The Discord account's favourites, then the emoji it used most, as
-        // its other clients keep them, and those this device reacts with.
-        let favorites: Vec<String> = adapter
-            .app
-            .state
-            .discord_emojis
-            .favorites
-            .iter()
-            .flatten()
-            .filter_map(|name| emoji::discord_key(name, &custom))
-            .collect();
-        let mut frequent: Vec<String> = adapter
-            .app
-            .discord_frequent_emojis(yapfast_core::clock::now_ms())
-            .into_iter()
-            .filter_map(|name| emoji::discord_key(name, &custom))
-            .collect();
-        for key in adapter.app.frequent_reactions(16) {
-            if !frequent.contains(&key) {
-                frequent.push(key);
+        // Closing the picker let go of the images made from the pictures still
+        // kept, which won't arrive again.
+        custom_emoji::add_images(
+            custom
+                .iter()
+                .flat_map(|set| &set.emoji)
+                .filter_map(|emoji| super::refresh::arrived(&adapter.app.state, emoji)),
+        );
+        // With no query, the Discord account's favourites, then the emoji it
+        // uses most, or reacts with most for a reaction, as its other clients
+        // keep them, and those this device reacts with.
+        let (favorites, frequent) = if query.trim().trim_matches(':').is_empty() {
+            let by_id: HashMap<&str, &yapfast_core::chat::CustomEmoji> = custom
+                .iter()
+                .flat_map(|set| &set.emoji)
+                .map(|emoji| (emoji.id.as_str(), emoji))
+                .collect();
+            let lists = &adapter.app.state.discord_emojis;
+            let item = window.get_react_item();
+            let used = if item.is_empty() || item.starts_with("yapfast:") {
+                &lists.frequent
+            } else {
+                &lists.reactions
+            };
+            let mut frequent = emoji::discord_keys(used, &by_id);
+            for key in adapter.app.frequent_reactions(16) {
+                if !frequent.iter().any(|(known, _)| *known == key) {
+                    frequent.push((key, true));
+                }
             }
-        }
-        frequent.truncate(FREQUENT_EMOJI);
+            (emoji::discord_keys(&lists.favorites, &by_id), frequent)
+        } else {
+            Default::default()
+        };
         emoji::rows(query, &favorites, &frequent, &custom, columns, |set| {
             let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
             Some(picture(icon))

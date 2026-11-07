@@ -2738,9 +2738,6 @@ fn same_list<T: Clone + PartialEq + 'static>(old: &ModelRc<T>, new: ModelRc<T>) 
 const PROFILE_CARD_WIDTH: f32 = 300. - 2. * 16.;
 const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
 
-/// The emoji the picker's Frequently used row holds: two rows of them.
-const FREQUENT_EMOJI: usize = 16;
-
 /// How many emoji the composer suggests for a `:name` word.
 const EMOJI_SUGGESTIONS: usize = 10;
 

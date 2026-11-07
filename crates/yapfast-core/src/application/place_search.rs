@@ -26,6 +26,8 @@ const FOUND: usize = 50;
 /// The most used places that count, and the uses of each kept.
 const FREQUENT: usize = 100;
 const SAMPLES: usize = 10;
+/// The emoji Discord's client keeps as frequently used.
+const FREQUENT_EMOJIS: usize = 42;
 const DAY_MS: i64 = 86_400_000;
 
 impl PlacesUsed {
@@ -112,9 +114,26 @@ fn weight(days: i64) -> u32 {
     }
 }
 
-/// A place's or emoji's frecency: its uses in all, scaled by how recent the
-/// latest were; none for one not used lately.
-pub(super) fn frecency(uses: &PlaceUses, now: u64) -> u32 {
+/// What a use of an emoji counts for by its age: Discord's client weighs
+/// these otherwise than places.
+fn emoji_weight(days: i64) -> u32 {
+    match days {
+        ..=3 => 100,
+        4..=15 => 70,
+        16..=30 => 50,
+        31..=45 => 30,
+        46..=80 => 10,
+        _ => 1,
+    }
+}
+
+/// A place's frecency: its uses in all, scaled by how recent the latest were;
+/// none for a place not used lately.
+fn frecency(uses: &PlaceUses, now: u64) -> u32 {
+    frecency_by(weight, uses, now)
+}
+
+fn frecency_by(weight: fn(i64) -> u32, uses: &PlaceUses, now: u64) -> u32 {
     let score: u32 = uses
         .recent
         .iter()
@@ -125,6 +144,22 @@ pub(super) fn frecency(uses: &PlaceUses, now: u64) -> u32 {
         return 0;
     }
     (u64::from(uses.total) * u64::from(score)).div_ceil(uses.recent.len() as u64) as u32
+}
+
+/// `used`'s emoji as Discord's client ranks them, the most used lately first,
+/// and as many as it keeps.
+pub(super) fn rank_emojis(used: Vec<(String, PlaceUses)>, now: u64) -> Vec<String> {
+    let mut ranked: Vec<(String, u32)> = used
+        .into_iter()
+        .map(|(name, uses)| {
+            let frecency = frecency_by(emoji_weight, &uses, now);
+            (name, frecency)
+        })
+        .filter(|(_, frecency)| *frecency > 0)
+        .collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    ranked.truncate(FREQUENT_EMOJIS);
+    ranked.into_iter().map(|(name, _)| name).collect()
 }
 
 /// How well `name` matches `query`, both in lower case, as Discord's search

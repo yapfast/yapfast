@@ -544,12 +544,6 @@ impl Application {
         effects.extend(self.ask_starters());
         effects.extend(self.prefetch_emoji());
         effects.extend(self.prefetch_gifs());
-        // The emoji picker shows the account's favourite and used emoji, as
-        // its other clients keep them; another client's changes come live.
-        if self.state.discord_online && !self.emojis_asked && !self.state.preview {
-            self.emojis_asked = true;
-            effects.push(Effect::Backend(Command::Discord(DiscordCommand::Emojis)));
-        }
         effects
     }
 

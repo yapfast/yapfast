@@ -620,7 +620,7 @@ pub struct AppState {
     pub places_used: PlacesUsed,
     /// The Discord account's favourite emoji and the emoji it uses, which the
     /// emoji picker shows first.
-    pub discord_emojis: chat::DiscordEmojis,
+    pub discord_emojis: DiscordEmojiLists,
     /// What the quick switcher searches for, while it's open.
     pub switcher: Option<String>,
     pub new_dm: Option<NewDm>,
@@ -2029,6 +2029,18 @@ pub enum Effect {
 /// A timeline as the app state holds it, sharing its messages.
 type TimelineArc = Arc<Vec<Arc<ChatMessage>>>;
 
+/// The Discord account's emoji, as the picker lists them: custom emoji's ids
+/// and Unicode emoji's Discord names.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscordEmojiLists {
+    /// In the order the account favourited them.
+    pub favorites: Vec<String>,
+    /// Those it uses in messages and those it reacts with, as its clients rank
+    /// them when they came, the most used lately first.
+    pub frequent: Vec<String>,
+    pub reactions: Vec<String>,
+}
+
 #[derive(Default)]
 pub struct Application {
     pub state: AppState,
@@ -2044,8 +2056,6 @@ pub struct Application {
     samples: HashMap<String, Vec<Arc<ChatMessage>>>,
     /// How often this device added each reaction.
     reaction_uses: HashMap<String, u32>,
-    /// Discord's favourite and used emoji were asked for, once a session.
-    emojis_asked: bool,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
     /// The profile effects' pictures in `AppState::pictures`.
@@ -3643,18 +3653,18 @@ impl Application {
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),
             Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
-            Event::DiscordEmojis(result) => match result {
-                Ok(emojis) => {
-                    let known = &mut self.state.discord_emojis;
-                    if emojis.favorites.is_some() {
-                        known.favorites = emojis.favorites;
-                    }
-                    if emojis.used.is_some() {
-                        known.used = emojis.used;
-                    }
+            Event::DiscordEmojis(emojis) => {
+                let (known, now) = (&mut self.state.discord_emojis, crate::clock::now_ms());
+                if let Some(favorites) = emojis.favorites {
+                    known.favorites = favorites;
                 }
-                Err(error) => tracing::debug!(%error, "could not fetch the emoji used"),
-            },
+                if let Some(used) = emojis.used {
+                    known.frequent = place_search::rank_emojis(used, now);
+                }
+                if let Some(reactions) = emojis.reactions {
+                    known.reactions = place_search::rank_emojis(reactions, now);
+                }
+            }
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
             Event::Reactors {
                 item,
@@ -4128,22 +4138,6 @@ impl Application {
                 .collect();
         }
         vec![]
-    }
-
-    /// The emoji the Discord account used most lately, as its clients rank
-    /// them, best first: custom emoji's ids and Unicode emoji's Discord names.
-    pub fn discord_frequent_emojis(&self, now: u64) -> Vec<&str> {
-        let mut ranked: Vec<(&str, u32)> = self
-            .state
-            .discord_emojis
-            .used
-            .iter()
-            .flatten()
-            .map(|(name, uses)| (name.as_str(), place_search::frecency(uses, now)))
-            .filter(|(_, frecency)| *frecency > 0)
-            .collect();
-        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-        ranked.into_iter().map(|(name, _)| name).collect()
     }
 
     /// The custom emoji this account may use in the selected room, by server, the

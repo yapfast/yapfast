@@ -1322,6 +1322,24 @@ impl Fixture {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_favourite_and_used_emoji_with_the_favourite_gifs() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("fetches_the_favourite_and_used_emoji_with_the_favourite_gifs").await;
+    let (gifs, emojis) = discord.favorite_gifs_and_emojis().await.unwrap();
+    assert!(!gifs.is_empty());
+    let names = |used: Option<Vec<(String, yapfast_discord::frecency::Uses)>>| {
+        used.unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(emojis.favorites.unwrap()[1], "skull_crossbones");
+    assert_eq!(names(emojis.used), ["joy", "thumbsup_tone4"]);
+    assert_eq!(names(emojis.reactions), ["fire", "100"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn fetches_the_profile_effect_a_profile_names() {
     let Fixture {
         _fake,

@@ -38,6 +38,14 @@ for hexcode, value in fetch('shortcodes/joypixels.json').items():
         if name not in github and name.removeprefix('flag_') not in github:
             table[name] = emoji[hexcode]
 
+# Where Discord means another emoji by a name than JoyPixels does, or names one
+# with an underscore where GitHub has a hyphen.
+table.update({
+    'beach_umbrella': '\u26f1\ufe0f',
+    'city_sunset': '\U0001f307',
+    'non_potable_water': '\U0001f6b1',
+})
+
 rows = ''.join(f'    ({json.dumps(name)}, {json.dumps(glyph, ensure_ascii=False)}),\n'
                for name, glyph in sorted(table.items()))
 OUT.write_text(f'''//! The Unicode emoji Discord names differently from GitHub's shortcodes, by

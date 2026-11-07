@@ -696,7 +696,7 @@ pub fn live(
         return;
     }
     if let Ok(Live::Emojis(emojis)) = &event {
-        let _ = events.send(Event::DiscordEmojis(Ok(account::emojis(emojis.clone()))));
+        let _ = events.send(Event::DiscordEmojis(account::emojis(emojis.clone())));
         return;
     }
     if let Ok(Live::Notify { guild, message }) = &event {

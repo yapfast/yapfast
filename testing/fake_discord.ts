@@ -4790,7 +4790,8 @@ function favoriteGifs(origin: string): string {
 // Alice's favorite_emojis and emoji_frecency, as every client of hers keeps
 // them, a custom emoji by its id and a Unicode one by its Discord name: her
 // favourites are :talk: and the skull and crossbones, and she uses the
-// crying-laughing face most, today, then a medium-dark thumbs up.
+// crying-laughing face most, today, then a medium-dark thumbs up, and reacts
+// with fire and :100:, which is a Unicode emoji's name, not an id.
 function emojisUsed(): Uint8Array {
   const varint = (value: bigint) => {
     const out: number[] = [];
@@ -4808,6 +4809,10 @@ function emojisUsed(): Uint8Array {
     ...protoBytes(6, new Uint8Array([
       ...used("joy", 9, [3_600_000, 600_000]),
       ...used("thumbsup_tone4", 4, [2 * 86_400_000]),
+    ])),
+    ...protoBytes(13, new Uint8Array([
+      ...used("fire", 5, [600_000]),
+      ...used("100", 2, [86_400_000]),
     ])),
   ]);
 }

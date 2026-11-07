@@ -315,25 +315,6 @@ pub(super) fn command(
         }
         return None;
     }
-    if let Command::Discord(DiscordCommand::Emojis) = command {
-        match discord {
-            Ok(discord) => {
-                let (discord, events) = (discord.clone(), events.clone());
-                tokio::spawn(async move {
-                    let result = discord
-                        .emojis()
-                        .await
-                        .map(emojis)
-                        .map_err(|error| error.to_string());
-                    let _ = events.send(Event::DiscordEmojis(result));
-                });
-            }
-            Err(why) => {
-                let _ = events.send(Event::DiscordEmojis(Err(why.into())));
-            }
-        }
-        return None;
-    }
     if let Command::Discord(DiscordCommand::SetCustomStatus(custom)) = command {
         match discord {
             Ok(discord) => {
@@ -1801,6 +1782,7 @@ pub(super) fn emojis(emojis: yapfast_discord::frecency::Emojis) -> crate::chat::
     crate::chat::DiscordEmojis {
         favorites: emojis.favorites,
         used: emojis.used.map(places_used),
+        reactions: emojis.reactions.map(places_used),
     }
 }
 

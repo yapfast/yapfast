@@ -13,8 +13,10 @@ use crate::settings::{Field, fields, varint};
 const FAVORITE_EMOJIS: u64 = 5;
 const EMOJI_FRECENCY: u64 = 6;
 const GUILD_AND_CHANNEL_FRECENCY: u64 = 12;
+const EMOJI_REACTION_FRECENCY: u64 = 13;
 const GUILD_AND_CHANNELS: u64 = 1;
-/// `FavoriteEmojis.emojis` and `EmojiFrecency.emojis`.
+/// `FavoriteEmojis.emojis` and `EmojiFrecency.emojis`, which both emoji
+/// frecencies use.
 const EMOJIS: u64 = 1;
 /// A map entry's key and value.
 const KEY: u64 = 1;
@@ -84,19 +86,43 @@ fn read_uses(item: &[u8]) -> Uses {
     uses
 }
 
-/// The account's favourite emoji and the emoji it uses, each a custom
-/// emoji's id or a Unicode emoji's Discord name, such as `skull_crossbones`;
-/// `None` for one the settings leave out, as a partial update does when it
-/// didn't change.
+/// The account's favourite emoji and the emoji it uses, in messages and in
+/// reactions, each a custom emoji's id or a Unicode emoji's Discord name, such
+/// as `skull_crossbones`; `None` for one the settings leave out, as a partial
+/// update does when it didn't change.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Emojis {
     /// In the order the account favourited them.
     pub favorites: Option<Vec<String>>,
     pub used: Option<Vec<(String, Uses)>>,
+    pub reactions: Option<Vec<(String, Uses)>>,
+}
+
+/// An `EmojiFrecency`'s emoji and their uses.
+fn read_emoji_uses(frecency: &[u8]) -> Vec<(String, Uses)> {
+    let mut read = Vec::new();
+    for (number, value) in fields(frecency) {
+        let (EMOJIS, Field::Bytes(entry)) = (number, value) else {
+            continue;
+        };
+        let mut name = None;
+        let mut uses = Uses::default();
+        for (number, value) in fields(entry) {
+            match (number, value) {
+                (KEY, Field::Bytes(key)) => name = String::from_utf8(key.to_vec()).ok(),
+                (VALUE, Field::Bytes(item)) => uses = read_uses(item),
+                _ => {}
+            }
+        }
+        if let Some(name) = name.filter(|name| !name.is_empty()) {
+            read.push((name, uses));
+        }
+    }
+    read
 }
 
 /// The favourite and used emoji in base64 `FrecencyUserSettings`, as for
-/// [`read_places`]; `None` when it has neither.
+/// [`read_places`]; `None` when it has none of them.
 pub fn read_emojis(encoded: &str) -> Option<Emojis> {
     let data = base64::engine::general_purpose::STANDARD
         .decode(encoded)
@@ -117,26 +143,8 @@ pub fn read_emojis(encoded: &str) -> Option<Emojis> {
                         .collect(),
                 );
             }
-            EMOJI_FRECENCY => {
-                let used = emojis.used.insert(Vec::new());
-                for (number, value) in fields(bytes) {
-                    let (EMOJIS, Field::Bytes(entry)) = (number, value) else {
-                        continue;
-                    };
-                    let mut name = None;
-                    let mut uses = Uses::default();
-                    for (number, value) in fields(entry) {
-                        match (number, value) {
-                            (KEY, Field::Bytes(key)) => name = String::from_utf8(key.to_vec()).ok(),
-                            (VALUE, Field::Bytes(item)) => uses = read_uses(item),
-                            _ => {}
-                        }
-                    }
-                    if let Some(name) = name.filter(|name| !name.is_empty()) {
-                        used.push((name, uses));
-                    }
-                }
-            }
+            EMOJI_FRECENCY => emojis.used = Some(read_emoji_uses(bytes)),
+            EMOJI_REACTION_FRECENCY => emojis.reactions = Some(read_emoji_uses(bytes)),
             _ => {}
         }
     }
@@ -194,18 +202,21 @@ mod tests {
         let mut settings = Vec::new();
         put_bytes(&mut settings, FAVORITE_EMOJIS, &favorites);
         put_bytes(&mut settings, EMOJI_FRECENCY, &used);
+        put_bytes(&mut settings, EMOJI_REACTION_FRECENCY, &used);
         let encoded = base64::engine::general_purpose::STANDARD.encode(settings);
+        let joy = vec![(
+            "joy".to_owned(),
+            Uses {
+                total: 3,
+                recent: vec![1_700_000_000_000],
+            },
+        )];
         assert_eq!(
             read_emojis(&encoded),
             Some(Emojis {
                 favorites: Some(vec!["skull_crossbones".into(), "1234567890".into()]),
-                used: Some(vec![(
-                    "joy".into(),
-                    Uses {
-                        total: 3,
-                        recent: vec![1_700_000_000_000],
-                    }
-                )]),
+                used: Some(joy.clone()),
+                reactions: Some(joy),
             })
         );
         assert_eq!(read_emojis(""), None, "an update without them");

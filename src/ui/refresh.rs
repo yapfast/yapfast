@@ -4465,7 +4465,7 @@ fn staged_rows(
     rows
 }
 
-fn arrived<'a>(
+pub(super) fn arrived<'a>(
     state: &'a AppState,
     emoji: &'a yapfast_core::chat::CustomEmoji,
 ) -> Option<(&'a str, &'a yapfast_core::chat::Picture)> {
