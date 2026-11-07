@@ -2,9 +2,7 @@
 
 use super::*;
 
-/// The rows of the picker's grid that fit at once, with one to spare: the grid
-/// is about 340px tall and a row is 56px.
-const GRID_ROWS: usize = 8;
+use super::emoji_grid::{FETCH_ROWS, GRID_ROWS};
 
 /// The rows either side of those shown that the picker makes ready: their
 /// pictures are drawn and their custom emoji's fetched before a scroll brings
@@ -17,8 +15,7 @@ const GRID_ROWS: usize = 8;
 const READY_ROWS: usize = GRID_ROWS;
 
 /// The rows the picker makes ready, around those shown between `first` and
-/// `last`: a scroll into them finds them drawn, and no picture of their own to
-/// ask Discord for.
+/// `last`: a scroll into them finds them drawn.
 fn ready_rows(first: usize, last: usize) -> (usize, usize) {
     (
         first.saturating_sub(READY_ROWS),
@@ -26,24 +23,155 @@ fn ready_rows(first: usize, last: usize) -> (usize, usize) {
     )
 }
 
-/// Fetches the pictures of the custom emoji whose rows are ready between
-/// `first` and `last`, and of those that have none yet. The picker brings the
-/// rest as it scrolls them in, since a server list can hold more emoji than fit
-/// in memory at once.
+/// Fetches the pictures of the custom emoji in the rows [`FETCH_ROWS`] either
+/// side of those shown between `first` and `last` that have none yet, those
+/// this account may not use where it is looking too, as they show greyed. The
+/// picker brings the rest as it scrolls them in, since a server list can hold
+/// more emoji than fit in memory at once.
 fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: usize, last: usize) {
-    let wanted = custom_keys_without_pictures(&adapter.models.emoji_rows, first, last);
-    if wanted.is_empty() {
+    let ids = custom_ids_to_fetch(&adapter.models.emoji_rows, first, last, FETCH_ROWS);
+    request_custom_pictures(adapter, window, &ids);
+}
+
+/// Lets go of the custom emoji pictures of the rows further than [`FETCH_ROWS`]
+/// from those shown between `first` and `last`: their cells', the copies kept
+/// to make cells, the downloads not yet come, and the application's. So scrolling through every server's emoji holds a few
+/// screens of them however far it goes, as Twemoji's do, and a row scrolled
+/// back to asks for them again, from the disk cache.
+fn let_go_of_far_emoji(adapter: &mut Adapter, window: &YapfastWindow, first: usize, last: usize) {
+    let rows = &adapter.models.emoji_rows;
+    let count = rows.row_count();
+    if count == 0 || first >= count {
         return;
     }
-    let pictures = adapter
+    let (from, to) = (
+        first.saturating_sub(FETCH_ROWS),
+        last.saturating_add(FETCH_ROWS).min(count - 1),
+    );
+    let id = |key: &str| key.rsplit_once(':').map(|(_, id)| id.to_owned());
+    // The ids near, and those the rail's buttons show.
+    let mut near: HashSet<String> = HashSet::new();
+    for index in from..=to {
+        if let Some(row) = rows.row_data(index) {
+            near.extend(row.cells.iter().filter_map(|cell| id(&cell.key)));
+        }
+    }
+    near.extend(
+        adapter
+            .models
+            .emoji_sections
+            .iter()
+            .filter_map(|section| id(&section.icon.key)),
+    );
+    if let Some((held_from, held_to)) = adapter.emoji_grid.custom_held {
+        for index in held_from..=held_to.min(count - 1) {
+            if (from..=to).contains(&index) {
+                continue;
+            }
+            let Some(row) = rows.row_data(index) else {
+                continue;
+            };
+            for cell_index in 0..row.cells.row_count() {
+                let Some(cell) = row.cells.row_data(cell_index) else {
+                    continue;
+                };
+                if cell.picture.size().width > 0
+                    && id(&cell.key).is_some_and(|id| !near.contains(&id))
+                {
+                    row.cells.set_row_data(
+                        cell_index,
+                        EmojiCell {
+                            picture: Default::default(),
+                            ..cell
+                        },
+                    );
+                }
+            }
+        }
+    }
+    adapter.emoji_grid.custom_held = Some((from, to));
+    custom_emoji::forget_images_except(&near);
+    adapter.emoji_grid.wanted.retain(|id, _| near.contains(id));
+    // Pending downloads count too: on a fast scroll none may have completed
+    // yet. Waiting for a decoded-picture threshold let obsolete requests pile
+    // up, decoding what the picker had already scrolled past.
+    let keep: Vec<String> = adapter
         .app
-        .usable_emoji()
-        .iter()
-        .flat_map(|set| &set.emoji)
-        .filter(|emoji| wanted.contains(&emoji::custom_key(emoji)))
-        .map(|emoji| emoji.picture.clone())
+        .emoji_by_id(&near.iter().map(String::as_str).collect())
+        .into_iter()
+        .map(|emoji| emoji.picture)
         .collect();
-    adapter.action(window, Action::LoadPictures(pictures));
+    adapter.action(window, Action::KeepEmojiPictures(keep));
+}
+
+/// Makes the rows shown between `first` and `last` and those around them
+/// ready: the custom emoji's pictures asked for three screens out, Twemoji's
+/// drawn a screen out, the animations of those near decoded, and the grid
+/// given what is in sight.
+fn prepare_emoji_rows(adapter: &mut Adapter, window: &YapfastWindow, first: usize, last: usize) {
+    let_go_of_far_emoji(adapter, window, first, last);
+    fetch_shown_pictures(adapter, window, first, last);
+    // Those already in memory, which no arrival brings, show now.
+    adapter.show_arrived_emoji();
+    let (from, to) = ready_rows(first, last);
+    fill_shown_glyphs(window, adapter, from, to);
+    want_shown_animations(adapter, window);
+    adapter.publish_emoji_grid();
+}
+
+/// Decodes the animations of the custom emoji in the rows ready around those
+/// shown, so the grid moves without waiting for a message to show them first.
+/// Called again as pictures arrive: an animation decodes from its picture, so
+/// one whose picture had not come yet when its row scrolled in starts then.
+pub(super) fn want_shown_animations(adapter: &mut Adapter, window: &YapfastWindow) {
+    let (first, last) = adapter.emoji_grid.shown;
+    let (first, last) = ready_rows(first, last);
+    let rows = &adapter.models.emoji_rows;
+    let count = rows.row_count();
+    if count == 0 || first >= count {
+        adapter
+            .animations
+            .also(std::iter::empty(), &adapter.app.state.pictures);
+        adapter.run_emoji_animations(window);
+        return;
+    }
+    let mut shown: HashSet<SharedString> = HashSet::new();
+    for index in first..=last.min(count - 1) {
+        if let Some(row) = rows.row_data(index) {
+            shown.extend(
+                row.cells
+                    .iter()
+                    .map(|cell| cell.key)
+                    .filter(|key| key.contains(':')),
+            );
+        }
+    }
+    // An empty set replaces the previous picker rows too, so scrolling into
+    // Unicode emoji stops work for the custom emoji left behind.
+    // Only those shown are made, by their ids, rather than every server's
+    // emoji at each scroll.
+    let ids: HashSet<&str> = shown
+        .iter()
+        .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
+        .collect();
+    let jobs: Vec<(String, Option<char>, String)> = adapter
+        .app
+        .emoji_by_id(&ids)
+        .into_iter()
+        .filter(|emoji| emoji.animated)
+        .map(|emoji| {
+            (
+                emoji::custom_key(&emoji),
+                custom_emoji::glyph(&emoji.id),
+                emoji.picture,
+            )
+        })
+        .collect();
+    let pictures = &adapter.app.state.pictures;
+    adapter.animations.also(jobs, pictures);
+    // Picker actions and picture arrivals are deliberately quiet: they do
+    // not cause a full refresh to start the decoder or restart its timer.
+    adapter.run_emoji_animations(window);
 }
 
 /// The rail's own icons, which are unicode glyphs unless a server's icon or a
@@ -78,59 +206,87 @@ fn fill_rail_glyphs(window: &YapfastWindow, adapter: &Adapter) {
     }
 }
 
-/// A server's icon that came after the rail was built, drawn then.
-fn fill_rail_icons(adapter: &Adapter) {
+/// The icons of the picker's sections that came since the rail and the grid
+/// were built: a server's own, or, for one without, its first emoji's. The rail
+/// and the headings draw them then, as the sticker picker's do; until then a
+/// button is a quiet square.
+pub(super) fn fill_picker_icons(adapter: &Adapter) {
     let rail = &adapter.models.emoji_rail;
-    let sections = &adapter.models.emoji_sections;
-    for index in 0..rail.row_count().min(sections.row_count()) {
-        let (Some(section), Some(named)) = (rail.row_data(index), sections.row_data(index)) else {
-            continue;
-        };
-        if named.icon_url.is_empty() || section.icon.picture.size().width > 0 {
-            continue;
-        }
-        let Some(source) = adapter.app.state.pictures.get(named.icon_url.as_str()) else {
-            continue;
-        };
-        rail.set_row_data(
-            index,
-            RailSection {
-                icon: EmojiCell {
-                    picture: picture(source),
-                    ..section.icon
-                },
-                ..section
-            },
-        );
-    }
-}
-
-/// A server's icon that came after the grid was built, drawn beside its name
-/// then, as the rail's button draws it.
-fn fill_row_icons(adapter: &Adapter) {
     let rows = &adapter.models.emoji_rows;
     let sections = &adapter.models.emoji_sections;
     for index in 0..sections.row_count() {
         let Some(section) = sections.row_data(index) else {
             continue;
         };
-        let row = section.heading.max(0) as usize;
-        let Some(named) = rows.row_data(row) else {
+        // Matches have no headings, and the rail keeps the sections it jumps
+        // back to.
+        let came = if section.icon_url.is_empty() {
+            Some(section.icon.picture.clone()).filter(|picture| picture.size().width > 0)
+        } else {
+            adapter
+                .app
+                .state
+                .pictures
+                .get(section.icon_url.as_str())
+                .map(|source| picture(source))
+        };
+        let Some(came) = came else {
             continue;
         };
-        if section.icon_url.is_empty() || named.icon.size().width > 0 {
-            continue;
+        if let Some(button) = rail.row_data(index)
+            && button.name == section.icon.name
+            && button.icon.picture.size().width == 0
+        {
+            rail.set_row_data(
+                index,
+                RailSection {
+                    icon: EmojiCell {
+                        picture: came.clone(),
+                        ..button.icon
+                    },
+                    ..button
+                },
+            );
         }
-        let Some(source) = adapter.app.state.pictures.get(section.icon_url.as_str()) else {
-            continue;
-        };
-        rows.set_row_data(
-            row,
-            EmojiRow {
-                icon: picture(source),
-                ..named
-            },
-        );
+        let row = section.heading.max(0) as usize;
+        if let Some(heading) = rows.row_data(row)
+            && heading.heading == section.icon.name
+            && heading.icon.size().width == 0
+        {
+            rows.set_row_data(
+                row,
+                EmojiRow {
+                    icon: came,
+                    ..heading
+                },
+            );
+        }
+    }
+}
+
+/// Asks for the pictures of the custom emoji with these ids, in their order,
+/// ahead of those asked for before, and keeps them wanted until they come.
+fn request_custom_pictures(adapter: &mut Adapter, window: &YapfastWindow, ids: &[String]) {
+    if ids.is_empty() {
+        return;
+    }
+    let mut pictures: HashMap<String, String> = adapter
+        .app
+        .emoji_by_id(&ids.iter().map(String::as_str).collect())
+        .into_iter()
+        .map(|emoji| (emoji.id, emoji.picture))
+        .collect();
+    // Each is wanted until its picture comes, which then shows at once; see
+    // `show_emoji_pictures`.
+    let mut ordered = Vec::new();
+    for id in ids {
+        if let Some(url) = pictures.remove(id) {
+            adapter.emoji_grid.wanted.insert(id.clone(), url.clone());
+            ordered.push(url);
+        }
+    }
+    if !ordered.is_empty() {
+        adapter.action(window, Action::LoadPicturesFirst(ordered));
     }
 }
 
@@ -138,8 +294,7 @@ fn fill_row_icons(adapter: &Adapter) {
 /// picture each, Twemoji's, decoded once, so scrolling draws a bitmap.
 fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize, last: usize) {
     fill_rail_glyphs(window, adapter);
-    fill_rail_icons(adapter);
-    fill_row_icons(adapter);
+    fill_picker_icons(adapter);
     let scale = window.window().scale_factor();
     let_go_of_far_glyphs(adapter, first, last);
     let rows = &adapter.models.emoji_rows;
@@ -147,7 +302,6 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
     if count == 0 || first >= count {
         return;
     }
-    let mut shown: Vec<String> = Vec::new();
     for index in first..=last.min(count - 1) {
         let Some(row) = rows.row_data(index) else {
             continue;
@@ -156,9 +310,6 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
             let Some(cell) = row.cells.row_data(cell_index) else {
                 continue;
             };
-            if cell.key.contains(':') {
-                shown.push(cell.key.to_string());
-            }
             // A custom emoji draws its own picture, and a cell whose glyph is a
             // name rather than an emoji has nothing to draw.
             if cell.picture.size().width > 0 || cell.key.contains(':') || cell.glyph != cell.key {
@@ -179,29 +330,6 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
             }
         }
     }
-    // The cells on screen whose emoji animate are decoded in turn, so the grid
-    // moves without waiting for a message to show them first.
-    let shown: Vec<(String, Option<char>, String)> = adapter
-        .app
-        .usable_emoji()
-        .iter()
-        .flat_map(|set| &set.emoji)
-        .filter(|emoji| emoji.animated)
-        .map(|emoji| {
-            (
-                (
-                    emoji::custom_key(emoji),
-                    custom_emoji::glyph(&emoji.id),
-                    emoji.picture.clone(),
-                ),
-                shown.iter().any(|key| *key == emoji::custom_key(emoji)),
-            )
-        })
-        .filter(|(_, visible)| *visible)
-        .map(|(job, _)| job)
-        .collect();
-    let pictures = &adapter.app.state.pictures;
-    adapter.animations.also(shown, pictures);
 }
 
 /// Takes the pictures [`fill_shown_glyphs`] gave back from the rows it did not
@@ -238,31 +366,45 @@ fn let_go_of_far_glyphs(adapter: &mut Adapter, first: usize, last: usize) {
     adapter.emoji_rows_filled = (first, last);
 }
 
-/// The reaction keys of the custom emoji in `rows` from `first` to `last` that
-/// have no picture yet, which the picker asks for when it shows them.
-pub(super) fn custom_keys_without_pictures(
+/// The ids of the custom emoji without a picture yet in the rows shown,
+/// `first` to `last`, and `around` rows either side, nearest first: those
+/// shown, then a row below and a row above in turn, as Discord's downloads go
+/// a few at a time. The picker asks for these as it shows them.
+pub(super) fn custom_ids_to_fetch(
     rows: &VecModel<EmojiRow>,
     first: usize,
     last: usize,
-) -> HashSet<String> {
+    around: usize,
+) -> Vec<String> {
     let count = rows.row_count();
     if count == 0 || first >= count {
-        return HashSet::new();
+        return Vec::new();
     }
-    let mut wanted = HashSet::new();
-    for index in first..=last.min(count - 1) {
+    let last = last.min(count - 1);
+    let mut order: Vec<usize> = (first..=last).collect();
+    for step in 1..=around {
+        if last + step < count {
+            order.push(last + step);
+        }
+        if let Some(above) = first.checked_sub(step) {
+            order.push(above);
+        }
+    }
+    let mut ids = Vec::new();
+    for index in order {
         let Some(row) = rows.row_data(index) else {
             continue;
         };
-        for cell in row.cells.iter() {
-            // A custom emoji's reaction key is `name:id`; a Unicode one is the
-            // glyph itself.
-            if cell.picture.size().width == 0 && cell.key.contains(':') {
-                wanted.insert(cell.key.to_string());
-            }
-        }
+        // A custom emoji's reaction key is `name:id`; a Unicode one is the
+        // glyph itself.
+        ids.extend(
+            row.cells
+                .iter()
+                .filter(|cell| cell.picture.size().width == 0)
+                .filter_map(|cell| Some(cell.key.rsplit_once(':')?.1.to_owned())),
+        );
     }
-    wanted
+    ids
 }
 
 thread_local! {
@@ -301,6 +443,16 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
         .filter_map(|set| set.icon.clone())
         .filter(|url| !adapter.app.state.pictures.contains_key(url))
         .collect();
+    // The custom emoji whose pictures this device still holds, such as those
+    // in the messages on screen, draw them: the picker let go of its own copies
+    // as it last closed, and they were asked for already, so none arrives.
+    let pictures = &adapter.app.state.pictures;
+    custom_emoji::add_images(
+        custom
+            .iter()
+            .flat_map(|set| &set.emoji)
+            .filter_map(|emoji| Some((emoji.id.as_str(), pictures.get(&emoji.picture)?.as_ref()))),
+    );
     let (rows, sections) = emoji::rows(
         query,
         adapter.app.emoji_favorites(),
@@ -330,11 +482,14 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
         })
         .collect();
     update_model(&adapter.models.emoji_rail, rail);
+    let grid_height = rows.last().map_or(0.0, |row| row.top + row.height);
     update_model(&adapter.models.emoji_rows, rows);
-    // The grid opens at its top, and the rows below those it shows are made
-    // ready with them, so the first scroll finds them drawn.
-    let (first, last) = ready_rows(0, GRID_ROWS);
-    adapter.emoji_rows_filled = (first, last);
+    window.set_emoji_grid_height(grid_height);
+    // The rows where the grid is scrolled to, its top for a grid built for a
+    // search, are made ready with those around them, so the first scroll finds
+    // them drawn.
+    let (first, last) = adapter.emoji_rows_in_sight();
+    adapter.emoji_rows_filled = ready_rows(first, last);
     // The grid shares the width it shows at among these, so its cells need the
     // count the rows were built with.
     window.set_emoji_columns(columns as i32);
@@ -345,9 +500,32 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     // A grid laid out again is made of new cells, and the custom emoji whose
     // pictures this device already holds are drawn at once rather than waiting
     // for one to arrive, which a drag of the picker's edge would not bring.
-    emoji::fill_pictures(&adapter.models.emoji_rows, &adapter.models.emoji_sections);
-    fetch_shown_pictures(&mut adapter, window, first, last);
-    fill_shown_glyphs(window, &mut adapter, first, last);
+    // Only the rows near those in sight hold their custom emoji's pictures;
+    // see `let_go_of_far_emoji`.
+    // A grid built again sweeps every row once, for what it made from
+    // pictures already kept.
+    let rows = adapter.models.emoji_rows.row_count();
+    adapter.emoji_grid.custom_held = (rows > 0).then(|| (0, rows - 1));
+    emoji::fill_pictures_in(
+        &adapter.models.emoji_rows,
+        first.saturating_sub(FETCH_ROWS),
+        last.saturating_add(FETCH_ROWS),
+    );
+    emoji::fill_section_pictures(&adapter.models.emoji_sections);
+    // The rail shows every section's icon at once, so the first emoji of each
+    // server without an icon of its own is asked for with the rows in sight.
+    let icons: Vec<String> = adapter
+        .models
+        .emoji_sections
+        .iter()
+        .filter(|section| section.icon_url.is_empty() && section.icon.picture.size().width == 0)
+        .filter_map(|section| Some(section.icon.key.rsplit_once(':')?.1.to_owned()))
+        .collect();
+    request_custom_pictures(&mut adapter, window, &icons);
+    prepare_emoji_rows(&mut adapter, window, first, last);
+    // The rest of the account's emoji go to the disk cache behind these, once
+    // a session, so a scroll reads them from there rather than Discord.
+    adapter.action(window, Action::CacheEmojiPictures);
 }
 
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
@@ -1257,22 +1435,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // The emoji per row the grid last took, so a width that leaves the columns
     // alone does not build it again.
     let columns_shown: Rc<Cell<usize>> = Rc::new(Cell::new(0));
-    // The rows the grid last said it shows, so a scroll within them asks for
-    // nothing again, and a grid laid out again fills the rows it is scrolled to.
-    let shown_rows: Rc<Cell<(usize, usize)>> = Rc::new(Cell::new((usize::MAX, usize::MAX)));
     let shown = columns_shown.clone();
-    let rows_before = shown_rows.clone();
     window.on_emoji_search(move |query| {
         let Some(window) = weak.upgrade() else { return };
         let columns = emoji::columns(window.get_emoji_panel_width());
         shown.set(columns);
-        // A grid built again starts at its top, and says where it shows from.
-        rows_before.set((usize::MAX, usize::MAX));
+        // A grid built for a search starts at its top.
+        state.borrow_mut().emoji_grid.viewport.0 = 0.0;
         show_emoji(&state, &window, &query, columns);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    let rows_shown = shown_rows.clone();
     window.on_emoji_reflow(move || {
         let Some(window) = weak.upgrade() else { return };
         let columns = emoji::columns(window.get_emoji_panel_width());
@@ -1281,20 +1454,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             return;
         }
         columns_shown.set(columns);
-        // The grid keeps what is being searched for, laid out again.
+        // The grid keeps what is being searched for, laid out again, and the
+        // rows where it is scrolled to take their pictures: a wider grid puts
+        // emoji in them that were a row below the last time.
         show_emoji(&state, &window, &window.get_emoji_query(), columns);
-        // Its cells are new ones, so the rows it is scrolled to take their
-        // pictures again: a wider grid puts emoji in them that were a row below
-        // the last time, which would otherwise wait for a scroll to show.
-        // The range stays: a drag changes the columns several times, and each
-        // change lays every cell out again, so each one fills the same rows.
-        let (first, last) = rows_shown.get();
-        if first != usize::MAX {
-            let (first, last) = ready_rows(first, last);
-            let mut adapter = state.borrow_mut();
-            fetch_shown_pictures(&mut adapter, &window, first, last);
-            fill_shown_glyphs(&window, &mut adapter, first, last);
-        }
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -1307,31 +1470,33 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         custom_emoji::forget_images();
         crate::twemoji::forget();
         let mut adapter = state.borrow_mut();
+        adapter.emoji_due.stop();
+        adapter.animations.hide_picker();
         adapter.models.emoji_rows.set_vec(Vec::new());
+        adapter.models.emoji_sections.set_vec(Vec::new());
+        adapter.models.emoji_rail.set_vec(Vec::new());
+        adapter.emoji_rows_filled = (0, 0);
+        adapter.clear_emoji_grid();
         adapter.action(&window, Action::UnloadEmojiPictures);
-        slint::Timer::single_shot(std::time::Duration::from_secs(1), trim);
+        let_go_after_picker(&window);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    let rows_reported = shown_rows.clone();
     window.on_emoji_scrolled_to(move |scrolled, height| {
         let Some(window) = weak.upgrade() else { return };
+        let mut adapter = state.borrow_mut();
         // The rows the grid shows, from where each row says it starts: a
-        // heading's row is tighter than one of emoji.
-        let (first, last) = {
-            let adapter = state.borrow();
-            emoji::visible_rows(&adapter.models.emoji_rows, scrolled, height)
-        };
-        if rows_reported.get() == (first, last) {
+        // heading's row is tighter than one of emoji. A scroll within them
+        // asks for nothing again.
+        let before = adapter.emoji_grid.shown;
+        adapter.emoji_grid.viewport = (scrolled, height);
+        let (first, last) = adapter.emoji_rows_in_sight();
+        if before == (first, last) && adapter.models.emoji_tiles.row_count() > 0 {
             return;
         }
-        rows_reported.set((first, last));
-        // What the grid shows, and a screen either side made ready with it, so
+        // What the grid shows, and the rows around it made ready with it, so
         // a row comes into sight drawn rather than making its picture then.
-        let (first, last) = ready_rows(first, last);
-        let mut adapter = state.borrow_mut();
-        fetch_shown_pictures(&mut adapter, &window, first, last);
-        fill_shown_glyphs(&window, &mut adapter, first, last);
+        prepare_emoji_rows(&mut adapter, &window, first, last);
     });
     bind_item!(on_select_reaction, Action::ShowReactors);
     bind!(on_more_reactors, Action::MoreReactors);
@@ -1400,8 +1565,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let state = adapter.clone();
     window.on_picker_width_chosen(move |width| {
         let mut adapter = state.borrow_mut();
+        if adapter.layout.picker_width == Some(width) {
+            return;
+        }
         adapter.layout.picker_width = Some(width);
-        adapter.layout.write(&adapter.root);
+        // Drags that end close together write the file once.
+        adapter.write_layout_soon();
     });
     let state = adapter.clone();
     window.on_member_list_toggled(move |shown| {

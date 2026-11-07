@@ -32,6 +32,9 @@ pub(super) struct Reach {
     pictures: bool,
     /// A picker's own picture arrived, which no row shows but its own.
     picker: bool,
+    /// A custom emoji's picture arrived: the emoji picker shows it at once,
+    /// without laying the rest of the window out again.
+    emoji: bool,
     /// The video playing changed.
     video: bool,
     pub(super) everything: bool,
@@ -43,6 +46,7 @@ impl Reach {
         voice: true,
         pictures: true,
         picker: true,
+        emoji: true,
         video: true,
         everything: true,
     };
@@ -58,6 +62,10 @@ impl Reach {
             // second, shows only in the call's own views.
             Event::Voice(_) => Self {
                 voice: true,
+                ..Self::default()
+            },
+            Event::Picture { url, .. } if url.contains("/emojis/") => Self {
+                emoji: true,
                 ..Self::default()
             },
             Event::Picture { .. } => Self {
@@ -84,6 +92,7 @@ impl Reach {
             voice: self.voice || other.voice,
             pictures: self.pictures || other.pictures,
             picker: self.picker || other.picker,
+            emoji: self.emoji || other.emoji,
             video: self.video || other.video,
             everything: self.everything || other.everything,
         }
@@ -92,6 +101,10 @@ impl Reach {
 
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How long a custom emoji's picture waits for others before the emoji picker
+/// shows it: a few frames, as showing them costs little.
+const EMOJI_BATCH: std::time::Duration = std::time::Duration::from_millis(32);
 
 impl Adapter {
     /// Browse Channels' rows whose channel's name has its search in it, each
@@ -265,9 +278,23 @@ impl Adapter {
             self.refresh(window);
             return;
         }
+        // A custom emoji's picture shows in the emoji picker alone while it is
+        // open, which needs nothing else laid out; otherwise it can show
+        // anywhere, as any picture can.
+        let picker_open = self.models.emoji_rows.row_count() > 0;
+        if reach.emoji && picker_open && !self.emoji_due.running() {
+            let (adapter, weak) = (self.weak.clone(), window.as_weak());
+            self.emoji_due
+                .start(slint::TimerMode::SingleShot, EMOJI_BATCH, move || {
+                    if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                        adapter.borrow_mut().show_emoji_pictures(&window);
+                    }
+                });
+        }
+        let pictures = reach.pictures || (reach.emoji && !picker_open);
         // Pictures arrive one at a time, hundreds when the emoji picker opens,
         // so those that come close together show in one refresh.
-        if reach.pictures && !self.pictures_due.running() {
+        if pictures && !self.pictures_due.running() {
             let (adapter, weak) = (self.weak.clone(), window.as_weak());
             self.pictures_due
                 .start(slint::TimerMode::SingleShot, PICTURE_BATCH, move || {
@@ -295,6 +322,32 @@ impl Adapter {
         if reach.video {
             self.show_video(window);
         }
+    }
+
+    /// The custom emoji pictures that arrived for the emoji picker, shown in
+    /// it and nothing else: the window lays nothing out again, so a scroll
+    /// that brings pictures in stays smooth. One that a message on screen
+    /// shows too makes its glyph, which lays the messages out, as a full
+    /// refresh does.
+    fn show_emoji_pictures(&mut self, window: &YapfastWindow) {
+        // One a message on screen shows too gets its glyph, which lays the
+        // messages out again, as a full refresh does; `add` says so only for a
+        // glyph it made, so this happens once a picture.
+        let state = &self.app.state;
+        let in_messages = state
+            .messages
+            .iter()
+            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
+            .flat_map(|message| &message.emoji);
+        if custom_emoji::add(in_messages.filter_map(|emoji| arrived(state, emoji))) {
+            self.restyle = true;
+            self.refresh(window);
+            return;
+        }
+        if self.show_arrived_emoji() && self.emoji_word.is_some() {
+            self.show_emoji_suggestions(window);
+        }
+        super::callbacks::want_shown_animations(self, window);
     }
 
     /// The pictures a picker's tiles draw that arrived since, and nothing
@@ -430,11 +483,9 @@ impl Adapter {
     /// something plays and the window is focused, used and not minimised.
     fn show_emoji_animations(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let mut shown: Vec<(String, Option<char>, String)> = state
-            .messages
-            .iter()
-            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
-            .flat_map(|message| &message.emoji)
+        let mut shown: Vec<(String, Option<char>, String)> = self
+            .app
+            .visible_message_emoji()
             .filter(|emoji| emoji.animated)
             .map(|emoji| {
                 (
@@ -471,10 +522,16 @@ impl Adapter {
                 }
             }
         }
-        for emoji in self.app.usable_emoji().iter().flat_map(|set| &set.emoji) {
-            let key = emoji::custom_key(emoji);
-            if emoji.animated && cells.contains(&key) {
-                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture.clone()));
+        // Made for those few by their ids, rather than every server's emoji at
+        // each refresh.
+        let ids: HashSet<&str> = cells
+            .iter()
+            .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
+            .collect();
+        for emoji in self.app.emoji_by_id(&ids) {
+            let key = emoji::custom_key(&emoji);
+            if emoji.usable && emoji.animated && cells.contains(&key) {
+                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture));
             }
         }
         for sound in state
@@ -488,13 +545,18 @@ impl Adapter {
                 shown.push((format!("sound:{picture}"), None, picture.clone()));
             }
         }
-        let pictures = &state.pictures;
+        self.animations.show(shown, &state.pictures);
+        self.run_emoji_animations(window);
+    }
+
+    /// Both full refreshes and quiet picker updates can introduce animation
+    /// work, including after the last close stopped the timer.
+    pub(super) fn run_emoji_animations(&mut self, window: &YapfastWindow) {
         // Idle holds the clock as an unfocused window does, whatever the Animate
         // setting says; a minimised window has lost focus, and `playing` is
         // already false for it.
         let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
-        self.animations.show(shown, pictures);
-        self.animations.run(window, pictures);
+        self.animations.run(window, &self.app.state.pictures);
         self.animations.sync(window, playing, self.weak.clone());
     }
 
@@ -3173,7 +3235,9 @@ impl Adapter {
             if custom_emoji::add(in_messages().filter_map(|emoji| arrived(state, emoji))) {
                 self.restyle = true;
             }
-            let usable = if pictures_arrived {
+            // The suggestions build their cells from the pictures kept; the
+            // picker keeps its own as they come (`show_arrived_emoji`).
+            let usable = if pictures_arrived && self.emoji_word.is_some() {
                 self.app.emoji_sets()
             } else {
                 Vec::new()
@@ -3186,13 +3250,22 @@ impl Adapter {
                     .chain(state.messages.iter().flat_map(|message| &message.emoji))
                     .filter_map(|emoji| arrived(state, emoji)),
             );
-            if added {
-                if self.emoji_word.is_some() {
+            let picker = !window.get_react_item().is_empty() && self.show_arrived_emoji();
+            if added || picker {
+                if added && self.emoji_word.is_some() {
                     self.show_emoji_suggestions(window);
                 }
                 if !window.get_react_item().is_empty() {
-                    emoji::fill_pictures(&self.models.emoji_rows, &self.models.emoji_sections);
+                    self.fill_emoji_near_sight();
+                    // An animated one decodes from its picture, which has
+                    // come now.
+                    super::callbacks::want_shown_animations(self, window);
                 }
+            }
+            // A server's icon is no custom emoji, and the emoji picker's rail
+            // and headings draw it as it comes.
+            if pictures_arrived && !window.get_react_item().is_empty() {
+                super::callbacks::fill_picker_icons(self);
             }
         }
         let state = &self.app.state;

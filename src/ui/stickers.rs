@@ -59,6 +59,12 @@ pub(super) struct Shown {
     /// scroll within them changes no row. None lays them out again, as a
     /// rebuilt grid or one not yet measured does.
     published: Option<(f32, f32)>,
+    /// The tiles published, first and last by their place in `tiles`, so a
+    /// scroll that brings no tile in or out leaves the model alone.
+    published_tiles: Option<(usize, usize)>,
+    /// The tile of `tiles` each of the grid's elements shows: one that
+    /// scrolls out hands its element to one that scrolls in.
+    slots: Vec<usize>,
     /// Each picture's converted copy, by the picture and whether it draws as a
     /// still, kept while the picker shows it: a tile laid out again draws the
     /// image it had, not a new copy of it.
@@ -121,6 +127,7 @@ impl Adapter {
         self.stickers.section_rows.clear();
         self.stickers.drawn.clear();
         self.stickers.published = None;
+        self.stickers.published_tiles = None;
         let surfaces = &mut self.stickers.surfaces;
         let mut tiles = vec![];
         let mut sections = vec![];
@@ -341,6 +348,10 @@ impl Adapter {
                 changed.push(url);
             }
         }
+        // A refresh that brought no picture this grid draws leaves it alone.
+        if changed.is_empty() {
+            return;
+        }
         for url in changed {
             let now = showing(&url);
             self.stickers.drawn.insert(url.clone(), now);
@@ -403,7 +414,9 @@ impl Adapter {
         // goes, and the first report windows it.
         if height <= 0.0 {
             self.stickers.published = None;
-            update_model(&self.models.sticker_tiles, self.stickers.tiles.clone());
+            self.stickers.published_tiles = None;
+            let tiles = self.stickers.tiles.iter().cloned().enumerate().collect();
+            update_model_by_slot(&self.models.sticker_tiles, &mut self.stickers.slots, tiles);
             return;
         }
         let (from, to) = (top - height, top + 2.0 * height);
@@ -418,14 +431,31 @@ impl Adapter {
             return;
         }
         self.stickers.published = Some((from, to));
-        let shown: Vec<StickerGridTile> = self
-            .stickers
-            .tiles
-            .iter()
-            .filter(|tile| tile.y + tile.h >= from && tile.y <= to)
-            .cloned()
-            .collect();
-        update_model(&self.models.sticker_tiles, shown);
+        let in_sight = |tile: &StickerGridTile| tile.y + tile.h >= from && tile.y <= to;
+        // The tiles go down the grid in rows, so those in sight are a run of
+        // them: the same run as before is the same tiles.
+        let tiles = &self.stickers.tiles;
+        let first = tiles.iter().position(in_sight);
+        let run = first.map(|first| {
+            let after = tiles[first..]
+                .iter()
+                .take_while(|tile| in_sight(tile))
+                .count();
+            (first, first + after.saturating_sub(1))
+        });
+        if !forced
+            && run == self.stickers.published_tiles
+            && self.models.sticker_tiles.row_count() > 0
+        {
+            return;
+        }
+        self.stickers.published_tiles = run;
+        let shown = run.map_or_else(Vec::new, |(first, last)| {
+            (first..=last)
+                .map(|index| (index, tiles[index].clone()))
+                .collect()
+        });
+        update_model_by_slot(&self.models.sticker_tiles, &mut self.stickers.slots, shown);
     }
 
     /// The picker's left edge dragged it wider, so its grid takes new
@@ -560,7 +590,20 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         }};
     }
     act!(on_open_stickers() => Action::OpenStickers);
-    act!(on_close_stickers() => Action::CloseStickers);
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_close_stickers(move || {
+            if let Some(window) = weak.upgrade() {
+                let open = state.borrow().app.state.stickers.open;
+                state.borrow_mut().action(&window, Action::CloseStickers);
+                // Its pictures went with it, and what drew them goes after.
+                if open {
+                    let_go_after_picker(&window);
+                }
+            }
+        });
+    }
     act!(on_sticker_pick(id) => Action::PickSticker(id.into()));
     act!(on_sticker_favorite(id) => Action::FavoriteSticker(id.into()));
     act!(on_sticker_search(text) => Action::SearchStickers(text.into()));

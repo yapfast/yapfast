@@ -44,6 +44,7 @@ mod call_timer;
 mod callbacks;
 mod channel_settings;
 mod emoji_animation;
+mod emoji_grid;
 mod games;
 mod gifs;
 mod menus;
@@ -1539,6 +1540,10 @@ struct Models {
     bar_reactions: Rc<VecModel<EmojiCell>>,
     menu_reactions: Rc<VecModel<EmojiCell>>,
     emoji_rows: Rc<VecModel<EmojiRow>>,
+    /// What the picker's grid draws of `emoji_rows`: the emoji and headings
+    /// of the rows in sight and a row or two around them; see `emoji_grid`.
+    emoji_tiles: Rc<VecModel<EmojiTile>>,
+    emoji_headings: Rc<VecModel<EmojiRow>>,
     /// The picker's sidebar, built with the grid it jumps through.
     emoji_sections: Rc<VecModel<EmojiSection>>,
     emoji_suggestions: Rc<VecModel<EmojiCell>>,
@@ -1613,6 +1618,8 @@ impl Models {
         window.set_bar_reactions(ModelRc::from(self.bar_reactions.clone()));
         window.set_menu_reactions(ModelRc::from(self.menu_reactions.clone()));
         window.set_emoji_rows(ModelRc::from(self.emoji_rows.clone()));
+        window.set_emoji_tiles(ModelRc::from(self.emoji_tiles.clone()));
+        window.set_emoji_headings(ModelRc::from(self.emoji_headings.clone()));
         window.set_emoji_sections(ModelRc::from(self.emoji_sections.clone()));
         window.set_emoji_suggestions(ModelRc::from(self.emoji_suggestions.clone()));
         window.set_forward_targets(ModelRc::from(self.forward_targets.clone()));
@@ -1707,6 +1714,9 @@ struct Adapter {
     /// The rows of the emoji picker's grid that may hold pictures it drew, first
     /// and last: see `fill_shown_glyphs`.
     emoji_rows_filled: (usize, usize),
+    /// Which of the picker's rows it shows, and which emoji each of its
+    /// buttons is showing.
+    emoji_grid: emoji_grid::EmojiGrid,
     app: Application,
     models: Models,
     icons: Icons,
@@ -1764,6 +1774,12 @@ struct Adapter {
     post_tags_shown: Option<(Vec<yapfast_core::chat::ForumTag>, Vec<String>)>,
     /// Shows pictures that arrived, together with those that follow them closely.
     pictures_due: slint::Timer,
+    /// A custom emoji's picture arrived for the emoji picker, shown with
+    /// those that come a few frames after it.
+    emoji_due: slint::Timer,
+    /// A layout change waiting to be written; see [`Adapter::write_layout_soon`].
+    layout_due: slint::Timer,
+    layout_dirty: bool,
     /// Writes the layout once the window holds still after moving or resizing.
     placement_due: slint::Timer,
     /// Stream ticks without a new picture of a video that isn't playing,
@@ -2037,6 +2053,7 @@ impl Adapter {
                 root,
                 layout,
                 emoji_rows_filled: (0, 0),
+                emoji_grid: Default::default(),
                 app,
                 models,
                 icons,
@@ -2064,6 +2081,9 @@ impl Adapter {
                 guidelines_shown: None,
                 post_tags_shown: None,
                 pictures_due: slint::Timer::default(),
+                emoji_due: slint::Timer::default(),
+                layout_due: slint::Timer::default(),
+                layout_dirty: false,
                 placement_due: slint::Timer::default(),
                 video_quiet: Cell::new(0),
                 video_cell: Cell::new((0, 0)),
@@ -2627,8 +2647,18 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
+        // Pictures asked for change nothing on screen until they come.
+        let quiet = matches!(
+            action,
+            Action::LoadPicturesFirst(_)
+                | Action::KeepEmojiPictures(_)
+                | Action::CacheEmojiPictures
+        );
         let effects = self.app.dispatch(action);
         self.execute(effects);
+        if quiet {
+            return;
+        }
         if channel_setting {
             self.show_channel_settings(window);
         } else if composing {
@@ -2664,8 +2694,37 @@ impl Adapter {
     }
 }
 
+/// How long a layout change waits for the next before `layout.json` is
+/// written, so changes that come together write the file once.
+const LAYOUT_WRITE: Duration = Duration::from_millis(1000);
+
+impl Adapter {
+    /// Writes the layout once changes to it have stopped for [`LAYOUT_WRITE`]:
+    /// each change starts the wait over. Dropping the adapter writes one
+    /// still waiting.
+    fn write_layout_soon(&mut self) {
+        self.layout_dirty = true;
+        let weak = self.weak.clone();
+        self.layout_due
+            .start(slint::TimerMode::SingleShot, LAYOUT_WRITE, move || {
+                if let Some(adapter) = weak.upgrade() {
+                    adapter.borrow_mut().flush_layout();
+                }
+            });
+    }
+
+    /// Writes a layout change still waiting, at once.
+    fn flush_layout(&mut self) {
+        self.layout_due.stop();
+        if std::mem::take(&mut self.layout_dirty) {
+            self.layout.write(&self.root);
+        }
+    }
+}
+
 impl Drop for Adapter {
     fn drop(&mut self) {
+        self.flush_layout();
         self.stop_backend();
     }
 }
@@ -2971,6 +3030,72 @@ fn update_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T
     }
     for row in rows.into_iter().skip(common) {
         model.push(row);
+    }
+}
+
+/// Shows `rows` on the model's rows as on slots, each named by its key: a row
+/// that a slot already shows stays in it, and is set only where it changed; one
+/// new takes the slot of one gone. `slots` names the key each slot shows. So a
+/// grid given the tiles in sight sets the slots of those that scrolled in, and
+/// its elements stay, where a model shifted along would set every row, and a
+/// list view would make the new ones and drop the old.
+fn update_model_by_slot<K: Copy + Eq + std::hash::Hash, T: Clone + PartialEq + 'static>(
+    model: &VecModel<T>,
+    slots: &mut Vec<K>,
+    rows: Vec<(K, T)>,
+) {
+    // A model set apart from the slots, as one emptied, starts them over.
+    if slots.len() != model.row_count() {
+        slots.clear();
+        model.set_vec(Vec::new());
+    }
+    let wanted: HashMap<K, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (key, _))| (*key, index))
+        .collect();
+    let mut placed = vec![false; rows.len()];
+    let mut free = Vec::new();
+    for (slot, key) in slots.iter().enumerate() {
+        match wanted.get(key) {
+            Some(&index) if !placed[index] => {
+                placed[index] = true;
+                if model.row_data(slot).as_ref() != Some(&rows[index].1) {
+                    model.set_row_data(slot, rows[index].1.clone());
+                }
+            }
+            _ => free.push(slot),
+        }
+    }
+    let mut free = free.into_iter();
+    for ((key, row), placed) in rows.into_iter().zip(placed) {
+        if placed {
+            continue;
+        }
+        if let Some(slot) = free.next() {
+            slots[slot] = key;
+            model.set_row_data(slot, row);
+        } else {
+            slots.push(key);
+            model.push(row);
+        }
+    }
+    // Slots left over go from the end, the last ones moving into those left
+    // empty before them.
+    let mut left: std::collections::VecDeque<usize> = free.collect();
+    while let Some(&hole) = left.front() {
+        let last = slots.len() - 1;
+        if left.back() == Some(&last) {
+            left.pop_back();
+        } else {
+            slots[hole] = slots[last];
+            if let Some(row) = model.row_data(last) {
+                model.set_row_data(hole, row);
+            }
+            left.pop_front();
+        }
+        slots.pop();
+        model.remove(last);
     }
 }
 

@@ -166,14 +166,32 @@ pub fn with_pictures(cells: Vec<EmojiCell>, scale: f32) -> Vec<EmojiCell> {
 
 /// Gives the picker's custom emoji the pictures that arrived since its rows
 /// were built, changing only those cells.
+#[cfg(test)]
 pub fn fill_pictures(rows: &VecModel<EmojiRow>, sections: &VecModel<EmojiSection>) {
-    for row in rows.iter() {
-        for (index, shown) in row.cells.iter().enumerate() {
+    fill_pictures_in(rows, 0, usize::MAX);
+    fill_section_pictures(sections);
+}
+
+/// [`fill_pictures`] of the rows from `first` to `last` alone.
+pub fn fill_pictures_in(rows: &VecModel<EmojiRow>, first: usize, last: usize) {
+    let count = rows.row_count();
+    if count == 0 || first >= count {
+        return;
+    }
+    for index in first..=last.min(count - 1) {
+        let Some(row) = rows.row_data(index) else {
+            continue;
+        };
+        for (cell, shown) in row.cells.iter().enumerate() {
             if let Some(filled) = with_picture(shown) {
-                row.cells.set_row_data(index, filled);
+                row.cells.set_row_data(cell, filled);
             }
         }
     }
+}
+
+/// The sidebar's custom emoji icons that have their pictures now.
+pub fn fill_section_pictures(sections: &VecModel<EmojiSection>) {
     for (index, section) in sections.iter().enumerate() {
         if let Some(icon) = with_picture(section.icon.clone()) {
             sections.set_row_data(index, EmojiSection { icon, ..section });
@@ -277,25 +295,31 @@ pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiC
 
 /// The rows the grid shows with `top` at its top edge and `height` deep, both
 /// in the grid's own space: the first whose foot is past `top`, and the last
-/// whose head is above `top + height`.
+/// whose head is above `top + height`. The rows go down the grid in order, so
+/// each is found by halving rather than by walking every row above it, as a
+/// scroll asks at every step.
 pub fn visible_rows(rows: &VecModel<EmojiRow>, top: f32, height: f32) -> (usize, usize) {
     let count = rows.row_count();
     if count == 0 {
         return (0, 0);
     }
-    let first = (0..count)
-        .find(|index| {
-            rows.row_data(*index)
-                .is_some_and(|row| row.top + row.height >= top)
-        })
-        .unwrap_or(count - 1);
-    let last = (first..count)
-        .rev()
-        .find(|index| {
-            rows.row_data(*index)
-                .is_some_and(|row| row.top <= top + height)
-        })
-        .unwrap_or(first);
+    // The first row for which `past` holds, with every row after it holding too.
+    let first_where = |past: &dyn Fn(&EmojiRow) -> bool| {
+        let (mut low, mut high) = (0, count);
+        while low < high {
+            let middle = (low + high) / 2;
+            if rows.row_data(middle).is_some_and(|row| past(&row)) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        low
+    };
+    let first = first_where(&|row| row.top + row.height >= top).min(count - 1);
+    let last = first_where(&|row| row.top > top + height)
+        .saturating_sub(1)
+        .clamp(first, count - 1);
     (first, last)
 }
 
@@ -440,8 +464,12 @@ pub fn rows(
             continue;
         };
         let first = cell(first_key);
+        // Until a picture comes, the server's icon or its first emoji's, the
+        // button is the quiet square a picture on its way is, not the
+        // emoji's `:name:` as text.
         let icon = EmojiCell {
             name: set.server.as_str().into(),
+            glyph: set.server.as_str().into(),
             picture: server_icon(set)
                 .map(|(_, picture)| picture)
                 .unwrap_or_else(|| first.picture.clone()),

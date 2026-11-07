@@ -29,7 +29,7 @@ import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, 
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
+import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -53,7 +53,7 @@ export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
@@ -594,6 +594,11 @@ export component YapfastWindow inherits Window {
     in property <[EmojiCell]> menu-reactions;
     /// The emoji picker's grid for `emoji-query`, refreshed through emoji-search.
     in property <[EmojiRow]> emoji-rows;
+    /// What the grid draws of those rows: the emoji and headings of the rows
+    /// in sight and a row or two around them, and how tall they all are.
+    in property <[EmojiTile]> emoji-tiles;
+    in property <[EmojiRow]> emoji-headings;
+    in property <length> emoji-grid-height;
     /// The picker's sidebar: the grid's headings with no query.
     in property <[EmojiSection]> emoji-sections;
     /// The emoji a row of that grid was built for, which each of its cells then
@@ -2038,6 +2043,7 @@ export component YapfastWindow inherits Window {
                 if root.expression-tab == 1: EmojiPicker {
                     bare: true;
                     emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; rail-sections: root.emoji-rail-sections;
+                    emoji-tiles: root.emoji-tiles; emoji-headings: root.emoji-headings; grid-height: root.emoji-grid-height;
                     emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
                     emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
                     emoji-search(text) => { root.emoji-search(text); }
@@ -2088,6 +2094,7 @@ export component YapfastWindow inherits Window {
         close-policy: PopupClosePolicy.close-on-click-outside;
         EmojiPicker {
             emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+            emoji-tiles: root.emoji-tiles; emoji-headings: root.emoji-headings; grid-height: root.emoji-grid-height;
             emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
             emoji-search(text) => { root.emoji-search(text); }
             pick(cell) => { root.pick(cell); }

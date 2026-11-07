@@ -225,10 +225,17 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   those shown lets go of its Twemoji pictures, and a picker that closes lets
   go of its grid and of every custom emoji's picture but those the messages
   on screen, the topic and the hover bar's reactions show; the disk cache
-  keeps them, and the next look reads them from there. A cell whose custom emoji is animated keeps that still as its
+  keeps them, and the next look reads them from there. The grid itself holds buttons
+  for the rows in sight and two either side, placed where each row starts, as
+  the sticker picker's tiles are: a button whose emoji scrolls out shows one
+  that scrolls in, so a scroll sets a few buttons' data and makes none, however
+  wide the picker. A cell whose custom emoji is animated keeps that still as its
   placeholder until the emoji's frames arrive, which decode at 48px times the
-  screen's scale factor, up to 96px, off the thread that draws, so a grid of
-  animated emoji scrolls as fast as one of stills. Every server's emoji show,
+  screen's scale factor, up to 96px, off the thread that draws. The 6 MiB frame
+  budget covers the renderer's registry too: eviction unregisters the animation,
+  and closing the picker unregisters all its unpinned frames. Queued work for
+  rows left behind is discarded, and late decodes cannot register them again;
+  message animations keep their own pins. Every server's emoji show,
   as Discord's picker shows them: the sections down its left jump to each of
   them, a server's button drawing its icon as its heading draws it beside the
   server's name, Frequently Used's a clock and Favorites' a star, each heading
@@ -237,10 +244,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   this account may not use where it
   is looking — another server's, or an animated one without Nitro — are
   greyed with a lock in their corner, and pressing one opens Discord's Nitro
-  page. A start whose picture cache is empty fetches all of them into it in
-  the background, off the thread that draws, decoding none and holding none,
-  so the first look finds them. A drag that changed the width keeps it in
-  `layout.json` (`picker_width`), and it comes back at the next start. See
+  page. Cache warming runs off the thread that draws and does not decode
+  pictures; a section reached before warming finishes can still show placeholders.
+  A drag that changed the width keeps it in
+  `layout.json` (`picker_width`), written once the drags have stopped for a
+  second, and it comes back at the next start. See
   [Discord](discord/messages.md#gifs).
 - A Stickers tab in the same picker, and a sticker button of its own, on
   Discord: a search field, then the collections down the left to jump between
@@ -251,7 +259,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the server's stickers show, as Discord's client offers them. Its pictures are
   kept on disk and fetched ahead, so the tab shows them at once. The left edge
   drags it wider as it does for the GIFs and the emoji, and the grid takes
-  another 96px column for every 104px. See
+  another 96px column for every 104px. Its tiles are those in sight and a
+  screen either side, and a scroll that brings one in hands it the element of
+  one that went out. See
   [Discord](discord/messages.md#stickers).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold

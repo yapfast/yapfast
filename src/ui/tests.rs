@@ -7397,7 +7397,11 @@ fn the_picker_keeps_the_width_it_was_dragged_to() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
+    window.invoke_picker_width_chosen(600.);
     window.invoke_picker_width_chosen(648.);
+    // Written once the drags stop, not at each.
+    assert_eq!(Layout::read(directory.path()).picker_width, None);
+    adapter.borrow_mut().flush_layout();
     assert_eq!(Layout::read(directory.path()).picker_width, Some(648.));
     // A new window starts at the stored width.
     let next = YapfastWindow::new().unwrap();
@@ -7566,6 +7570,113 @@ fn only_the_rows_the_picker_shows_are_drawn() {
 }
 
 #[test]
+fn rows_on_slots_keep_their_slot_and_take_those_of_rows_gone() {
+    let model = VecModel::<i32>::default();
+    let mut slots = Vec::new();
+    update_model_by_slot(
+        &model,
+        &mut slots,
+        (0..6).map(|key| (key, key * 10)).collect(),
+    );
+    assert_eq!(model.iter().collect::<Vec<_>>(), [0, 10, 20, 30, 40, 50]);
+    // Two went from the top and two came at the foot: they take the slots of
+    // those gone, and the rest stay where they were.
+    update_model_by_slot(
+        &model,
+        &mut slots,
+        (2..8).map(|key| (key, key * 10)).collect(),
+    );
+    assert_eq!(model.iter().collect::<Vec<_>>(), [60, 70, 20, 30, 40, 50]);
+    assert_eq!(slots, [6, 7, 2, 3, 4, 5]);
+    // One that stays and changed is set in its own slot.
+    update_model_by_slot(
+        &model,
+        &mut slots,
+        (2..8)
+            .map(|key| (key, if key == 4 { 41 } else { key * 10 }))
+            .collect(),
+    );
+    assert_eq!(model.iter().collect::<Vec<_>>(), [60, 70, 20, 30, 41, 50]);
+    // Fewer rows: the slots after them move into the ones left empty.
+    update_model_by_slot(&model, &mut slots, [(3, 30), (7, 70), (5, 50)].into());
+    assert_eq!(model.row_count(), 3);
+    let mut shown: Vec<(i32, i32)> = slots.iter().copied().zip(model.iter()).collect();
+    shown.sort();
+    assert_eq!(shown, [(3, 30), (5, 50), (7, 70)]);
+    update_model_by_slot(&model, &mut slots, Vec::new());
+    assert_eq!(model.row_count(), 0);
+    assert!(slots.is_empty());
+}
+
+#[test]
+fn the_picker_grid_draws_the_rows_in_sight_on_the_buttons_it_has() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    let rows = window.get_emoji_rows();
+    let last = rows.row_data(rows.row_count() - 1).unwrap();
+    assert_eq!(window.get_emoji_grid_height(), last.top + last.height);
+    let tiles = window.get_emoji_tiles();
+    let placed = || -> HashMap<(SharedString, i32), usize> {
+        tiles
+            .iter()
+            .enumerate()
+            .map(|(slot, tile)| ((tile.cell.key.clone(), tile.y as i32), slot))
+            .collect()
+    };
+    let before = placed();
+    // A screen of rows and a couple below, not the whole list.
+    assert!(before.len() > 40 && before.len() < 120, "{}", before.len());
+    assert!(
+        tiles
+            .iter()
+            .all(|tile| tile.y < 340.0 + 3.0 * emoji::ROW_HEIGHT)
+    );
+    assert!(
+        window
+            .get_emoji_headings()
+            .iter()
+            .all(|heading| !heading.heading.is_empty())
+    );
+    // A scroll of a row keeps every emoji still in sight on its button.
+    let top_of = |index: usize| rows.row_data(index).unwrap().top;
+    window.invoke_emoji_scrolled_to(top_of(4), 340.0);
+    let after = placed();
+    let kept = before
+        .iter()
+        .filter(|(place, slot)| after.get(*place) == Some(*slot))
+        .count();
+    let stayed = before
+        .keys()
+        .filter(|place| after.contains_key(*place))
+        .count();
+    assert!(stayed > 20);
+    assert_eq!(
+        kept, stayed,
+        "an emoji that stays in sight keeps its button"
+    );
+    // Far down the list, it shows those rows and none from the top.
+    window.invoke_emoji_scrolled_to(top_of(100), 340.0);
+    assert!(tiles.iter().all(|tile| tile.y >= top_of(97)));
+    assert!(
+        tiles
+            .iter()
+            .filter(|tile| tile.cell.picture.size().width > 0)
+            .count()
+            > 20
+    );
+}
+
+#[test]
 fn rows_far_from_those_the_picker_shows_let_go_of_their_pictures() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -7636,6 +7747,9 @@ fn a_closed_picker_keeps_no_grid_and_builds_it_as_it_opens() {
     assert!(window.get_emoji_rows().row_count() > 100);
     window.invoke_emoji_picker_closed();
     assert_eq!(window.get_emoji_rows().row_count(), 0);
+    assert_eq!(window.get_emoji_sections().row_count(), 0);
+    assert_eq!(window.get_emoji_rail_sections().row_count(), 0);
+    assert_eq!(window.get_emoji_tiles().row_count(), 0);
     // A window resized meanwhile doesn't build it for nothing.
     window.set_emoji_panel_width(648.);
     window.invoke_emoji_reflow();
@@ -7656,6 +7770,40 @@ fn a_closed_picker_keeps_no_grid_and_builds_it_as_it_opens() {
 }
 
 #[test]
+fn scrolling_cancels_far_emoji_even_before_any_picture_arrives() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.set_emoji_panel_width(498.);
+    window.invoke_emoji_search("".into());
+    let far = "https://cdn.discordapp.com/emojis/999999.png".to_owned();
+    // A request from a row already scrolled past: none have finished, so a
+    // decoded-picture threshold would incorrectly leave it running.
+    adapter
+        .borrow_mut()
+        .app
+        .dispatch(Action::LoadPicturesFirst(vec![far.clone()]));
+    let top = window.get_emoji_rows().row_data(80).unwrap().top;
+    window.invoke_emoji_scrolled_to(top, 340.);
+    let mut adapter = adapter.borrow_mut();
+    adapter.app.apply(Event::Picture {
+        url: far.clone(),
+        picture: Arc::new(Picture::default()),
+    });
+    assert!(
+        !adapter.app.state.pictures.contains_key(&far),
+        "a late reply for the abandoned row is not retained"
+    );
+}
+
+#[test]
 fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
     let row = |cells: Vec<EmojiCell>| EmojiRow {
         heading: "".into(),
@@ -7666,20 +7814,19 @@ fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
         row(vec![emoji::cell("🍕")]),
         row(vec![emoji::cell("cate:5"), emoji::cell("dog:6")]),
     ]);
+    let fetch = |first, last, around| callbacks::custom_ids_to_fetch(&rows, first, last, around);
     // A Unicode glyph needs no picture, so the first row asks for none.
     assert!(
-        callbacks::custom_keys_without_pictures(&rows, 0, 0).is_empty(),
+        fetch(0, 0, 0).is_empty(),
         "the Unicode row asks for nothing"
     );
-    let keys = callbacks::custom_keys_without_pictures(&rows, 0, 1);
-    assert_eq!(keys.len(), 2);
-    assert!(keys.contains("cate:5") && keys.contains("dog:6"));
+    assert_eq!(fetch(0, 1, 0), ["5", "6"]);
     // Rows past the end are left alone rather than read.
-    assert_eq!(
-        callbacks::custom_keys_without_pictures(&rows, 1, 9).len(),
-        2
-    );
-    assert!(callbacks::custom_keys_without_pictures(&rows, 5, 9).is_empty());
+    assert_eq!(fetch(1, 9, 0).len(), 2);
+    assert!(fetch(5, 9, 0).is_empty());
+    // The rows around those shown are asked for too, nearest first.
+    assert_eq!(fetch(0, 0, 1), ["5", "6"]);
+    assert_eq!(fetch(2, 2, 0), Vec::<String>::new());
     // A picture that arrived, or a name the server kept without one, is not
     // asked for again.
     let shown = rows.row_data(1).unwrap();
@@ -7693,8 +7840,7 @@ fn the_picker_asks_for_the_pictures_of_the_custom_emoji_it_shows() {
             ..filled
         },
     );
-    let keys = callbacks::custom_keys_without_pictures(&rows, 1, 1);
-    assert_eq!(keys.iter().collect::<Vec<_>>(), ["dog:6"]);
+    assert_eq!(fetch(1, 1, 0), ["6"]);
 }
 
 #[test]
