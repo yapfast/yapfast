@@ -4784,7 +4784,37 @@ function favoriteGifs(origin: string): string {
       ...entry("https://klipy.com/gifs/hello-9000", `${origin}/_gifs/hello.gif`, 220, 165, 1),
       ...entry(linkedGif("wave", "webp"), `${origin}/_gifs/wave.webp`, 220, 165, 2),
     ]);
-  return Buffer.from(new Uint8Array([...protoBytes(2, gifs), ...placesUsed(), ...favoriteSounds()])).toString("base64");
+  return Buffer.from(new Uint8Array([...protoBytes(2, gifs), ...emojisUsed(), ...placesUsed(), ...favoriteSounds()])).toString("base64");
+}
+
+// Alice's favorite_emojis and emoji_frecency, as every client of hers keeps
+// them, a custom emoji by its id and a Unicode one by its Discord name: her
+// favourites are :talk: and the skull and crossbones, and she uses the
+// crying-laughing face most, today, then a medium-dark thumbs up, and reacts
+// with fire and :100:, which is a Unicode emoji's name, not an id.
+function emojisUsed(): Uint8Array {
+  const varint = (value: bigint) => {
+    const out: number[] = [];
+    for (; value >= 0x80n; value >>= 7n) out.push(Number(value & 0x7fn) | 0x80);
+    out.push(Number(value));
+    return out;
+  };
+  const used = (name: string, total: number, ago: number[]) => {
+    const recent = ago.flatMap((ms) => varint(BigInt(Date.now() - ms)));
+    const item = new Uint8Array([...protoNumber(1, total), ...protoBytes(2, new Uint8Array(recent))]);
+    return protoBytes(1, new Uint8Array([...protoBytes(1, text(name)), ...protoBytes(2, item)]));
+  };
+  return new Uint8Array([
+    ...protoBytes(5, new Uint8Array([...protoBytes(1, text(EMOJI_TALK)), ...protoBytes(1, text("skull_crossbones"))])),
+    ...protoBytes(6, new Uint8Array([
+      ...used("joy", 9, [3_600_000, 600_000]),
+      ...used("thumbsup_tone4", 4, [2 * 86_400_000]),
+    ])),
+    ...protoBytes(13, new Uint8Array([
+      ...used("fire", 5, [600_000]),
+      ...used("100", 2, [86_400_000]),
+    ])),
+  ]);
 }
 
 // Alice's favourite sounds, favorite_soundboard_sounds: the applause, then

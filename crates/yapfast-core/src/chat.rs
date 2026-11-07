@@ -2093,6 +2093,19 @@ pub struct PlaceUses {
     pub recent: Vec<u64>,
 }
 
+/// The Discord account's favourite emoji and the emoji it uses, as all its
+/// clients share them: each a custom emoji's id or a Unicode emoji's Discord
+/// name, such as `skull_crossbones`; `None` for one not known, or in an update,
+/// not changed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscordEmojis {
+    /// In the order the account favourited them.
+    pub favorites: Option<Vec<String>>,
+    pub used: Option<Vec<(String, PlaceUses)>>,
+    /// Those it reacts with, which its clients count apart.
+    pub reactions: Option<Vec<(String, PlaceUses)>>,
+}
+
 /// A favourite GIF, as Discord's settings keep it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FavoriteGif {
@@ -2293,7 +2306,8 @@ pub enum DiscordCommand {
         id: String,
         query: String,
     },
-    /// Fetch the account's favourite GIFs; [`Event::FavoriteGifs`] follows.
+    /// Fetch the account's favourite GIFs; [`Event::FavoriteGifs`] follows,
+    /// after [`Event::DiscordEmojis`], from the same settings.
     FavoriteGifs,
     /// Fetch which servers and channels the account used, and when, as
     /// Discord's clients count them; [`Event::PlacesUsed`] follows.
@@ -3509,6 +3523,9 @@ pub enum Event {
     /// The Discord servers and channels the account used, by id, as fetched
     /// or as another client counted them; or why they couldn't be fetched.
     PlacesUsed(Result<Vec<(String, PlaceUses)>, String>),
+    /// The account's favourite emoji and the emoji it uses, as fetched or as
+    /// another client changed them.
+    DiscordEmojis(DiscordEmojis),
     /// A GIF's picture, or none when it failed.
     GifPicture {
         url: String,

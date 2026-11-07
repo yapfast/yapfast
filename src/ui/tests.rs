@@ -7474,6 +7474,50 @@ fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
 }
 
 #[test]
+fn the_picker_lists_what_the_account_uses_for_a_message_or_a_reaction() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    adapter.borrow_mut().app.state.discord_emojis = yapfast_core::application::DiscordEmojiLists {
+        favorites: vec!["skull_crossbones".into()],
+        frequent: vec!["joy".into()],
+        reactions: vec!["100".into()],
+    };
+    window.set_emoji_panel_width(498.);
+    let first_of = |row: usize| {
+        let cells = window.get_emoji_rows().row_data(row).unwrap().cells;
+        cells.row_data(0).unwrap().key
+    };
+    window.set_react_item("yapfast:composer".into());
+    window.invoke_emoji_search("".into());
+    assert_eq!(
+        window.get_emoji_rows().row_data(0).unwrap().heading,
+        "FAVORITES"
+    );
+    assert_eq!(first_of(1), "☠️");
+    assert_eq!(
+        window.get_emoji_rows().row_data(2).unwrap().heading,
+        "FREQUENTLY USED"
+    );
+    assert_eq!(first_of(3), "😂");
+    // A reaction's picker has the account's reactions, which it counts apart.
+    window.set_react_item("message".into());
+    window.invoke_emoji_search("".into());
+    assert_eq!(first_of(1), "☠️");
+    assert_eq!(first_of(3), "💯");
+    // A search finds emoji, under no such headings.
+    window.invoke_emoji_search("pizza".into());
+    assert_eq!(window.get_emoji_rows().row_count(), 1);
+}
+
+#[test]
 fn resizing_the_grid_fills_the_rows_it_is_scrolled_to() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

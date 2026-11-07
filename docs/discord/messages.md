@@ -379,6 +379,22 @@ an error.
   of frames, letting go the least recently shown, never one on screen. An
   emoji shows its still first frame until its frames arrive, and if they
   never do.
+- The emoji picker's Favorites and the start of its Frequently used are the
+  account's own, as every Discord client of it shows them: `favorite_emojis`,
+  `emoji_frecency` and, for a reaction's picker, `emoji_reaction_frecency` in
+  `FrecencyUserSettings`, the second settings protobuf. They come with the
+  favourite GIFs' request when Discord connects, and through
+  USER_SETTINGS_PROTO_UPDATE, where a partial update's missing field keeps what
+  Yapfast had. They're ranked when they come, as Discord's client ranks them
+  (`rank_emojis`, the top 42), which weighs a use by its age otherwise than a
+  place's. This computer's reaction counts follow them. The settings name a
+  custom emoji by its id, shown greyed if it's locked here and not at all if
+  the account has left its server, and a Unicode emoji by Discord's name, such
+  as `slight_smile`; `src/discord_emoji_names.rs`, which
+  `scripts/discord-emoji-names` writes from emojibase-data (MIT, whose licence
+  packages carry), holds those that differ from GitHub's shortcodes, which the
+  `emojis` crate knows. A flag comes from its country's two letters. Yapfast
+  doesn't change them yet.
 - Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
   GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation

@@ -155,8 +155,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   with Manage Messages. Until you have reacted, the most used reactions are 👍,
   ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
   in `layout.json` on this computer. The icons have tooltips and accessible
-  names. Add reaction opens a picker with a search field, frequently used emoji
-  and every category of the `emojis` crate up to Unicode 15.0, which Noto Color
+  names. Add reaction opens a picker with a search field, favourite emoji,
+  frequently used emoji and every category of the `emojis` crate up to
+  Unicode 15.0, which Noto Color
   Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
   reaction adds or removes yours.
 - Holding Shift turns the toolbar into quick actions, as in Discord's

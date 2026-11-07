@@ -78,6 +78,7 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
     for path in sorted((ROOT / "ui/fonts").iterdir()):
         if license_file(path) or path.name == "README.md":
             shutil.copy2(path, font_notices / path.name)
+    shutil.copy2(ROOT / "src/LICENSE-emojibase.txt", licenses / "LICENSE-emojibase.txt")
     for item in sorted(metadata["packages"], key=lambda value: (value["name"], value["version"])):
         if item["name"] == "yapfast":
             continue

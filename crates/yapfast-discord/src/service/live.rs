@@ -254,14 +254,20 @@ pub(super) fn live_events(
         }
         // Answers to the member requests history makes.
         Event::GuildMembersChunk => vec![Live::Names],
-        // The favourite GIFs and sounds and the places used, changed here
-        // or by another client.
+        // The favourite GIFs, sounds and emoji, and the places and emoji
+        // used, changed here or by another client.
         Event::UserSettingsProtoUpdate if data["settings"]["type"] == 2 => {
             let proto = data["settings"]["proto"].as_str().unwrap_or_default();
             let favorites = crate::gifs::read_favorites(proto).map(Live::FavoriteGifs);
             let places = crate::frecency::read_places(proto).map(Live::PlacesUsed);
             let sounds = crate::soundboard::read_favorites(proto).map(Live::FavoriteSounds);
-            favorites.into_iter().chain(places).chain(sounds).collect()
+            let emojis = crate::frecency::read_emojis(proto).map(Live::Emojis);
+            favorites
+                .into_iter()
+                .chain(places)
+                .chain(sounds)
+                .chain(emojis)
+                .collect()
         }
         Event::StreamCreate | Event::StreamUpdate => data["stream_key"]
             .as_str()

@@ -618,6 +618,9 @@ pub struct AppState {
     /// A message being forwarded, while its dialog is open.
     pub forwarding: Option<Forwarding>,
     pub places_used: PlacesUsed,
+    /// The Discord account's favourite emoji and the emoji it uses, which the
+    /// emoji picker shows first.
+    pub discord_emojis: DiscordEmojiLists,
     /// What the quick switcher searches for, while it's open.
     pub switcher: Option<String>,
     pub new_dm: Option<NewDm>,
@@ -2025,6 +2028,18 @@ pub enum Effect {
 
 /// A timeline as the app state holds it, sharing its messages.
 type TimelineArc = Arc<Vec<Arc<ChatMessage>>>;
+
+/// The Discord account's emoji, as the picker lists them: custom emoji's ids
+/// and Unicode emoji's Discord names.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscordEmojiLists {
+    /// In the order the account favourited them.
+    pub favorites: Vec<String>,
+    /// Those it uses in messages and those it reacts with, as its clients rank
+    /// them when they came, the most used lately first.
+    pub frequent: Vec<String>,
+    pub reactions: Vec<String>,
+}
 
 #[derive(Default)]
 pub struct Application {
@@ -3638,6 +3653,18 @@ impl Application {
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),
             Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
+            Event::DiscordEmojis(emojis) => {
+                let (known, now) = (&mut self.state.discord_emojis, crate::clock::now_ms());
+                if let Some(favorites) = emojis.favorites {
+                    known.favorites = favorites;
+                }
+                if let Some(used) = emojis.used {
+                    known.frequent = place_search::rank_emojis(used, now);
+                }
+                if let Some(reactions) = emojis.reactions {
+                    known.reactions = place_search::rank_emojis(reactions, now);
+                }
+            }
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
             Event::Reactors {
                 item,

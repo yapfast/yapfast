@@ -1777,6 +1777,15 @@ pub(super) fn places_used(
         .collect()
 }
 
+/// The favourite and used emoji, as the application keeps them.
+pub(super) fn emojis(emojis: yapfast_discord::frecency::Emojis) -> crate::chat::DiscordEmojis {
+    crate::chat::DiscordEmojis {
+        favorites: emojis.favorites,
+        used: emojis.used.map(places_used),
+        reactions: emojis.reactions.map(places_used),
+    }
+}
+
 /// What an invite shows, as the application keeps it.
 fn invite_preview(preview: &yapfast_discord::invite::Preview) -> InvitePreview {
     InvitePreview {
