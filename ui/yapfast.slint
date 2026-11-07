@@ -1165,6 +1165,8 @@ export component YapfastWindow inherits Window {
     in property <bool> tray-available;
     /// Starting Yapfast again starts another, rather than showing this window.
     in-out property <bool> multiple-windows;
+    /// Menus offer Copy ID, as Discord's Developer Mode does.
+    in-out property <bool> developer-mode;
     /// The desktop draws the title bar, as set; offered where Yapfast can
     /// draw its own.
     in-out property <bool> system-title-bar: true;
@@ -3848,6 +3850,7 @@ export component YapfastWindow inherits Window {
             gpu-encoding <=> root.gpu-encoding;
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
+            developer-mode <=> root.developer-mode;
             start-on-sign-in <=> root.start-on-sign-in; autostart-available: root.autostart-available;
             discord-links <=> root.discord-links; discord-links-available: root.discord-links-available;
             preferences-changed => { root.preferences-changed(); }
