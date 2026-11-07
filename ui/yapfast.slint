@@ -1116,6 +1116,9 @@ export component YapfastWindow inherits Window {
     in-out property <bool> strip-tracking: true;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
+    /// Whether a message's author wears their Discord name style at rest;
+    /// off, role colours show and the style waits for the pointer.
+    in-out property <bool> show-name-styles: true;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
@@ -3098,6 +3101,7 @@ export component YapfastWindow inherits Window {
                                                     MessageContent {
                                                         message: message; active-item: root.active-item; preview: root.preview; composer-enabled: root.composer-enabled;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
+                                                        show-styles: root.show-name-styles; hovered: row-pointer.has-hover;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
                                                         // the newest, and Show less on a message whose top is
@@ -3514,6 +3518,7 @@ export component YapfastWindow inherits Window {
                     }
                     if root.aside-docked && !root.new-thread-open: ThreadPanel {
                         width: root.aside-shown;
+                        show-styles: root.show-name-styles;
                         name: root.aside-name; messages: root.aside-messages; ready: root.aside-ready;
                         loading: root.aside-loading; start: root.aside-start; failed: root.aside-failed;
                         focus-tick: root.aside-focus-tick;
@@ -3845,6 +3850,7 @@ export component YapfastWindow inherits Window {
             message-font-size: root.message-font-size;
             twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
             link-previews <=> root.link-previews; share-typing <=> root.share-typing;
+            show-name-styles <=> root.show-name-styles;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
             collapse-long <=> root.collapse-long;

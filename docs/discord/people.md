@@ -488,6 +488,13 @@ one's, until they read, and against #333 for toon on either. Each style's two
 palettes are made once, and the rows wearing it share them; a row without a
 style holds an empty list.
 
+Discord's client draws a message's style always. Show Nitro name styles, under
+Messages in Settings, keeps that on unless turned off: off, a message's author
+keeps the colour of their highest role, as the server means it, and the style
+shows while the pointer is on the message. The setting is kept in
+`layout.json` as `name_styles`, and covers messages alone: a member list's
+rows and a profile card's name still wear the style.
+
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, 8Bit 8, Tempo 12, Monkey Bars 13, Mainframe 14, Headbang 15 and
   Journal 16, bundled in `ui/fonts` (see [its

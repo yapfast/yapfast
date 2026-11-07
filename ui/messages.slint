@@ -2031,6 +2031,14 @@ export component MessageContent inherits VerticalLayout {
     in property <bool> composer-enabled;
     in property <string> emoji-font;
     in property <length> message-font-size;
+    /// A name wears its Discord name style at rest; off, the style shows while
+    /// the pointer is on the message, so role colours keep their meaning.
+    in property <bool> show-styles: true;
+    /// The pointer is on the message.
+    in property <bool> hovered;
+    /// Whether the author's name is drawn in its style rather than its role
+    /// colour, which follows the settings and the pointer.
+    property <bool> name-styled: message.name-style.length > 0 && (root.show-styles || root.hovered);
     /// Space before the avatar, and after the text for the row's actions.
     in property <length> start-padding: 16px;
     in property <length> end-padding: 48px;
@@ -2142,18 +2150,22 @@ export component MessageContent inherits VerticalLayout {
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
                     // Discord's names are medium weight, a step under bold.
                     author-plain := Text {
-                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
+                        // The plain name, in the colour of its highest role: the
+                        // one shown, or the one under a style the pointer brings.
+                        width: parent.width; height: parent.height;
+                        visible: !root.name-styled && (ClientStyle.enabled || message.name-style.length > 0);
                         text: message.author; color: message.has-color ? message.color : Theme.text;
                         font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
-                        // A styled name measures in its own font.
-                        font-family: message.name-style[0].family;
-                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
+                        // A styled name measures in its own font, so the place
+                        // fits it when the pointer draws it.
+                        font-family: root.name-styled ? message.name-style[0].family : "";
+                        font-weight: root.name-styled && message.name-style[0].family != "" ? message.name-style[0].weight : (ClientStyle.enabled ? 500 : 700);
                     }
                     author-name := StyledText {
                         width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
                         text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
                     }
-                    if message.name-style.length > 0: StyledName {
+                    if root.name-styled: StyledName {
                         width: parent.width; height: parent.height;
                         text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
                     }

@@ -1087,6 +1087,10 @@ struct Layout {
     strip_tracking: Option<bool>,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
+    /// A message's author wears their Discord name style; on unless turned
+    /// off, which shows role colours and the style while the pointer is on
+    /// the message.
+    name_styles: Option<bool>,
     /// Long messages fold to a few lines, with Show more; off unless turned
     /// on.
     collapse_long: bool,
@@ -1366,6 +1370,7 @@ impl Layout {
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
+        window.set_show_name_styles(self.name_styles.unwrap_or(true));
         window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
