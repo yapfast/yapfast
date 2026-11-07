@@ -1078,8 +1078,6 @@ struct Layout {
     custom_themes: Vec<theme::Custom>,
     /// Interface density: 0 compact, 1 cozy, 2 comfortable; cozy unless chosen.
     density: Option<i32>,
-    /// Message text size: 0 small, 1 default, 2 large; default unless chosen.
-    text_size: Option<i32>,
     /// Whether animations are off, as Appearance can ask.
     reduced_motion: Option<bool>,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
@@ -1319,7 +1317,6 @@ impl Layout {
         self.apply_plugins(window, &plugins);
         // Density, text size and motion, as Appearance last set them.
         window.set_density(self.density.unwrap_or(1));
-        window.set_text_size(self.text_size.unwrap_or(1));
         window.set_reduced_motion(self.reduced_motion.unwrap_or(false));
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);

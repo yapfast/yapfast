@@ -899,6 +899,9 @@ pub fn import_json_many(text: &str, custom: &[Custom]) -> Result<Vec<Custom>, St
         return Err("That file was saved by a newer version.".into());
     }
     let mut imported = Vec::with_capacity(stored.len());
+    // Each new theme's id counts the ones already here and the ones this file
+    // has made so far, so two from one file never collide.
+    let mut taken: Vec<Custom> = custom.to_vec();
     for exported in stored {
         let base = find(&exported.base).unwrap_or(&BUILT_IN[0]);
         let mut theme = base.theme;
@@ -915,12 +918,14 @@ pub fn import_json_many(text: &str, custom: &[Custom]) -> Result<Vec<Custom>, St
             "" => "Imported theme".to_owned(),
             name => name.to_owned(),
         };
-        imported.push(Custom {
-            id: new_id(&[custom.to_vec(), imported].concat()),
+        let fresh = Custom {
+            id: new_id(&taken),
             name,
             base: base.id,
             theme,
-        });
+        };
+        taken.push(fresh.clone());
+        imported.push(fresh);
     }
     Ok(imported)
 }

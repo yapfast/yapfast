@@ -658,7 +658,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     .action(&window, Action::LinkDiscordToken(token));
                 // A pasted token must not stay in the UI: clear the field at
                 // once, so neither success nor failure retains it.
-                window.set_link_token(String::new());
+                window.set_link_token(String::new().into());
             }
         });
     }
@@ -1431,17 +1431,36 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let Some(window) = weak.upgrade() else {
             return;
         };
-        let Some(text) = state.borrow().theme_json(&window) else {
-            window.set_theme_json_note("The theme shown can't be written as a file.".into());
-            return;
+        let adapter = state.borrow();
+        let id = window.get_theme_id().to_string();
+        // A saved theme exports as itself; a built-in one as a theme based on
+        // itself, so a reader can always start from a base it knows.
+        let (name, base, theme) = match adapter
+            .layout
+            .custom_themes
+            .iter()
+            .find(|custom| custom.id == id)
+        {
+            Some(custom) => (custom.name.clone(), custom.base, custom.theme),
+            None => {
+                let (built_in_id, theme) = theme::chosen(Some(&id), &adapter.layout.custom_themes);
+                let Some(built_in) = theme::find(built_in_id) else {
+                    window
+                        .set_theme_json_note("The theme shown can't be written as a file.".into());
+                    return;
+                };
+                (built_in.name.to_owned(), built_in.id, theme)
+            }
         };
-        let name = window.get_theme_id().to_string().replace(':', "-");
+        drop(adapter);
+        let text = theme::export_json(&name, base, &theme);
+        let file_name = theme::export_name(&name);
         let weak = window.as_weak();
         state.borrow_mut().dialog(async move {
             let picked = rfd::AsyncFileDialog::new()
                 .set_title("Export theme")
                 .add_filter("Themes", &["json"])
-                .set_file_name(format!("{name}.json"))
+                .set_file_name(file_name)
                 .save_file()
                 .await;
             let note = match picked {
@@ -1449,11 +1468,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     Ok(()) => "The theme was saved.".to_owned(),
                     Err(error) => format!("The theme couldn't be saved: {error}"),
                 },
-                None => String::new(),
+                None => return,
             };
-            if note.is_empty() {
-                return;
-            }
             weak.upgrade_in_event_loop(move |window| window.set_theme_json_note(note.into()))
                 .ok();
         });
@@ -1471,29 +1487,38 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let Some(file) = picked else {
                 return;
             };
-            let text = match std::fs::read_to_string(file.path()) {
-                Ok(text) => text,
-                Err(error) => {
-                    if let Some(adapter) = weak.upgrade()
-                        && let Some(window) = adapter.borrow().window.upgrade()
-                    {
-                        let note = format!("That file couldn't be read: {error}");
-                        window.set_theme_json_note(note.into());
-                    }
-                    return;
-                }
-            };
+            let read = std::fs::read_to_string(file.path());
             let Some(adapter) = weak.upgrade() else {
                 return;
             };
             let window = adapter.borrow().window.upgrade();
-            if let Some(window) = window {
-                let note = match adapter.borrow_mut().add_theme_json(&window, &text) {
-                    Ok(name) => format!("Now showing {name}."),
-                    Err(why) => why,
-                };
-                window.set_theme_json_note(note.into());
-            }
+            let Some(window) = window else {
+                return;
+            };
+            let note = match read {
+                Err(error) => format!("That file couldn't be read: {error}"),
+                Ok(text) => {
+                    let mut adapter = adapter.borrow_mut();
+                    let custom = &adapter.layout.custom_themes;
+                    match theme::import_json_many(&text, custom) {
+                        Err(why) => why,
+                        Ok(themes) => {
+                            let shown = themes.last().map(|theme| theme.name.clone());
+                            let id = themes.last().map(|theme| theme.id.clone());
+                            adapter.layout.custom_themes.extend(themes);
+                            window.set_themes(theme::cards(&adapter.layout.custom_themes));
+                            let chose = id
+                                .as_deref()
+                                .is_some_and(|id| adapter.choose_theme(&window, id));
+                            match (chose, shown) {
+                                (true, Some(name)) => format!("Now showing {name}."),
+                                _ => "The themes were added.".to_owned(),
+                            }
+                        }
+                    }
+                }
+            };
+            window.set_theme_json_note(note.into());
         });
     });
     let state = adapter.clone();
