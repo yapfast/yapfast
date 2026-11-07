@@ -40,7 +40,7 @@ fn a_member_below_gets_every_choice_in_discords_order() {
 fn nobody_acts_on_those_above_them_or_the_owner() {
     let app = staff();
     let personal = [
-        Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
+        Profile, Mention, Message, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
     ];
     assert_eq!(app.person_choices("3"), personal, "Cara, a Lead");
     assert_eq!(app.person_choices("99"), personal, "Owen, the owner");
@@ -49,7 +49,7 @@ fn nobody_acts_on_those_above_them_or_the_owner() {
     assert_eq!(
         app.person_choices("3"),
         [
-            Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, CopyId
+            Profile, Mention, Message, AddNote, AddFriend, Ignore, Block, CopyId
         ],
         "Leads may do nothing, to another Lead"
     );
@@ -326,11 +326,10 @@ fn calling_a_friend_starts_the_dm_and_then_its_call() {
         [Effect::Backend(Command::StartDm { id, discord: true })] if id == "4"
     ));
     assert!(app.pending_call);
-    // Discord's menu offers Call for anyone, not only friends.
-    assert!(matches!(
-        app.dispatch(Action::CallPerson("3".into())).as_slice(),
-        [Effect::Backend(Command::StartDm { id, discord: true })] if id == "3"
-    ));
+    assert!(
+        app.dispatch(Action::CallPerson("3".into())).is_empty(),
+        "Cara isn't a friend"
+    );
     app.apply(Event::DmStarted(Err("no".into())));
     assert!(!app.pending_call, "nothing to call once it failed");
 }

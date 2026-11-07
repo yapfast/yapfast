@@ -123,7 +123,9 @@
 // a MESSAGE_UPDATE and a "poll closed" notice (type 46).
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
 // banner, a server bio and three badges, Carol a banner colour, and the rest
-// nothing more. GET /users/{id}/badges gives Bob's playing time its level.
+// nothing more. GET /users/{id}/badges gives Bob's playing time its level,
+// GET /_control/badge-reads counts those requests, and /assets/content/ serves
+// the level's SVGs.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -182,7 +184,9 @@
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
 // stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, DELETE /channels/{id} closes a DM
+// read and write Alice's note on someone, GET /_control/note-reads counts the
+// reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
+// another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
 // with its `silent` query as sent, and PATCH /users/@me/guilds/@me/settings mutes and unmutes DMs. PATCH
 // /users/@me/guilds/{id}/settings changes her notification settings for a
@@ -368,6 +372,8 @@ const ALICE = "1400000000000000001";
 const PROFILE_EFFECT = "1500000000000000010";
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
+// How many times a collectible's animated picture was asked for.
+let collectibleAnimations = 0;
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
 type User = {
   id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean;
@@ -385,11 +391,11 @@ const users: Record<string, User> = {
     id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1", decoration: "1500000000000000003",
     nameplate: { sku: "1500000000000000004", palette: "bubble_gum" },
   },
-  // Bob wears a decoration, and Carol a nameplate; Alice, whose card shows
-  // both, has both.
+  // Bob, who has a DM, wears both, as Alice's card does; Carol a nameplate.
   bob: {
     id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1", decoration: "1500000000000000001",
     effect: PROFILE_EFFECT,
+    nameplate: { sku: "1500000000000000006", palette: "sky" },
   },
   carol: {
     id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1",
@@ -422,6 +428,7 @@ const FRIEND_ACCEPT_MS = 2000;
 const ignored = new Set<string>();
 const nicknames = new Map<string, string>();
 const notes = new Map<string, string>();
+let noteReads = 0;
 const wireRelationship = (id: string, type: number) => ({
   id, type, nickname: nicknames.get(id) ?? null, user_id: id, since: JOINED_AT, user_ignored: ignored.has(id),
   stranger_request: strangerRequests.has(id),
@@ -683,16 +690,22 @@ function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style" | 
   };
 }
 
-function collectiblePicture(sku: string): Uint8Array {
+function collectiblePicture(sku: string, animated: boolean): Uint8Array {
   if (nameplateSkus.has(sku)) {
     const [width, height] = [448, 84];
-    return png(width, height, (x) => [255, 255, 255, Math.round((255 * x) / width)]);
+    const strip = (shade: number) => (x: number) => [255, shade, 255, Math.round((255 * x) / width)];
+    return animated
+      ? apng(width, height, [strip(255), strip(120)])
+      : png(width, height, strip(255));
   }
   const size = 288;
-  return png(size, size, (x, y) => {
+  const ring = (red: number) => (x: number, y: number) => {
     const radius = Math.hypot(x - size / 2, y - size / 2) / (size / 2);
-    return radius > 0.83 && radius < 1 ? [255, 120, 180, 255] : [0, 0, 0, 0];
-  });
+    return radius > 0.83 && radius < 1 ? [red, 120, 180, 255] : [0, 0, 0, 0];
+  };
+  return animated
+    ? apng(size, size, [ring(255), ring(90), ring(255), ring(90)])
+    : png(size, size, ring(255));
 }
 
 // --- Server members ---------------------------------------------------------
@@ -904,10 +917,11 @@ function picture(path: string): Uint8Array {
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
-const IRONCLAD_ICON = "https://cdn.discordapp.com/assets/content/d705628490898f2cc22d669cf8b415bc03fed1ddaf98a2a8cbd97442a509293c.svg";
+const IRONCLAD_ICON = "/assets/content/d705628490898f2cc22d669cf8b415bc03fed1ddaf98a2a8cbd97442a509293c.svg";
+let badgeReads = 0;
 // A person's profile as GET /users/{id}/profile gives it, with the server's
 // side when asked for with guild_id.
-function wireProfile(user: User, guild: string | null) {
+function wireProfile(user: User, guild: string | null, origin: string) {
   if (world) return envProfile(world, user, guild);
   const bob = user.id === users.bob.id;
   const carol = user.id === users.carol.id;
@@ -941,7 +955,7 @@ function wireProfile(user: User, guild: string | null) {
           { id: "active_developer", description: "Active Developer", icon: "6bdc42827a38498929a4920da12695d9" },
           // A badge that levels up carries only its label and the picture
           // of its level here; GET /users/{id}/badges has the rest.
-          { id: "game_time", description: "Spielzeit", icon: "208e1bb66e311286cae364bc6f19277a", simple_icon_url: IRONCLAD_ICON },
+          { id: "game_time", description: "Spielzeit", icon: "208e1bb66e311286cae364bc6f19277a", simple_icon_url: origin + IRONCLAD_ICON },
         ]
       : [],
     premium_type: null,
@@ -1017,6 +1031,51 @@ function png(width: number, height: number, pixel: (x: number, y: number) => num
     chunk("IDAT", deflateSync(raw)),
     chunk("IEND", new Uint8Array()),
   ];
+  return new Uint8Array(Buffer.concat(parts));
+}
+
+/** An animated PNG that loops, each of its frames showing for a tenth of a second. */
+function apng(width: number, height: number, frames: ((x: number, y: number) => number[])[]): Uint8Array {
+  // The first frame's data is the PNG's own IDAT; each other's goes in an fdAT
+  // after its number. Numbers count the fcTL and fdAT chunks in turn.
+  let sequence = 0;
+  const number = (value: number) => {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value);
+    return bytes;
+  };
+  const control = () => {
+    const body = new Uint8Array(26);
+    const view = new DataView(body.buffer);
+    view.setUint32(0, sequence++);
+    view.setUint32(4, width);
+    view.setUint32(8, height);
+    view.setUint16(20, 1);
+    view.setUint16(22, 10);
+    return chunk("fcTL", body);
+  };
+  const image = (pixel: (x: number, y: number) => number[]) => {
+    const raw = new Uint8Array((width * 4 + 1) * height);
+    for (let y = 0; y < height; y++) {
+      const row = y * (width * 4 + 1);
+      for (let x = 0; x < width; x++) raw.set(pixel(x, y), row + 1 + x * 4);
+    }
+    return deflateSync(raw);
+  };
+  const header = new Uint8Array(13);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  header.set([8, 6, 0, 0, 0], 8);
+  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header)];
+  parts.push(chunk("acTL", new Uint8Array([...number(frames.length), ...number(0)])));
+  frames.forEach((frame, index) => {
+    parts.push(control());
+    parts.push(index === 0
+      ? chunk("IDAT", image(frame))
+      : chunk("fdAT", new Uint8Array([...number(sequence++), ...image(frame)])));
+  });
+  parts.push(chunk("IEND", new Uint8Array()));
   return new Uint8Array(Buffer.concat(parts));
 }
 
@@ -5437,13 +5496,14 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
     const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
     if (!user) return notFound("Unknown User", 10013);
-    return json(wireProfile(user, url.searchParams.get("guild_id")));
+    return json(wireProfile(user, url.searchParams.get("guild_id"), origin));
   }
 
   // The levels of someone's badges, as the client asks for them to fill a
   // badge's tooltip: Bob has played for 1,816 hours, "Eisern".
   if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/badges$/))) {
     if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    badgeReads += 1;
     return json({
       badges:
         m[1] === users.bob.id
@@ -5453,12 +5513,12 @@ async function api(req: Request, path: string, origin: string): Promise<Response
                 name: "Spielzeit",
                 info_label: "1.816 Stunden gespielt",
                 owned: true,
-                simple_icon_url: IRONCLAD_ICON,
-                complex_icon_static_url: "https://cdn.discordapp.com/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg",
+                simple_icon_url: origin + IRONCLAD_ICON,
+                complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg",
                 current_tier: "ironclad",
                 tiers: [
-                  { key: "casual", name: "Locker", owned: true, complex_icon_static_url: "https://cdn.discordapp.com/assets/content/1f9d42f34184814a137e40b0de83e2cac0ae44d83531777b9369d2e2a6ddfeb3.svg" },
-                  { key: "ironclad", name: "Eisern", owned: true, simple_icon_url: IRONCLAD_ICON, complex_icon_static_url: "https://cdn.discordapp.com/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg" },
+                  { key: "casual", name: "Locker", owned: true, complex_icon_static_url: origin + "/assets/content/1f9d42f34184814a137e40b0de83e2cac0ae44d83531777b9369d2e2a6ddfeb3.svg" },
+                  { key: "ironclad", name: "Eisern", owned: true, simple_icon_url: origin + IRONCLAD_ICON, complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg" },
                 ],
               },
             ]
@@ -6229,6 +6289,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if ((m = path.match(/^\/users\/@me\/notes\/(\d+)$/))) {
     const id = m[1]!;
     if (method === "GET") {
+      noteReads += 1;
       const note = notes.get(id);
       if (note === undefined) return notFound("Unknown User", 10013);
       return json({ note, note_user_id: id, user_id: ALICE });
@@ -7847,6 +7908,11 @@ const server = Bun.serve<SocketData>({
     }
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
+    // Discord's own assets, such as the large pictures of badges' levels.
+    if (req.method === "GET" && /^\/assets\/content\/[0-9a-f]+\.svg$/.test(path)) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="156" height="100" viewBox="0 0 156 100"><rect width="156" height="100" rx="16" fill="#7a8a99"/></svg>`;
+      return new Response(svg, { headers: { "content-type": "image/svg+xml" } });
+    }
     // Activities' pictures: games' icons and assets, and Spotify's covers.
     const effectLayer = req.method === "GET" ? path.match(/^\/assets\/profile_effects\/(\d+)\/(\w+)\.png$/) : null;
     if (effectLayer && profileEffects.has(effectLayer[1]!)) {
@@ -7854,12 +7920,13 @@ const server = Bun.serve<SocketData>({
     }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
-      return new Response(collectiblePicture(collectible[1]!), { headers: { "content-type": "image/png" } });
+      if (collectible[2] === "animated") collectibleAnimations++;
+      return new Response(collectiblePicture(collectible[1]!, collectible[2] === "animated"), { headers: { "content-type": "image/png" } });
     }
     if (req.method === "GET" && /^\/(app-icons\/\d+\/[a-z0-9]+\.png|app-assets\/\d+\/[a-z0-9]+\.png|spotify\/[A-Za-z0-9]+)$/.test(path)) {
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
     }
-    if (req.method === "GET" && /^\/(icons\/\d+|avatars\/\d+|banners\/\d+|splashes\/\d+|role-icons\/\d+|embed\/avatars|guilds\/\d+\/users\/\d+\/(avatars|banners))\/[^/]+\.png$/.test(path)) {
+    if (req.method === "GET" && /^\/(icons\/\d+|avatars\/\d+|banners\/\d+|splashes\/\d+|role-icons\/\d+|clan-badges\/\d+|badge-icons|embed\/avatars|guilds\/\d+\/users\/\d+\/(avatars|banners))\/[^/]+\.png$/.test(path)) {
       const uploaded = uploadedPictures.get(path.slice(path.lastIndexOf("/") + 1, -".png".length));
       if (uploaded) return new Response(uploaded.data, { headers: { "content-type": uploaded.type } });
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
@@ -8050,6 +8117,17 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/sessions") return Response.json(sessionCounts);
     if (path === "/_control/cookies") return Response.json(cookieCounts);
     if (path === "/_control/list-requests") return Response.json(listRequests);
+    if (path === "/_control/note-reads") return Response.json(noteReads);
+    if (path === "/_control/badge-reads") return Response.json(badgeReads);
+    if (path === "/_control/collectible-animations") return Response.json(collectibleAnimations);
+    if (req.method === "POST" && path === "/_control/note-elsewhere") {
+      const id = url.searchParams.get("user") ?? "";
+      const note = url.searchParams.get("note") ?? "";
+      if (note) notes.set(id, note);
+      else notes.delete(id);
+      dispatch("USER_NOTE_UPDATE", { id, note });
+      return new Response("changed\n");
+    }
     if (path === "/_control/audit-log") return Response.json(auditLog);
     if (req.method === "POST" && path === "/_control/audit-entries") {
       const body: any = await req.json().catch(() => ({}));

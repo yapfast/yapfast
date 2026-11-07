@@ -45,7 +45,6 @@ pub mod encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
 pub mod frames;
-pub mod i18n;
 pub mod leveling;
 pub mod links;
 pub mod logging;

@@ -14,7 +14,7 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use skia_safe::{AlphaType, ColorType, Font, FontHinting, FontStyle, ImageInfo, surfaces};
-use slint::fontique_011::shared_collection;
+use slint::fontique_012::shared_collection;
 
 use crate::emoji;
 

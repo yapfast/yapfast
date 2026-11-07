@@ -889,7 +889,7 @@ export component EmojiPicker inherits Rectangle {
     }
     background: root.bare ? transparent : Theme.raised; border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
     border-radius: root.bare ? 0px : 10px;
-    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: root.bare ? transparent : #00000080; drop-shadow-offset-y: 8px;
     clip: true;
     FocusScope {
         key-pressed(event) => {
@@ -2070,7 +2070,7 @@ export component MessageContent inherits VerticalLayout {
             if message.first && message.notice == "": Avatar {
                 x: 0px; y: message.has-reply ? 24px : 2px;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
-                decoration-url: message.decoration-url; animate: true;
+                decoration-url: message.decoration-url; animate: root.active-item == message.item;
             }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.

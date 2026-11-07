@@ -230,10 +230,11 @@ export component DeviceToggle inherits Rectangle {
 export global AccountLook {
     /// The address of the decoration around its avatar.
     in property <string> decoration-url;
-    /// The address of its nameplate's picture and the plate's palette colour;
-    /// empty for none.
+    /// The address of its nameplate's picture and the plate's palette colours
+    /// on a dark theme and a light one; empty for none.
     in property <string> nameplate-url;
     in property <color> nameplate-color;
+    in property <color> nameplate-light;
 }
 
 // Virtualized components resolve pixels on demand and queue missing URLs.
@@ -277,8 +278,8 @@ export global EmojiAnimations {
 }
 
 // The server tag someone wears by their name, as Discord's client draws it: a
-// small dark chip with their server's badge, when it has one, before up to four
-// letters in white.
+// small grey chip with their server's badge, when it has one, before up to four
+// letters.
 export component ServerTagChip inherits Rectangle {
     in property <string> text;
     /// The address of the badge's picture, or empty for a tag without one.
@@ -289,14 +290,13 @@ export component ServerTagChip inherits Rectangle {
     in property <length> font-size: 12px;
     in property <int> font-weight: 600;
     in property <length> chip-height: root.font-size * 1.3333;
-    in property <length> badge-size: root.font-size + 2px;
     in property <length> pad: 4px;
-    in property <length> gap: 2px;
     in property <length> radius: 4px;
     in property <color> fill: #97979f33;
     in property <color> outline: transparent;
     in property <length> outline-width: 0px;
-    in property <color> text-color: #efeff1;
+    property <length> badge-size: root.font-size + 2px;
+    property <length> gap: 2px;
     property <image> badge-picture: root.badge != "" ? PictureStore.picture(root.badge, PictureStore.revision) : @image-url("");
     function request() {
         if root.badge != "" && root.badge-picture.width == 0 {
@@ -306,18 +306,20 @@ export component ServerTagChip inherits Rectangle {
     init => { root.request(); }
     changed badge => { root.request(); }
     changed badge-picture => { root.request(); }
-    width: tag-text.preferred-width + (root.badge-picture.width > 0 ? root.badge-size + root.gap : 0px) + root.pad * 2 + root.outline-width * 2;
+    // The badge's room is kept from the start, so that the row doesn't move
+    // when its picture arrives; one that fails leaves the room empty, as Discord's does.
+    width: tag-text.preferred-width + (root.badge != "" ? root.badge-size + root.gap : 0px) + root.pad * 2 + root.outline-width * 2;
     height: root.chip-height; border-radius: root.radius;
     background: root.fill;
     border-width: root.outline-width; border-color: root.outline;
     accessible-role: AccessibleRole.text; accessible-label: "Server tag " + root.text;
     HorizontalLayout {
         padding-left: root.pad; padding-right: root.pad; spacing: root.gap; alignment: center;
-        if root.badge-picture.width > 0: Middle {
+        if root.badge != "": Middle {
             Image { source: root.badge-picture; width: root.badge-size; height: root.badge-size; image-fit: contain; }
         }
         tag-text := Text {
-            text: root.text; color: root.text-color; font-size: root.font-size; font-weight: root.font-weight;
+            text: root.text; color: Theme.text; font-size: root.font-size; font-weight: root.font-weight;
             vertical-alignment: center;
         }
     }
@@ -353,14 +355,12 @@ export component Avatar inherits Rectangle {
     /// The address of the decoration around the avatar, which Discord draws
     /// a fifth larger than it, centred, over its edge.
     in property <string> decoration-url;
-    /// It plays while this is set: Discord's client animates a decoration
-    /// while the pointer is on the row, or always on messages.
+    /// It plays while this is set, and its animation is asked for only then:
+    /// Discord's client animates a decoration while the pointer is on its row
+    /// or message.
     in property <bool> animate;
-    /// Ask for the animated decoration before it plays, so it starts at once
-    /// when `animate` is set, as a member row's does under the pointer.
-    in property <bool> prefetch;
     property <image> decoration: root.decoration-url != "" ? PictureStore.picture(root.decoration-url, PictureStore.revision) : @image-url("");
-    property <string> animated-url: (root.animate || (root.prefetch && root.decoration.width > 0)) && root.decoration-url != "" ? PictureStore.animated(root.decoration-url) : "";
+    property <string> animated-url: root.animate && root.decoration-url != "" ? PictureStore.animated(root.decoration-url) : "";
     function request-decoration() {
         if root.decoration-url != "" && root.decoration.width == 0 {
             PictureStore.request(root.decoration-url);
@@ -394,8 +394,8 @@ export component Avatar inherits Rectangle {
     if root.decoration.width > 0: Picture {
         x: -root.size / 10; y: -root.size / 10; width: root.size * 1.2; height: root.size * 1.2;
         still: root.decoration; image-fit: contain; accessible-role: none;
-        frames: root.animate && root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision) : [];
-        delays: root.animate && root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision) : [];
+        frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision) : [];
+        delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision) : [];
     }
     if root.speaking: Rectangle {
         x: -3px; y: -3px; width: root.size + 6px; height: root.size + 6px;
@@ -414,6 +414,9 @@ export component Nameplate inherits Rectangle {
     in property <color> palette;
     /// The account card's plate, which is stronger and isn't faded.
     in property <bool> account;
+    /// A DM row's, whose colour stays under the pointer and whose picture
+    /// starts fading in sooner, as Discord's placements differ.
+    in property <bool> channel;
     in property <bool> hovered;
     in property <bool> selected;
     /// The plate plays while the pointer is on its row or the row is
@@ -424,10 +427,9 @@ export component Nameplate inherits Rectangle {
     /// How wide the row's text is; the picture fades in after it.
     in property <length> content-width;
     property <image> picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision) : @image-url("");
-    // The animated picture is asked for once the still is in, not when the
-    // pointer arrives, so it plays at once on hover instead of after its
-    // download.
-    property <string> animated-url: root.picture.width > 0 ? PictureStore.animated(root.picture-url) : "";
+    // The animated picture is asked for when it's to play, so that a list of
+    // plates holds and downloads only their stills.
+    property <string> animated-url: root.animate && root.picture.width > 0 ? PictureStore.animated(root.picture-url) : "";
     function request-picture() {
         if root.picture-url != "" && root.picture.width == 0 {
             PictureStore.request(root.picture-url);
@@ -443,8 +445,8 @@ export component Nameplate inherits Rectangle {
     // Discord's opacities: .6 at rest, .9 selected or hovered; the account
     // card's .4 rises to .6 under the pointer.
     property <float> strength: root.account ? (root.hovered ? 0.6 : 0.4) : (root.selected || root.hovered) ? 0.9 : 0.6;
-    property <length> fade-from: min(root.width, root.content-width + 10px);
-    property <length> fade-to: min(root.width, root.content-width + 60px);
+    property <length> fade-from: min(root.width, root.content-width + (root.channel ? -5px : 10px));
+    property <length> fade-to: min(root.width, root.fade-from + 50px);
     /// The corners of the row it fills.
     in property <length> radius;
     clip: true;
@@ -454,8 +456,8 @@ export component Nameplate inherits Rectangle {
         height: root.height; width: self.height * root.picture.width / root.picture.height;
         x: root.width - self.width;
         image-fit: fill; opacity: root.strength; accessible-role: none;
-        frames: root.animate && root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision) : [];
-        delays: root.animate && root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision) : [];
+        frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision) : [];
+        delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision) : [];
     }
     // The fade under the text: the picture shows at .3 of its strength there,
     // and in full a little after it.
@@ -466,7 +468,7 @@ export component Nameplate inherits Rectangle {
     if root.palette.alpha > 0: Rectangle {
         background: root.account
             ? @linear-gradient(90deg, root.palette.with-alpha(0.1) 0%, root.palette.with-alpha(0.4) 100%)
-            : @linear-gradient(90deg, root.palette.with-alpha(0) 0%, root.palette.with-alpha(0.08) 20%, root.palette.with-alpha(0.08) 50%, root.palette.with-alpha(root.selected ? 0.5 : root.hovered ? 0.3 : 0.2) 100%);
+            : @linear-gradient(90deg, root.palette.with-alpha(0) 0%, root.palette.with-alpha(0.08) 20%, root.palette.with-alpha(0.08) 50%, root.palette.with-alpha(root.selected ? 0.5 : root.hovered && !root.channel ? 0.3 : 0.2) 100%);
     }
 }
 

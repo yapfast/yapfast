@@ -3,30 +3,33 @@
 //! drawn behind their row in a member list and on their account card. Both
 //! are pictures on the CDN's media path, named by the SKU they were sold as.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use crate::ready;
 
-/// A nameplate's palette: what Discord's client calls `darkBackground`, which
-/// it tints the plate's gradient with on a dark theme. A palette Discord
-/// adds later, or a custom one, has no plate here.
-const PALETTES: [(&str, u32); 12] = [
-    ("crimson", 0x90_00_07),
-    ("berry", 0x89_3a_99),
-    ("sky", 0x00_80_b7),
-    ("teal", 0x08_64_60),
-    ("forest", 0x2d_54_01),
-    ("bubble_gum", 0xdc_3e_97),
-    ("violet", 0x73_0b_c8),
-    ("cobalt", 0x01_31_c2),
-    ("clover", 0x04_7b_20),
-    ("lemon", 0xf6_cd_12),
-    ("white", 0xff_ff_ff),
-    ("black", 0x00_00_00),
+/// A nameplate's palette: what Discord's client calls `darkBackground` and
+/// `lightBackground`, which it tints the plate's gradient with on a dark theme
+/// and on a light one. A palette Discord adds later, or a custom one, has no
+/// colour here.
+const PALETTES: [(&str, [u32; 2]); 12] = [
+    ("crimson", [0x90_00_07, 0xe7_04_0f]),
+    ("berry", [0x89_3a_99, 0xb1_1f_cf]),
+    ("sky", [0x00_80_b7, 0x56_cc_ff]),
+    ("teal", [0x08_64_60, 0x7d_ee_d7]),
+    ("forest", [0x2d_54_01, 0x6a_a6_24]),
+    ("bubble_gum", [0xdc_3e_97, 0xf9_57_b3]),
+    ("violet", [0x73_0b_c8, 0x97_2f_ed]),
+    ("cobalt", [0x01_31_c2, 0x42_78_ff]),
+    ("clover", [0x04_7b_20, 0x63_cd_5a]),
+    ("lemon", [0xf6_cd_12, 0xfe_d4_00]),
+    ("white", [0xff_ff_ff, 0xff_ff_ff]),
+    ("black", [0x00_00_00, 0x00_00_00]),
 ];
 
 /// A nameplate someone equips, as [`crate::message::Names`] keeps it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Plate {
     /// The SKU it was sold as, which names its pictures.
     pub sku: u64,
@@ -58,11 +61,12 @@ impl Plate {
             .map_or("", |palette| PALETTES[usize::from(palette)].0)
     }
 
-    /// The plate as a member list or card shows it.
-    pub fn shown(&self) -> Nameplate {
+    /// The plate as a member list or card shows it, with the address of its
+    /// picture.
+    pub fn shown(&self, picture: Arc<str>) -> Nameplate {
         Nameplate {
-            picture: picture(self.sku),
-            color: self.palette.map(|palette| PALETTES[usize::from(palette)].1),
+            picture,
+            colors: self.palette.map(|palette| PALETTES[usize::from(palette)].1),
         }
     }
 }
@@ -77,7 +81,7 @@ fn palette(name: &str) -> Option<u8> {
 /// Display name styles Discord's client draws a name with: a font, an effect
 /// and up to five colours. Most people have none, so [`crate::message::Names`]
 /// keeps them in a map of those who do, at 24 bytes each.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Style {
     /// Discord's `font_id`: 11 is the usual font, the rest are Sakura (3),
     /// Jellybean (4), Modern (6), Medieval (7), 8Bit (8), Vampyre (10),
@@ -122,10 +126,11 @@ impl Style {
 pub struct Nameplate {
     /// The address of its still picture: a strip that fills the row's right
     /// end, behind the name.
-    pub picture: String,
-    /// The RGB colour its gradient takes from its palette; none for a
-    /// palette Yapfast doesn't know, which leaves the picture bare.
-    pub color: Option<u32>,
+    pub picture: Arc<str>,
+    /// The RGB colours its gradient takes from its palette, on a dark theme
+    /// and on a light one; none for a palette Yapfast doesn't know, which
+    /// leaves the picture bare.
+    pub colors: Option<[u32; 2]>,
 }
 
 /// The SKU of an avatar decoration, from `avatar_decoration_data`.
@@ -156,12 +161,12 @@ mod tests {
         .unwrap();
         assert_eq!(plate.sku, 1_409_983_105_577_783_410);
         assert_eq!(plate.palette_name(), "violet");
-        let shown = plate.shown();
-        assert_eq!(shown.color, Some(0x730bc8));
+        assert_eq!(
+            plate.shown("plate.png".into()).colors,
+            Some([0x730bc8, 0x972fed])
+        );
         assert!(
-            shown
-                .picture
-                .ends_with("/media/v1/collectibles-shop/1409983105577783410/static")
+            picture(plate.sku).ends_with("/media/v1/collectibles-shop/1409983105577783410/static")
         );
         assert_eq!(Plate::restore(plate.sku, plate.palette_name()), plate);
     }
@@ -169,9 +174,9 @@ mod tests {
     #[test]
     fn keeps_the_picture_of_a_palette_it_does_not_know() {
         let custom = Plate::parse(&json!({"sku_id": "5", "palette": "custom_palette"})).unwrap();
-        let shown = custom.shown();
-        assert_eq!(shown.color, None);
-        assert!(shown.picture.ends_with("/collectibles-shop/5/static"));
+        let shown = custom.shown("plate.png".into());
+        assert_eq!(&*shown.picture, "plate.png");
+        assert_eq!(shown.colors, None);
         assert_eq!(custom.palette_name(), "");
         assert_eq!(Plate::restore(5, ""), custom, "it survives being saved");
         assert_eq!(Plate::parse(&json!({"sku_id": "5"})), Some(custom));

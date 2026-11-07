@@ -24,10 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.local/windows/skia'
 SOURCE_CACHE = WORK / 'source'
 SOURCE_TREE = SOURCE_CACHE / 'tree'
-SOURCE_ARCHIVE = SOURCE_CACHE / 'archives/skia-61e7ca4e99062cdd0ab69445d5963fb3365778f6.tar.gz'
-SOURCE_URL = 'https://codeload.github.com/rust-skia/skia/tar.gz/61e7ca4e99062cdd0ab69445d5963fb3365778f6'
-SOURCE_SHA256 = '8401d0de878582a03abc1029bb62330aea58cda89904ae6ab187302e6d48ba5d'
-KEY = 'b7f043e0b1e2a850e702-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static'
+SOURCE_ARCHIVE = SOURCE_CACHE / 'archives/skia-6a8fe80eadfac737c12e64229a1b9530bc78f3d1.tar.gz'
+SOURCE_URL = 'https://codeload.github.com/rust-skia/skia/tar.gz/6a8fe80eadfac737c12e64229a1b9530bc78f3d1'
+SOURCE_SHA256 = 'dad0161d334409990f6f4409d1a26c1b0389e1668b79c0e175aecef651fd346d'
+KEY = '30669978c3f39a73e8a7-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static'
 PACKAGE = 'skia-binaries-' + KEY + '.tar.gz'
 
 # These pins mirror windowsSkiaDependencies in nix/flake.nix. Googlesource's
@@ -37,20 +37,20 @@ DEPENDENCIES = [
      'https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator/archive/169895d529dfce00390a20e69c2f516066fe7a3b.tar.gz',
      'sha256-5DbR/3Lb0eMBpHNf7MtZOb1C0QrNlx/ZvPVbCxxF9eQ=', True),
     ('expat',
-     'https://chromium.googlesource.com/external/github.com/libexpat/libexpat/+archive/6154446fccefbf3ca644894f598969113b0c7bcd.tar.gz',
-     'sha256-V8mzuJJj7kO24YNN7nBL913lzB911QUvy0CJzsTcF90=', False),
+     'https://chromium.googlesource.com/external/github.com/libexpat/libexpat/+archive/a70841d9ffa64ddde29ab824ed6305035ebe4c47.tar.gz',
+     'sha256-aRRlOkHq/qYa+7hrJM6LugNkiUz5ki/Sg3mONa5NEzs=', False),
     ('libjpeg-turbo',
-     'https://chromium.googlesource.com/chromium/deps/libjpeg_turbo/+archive/e14cbfaa85529d47f9f55b0f104a579c1061f9ad.tar.gz',
-     'sha256-Ig+tmprZDvlf/M72/DTar2pbxat9ZElgSqdXdoM0lPs=', False),
+     'https://chromium.googlesource.com/chromium/deps/libjpeg_turbo/+archive/640f254ad0fa03f6b1f29f89b7dd9366f2f6e533.tar.gz',
+     'sha256-wor4RTF3/5BFL9EWcGEofY+M4HN2+/KJUaOY+u86K5Q=', False),
     ('libpng',
-     'https://skia.googlesource.com/third_party/libpng/+archive/d5515b5b8be3901aac04e5bd8bd5c89f287bcd33.tar.gz',
-     'sha256-N507gFyjXXsJ3dyQN0SlVy80WXlbNlZs/cnqLaCmFTk=', False),
+     'https://skia.googlesource.com/third_party/libpng/+archive/3061454d980de7d53608f594194cfac722721d2a.tar.gz',
+     'sha256-JSdzPsfRBjnk8DB/fkOCkaiUJ9/neQ2myIK5xnQuSsM=', False),
     ('wuffs',
-     'https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c/+archive/e3f919ccfe3ef542cfc983a82146070258fb57f8.tar.gz',
-     'sha256-373d2F/STcgCHEq+PO+SCHrKVOo6uO1rqqwRN5eeBCw=', False),
+     'https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c/+archive/7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz',
+     'sha256-AMuAaCbNJYnSeac1B1IRSUh4rlE2KphT04/Ak4Pig5M=', False),
     ('zlib',
-     'https://chromium.googlesource.com/chromium/src/third_party/zlib/+archive/646b7f569718921d7d4b5b8e22572ff6c76f2596.tar.gz',
-     'sha256-jNj6SuTZ5/a7crtYhxW3Q/TlfRMNMfYIVxDlr7bYdzQ=', False),
+     'https://chromium.googlesource.com/chromium/src/third_party/zlib/+archive/456ae730017b9b4bd3371927abc82627fd51feef.tar.gz',
+     'sha256-K07NY9DN6lsTNmKl7OK3xAZ1vdesSnQVVsN3ZdJG/WU=', False),
     ('spirv-cross',
      'https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Cross/+archive/b8fcf307f1f347089e3c46eb4451d27f32ebc8d3.tar.gz',
      'sha256-H43M9DXfEuyKuvo6rjb5k0KEbYOSFodbPJh8ZKY4PQg=', False),
@@ -402,7 +402,7 @@ def strip_single_root(archive_path, destination):
 
 def source_manifest(source_hash, dependency_hashes):
     return {
-        'revision': '61e7ca4e99062cdd0ab69445d5963fb3365778f6',
+        'revision': '6a8fe80eadfac737c12e64229a1b9530bc78f3d1',
         'source_sha256': source_hash,
         'dependencies': dependency_hashes,
         'prepare_script_sha256': digest(__file__),
@@ -666,7 +666,7 @@ def make_gn_args(vc, toolset_version, sdk, sdk_version, llvm):
 def build_inputs(source, jobs, tools, gn_args, ninja_wrapper):
     builder = ROOT / 'nix/skia-windows-builder'
     return {
-        'skia_source_revision': '61e7ca4e99062cdd0ab69445d5963fb3365778f6',
+        'skia_source_revision': '6a8fe80eadfac737c12e64229a1b9530bc78f3d1',
         'source_sha256': source['source_sha256'],
         'dependency_sha256': source['dependencies'],
         'tool_versions': tools,
@@ -780,7 +780,7 @@ def cargo_builder(cargo, environment):
                 if rendered:
                     print(rendered, file=sys.stderr, end='', flush=True)
             if (message.get('reason') == 'build-script-executed'
-                    and 'skia-bindings@0.153.3' in message.get('package_id', '')):
+                    and 'skia-bindings@0.157.0' in message.get('package_id', '')):
                 outputs.append(Path(message['out_dir']) / 'skia')
         return_code = process.wait()
     if return_code:
@@ -804,7 +804,7 @@ def create_raw_archive(native_output, source_tree):
         fail(f'pinned Skia license is missing at {license_file}')
     shutil.copy2(license_file, native / 'LICENSE_SKIA')
     (native / 'key.txt').write_text(KEY + '\n', encoding='utf-8')
-    (native / 'tag.txt').write_text('0.153.3\n', encoding='utf-8')
+    (native / 'tag.txt').write_text('0.157.0\n', encoding='utf-8')
 
     raw = WORK / PACKAGE
     temporary = raw.with_name(raw.name + '.tmp')
