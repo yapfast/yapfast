@@ -155,9 +155,11 @@ Yapfast starts from Discord as it last saw it, kept in the data directory by
 
 The files are readable only by the user and aren't encrypted. Each names its
 login by a SHA-256 hash of the token, so another linked account starts empty,
-and unlinking deletes them all. While Discord is unreachable, an open channel
-shows what was saved, waits, and loads once Yapfast is back, rather than showing
-an error.
+and unlinking deletes them all. A file is written beside its own and then
+swapped in; when its folder is gone, as when a cleaner deletes the data folder
+while Yapfast runs, the write makes the folder again. While Discord is
+unreachable, an open channel shows what was saved, waits, and loads once
+Yapfast is back, rather than showing an error.
 
 - Discord servers appear in the server rail with a Discord badge, and Discord
   DMs appear in the DM list with the same badge. A build without Matrix leaves
