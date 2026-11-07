@@ -95,3 +95,23 @@ no Discord name or logo.
 
 Discord role colours stay as servers set them, and some read faintly on a
 light theme; Yapfast doesn't adjust them yet.
+
+## Our accent, on any theme
+
+Appearance's accent swatches lay one accent over whichever theme is shown: the
+theme's own ("Own"), or one of eight presets. Only the accent colours change —
+`accent`, `accent-hover`, `on-accent` and `accent-soft` — so a light theme keeps
+its grounds and text. The choice is kept in `layout.json` as `accent`, the
+preset's id, and `"system"` or a missing key means the theme's own. The window's
+`Theme` global is set from the accented theme, so nothing reads a preset
+separately while drawing.
+
+## Sharing a theme as a file
+
+Appearance's **Export theme** writes the shown theme as JSON: its name, the
+built-in theme it is based on, whether it is dark, every colour by the token
+name in `ui/theme.slint`, and a `version` (currently `1`). **Import theme** reads
+one theme or a list, gives each a fresh `custom:` id so it cannot collide with
+themes already here, adds them to Appearance and shows the last. A file from a
+newer `version` is refused rather than misread, and a colour that is missing or
+isn't a colour takes the base theme's value, as when reading `layout.json`.
