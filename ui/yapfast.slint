@@ -301,6 +301,11 @@ export component YapfastWindow inherits Window {
     in property <string> filter-placeholder;
     in property <string> sidebar-empty;
     in property <[ServerRow]> servers;
+    /// The open folders and their servers, in the column beside the rail,
+    /// when folders open there.
+    in property <[ServerRow]> folder-servers;
+    /// The rail's width, which that column doubles while it shows.
+    property <length> rail-width: root.folder-servers.length > 0 ? 144px : 72px;
     in property <[RoomRow]> rooms;
     in property <[MessageRow]> messages;
     in property <string> account;
@@ -1094,6 +1099,10 @@ export component YapfastWindow inherits Window {
     in-out property <bool> strip-tracking: true;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
+    /// Whether open folders' servers show in a column beside the rail rather
+    /// than under their folders, and whether opening a folder closes the others.
+    in-out property <bool> folders-beside;
+    in-out property <bool> one-open-folder;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
@@ -1751,16 +1760,16 @@ export component YapfastWindow inherits Window {
     // The picker's width, which its left edge drags wider: 498px unless
     // dragged. The GIFs and the emoji share it, as they share the window: its
     // right edge stays on the control it opened from, and its height stays, as
-    // Discord's. It grows only, and stops 8px right of the 72px server rail, or
+    // Discord's. It grows only, and stops 8px right of the server rail, or
     // 8px from the window's own edge if that comes first. Both grids take
     // their columns from the width they show at.
     in-out property <length> picker-width: 498px;
     // The width the picker may take, from the emoji button above the composer to
-    // the window's edge: it grows only, and stops 8px right of the 72px server
+    // the window's edge: it grows only, and stops 8px right of the server
     // rail, or 8px from the window's own edge if that comes first. The button is
     // read where it is, so resizing the window moves the picker and its room with
     // it, as it does the composer.
-    out property <length> picker-room: max(498px, min(root.width - 88px, emoji-button.absolute-position.x + emoji-button.width - 80px));
+    out property <length> picker-room: max(498px, min(root.width - root.rail-width - 16px, emoji-button.absolute-position.x + emoji-button.width - 80px));
     out property <length> picker-shown: min(max(498px, root.picker-width), root.picker-room);
     // The emoji's columns follow the width it shows at, as the GIFs' do, so a
     // drag or a window resize re-places its grid.
@@ -2227,7 +2236,7 @@ export component YapfastWindow inherits Window {
         spacing: 0px;
         // Navigation: the rail and the sidebar, with the voice and account dock across both.
         Rectangle {
-            width: 72px + root.sidebar-shown; background: Theme.rail;
+            width: root.rail-width + root.sidebar-shown; background: Theme.rail;
             VerticalLayout {
                 spacing: 0px;
                 HorizontalLayout {
@@ -2235,7 +2244,7 @@ export component YapfastWindow inherits Window {
                     // Server rail.
                     ServerRail {
                         dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
-                        matrix-build: root.matrix-build;
+                        folder-servers: root.folder-servers; matrix-build: root.matrix-build;
                         navigate-dms => { root.navigate-dms(); }
                         navigate-server(id) => { root.navigate-server(id); }
                         toggle-folder(id) => { root.toggle-folder(id); }
@@ -3578,11 +3587,11 @@ export component YapfastWindow inherits Window {
     // The edge between sidebar and conversation resizes the sidebar. A double-click
     // restores the default width.
     if root.workspace: TouchArea {
-        x: 72px + root.sidebar-shown - 4px; y: root.title-height; width: 8px; height: root.height - root.title-height;
+        x: root.rail-width + root.sidebar-shown - 4px; y: root.title-height; width: 8px; height: root.height - root.title-height;
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
-                root.sidebar-width = max(180px, min(380px, root.width - 72px - 420px - root.docked-width, root.sidebar-shown + self.mouse-x - self.pressed-x));
+                root.sidebar-width = max(180px, min(380px, root.width - root.rail-width - 420px - root.docked-width, root.sidebar-shown + self.mouse-x - self.pressed-x));
             }
         }
         pointer-event(event) => {
@@ -3602,7 +3611,7 @@ export component YapfastWindow inherits Window {
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
-                root.aside-width = max(320px, min(800px, root.width - 72px - root.sidebar-shown - 420px, root.aside-shown - (self.mouse-x - self.pressed-x)));
+                root.aside-width = max(320px, min(800px, root.width - root.rail-width - root.sidebar-shown - 420px, root.aside-shown - (self.mouse-x - self.pressed-x)));
             }
         }
         pointer-event(event) => {
@@ -3624,7 +3633,7 @@ export component YapfastWindow inherits Window {
     property <bool> pip-left;
     property <bool> pip-bottom;
     if root.pip-shown: StreamPip {
-        property <length> left: 72px + root.sidebar-shown + 16px;
+        property <length> left: root.rail-width + root.sidebar-shown + 16px;
         property <length> right: root.width - self.width - 16px;
         property <length> top: root.title-height + ClientStyle.header-height + 16px;
         property <length> bottom: root.height - self.height - 16px;
@@ -3752,6 +3761,7 @@ export component YapfastWindow inherits Window {
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
             show-nameplates <=> root.show-nameplates;
+            folders-beside <=> root.folders-beside; one-open-folder <=> root.one-open-folder;
             preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
             new-theme => { root.new-theme(); }

@@ -176,7 +176,13 @@ an error.
   servers' names when it has none. Clicking opens it: a folder icon in its
   colour, its servers below it on a strip of that colour. Yapfast remembers the
   open folders on this device, in `layout.json`, as Discord's client keeps
-  them per device. Settings entries with an id are folders, read with their
+  them per device. Two Appearance settings, off unless chosen, change this.
+  With **Open folders beside the server list**, an open folder stays a
+  folder icon in its place, and a second column right of the rail holds each
+  open folder again, in the rail's order, with its servers on its strip; the
+  columns scroll apart, and with no folder open the column goes
+  (`split_beside` in `src/ui/refresh.rs`). With **Keep one folder open**,
+  opening a folder closes the others. Settings entries with an id are folders, read with their
   name and colour (`GuildFolder` fields 2 to 4, each in a wrapper); one
   without is a server on its own. Folders can't be made or changed in Yapfast
   yet.

@@ -1526,6 +1526,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.nameplates = Some(window.get_show_nameplates());
+        if layout.folders_beside != window.get_folders_beside() {
+            layout.folders_beside = window.get_folders_beside();
+            // What the sidebar was built from leaves the layout out.
+            adapter.sidebar = None;
+        }
+        let layout = &mut adapter.layout;
+        layout.one_open_folder = window.get_one_open_folder();
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
@@ -1879,8 +1886,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window.on_toggle_folder(move |id| {
         let Some(window) = weak.upgrade() else { return };
         let mut adapter = state.borrow_mut();
-        if !adapter.layout.open_folders.remove(id.as_str()) {
-            adapter.layout.open_folders.insert(id.into());
+        let layout = &mut adapter.layout;
+        if !layout.open_folders.remove(id.as_str()) {
+            if layout.one_open_folder {
+                layout.open_folders.clear();
+            }
+            layout.open_folders.insert(id.into());
         }
         adapter.layout.write(&adapter.root);
         // What the sidebar was built from leaves the layout out.

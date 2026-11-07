@@ -23,6 +23,9 @@ export struct ServerRow {
     /// its tooltip, and `selected`, `unread` and `badge` sum up its servers.
     /// Open, its servers follow it, `nested`, the last of them `last`.
     folder: bool, open: bool, nested: bool, last: bool,
+    /// An open folder whose servers show in the column beside the rail
+    /// rather than after it.
+    aside: bool,
     /// The folder's colour, on a folder and its servers.
     tint: color,
     /// A closed folder's first four servers.
@@ -835,13 +838,85 @@ export component ServerHeader inherits Rectangle {
     }
 }
 
-// The server rail: the DM home, the DMs with unread messages, then each server.
+// One row of the rail, or of the column of open folders beside it: a
+// server, a folder, an unread DM, or the line between those DMs and the
+// servers. `index` is its place in its list.
+component RailRow inherits Rectangle {
+    in property <ServerRow> server;
+    in property <int> index;
+    in property <bool> matrix-build;
+    callback navigate-server(string);
+    callback toggle-folder(string);
+    callback open-dm(string);
+    callback open-server-menu(string, length, length);
+    /// An open folder with its servers after it, rather than in the column
+    /// beside the rail.
+    property <bool> unfolded: root.server.open && !root.server.aside;
+    width: 72px;
+    // Home already has a pinned separator. Keep the model's line
+    // only when it separates unread DMs from servers below them.
+    height: root.server.divider ? (ClientStyle.enabled && root.index == 0 ? 0px : (ClientStyle.enabled ? 1px : 2px) + 8px) : (root.server.folder ? ClientStyle.folder-tile : ClientStyle.rail-tile) + (ClientStyle.enabled && ((root.server.folder && root.unfolded) || (root.server.nested && root.server.last)) ? 4px : 0px) + (ClientStyle.enabled && root.server.folder && root.unfolded ? 0px : 8px);
+    if root.server.divider && (!ClientStyle.enabled || root.index > 0): Rectangle {
+        x: (72px - self.width) / 2; y: 0px; width: 32px; height: ClientStyle.enabled ? 1px : 2px; border-radius: ClientStyle.enabled ? 0px : 1px; background: ClientStyle.enabled ? Theme.outline : Theme.line;
+    }
+    // An open folder's servers sit on a strip of its colour,
+    // from its folder down to its last server.
+    if root.unfolded || root.server.nested: Rectangle {
+        x: (72px - ClientStyle.folder-tile) / 2; y: 0px; width: ClientStyle.folder-tile; height: root.server.last ? ClientStyle.rail-tile + (ClientStyle.enabled ? 4px : 0px) : parent.height;
+        border-top-left-radius: root.unfolded ? (ClientStyle.enabled ? 12px : 16px) : 0px;
+        border-top-right-radius: self.border-top-left-radius;
+        border-bottom-left-radius: root.server.last ? (ClientStyle.enabled ? 12px : 16px) : 0px;
+        border-bottom-right-radius: self.border-bottom-left-radius;
+        background: root.server.tint.with-alpha(0.16);
+    }
+    if root.server.folder: FolderItem {
+        y: 0px;
+        label: root.server.name + " folder, " + (root.server.open ? "open" : "closed") + (root.server.call && !root.server.open ? ", in a call" : "")
+            + (root.server.badge != "" ? ", " + root.server.badge + " mentions" : root.server.unread ? ", unread" : "");
+        tip: root.server.name;
+        open: root.server.open; tint: root.server.tint; servers: root.server.preview;
+        selected: root.server.selected; unread: root.server.unread; badge: root.server.badge; call: root.server.call;
+        clicked => { root.toggle-folder(root.server.id); }
+        context-menu(x, y) => { root.open-server-menu(root.server.id, x, y); }
+    }
+    if root.server.dm: RailItem {
+        y: 0px;
+        initial: root.server.initial; picture-url: root.server.picture-url;
+        label: root.server.name + (root.server.discord && root.matrix-build ? ", Discord" : "")
+            + (root.server.badge != "" ? ", " + root.server.badge + " unread" : ", unread");
+        tip: root.server.discord && root.matrix-build ? root.server.name + " (Discord)" : root.server.name;
+        unread: true; badge: root.server.badge; discord: root.server.discord;
+        clicked => { root.open-dm(root.server.id); }
+        context-menu(x, y) => { root.open-server-menu(root.server.id, x, y); }
+    }
+    if !root.server.folder && !root.server.dm && !root.server.divider: RailItem {
+        y: 0px;
+        initial: root.server.initial; picture: root.server.picture; picture-url: root.server.picture-url;
+        label: root.server.name + (root.server.discord && root.matrix-build ? ", Discord" : "") + (root.server.unavailable ? ", unavailable" : "")
+            + (root.server.call ? ", in a call" : "")
+            + (root.server.badge != "" ? ", " + root.server.badge + " mentions" : root.server.unread ? ", unread" : "");
+        tip: root.server.unavailable ? root.server.name + " (unavailable in a Discord outage)" : root.server.discord && root.matrix-build ? root.server.name + " (Discord)" : root.server.name;
+        selected: root.server.selected; unread: root.server.unread; badge: root.server.badge; discord: root.server.discord;
+        call: root.server.call;
+        opacity: root.server.unavailable ? 0.5 : 1;
+        clicked => { root.navigate-server(root.server.id); }
+        context-menu(x, y) => { root.open-server-menu(root.server.id, x, y); }
+    }
+}
+
+// The server rail: the DM home, the DMs with unread messages, then each
+// server. With folders opening beside it, a second column to its right holds
+// each open folder and its servers, and scrolls on its own; with none open,
+// the column goes.
 export component ServerRail inherits Rectangle {
     in property <bool> dms-selected;
     in property <bool> dms-unread;
     /// DM mentions and incoming friend requests, as a badge on the DM home.
     in property <string> dms-badge;
     in property <[ServerRow]> servers;
+    /// The open folders, each followed by its servers, when they open beside
+    /// the rail; empty otherwise.
+    in property <[ServerRow]> folder-servers;
     /// Without Matrix every server is Discord's, so names don't say so.
     in property <bool> matrix-build: true;
     callback navigate-dms;
@@ -855,8 +930,9 @@ export component ServerRail inherits Rectangle {
     /// Whether the "+" at the foot offers to join a Discord server.
     in property <bool> can-join;
     callback join-server;
-    width: 72px; background: Theme.rail;
+    width: root.folder-servers.length > 0 ? 144px : 72px; background: Theme.rail;
     VerticalLayout {
+        x: 0px; width: 72px;
         padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
@@ -874,62 +950,35 @@ export component ServerRail inherits Rectangle {
         // matters on accounts in many servers. Unread DMs scroll with them.
         ListView {
             vertical-stretch: 1;
-            for server[index] in root.servers: Rectangle {
-                // Home already has a pinned separator. Keep the model's line
-                // only when it separates unread DMs from servers below them.
-                height: server.divider ? (ClientStyle.enabled && index == 0 ? 0px : (ClientStyle.enabled ? 1px : 2px) + 8px) : (server.folder ? ClientStyle.folder-tile : ClientStyle.rail-tile) + (ClientStyle.enabled && ((server.folder && server.open) || (server.nested && server.last)) ? 4px : 0px) + (ClientStyle.enabled && server.folder && server.open ? 0px : 8px);
-                if server.divider && (!ClientStyle.enabled || index > 0): Rectangle {
-                    x: (72px - self.width) / 2; y: 0px; width: 32px; height: ClientStyle.enabled ? 1px : 2px; border-radius: ClientStyle.enabled ? 0px : 1px; background: ClientStyle.enabled ? Theme.outline : Theme.line;
-                }
-                // An open folder's servers sit on a strip of its colour,
-                // from its folder down to its last server.
-                if server.open || server.nested: Rectangle {
-                    x: (72px - ClientStyle.folder-tile) / 2; y: 0px; width: ClientStyle.folder-tile; height: server.last ? ClientStyle.rail-tile + (ClientStyle.enabled ? 4px : 0px) : parent.height;
-                    border-top-left-radius: server.open ? (ClientStyle.enabled ? 12px : 16px) : 0px;
-                    border-top-right-radius: self.border-top-left-radius;
-                    border-bottom-left-radius: server.last ? (ClientStyle.enabled ? 12px : 16px) : 0px;
-                    border-bottom-right-radius: self.border-bottom-left-radius;
-                    background: server.tint.with-alpha(0.16);
-                }
-                if server.folder: FolderItem {
-                    y: 0px;
-                    label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
-                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
-                    tip: server.name;
-                    open: server.open; tint: server.tint; servers: server.preview;
-                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
-                    clicked => { root.toggle-folder(server.id); }
-                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
-                }
-                if server.dm: RailItem {
-                    y: 0px;
-                    initial: server.initial; picture-url: server.picture-url;
-                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
-                        + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
-                    tip: server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
-                    unread: true; badge: server.badge; discord: server.discord;
-                    clicked => { root.open-dm(server.id); }
-                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
-                }
-                if !server.folder && !server.dm && !server.divider: RailItem {
-                    y: 0px;
-                    initial: server.initial; picture: server.picture; picture-url: server.picture-url;
-                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
-                        + (server.call ? ", in a call" : "")
-                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
-                    tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
-                    selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
-                    call: server.call;
-                    opacity: server.unavailable ? 0.5 : 1;
-                    clicked => { root.navigate-server(server.id); }
-                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
-                }
+            for server[index] in root.servers: RailRow {
+                server: server; index: index; matrix-build: root.matrix-build;
+                navigate-server(id) => { root.navigate-server(id); }
+                toggle-folder(id) => { root.toggle-folder(id); }
+                open-dm(id) => { root.open-dm(id); }
+                open-server-menu(id, x, y) => { root.open-server-menu(id, x, y); }
             }
         }
         if root.can-join: RailItem {
             icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
             label: "Join a server"; tip: "Join a server";
             clicked => { root.join-server(); }
+        }
+    }
+    if root.folder-servers.length > 0: Rectangle {
+        x: 72px; width: 72px;
+        Rectangle { x: 0px; width: 1px; background: Theme.outline; }
+        VerticalLayout {
+            padding-top: 12px; padding-bottom: 12px;
+            ListView {
+                accessible-label: "Open folders";
+                for server[index] in root.folder-servers: RailRow {
+                    server: server; index: index; matrix-build: root.matrix-build;
+                    navigate-server(id) => { root.navigate-server(id); }
+                    toggle-folder(id) => { root.toggle-folder(id); }
+                    open-dm(id) => { root.open-dm(id); }
+                    open-server-menu(id, x, y) => { root.open-server-menu(id, x, y); }
+                }
+            }
         }
     }
 }

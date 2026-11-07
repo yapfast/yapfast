@@ -3995,6 +3995,184 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened() {
     assert!(open[1].open && open[3].tint == open[1].tint);
 }
 
+/// Servers Alpha to Golf: Alpha alone, Bravo and Charlie in folder 7,
+/// Delta alone, Echo, Foxtrot and Golf in folder 8.
+fn foldered_servers() -> Vec<Arc<yapfast_core::chat::ChatServer>> {
+    let folder = |id: &str| yapfast_core::chat::ServerFolder {
+        id: id.into(),
+        name: None,
+        color: None,
+    };
+    let (seven, eight) = (folder("discord-folder:7"), folder("discord-folder:8"));
+    let server = |id: &str, folder: Option<&yapfast_core::chat::ServerFolder>| {
+        Arc::new(yapfast_core::chat::ChatServer {
+            id: id.into(),
+            name: id.into(),
+            discord: true,
+            folder: folder.cloned(),
+            ..Default::default()
+        })
+    };
+    vec![
+        server("Alpha", None),
+        server("Bravo", Some(&seven)),
+        server("Charlie", Some(&seven)),
+        server("Delta", None),
+        server("Echo", Some(&eight)),
+        server("Foxtrot", Some(&eight)),
+        server("Golf", Some(&eight)),
+    ]
+}
+
+#[test]
+fn open_folders_move_their_servers_beside_the_rail() {
+    let mut state = AppState::default();
+    state.servers = foldered_servers();
+    let split = |open: &[&str]| {
+        let open = open.iter().map(|&id| id.to_owned()).collect();
+        refresh::split_beside(refresh::rail_rows(&state, &HashMap::new(), &open))
+    };
+    // Each row's id, and whether it's open, aside, nested and last.
+    let rows = |rows: &[ServerRow]| -> Vec<(String, bool, bool, bool, bool)> {
+        rows.iter()
+            .map(|row| {
+                (
+                    row.id.to_string(),
+                    row.open,
+                    row.aside,
+                    row.nested,
+                    row.last,
+                )
+            })
+            .collect()
+    };
+    let (rail, beside) = split(&[]);
+    assert_eq!(
+        rows(&rail),
+        [
+            ("Alpha".into(), false, false, false, false),
+            ("discord-folder:7".into(), false, false, false, false),
+            ("Delta".into(), false, false, false, false),
+            ("discord-folder:8".into(), false, false, false, false),
+        ]
+    );
+    assert!(beside.is_empty(), "with no folder open, the column goes");
+
+    // The rail keeps an open folder in its place, and the column holds it
+    // again, its servers after it, in the rail's order.
+    let (rail, beside) = split(&["discord-folder:8", "discord-folder:7"]);
+    assert_eq!(
+        rows(&rail),
+        [
+            ("Alpha".into(), false, false, false, false),
+            ("discord-folder:7".into(), true, true, false, false),
+            ("Delta".into(), false, false, false, false),
+            ("discord-folder:8".into(), true, true, false, false),
+        ]
+    );
+    assert_eq!(
+        rows(&beside),
+        [
+            ("discord-folder:7".into(), true, false, false, false),
+            ("Bravo".into(), false, false, true, false),
+            ("Charlie".into(), false, false, true, true),
+            ("discord-folder:8".into(), true, false, false, false),
+            ("Echo".into(), false, false, true, false),
+            ("Foxtrot".into(), false, false, true, false),
+            ("Golf".into(), false, false, true, true),
+        ]
+    );
+    assert_eq!(beside[0].name, "Bravo, Charlie");
+
+    let (rail, beside) = split(&["discord-folder:8"]);
+    assert_eq!(rail.len(), 4);
+    assert_eq!(
+        rows(&beside)
+            .into_iter()
+            .map(|row| row.0)
+            .collect::<Vec<_>>(),
+        ["discord-folder:8", "Echo", "Foxtrot", "Golf"]
+    );
+}
+
+#[test]
+fn folders_open_beside_the_rail_only_when_chosen() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.servers = foldered_servers();
+        adapter.app.state.list_changes += 1;
+        adapter.refresh(&window);
+    }
+    let ids = |model: ModelRc<ServerRow>| -> Vec<String> {
+        model
+            .iter()
+            .filter(|row| !row.divider)
+            .map(|row| row.id.to_string())
+            .collect()
+    };
+    // Off by default: an open folder's servers follow it on the rail.
+    assert!(!window.get_folders_beside());
+    window.invoke_toggle_folder("discord-folder:7".into());
+    assert_eq!(
+        ids(window.get_servers()),
+        [
+            "Alpha",
+            "discord-folder:7",
+            "Bravo",
+            "Charlie",
+            "Delta",
+            "discord-folder:8"
+        ]
+    );
+    assert_eq!(window.get_folder_servers().row_count(), 0);
+
+    window.set_folders_beside(true);
+    window.invoke_preferences_changed();
+    assert_eq!(
+        ids(window.get_servers()),
+        ["Alpha", "discord-folder:7", "Delta", "discord-folder:8"]
+    );
+    assert_eq!(
+        ids(window.get_folder_servers()),
+        ["discord-folder:7", "Bravo", "Charlie"]
+    );
+    // Opening another adds it below; without the setting, the first stays.
+    window.invoke_toggle_folder("discord-folder:8".into());
+    assert_eq!(window.get_folder_servers().row_count(), 7);
+    // Closing one, from either column, takes its servers away.
+    window.invoke_toggle_folder("discord-folder:7".into());
+    assert_eq!(
+        ids(window.get_folder_servers()),
+        ["discord-folder:8", "Echo", "Foxtrot", "Golf"]
+    );
+
+    // Keeping one folder open: opening a folder closes the others.
+    window.set_one_open_folder(true);
+    window.invoke_preferences_changed();
+    window.invoke_toggle_folder("discord-folder:7".into());
+    assert_eq!(
+        ids(window.get_folder_servers()),
+        ["discord-folder:7", "Bravo", "Charlie"]
+    );
+    window.invoke_toggle_folder("discord-folder:7".into());
+    assert_eq!(window.get_folder_servers().row_count(), 0);
+
+    // Both settings outlast a restart.
+    let layout = std::fs::read_to_string(directory.path().join("layout.json")).unwrap();
+    assert!(layout.contains("\"folders_beside\":true"), "{layout}");
+    assert!(layout.contains("\"one_open_folder\":true"), "{layout}");
+}
+
 #[test]
 fn a_right_click_on_a_folder_asks_for_its_menu() {
     use slint::platform::{PointerEventButton, WindowEvent};

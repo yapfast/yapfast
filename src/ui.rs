@@ -1014,6 +1014,11 @@ struct Layout {
     collapsed: HashMap<String, std::collections::BTreeSet<String>>,
     /// The rail's open folders, by folder ID.
     open_folders: std::collections::BTreeSet<String>,
+    /// Open folders' servers show in a column beside the rail, not under
+    /// their folders.
+    folders_beside: bool,
+    /// Opening a folder closes the others.
+    one_open_folder: bool,
     /// How often this device added each reaction, for the frequent reactions.
     reactions: HashMap<String, u32>,
     /// List Discord channels hidden from this account, locked.
@@ -1321,6 +1326,8 @@ impl Layout {
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
+        window.set_folders_beside(self.folders_beside);
+        window.set_one_open_folder(self.one_open_folder);
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);
@@ -1445,6 +1452,8 @@ impl Layout {
 #[derive(Default)]
 struct Models {
     servers: Rc<VecModel<ServerRow>>,
+    /// The open folders and their servers, in the column beside the rail.
+    folder_servers: Rc<VecModel<ServerRow>>,
     rooms: Rc<VecModel<RoomRow>>,
     /// Discord friend requests and message requests, on the requests screen.
     requests_incoming: Rc<VecModel<RequestRow>>,
@@ -1521,6 +1530,7 @@ struct Models {
 impl Models {
     fn attach(&self, window: &YapfastWindow) {
         window.set_servers(ModelRc::from(self.servers.clone()));
+        window.set_folder_servers(ModelRc::from(self.folder_servers.clone()));
         window.set_rooms(ModelRc::from(self.rooms.clone()));
         window.set_requests_incoming(ModelRc::from(self.requests_incoming.clone()));
         window.set_requests_sent(ModelRc::from(self.requests_sent.clone()));

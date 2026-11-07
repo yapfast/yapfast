@@ -910,6 +910,8 @@ component ThemeColourRow inherits HorizontalLayout {
 export component AppearanceSettings inherits VerticalLayout {
     callback preferences-changed();
     in-out property <bool> show-nameplates;
+    in-out property <bool> folders-beside;
+    in-out property <bool> one-open-folder;
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
     /// The editor, while it's open: the colours, the name, whether the theme
@@ -976,6 +978,18 @@ export component AppearanceSettings inherits VerticalLayout {
         text: "Show nameplates";
         description: "The pictures Discord members equip behind their rows in the member list and on your account card.";
         checked <=> root.show-nameplates;
+        toggled => { root.preferences-changed(); }
+    }
+    if !root.editor: SettingsSwitch {
+        text: "Open folders beside the server list";
+        description: "An open folder's servers show in a second column to the right of the server list, which scrolls on its own. Off, they show under their folder.";
+        checked <=> root.folders-beside;
+        toggled => { root.preferences-changed(); }
+    }
+    if !root.editor: SettingsSwitch {
+        text: "Keep one folder open";
+        description: "Opening a folder closes the others.";
+        checked <=> root.one-open-folder;
         toggled => { root.preferences-changed(); }
     }
     if root.editor: form := VerticalLayout {
