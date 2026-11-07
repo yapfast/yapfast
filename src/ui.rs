@@ -1071,8 +1071,17 @@ struct Layout {
     gpu_encoding: Option<bool>,
     /// The theme chosen, by its id; Yap unless chosen.
     theme: Option<String>,
+    /// The accent laid over the theme, by preset id; the theme's own unless
+    /// chosen, which is what [`theme::apply_accent`] reads.
+    accent: Option<String>,
     /// The person's own themes, in the order Appearance shows them.
     custom_themes: Vec<theme::Custom>,
+    /// Interface density: 0 compact, 1 cozy, 2 comfortable; cozy unless chosen.
+    density: Option<i32>,
+    /// Message text size: 0 small, 1 default, 2 large; default unless chosen.
+    text_size: Option<i32>,
+    /// Whether animations are off, as Appearance can ask.
+    reduced_motion: Option<bool>,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
     close_to_tray: Option<bool>,
     /// Starting Yapfast again on this folder starts another, rather than
@@ -1294,13 +1303,24 @@ impl Layout {
         let extra = plugins.theme_contributions();
         let (id, chosen) =
             theme::chosen_with_extra(self.theme.as_deref(), &self.custom_themes, &extra);
+        // The accent the person picked, laid over whichever theme is chosen.
+        let chosen = theme::apply_accent(chosen, self.accent.as_deref());
         chosen.apply(window);
         window.set_theme_id(id.into());
+        window.set_accent_id(theme::accent_shown(self.accent.as_deref()).into());
+        window.set_accents(theme::accent_cards(
+            &chosen,
+            theme::accent_shown(self.accent.as_deref()),
+        ));
         window.set_themes(theme::cards_with_extra(&self.custom_themes, &extra));
         window
             .global::<Density>()
             .set_compact(plugins.compact_mode());
         self.apply_plugins(window, &plugins);
+        // Density, text size and motion, as Appearance last set them.
+        window.set_density(self.density.unwrap_or(1));
+        window.set_text_size(self.text_size.unwrap_or(1));
+        window.set_reduced_motion(self.reduced_motion.unwrap_or(false));
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }

@@ -1498,6 +1498,35 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_accent_chosen(move |id| {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let mut adapter = state.borrow_mut();
+        // "system" hands the accent back to the theme's own.
+        adapter.layout.accent = match id.as_str() {
+            theme::ACCENT_SYSTEM | "" => None,
+            id => Some(id.to_owned()),
+        };
+        adapter.layout.write(&adapter.root);
+        adapter.layout.apply(&window);
+        adapter.restyle_mentions();
+        adapter.refresh(&window);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_display_changed(move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let mut adapter = state.borrow_mut();
+        adapter.layout.density = Some(window.get_density());
+        adapter.layout.text_size = Some(window.get_text_size());
+        adapter.layout.reduced_motion = Some(window.get_reduced_motion());
+        adapter.layout.write(&adapter.root);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_save_theme(move || {
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().save_theme(&window);
