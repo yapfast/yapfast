@@ -282,6 +282,7 @@ export component SettingsFrame inherits Rectangle {
                         }
                     }
                 }
+                Rectangle { x: parent.width - 1px; width: 1px; background: Theme.outline-sidebar; }
             }
             content := Rectangle {
                 horizontal-stretch: 2; min-width: root.discord-layout ? 320px : 440px;
@@ -339,13 +340,18 @@ export component SettingsCard inherits Rectangle {
         width: min(ClientStyle.settings-width, root.width - root.margin);
         height: min(ClientStyle.settings-height, root.height - root.margin);
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+        border-radius: 12px; background: Theme.chat;
         // The shadow shows once the card is open: a card this large costs
         // a blurred image as large to draw again each frame it grows.
         drop-shadow-blur: 24px; drop-shadow-color: root.motion == 1 ? #00000080 : transparent; drop-shadow-offset-y: 8px;
         Rectangle {
             border-radius: 12px; clip: true;
             @children
+        }
+        // Paint above the page contents, which otherwise cover the card's border.
+        Rectangle {
+            border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+            background: transparent;
         }
     }
 }

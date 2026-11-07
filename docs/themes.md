@@ -108,7 +108,9 @@ and the composer border, and 24% for normal separators. Only Onyx adds an outlin
 between the sidebar and chat in the Discord layout. The divider sits inside
 the sidebar edge so it does not cover the 2px mention marker in chat. These use the editable
 `outline-panel` and `outline-sidebar` colours, which are transparent in the
-other built-in themes. The account outline uses Onyx's 16% `--border-muted`
+other built-in themes. Settings cards have an outer border in every theme;
+their sidebar divider uses the same Onyx-only `outline-sidebar` colour.
+The account outline uses Onyx's 16% `--border-muted`
 wash. The `mentioned` background uses a shared 8% yellow wash in every
 theme, rendering `#130d00` over Onyx's black chat, and fades to 4% on
 hover. Mentioned messages have a solid 2px bar in the theme's `loud` colour,
