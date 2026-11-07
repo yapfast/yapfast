@@ -219,6 +219,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         .on_frame(|key, _revision| {
             i_slint_core::yapfast_emoji::frame_of_key(key.as_str()).unwrap_or_default()
         });
+    window
+        .global::<PictureStore>()
+        .on_animated(|url| animated_url(url.as_str()).into());
+    window
+        .global::<PictureStore>()
+        .on_frames(|url, _revision| avatar_animation(url.as_str()).0);
+    window
+        .global::<PictureStore>()
+        .on_delays(|url, _revision| avatar_animation(url.as_str()).1);
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -1487,6 +1496,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
+        layout.nameplates = Some(window.get_show_nameplates());
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
@@ -1548,6 +1558,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             (window.get_reply_ping_default(), window.get_strip_tracking());
         adapter.app.dispatch(Action::ReplyPing(reply_ping));
         adapter.app.dispatch(Action::StripTracking(strip_tracking));
+        adapter
+            .app
+            .dispatch(Action::HideNameplates(!window.get_show_nameplates()));
         adapter.restyle = true;
         adapter.refresh(&window);
     });

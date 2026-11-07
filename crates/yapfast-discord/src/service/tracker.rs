@@ -528,6 +528,8 @@ impl Tracker {
                     (
                         names.user_name(&tracker.me).map(str::to_owned),
                         names.avatar(None, &tracker.me),
+                        names.decoration(None, &tracker.me),
+                        names.nameplate(None, &tracker.me),
                     )
                 };
                 let before = shown(self);
@@ -1119,6 +1121,9 @@ impl Tracker {
                     name: names.user_name(user).unwrap_or("Discord user").to_owned(),
                     username: names.username(user).map(str::to_owned),
                     avatar: names.avatar(None, user),
+                    decoration: names.decoration(None, user),
+                    nameplate: names.nameplate(None, user),
+                    style: names.style(None, user),
                     group: heading.clone(),
                     tag: names.server_tag(user).cloned(),
                     presence: known.presence,
@@ -1512,7 +1517,14 @@ impl Tracker {
                 self.presences.get(user),
             )
                 .hash(&mut hasher);
-            (names.server_tag(user), names.is_official(user)).hash(&mut hasher);
+            (
+                names.server_tag(user),
+                names.decoration_sku(None, user),
+                names.plate(None, user),
+                names.style(None, user),
+                names.is_official(user),
+            )
+                .hash(&mut hasher);
         }
         let ringing = self.calls.get(&private.id);
         ringing.is_some().hash(&mut hasher);
@@ -1580,6 +1592,18 @@ impl Tracker {
             id: private.id.clone(),
             name: title,
             avatar,
+            decoration: (!private.group)
+                .then(|| private.recipients.first())
+                .flatten()
+                .and_then(|user| names.decoration(None, user)),
+            nameplate: (!private.group)
+                .then(|| private.recipients.first())
+                .flatten()
+                .and_then(|user| names.nameplate(None, user)),
+            style: (!private.group)
+                .then(|| private.recipients.first())
+                .flatten()
+                .and_then(|user| names.style(None, user)),
             tag: (!private.group)
                 .then(|| private.recipients.first())
                 .flatten()
@@ -1792,6 +1816,8 @@ impl Tracker {
                 name: name.to_owned(),
                 username: names.username(&self.me).unwrap_or_default().to_owned(),
                 avatar: names.avatar(None, &self.me),
+                decoration: names.decoration(None, &self.me),
+                nameplate: names.nameplate(None, &self.me),
                 premium_type: self.premium,
                 mfa_enabled: self.mfa,
                 has_email: self.email,
@@ -3141,6 +3167,34 @@ mod tests {
             shared(&unread.servers[1], &renamed.servers[1]),
             (true, true)
         );
+    }
+
+    #[test]
+    fn a_dm_follows_what_its_person_equips() {
+        let ready = json!({
+            "user": {"id": "1"},
+            "users": [{"id": "2", "username": "ann"}],
+            "private_channels": [{"id": "20", "type": 1, "recipient_ids": ["2"]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let dm = |tracker: &mut Tracker| tracker.snapshot().conversations[0].clone();
+        assert_eq!(dm(&mut tracker).decoration, None);
+        tracker.names.write().unwrap().learn_user(&json!({
+            "id": "2", "username": "ann",
+            "avatar_decoration_data": {"asset": "a", "sku_id": "77"},
+            "collectibles": {"nameplate": {"sku_id": "88", "palette": "sky"}},
+            "display_name_styles": {"font_id": 3, "effect_id": 1, "colors": [1]},
+        }));
+        let equipped = dm(&mut tracker);
+        assert!(
+            equipped
+                .decoration
+                .as_deref()
+                .is_some_and(|url| url.contains("/collectibles-shop/77/"))
+        );
+        let plate = equipped.nameplate.as_ref().unwrap();
+        assert!(plate.picture.contains("/collectibles-shop/88/"));
+        assert_eq!(equipped.style.map(|style| style.font), Some(3));
     }
 
     #[test]

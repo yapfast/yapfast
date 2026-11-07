@@ -260,6 +260,7 @@ pub(super) fn profile_data(
         initial: initial(&profile.name),
         tint: tint(&profile.name),
         picture: avatar.clone(),
+        decoration_url: profile.decoration.as_deref().unwrap_or_default().into(),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
         tag: tag_text(&profile.tag),

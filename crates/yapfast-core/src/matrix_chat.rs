@@ -1097,6 +1097,9 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                         roles: Default::default(),
                         timed_out_until: None,
                         tag: None,
+                        decoration: None,
+                        nameplate: None,
+                        style: None,
                     })
                     .collect();
                 sort_members(&mut members);
@@ -1209,6 +1212,9 @@ async fn room_index(client: &Client) -> RoomIndex {
             forum: false,
             unlisted: false,
             tag: None,
+            decoration: None,
+            nameplate: None,
+            style: None,
             official: false,
             empty: false,
             preview: None,

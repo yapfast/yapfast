@@ -86,6 +86,11 @@ pub struct Account {
     pub username: String,
     /// The address of its avatar.
     pub avatar: String,
+    /// The decoration it wears around its avatar, and its nameplate.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
     /// [`crate::api::upload_limit`].
     pub premium_type: u8,
@@ -107,6 +112,15 @@ pub struct Conversation {
     pub name: String,
     /// The other person's avatar in a DM, or a group DM's icon.
     pub avatar: Option<String>,
+    /// The decoration the other person in a DM wears around their avatar.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
+    /// The nameplate the other person in a DM equips.
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
+    /// The display name style of the other person in a DM.
+    #[serde(default)]
+    pub style: Option<crate::collectibles::Style>,
     pub group: bool,
     /// The server tag the other person in a DM wears by their name.
     #[serde(default)]
@@ -2939,6 +2953,27 @@ impl Discord {
     /// The server tag a user wears beside their name, if they do.
     pub fn server_tag(&self, user: &str) -> Option<crate::message::Tag> {
         self.read_names().server_tag(user).cloned()
+    }
+
+    /// The address of the decoration a user wears around their avatar, in a
+    /// server or in DMs.
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<Arc<str>> {
+        self.read_names().decoration(guild.and_then(server), user)
+    }
+
+    /// The nameplate a user equips, in a server or in DMs.
+    pub fn nameplate(
+        &self,
+        guild: Option<&str>,
+        user: &str,
+    ) -> Option<crate::collectibles::Nameplate> {
+        self.read_names().nameplate(guild.and_then(server), user)
+    }
+
+    /// The display name style a user draws their name with, in a server or
+    /// in DMs.
+    pub fn style(&self, guild: Option<&str>, user: &str) -> Option<crate::collectibles::Style> {
+        self.read_names().style(guild.and_then(server), user)
     }
 
     /// A member's roles in a server by id, as far as they're known, shared

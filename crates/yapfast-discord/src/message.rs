@@ -5,7 +5,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
@@ -13,6 +13,7 @@ use std::{
 use serde_json::Value;
 
 use crate::{
+    collectibles::{self, Nameplate, Plate, Style},
     components::{self, Card},
     embed::{self, Embed},
     marked::ServerMarks,
@@ -1044,6 +1045,22 @@ pub struct SavedNames {
     /// Each person's tag: user id, text and badge address.
     #[serde(default)]
     tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
+    /// Avatar decorations' SKUs by user id.
+    #[serde(default)]
+    decorations: Vec<(String, String)>,
+    /// Nameplates by user id: their SKU and palette.
+    #[serde(default)]
+    nameplates: Vec<(String, String, String)>,
+    /// The same as members of a server, by server and user id.
+    #[serde(default)]
+    member_decorations: Vec<(String, String, String)>,
+    #[serde(default)]
+    member_nameplates: Vec<(String, String, String, String)>,
+    /// Display name styles, by user id and by server and user id.
+    #[serde(default)]
+    styles: Vec<(String, Style)>,
+    #[serde(default)]
+    member_styles: Vec<(String, String, Style)>,
 }
 
 /// [`Names`] serialized as [`SavedNames`]; see [`Names::saving`].
@@ -1060,7 +1077,7 @@ impl serde::Serialize for SavingNames<'_> {
             }
         }
         let names = self.0;
-        let mut saved = serializer.serialize_struct("SavedNames", 9)?;
+        let mut saved = serializer.serialize_struct("SavedNames", 15)?;
         saved.serialize_field(
             "users",
             &List(|| names.users.iter().map(|(user, name)| (Text(*user), name))),
@@ -1124,6 +1141,67 @@ impl serde::Serialize for SavingNames<'_> {
                     .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
             }),
         )?;
+        saved.serialize_field(
+            "decorations",
+            &List(|| {
+                names
+                    .decorations
+                    .iter()
+                    .map(|(user, sku)| (Text(*user), Text(*sku)))
+            }),
+        )?;
+        saved.serialize_field(
+            "nameplates",
+            &List(|| {
+                names
+                    .nameplates
+                    .iter()
+                    .map(|(user, plate)| (Text(*user), Text(plate.sku), plate.palette_name()))
+            }),
+        )?;
+        saved.serialize_field(
+            "member_decorations",
+            &List(|| {
+                names
+                    .member_decorations
+                    .iter()
+                    .map(|((guild, user), sku)| (Text(*guild), Text(*user), Text(*sku)))
+            }),
+        )?;
+        saved.serialize_field(
+            "member_nameplates",
+            &List(|| {
+                names
+                    .member_nameplates
+                    .iter()
+                    .map(|((guild, user), plate)| {
+                        (
+                            Text(*guild),
+                            Text(*user),
+                            Text(plate.sku),
+                            plate.palette_name(),
+                        )
+                    })
+            }),
+        )?;
+        saved.serialize_field(
+            "styles",
+            &List(|| {
+                names
+                    .styles
+                    .iter()
+                    .map(|(user, style)| (Text(*user), style))
+            }),
+        )?;
+        saved.serialize_field(
+            "member_styles",
+            &List(|| {
+                names
+                    .member_styles
+                    .iter()
+                    .map(|((guild, user), style)| (Text(*guild), Text(*user), style))
+            }),
+        )?;
         saved.end()
     }
 }
@@ -1172,6 +1250,20 @@ pub struct Names {
     officials: HashSet<Id>,
     /// Server avatar hashes by server and user id.
     member_avatars: HashMap<(Id, Id), String>,
+    /// The SKUs of the avatar decorations people equip, by user id.
+    decorations: HashMap<Id, Id>,
+    /// The nameplates people equip, by user id.
+    nameplates: HashMap<Id, Plate>,
+    /// What a member equips for one server alone, which shows there in place
+    /// of what they equip everywhere, by server and user id.
+    member_decorations: HashMap<(Id, Id), Id>,
+    member_nameplates: HashMap<(Id, Id), Plate>,
+    /// Display name styles, of those who have one, everywhere and per server.
+    styles: HashMap<Id, Style>,
+    member_styles: HashMap<(Id, Id), Style>,
+    /// The addresses of collectibles' pictures by SKU, one for all who wear
+    /// it and every message and row that shows them. The shop's size bounds it.
+    collectible_pictures: Mutex<HashMap<Id, Arc<str>>>,
     /// Members' roles by server and user id, for the colour of their name.
     /// Member lists and the core share each, rather than copying it.
     roles: HashMap<(Id, Id), Arc<[String]>>,
@@ -1251,6 +1343,40 @@ impl Names {
                 .into_iter()
                 .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
                 .collect(),
+            decorations: saved
+                .decorations
+                .iter()
+                .filter_map(|(user, sku)| Some((id(user)?, id(sku)?)))
+                .collect(),
+            nameplates: saved
+                .nameplates
+                .iter()
+                .filter_map(|(user, sku, palette)| {
+                    Some((id(user)?, Plate::restore(id(sku)?, palette)))
+                })
+                .collect(),
+            member_decorations: saved
+                .member_decorations
+                .iter()
+                .filter_map(|(guild, user, sku)| Some((member_key(guild, user)?, id(sku)?)))
+                .collect(),
+            member_nameplates: saved
+                .member_nameplates
+                .iter()
+                .filter_map(|(guild, user, sku, palette)| {
+                    Some((member_key(guild, user)?, Plate::restore(id(sku)?, palette)))
+                })
+                .collect(),
+            styles: saved
+                .styles
+                .into_iter()
+                .filter_map(|(user, style)| Some((id(&user)?, style)))
+                .collect(),
+            member_styles: saved
+                .member_styles
+                .into_iter()
+                .filter_map(|(guild, user, style)| Some((member_key(&guild, &user)?, style)))
+                .collect(),
             ..Self::default()
         };
         // Those kept from before go before anyone learned since.
@@ -1312,6 +1438,15 @@ impl Names {
         self.officials.retain(|user| seen.contains_key(user));
         self.avatars.retain(|user, _| seen.contains_key(user));
         self.tags.retain(|user, _| seen.contains_key(user));
+        self.decorations.retain(|user, _| seen.contains_key(user));
+        self.nameplates.retain(|user, _| seen.contains_key(user));
+        self.styles.retain(|user, _| seen.contains_key(user));
+        self.member_decorations
+            .retain(|(_, user), _| seen.contains_key(user));
+        self.member_nameplates
+            .retain(|(_, user), _| seen.contains_key(user));
+        self.member_styles
+            .retain(|(_, user), _| seen.contains_key(user));
         self.nicknames
             .retain(|(_, user), _| seen.contains_key(user));
         self.members.retain(|(_, user)| seen.contains_key(user));
@@ -1374,6 +1509,22 @@ impl Names {
             Some(Value::Null) => learned |= changed(&mut self.tags, id, None),
             _ => {}
         }
+        // Partial user objects leave both out; null, or nothing equipped,
+        // removes them.
+        if let Some(data) = user.get("avatar_decoration_data") {
+            learned |= changed(
+                &mut self.decorations,
+                id,
+                collectibles::decoration_sku(data),
+            );
+        }
+        if let Some(equipped) = user.get("collectibles") {
+            let plate = Plate::parse(&equipped["nameplate"]);
+            learned |= changed(&mut self.nameplates, id, plate);
+        }
+        if let Some(style) = user.get("display_name_styles") {
+            learned |= changed(&mut self.styles, id, Style::parse(style));
+        }
         self.version += u64::from(known && learned);
     }
 
@@ -1402,6 +1553,23 @@ impl Names {
                 .collect();
             learned |= changed(&mut self.roles, key, Some(roles));
         }
+        // What they equip for this server alone, which is there when they do
+        // and null when they don't; a member object that leaves them out says
+        // nothing.
+        if let Some(data) = member.get("avatar_decoration_data") {
+            learned |= changed(
+                &mut self.member_decorations,
+                key,
+                collectibles::decoration_sku(data),
+            );
+        }
+        if let Some(equipped) = member.get("collectibles") {
+            let plate = Plate::parse(&equipped["nameplate"]);
+            learned |= changed(&mut self.member_nameplates, key, plate);
+        }
+        if let Some(style) = member.get("display_name_styles") {
+            learned |= changed(&mut self.member_styles, key, Style::parse(style));
+        }
         // Present when known, null when they aren't timed out; a time past
         // is a timeout that ended.
         if let Some(until) = member.get("communication_disabled_until") {
@@ -1420,7 +1588,10 @@ impl Names {
         };
         let learned = self.nicknames.remove(&key).is_some()
             | self.member_avatars.remove(&key).is_some()
-            | self.roles.remove(&key).is_some();
+            | self.roles.remove(&key).is_some()
+            | self.member_decorations.remove(&key).is_some()
+            | self.member_nameplates.remove(&key).is_some()
+            | self.member_styles.remove(&key).is_some();
         self.timeouts.remove(&key);
         self.members.remove(&key);
         self.version += u64::from(learned);
@@ -1574,6 +1745,63 @@ impl Names {
         let user = id(user)?;
         self.touch(user);
         self.tags.get(&user)
+    }
+
+    /// The address of the decoration a user wears around their avatar: the
+    /// one they set for `guild` where they have one, else their own.
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<Arc<str>> {
+        Some(self.collectible_picture(self.decoration_sku(guild, user)?))
+    }
+
+    /// The SKU behind [`Self::decoration`], which says when it changes
+    /// without making the address.
+    pub fn decoration_sku(&self, guild: Option<&str>, user: &str) -> Option<Id> {
+        let user_id = id(user)?;
+        self.touch(user_id);
+        guild
+            .and_then(|guild| member_key(guild, user))
+            .and_then(|key| self.member_decorations.get(&key))
+            .or_else(|| self.decorations.get(&user_id))
+            .copied()
+    }
+
+    fn collectible_picture(&self, sku: Id) -> Arc<str> {
+        self.collectible_pictures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(sku)
+            .or_insert_with(|| collectibles::picture(sku).into())
+            .clone()
+    }
+
+    /// The nameplate a user equips, in `guild` or everywhere.
+    pub fn nameplate(&self, guild: Option<&str>, user: &str) -> Option<Nameplate> {
+        let plate = self.plate(guild, user)?;
+        Some(plate.shown(self.collectible_picture(plate.sku)))
+    }
+
+    /// What [`Self::nameplate`] shows, which says when it changes without
+    /// making the address.
+    pub fn plate(&self, guild: Option<&str>, user: &str) -> Option<Plate> {
+        let user_id = id(user)?;
+        self.touch(user_id);
+        guild
+            .and_then(|guild| member_key(guild, user))
+            .and_then(|key| self.member_nameplates.get(&key))
+            .or_else(|| self.nameplates.get(&user_id))
+            .copied()
+    }
+
+    /// The display name style a user draws their name with, in `guild` or
+    /// everywhere.
+    pub fn style(&self, guild: Option<&str>, user: &str) -> Option<Style> {
+        let user_id = id(user)?;
+        self.touch(user_id);
+        guild
+            .and_then(|guild| member_key(guild, user))
+            .and_then(|key| self.member_styles.get(&key))
+            .or_else(|| self.styles.get(&user_id))
+            .copied()
     }
 
     /// The avatar hash [`Self::avatar`] makes a user's address from outside
@@ -2386,6 +2614,104 @@ mod tests {
         assert_eq!(names.version(), member, "the same again");
         names.learn_member("10", &json!({"user_id": "2", "nick": "Annie", "roles": []}));
         assert!(names.version() > member, "a nickname");
+    }
+
+    #[test]
+    fn learns_decorations_nameplates_and_styles_and_keeps_them_over_partial_users() {
+        let mut names = Names::default();
+        let ann = json!({
+            "id": "2", "username": "ann",
+            "avatar_decoration_data": {"asset": "a_x", "sku_id": "77", "expires_at": null},
+            "collectibles": {"nameplate": {"sku_id": "88", "asset": "nameplates/x/",
+                                           "label": "X", "palette": "teal"}},
+            "display_name_styles": {"font_id": 3, "effect_id": 2, "colors": [16711680, 255]},
+        });
+        names.learn_user(&ann);
+        assert!(
+            names
+                .decoration(None, "2")
+                .unwrap()
+                .ends_with("/collectibles-shop/77/static")
+        );
+        let plate = names.nameplate(None, "2").unwrap();
+        assert_eq!(plate.colors, Some([0x086460, 0x7deed7]));
+        assert!(plate.picture.ends_with("/collectibles-shop/88/static"));
+        let style = names.style(None, "2").unwrap();
+        assert_eq!((style.font, style.effect), (3, 2));
+        assert_eq!(style.colors(), [0xff0000, 0x0000ff]);
+        assert_eq!(names.decoration(None, "3"), None);
+        // A partial user, such as a mention in a message, says nothing.
+        names.learn_user(&json!({"id": "2", "username": "ann"}));
+        assert!(names.decoration(None, "2").is_some() && names.nameplate(None, "2").is_some());
+        assert!(names.style(None, "2").is_some());
+        // They survive being saved and restored.
+        let saved = serde_json::to_string(&names.saving()).unwrap();
+        let restored = Names::restore(serde_json::from_str(&saved).unwrap());
+        assert_eq!(restored.decoration(None, "2"), names.decoration(None, "2"));
+        assert_eq!(restored.nameplate(None, "2"), names.nameplate(None, "2"));
+        assert_eq!(restored.style(None, "2"), names.style(None, "2"));
+        // Null takes them off; so does no nameplate among the collectibles.
+        names.learn_user(
+            &json!({"id": "2", "username": "ann", "avatar_decoration_data": null,
+            "collectibles": {}, "display_name_styles": null}),
+        );
+        assert_eq!(names.decoration(None, "2"), None);
+        assert_eq!(names.nameplate(None, "2"), None);
+        assert_eq!(names.style(None, "2"), None);
+    }
+
+    #[test]
+    fn what_a_member_equips_for_a_server_wins_there_alone() {
+        let mut names = Names::default();
+        names.learn_user(&json!({"id": "2", "username": "ann",
+            "avatar_decoration_data": {"asset": "a", "sku_id": "77"},
+            "display_name_styles": {"font_id": 11, "effect_id": 1, "colors": [1]}}));
+        names.learn_member(
+            "10",
+            &json!({"user": {"id": "2", "username": "ann"}, "roles": [],
+            "avatar_decoration_data": {"asset": "b", "sku_id": "78"},
+            "collectibles": {"nameplate": {"sku_id": "90", "palette": "sky"}},
+            "display_name_styles": {"font_id": 4, "effect_id": 3, "colors": [2]}}),
+        );
+        let ends = |url: Option<Arc<str>>, sku: &str| {
+            url.is_some_and(|url| url.ends_with(&format!("/collectibles-shop/{sku}/static")))
+        };
+        assert!(
+            ends(names.decoration(Some("10"), "2"), "78"),
+            "the server's"
+        );
+        assert!(
+            ends(names.decoration(Some("11"), "2"), "77"),
+            "elsewhere, their own"
+        );
+        assert!(ends(names.decoration(None, "2"), "77"));
+        assert_eq!(
+            names.nameplate(Some("10"), "2").unwrap().colors,
+            Some([0x0080b7, 0x56ccff])
+        );
+        assert_eq!(names.nameplate(Some("11"), "2"), None);
+        assert_eq!(names.style(Some("10"), "2").unwrap().font, 4);
+        assert_eq!(names.style(None, "2").unwrap().font, 11);
+        // A member object that leaves them out changes nothing; null takes
+        // the server's off, so their own show again.
+        names.learn_member("10", &json!({"user_id": "2", "roles": []}));
+        assert!(ends(names.decoration(Some("10"), "2"), "78"));
+        let saved = serde_json::to_string(&names.saving()).unwrap();
+        let restored = Names::restore(serde_json::from_str(&saved).unwrap());
+        assert!(ends(restored.decoration(Some("10"), "2"), "78"));
+        assert_eq!(
+            restored.style(Some("10"), "2"),
+            names.style(Some("10"), "2")
+        );
+        names.learn_member(
+            "10",
+            &json!({"user_id": "2", "roles": [],
+            "avatar_decoration_data": null, "display_name_styles": null}),
+        );
+        assert!(ends(names.decoration(Some("10"), "2"), "77"));
+        assert_eq!(names.style(Some("10"), "2").unwrap().font, 11);
+        names.forget_member("10", "2");
+        assert_eq!(names.nameplate(Some("10"), "2"), None);
     }
 
     #[test]

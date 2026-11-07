@@ -1322,6 +1322,94 @@ impl Fixture {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn shows_decorations_and_nameplates() {
+    let Fixture {
+        _fake,
+        discord,
+        snapshot,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("shows_decorations_and_nameplates").await;
+    // Alice's own user, from READY, has both; her account card shows them.
+    let account = snapshot.account.as_ref().unwrap();
+    assert!(account.decoration.as_deref().is_some_and(|url| {
+        url.ends_with("/media/v1/collectibles-shop/1500000000000000003/static")
+    }));
+    let plate = account.nameplate.as_ref().unwrap();
+    assert_eq!(plate.colors, Some([0xdc3e97, 0xf957b3]), "bubble gum");
+    assert!(
+        plate
+            .picture
+            .ends_with("/collectibles-shop/1500000000000000004/static")
+    );
+
+    // The member list's users carry them: both for Bob, a nameplate for Carol.
+    let mut live = discord.live();
+    discord.view(&guild, Some(&general));
+    let members = live_where(&mut live, |event| match event {
+        Live::Members { channel, members } if channel == general => Some(members),
+        _ => None,
+    })
+    .await;
+    let person = |name: &str| members.iter().find(|member| member.name == name).unwrap();
+    assert!(person("Bob").decoration.is_some() && person("Bob").nameplate.is_some());
+    assert!(person("Carol").decoration.is_none());
+    assert_eq!(
+        person("Carol").nameplate.as_ref().unwrap().colors,
+        Some([0x730bc8, 0x972fed])
+    );
+    // Dave has none of his own, but wears a decoration and a nameplate for
+    // this server alone, which member objects carry; Bob's name takes a
+    // style there, and Carol's everywhere.
+    assert!(
+        person("Dave")
+            .decoration
+            .as_deref()
+            .is_some_and(|url| url.ends_with("/collectibles-shop/1500000000000000005/static"))
+    );
+    assert_eq!(
+        person("Dave").nameplate.as_ref().unwrap().colors,
+        Some([0x086460, 0x7deed7])
+    );
+    let bob_style = person("Bob").style.unwrap();
+    assert_eq!((bob_style.font, bob_style.effect), (14, 3));
+    assert_eq!(bob_style.colors(), [0x00ff99]);
+    let carol_style = person("Carol").style.unwrap();
+    assert_eq!((carol_style.font, carol_style.effect), (3, 2));
+    assert_eq!(carol_style.colors(), [0xff7eb3, 0x7a5cff]);
+    assert!(person("Alice").style.is_none());
+
+    // What messages learn of an author is the same as the list's.
+    discord
+        .history(&guild, &general, Span::Latest)
+        .await
+        .unwrap();
+    assert_eq!(
+        discord.decoration(Some(&guild), &bob),
+        person("Bob").decoration
+    );
+
+    // Both pictures are on the CDN, as PNGs, at the address Discord's client
+    // asks for.
+    let decoration = discord
+        .download(person("Bob").decoration.as_deref().unwrap(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(&decoration[16..24], &[0, 0, 1, 32, 0, 0, 1, 32], "288x288");
+    let strip = discord
+        .download(
+            &person("Carol").nameplate.as_ref().unwrap().picture,
+            1 << 20,
+        )
+        .await
+        .unwrap();
+    assert_eq!(&strip[16..24], &[0, 0, 1, 192, 0, 0, 0, 84], "448x84");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn reads_history_and_member_lists() {
     let Fixture {
         _fake,

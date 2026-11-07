@@ -493,6 +493,9 @@ pub struct AppState {
     pub reply_ping: bool,
     /// Tracking parameters come out of the links in sent messages.
     pub strip_tracking: bool,
+    /// Nameplates aren't fetched or shown, in member lists or on the
+    /// account's card.
+    pub hide_nameplates: bool,
     /// Messages from people this account blocked don't show at all, rather
     /// than collapsed.
     pub hide_blocked: bool,
@@ -509,6 +512,10 @@ pub struct AppState {
     /// the pointer is on the account card.
     pub account_username: Option<String>,
     pub account_avatar: Option<String>,
+    /// The decoration around the account's avatar and its nameplate, which
+    /// the account card at the bottom of the sidebar shows; Discord's.
+    pub account_decoration: Option<Arc<str>>,
+    pub account_nameplate: Option<crate::chat::Nameplate>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -915,6 +922,9 @@ impl AppState {
                 username: None,
                 role: Role::Member,
                 avatar: message.avatar.clone(),
+                decoration: None,
+                nameplate: None,
+                style: None,
                 group: None,
                 presence: None,
                 color: message.color,
@@ -942,6 +952,9 @@ impl AppState {
                 username: None,
                 role: Role::Member,
                 avatar: person.avatar.clone(),
+                decoration: None,
+                nameplate: None,
+                style: None,
                 group: None,
                 presence: None,
                 color: None,
@@ -969,6 +982,9 @@ impl AppState {
             username: None,
             role: Role::Member,
             avatar: None,
+            decoration: None,
+            nameplate: None,
+            style: None,
             group: None,
             presence: None,
             color: None,
@@ -1943,6 +1959,8 @@ pub enum Action {
     },
     /// Take tracking parameters out of links in sent messages.
     StripTracking(bool),
+    /// Turns nameplates off, or on again.
+    HideNameplates(bool),
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
@@ -2155,22 +2173,40 @@ fn pictures_on_screen<'a>(
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
+        .chain(state.account_decoration.as_deref())
+        .chain(
+            state
+                .account_nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates)
+                .map(|plate| &*plate.picture),
+        )
         .chain(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
                 .flat_map(|room| {
-                    room.avatar
-                        .as_deref()
-                        .into_iter()
-                        .chain(tag_badge(&room.tag))
+                    [
+                        room.avatar.as_deref(),
+                        room.decoration.as_deref(),
+                        tag_badge(&room.tag),
+                    ]
                 })
+                .flatten()
                 .take(LISTED_PICTURES),
         )
         .chain(
             state
                 .selected_room()
                 .and_then(|room| room.avatar.as_deref()),
+        )
+        // A DM's row shows its nameplate only selected or under the pointer.
+        .chain(
+            state
+                .selected_room()
+                .filter(|_| !state.hide_nameplates)
+                .and_then(|room| room.nameplate.as_ref())
+                .map(|plate| &*plate.picture),
         )
         .chain(
             state
@@ -2324,6 +2360,7 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
+                        .chain(profile.decoration.as_deref())
                         .chain(tag_badge(&profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         .chain(profile.badges.iter().flat_map(|badge| {
@@ -2358,6 +2395,7 @@ fn pictures_on_screen<'a>(
                         .avatar
                         .as_deref()
                         .into_iter()
+                        .chain(message.decoration.as_deref())
                         .chain(reply)
                         .chain(tag_badge(&message.tag))
                 })
@@ -2385,6 +2423,12 @@ fn pictures_on_screen<'a>(
                 .flat_map(|member| {
                     [
                         member.avatar.as_deref(),
+                        member.decoration.as_deref(),
+                        member
+                            .nameplate
+                            .as_ref()
+                            .filter(|_| !state.hide_nameplates)
+                            .map(|plate| &*plate.picture),
                         member.group_icon.as_deref(),
                         member.role_icon.as_deref(),
                         tag_badge(&member.tag),
@@ -3259,6 +3303,10 @@ impl Application {
             }
             Action::StripTracking(strip) => {
                 self.state.strip_tracking = strip;
+                vec![]
+            }
+            Action::HideNameplates(hide) => {
+                self.state.hide_nameplates = hide;
                 vec![]
             }
             Action::HideBlocked(hide) => {

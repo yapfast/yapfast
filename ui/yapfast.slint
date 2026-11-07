@@ -29,7 +29,7 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, PictureStore } from "controls.slint";
+import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
@@ -56,7 +56,7 @@ export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, EmojiAnimations, Motion } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion, AccountLook } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
@@ -1082,6 +1082,8 @@ export component YapfastWindow inherits Window {
     in-out property <bool> link-previews: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
+    /// Whether nameplates show, in member lists and on the account's card.
+    in-out property <bool> show-nameplates: true;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
@@ -2381,17 +2383,22 @@ export component YapfastWindow inherits Window {
                 VerticalLayout {
                     padding: ClientStyle.account-inset; padding-top: 0px;
                     account-panel := Rectangle {
-                        // Each part of the card lights only itself.
+                        // Anywhere on the card brightens its nameplate; each part lights only itself.
                         property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
                         height: ClientStyle.account-height; background: Theme.panel;
                         border-radius: ClientStyle.enabled ? 8px : 0px;
+                        // The nameplate fills the card, a pixel beyond it above and below.
+                        if AccountLook.nameplate-url != "": Nameplate {
+                            x: 0px; y: -1px; width: parent.width + 1px; height: parent.height + 2px;
+                            radius: ClientStyle.enabled ? 8px : 0px; account: true; hovered: account-panel.hot; animate: account-panel.hot; picture-url: AccountLook.nameplate-url; palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
+                        }
                         if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
                         HorizontalLayout {
                             // Discord's controls sit 3px further apart and 6px further from the edge.
                             padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
                             Rectangle {
                                 width: ClientStyle.enabled ? 50px : 58px;
-                                Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
+                                Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
                                 if root.account-presence != "": StatusDot {
                                     x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
                                 }
@@ -2410,7 +2417,7 @@ export component YapfastWindow inherits Window {
                             // With Discord linked, the avatar and name open the status menu.
                             Rectangle {
                                 horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
-                                // Discord's light, see-through fill.
+                                // Discord's light, see-through fill, so the nameplate shows through.
                                 background: account-touch.has-hover || avatar-touch.has-hover ? Theme.overlay.with-alpha(account-touch.pressed || avatar-touch.pressed ? 0.12 : 0.08) : transparent;
                                 animate background { duration: Theme.quick; }
                                 accessible-role: button;
@@ -3734,6 +3741,8 @@ export component YapfastWindow inherits Window {
             can-save: root.theme-can-save;
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
+            show-nameplates <=> root.show-nameplates;
+            preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }

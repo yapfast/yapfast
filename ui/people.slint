@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
-import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField, ServerTagChip } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Nameplate, StatusText, PictureStore, TextField, ServerTagChip } from "controls.slint";
 import { StatusDot } from "rail.slint";
 
 /// A member of the open room. A heading starts each role's group.
@@ -16,6 +16,11 @@ export struct MemberRow {
     /// address of its custom emoji's picture.
     activity: string, activity-emoji: string,
     picture-url: string,
+    /// The address of the decoration around their avatar, and of their
+    /// nameplate's picture with its palette's colours on a dark theme and a
+    /// light one; empty for none.
+    decoration-url: string, nameplate-url: string, nameplate-color: color, nameplate-light: color,
+    /// How their name is drawn.
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
     /// The server tag they wear by their name, and its badge's address.
@@ -100,6 +105,14 @@ export component MemberPanel inherits Rectangle {
                 Rectangle {
                   height: 42px; border-radius: 8px;
                   background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f : transparent;
+                  if member.nameplate-url != "": Nameplate {
+                      radius: 8px; picture-url: member.nameplate-url; palette: Theme.dark ? member.nameplate-color : member.nameplate-light;
+                      hovered: member-pointer.has-hover; selected: member.id == root.selected;
+                      animate: member-pointer.has-hover || member.id == root.selected;
+                      ground: member.id == root.selected ? Theme.active : member-pointer.has-hover ? Theme.hover : Theme.sidebar;
+                      content-width: min(text-column.preferred-width, text-column.width);
+                      opacity: member.presence == "offline" ? 0.5 : 1;
+                  }
                   accessible-role: button;
                   accessible-label: member.name + ", " + member.id + ", show profile";
                   accessible-action-default => { root.open-profile(member.id, self.absolute-position.y); }
@@ -113,16 +126,16 @@ export component MemberPanel inherits Rectangle {
                     }
                   }
                   HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; spacing: 12px;
+                    padding-left: 8px; padding-right: member.nameplate-url != "" ? 12px : 8px; spacing: 12px;
                     // Offline Discord members are faded, as in Discord.
                     Middle {
                         Rectangle {
                             width: 32px; height: 32px;
-                            Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; opacity: member.presence == "offline" ? 0.4 : 1; }
+                            Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; opacity: member.presence == "offline" ? 0.4 : 1; }
                             if member.presence != "" && member.presence != "offline": StatusDot { x: 20px; y: 20px; presence: member.presence; ring: Theme.sidebar; }
                         }
                     }
-                    VerticalLayout {
+                    text-column := VerticalLayout {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
                             alignment: start; spacing: 4px;
@@ -202,6 +215,9 @@ export struct ProfileConnectionRow { kind: string, name: string, url: string, si
 
 export struct ProfileData {
     id: string, name: string, initial: string, tint: color, picture: image,
+    /// The address of the decoration around their avatar, and how their name
+    /// is drawn.
+    decoration-url: string,
     /// The colours of the profile's theme, a Nitro setting, which tint the
     /// card's gradient and border; the card is plain without them.
     theme-primary: color, theme-secondary: color, has-theme: bool,
@@ -669,8 +685,8 @@ export component ProfileCard inherits Rectangle {
                     Rectangle {
                         x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
                         width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
-                        background: root.docked && ClientStyle.enabled ? Theme.panel : Theme.sidebar;
-                        Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; }
+                        background: root.ground;
+                        Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: true; }
                         if root.data.presence != "" && root.data.presence != "offline": StatusDot {
                             x: parent.width - self.width - (root.large ? 14px : 10px); y: parent.height - self.height - (root.large ? 14px : 10px);
                             presence: root.data.presence; ring: root.ground;

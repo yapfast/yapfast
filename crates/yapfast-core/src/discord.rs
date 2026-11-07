@@ -66,6 +66,11 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
+/// Decorations and nameplates. A decoration is 288 pixels square, shrunk to
+/// show on the card's 96 pixels as sharply as an avatar on its 80. A nameplate,
+/// 448x84 or 672x126, is shrunk to the smaller, twice a row's height.
+#[cfg(feature = "discord")]
+const COLLECTIBLE_SIZE: (u32, u32) = (448, 160);
 /// The most a profile badge's icon is decoded at: twice the 20px it shows at.
 #[cfg(feature = "discord")]
 const BADGE_SIZE: u32 = 40;
@@ -672,6 +677,9 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
             .collect(),
         incoming: dm.ringing.iter().any(|person| person.user_id == me),
         avatar: dm.avatar.clone(),
+        decoration: dm.decoration.clone(),
+        nameplate: dm.nameplate.clone().map(|plate| Arc::new(plate.into())),
+        style: dm.style.map(|style| Arc::new(style.into())),
         upload_limit: yapfast_discord::api::upload_limit(premium, None),
         presence: dm.presence.map(presence),
         activity: dm.activity.clone(),
@@ -816,6 +824,9 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                decoration: None,
+                nameplate: None,
+                style: None,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -865,6 +876,9 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                decoration: None,
+                nameplate: None,
+                style: None,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -959,6 +973,9 @@ fn thread_room(
         ringing: vec![],
         incoming: false,
         avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
         presence: None,
         activity: None,
         activities: Default::default(),
@@ -1162,6 +1179,8 @@ impl Pictures {
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
+                } else if url.contains("/collectibles-shop/") {
+                    COLLECTIBLE_SIZE
                 } else if url.contains("/badge-icons/") {
                     (BADGE_SIZE, BADGE_SIZE)
                 } else {

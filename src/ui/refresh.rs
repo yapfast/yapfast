@@ -815,6 +815,24 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
+                    decoration_url: room.decoration.as_deref().unwrap_or_default().into(),
+                    nameplate_url: room
+                        .nameplate
+                        .as_ref()
+                        .filter(|_| !state.hide_nameplates)
+                        .map(|plate| &*plate.picture)
+                        .unwrap_or_default()
+                        .into(),
+                    nameplate_color: role_color(
+                        room.nameplate
+                            .as_ref()
+                            .and_then(|plate| Some(plate.colors?[0])),
+                    ),
+                    nameplate_light: role_color(
+                        room.nameplate
+                            .as_ref()
+                            .and_then(|plate| Some(plate.colors?[1])),
+                    ),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
@@ -1004,6 +1022,29 @@ impl Adapter {
             state,
             state.account_avatar.as_deref(),
         ));
+        let look = window.global::<AccountLook>();
+        look.set_decoration_url(
+            state
+                .account_decoration
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
+        );
+        look.set_nameplate_url(
+            state
+                .account_nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates)
+                .map(|plate| &*plate.picture)
+                .unwrap_or_default()
+                .into(),
+        );
+        let colors = state
+            .account_nameplate
+            .as_ref()
+            .and_then(|plate| plate.colors);
+        look.set_nameplate_color(role_color(colors.map(|colors| colors[0])));
+        look.set_nameplate_light(role_color(colors.map(|colors| colors[1])));
         let (custom_status, status_emoji) = state
             .custom_status
             .as_ref()
@@ -1649,6 +1690,26 @@ impl Adapter {
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
                         tag: tag_text(&member.tag),
                         tag_badge: tag_badge(&member.tag),
+                        decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
+                        nameplate_url: member
+                            .nameplate
+                            .as_ref()
+                            .filter(|_| !state.hide_nameplates)
+                            .map(|plate| &*plate.picture)
+                            .unwrap_or_default()
+                            .into(),
+                        nameplate_color: role_color(
+                            member
+                                .nameplate
+                                .as_ref()
+                                .and_then(|plate| Some(plate.colors?[0])),
+                        ),
+                        nameplate_light: role_color(
+                            member
+                                .nameplate
+                                .as_ref()
+                                .and_then(|plate| Some(plate.colors?[1])),
+                        ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),

@@ -276,6 +276,9 @@ fn members_belong_to_the_selected_text_room() {
         username: None,
         role: Role::Member,
         avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
         group: None,
         presence: None,
         color: None,
@@ -2977,6 +2980,9 @@ fn member(id: &str, name: &str) -> ChatMember {
         username: None,
         role: Role::Member,
         avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
         group: None,
         presence: None,
         color: None,
@@ -3178,6 +3184,8 @@ fn discord_mentions_search_the_server_and_name_roles() {
             username: String::new(),
             name: "Alice".into(),
             avatar: String::new(),
+            decoration: None,
+            nameplate: None,
             premium_type: 2,
             mfa_enabled: false,
             has_email: true,
@@ -3902,6 +3910,9 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             username: None,
             role: Role::Moderator,
             avatar: Some("bob.png".into()),
+            decoration: None,
+            nameplate: None,
+            style: None,
             group: None,
             presence: None,
             color: None,
@@ -3943,6 +3954,63 @@ fn matrix_profiles_show_what_the_member_list_knows() {
     assert!(app.state.profile.is_none());
     app.dispatch(Action::ShowDmProfile("general".into()));
     assert!(app.state.profile.is_none(), "a room has no one person");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn decorations_and_nameplates_reach_profiles_and_the_account() {
+    use yapfast_discord::{
+        collectibles::{Nameplate, Style},
+        service::{Account, Conversation, Snapshot, Status},
+    };
+    let mut app = Application::default();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        conversations: vec![Arc::new(Conversation {
+            id: "30".into(),
+            name: "Ann".into(),
+            decoration: Some("ring.png".into()),
+            style: Style::parse(&serde_json::json!(
+                {"font_id": 4, "effect_id": 3, "colors": [65280]}
+            )),
+            person: Some("7".into()),
+            people: 2,
+            ..Default::default()
+        })],
+        account: Some(Account {
+            username: String::new(),
+            name: "Me".into(),
+            avatar: "me.png".into(),
+            decoration: Some("mine.png".into()),
+            nameplate: Some(Nameplate {
+                picture: "plate.png".into(),
+                colors: Some([0x730bc8, 0x972fed]),
+            }),
+            premium_type: 0,
+            mfa_enabled: false,
+            has_email: true,
+        }),
+        ..Default::default()
+    }));
+    // The DM's card shows their decoration before Discord's profile
+    // arrives.
+    app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
+    let view = app.state.profile.as_ref().unwrap();
+    assert_eq!(view.profile.decoration.as_deref(), Some("ring.png"));
+    let style = view.profile.style.as_ref().unwrap();
+    assert_eq!(
+        (style.font, style.effect, style.colors()),
+        (4, 3, &[0x00ff00][..])
+    );
+    // Without Matrix the account is Discord's, and its card has both.
+    if cfg!(not(feature = "matrix")) {
+        assert_eq!(app.state.account_decoration.as_deref(), Some("mine.png"));
+        let plate = app.state.account_nameplate.as_ref().unwrap();
+        assert_eq!(
+            (&*plate.picture, plate.colors),
+            ("plate.png", Some([0x730bc8, 0x972fed]))
+        );
+    }
 }
 
 #[test]
@@ -5143,6 +5211,104 @@ fn pictures_off_screen_go_once_many_have_arrived() {
         "asked for again when shown"
     );
     assert_eq!(app.state.picture_changes, KEPT_PICTURES as u64 + 2);
+}
+
+#[test]
+fn decorations_and_nameplates_stay_while_their_people_show() {
+    let mut app = connected();
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![ChatMessage {
+            avatar: Some("ann.png".into()),
+            decoration: Some("ring.png".into()),
+            ..message("e:$ann", false)
+        }]),
+    });
+    app.state.members = Some(Ok(vec![ChatMember {
+        decoration: Some("bobs-ring.png".into()),
+        nameplate: Some(crate::chat::Nameplate {
+            picture: "plate.png".into(),
+            colors: Some([0x730bc8, 0x972fed]),
+        }),
+        ..member("@bob", "Bob")
+    }]));
+    for url in ["ring.png", "bobs-ring.png", "plate.png"]
+        .into_iter()
+        .map(String::from)
+        .chain((0..=KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    for shown in ["ring.png", "bobs-ring.png", "plate.png"] {
+        assert!(app.state.pictures.contains_key(shown), "{shown} stays");
+    }
+    assert!(!app.state.pictures.contains_key("0.png"));
+}
+
+#[test]
+fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
+    let mut app = connected();
+    app.state.members = Some(Ok(vec![ChatMember {
+        decoration: Some("bobs-ring.png".into()),
+        nameplate: Some(crate::chat::Nameplate {
+            picture: "plate.png".into(),
+            colors: None,
+        }),
+        ..member("@bob", "Bob")
+    }]));
+    app.dispatch(Action::HideNameplates(true));
+    for url in ["bobs-ring.png", "plate.png"]
+        .into_iter()
+        .map(String::from)
+        .chain((0..=KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key("bobs-ring.png"));
+    assert!(!app.state.pictures.contains_key("plate.png"));
+}
+
+#[test]
+fn the_selected_dms_nameplate_stays_and_the_others_go() {
+    let mut app = connected();
+    let selected = app.state.selected.clone().unwrap();
+    let plate = |picture: &str| {
+        Some(Arc::new(chat::Nameplate {
+            picture: picture.into(),
+            colors: None,
+        }))
+    };
+    let dm = |id: &str, picture: &str| {
+        let room = app.state.rooms[0].clone();
+        Arc::new(ChatRoom {
+            id: id.into(),
+            nameplate: plate(picture),
+            ..(*room).clone()
+        })
+    };
+    let rooms = vec![dm(&selected, "shown.png"), dm("other", "other.png")];
+    app.state.rooms = rooms;
+    for url in ["shown.png", "other.png"]
+        .into_iter()
+        .map(String::from)
+        .chain((0..KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key("shown.png"));
+    assert!(!app.state.pictures.contains_key("other.png"));
 }
 
 #[test]
@@ -7733,6 +7899,8 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
         username: String::new(),
         name: "Alice".into(),
         avatar: "alice.png".into(),
+        decoration: None,
+        nameplate: None,
         premium_type: 2,
         mfa_enabled: false,
         has_email: true,
@@ -7959,6 +8127,8 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
         username: String::new(),
         name: "Alice".into(),
         avatar: "alice.png".into(),
+        decoration: None,
+        nameplate: None,
         premium_type: 2,
         mfa_enabled: false,
         has_email: true,

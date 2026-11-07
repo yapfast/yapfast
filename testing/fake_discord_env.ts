@@ -42,10 +42,22 @@ export type Me = {
   /** A picture file; without one a generated picture, with null Discord's default. */
   avatar?: string | null;
   email?: string;
+  /** What they equip from the collectibles shop; see `Person`. */
+  decoration?: string;
+  nameplate?: Nameplate;
+  style?: DisplayNameStyle;
   nitro?: boolean;
   status?: Status;
   customStatus?: CustomStatus;
 };
+
+/** A nameplate: the SKU it was sold as, which names its picture, and a palette such as "violet", "teal" or "bubble_gum". */
+export type Nameplate = { sku: string; palette: string };
+
+/** A display name style: Discord's font id (11 is the usual font; 3 Sakura, 4 Jellybean, 6 Modern, 7 Medieval, 8 8Bit,
+ *  10 Vampyre, 12 Tempo, 13 Monkey Bars, 14 Mainframe, 15 Headbang, 16 Journal), effect id (1 solid, 2 gradient, 3 neon,
+ *  4 toon, 5 pop, 6 glow, 7 prism, 8 gummy) and RGB colours as numbers. */
+export type DisplayNameStyle = { font: number; effect: number; colors: number[] };
 
 export type Person = {
   /** How the env names them: in `from`, `with`, `who`, reactions' `by`, and `<@key>`. */
@@ -54,6 +66,10 @@ export type Person = {
   username?: string;
   name?: string;
   avatar?: string | null;
+  /** The SKU of the avatar decoration they wear: a ring around their avatar. */
+  decoration?: string;
+  nameplate?: Nameplate;
+  style?: DisplayNameStyle;
   bot?: boolean;
   /** "online" without one. */
   status?: Status;

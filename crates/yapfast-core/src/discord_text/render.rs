@@ -101,6 +101,10 @@ pub(super) fn found(
         sender: discord::sender_id(&message.author_id),
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
+        decoration: discord.decoration(guild, &message.author_id),
+        style: discord
+            .style(guild, &message.author_id)
+            .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
         bot: message.bot,
         body,
@@ -565,6 +569,10 @@ pub(super) fn chat_profile(
     Profile {
         name: profile.name,
         avatar: Some(profile.avatar),
+        decoration: discord.decoration(Some(guild), &profile.user_id),
+        style: discord
+            .style(Some(guild), &profile.user_id)
+            .map(|style| Arc::new(style.into())),
         theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
@@ -745,6 +753,9 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         username: member.username,
         role: Role::Member,
         avatar: Some(member.avatar),
+        decoration: member.decoration,
+        nameplate: member.nameplate.map(Into::into),
+        style: member.style.map(|style| Arc::new(style.into())),
         group: Some(member.group),
         group_icon: member.group_icon,
         role_icon: member.role_icon,

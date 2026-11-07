@@ -1047,6 +1047,8 @@ struct Layout {
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
     strip_tracking: Option<bool>,
+    /// Nameplates show; on unless turned off.
+    nameplates: Option<bool>,
     /// When animations play.
     animate: Animate,
     /// Joining a call turns the microphone on; on unless turned off.
@@ -1317,6 +1319,7 @@ impl Layout {
         window.set_link_previews(self.link_previews.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
+        window.set_show_nameplates(self.nameplates.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);
@@ -1919,6 +1922,7 @@ impl Adapter {
         app.dispatch(Action::ReplyPing(layout.reply_ping.unwrap_or(true)));
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
+        app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
         Ok(Rc::new_cyclic(|weak| {
             RefCell::new(Self {

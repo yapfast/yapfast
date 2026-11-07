@@ -298,6 +298,9 @@ an error.
   play, with H264, VP8, VP9 or AV1 pictures in 4:2:0, 4:2:2 or 4:4:4 at
   8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound;
   HEVC, which iPhones record, doesn't, as libwebrtc's FFmpeg lacks it.
+  A WebM's transparency shows, at 8 bits: it's a second video, in each block's
+  BlockAdditional, whose brightness is the picture's alpha, which
+  `native/video.c` decodes with a second libvpx decoder when a packet has one.
   The file downloads into `discord-videos/` beside the account file, and
   plays as it arrives: the worker's reads wait for the download. It goes
   when the video stops, as when its channel, or its thread beside the
