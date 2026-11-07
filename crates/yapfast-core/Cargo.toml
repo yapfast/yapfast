@@ -90,6 +90,8 @@ cc = "1"
 webrtc-sys-build = "0.3.18"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Real-time priority for the audio threads.
+libc = "0.2"
 # The input meter reads the microphone locally through PulseAudio, the sound
 # server WebRTC already uses on Linux, without involving a call.
 libpulse-binding = { version = "2", default-features = false }
