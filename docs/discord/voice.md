@@ -12,11 +12,15 @@ Scope for the beta:
   RNNoise, rather than WebRTC's, as described under Microphone below.
 
 Clicking a voice channel joins through the same voice dock and one-call rule as
-Matrix voice. Calls start with the microphone on unless Settings turns that
-off, mute and deafen show in Discord, and a voice gate sends audio only during
-speech. Audio goes through `audio_io.rs`, PulseAudio on Linux and WASAPI on
-Windows, and libwebrtc's processing module; see the [Windows
-guide](../windows-beta.md#discord-voice-on-windows) for what's been checked there.
+Matrix voice, and, as Discord's client does, without showing the call: a second
+click on the channel, or its line in the dock, does that. Discord's client goes
+to the channel as it joins only when its chat has a mention, where it opens the
+chat, and from buttons that say so, such as Join Voice on a voice channel's
+popout, which Yapfast doesn't have. Calls start with the microphone on unless
+Settings turns that off, mute and deafen show in Discord, and a voice gate
+sends audio only during speech. Audio goes through `audio_io.rs`, PulseAudio
+on Linux and WASAPI on Windows, and libwebrtc's processing module; see the
+[Windows guide](../windows-beta.md#discord-voice-on-windows) for what's been checked there.
 davey's change for Go Live groups is described in
 `vendor/davey/README.yapfast.md`.
 
@@ -226,8 +230,10 @@ DM's picture, Decline and Accept, and Yapfast rings: a rising arpeggio
 synthesized in `ring.rs` and played through `audio_io.rs` on the call's speakers
 until the call is answered, declined or stops ringing. While Yapfast isn't in
 front a desktop notification says who is calling. On Do Not Disturb the card
-shows without the ring or the notification. Accepting opens the DM and
-joins, leaving any other call without asking, since answering already chose.
+shows without the ring or the notification. Accepting joins, leaving any
+other call without asking, since answering already chose, and leaves what's
+on screen as it was, as Discord's client does for a voice call: the call shows
+in the dock, whose channel line opens the DM.
 Declining posts `POST /channels/{id}/call/stop-ringing` with this account,
 which leaves the call to the others. The DM's own call shows the same choice
 above its messages when it's open.

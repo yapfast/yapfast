@@ -2417,6 +2417,7 @@ export component YapfastWindow inherits Window {
                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                    open-call => { root.open-conversation(root.voice-channel); }
                 }
                 // Inset the account card while preserving the inherited controls.
                 VerticalLayout {

@@ -1578,8 +1578,8 @@ pub enum Action {
     NavigateBack,
     /// Go forward again after going back.
     NavigateForward,
-    /// Answer a Discord DM call ringing this account: open the conversation
-    /// and join, leaving any other call, or decline it.
+    /// Answer a Discord DM call ringing this account: join it, leaving any
+    /// other call, without opening the conversation; or decline it.
     AcceptCall(String),
     DeclineCall(String),
     /// Send a Discord user a friend request, or accept theirs.
