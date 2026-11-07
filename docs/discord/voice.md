@@ -484,7 +484,8 @@ the next key pressed, and Escape stops without changing it; until there's a
 key, settings say the microphone sends nothing. Yapfast keeps the key by its
 scan code (`push_to_talk_key`), so it's the same key on any keyboard layout,
 with its name and, for the portal below, its keysym. One key, without
-modifiers; mouse buttons can't be recorded.
+modifiers. On Windows, Mouse 4 (Back) and Mouse 5 (Forward) can be recorded
+instead; reserved values in the same field distinguish them from scan codes.
 
 `crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether the key is
 down and the delay in atomics. The microphone reads them each 10 ms block,
@@ -502,7 +503,7 @@ on the local stack.
 | --- | --- | --- |
 | Wayland | The xdg-desktop-portal GlobalShortcuts portal: Yapfast binds one shortcut, offering the key as its preferred trigger, and holds it from Activated to Deactivated. The desktop may ask to approve it or give it another key; settings show the shortcut it gave. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_key_and_holds_it`); not on a real desktop |
 | X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the key to it | Under Xvfb, with xdotool typing (`x11_hears_the_key_whatever_has_the_focus`) |
-| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) on a thread of its own, which sees the key's release, unlike `RegisterHotKey`, and passes every key on | Under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); not on real Windows, where Windows may keep keys typed into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
+| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) for a key or mouse hook (`WH_MOUSE_LL`) for Mouse 4/5, on a thread of its own, which sees the release, unlike `RegisterHotKey`, and passes every event on | Keyboard under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); mouse recording, XBUTTON down/up and the focused fallback in unit tests; not on real Windows, where Windows may keep input into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
 
 Where none of these works, as on a wlroots desktop such as Sway, which has no
 GlobalShortcuts, the window's own key events stand in, so the key works while
