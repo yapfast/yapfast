@@ -436,7 +436,8 @@ an error.
   joins, pins and call notices don't. Nothing notifies while the account's
   status is Do Not Disturb. They show while Yapfast
   isn't in front, titled with who wrote where, and clicking one opens the
-  conversation. On Linux they go to the freedesktop notification service.
+  conversation. On Linux they go to the freedesktop notification service; on
+  Windows they're toasts ([Windows](../windows-beta.md#notifications-on-windows)).
   Each also plays Yapfast's message sound, or its mention sound, unless it's in
   the conversation in front; see [voice](../voice.md#sounds).
 - Mentions in messages are links on a light fill, in the role's colour or the

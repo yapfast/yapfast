@@ -163,6 +163,33 @@ in the menu are untested on Windows.
 
 [The tray](tray.md#windows) lists what to check on real Windows.
 
+## Notifications on Windows
+
+Desktop notifications are WinRT toasts, shown from a thread of their own
+(`src/notify.rs`). Windows shows a toast only from an app ID it knows. Setting
+one on the process would also have to go on the Start menu shortcut, or the
+taskbar would group the window apart from it, and a portable copy has no
+shortcut. So each start registers `io.github.yapfast.Yapfast` under
+`HKCU\Software\Classes\AppUserModelId` instead, with Yapfast's name and the
+256-pixel picture from its icon, written to `notifications\icon.png` in the
+data folder; uninstalling removes the key. Each toast's author picture goes in
+`notifications\0.png` to `19.png`, in turn. Toasts are silent, since Yapfast
+plays its own sounds.
+
+Clicking a toast while Yapfast runs opens its conversation, through the toast's
+`Activated` event, for the last 20 shown: as many as the notification center
+keeps of an app's. Yapfast registers no COM activator, so a toast clicked after
+it quit doesn't start it.
+
+Wine has no toast service: Yapfast logs `starting toasts: 0x80040154` (class
+not registered) as it starts and goes on without notifications. The app ID's
+registry key and `icon.png` are still written, so that much can be checked
+there.
+
+Real Windows needs checking for: a toast's name, icon and picture; a click
+bringing the window forward from behind another and from the tray; Focus
+assist and Do Not Disturb; and Yapfast in Settings > System > Notifications.
+
 ## Dragging the window
 
 From the press on the title bar or a border until the release, Windows moves or

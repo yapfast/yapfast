@@ -83,6 +83,9 @@ Root: HKCU; Subkey: "Software\Classes\yapfast\shell\open\command"; ValueType: st
 ; uninstalling gives them back (below) and drops what was kept.
 Root: HKCU; Subkey: "Software\Yapfast"; Flags: uninsdeletekeyifempty dontcreatekey
 Root: HKCU; Subkey: "Software\Yapfast\DiscordProtocol"; Flags: uninsdeletekey dontcreatekey
+; Each start registers Yapfast's name and icon for its notifications
+; (src/notify.rs); uninstalling forgets them.
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\io.github.yapfast.Yapfast"; Flags: uninsdeletekey dontcreatekey
 ; Uninstalling stops starting at sign-in, however it was turned on.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"; ValueType: none; ValueName: "Yapfast"; Flags: uninsdeletevalue dontcreatekey

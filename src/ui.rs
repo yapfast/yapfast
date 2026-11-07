@@ -1976,6 +1976,7 @@ impl Adapter {
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
+        let notifier = crate::notify::Notifier::start(open_from_notification, &root);
         Ok(Rc::new_cyclic(|weak| {
             RefCell::new(Self {
                 events: None,
@@ -2036,7 +2037,7 @@ impl Adapter {
                 emoji_dismissed: None,
                 suggesting_aside: false,
                 caret: None,
-                notifier: crate::notify::Notifier::start(open_from_notification),
+                notifier,
                 viewer_image: None,
                 viewer_size: None,
                 dialog: None,
