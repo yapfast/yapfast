@@ -182,7 +182,9 @@
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
 // stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, DELETE /channels/{id} closes a DM
+// read and write Alice's note on someone, GET /_control/note-reads counts the
+// reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
+// another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
 // with its `silent` query as sent, and PATCH /users/@me/guilds/@me/settings mutes and unmutes DMs. PATCH
 // /users/@me/guilds/{id}/settings changes her notification settings for a
@@ -395,6 +397,7 @@ const FRIEND_ACCEPT_MS = 2000;
 const ignored = new Set<string>();
 const nicknames = new Map<string, string>();
 const notes = new Map<string, string>();
+let noteReads = 0;
 const wireRelationship = (id: string, type: number) => ({
   id, type, nickname: nicknames.get(id) ?? null, user_id: id, since: JOINED_AT, user_ignored: ignored.has(id),
   stranger_request: strangerRequests.has(id),
@@ -846,6 +849,7 @@ function guildMemberProfile(id: string, guild = GUILD) {
     theme_colors: null,
     popout_animation_particle_type: null,
     emoji: null,
+    profile_effect: null,
   };
 }
 
@@ -6091,6 +6095,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if ((m = path.match(/^\/users\/@me\/notes\/(\d+)$/))) {
     const id = m[1]!;
     if (method === "GET") {
+      noteReads += 1;
       const note = notes.get(id);
       if (note === undefined) return notFound("Unknown User", 10013);
       return json({ note, note_user_id: id, user_id: ALICE });
@@ -7898,6 +7903,15 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/sessions") return Response.json(sessionCounts);
     if (path === "/_control/cookies") return Response.json(cookieCounts);
     if (path === "/_control/list-requests") return Response.json(listRequests);
+    if (path === "/_control/note-reads") return Response.json(noteReads);
+    if (req.method === "POST" && path === "/_control/note-elsewhere") {
+      const id = url.searchParams.get("user") ?? "";
+      const note = url.searchParams.get("note") ?? "";
+      if (note) notes.set(id, note);
+      else notes.delete(id);
+      dispatch("USER_NOTE_UPDATE", { id, note });
+      return new Response("changed\n");
+    }
     if (path === "/_control/audit-log") return Response.json(auditLog);
     if (req.method === "POST" && path === "/_control/audit-entries") {
       const body: any = await req.json().catch(() => ({}));

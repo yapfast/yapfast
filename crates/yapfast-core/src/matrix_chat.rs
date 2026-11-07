@@ -1088,6 +1088,8 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                         },
                         avatar: None,
                         group: None,
+                        group_icon: None,
+                        role_icon: None,
                         presence: None,
                         color: None,
                         activity: None,
@@ -1205,10 +1207,8 @@ async fn room_index(client: &Client) -> RoomIndex {
             parent: None,
             forum: false,
             unlisted: false,
-            tag: None,
             official: false,
             empty: false,
-            symbol: 0,
             preview: None,
         });
     }

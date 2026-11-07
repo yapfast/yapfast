@@ -147,7 +147,7 @@ pub struct Server {
     /// The address of the picture of each role that has one, which a member
     /// list draws by the role's name.
     #[serde(default)]
-    pub role_icons: Arc<HashMap<String, String>>,
+    pub role_icons: Arc<HashMap<String, Arc<str>>>,
     /// Each role's position, by id: higher roles list first.
     pub role_positions: Arc<HashMap<String, i64>>,
     /// Roles anyone may mention, by id.
@@ -172,10 +172,6 @@ pub struct Server {
     /// [`crate::marked::MarkedServer::follows_only`].
     #[serde(default)]
     pub community: bool,
-    /// The channel Discord asks new members to read first, which wears the
-    /// rules icon in the channel list.
-    #[serde(default)]
-    pub rules_channel: Option<String>,
     /// This account's timeout here while it lasts, set on a copy of the
     /// server when the service publishes it; see [`crate::marked`] for the
     /// rest of what's this account's.
@@ -333,12 +329,6 @@ pub struct Channel {
     /// A stage channel, among the voice channels, where no join sound plays.
     #[serde(default)]
     pub stage: bool,
-    /// A media channel, which is a forum of pictures and videos.
-    #[serde(default)]
-    pub media: bool,
-    /// Age-restricted, which Discord marks with a warning on its icon.
-    #[serde(default)]
-    pub nsfw: bool,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -649,37 +639,6 @@ impl Server {
             events.push(event);
             events.sort_by(|a, b| a.start.cmp(&b.start));
         }
-    }
-
-    /// Whether @everyone may not see `channel`: the server's @everyone
-    /// permissions with the channel's overwrite for @everyone applied, as
-    /// Discord's client works it out to put a padlock on the channel's icon.
-    /// A thread has its channel's readers and no padlock of its own.
-    pub fn private(&self, channel: &Channel) -> bool {
-        if channel.thread.is_some() {
-            return false;
-        }
-        // Without the server's roles @everyone is taken to see channels.
-        let Some(&everyone) = self.roles.get(&self.id) else {
-            return false;
-        };
-        if everyone & permission::ADMINISTRATOR != 0 {
-            return false;
-        }
-        let mut seen = everyone & permission::VIEW_CHANNEL != 0;
-        if let Some(overwrite) = channel
-            .overwrites
-            .iter()
-            .find(|overwrite| !overwrite.member && overwrite.id == self.id)
-        {
-            if overwrite.deny & permission::VIEW_CHANNEL != 0 {
-                seen = false;
-            }
-            if overwrite.allow & permission::VIEW_CHANNEL != 0 {
-                seen = true;
-            }
-        }
-        !seen
     }
 
     /// Who can read `channel`, as Discord's id for its member list, which
@@ -1208,7 +1167,8 @@ impl Server {
             }
             match value["icon"].as_str().filter(|hash| !hash.is_empty()) {
                 Some(hash) => {
-                    Arc::make_mut(&mut self.role_icons).insert(id.clone(), role_icon(&id, hash));
+                    Arc::make_mut(&mut self.role_icons)
+                        .insert(id.clone(), role_icon(&id, hash).into());
                 }
                 None => {
                     Arc::make_mut(&mut self.role_icons).remove(&id);
@@ -1289,7 +1249,7 @@ impl Server {
 
     /// The picture of a member's highest role that has one, as Discord draws
     /// it by their name.
-    pub fn role_icon(&self, roles: &[String]) -> Option<String> {
+    pub fn role_icon(&self, roles: &[String]) -> Option<Arc<str>> {
         if !self.role_icons_allowed {
             return None;
         }
@@ -1302,7 +1262,7 @@ impl Server {
 
     /// The picture beside a role's group in a member list, while the server
     /// may have role icons.
-    pub fn group_role_icon(&self, role: &str) -> Option<String> {
+    pub fn group_role_icon(&self, role: &str) -> Option<Arc<str>> {
         self.role_icons_allowed
             .then(|| self.role_icons.get(role).cloned())
             .flatten()
@@ -1398,10 +1358,6 @@ pub fn server(guild: &Value) -> Option<Server> {
         forwarding_disabled: has("FORWARDING_DISABLED"),
         verified: has("VERIFIED") || has("PARTNERED"),
         community: has("COMMUNITY"),
-        rules_channel: guild["rules_channel_id"]
-            .as_str()
-            .or_else(|| guild["properties"]["rules_channel_id"].as_str())
-            .map(str::to_owned),
         ..Default::default()
     };
     for role in guild["roles"].as_array().into_iter().flatten() {
@@ -1531,8 +1487,6 @@ fn parse_channel(channel: &Value) -> Option<Channel> {
         overwrites: Arc::new(overwrites(channel)),
         announcement: channel["type"].as_u64() == Some(GUILD_ANNOUNCEMENT),
         stage: channel["type"].as_u64() == Some(GUILD_STAGE_VOICE),
-        media: channel["type"].as_u64() == Some(GUILD_MEDIA),
-        nsfw: channel["nsfw"].as_bool().unwrap_or(false),
         archive_after: channel["default_auto_archive_duration"]
             .as_u64()
             .and_then(|minutes| u16::try_from(minutes).ok())
@@ -1875,40 +1829,6 @@ mod tests {
         let ended = ScheduledEvent::parse(&event("c", "2026-11-01T12:00:00+00:00", 3)).unwrap();
         server.put_event(ended, false);
         assert_eq!(ids(&server), ["b"], "one that ended no longer counts");
-    }
-
-    #[test]
-    fn a_channel_is_private_when_everyone_may_not_see_it() {
-        let server = Server {
-            id: "10".into(),
-            roles: HashMap::from([("10".into(), VIEW_CHANNEL)]).into(),
-            ..Default::default()
-        };
-        let hidden = |allow, deny| Channel {
-            overwrites: vec![Overwrite {
-                id: "10".into(),
-                member: false,
-                allow,
-                deny,
-            }]
-            .into(),
-            ..Default::default()
-        };
-        assert!(!server.private(&Channel::default()));
-        assert!(server.private(&hidden(0, VIEW_CHANNEL)));
-        assert!(!server.private(&hidden(VIEW_CHANNEL, 0)));
-        // A role's overwrite is not @everyone's.
-        let role = Channel {
-            overwrites: vec![Overwrite {
-                id: "20".into(),
-                member: false,
-                allow: 0,
-                deny: VIEW_CHANNEL,
-            }]
-            .into(),
-            ..Default::default()
-        };
-        assert!(!server.private(&role));
     }
 
     #[test]

@@ -116,7 +116,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Start call joins the DM's call, as the phone in its header does.
 - Add note writes this account's note on the other person:
   `GET /users/@me/notes/{id}` fills the dialog, a 404 meaning there's none,
-  and `PUT` with `{"note": ...}` saves it, an empty one removing it.
+  and `PUT` with `{"note": ...}` saves it, an empty one removing it. A note
+  read is kept in memory, so opening a profile again asks nothing:
+  USER_NOTE_UPDATE changes it, and a new session forgets them all.
 - Add friend nickname, for a friend, is `PATCH
   /users/@me/relationships/{id}` with `{"nickname": ...}`, or null to remove
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their

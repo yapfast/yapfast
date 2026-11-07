@@ -37,20 +37,6 @@ pub enum Activity {}
 #[cfg(not(feature = "discord"))]
 pub type Activities = Arc<[Activity]>;
 
-/// The icons of [`ChatRoom::symbol`].
-pub mod symbol {
-    pub const TEXT: u8 = 0;
-    pub const RULES: u8 = 1;
-    pub const ANNOUNCEMENT: u8 = 2;
-    pub const STAGE: u8 = 3;
-    pub const MEDIA: u8 = 4;
-    /// A text channel that is age-restricted.
-    pub const AGE_RESTRICTED: u8 = 5;
-    /// Set on any of the above for a channel @everyone may not see, which
-    /// Discord marks with a padlock on the icon.
-    pub const PRIVATE: u8 = 0x80;
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
     pub id: String,
@@ -123,9 +109,6 @@ pub struct ChatRoom {
     /// Show All Channels off for one this account doesn't follow; or a
     /// thread of one.
     pub unlisted: bool,
-    /// Which icon the channel list draws for it, one of [`symbol`], by its
-    /// kind: a rules channel, an announcement channel, a stage and so on.
-    pub symbol: u8,
     /// The other person is Discord's official account, which the DM list marks.
     pub official: bool,
     /// A one-to-one DM with no messages yet, where the DM list offers to wave.
@@ -774,8 +757,8 @@ pub struct ChatMember {
     /// The address of the picture of the role their group is, and of the
     /// highest of their roles that has one, which a member list draws by
     /// the group's heading and by their name.
-    pub group_icon: Option<String>,
-    pub role_icon: Option<String>,
+    pub group_icon: Option<Arc<str>>,
+    pub role_icon: Option<Arc<str>>,
     /// Whether they're around; Matrix members have no presence here.
     pub presence: Option<Presence>,
     /// The RGB colour of their name, from their highest coloured Discord role.

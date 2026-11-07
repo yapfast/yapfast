@@ -1,7 +1,7 @@
 import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label, Strings } from "theme.slint";
+import { Theme, Tip, Middle, Label } from "theme.slint";
 import { Avatar, PictureStore, StatusText, VoiceSpot } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
@@ -532,17 +532,17 @@ export component ChannelRow inherits Rectangle {
                             Rectangle {
                                 // Discord's verified-style badge: blurple, 16px, a check and OFFICIAL.
                                 height: 16px; width: official-text.preferred-width + 24px; border-radius: 4px; background: Theme.accent;
-                                accessible-role: AccessibleRole.text; accessible-label: Strings.official-badge;
+                                accessible-role: AccessibleRole.text; accessible-label: "OFFICIAL";
                                 HorizontalLayout {
                                     padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
                                     Middle { Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: Theme.on-accent; accessible-role: none; } }
-                                    official-text := Text { text: Strings.official-badge; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                                    official-text := Text { text: "OFFICIAL"; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
                                 }
                             }
                         }
                     }
                     if root.official && !root.has-detail && !root.in-voice: Text {
-                        text: Strings.official-message; color: Theme.muted; font-size: 12px; overflow: elide;
+                        text: "Official Discord Message"; color: Theme.muted; font-size: 12px; overflow: elide;
                     }
                     // Their voice channel in full when nothing else is said here,
                     // else a speaker before what is, as the friends list has it.
@@ -567,12 +567,12 @@ export component ChannelRow inherits Rectangle {
                     Rectangle {
                         height: 24px; width: wave-label.preferred-width + 40px; border-radius: 4px;
                         background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent;
-                        accessible-role: button; accessible-label: Strings.wave;
+                        accessible-role: button; accessible-label: "Wave";
                         accessible-action-default => { root.waved(); }
                         HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 4px; alignment: center;
                             Middle { Image { source: @image-url("icons/hand.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; accessible-role: none; } }
-                            wave-label := Text { text: Strings.wave; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
+                            wave-label := Text { text: "Wave"; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
                         }
                         wave-touch := TouchArea {
                             mouse-cursor: MouseCursor.pointer;

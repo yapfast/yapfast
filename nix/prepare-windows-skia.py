@@ -12,7 +12,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.local/windows/skia-static-production'
-KEY = 'b7f043e0b1e2a850e702-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static'
+KEY = '30669978c3f39a73e8a7-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static'
 PACKAGE = 'skia-binaries-' + KEY + '.tar.gz'
 
 
@@ -38,7 +38,7 @@ def main():
     if '21.1.7' not in compiler:
         raise SystemExit('Windows Skia requires pinned Clang 21.1.7')
     inputs = {
-        'skia_source': str(source), 'skia_revision': '61e7ca4e99062cdd0ab69445d5963fb3365778f6',
+        'skia_source': str(source), 'skia_revision': '6a8fe80eadfac737c12e64229a1b9530bc78f3d1',
         'compiler': compiler, 'clang': str(clang), 'lld': str(lld), 'headers': str(headers),
         'xwin': str(xwin), 'helper_sha256': digest(__file__),
         'namespace_helper_sha256': digest(ROOT / 'nix/prepare-skia-native.py'),
@@ -96,7 +96,7 @@ def main():
     messages = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
     outputs = [Path(m['out_dir']) / 'skia' for m in messages
                if m.get('reason') == 'build-script-executed'
-               and '#skia-bindings@0.153.3' in m.get('package_id', '')]
+               and '#skia-bindings@0.157.0' in m.get('package_id', '')]
     if len(outputs) != 1:
         raise SystemExit('Could not identify the pinned Skia build output')
     native = WORK / 'export/skia-binaries'
@@ -107,7 +107,7 @@ def main():
         shutil.copy2(outputs[0] / name, native / name)
     shutil.copy2(source / 'LICENSE', native / 'LICENSE_SKIA')
     (native / 'key.txt').write_text(KEY)
-    (native / 'tag.txt').write_text('0.153.3')
+    (native / 'tag.txt').write_text('0.157.0')
     raw = WORK / PACKAGE
     with raw.open('wb') as out:
         with gzip.GzipFile(filename='', mode='wb', fileobj=out, mtime=0) as compressed:

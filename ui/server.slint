@@ -1,6 +1,6 @@
 // Dialogs a Discord server's, category's or channel's menu opens.
 import { ScrollView } from "scrollview.slint";
-import { Theme, Label, Middle, Popup, Strings } from "theme.slint";
+import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { ProfileData, ProfileHeading, ProfileTitle } from "people.slint";
@@ -1059,7 +1059,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
-                                    ProfileTitle { text: Strings.member-since; }
+                                    ProfileTitle { text: "Member since"; }
                                     HorizontalLayout {
                                         spacing: 24px; alignment: start;
                                         if root.prompt.preview.created != "": VerticalLayout {
