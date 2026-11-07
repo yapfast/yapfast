@@ -3,7 +3,7 @@ import { Theme, Middle } from "theme.slint";
 import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } from "controls.slint";
 import { FoundRow, FoundCard } from "header.slint";
 import { SettingsSwitch } from "settings.slint";
-import { Composer, StagedFile, StagedTile } from "composer.slint";
+import { Composer, StagedFile, StagedTile, MentionRow, MentionList, EmojiSuggestions } from "composer.slint";
 import { EmojiCell, EmojiButton, MessageRow, MessageContent, HistoryEdge } from "messages.slint";
 
 /// A Discord thread beside the open channel, in place of its member list, as
@@ -48,6 +48,9 @@ export component ThreadPanel inherits Rectangle {
     in property <string> react-item;
     in property <string> menu-item;
     in property <string> confirm-delete;
+    /// Shift is held: the hover bar shows its quick actions.
+    in property <bool> shift-held;
+    in property <bool> forward-allowed;
     /// The rows at the top and bottom of the view, for the media to load.
     property <int> top-index: -1;
     property <int> bottom-index: -1;
@@ -63,6 +66,9 @@ export component ThreadPanel inherits Rectangle {
     callback viewport(int, int);
     callback reply(string);
     callback edit(string);
+    callback pin-message(string);
+    callback start-forward(string);
+    callback delete-now(string);
     callback react(string, string);
     /// A message's reaction picker or menu, opening beside what was clicked.
     callback open-picker(string, length, length, length, length);
@@ -88,6 +94,31 @@ export component ThreadPanel inherits Rectangle {
     /// Counts up for the window to focus the composer, after a menu's Reply or Edit.
     in property <int> focus-tick;
     changed focus-tick => { composer.focus-input(); }
+    /// Goes up for a key typed with nothing focused: the composer takes the
+    /// focus with its caret at the end.
+    in property <int> typing-tick;
+    changed typing-tick => { composer.focus-input(); composer.place-caret(1000000); }
+    callback composer-focused;
+    /// Escape in the composer; whether it was taken.
+    callback escape-composing() -> bool;
+    /// Counts up for the window to put the cursor at `caret-offset`, after a
+    /// suggestion was chosen.
+    in property <int> caret-tick;
+    in property <int> caret-offset;
+    changed caret-tick => { composer.place-caret(root.caret-offset); composer.focus-input(); }
+    // Mention and emoji suggestions for what's typed here, as the channel's
+    // composer has; the window fills them while this composer was typed in last.
+    in property <[MentionRow]> mentions;
+    in property <int> mention-index;
+    in property <[EmojiCell]> emoji-suggestions;
+    in property <string> emoji-suggestion-query;
+    in property <int> emoji-suggestion-index;
+    callback caret(string, int);
+    callback suggestion-moved(int);
+    callback suggestion-chosen;
+    callback suggestion-dismissed;
+    callback mention-chosen(int);
+    callback emoji-suggestion-chosen(int);
     public function scroll-to-latest() {
         root.follow-latest = true;
         thread-list.content-y = min(0px, thread-list.height - thread-list.content-height);
@@ -162,7 +193,7 @@ export component ThreadPanel inherits Rectangle {
                     background: self.lit ? Theme.row-hover : transparent;
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
-                        background: Theme.accent.transparentize(0.9);
+                        background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
                         Rectangle { x: 0px; width: 2px; background: Theme.accent; }
                     }
                     row-pointer := TouchArea {
@@ -219,11 +250,14 @@ export component ThreadPanel inherits Rectangle {
                     }
                     // The row's actions float over its top edge, as in the timeline,
                     // with fewer reactions for the narrower panel.
-                    if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": Rectangle {
+                    if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
                         x: parent.width - self.width - 12px; y: index == 0 ? 4px : -16px;
                         width: actions.preferred-width; height: actions.preferred-height;
                         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                         drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
+                        // Shift's quick actions, as in the timeline.
+                        property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
+                        property <bool> deletes: self.quick && message.can-delete && root.composer-enabled;
                         actions := HorizontalLayout {
                             padding: 3px; spacing: 0px;
                             if root.confirm-delete == message.item: HorizontalLayout {
@@ -234,10 +268,20 @@ export component ThreadPanel inherits Rectangle {
                             }
                             if root.confirm-delete != message.item: HorizontalLayout {
                                 spacing: 0px;
+                                if message-bar.quick && message.can-pin: IconButton {
+                                    icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                    label: message.pinned ? "Unpin" : "Pin";
+                                    clicked => { root.pin-message(message.item); }
+                                }
+                                if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
+                                    icon: @image-url("icons/reply.svg"); label: "Reply";
+                                    clicked => { root.reply(message.item); root.focus-composer(); }
+                                }
                                 if message.can-react && root.composer-enabled: HorizontalLayout {
                                     spacing: 0px;
                                     for cell[slot] in root.bar-reactions: EmojiButton {
-                                        visible: slot < 2; width: slot < 2 ? 32px : 0px;
+                                        animation-key: cell.key;
+                                        visible: slot < 2 && !message-bar.quick; width: slot < 2 && !message-bar.quick ? 32px : 0px;
                                         emoji: cell; font: root.emoji-font;
                                         clicked => { root.react(message.item, cell.key); }
                                     }
@@ -248,7 +292,15 @@ export component ThreadPanel inherits Rectangle {
                                 }
                                 if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                 if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
-                                IconButton {
+                                if message-bar.quick && message.can-forward && root.forward-allowed: IconButton {
+                                    icon: @image-url("icons/forward.svg"); label: "Forward";
+                                    clicked => { root.start-forward(message.item); }
+                                }
+                                if message-bar.deletes: IconButton {
+                                    icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
+                                    clicked => { root.delete-now(message.item); }
+                                }
+                                if !message-bar.deletes: IconButton {
                                     icon: @image-url("icons/ellipsis.svg"); label: "More";
                                     clicked => { root.open-menu(message, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 }
@@ -279,7 +331,7 @@ export component ThreadPanel inherits Rectangle {
                     IconButton { icon: @image-url("icons/x.svg"); label: root.is-editing ? "Cancel editing" : "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                 }
             }
-            Rectangle {
+            composer-box := Rectangle {
                 min-height: 48px;
                 background: Theme.field;
                 border-radius: 10px;
@@ -316,6 +368,13 @@ export component ThreadPanel inherits Rectangle {
                             edited(text) => { root.draft-edited(text); }
                             accepted => { root.send(); }
                             paste => { root.paste(); }
+                            suggesting: root.mentions.length > 0 || root.emoji-suggestions.length > 0;
+                            caret(text, offset) => { root.caret(text, offset); }
+                            suggestion-moved(step) => { root.suggestion-moved(step); }
+                            suggestion-chosen => { root.suggestion-chosen(); }
+                            suggestion-dismissed => { root.suggestion-dismissed(); }
+                            escaped => { return root.escape-composing(); }
+                            got-focus => { root.composer-focused(); }
                         }
                         VerticalLayout {
                             alignment: end; padding-bottom: 8px;
@@ -330,6 +389,24 @@ export component ThreadPanel inherits Rectangle {
                 }
             }
         }
+    }
+    // Suggestions just above the composer and as wide as it, over a reply's or
+    // an edit's bar, as the channel's show above its own.
+    property <length> suggestions-y: composer-box.absolute-position.y - root.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - 8px;
+    if root.mentions.length > 0 && root.composer-enabled: MentionList {
+        x: composer-box.absolute-position.x - root.absolute-position.x;
+        width: composer-box.width;
+        y: root.suggestions-y - self.height;
+        mentions: root.mentions; mention-index: root.mention-index;
+        mention-chosen(index) => { root.mention-chosen(index); }
+    }
+    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled: EmojiSuggestions {
+        x: composer-box.absolute-position.x - root.absolute-position.x;
+        width: composer-box.width;
+        y: root.suggestions-y - self.height;
+        emoji: root.emoji-suggestions; query: root.emoji-suggestion-query;
+        emoji-index: root.emoji-suggestion-index; emoji-font: root.emoji-font;
+        emoji-chosen(index) => { root.emoji-suggestion-chosen(index); }
     }
 }
 
@@ -362,6 +439,11 @@ export component NewThreadPanel inherits Rectangle {
     callback jump-to(string);
     callback open-link(string);
     public function focus-composer() { composer.focus-input(); }
+    /// Goes up for a key typed with nothing focused, as on ThreadPanel.
+    in property <int> typing-tick;
+    changed typing-tick => { composer.focus-input(); composer.place-caret(1000000); }
+    callback composer-focused;
+    callback escape-composing() -> bool;
     background: Theme.chat;
     accessible-role: groupbox;
     accessible-label: "New Thread";
@@ -419,6 +501,8 @@ export component NewThreadPanel inherits Rectangle {
                         edited(text) => { root.body-edited(text); }
                         accepted => { root.create(); }
                         paste => { self.paste-text(); }
+                        escaped => { return root.escape-composing(); }
+                        got-focus => { root.composer-focused(); }
                     }
                     VerticalLayout {
                         alignment: end; padding-bottom: 8px;

@@ -17,8 +17,8 @@ use super::{
     *,
 };
 use crate::chat::{
-    EmojiAction, PickedPicture, Picture, Pixels, RoleMember, ServerEmoji, ServerSticker,
-    StickerAction, StickerForm, file_size,
+    EmojiAction, PickedPicture, Picture, Pixels, RoleMember, ServerEmoji, ServerPreview,
+    ServerSticker, StickerAction, StickerForm, file_size,
 };
 
 /// An emoji as Discord's client sends one: square, at most 128 pixels, and
@@ -48,6 +48,20 @@ pub(super) fn command(
     let (server, work) = match command {
         Command::Discord(DiscordCommand::Emoji { server, action }) => (server, Ok(action)),
         Command::Discord(DiscordCommand::Stickers { server, action }) => (server, Err(*action)),
+        // A server's preview, for the card that an emoji of it opens.
+        Command::Discord(DiscordCommand::ServerPreview { server }) => {
+            let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+                let result = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+                let _ = events.send(Event::ServerPreview { server, result });
+                return None;
+            };
+            let (discord, guild, events) = (discord.clone(), guild.to_owned(), events.clone());
+            tokio::spawn(async move {
+                let result = server_preview(&discord, &guild).await;
+                let _ = events.send(Event::ServerPreview { server, result });
+            });
+            return None;
+        }
         other => return Some(other),
     };
     let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
@@ -95,6 +109,19 @@ pub(super) fn command(
         let _ = events.send(event);
     });
     None
+}
+
+/// How many of a server's members are around, and whether Discover lists it,
+/// for the card of one of its emoji.
+async fn server_preview(discord: &Discord, guild: &str) -> Result<ServerPreview, String> {
+    let preview = discord
+        .guild_preview(guild)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(ServerPreview {
+        online: preview.online,
+        discoverable: preview.discoverable,
+    })
 }
 
 async fn emoji(discord: &Discord, guild: &str, action: EmojiAction) -> Result<(), String> {

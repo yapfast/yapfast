@@ -34,7 +34,7 @@ serde.workspace = true
 serde_json.workspace = true
 slint = { workspace = true, optional = true }
 # Reject an unpinned native source build if the prepared Skia archive is unavailable.
-skia-safe = { version = "=0.153.3", default-features = false, features = ["binary-cache", "no-compile"], optional = true }
+skia-safe = { version = "=0.157.0", default-features = false, features = ["binary-cache", "no-compile"], optional = true }
 # Native open and save dialogs: XDG portals on Linux, common dialogs on Windows.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"], optional = true }
 # Names and categories for the emoji picker.
@@ -43,7 +43,7 @@ emojis = { version = "0.9", optional = true }
 memmap2 = { version = "0.9", optional = true }
 # Slint's internals, for the selection of text across messages Yapfast patches in; see
 # docs/building.md. Tests also read the testing backend's clipboard through it.
-i-slint-core = { version = "=1.18.1", optional = true }
+i-slint-core = { version = "=1.19.0", optional = true }
 yapfast-core = { path = "crates/yapfast-core", default-features = false }
 yapfast-ui = { path = "crates/yapfast-ui", optional = true }
 # Opens links clicked in messages in the default browser.
@@ -88,9 +88,14 @@ xkeysym = { version = "0.2.1", optional = true }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
 # The GPU setting draws through Direct3D 12 on Windows: NVIDIA's OpenGL driver
 # spins a core while it waits for the screen. See src/graphics.rs.
-i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional = true }
+i-slint-renderer-skia = { version = "=1.19.0", features = ["wgpu-30"], optional = true }
 
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
+[build-dependencies]
+emojis = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+png = "0.18"
+
 [[example]]
 name = "tray_host"
 path = "testing/tray_host.rs"
@@ -103,7 +108,7 @@ path = "testing/record_host.rs"
 required-features = ["desktop"]
 
 [dev-dependencies]
-i-slint-backend-testing = "=1.18.1"
+i-slint-backend-testing = "=1.19.0"
 yapfast-core = { path = "crates/yapfast-core", default-features = false, features = ["test-fixtures"] }
 # Builds a Discord server's snapshot for the menus' tests.
 yapfast-discord = { path = "crates/yapfast-discord" }
@@ -137,7 +142,7 @@ matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev 
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-011"] }
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-012"] }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 tracing = "0.1"
@@ -150,9 +155,23 @@ url = "2"
 webrtc-sys = { path = "vendor/webrtc-sys" }
 i-slint-core = { path = "vendor/i-slint-core" }
 i-slint-renderer-skia = { path = "vendor/i-slint-renderer-skia" }
+# Slint's master until 1.19 is released: its generated code compiles in half
+# the time, or better. See docs/building.md.
+slint = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+slint-build = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+i-slint-backend-testing = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+i-slint-common = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+i-slint-core-macros = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+vtable = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+const-field-offset = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
 davey = { path = "vendor/davey" }
 tungstenite = { path = "vendor/tungstenite" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
+
+# The crates of that commit reach these two by path, so they're patched there too.
+[patch."https://github.com/slint-ui/slint"]
+i-slint-core = { path = "vendor/i-slint-core" }
+i-slint-renderer-skia = { path = "vendor/i-slint-renderer-skia" }
 
 [profile.dev]
 debug = "line-tables-only"
@@ -193,8 +212,8 @@ strip = false
 incremental = true
 
 # Like measure with the Slint interface unoptimized: for tests, local runs and
-# checks. A one-line edit to a .slint file rebuilt yapfast-ui in 122 s at
-# opt-level 3, 113 s at 1 and 36 s at 0.
+# checks. An edit that adds an element to a .slint file rebuilt yapfast-ui in
+# 102 s at opt-level 3 and 81 s at 0; one that changes a value took 32 s and 34 s.
 [profile.fast]
 inherits = "measure"
 

@@ -3,6 +3,7 @@
 
 use super::{channels::SharedPreviews, *};
 use yapfast_discord::message::MentionTarget;
+use yapfast_discord::ready::Access;
 
 /// A new Discord message as a notification: who wrote it, by their name in the server,
 /// and what it says, or what it carries when it has no text.
@@ -100,6 +101,10 @@ pub(super) fn found(
         sender: discord::sender_id(&message.author_id),
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
+        decoration: discord.decoration(guild, &message.author_id),
+        style: discord
+            .style(guild, &message.author_id)
+            .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
         bot: message.bot,
         body,
@@ -339,6 +344,7 @@ pub(super) fn custom_emoji(message: &Message) -> Vec<CustomEmoji> {
                 text: key.clone(),
                 id: id.to_owned(),
                 animated: false,
+                usable: true,
                 picture: yapfast_discord::ready::custom_emoji(
                     id,
                     false,
@@ -356,13 +362,16 @@ fn emoji_in(content: &str) -> Vec<CustomEmoji> {
         .into_iter()
         .map(|emoji| CustomEmoji {
             text: format!(":{}:", emoji.name),
+            // Its address says whether it moves, which is how its frames come:
+            // Discord serves an animated emoji as a GIF and a still one as a PNG.
             picture: yapfast_discord::ready::custom_emoji(
                 &emoji.id,
-                false,
+                emoji.animated,
                 crate::chat::EMOJI_PICTURE_SIZE,
             ),
             id: emoji.id,
             animated: emoji.animated,
+            usable: true,
         })
         .collect()
 }
@@ -453,6 +462,10 @@ pub(super) fn rendered(
                         .map(|(_, color)| *color);
                     (Target::Role(id), color)
                 }
+                MentionTarget::Channel(id) => {
+                    let guild = server.map_or("", |server| server.id.as_str());
+                    (Target::Channel(discord::room_id(guild, &id)), None)
+                }
                 MentionTarget::Everyone => (Target::Everyone, None),
             };
             Mentioned {
@@ -467,7 +480,7 @@ pub(super) fn rendered(
 }
 
 /// The roles a message in a server channel may mention, after @everyone and @here
-/// for those allowed them.
+/// for those allowed them, then the channels it may link with `#`.
 pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup> {
     let Some((guild, channel)) = discord::parse_room(room) else {
         return vec![];
@@ -487,6 +500,8 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name: name.into(),
                 mention: format!("@{name}"),
                 color: None,
+                channel: false,
+                voice: false,
             });
         }
     }
@@ -498,6 +513,22 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name,
                 mention: format!("<@&{id}>"),
                 color,
+                channel: false,
+                voice: false,
+            }),
+    );
+    // Its text and voice channels this account can see, in Discord's order.
+    let text = server.text_channels().map(|known| (known, false));
+    let voice = server.voice_channels().map(|known| (known, true));
+    groups.extend(
+        text.chain(voice)
+            .filter(|(known, _)| known.marks.access != Access::Hidden)
+            .map(|(known, voice)| MentionGroup {
+                name: known.channel.name.clone(),
+                mention: format!("<#{}>", known.channel.id),
+                color: None,
+                channel: true,
+                voice,
             }),
     );
     groups
@@ -505,6 +536,24 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
 
 /// A Discord profile as Yapfast's profile card shows it, with the server's role
 /// names, colours and names known now.
+/// A profile's badges, as the card shows them.
+pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<ProfileBadge> {
+    badges
+        .into_iter()
+        .map(|badge| ProfileBadge {
+            description: badge.description,
+            icon: badge.icon,
+            link: badge.link,
+            level: badge.level.map(|level| ProfileBadgeLevel {
+                kind: level.kind,
+                title: level.title,
+                progress: level.progress,
+                picture: level.picture,
+            }),
+        })
+        .collect()
+}
+
 pub(super) fn chat_profile(
     discord: &Discord,
     guild: &str,
@@ -516,9 +565,16 @@ pub(super) fn chat_profile(
         .iter()
         .find(|server| server.id == guild)
         .map(|server| &*server.server);
+    let bio_emoji = profile.bio.as_deref().map(emoji_in).unwrap_or_default();
     Profile {
         name: profile.name,
         avatar: Some(profile.avatar),
+        decoration: discord.decoration(Some(guild), &profile.user_id),
+        style: discord
+            .style(Some(guild), &profile.user_id)
+            .map(|style| Arc::new(style.into())),
+        effect: profile.effect,
+        theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
         pronouns: profile.pronouns.unwrap_or_default(),
@@ -532,8 +588,8 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(yapfast_discord::message::date(profile.created)),
-        joined: profile.joined.map(yapfast_discord::message::date),
+        created: Some(crate::clock::day(profile.created / 1000)),
+        joined: profile.joined.map(|ms| crate::clock::day(ms / 1000)),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -560,6 +616,22 @@ pub(super) fn chat_profile(
                 id: friend.id,
                 name: friend.name,
                 avatar: Some(friend.avatar),
+            })
+            .collect(),
+        tag: discord::server_tag(profile.tag),
+        badges: chat_badges(profile.badges),
+        bio_emoji,
+        // The note comes with its own request; see `fill_profile`.
+        note: String::new(),
+        connections: profile
+            .connections
+            .into_iter()
+            .map(|connection| ProfileConnection {
+                kind: connection.kind,
+                name: connection.name,
+                verified: connection.verified,
+                url: connection.url,
+                since: connection.since.map(|ms| crate::clock::day(ms / 1000)),
             })
             .collect(),
         handle: profile.username,
@@ -682,13 +754,19 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         username: member.username,
         role: Role::Member,
         avatar: Some(member.avatar),
+        decoration: member.decoration,
+        nameplate: member.nameplate.map(Into::into),
+        style: member.style.map(|style| Arc::new(style.into())),
         group: Some(member.group),
+        group_icon: member.group_icon,
+        role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,
         timed_out_until: member.timed_out_until,
+        tag: discord::server_tag(member.tag),
     }
 }
 
@@ -713,4 +791,29 @@ pub(super) fn publish(
 /// The Discord message id of a sent message's timeline item.
 pub(super) fn sent_id(item: &str) -> Option<&str> {
     item.strip_prefix("d:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Discord serves an animated emoji as a GIF and a still one as a PNG, so
+    /// the address is what gives Yapfast an animation to draw at all.
+    #[test]
+    fn an_animated_emoji_is_asked_for_as_a_gif() {
+        let moving = emoji_in("hi <a:party:7>");
+        assert!(moving[0].animated);
+        assert!(
+            moving[0].picture.contains("/emojis/7.gif"),
+            "{}",
+            moving[0].picture
+        );
+        let still = emoji_in("hi <:talk:8>");
+        assert!(!still[0].animated);
+        assert!(
+            still[0].picture.contains("/emojis/8.png"),
+            "{}",
+            still[0].picture
+        );
+    }
 }

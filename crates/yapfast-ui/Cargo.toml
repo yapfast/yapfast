@@ -23,7 +23,7 @@ live-preview = ["slint/live-preview"]
 [dependencies]
 # Outside the workspace (see the root Cargo.toml), so it can't inherit Slint:
 # keep this as the root's [workspace.dependencies] has it.
-slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-011"] }
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-012"] }
 
 [build-dependencies]
-slint-build = "=1.18.1"
+slint-build = "=1.19.0"

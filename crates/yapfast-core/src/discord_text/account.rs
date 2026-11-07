@@ -7,7 +7,7 @@ use super::{
     channels::SEARCH_PAUSE,
     channels::SharedPreviews,
     commands::NOT_DISCORD,
-    render::{chat_profile, found_in, hits_in, with_previews},
+    render::{chat_badges, chat_profile, found_in, hits_in, with_previews},
     *,
 };
 use crate::chat::{
@@ -79,6 +79,9 @@ pub(super) fn command(
                     name: discord.name(guild, &user).unwrap_or_else(|| user.clone()),
                     username: discord.username(&user),
                     avatar: Some(discord.avatar(Some(guild), &user)),
+                    decoration: None,
+                    nameplate: None,
+                    style: None,
                     color: server.and_then(|server| discord.color(server, &user)),
                     role: Role::Member,
                     group: None,
@@ -87,7 +90,10 @@ pub(super) fn command(
                     activities: Default::default(),
                     roles: discord.roles(guild, &user),
                     timed_out_until: None,
+                    tag: None,
                     id: user,
+                    group_icon: None,
+                    role_icon: None,
                 })
                 .collect();
             members.sort_by_key(|member| member.name.to_lowercase());
@@ -134,6 +140,9 @@ pub(super) fn command(
                         name: discord.name(&guild, &user).unwrap_or_else(|| user.clone()),
                         username: discord.username(&user),
                         avatar: Some(discord.avatar(Some(&guild), &user)),
+                        decoration: None,
+                        nameplate: None,
+                        style: None,
                         color: server.and_then(|server| discord.color(server, &user)),
                         role: Role::Member,
                         group: None,
@@ -142,7 +151,10 @@ pub(super) fn command(
                         activities: Default::default(),
                         roles: discord.roles(&guild, &user),
                         timed_out_until: None,
+                        tag: None,
                         id: user,
+                        group_icon: None,
+                        role_icon: None,
                     })
                     .collect();
                 let _ = events.send(Event::MemberMatches {
@@ -165,15 +177,60 @@ pub(super) fn command(
                             profile: chat_profile(&discord, &guild, profile),
                         });
                     };
-                    let result = discord
-                        .profile(&guild, &user, kept)
-                        .await
-                        .map(|profile| chat_profile(&discord, &guild, profile))
-                        .map_err(|error| {
+                    let profile = match discord.profile(&guild, &user, kept).await {
+                        Ok(profile) => profile,
+                        Err(error) => {
                             tracing::warn!(%error, "could not fetch a Discord profile");
-                            error.to_string()
-                        });
-                    let _ = events.send(Event::Profile { user, result });
+                            let _ = events.send(Event::Profile {
+                                user,
+                                result: Err(error.to_string()),
+                            });
+                            return;
+                        }
+                    };
+                    // The effect over the card is the shop's to describe, and
+                    // comes after the card does.
+                    let effect = profile.effect.clone();
+                    let mut badges = profile.badges.clone();
+                    let _ = events.send(Event::Profile {
+                        user: user.clone(),
+                        result: Ok(chat_profile(&discord, &guild, profile)),
+                    });
+                    // The effect and the badges' levels come after the card is
+                    // on screen, and together, as neither waits for the other.
+                    let effect_events = events.clone();
+                    let effect_discord = discord.clone();
+                    let effect_task = async move {
+                        let Some(sku) = effect else { return };
+                        match effect_discord.profile_effect(&sku).await {
+                            Ok(Some(effect)) => {
+                                let _ = effect_events
+                                    .send(Event::ProfileEffect(Arc::new((&*effect).into())));
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::warn!(%error, "could not fetch a Discord profile effect");
+                            }
+                        }
+                    };
+                    let badges_task = async {
+                        if discord.badge_levels(&guild, &user, &mut badges).await {
+                            let _ = events.send(Event::BadgeLevels {
+                                user: user.clone(),
+                                badges: chat_badges(std::mem::take(&mut badges)),
+                            });
+                        }
+                    };
+                    // The note this account keeps on them fills the full profile's.
+                    let note_task = async {
+                        if let Ok(note) = discord.note(&user).await {
+                            let _ = events.send(Event::Note {
+                                user: user.clone(),
+                                result: Ok(note),
+                            });
+                        }
+                    };
+                    tokio::join!(effect_task, badges_task, note_task);
                 });
             }
             (discord, _) => {

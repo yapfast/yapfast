@@ -243,6 +243,11 @@ impl SwitcherShown {
     }
 }
 
+/// What a message row in the thread beside the channel takes across beside
+/// its content: the space before the avatar, the avatar and the space after
+/// it, and the space at the end, as `ThreadPanel` lays it out.
+const ASIDE_GUTTER: i32 = 16 + 40 + 16 + 16;
+
 impl Adapter {
     /// Shows what a burst of backend events can have changed.
     pub(super) fn show(&mut self, window: &YapfastWindow, reach: Reach) {
@@ -318,6 +323,8 @@ impl Adapter {
         self.show_dialogs(window);
         self.show_reactions(window);
         self.show_gifs(window);
+        self.show_emoji_card(window);
+        self.show_emoji_animations(window);
         self.show_composer(window);
         self.show_messages(window, &changes);
         self.show_aside(window);
@@ -355,6 +362,93 @@ impl Adapter {
                 self.layout = layout;
             }
         }
+    }
+
+    /// Drives the animated emoji: the frames the rows and the picker show are
+    /// wanted, decoded ahead of the draw, and the clock moves only while
+    /// something plays and the window is focused, used and not minimised.
+    fn show_emoji_animations(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let mut shown: Vec<(String, Option<char>, String)> = state
+            .messages
+            .iter()
+            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
+            .flat_map(|message| &message.emoji)
+            .filter(|emoji| emoji.animated)
+            .map(|emoji| {
+                (
+                    emoji::custom_key(emoji),
+                    custom_emoji::glyph(&emoji.id),
+                    emoji.picture.clone(),
+                )
+            })
+            .collect();
+        // The card shows one emoji, which may be from a message no longer on
+        // screen, and a call's soundboard shows its sounds' own.
+        let card = self.emoji_card.as_ref().and_then(|target| target.custom());
+        let on_card = card.and_then(|id| {
+            state
+                .messages
+                .iter()
+                .flat_map(|message| &message.emoji)
+                .find(|emoji| emoji.id == id)
+        });
+        if let Some(emoji) = on_card.filter(|emoji| emoji.animated) {
+            shown.push((
+                emoji::custom_key(emoji),
+                custom_emoji::glyph(&emoji.id),
+                emoji.picture.clone(),
+            ));
+        }
+        // The bars and menus over messages show their emoji as cells too, and
+        // what each decodes is the picture the account may use here.
+        let mut cells: Vec<String> = Vec::new();
+        for model in [&self.models.bar_reactions, &self.models.menu_reactions] {
+            for index in 0..model.row_count() {
+                if let Some(cell) = model.row_data(index) {
+                    cells.push(cell.key.to_string());
+                }
+            }
+        }
+        for emoji in self.app.usable_emoji().iter().flat_map(|set| &set.emoji) {
+            let key = emoji::custom_key(emoji);
+            if emoji.animated && cells.contains(&key) {
+                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture.clone()));
+            }
+        }
+        for sound in state
+            .voice
+            .soundboard
+            .iter()
+            .flat_map(|groups| groups.iter())
+            .flat_map(|group| &group.sounds)
+        {
+            if let Some(picture) = &sound.picture {
+                shown.push((format!("sound:{picture}"), None, picture.clone()));
+            }
+        }
+        let pictures = &state.pictures;
+        // Idle holds the clock as an unfocused window does, whatever the Animate
+        // setting says; a minimised window has lost focus, and `playing` is
+        // already false for it.
+        let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
+        self.animations.show(shown, pictures);
+        self.animations.run(window, pictures);
+        self.animations.sync(window, playing, self.weak.clone());
+    }
+
+    /// The card an emoji in a message opened, built again while it is open, so
+    /// it shows what Discord said of its server once that arrives.
+    fn show_emoji_card(&mut self, window: &YapfastWindow) {
+        let Some(target) = self.emoji_card.as_ref() else {
+            return;
+        };
+        if !window.get_emoji_card_open() {
+            return;
+        }
+        let Adapter { app, pictures, .. } = self;
+        let card = messages::emoji_card_for(app, target, pictures);
+        window.set_emoji_card(card);
     }
 
     /// Whether Yapfast is signed in or previewing, what the account is doing, and
@@ -494,6 +588,27 @@ impl Adapter {
             Navigation::Server(id) => self.app.header_choices(id).contains(&MenuChoice::Invite),
             Navigation::DirectMessages => false,
         });
+        window.set_header_community(match &state.navigation {
+            Navigation::Server(id) => state
+                .servers
+                .iter()
+                .any(|server| &server.id == id && server.community),
+            Navigation::DirectMessages => false,
+        });
+        let header_server = match &state.navigation {
+            Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+            Navigation::DirectMessages => None,
+        };
+        window.set_header_verified(header_server.is_some_and(|server| server.verified));
+        window.set_header_banner(
+            header_server
+                .and_then(|server| server.banner.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_header_events(
+            header_server.map_or(0, |server| i32::try_from(server.events.len()).unwrap_or(0)),
+        );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {
                 "Find a DM"
@@ -665,7 +780,7 @@ impl Adapter {
                     let this = (room.category_id.as_deref(), room.category.as_str());
                     if category.replace(this) != Some(this) {
                         folds_by = room.category_id.as_deref();
-                        room.category.to_uppercase()
+                        room.category.clone()
                     } else {
                         String::new()
                     }
@@ -700,9 +815,36 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
+                    decoration_url: room.decoration.as_deref().unwrap_or_default().into(),
+                    nameplate_url: room
+                        .nameplate
+                        .as_ref()
+                        .filter(|_| !state.hide_nameplates)
+                        .map(|plate| &*plate.picture)
+                        .unwrap_or_default()
+                        .into(),
+                    nameplate_color: role_color(
+                        room.nameplate
+                            .as_ref()
+                            .and_then(|plate| Some(plate.colors?[0])),
+                    ),
+                    nameplate_light: role_color(
+                        room.nameplate
+                            .as_ref()
+                            .and_then(|plate| Some(plate.colors?[1])),
+                    ),
+                    name_style: name_style::row(room.style.as_deref(), &room.name),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
+                    tag: tag_text(&room.tag),
+                    tag_badge: tag_badge(&room.tag),
+                    official: room.official,
+                    wave: if room.empty && !room.request {
+                        room.person.as_deref().unwrap_or_default().into()
+                    } else {
+                        Default::default()
+                    },
                     pinned: if room.direct {
                         state.pinned.contains(&room.id)
                     } else {
@@ -872,6 +1014,8 @@ impl Adapter {
             .unwrap_or_else(|| display_part(account));
         window.set_account(account.into());
         window.set_account_name(account_name.into());
+        window.set_account_username(state.account_username.as_deref().unwrap_or_default().into());
+        window.set_account_user_id(state.discord_user.as_deref().unwrap_or_default().into());
         window.set_account_initial(initial(account_name));
         window.set_account_tint(tint(account_name));
         window.set_account_picture(cached_picture(
@@ -879,6 +1023,29 @@ impl Adapter {
             state,
             state.account_avatar.as_deref(),
         ));
+        let look = window.global::<AccountLook>();
+        look.set_decoration_url(
+            state
+                .account_decoration
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
+        );
+        look.set_nameplate_url(
+            state
+                .account_nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates)
+                .map(|plate| &*plate.picture)
+                .unwrap_or_default()
+                .into(),
+        );
+        let colors = state
+            .account_nameplate
+            .as_ref()
+            .and_then(|plate| plate.colors);
+        look.set_nameplate_color(role_color(colors.map(|colors| colors[0])));
+        look.set_nameplate_light(role_color(colors.map(|colors| colors[1])));
         let (custom_status, status_emoji) = state
             .custom_status
             .as_ref()
@@ -886,11 +1053,21 @@ impl Adapter {
             .map(status_line)
             .unzip();
         window.set_account_status_emoji(status_emoji.flatten().unwrap_or_default().into());
+        // The game Yapfast shows as playing, as the activity icon Discord puts
+        // before the status: alone it names the game, before a status it adds a bullet.
+        let playing = state
+            .discord_playing
+            .as_ref()
+            .filter(|_| state.online && !state.preview && state.discord_show_game);
+        window.set_account_activity_icon(i32::from(playing.is_some()));
+        window.set_account_activity_bullet(playing.is_some() && custom_status.is_some());
         window.set_account_status(
             if state.preview {
                 "Local only"
             } else if let Some(status) = &custom_status {
                 status
+            } else if let Some(playing) = playing {
+                &playing.name
             } else if let Some(status) = &state.account_status {
                 status
             } else if state.online {
@@ -1510,6 +1687,31 @@ impl Adapter {
                         tint: tint(&member.name),
                         picture: slint::Image::default(),
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
+                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
+                        role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
+                        tag: tag_text(&member.tag),
+                        tag_badge: tag_badge(&member.tag),
+                        decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
+                        name_style: name_style::row(member.style.as_deref(), &member.name),
+                        nameplate_url: member
+                            .nameplate
+                            .as_ref()
+                            .filter(|_| !state.hide_nameplates)
+                            .map(|plate| &*plate.picture)
+                            .unwrap_or_default()
+                            .into(),
+                        nameplate_color: role_color(
+                            member
+                                .nameplate
+                                .as_ref()
+                                .and_then(|plate| Some(plate.colors?[0])),
+                        ),
+                        nameplate_light: role_color(
+                            member
+                                .nameplate
+                                .as_ref()
+                                .and_then(|plate| Some(plate.colors?[1])),
+                        ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
@@ -1520,7 +1722,7 @@ impl Adapter {
                         // Discord names its groups; Matrix members group by role.
                         heading: if let Some(group) = &member.group {
                             if index == 0 || members[index - 1].group.as_ref() != Some(group) {
-                                group.to_uppercase().into()
+                                group.as_str().into()
                             } else {
                                 SharedString::default()
                             }
@@ -1542,21 +1744,28 @@ impl Adapter {
                 })
                 .collect(),
         );
+        let scale = window.window().scale_factor();
         update_model(
             &self.models.bar_reactions,
-            self.app
-                .frequent_reactions(3)
-                .iter()
-                .map(|key| emoji::cell(key))
-                .collect(),
+            emoji::with_pictures(
+                self.app
+                    .frequent_reactions(3)
+                    .iter()
+                    .map(|key| emoji::cell(key))
+                    .collect(),
+                scale,
+            ),
         );
         update_model(
             &self.models.menu_reactions,
-            self.app
-                .frequent_reactions(4)
-                .iter()
-                .map(|key| emoji::cell(key))
-                .collect(),
+            emoji::with_pictures(
+                self.app
+                    .frequent_reactions(4)
+                    .iter()
+                    .map(|key| emoji::cell(key))
+                    .collect(),
+                scale,
+            ),
         );
         let role = state.role.as_ref();
         window.set_role_open(role.is_some());
@@ -2671,6 +2880,7 @@ impl Adapter {
     /// The thread beside the open channel: its rows, built again only for
     /// messages that changed, and its composer.
     pub(super) fn show_aside(&mut self, window: &YapfastWindow) {
+        self.mark_mentions();
         let state = &self.app.state;
         let Some(aside) = &state.aside else {
             if window.get_aside_open() {
@@ -2719,6 +2929,12 @@ impl Adapter {
             Some(Compose::Edit { .. }) => "Editing your message".into(),
             None => SharedString::default(),
         });
+        // Pictures and link previews fit the panel's width beside the avatar.
+        let fit = window.get_aside_shown() as i32 - ASIDE_GUTTER;
+        if self.aside_fit != fit {
+            self.aside_fit = fit;
+            self.aside_restyle = true;
+        }
         if Arc::ptr_eq(&self.aside_messages, &aside.messages) && !self.aside_restyle {
             return;
         }
@@ -2735,7 +2951,12 @@ impl Adapter {
             &self.aside_messages,
             &aside.messages,
             &marks,
-            |message| layout.restyle(message, message_row(message, marks.revealed)),
+            |message| {
+                layout.restyle(
+                    message,
+                    message_row_within(message, marks.revealed, Some(fit)),
+                )
+            },
         );
         self.aside_messages = aside.messages.clone();
     }
@@ -2744,8 +2965,19 @@ impl Adapter {
     /// show them. Who it may mention is found again only when the draft or
     /// what they come from changed.
     fn mark_mentions(&mut self) {
+        self.mark_mentions_of(false);
+        self.mark_mentions_of(true);
+    }
+
+    /// [`Self::mark_mentions`] of the channel's composer, or the thread's beside it.
+    fn mark_mentions_of(&mut self, aside: bool) {
         let state = &self.app.state;
-        let draft = state.draft();
+        let draft = if aside {
+            state.aside_draft()
+        } else {
+            state.draft()
+        };
+        let slot = usize::from(aside);
         let sources = MentionSources {
             messages: Arc::as_ptr(&state.messages) as usize,
             members: state.members.iter().flatten().map(Vec::len).sum(),
@@ -2753,14 +2985,13 @@ impl Adapter {
             groups: state.mention_groups.len(),
             color: theme::mention_color(),
         };
-        if self
-            .mentions_marked
+        if self.mentions_marked[slot]
             .as_ref()
             .is_some_and(|marked| marked.draft == draft && marked.sources == sources)
         {
             return;
         }
-        let marks = if draft.contains('@') {
+        let marks = if draft.contains(['@', '#']) {
             yapfast_core::mention::marks(draft, &state.mention_candidates())
         } else {
             Vec::new()
@@ -2770,13 +3001,14 @@ impl Adapter {
             sources,
         };
         i_slint_core::yapfast_marks::mark(
+            slot,
             marked.draft.as_str().into(),
             marks.into_iter().map(|(range, color)| {
                 let rgb = color.unwrap_or(sources.color) & 0xff_ffff;
                 (range, slint::Color::from_argb_encoded(0xff00_0000 | rgb))
             }),
         );
-        self.mentions_marked = Some(marked);
+        self.mentions_marked[slot] = Some(marked);
     }
 
     pub(super) fn show_composer(&mut self, window: &YapfastWindow) {
@@ -2840,15 +3072,19 @@ impl Adapter {
             .iter()
             .enumerate()
             .map(|(index, candidate)| {
-                // People come first, then roles and groups, each under a heading.
+                // People come first, then roles and groups, each under a heading;
+                // `#` lists channels alone.
                 let starts_section = index == 0 || suggestions[index - 1].group != candidate.group;
                 MentionRow {
-                    heading: match (starts_section, candidate.group) {
-                        (false, _) => "",
-                        (true, false) => "MEMBERS",
-                        (true, true) => "ROLES",
+                    heading: match (starts_section, candidate.group, candidate.channel) {
+                        (false, ..) => "",
+                        (true, false, _) => "MEMBERS",
+                        (true, true, false) => "ROLES",
+                        (true, true, true) => "CHANNELS",
                     }
                     .into(),
+                    sigil: candidate.sigil().to_string().into(),
+                    voice: candidate.voice,
                     initial: initial(&candidate.name),
                     tint: tint(&candidate.name),
                     picture: cached_picture(&mut self.pictures, state, candidate.avatar.as_deref()),
@@ -2886,11 +3122,22 @@ impl Adapter {
                     super::menus::until(until / 1000, self.layout.twelve_hour_clock)
                 )
             });
+        // Discord swaps the composer for one disabled bar saying so, with no
+        // buttons and no caption.
+        let no_permission = window.global::<ClientStyle>().get_enabled()
+            && timed_out.is_none()
+            && !state.preview
+            && discord_room
+            && room.is_some_and(|room| !room.request && (room.read_only || room.locked));
+        window.set_composer_locked(no_permission);
+        window.set_composer_locked_text(
+            "You do not have permission to send messages in this channel.".into(),
+        );
         window.set_composer_hint(
             if room.is_none() {
                 "Choose a DM or server channel to write a message."
             } else if state.preview {
-                "Enter to send locally, Shift+Enter for a new line."
+                ""
             } else if room.is_some_and(|room| room.request) {
                 if discord_only {
                     ""
@@ -2899,6 +3146,8 @@ impl Adapter {
                 }
             } else if let Some(timed_out) = &timed_out {
                 timed_out
+            } else if no_permission {
+                ""
             } else if discord_room && room.is_some_and(|room| room.read_only || room.locked) {
                 "You can't send messages in this Discord channel."
             } else if discord_room && !state.discord_online {
@@ -2939,7 +3188,10 @@ impl Adapter {
         if window.get_emoji_suggestion_index() >= cells.len() as i32 {
             window.set_emoji_suggestion_index(0);
         }
-        update_model(&self.models.emoji_suggestions, cells);
+        update_model(
+            &self.models.emoji_suggestions,
+            emoji::with_pictures(cells, window.window().scale_factor()),
+        );
     }
 
     /// The messages, built again only where they changed, and where the list
@@ -2970,7 +3222,7 @@ impl Adapter {
                 self.restyle = true;
             }
             let usable = if pictures_arrived {
-                self.app.usable_emoji()
+                self.app.emoji_sets()
             } else {
                 Vec::new()
             };
@@ -4128,7 +4380,7 @@ pub(super) fn with_empty_categories(
     // Its id names the category, for the heading's menu.
     let heading = |category: &ListedCategory| RoomRow {
         id: category.id.as_str().into(),
-        heading: category.name.to_uppercase().into(),
+        heading: category.name.as_str().into(),
         category: category.id.as_str().into(),
         hidden: true,
         ..Default::default()
@@ -4652,8 +4904,16 @@ fn sound_rows(
                             sound.emoji.as_str().into()
                         },
                         name: sound.name.as_str().into(),
-                        key: SharedString::new(),
+                        // A sound's custom emoji has no name of its own here, so
+                        // its picture names its animation.
+                        key: sound
+                            .picture
+                            .as_deref()
+                            .map_or_else(SharedString::new, |picture| {
+                                format!("sound:{picture}").into()
+                            }),
                         picture: cached_picture(pictures, state, sound.picture.as_deref()),
+                        usable: true,
                     },
                     favorite: sound.favorite,
                 })

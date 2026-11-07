@@ -246,6 +246,34 @@ server they name, so the sidebar rebuilds that server's rows and keeps the
 others. Names are 1 to 100 characters and topics up to 1024, checked before
 asking.
 
+## The server header, events and private channels
+
+In Discord mode the sidebar header shows the server's banner (`guild.banner`,
+from GUILD_CREATE) behind its name when it has one: the header grows by 81px,
+the name and chevron turn white over a gradient at the top, and the line
+under the header goes away. A verified server (`features` has `VERIFIED`)
+shows a green badge with a check after its name instead of the community
+icon; other community servers keep the community icon.
+
+Under the header a 60px row reads "N Events" with a calendar icon, where N
+counts the scheduled events that haven't ended (status 1 scheduled or 2
+active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
+current by GUILD_SCHEDULED_EVENT_CREATE, UPDATE and DELETE. Clicking the row
+opens a menu with one row per event: its name, and "Happening now" or the
+start time (12 or 24 hours as the clock is set) followed by its place.
+Yapfast doesn't fetch `/guilds/{id}/scheduled-events` and doesn't draw
+Discord's event cards, so interest counts aren't shown.
+
+## A chat's first message
+
+At the start of a channel's history Discord writes a welcome block, which
+Yapfast now draws as well. In a server's first channel: "Welcome to" over the server's name
+in 32px semibold, then "This is the beginning of this server." in 14px, all
+centred, measured against Discord to 12px between the text and the date
+divider. In any other channel: a 68px circle with a hash, "Welcome to
+#{name}!" in 32px bold and "This is the start of the #{name} channel." under
+it. DMs and rooms outside Discord keep the one-line text.
+
 ## A channel's menu
 
 Right-clicking a server's channel offers, in order, as Discord's menu
@@ -406,7 +434,13 @@ THREAD_STARTER_MESSAGE (type 21), shows the message it was started from.
 Clicking a chip opens the thread beside the channel, as Discord does, in place
 of the member list: its messages, its history and a composer of its own, which
 replies, edits and reacts as the timeline does, and takes files from its + and
-pastes as the channel's does. Files dragged over it go with its message, and
+pastes as the channel's does. Its composer suggests people and roles for `@`,
+channels for `#` and emoji for `:name` as the channel's does, from the
+channel's members, in the same list just above it; the composer typed in last
+has them, and it highlights what it mentions. Its
+pictures and link previews shrink to fit its width, worked out again once it's
+resized, and its videos play in place as the timeline's do. Files dragged
+over it go with its message, and
 the card saying where moves over it; the rest of the window takes them for the
 channel. Wayland's data device says where the pointer is; winit doesn't on X11
 and Windows, so Yapfast asks the X server, or Windows, while files hover. Its

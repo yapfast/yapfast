@@ -1,5 +1,9 @@
 # Chat UI
 
+A refined presentation of these widgets is the default; see
+[Yapfast UI](yapfast-ui.md) for its metrics and the switch back to
+the earlier look.
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and Slint's
 Markdown draws formatted text. `pulldown-cmark` in `yapfast-core` reads
@@ -106,7 +110,33 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   message; Alt+Up moves into the messages, where arrows step, Enter opens the
   menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
   Escape returns to the composer.
+- Type where no field takes it, as after a menu closes, and the key goes to the
+  end of the composer used last, the channel's or the thread's beside it, which
+  takes the focus, as in Discord; Backspace and Delete too, and Tab with nothing
+  focused. Enter doesn't send from there, unlike Discord. Not while the settings,
+  a profile, a card, a dialog, a panel such as the pins, the image viewer, a
+  ringing call or the call in full screen is open, nor on the friends list or a
+  call, nor with Ctrl, Alt or Super held, nor for the push-to-talk key while
+  unmuted in a call. Stepping through the messages, only letters and digits go.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
+- Emoji in message text are drawn by Twemoji's picture of them, as the picker's
+  are, in a colour bitmap font made of them when Yapfast is built
+  (`src/emoji_text.rs`); see [Discord](discord/messages.md) for
+  how that font is made. A glyph whose emoji is animated has the emoji's
+  current frame drawn over it as the text draws, so the text, its wrapping and
+  its selection are untouched: a custom emoji moves in message text, in a
+  reaction chip and in the picker's grid, and Twemoji's Unicode emoji have no
+  animation, so they stay as they are. The still first frame is what shows
+  until frames arrive, and if they never do. A picture is drawn 22px in the
+  message text and 48px in the large text a message of emoji alone shows, and
+  the composer shows one as a picture too, since each glyph also answers to
+  the emoji's own code point. A `:shortcode:` sent without taking its
+  completion draws as its emoji. An emoji is a link, but one whose text is the
+  picture alone draws without the underline a link gets, which would show
+  across the bottom of it. Clicking one opens its card, 288px wide and opening
+  below it: its name such as `:sob:`, a line saying what it is, and, for a
+  server's emoji, the server it is from, with how many of its members are
+  online and whether Discover lists it, whose icon and name open that server.
 - Mention someone by typing `@` and picking from the room's members. The
   message links to them (`[Name](https://matrix.to/#/@user:server)`) and lists
   them in `m.mentions`, so their client notifies them. Who else is typing
@@ -130,19 +160,57 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Unicode 15.0, which Noto Color
   Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
   reaction adds or removes yours.
+- Holding Shift turns the toolbar into quick actions, as in Discord's
+  client: the reactions give way to Pin or Unpin, Create Thread, and on your
+  own message Reply, before Add reaction and Edit or Reply; Forward follows;
+  and More gives way to Delete where you may delete, which deletes at once
+  without asking. The thread beside a channel does the same, without Create
+  Thread. Shift is read from the window's modifier keys wherever the focus
+  is, and counts as let go when the window loses the focus, so it can't stick
+  on after being let go elsewhere. It leaves a bar alone while its picker or
+  menu is open. A pointer that stays put is told what's under it as the
+  buttons change, so its tooltip and highlight match what a click does.
 - A GIF picker next to the emoji button, on Discord: a search over Klipy,
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the
-  favourites; GIFs and moving pictures in messages have the star too. Its left
+  favourites; GIFs and moving pictures in messages have the star too. A
+  favourite's small thumbnail is kept on disk for as long as the GIF is
+  favourited, up to 200 MiB. A start fetches ahead the ones that cost little,
+  videos and small files; a larger GIF's is made when its tile first shows. Each of the home's trending terms shows one GIF, and those are fetched
+  ahead into a cache of their own, so the home paints at once. Its left
   edge drags it wider, as Discord's does: the right edge and the height stay,
-  the grid fits another column for every 212px, and the edge stops 8px past
-  the server list. The Emoji tab keeps the 498px the picker opens at. A drag
-  that changed the width keeps it in `layout.json` (`gif_picker_width`), and
-  it comes back at the next start. See [Discord](discord/messages.md#gifs).
+  and the edge stops 8px past the server list. The GIFs and the Emoji share
+  that window and its width: the GIFs' grid fits another column for every
+  212px, and the emoji's another of Discord's 56px buttons a row. The buttons
+  keep their size and their spacing as it widens, so what the width has over
+  stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
+  which is the artwork Discord's client uses and which the program carries
+  (`vendor/twemoji`, CC-BY 4.0), decoded at the size the grid draws as its row
+  shows; drawing the system emoji font instead cost a colour font's paint graph
+  for every emoji on screen, every frame, and made a stretched picker scroll
+  slowly. A row more than eight past those shown lets go of its pictures, and
+  a picker that closes lets go of its grid, so the list costs what is near the
+  view. A code point Twemoji has no picture for is still drawn by the
+  system font. A cell whose custom emoji is animated keeps that still as its
+  placeholder until the emoji's frames arrive, which decode at 48px times the
+  screen's scale factor, up to 96px, off the thread that draws, so a grid of
+  animated emoji scrolls as fast as one of stills. Every server's emoji show,
+  as Discord's picker shows them: the ones this account may not use where it
+  is looking — another server's, or an animated one without Nitro — are
+  greyed with a lock in their corner, and pressing one opens Discord's Nitro
+  page. A start whose picture cache is empty fetches all of them into it in
+  the background, off the thread that draws, decoding none and holding none,
+  so the first look finds them. A drag that changed the width keeps it in
+  `layout.json` (`picker_width`), and it comes back at the next start. See
+  [Discord](discord/messages.md#gifs).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the
-  window has the focus again.
+  window has the focus again. Animated emoji stop too when nobody has
+  touched the window for 15 seconds and while it is minimised, and go on
+  from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
+  at Always, plays them unfocused, but not while minimised, and at Never
+  keeps them all still.
 - Who reacted, as in Discord's client: half a second on a reaction shows a
   tooltip, ":tada: reacted by Ann, Bo, Cy, and 2 others", naming the first
   three by their name there, once they come (`Command::Reactors`, three at a
@@ -166,7 +234,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   somewhere, the dialog opens again with those conversations chosen and why.
   Delete asks for confirmation, then
   redacts the message for everyone. Replies quote the original; edits are marked
-  "(edited)". Reply and edit modes show above the composer, with Cancel.
+  "(edited)". Reply and edit modes show above the composer, with Cancel;
+  Escape cancels too, wherever the focus is, once no suggestions or anything
+  over the conversation are open: first the search, then the channel's reply or
+  edit, then the thread's beside it, then the new thread's form.
   Cancelling an edit restores the draft it replaced.
 - Attach files with the system file dialog, paste them with Ctrl+V: files
   copied in a file manager, or a picture copied from a browser or a screenshot
@@ -307,7 +378,10 @@ Weston's desktop shell, whose windows move and resize, where its kiosk shell
 makes the window full screen, which hides the bar. A window
 without the desktop's frame gets no shadow from KWin or Mutter, and the
 desktop's title bar menu isn't offered: winit can't show it on Linux. In
-full screen, as a call's stage is, the bar goes. Windows keeps its own frame.
+full screen, as a call's stage is, the bar goes. The earlier
+presentation on Windows keeps its own frame. The refined presentation
+defaults to an integrated Windows bar, with the same saved system-frame
+setting; see [Yapfast UI](yapfast-ui.md).
 
 The window follows Discord's arrangement:
 
@@ -321,8 +395,9 @@ The window follows Discord's arrangement:
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
   menu also has, while Discord is connected, Invite to server where the
-  account may invite; Mute server, whose submenu
-  mutes for the DM menu's times, or Unmute server with when the mute ends;
+  account may invite; Mute server, which mutes until it's turned back on
+  when clicked itself, with the DM menu's times in its submenu, or Unmute
+  server with when the mute ends;
   Notification settings, whose submenu picks All messages, Only @mentions
   or Nothing, with the level that applies under it, and ticks Suppress
   @everyone and @here and Suppress all role @mentions; Hide muted
@@ -371,12 +446,13 @@ The window follows Discord's arrangement:
   DM stays at the top of the list, with a pin, on this device. A
   Discord DM's menu also has Add note, Add or Change friend nickname, Close DM,
   Remove friend, Ignore and Block, each undone by its opposite, and Mute, whose
-  submenu mutes for 15 minutes, 1, 3, 8 or 24 hours, or until unmuted. A
-  Discord server's text channel offers "Mute channel", with the same times,
-  or "Unmute channel", and "Notification settings", whose submenu picks which
-  messages notify; a right click on a category's heading offers the same for
-  the category. A muted
-  DM or Discord channel shows faint, and a Discord server set to hide muted
+  submenu mutes for 15 minutes, 1, 3, 8 or 24 hours, or until unmuted, and
+  which clicked itself mutes until it's turned back on. A Discord server's
+  text channel offers "Mute channel", with the same times and the same
+  click, or "Unmute channel", and "Notification settings", whose submenu
+  picks which messages notify; a right click on a category's heading offers
+  the same for the category. A muted DM or Discord channel shows faint, and a
+  Discord server set to hide muted
   channels leaves them out, but for the open one and those that mention you.
   Removing a friend and blocking ask first. Matrix links go through
   matrix.to. Arrow keys, Home and End move through the menu, Right opens a

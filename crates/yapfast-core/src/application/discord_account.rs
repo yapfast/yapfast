@@ -274,9 +274,10 @@ impl Application {
                     text: format!(":{}:", emoji.name),
                     id: emoji.id.clone(),
                     animated: emoji.animated,
+                    usable: true,
                     picture: yapfast_discord::ready::custom_emoji(
                         &emoji.id,
-                        false,
+                        emoji.animated,
                         chat::EMOJI_PICTURE_SIZE,
                     ),
                 })
@@ -404,6 +405,10 @@ impl Application {
         snapshot: Arc<yapfast_discord::service::Snapshot>,
     ) -> Vec<Effect> {
         self.state.discord_online = snapshot.status == yapfast_discord::service::Status::Online;
+        if let Some(account) = &snapshot.account {
+            self.state.account_username =
+                Some(account.username.clone()).filter(|name| !name.is_empty());
+        }
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
         {
@@ -412,6 +417,8 @@ impl Application {
             if let Some(account) = &snapshot.account {
                 self.state.account_name = Some(account.name.clone());
                 self.state.account_avatar = Some(account.avatar.clone());
+                self.state.account_decoration = account.decoration.clone();
+                self.state.account_nameplate = account.nameplate.clone().map(Into::into);
             }
             self.state.account_status = Some(match &snapshot.status {
                 Status::Online => "Online".into(),
@@ -444,6 +451,7 @@ impl Application {
                 .collect();
         }
         self.state.discord_ignored = snapshot.ignored.clone();
+        self.state.discord_names = Some(snapshot.names.clone());
         if changed(|a, b| Arc::ptr_eq(&a.friend_list, &b.friend_list)) {
             self.state.friends = snapshot
                 .friend_list
@@ -534,6 +542,8 @@ impl Application {
         effects.extend(self.mark_aside_read());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
+        effects.extend(self.prefetch_emoji());
+        effects.extend(self.prefetch_gifs());
         // The emoji picker shows the account's favourite and used emoji, as
         // its other clients keep them; another client's changes come live.
         if self.state.discord_online && !self.emojis_asked && !self.state.preview {
@@ -541,6 +551,40 @@ impl Application {
             effects.push(Effect::Backend(Command::Discord(DiscordCommand::Emojis)));
         }
         effects
+    }
+
+    /// Fetches the account's custom emoji pictures into the disk cache once, on
+    /// a start that kept none: a first start, or one whose cache went. Nothing
+    /// is decoded or held, so it costs no memory; the fetcher downloads a few at
+    /// a time and lets whatever is on screen go before them, and its backoff
+    /// keeps Discord from rate-limiting it.
+    #[cfg(feature = "discord")]
+    fn prefetch_emoji(&mut self) -> Option<Effect> {
+        if self.emoji_prefetched {
+            return None;
+        }
+        self.emoji_prefetched = true;
+        if yapfast_discord::cache::pictures_kept() != 0 {
+            return None;
+        }
+        let mut seen = HashSet::new();
+        let emoji: Vec<String> = self
+            .emoji_sets()
+            .iter()
+            .flat_map(|set| &set.emoji)
+            .map(|emoji| emoji.picture.clone())
+            .filter(|url| !url.is_empty() && seen.insert(url.clone()))
+            .collect();
+        tracing::info!(
+            pictures = emoji.len(),
+            "prefetching custom emoji pictures for a cache that held none"
+        );
+        // To the disk cache alone: nothing is decoded or held, so an account
+        // with thousands of emoji costs no memory to prefetch, and what the
+        // picker shows is read from the disk as it shows it.
+        (!emoji.is_empty()).then_some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchPictures(emoji),
+        )))
     }
 
     /// Forgets the Discord account after it was unlinked.
@@ -556,6 +600,10 @@ impl Application {
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
+        #[cfg(feature = "discord")]
+        {
+            self.state.discord_names = None;
+        }
         self.state.person_dialog = None;
         self.state.server_settings = None;
         self.state.channel_settings = None;

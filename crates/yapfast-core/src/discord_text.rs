@@ -28,8 +28,9 @@ use crate::{
         Attachment, Beside, ButtonStyle, Card, CardButton, CardRow, ChatMember, ChatMessage,
         Command, Contact, CustomEmoji, Delivery, Direction, DiscordCommand, Embed, EmbedField,
         Event, History, MAX_PREVIEW_DOWNLOAD_BYTES, MentionGroup, Notification, OutgoingFile,
-        Picture, Placement, Poll, PollAnswer, Profile, ProfileFriend, ProfileRole, ProfileServer,
-        Reaction, Reply, Role, SearchHit, ThreadLink, Topic, Video, VideoCommand, plain_snippet,
+        Picture, Placement, Poll, PollAnswer, Profile, ProfileBadge, ProfileBadgeLevel,
+        ProfileConnection, ProfileFriend, ProfileRole, ProfileServer, Reaction, Reply, Role,
+        SearchHit, ThreadLink, Topic, Video, VideoCommand, plain_snippet,
     },
     discord::{self, KEPT_CHANNELS, KEPT_MESSAGES},
     mention::{Mentioned, Target},
@@ -79,6 +80,12 @@ pub enum Done {
         /// [`OpenChannel::generation`] when it was asked for.
         generation: u64,
         result: Result<Page, String>,
+    },
+    /// The original a reply answers: none once it's gone.
+    Original {
+        room: String,
+        id: String,
+        result: Result<Option<DiscordReply>, String>,
     },
     Sent {
         room: String,
@@ -152,7 +159,7 @@ pub(crate) struct Chat {
     finished: UnboundedReceiver<Done>,
     pictures: discord::Pictures,
     saving: tokio::time::Interval,
-    /// The video playing in the open channel.
+    /// The video playing in the open channel or the thread beside it.
     video: Option<crate::playback::Playback>,
     /// How loud the last video played, and whether muted: the next plays
     /// the same.
@@ -216,6 +223,10 @@ impl Chat {
                 self.pictures.fetch(&self.discord, urls, events);
                 return;
             }
+            Command::Discord(DiscordCommand::PrefetchPictures(urls)) => {
+                self.pictures.prefetch(&self.discord, urls);
+                return;
+            }
             Command::PlayVideo {
                 room,
                 item,
@@ -239,8 +250,18 @@ impl Chat {
                 }
                 return;
             }
-            // A video plays only while its channel is open.
+            // A video plays only while its channel is open, or its thread
+            // beside it.
             Command::Open(_) | Command::CloseRoom => self.stop_video(events),
+            Command::Aside(ref beside) => {
+                let shown = self.channels.aside.as_ref().map(|aside| &aside.room);
+                if self.video.as_ref().is_some_and(|playback| {
+                    shown == Some(&playback.video.room)
+                        && beside.as_ref() != Some(&playback.video.room)
+                }) {
+                    self.stop_video(events);
+                }
+            }
             _ => {}
         }
         self::command(
@@ -287,9 +308,7 @@ impl Chat {
         };
         let found = self
             .channels
-            .open
-            .as_ref()
-            .filter(|channel| channel.room == video.room)
+            .shown_mut(&video.room)
             .and_then(|channel| channel.attachment(&video.item, index))
             .and_then(|attachment| Some((attachment.video_url.clone()?, attachment.size)));
         let Some((url, size)) = found else {

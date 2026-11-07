@@ -25,20 +25,18 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1, Slint 1.18.1 and Skia 0.153.3. Cargo.lock pins the
-complete Rust graph. `vendor/i-slint-renderer-skia` is Slint's Skia renderer
-1.18.1 with these changes. Glyphs use Skia's slight (vertical-only) hinting,
+Yapfast pins Rust 1.97.1, Slint's master at `ac7d423f` and Skia 0.157.0.
+Cargo.lock pins the complete Rust graph. That commit calls itself 1.19.0, which
+isn't released: `[patch.crates-io]` in Cargo.toml takes `=1.19.0` and the crates
+it needs from the commit. Its generated Rust compiles in half the time of
+1.18's. `vendor/i-slint-renderer-skia` is Slint's Skia renderer at that commit
+with these changes. Glyphs use Skia's slight (vertical-only) hinting,
 because the default hinting spaced Satoshi's letters unevenly. Smooth pictures
 up to 512×512 pixels sample mipmaps, because plain bilinear sampling made
 pictures drawn smaller than their pixels, such as avatars, look jagged. Larger
 ones, such as video frames, go without: each frame would build its mipmaps
 anew. So do pictures drawn no smaller than their pixels, such as a call's
-camera, made at its tile's size. Skia reads fonts where fontique keeps them
-rather than copying each file to the heap. It reads a picture made in code,
-such as a camera's frame or an avatar, where Slint keeps it too, rather than
-copying it for each new frame: a table on the UI thread keeps the Slint buffer
-beside Skia's image until nothing else holds that image, and Slint copies a
-buffer it shares before anything writes to it. On Linux it takes rust-skia's
+camera, made at its tile's size. On Linux it takes rust-skia's
 prebuilt Skia with Skia's own FreeType: the one built for the system's FreeType
 lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build of Noto
 Color Emoji, the only one Fedora installs. Rust-skia builds that Skia only with
@@ -52,8 +50,9 @@ on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on Direct3D
 `Cargo.toml`. Copy the matching release over it, and reapply them, when
 upgrading Slint.
 
-`vendor/i-slint-core` is Slint's core 1.18.1 with `StyledText` made selectable,
-which upstream Slint doesn't offer. Dragging selects, a double press selects a
+`vendor/i-slint-core` is Slint's core at that commit with `StyledText` always
+selectable, across the texts around it, where upstream's `selectable` property
+selects inside one text and Yapfast leaves it unset. Dragging selects, a double press selects a
 word and a triple press a paragraph. Dragging past a text carries the selection
 on through the texts and pictures around it: those sharing its nearest flickable,
 such as a list's rows, in reading order. Pictures are the `Image`s with
@@ -83,6 +82,8 @@ The core of it is `yapfast_selection.rs`. The other changes are marked `Yapfast:
   without an underline, on a pill only when it's a mention, to `yapfast:user/`,
   `yapfast:role/` or `yapfast:everyone`, and where the font family `monospace`
   is the system's monospace font, as inline code's, for fenced code
+- `textlayout/sharedparley.rs` again, where a `StyledText` lets its text 4px past
+  its box, and a `TextInput` up and down, as an emoji is taller than its line
 - `textlayout/sharedparley/draw.rs`, which draws mention pills under their
   text and opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`
 - `graphics/image.rs`, where no image equals no image; upstream they differ,
@@ -142,6 +143,15 @@ that ends it goes no further. Yapfast marks where it began through
 `yapfast_autoscroll.rs` and the changes marked `Yapfast:` about it in
 `items/flickable.rs`, `items/text.rs` and `window.rs`.
 
+A key no item takes, as after a menu closes, goes to the function given to
+`yapfast_typing::on_unclaimed`, which Yapfast points at the composer, as
+Discord's window sends typing anywhere to it. Printable text, Backspace, Delete
+and Escape go, and Tab with nothing focused, without Ctrl, Alt or Super held and
+with no popup open. For text, Backspace and Delete the function moves the focus,
+and the key then goes to the item now focused. Upstream drops them, since with
+no item focused a key has nowhere to go. This is `yapfast_typing.rs` and the
+change marked `Yapfast:` about it in `window.rs`.
+
 Reapply them to the matching release when upgrading Slint. Styled paragraphs now
 have byte ranges as if joined by newlines, where upstream gives them all `0..0`.
 
@@ -158,6 +168,19 @@ is. Compare it with the Fluent style's when upgrading Slint.
 
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
+
+The picker's, the reaction buttons' and the emoji suggestions' emoji are drawn
+from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
+`assets/72x72` from https://github.com/discord/twemoji at the revision
+`vendor/twemoji/REVISION` names, under CC-BY 4.0, which asks for the attribution
+`vendor/twemoji/README.yapfast.md` gives. `build.rs` makes them one font the program
+carries, which message text draws and maps rather than copies, and
+`src/twemoji.rs` finds a picture in it by the emoji's code points; a code point it has
+no picture for stays a glyph from the system's emoji font (`src/emoji_glyphs.rs`
+draws that once into a picture). `scripts/release_package.py` copies the
+licences and attribution into each package and `THIRD-PARTY.json`. Update by
+taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
+says.
 
 libDF, DeepFilterNet's Rust implementation, comes from DeepFilterNet's
 repository at `d375b2d`, since crates.io has only its 0.2.5. It asks for
@@ -192,8 +215,8 @@ measured speed. Use them for builds people run. The `measure` profile
 optimizes like release, keeps symbols and builds incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
 measure`. The `fast` profile is `measure` with the Slint interface
-unoptimized, which cuts a rebuild after a `.slint` edit from two minutes to
-about 35 seconds. Use it for tests, local runs and checks: `cargo build
+unoptimized. A `.slint` edit that changes a value rebuilds in about 35 seconds
+either way, and one that adds an element in 80 seconds rather than 100. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`.
 
 ### Dependency sources
@@ -201,15 +224,17 @@ about 35 seconds. Use it for tests, local runs and checks: `cargo build
 Yapfast patches these crates in `vendor/`, through `[patch.crates-io]` or a path
 dependency in Cargo.toml:
 
-- `i-slint-core`: Slint's core 1.18.1 with selectable `StyledText`,
+- `i-slint-core`: Slint's core at `ac7d423f` with selectable `StyledText`,
   mentions coloured in a `TextInput`, timelines that keep their place as
   older messages load, a wheel that speeds up when spun fast, and middle-click
   autoscroll, above.
-- `i-slint-renderer-skia`: Slint's Skia renderer 1.18.1 with slight hinting,
-  mipmapped pictures, uncopied fonts and pictures, and Skia's own FreeType on
+- `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
+  mipmapped pictures, and Skia's own FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows
   restores a minimized window at its old size without its pixels, which
-  partial rendering left black.
+  partial rendering left black. On Direct3D 12 it also hands each frame back
+  in the `PRESENT` state, which `Present` requires and wgpu can't see is
+  missing.
 - `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
   audio tracks and cancellable joins.
 - `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,
@@ -284,7 +309,8 @@ or Intel's driver.
 
 ## Checks
 
-`scripts/check` enters the development shell itself. `scripts/check --fast`
+`scripts/check` enters the development shell itself when Nix is installed, and
+uses the tools already installed otherwise. `scripts/check --fast`
 builds with the `fast` profile, as local work does. It runs, in order:
 formatting; `scripts/check-doc-links`, which fails on a Markdown link to a
 missing file or heading; Clippy with warnings denied and the tests for the whole workspace

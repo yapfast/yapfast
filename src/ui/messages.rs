@@ -53,6 +53,8 @@ struct Decoration<'a> {
     day: Option<String>,
     picture_url: &'a str,
     reply_picture_url: &'a str,
+    /// The decoration around the author's avatar, shown with it.
+    decoration_url: &'a str,
     unread_start: bool,
     highlighted: bool,
 }
@@ -65,6 +67,7 @@ impl Decoration<'_> {
             || row.day.as_str() != day
             || row.picture_url.as_str() != self.picture_url
             || row.reply_picture_url.as_str() != self.reply_picture_url
+            || row.decoration_url.as_str() != self.decoration_url
             || row.unread_start != self.unread_start
             || row.highlighted != self.highlighted;
         if changed {
@@ -72,6 +75,7 @@ impl Decoration<'_> {
             row.day = day.into();
             row.picture_url = self.picture_url.into();
             row.reply_picture_url = self.reply_picture_url.into();
+            row.decoration_url = self.decoration_url.into();
             row.unread_start = self.unread_start;
             row.highlighted = self.highlighted;
         }
@@ -132,6 +136,11 @@ pub(super) fn show_timeline(
                 .as_ref()
                 .and_then(|reply| reply.avatar.as_deref())
                 .unwrap_or_default(),
+            decoration_url: if collapsed(message, marks.revealed) {
+                ""
+            } else {
+                message.decoration.as_deref().unwrap_or_default()
+            },
             unread_start,
             highlighted: message.highlighted(index >= marks.first_new),
         };
@@ -193,7 +202,7 @@ pub(super) fn show_timeline(
 /// in it shows as typed: Slint draws `<font>` and `<u>`, which would let a
 /// sender colour text, hide it, or dress it up as a mention.
 pub(super) fn markdown(body: &str) -> slint::StyledText {
-    styled_or(&links::escape_html(body), body)
+    styled_or(&links::escape_html(&emoji_text::text(body)), body)
 }
 
 /// Someone's Markdown with its mentions linked, ready for [`styled`]. Its
@@ -452,16 +461,32 @@ pub(super) fn show_message(window: &YapfastWindow, index: usize, item: &str, lit
 /// `{item}/{index}` for text and `{item}/a{index}` for attachments, and what
 /// was picked or shown on polls; see `polls`.
 pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> MessageRow {
+    message_row_within(message, revealed, None)
+}
+
+/// [`message_row`] with its pictures, and its link previews', shrunk to fit
+/// `fit` pixels beside the avatar, as the narrow thread beside a channel has.
+pub(super) fn message_row_within(
+    message: &ChatMessage,
+    revealed: &HashSet<String>,
+    fit: Option<i32>,
+) -> MessageRow {
+    let laid_out =
+        |previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool, room: Option<i32>| match room {
+            Some(room) => gallery_within(previews, covered, room.max(1)),
+            None => gallery(previews, covered),
+        };
     // Plain text shows as typed, its web addresses linked.
     // Mentions link to who they mention, which opens their card.
-    // Custom emoji show as their glyphs once they have them.
-    let linked = if message.formatted {
-        let linked = with_mentions(&message.body, &message.mentions);
-        custom_emoji::text(&linked, &message.emoji)
+    // Custom emoji show as their glyphs once they have them, and clicking any
+    // emoji, custom or Unicode, opens its card.
+    let mentioned = if message.formatted {
+        with_mentions(&message.body, &message.mentions)
     } else {
         String::new()
     };
-    let jumbo = message.formatted && custom_emoji::only_emoji(&linked);
+    let glyphs = custom_emoji::text(&mentioned, &message.emoji);
+    let jumbo = message.formatted && custom_emoji::only_emoji(&glyphs);
     // Headings, quotes and code each show apart; text alone shows as one.
     let blocks = if message.formatted && message.notice.is_none() {
         body_blocks(message, Some(revealed))
@@ -473,12 +498,13 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
     } else if let Some(notice) = &message.notice {
         notice_text(message, notice, &message.time)
     } else if message.formatted {
+        let carded = emoji_text::linked(&custom_emoji::linked(&mentioned, &message.emoji));
         if message.spoilers {
-            styled(&spoiler::mark(&linked, &message.item, 0, |index| {
+            styled(&spoiler::mark(&carded, &message.item, 0, |index| {
                 revealed.contains(&format!("{}/{index}", message.item))
             }))
         } else {
-            styled(&linked)
+            styled(&carded)
         }
     } else {
         plain_with_links(&message.body)
@@ -500,7 +526,8 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             .collect()
     };
     let covered = |index: usize| !revealed.contains(&format!("{}/a{index}", message.item));
-    let (images, gallery_width, gallery_height) = gallery(&previews(Placement::Message), &covered);
+    let (images, gallery_width, gallery_height) =
+        laid_out(&previews(Placement::Message), &covered, fit);
     let stickers = previews(Placement::Sticker)
         .into_iter()
         .map(|(index, attachment, preview)| {
@@ -537,9 +564,18 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         .iter()
         .enumerate()
         .map(|(index, embed)| {
-            let (images, gallery_width, gallery_height) =
-                gallery(&previews(Placement::Embed(index)), &covered);
             let thumbnail = previews(Placement::Thumbnail(index)).into_iter().next();
+            // A card's padding, and its thumbnail beside the text, take from it.
+            let room = fit.map(|fit| {
+                fit - EMBED_PADDING
+                    - if thumbnail.is_some() {
+                        EMBED_THUMBNAIL
+                    } else {
+                        0
+                    }
+            });
+            let (images, gallery_width, gallery_height) =
+                laid_out(&previews(Placement::Embed(index)), &covered, room);
             let description_blocks = markdown_blocks(&embed.description);
             EmbedCard {
                 color: role_color(embed.color),
@@ -634,9 +670,13 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
+        decoration_url: SharedString::default(),
+        name_style: name_style::row(message.style.as_deref(), &message.author),
         id: message.id.clone().into(),
         item: message.item.clone().into(),
         author: message.author.clone().into(),
+        tag: tag_text(&message.tag),
+        tag_badge: tag_badge(&message.tag),
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
@@ -676,6 +716,11 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         reply_author: reply_author.into(),
         reply_initial: initial(reply_author),
         reply_tint: tint(reply_author),
+        reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
+        reply_has_color: message
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.color.is_some()),
         // Virtualized avatars resolve their URLs when their components are built.
         reply_picture: slint::Image::default(),
         reply_body: message
@@ -872,6 +917,11 @@ fn card_row<'a>(
 
 /// The widest a card's gallery shows, inside the card's padding.
 const CARD_GALLERY_WIDTH: i32 = 566;
+/// What a link preview's card takes across beside its pictures, as
+/// `EmbedView` in ui/messages.slint pads it: 16px each side.
+const EMBED_PADDING: i32 = 32;
+/// A card's thumbnail and the space before it, as `EmbedView` lays it out.
+const EMBED_THUMBNAIL: i32 = 96;
 
 fn card_button(
     button: &yapfast_core::chat::CardButton,
@@ -940,19 +990,19 @@ fn body_blocks(
                 })
             })
             .collect();
-        let linked = custom_emoji::text(&with_mentions(text, &mentions), &message.emoji);
+        let linked = custom_emoji::linked(&with_mentions(text, &mentions), &message.emoji);
         let Some(revealed) = revealed else {
-            return spoiler::hide(&linked);
+            return emoji_text::text(&spoiler::hide(&linked));
         };
         if !message.spoilers {
-            return linked;
+            return emoji_text::linked(&linked);
         }
         // Spoilers count on through the message, as clicking one reveals it.
         let marked = spoiler::mark(&linked, &message.item, spoilers, |index| {
             revealed.contains(&format!("{}/{index}", message.item))
         });
         spoilers += spoiler::count(&linked);
-        marked
+        emoji_text::linked(&marked)
     })
 }
 
@@ -1089,7 +1139,10 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
         slint::StyledText::default()
     } else if message.formatted {
         let linked = with_mentions(&message.body, &message.mentions);
-        styled(&spoiler::hide(&custom_emoji::text(&linked, &message.emoji)))
+        styled(&emoji_text::text(&spoiler::hide(&custom_emoji::text(
+            &linked,
+            &message.emoji,
+        ))))
     } else {
         plain_with_links(&message.body)
             .unwrap_or_else(|| slint::StyledText::from_plain_text(&message.body))
@@ -1167,6 +1220,7 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
 pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> slint::StyledText {
     let linked = with_mentions(&topic.body, &topic.mentions);
     let body = custom_emoji::text(&linked, &topic.emoji);
+    let body = emoji_text::text(&body);
     let body = if one_line {
         body.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
@@ -1178,4 +1232,116 @@ pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> s
 /// Whether a message shows collapsed, being from someone blocked.
 pub(super) fn collapsed(message: &ChatMessage, revealed: &HashSet<String>) -> bool {
     message.blocked && !revealed.contains(&format!("{}/blocked", message.item))
+}
+
+/// A Unicode emoji's card says it can be used anywhere.
+const DEFAULT_EMOJI: &str = "This is a default emoji. It can be used anywhere.";
+/// A server's emoji, in the card of one whose server this account knows.
+const SERVER_EMOJI: &str = "This emoji is from one of your servers.";
+/// A server's emoji, in the card of one whose server this account can't reach:
+/// one it never joined, or one that's gone. Its card says only this, with no
+/// count of who's online and no separator, since Discord tells it nothing.
+const OTHER_EMOJI: &str = "Invite-Only Server";
+
+/// The card a click on an emoji in a message's text opens: what the emoji is,
+/// and, for one of a server's, the server it is from.
+pub(super) fn emoji_card(
+    target: &emoji_text::Target,
+    server: Option<&yapfast_core::chat::ChatServer>,
+    state: &AppState,
+    pictures: &mut HashMap<String, slint::Image>,
+) -> EmojiCard {
+    let id = match target {
+        emoji_text::Target::Unicode(emoji) => {
+            return EmojiCard {
+                name: emoji::shortcode(emoji).into(),
+                glyph: emoji.as_str().into(),
+                // The font's own 136px rendition, so a larger card and a
+                // doubled display both draw it from more pixels than they show.
+                picture: emoji_text::picture(emoji).unwrap_or_default(),
+                description: DEFAULT_EMOJI.into(),
+                ..Default::default()
+            };
+        }
+        emoji_text::Target::Custom(id) => id,
+    };
+    // A custom emoji's name and picture come from the message that showed it:
+    // its server's list of emoji may not reach here, being another server's.
+    let listed = state
+        .messages
+        .iter()
+        .flat_map(|message| &message.emoji)
+        .find(|emoji| &emoji.id == id);
+    // The server its card shows: one this account is in, and can reach. One
+    // it left, or that's out of reach, shows no server at all, and says why.
+    let server = server.filter(|server| !server.unavailable);
+    let (server_id, server_name, server_letter, server_picture_url) = match server {
+        Some(server) => (
+            server.id.as_str().into(),
+            server.name.as_str().into(),
+            initial(&server.name),
+            server.icon.as_deref().unwrap_or_default().into(),
+        ),
+        None => Default::default(),
+    };
+    // What Discord said of the server, which its card's counts and note come
+    // from; before it answers, the note follows the features Yapfast has.
+    let preview = server.and_then(|server| state.server_previews.get(&server.id));
+    // Discover lists a server whose preview says so, and Yapfast keeps its own
+    // word for a Community server either way: a preview that answers without
+    // the feature would otherwise take the note away from a server that has it.
+    let discoverable = server.is_some_and(|server| server.community)
+        || preview.is_some_and(|preview| preview.discoverable);
+    // A custom emoji whose picture moves animates on its card too, by the
+    // name the rows register it under.
+    let picture_key = listed
+        .filter(|emoji| emoji.animated)
+        .map_or_else(String::new, emoji::custom_key);
+    EmojiCard {
+        name: listed
+            .map_or_else(String::new, |emoji| emoji.text.clone())
+            .into(),
+        picture_url: listed
+            .map_or_else(String::new, |emoji| emoji.picture.clone())
+            .into(),
+        picture_key: picture_key.into(),
+        picture: listed
+            .map(|emoji| cached_picture(pictures, state, Some(&emoji.picture)))
+            .unwrap_or_default(),
+        description: if server.is_some() {
+            SERVER_EMOJI
+        } else {
+            OTHER_EMOJI
+        }
+        .into(),
+        server: server_id,
+        server_name,
+        server_picture_url,
+        server_initial: server_letter,
+        server_online: preview
+            .and_then(|preview| preview.online)
+            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .into(),
+        server_note: if discoverable {
+            "Discoverable Server"
+        } else {
+            ""
+        }
+        .into(),
+        ..Default::default()
+    }
+}
+
+/// The card an emoji opens, with the server the app knows it from: a custom
+/// emoji's is the one that lists it.
+pub(super) fn emoji_card_for(
+    app: &Application,
+    target: &emoji_text::Target,
+    pictures: &mut HashMap<String, slint::Image>,
+) -> EmojiCard {
+    let server = target
+        .custom()
+        .and_then(|id| app.emoji_server(id))
+        .and_then(|server| app.state.servers.iter().find(|known| known.id == server));
+    emoji_card(target, server.map(|server| &**server), &app.state, pictures)
 }

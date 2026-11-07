@@ -78,7 +78,8 @@ The person beside the pen, in the same header, adds a friend by username: `POST
 /users/@me/relationships` with `{"username": ..., "discriminator": null}` and
 `{"location":"Add Friend"}` as the context. Discord's codes 80004 (nobody by
 that name), 80000 (they take no requests from strangers) and 80007 (already
-friends) get their own words.
+friends) get their own words. Discord refuses requests to bots and apps, so
+their menus, profile cards and DM headers offer none.
 
 Friend requests show on the requests screen, from READY's
 relationships (type 3 sent to this account, 4 sent by it) and kept current by
@@ -115,7 +116,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Start call joins the DM's call, as the phone in its header does.
 - Add note writes this account's note on the other person:
   `GET /users/@me/notes/{id}` fills the dialog, a 404 meaning there's none,
-  and `PUT` with `{"note": ...}` saves it, an empty one removing it.
+  and `PUT` with `{"note": ...}` saves it, an empty one removing it. A note
+  read is kept in memory, so opening a profile again asks nothing:
+  USER_NOTE_UPDATE changes it, and a new session forgets them all.
 - Add friend nickname, for a friend, is `PATCH
   /users/@me/relationships/{id}` with `{"nickname": ...}`, or null to remove
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
@@ -275,6 +278,199 @@ once a second, and only while a profile with one shows. Matrix members and
 one-to-one Matrix DMs get the same card with their name, Matrix ID, avatar and
 room role.
 
+Someone's server tag shows as a small chip, as in Discord: the badge of the
+server they represent, then up to four letters. It comes from the
+`primary_guild` of their user object, which has the `tag`, the
+`identity_guild_id`, a `badge` hash that Yapfast fetches from
+`/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, which is true while
+they wear it. It's false once they stop, and null until they take up a tag
+their server changed; as in Discord's client, those and one without a tag show
+nothing. The chip sits after the name on each message that starts a group,
+after the name in the member list and in a one-to-one DM's row, and beside the
+handle on a profile card. A tag without a badge shows its letters alone.
+Yapfast learns tags from every user object it sees, with the names and avatars,
+so a tag changes on screen as soon as a message, a member list row or a profile
+carries the new one; a user object without `primary_guild`, as a partial one
+is, changes nothing, and `null` takes it away. They are kept with the names
+across restarts.
+
+The card shows the person's badges, as Discord's does, in a row of pictures
+under the name and handle: HypeSquad, Active Developer, a Nitro subscriber's
+and the like, in the order the profile lists them. They come from the
+`badges` of `GET /users/{id}/profile`: each has an `id`, a `description`, an
+`icon` hash that Yapfast fetches from `/badge-icons/{icon}.png`, and
+sometimes a `link`. Pointing at one shows its description; clicking one that
+has a link opens it. A badge missing its description or icon is left out, and
+a profile with none shows no row. Badges show on profile cards only, not
+beside names in messages or the member list.
+
+The badges that level up (playing time, game variety, streaming, account age
+and Quests) say little in the profile: their `description` is only the kind,
+"Spielzeit". Discord's tooltip for them shows more: a large picture of the
+level, the kind in grey, the level's name in capitals and how far along the
+person is ("1.816 Stunden gespielt"). That comes from `GET
+/users/{id}/badges`, which works for anyone. Discord answers it more slowly
+than the profile, so the card doesn't wait for it: `Discord::profile` returns
+at once, and `Discord::badge_levels` asks afterwards, only when a badge has a
+`simple_icon_url` or a link, and gives the card its levels as
+`Event::BadgeLevels`. It also puts them in the kept and saved copy of the
+profile, so the next opening has them from the start, and asks once for each
+kept profile, as Discord's client keeps its answer. Each of its `badges` has a `name` (the kind), an `info_label` (the
+progress), a `current_tier` naming one of its `tiers`, whose `name` is the
+level and `complex_icon_static_url` the large picture, an SVG. A badge
+without tiers, such as Quests, shows its own name as the title and its
+`simple_icon_url`. Yapfast matches an entry to a profile badge by the
+level's `simple_icon_url`, which both lists carry, else by the icon hash in
+`simple_icon_raster_url`; one the person doesn't own (`owned: false`) is
+skipped. A badge with no entry, such as Nitro's, keeps the plain tooltip, and
+so does every badge when the request fails. The SVGs are drawn by
+`decode_svg`, with resvg, and only for addresses under Discord's
+`/assets/content/`: an attachment or avatar never reaches it. A badge's icon is
+decoded at 40px at most. The
+card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
+`ui/theme.slint` and drawn by the window above everything else, with
+Discord's own values: 200px wide, 8px corners, the picture 64px high, the
+kind and progress in 14px medium and the level in 16px black.
+
+## Avatar decorations and nameplates
+
+What a person equips from Discord's shop shows as it does in Discord's client.
+Both come on user objects, wherever Discord sends one: READY, messages and
+their mentions, member lists, relationships, DM recipients and `GET
+/users/{id}/profile`. `Names` learns them with the person's avatar hash and
+keeps them with it, saved with the account and forgotten with the person; a
+partial user object that leaves them out changes nothing, and `null` or no
+nameplate among `collectibles` takes them off.
+
+- **Avatar decoration**, `avatar_decoration_data: {asset, sku_id, expires_at}`:
+  a picture 1.2 times the avatar's size, centred on it, as Discord's
+  `--decoration-to-avatar-ratio` has it. It shows around the avatar on
+  messages, in the member list and group DM member lists, on the profile card,
+  in the DM list for a one-to-one DM, and for this account on its card at the
+  bottom of the sidebar and in My account. Not on the small avatar in a reply's
+  quote or in a mention, where Discord shows none either. Where the status dot
+  sits on an avatar, the dot is drawn over the decoration; Discord cuts a hole
+  for it, which Slint can't, so the dot's ring takes the row's colour.
+- **Nameplate**, `collectibles.nameplate: {sku_id, asset, label, palette}`: a
+  strip behind a member's row, a one-to-one DM's row and this account's card.
+  A DM's row shows it only while the row is selected, pointed at or focused, as
+  in Discord's client, so a long DM list holds none at rest. Its gradient doesn't
+  brighten under the pointer, and its picture starts fading in 5 pixels before
+  the text's end. A member's row fills with a
+  gradient in the palette's colour, `transparent` to 8% at 20% across, 8% to
+  50%, then 20% at the right edge (30% hovered, 50% selected), with the plate's
+  picture at the right end, the row's height tall, at 60% opacity (90%
+  selected). Under the row's text the picture shows at 30% of that, fading to
+  full 10 to 60 pixels after the text's end, where Discord masks the picture
+  with `mask-image`; Slint has no masks, so Yapfast draws the row's colour over
+  it in the same gradient. The account card's plate is a 10% to 40% gradient
+  under the picture at 40% opacity, with no fade, filling the card and a pixel
+  over its top and bottom. A row with a plate keeps 12 pixels free at its
+  right, and an offline member's is faded with the rest of the row. The twelve
+  palettes (`crimson`, `berry`, `sky`, `teal`, `forest`, `bubble_gum`,
+  `violet`, `cobalt`, `clover`, `lemon`, `white`, `black`) have the colours
+  of the client's own `darkBackground` and `lightBackground`, by the theme
+  (`collectibles.rs`); a palette it
+  doesn't know, such as `custom_palette`, shows the plate's picture without
+  the gradient. Show nameplates in Appearance (on unless turned off, kept in
+  `layout.json` as `nameplates`) hides every plate: none is fetched or drawn.
+
+Both pictures are served by `https://cdn.discordapp.com/media/v1/collectibles-shop/{sku_id}/static`,
+a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The
+client asks for `/animated`, an APNG, or `/video`, a WebM, and Yapfast
+asks for `/animated` (Discord's own client does on Linux and Safari). A
+decoration plays on a message while the pointer is on the message that starts
+its group, and on the profile card, in the member list, a DM's row and the
+account card while the pointer is on them. Discord's client plays a chat
+decoration while the pointer is on any message of the group, and a card's
+whenever it's open. A nameplate plays while its row is pointed at, and the
+account card's while the card is; a selected row's holds still, as playing
+costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
+(`Motion.playing`), and a surface that stops being pointed at goes back to the
+still picture. The animated picture is fetched the first time it's to play,
+and decodes the frame showing: `Picture`'s frames come from the kept file one
+at a time, as a GIF's do, and a decoder is let go a second after its last frame
+shows, so nothing animating off screen keeps anything. The pictures are kept in
+the picture cache with avatars. A decoration decodes at up to 160 pixels and a
+plate at up to 448 by 84, where other pictures take 128, and the still ones stay
+while the screen shows their person (`pictures_on_screen`).
+
+What a member sets for one server alone, `avatar_decoration_data`,
+`collectibles` and `display_name_styles` on a member object (member lists,
+GUILD_MEMBER_UPDATE, messages' `member`), wins in that server, as in Discord's
+client (`lw({userValue, guildValue})`); everywhere else their own show. A
+member object that leaves a key out says nothing, and `null` takes the
+server's off. `Names` keeps these beside the user's own, by server and user.
+
+## Profile effects
+
+A profile names the effect its person equips, `profile_effect: {id,
+expires_at}`, in `user_profile` (or `guild_member_profile`, which wins in its
+server). The effect itself is the shop's: Yapfast asks for it once the card
+shows, `GET /collectibles-products/{sku}` with the account's own login, as
+Discord's client does, and takes the first item with `effects`: its
+`staticFrameSrc` (else `reducedMotionSrc`, else `thumbnailPreviewSrc`) and
+`effects`, each layer with `src`, `randomizedSources` (one of which plays in
+each layer in place of `src`, the same one in all), `loop`, `start`,
+`duration` and `loopDelay` in milliseconds, `position` and `zIndex` (the
+fields are camelCase, as the client reads them).
+
+Discord's client plays an effect over the card for as long as its window has
+the focus. Yapfast shows the still picture, and plays the layers only while
+the pointer is on the card, starting them over each time, as a card's
+decoration does: playing costs a fifth of a core on the software renderer. An
+effect with no layer that loops stops at the end of its last layer and shows
+the still picture again.
+
+The layers are APNGs on the CDN, 450 by 880 pixels, scaled to the card; each
+picture decodes at no more than `EFFECT_SIZE`, and a layer's is asked for when
+it first plays. An effect's pictures are the size of the card, so they go as
+soon as its card closes (`let_go_of_effect_pictures`) rather than waiting for
+the trim. The backend keeps the last eight effects (`Event::ProfileEffect`);
+each card's profile points to one by SKU.
+
+## Display name styles
+
+A name can carry a style, `display_name_styles: {font_id, effect_id, colors}`,
+on a user object or a member object (which wins in its server, as the
+decorations do): a font, an effect and up to five colours. Yapfast draws it
+where Discord's client does: a message's author, a member list's rows, a
+one-to-one DM's row and the profile card's name (`StyledName` in
+`ui/controls.slint`). `src/ui/name_style.rs` makes the colours, as the client's
+`lZ` does: lighter against a dark theme's background and darker against a light
+one's, until they read, and against #333 for toon on either. Each style's two
+palettes are made once, and the rows wearing it share them; a row without a
+style holds an empty list.
+
+- **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
+  Modern 6, 8Bit 8, Tempo 12, Monkey Bars 13, Mainframe 14, Headbang 15 and
+  Journal 16, bundled in `ui/fonts` (see [its
+  README](../../ui/fonts/README.md) for where each came from and its
+  licence). Medieval 7 and Vampyre 10 aren't bundled, since their licence
+  isn't confirmed, so those names show in the usual font; so does a name
+  in a script the font lacks.
+- **Effects**, by `effect_id`: solid 1, gradient 2 (the colours across the
+  name from 10% to 90%), neon 3 (white letters edged in a lighter shade of
+  the colour, with a halo), toon 4 (light bands edged in the dark shade),
+  pop 5 (white letters edged in the darkest shade over a copy in the colour
+  a little lower), glow 6 (a gradient, as Discord's client falls back to),
+  prism 7 (the colours once round, back to the first) and gummy 8 (the
+  letters in the colours in turn, spaces not counted; a name too long for
+  its place is elided in the first colour). An effect this client doesn't know
+  is drawn solid.
+- **Colours** are made to read against the dark ground as the client does:
+  lightened five percent of HSL lightness at a time, at most ten times,
+  until they have a contrast of 3 with `#121214` (2.5 for gradient, glow and
+  prism); the shades neon, toon and pop use are derived from the first with
+  the client's HSL steps (`$0`).
+
+What still differs: names are drawn at rest, Discord's `STATIC` display type
+and its default; the `ANIMATED` one (neon flicker, toon and pop bounce, prism
+scroll and gummy squish, in the client's `_dfb989` keyframes) isn't drawn. Neon's halo is a stroke of the colour at 28% opacity,
+where Discord blurs a `text-shadow`; Slint has no text shadow or blur.
+Toon's light bands are a guess at the gradient the client draws, whose
+stops its stylesheet doesn't show.
+
 ## Editing one's main profile
 
 Edit Profile, in the account's menu bottom left, or Edit profile in My
@@ -330,8 +526,9 @@ to remove it. The client never sends the bio, pronouns or banner to
 The client's tab also has Profile Widgets, an avatar decoration, a
 nameplate, a profile effect, a frame, display name styles and, with
 Nitro, a profile theme of two colours in place of the banner colour, then
-the Server Tag and badges. Yapfast leaves them out, as it shows none of
-them. Changing the username, in My Account with the password, is left
+the Server Tag and badges. Yapfast leaves them out: it
+[shows](#avatar-decorations-and-nameplates) what someone equips, and others' server tags
+and badges, but doesn't change it. Changing the username, in My Account with the password, is left
 for later.
 
 ## Editing one's server profile
@@ -394,7 +591,8 @@ client never sends them there.
 
 Discord's editor also has a profile theme, an avatar decoration, display
 name styles, a nameplate, a profile effect and a frame, all Nitro and most
-bought from its shop. Yapfast leaves them out, as it shows none of them.
+bought from its shop. Yapfast leaves them out; it only
+[shows](#avatar-decorations-and-nameplates) what people equip.
 
 A member's server profile shows wherever Yapfast shows them in that server:
 their server avatar in the member list and on their messages, from their
@@ -533,3 +731,14 @@ and prints counts, times and heap, never process names or paths:
 nix develop path:./nix --command cargo build --profile measure -p yapfast-discord --bin yapfast-game-detection-probe
 target/measure/yapfast-game-detection-probe /path/to/discord-games.json 30
 ```
+
+## Role icons
+
+A role with an icon (`icon` on the role, from GUILD_CREATE and GUILD_ROLE_*)
+shows it 20px beside its group's name in the member list, and the highest role
+with an icon shows 16px before a member's tag in the list. The picture is
+`/role-icons/{role}/{hash}.png?size=64`. Only a server with the `ROLE_ICONS`
+feature, or at boost level 2 or 3, shows them: Discord keeps a role's icon when
+a server loses its boosts, and its client stops drawing it, so Yapfast does too.
+GUILD_UPDATE brings the change. Unicode-emoji role icons and the icon beside a
+message author aren't drawn.
