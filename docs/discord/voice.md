@@ -28,6 +28,17 @@ call ends. A stream moves the same way, with a new `STREAM_CREATE` and
 `STREAM_SERVER_UPDATE`: sharing sends to the new server, after waiting up to
 five seconds for it when the old connection ends, and watching connects again.
 
+A join that fails says why in the dock. Discord's gateway errors are
+sentences of their own ("Discord disconnected while joining voice."); a
+voice server that fails says the step: "Couldn't connect to Discord voice:
+the voice server didn't answer address discovery, asked 5 times over 5 s.",
+where address discovery is the UDP exchange a firewall or VPN may block. The log has a warning at the
+default level with the whole chain of causes, whether it was a server's
+channel or a DM, and the step: asking Discord, or connecting to its voice
+server. A stream that can't start or be watched logs its chain the same way.
+`a_call_that_cant_connect_says_why` checks it, with the fake's voice server
+ignoring address discovery (`POST /_control/voice-discovery?off`).
+
 The account may be in voice on another client too, such as Discord's app on
 a phone. Yapfast tells that client's voice state from its own by the
 `session_id` it carries: READY's is this gateway session's, and a voice
