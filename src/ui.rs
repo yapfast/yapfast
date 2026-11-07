@@ -24,9 +24,7 @@ use yapfast_core::{
         ChannelKind, ChannelSettings, ChatMessage, Command, Delivery, EmbedField, Event, Picture,
         Placement, Presence, ProfilePicture, ProfileRole, Role, VideoCommand,
     },
-    clock, discord,
-    i18n::{self, Language},
-    links, mention,
+    clock, discord, links, mention,
     meter::{self, InputMeter},
     network::Network,
     runtime::BackgroundRuntime,
@@ -288,6 +286,7 @@ fn prepare(window: &YapfastWindow) {
     emoji_text::register();
     copy_whole_messages(window);
     mark_autoscrolls(window);
+    type_anywhere(window);
 }
 
 /// The most backend events applied together before the window refreshes, so
@@ -352,6 +351,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         zoom::apply(window.window(), base.get(), level.get());
         let note = Rc::new(slint::Timer::default());
         let mut keys = zoom::Keys::default();
+        let mut cursor = None;
         // The winit window exists by the first event it sends.
         #[cfg(target_os = "linux")]
         let mut watching = false;
@@ -459,6 +459,11 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         if *focused {
                             attention(&window, false);
                         }
+                        if let Some(adapter) = adapter.upgrade()
+                            && let Ok(mut adapter) = adapter.try_borrow_mut()
+                        {
+                            adapter.action(&window, Action::WindowFocused(*focused));
+                        }
                     }
                 }
                 if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
@@ -543,6 +548,39 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
+                let outcome = keys.event(event);
+                // Shift turns a message's hover bar into its quick actions,
+                // as in Discord's client, wherever the focus is.
+                match event {
+                    WindowEvent::CursorMoved { position, .. } => cursor = Some(*position),
+                    WindowEvent::CursorLeft { .. } => cursor = None,
+                    _ => {}
+                }
+                if let Some(window) = weak.upgrade()
+                    && window.get_shift_held() != keys.shift()
+                {
+                    window.set_shift_held(keys.shift());
+                    // The buttons change under a pointer that stays put, and
+                    // Slint looks again only when it moves; ask it to now, so
+                    // the tooltip and highlight belong to what a click does.
+                    // Not while the keyboard walks the messages, whose choice
+                    // a row newly under the pointer would take.
+                    if let Some(position) = cursor
+                        && !window.get_browsing()
+                    {
+                        let position =
+                            position.to_logical::<f32>(f64::from(slint_window.scale_factor()));
+                        let position = slint::LogicalPosition::new(position.x, position.y);
+                        let weak = weak.clone();
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let Some(window) = weak.upgrade() {
+                                window.window().dispatch_event(
+                                    slint::platform::WindowEvent::PointerMoved { position },
+                                );
+                            }
+                        });
+                    }
+                }
                 // Alt+Left and Alt+Right go back and forward through the
                 // conversations visited, as in Discord.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
@@ -571,7 +609,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
-                let step = match keys.event(event) {
+                let step = match outcome {
                     zoom::Outcome::Pass => return EventResult::Propagate,
                     zoom::Outcome::Taken => return EventResult::PreventDefault,
                     zoom::Outcome::Step(step) => step,
@@ -665,6 +703,31 @@ fn open_from_notification(room: String) {
         if let Some(open) = open.borrow().as_ref() {
             open(room);
         }
+    });
+}
+
+/// Sends keys nothing took, such as after a menu closes, to the composer, as Discord does.
+fn type_anywhere(window: &YapfastWindow) {
+    let window = window.as_weak();
+    i_slint_core::yapfast_typing::on_unclaimed(move |text| {
+        let Some(window) = window.upgrade() else {
+            return false;
+        };
+        if text.chars().eq([char::from(slint::platform::Key::Escape)]) {
+            return window.invoke_escape_composing();
+        }
+        // Stepping through the messages, only letters and digits leave them.
+        if window.get_browsing() && !text.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return false;
+        }
+        // Holding the key to talk shouldn't also write it.
+        if window.get_voice_active()
+            && !window.get_muted()
+            && crate::push_to_talk::pressed_talk_key()
+        {
+            return false;
+        }
+        window.invoke_type_into_composer()
     });
 }
 
@@ -998,6 +1061,10 @@ struct Layout {
     game_executables: Vec<(String, String)>,
     /// Messages from people this account blocked don't show at all.
     hide_blocked: bool,
+    /// A call from someone's menu starts without asking first.
+    skip_call_prompt: bool,
+    /// The member list's Activity panel shows only its header.
+    activity_cards_hidden: bool,
     /// A message that notifies while Yapfast isn't in front flashes the
     /// taskbar; on unless turned off.
     flash_taskbar: Option<bool>,
@@ -1010,10 +1077,6 @@ struct Layout {
     /// The order of day, month and year, as an index into
     /// [`yapfast_core::clock::DateFormat::ALL`]; follows the clock unless chosen.
     date_format: Option<i32>,
-    /// The time zone, in minutes east of UTC; the system's unless chosen.
-    time_zone: Option<i32>,
-    /// The interface language, as an index into [`yapfast_core::i18n::Language::ALL`].
-    language: i32,
     /// Message text: 0 small, 1 default, 2 large.
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
@@ -1139,75 +1202,6 @@ enum Animate {
     Never,
 }
 
-/// The texts of the interface in the current language.
-fn set_strings(window: &YapfastWindow) {
-    use i18n::tr;
-    let strings = window.global::<Strings>();
-    strings.set_official_badge(tr("official_badge").into());
-    strings.set_official_message(tr("official_message").into());
-    strings.set_wave(tr("wave").into());
-    strings.set_inbox(tr("inbox").into());
-    strings.set_help(tr("help").into());
-    strings.set_download_apps(tr("download_apps").into());
-    strings.set_nav_back(tr("nav_back").into());
-    strings.set_nav_forward(tr("nav_forward").into());
-    strings.set_inbox_for_you(tr("inbox_for_you").into());
-    strings.set_inbox_unreads(tr("inbox_unreads").into());
-    strings.set_inbox_mentions(tr("inbox_mentions").into());
-    strings.set_inbox_empty(tr("inbox_empty").into());
-    strings.set_inbox_friend_request(tr("inbox_friend_request").into());
-    strings.set_inbox_mentioned(tr("inbox_mentioned").into());
-    strings.set_start_voice_call(tr("start_voice_call").into());
-    strings.set_start_video_call(tr("start_video_call").into());
-    strings.set_join_call(tr("join_call").into());
-    strings.set_invite_people(tr("invite_people").into());
-    strings.set_show_mutual(tr("show_mutual").into());
-    strings.set_roles(tr("roles").into());
-    strings.set_connections(tr("connections").into());
-    strings.set_note_title(tr("note_title").into());
-    strings.set_note_hint(tr("note_hint").into());
-    strings.set_add_friend(tr("add_friend").into());
-    strings.set_friends(tr("friends").into());
-    strings.set_friend_sent(tr("friend_sent").into());
-    strings.set_accept_friend(tr("accept_friend").into());
-    strings.set_view_full_profile(tr("view_full_profile").into());
-    strings.set_view_full_bio(tr("view_full_bio").into());
-    strings.set_member_since(tr("member_since").into());
-    strings.set_tab_activity(tr("tab_activity").into());
-    strings.set_tab_mutual_friends(tr("tab_mutual_friends").into());
-    strings.set_tab_mutual_servers(tr("tab_mutual_servers").into());
-    strings.set_setting_date_format(tr("setting_date_format").into());
-    strings.set_setting_time_zone(tr("setting_time_zone").into());
-    strings.set_setting_language(tr("setting_language").into());
-    let list = |texts: Vec<SharedString>| ModelRc::new(VecModel::from(texts));
-    strings.set_date_formats(list(
-        ["date_dmy", "date_mdy", "date_ymd"]
-            .map(|key| tr(key).into())
-            .into(),
-    ));
-    let zones = std::iter::once(SharedString::from(tr("zone_system")))
-        .chain(clock::ZONES.iter().map(|&minutes| zone_name(minutes)));
-    strings.set_time_zones(list(zones.collect()));
-    strings.set_languages(list(Language::ALL.map(|l| l.name().into()).into()));
-}
-
-/// A zone as `UTC`, `UTC-8` or `UTC+5:30`.
-fn zone_name(minutes: i32) -> SharedString {
-    if minutes == 0 {
-        return "UTC".into();
-    }
-    let (sign, minutes) = if minutes < 0 {
-        ('-', -minutes)
-    } else {
-        ('+', minutes)
-    };
-    match minutes % 60 {
-        0 => format!("UTC{sign}{}", minutes / 60),
-        rest => format!("UTC{sign}{}:{rest:02}", minutes / 60),
-    }
-    .into()
-}
-
 /// The animation settings' choices, in the order they show.
 const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Never];
 
@@ -1257,17 +1251,13 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
 }
 
 impl Layout {
-    /// Hands the date format, time zone and language to what formats times and
-    /// words the interface, and fills the interface's texts in the language.
-    fn apply_clock_style(&self, window: &YapfastWindow) {
-        let format = self.date_format.and_then(|index| {
+    /// Hands the date format to what formats times.
+    fn apply_date_format(&self) {
+        clock::set_date_format(self.date_format.and_then(|index| {
             clock::DateFormat::ALL
                 .get(usize::try_from(index).ok()?)
                 .copied()
-        });
-        clock::set_style(format, self.time_zone);
-        i18n::set_language(chosen(&Language::ALL, self.language));
-        set_strings(window);
+        }));
     }
 
     /// The voice gate's sensitivity, in whole dBFS from -80 to 0.
@@ -1349,6 +1339,8 @@ impl Layout {
         self.apply_custom_games(window);
         window.set_show_idle(self.show_idle.unwrap_or(true));
         window.set_hide_blocked(self.hide_blocked);
+        window.set_skip_call_prompt(self.skip_call_prompt);
+        window.set_activity_cards_hidden(self.activity_cards_hidden);
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
         self.apply_appearance(window);
         if let Some(width) = self.aside_width {
@@ -1362,14 +1354,7 @@ impl Layout {
         window.set_twelve_hour_clock(self.twelve_hour_clock);
         window.set_clock_seconds(self.clock_seconds);
         window.set_date_format(self.date_format.unwrap_or(-1));
-        window.set_time_zone(self.time_zone.map_or(0, |minutes| {
-            clock::ZONES
-                .iter()
-                .position(|&zone| zone == minutes)
-                .map_or(0, |index| index as i32 + 1)
-        }));
-        window.set_language(self.language.clamp(0, Language::ALL.len() as i32 - 1));
-        self.apply_clock_style(window);
+        self.apply_date_format();
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
         window.set_link_previews(self.link_previews.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
@@ -1638,21 +1623,8 @@ struct Icons {
     id: slint::Image,
     thread: slint::Image,
     forum: slint::Image,
-    /// The rules, announcement, stage, media and age-restricted channels' icons.
-    rules: slint::Image,
-    announcement: slint::Image,
-    stage: slint::Image,
-    media: slint::Image,
-    age_restricted: slint::Image,
     voice: slint::Image,
     lock: slint::Image,
-    /// Channels @everyone may not see: the icon with Discord's padlock on its corner.
-    text_private: slint::Image,
-    voice_private: slint::Image,
-    announcement_private: slint::Image,
-    stage_private: slint::Image,
-    forum_private: slint::Image,
-    media_private: slint::Image,
     read: slint::Image,
     call: slint::Image,
     profile: slint::Image,
@@ -1924,35 +1896,8 @@ impl Adapter {
             forum: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/message-square-text.svg"
             ))?,
-            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
-            announcement: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/megaphone.svg"
-            ))?,
-            stage: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/stage.svg"))?,
-            media: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/image.svg"))?,
-            age_restricted: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/hash-warning.svg"
-            ))?,
             voice: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/volume-2.svg"))?,
             lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
-            text_private: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/hash-lock.svg"
-            ))?,
-            voice_private: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/volume-lock.svg"
-            ))?,
-            announcement_private: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/megaphone-lock.svg"
-            ))?,
-            stage_private: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/stage-lock.svg"
-            ))?,
-            forum_private: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/forum-lock.svg"
-            ))?,
-            media_private: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/media-lock.svg"
-            ))?,
             read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
             call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,
             profile: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user.svg"))?,
@@ -2022,6 +1967,8 @@ impl Adapter {
         ));
         app.dispatch(Action::ReplyPing(layout.reply_ping.unwrap_or(true)));
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
+        app.dispatch(Action::SkipCallPrompt(layout.skip_call_prompt));
+        app.dispatch(Action::ActivityCardsHidden(layout.activity_cards_hidden));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));

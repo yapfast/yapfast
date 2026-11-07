@@ -1205,11 +1205,6 @@ impl Tracker {
         if let Some(list) = settings::server_list(encoded) {
             self.order = list.order;
             self.folders = list.folders;
-            tracing::info!(
-                "the server list has {} folders over {} servers",
-                self.folders.len(),
-                self.order.len()
-            );
             self.sort_servers();
         }
     }
@@ -1524,9 +1519,10 @@ impl Tracker {
             )
                 .hash(&mut hasher);
             (
-                names
-                    .server_tag(user)
-                    .map(|tag| (&tag.guild, &tag.text, &tag.badge)),
+                names.server_tag(user),
+                names.decoration_sku(None, user),
+                names.plate(None, user),
+                names.style(None, user),
                 names.is_official(user),
             )
                 .hash(&mut hasher);
@@ -1601,6 +1597,10 @@ impl Tracker {
                 .then(|| private.recipients.first())
                 .flatten()
                 .and_then(|user| names.decoration(None, user)),
+            nameplate: (!private.group)
+                .then(|| private.recipients.first())
+                .flatten()
+                .and_then(|user| names.nameplate(None, user)),
             style: (!private.group)
                 .then(|| private.recipients.first())
                 .flatten()
@@ -3168,6 +3168,34 @@ mod tests {
             shared(&unread.servers[1], &renamed.servers[1]),
             (true, true)
         );
+    }
+
+    #[test]
+    fn a_dm_follows_what_its_person_equips() {
+        let ready = json!({
+            "user": {"id": "1"},
+            "users": [{"id": "2", "username": "ann"}],
+            "private_channels": [{"id": "20", "type": 1, "recipient_ids": ["2"]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let dm = |tracker: &mut Tracker| tracker.snapshot().conversations[0].clone();
+        assert_eq!(dm(&mut tracker).decoration, None);
+        tracker.names.write().unwrap().learn_user(&json!({
+            "id": "2", "username": "ann",
+            "avatar_decoration_data": {"asset": "a", "sku_id": "77"},
+            "collectibles": {"nameplate": {"sku_id": "88", "palette": "sky"}},
+            "display_name_styles": {"font_id": 3, "effect_id": 1, "colors": [1]},
+        }));
+        let equipped = dm(&mut tracker);
+        assert!(
+            equipped
+                .decoration
+                .as_deref()
+                .is_some_and(|url| url.contains("/collectibles-shop/77/"))
+        );
+        let plate = equipped.nameplate.as_ref().unwrap();
+        assert!(plate.picture.contains("/collectibles-shop/88/"));
+        assert_eq!(equipped.style.map(|style| style.font), Some(3));
     }
 
     #[test]

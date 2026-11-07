@@ -17,7 +17,8 @@ fn bio_with_emoji(bio: &str, emoji: &[yapfast_core::chat::CustomEmoji]) -> Strin
 }
 
 /// A running time as the activity panel words it: "for 12 min".
-pub(super) fn running_for(started_ms: u64, now_ms: u64) -> String {
+#[cfg(feature = "discord")]
+fn running_for(started_ms: u64, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(started_ms) / 60_000;
     match minutes {
         0 => "just started".to_owned(),
@@ -27,62 +28,117 @@ pub(super) fn running_for(started_ms: u64, now_ms: u64) -> String {
     }
 }
 
-/// What members are doing now, for the panel above the member list: one row
-/// per member, the longest-running last, and how many members there are in
-/// all. A custom status and a Hang status are not activities here.
+/// How long ago something finished as the activity panel words it, in
+/// Discord's steps: "3h ago", "2d ago".
+#[cfg(feature = "discord")]
+pub(super) fn finished_ago(at_ms: u64, now_ms: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+    let seconds = now_ms.saturating_sub(at_ms) / 1000;
+    match seconds {
+        0..MINUTE => format!("{seconds}s ago"),
+        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
+        _ if seconds < 12 * HOUR => format!("{}h ago", seconds / HOUR),
+        _ if seconds < 9 * DAY => format!("{}d ago", (seconds / DAY).max(1)),
+        _ if seconds < 28 * DAY => format!("{}w ago", seconds / (7 * DAY)),
+        _ => format!("{}mo ago", (seconds / (30 * DAY)).max(1)),
+    }
+}
+
+/// What the channel's Activity panel shows: Discord's feed, in its order, of
+/// those `state.activity_people` says it may show. Between two channels of a
+/// server the last answer shows until this one's comes.
 #[cfg(feature = "discord")]
 pub(super) fn activity_panel(
+    state: &yapfast_core::application::AppState,
+    room: &str,
     members: &[yapfast_core::chat::ChatMember],
     now_ms: u64,
-) -> (Vec<MemberActivityRow>, i32) {
-    use yapfast_core::chat::ActivityKind;
-    let mut found: Vec<(u64, MemberActivityRow)> = members
+) -> Vec<MemberActivityRow> {
+    use yapfast_core::{
+        chat::{ActivityKind, FeedEntry, Presence},
+        discord::parse_room,
+        yapfast_discord::activity_feed::Kind,
+    };
+    let Some((asked, people)) = &state.activity_people else {
+        return Vec::new();
+    };
+    let server = |room| parse_room(room).map(|(server, _)| server);
+    if server(asked) != server(room) {
+        return Vec::new();
+    }
+    // What their presence says of it, which is more than the feed does.
+    let doing = |member: &yapfast_core::chat::ChatMember, entry: &FeedEntry| {
+        member
+            .activities
+            .iter()
+            .find(|activity| match entry.kind {
+                Kind::Game | Kind::Launched => {
+                    activity.kind == ActivityKind::Playing && activity.name == entry.title
+                }
+                Kind::Listened => activity.kind == ActivityKind::Listening,
+                Kind::Watched => activity.kind == ActivityKind::Watching,
+                Kind::TopGame | Kind::TopArtist => false,
+            })
+            .cloned()
+    };
+    state
+        .activity_feed
         .iter()
-        .filter_map(|member| {
-            let activity = member
-                .activities
-                .iter()
-                .find(|activity| activity.kind != ActivityKind::Hang)?;
-            let started = activity.start.unwrap_or(0);
-            Some((
-                started,
-                MemberActivityRow {
-                    id: member.id.clone().into(),
-                    name: member.name.clone().into(),
-                    initial: initial(&member.name),
-                    tint: tint(&member.name),
-                    picture_url: member.avatar.as_deref().unwrap_or_default().into(),
-                    icon: i32::from(
-                        yapfast_core::yapfast_discord::activity::subline(
-                            std::slice::from_ref(activity),
-                            None,
-                        )
-                        .icon,
-                    ),
-                    game: activity.name.to_string().into(),
-                    since: if started > 0 {
-                        running_for(started, now_ms)
-                    } else {
-                        activity.heading()
-                    }
-                    .into(),
-                    thumb_url: activity
-                        .large_image
-                        .as_deref()
-                        .or(activity.small_image.as_deref())
-                        .unwrap_or_default()
-                        .into(),
+        .filter_map(|entry| {
+            let person = people.iter().find(|person| person.id == entry.author)?;
+            let live = entry.live_at(now_ms);
+            let member = live
+                .then(|| members.iter().find(|member| *member.id == *entry.author))
+                .flatten();
+            // Discord's client leaves out what someone offline "is" doing.
+            if member.is_some_and(|member| member.presence == Some(Presence::Offline)) {
+                return None;
+            }
+            let activity = member.and_then(|member| doing(member, entry));
+            let since = match (entry.hours, entry.tracks) {
+                (Some(hours), _) if entry.kind == Kind::TopGame => {
+                    format!("Most played: {hours}h")
+                }
+                (_, Some(tracks)) if entry.kind == Kind::TopArtist => {
+                    format!("{tracks} tracks this week")
+                }
+                _ if live => running_for(
+                    activity
+                        .as_ref()
+                        .and_then(|activity| activity.start)
+                        .unwrap_or(entry.at_ms),
+                    now_ms,
+                ),
+                _ => finished_ago(entry.at_ms, now_ms),
+            };
+            let picture = activity
+                .as_ref()
+                .and_then(|activity| activity.large_image.as_deref())
+                .or(entry.picture.as_deref())
+                .unwrap_or_default();
+            Some(MemberActivityRow {
+                id: (*person.id).into(),
+                name: (*person.name).into(),
+                initial: initial(&person.name),
+                tint: tint(&person.name),
+                picture_url: (*person.avatar).into(),
+                icon: match entry.kind {
+                    Kind::Game | Kind::Launched => 1,
+                    Kind::Listened => 2,
+                    Kind::Watched => 3,
+                    Kind::TopGame | Kind::TopArtist => 5,
                 },
-            ))
+                live,
+                game: (*entry.title).into(),
+                since: since.into(),
+                thumb_url: yapfast_core::yapfast_discord::activity::small_picture(picture)
+                    .as_ref()
+                    .into(),
+            })
         })
-        .collect();
-    // The most recently started first, those without a start last.
-    found.sort_by_key(|(started, _)| std::cmp::Reverse(*started));
-    let total = i32::try_from(found.len()).unwrap_or(i32::MAX);
-    (
-        found.into_iter().map(|(_, row)| row).take(8).collect(),
-        total,
-    )
+        .collect()
 }
 
 /// The icon, bullet and replacing words of the line under a name for what
@@ -106,10 +162,18 @@ pub(super) fn subline(
 
 #[cfg(not(feature = "discord"))]
 pub(super) fn activity_panel(
+    _state: &yapfast_core::application::AppState,
+    _room: &str,
     _members: &[yapfast_core::chat::ChatMember],
     _now_ms: u64,
-) -> (Vec<MemberActivityRow>, i32) {
-    (Vec::new(), 0)
+) -> Vec<MemberActivityRow> {
+    Vec::new()
+}
+
+/// "1 mutual friend" or "5 mutual servers".
+fn mutual_count(count: usize, what: &str) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} mutual {what}{plural}")
 }
 
 /// Only mentions get a number; plain unread activity is a dot, because sync
@@ -363,7 +427,7 @@ pub(super) fn profile_data(
     // with the avatar's dominant colour.
     let accent = profile.accent.or_else(|| {
         (profile.banner.is_none() && profile.theme.is_none())
-            .then(|| dominant_color(&avatar))
+            .then(|| avatar_color(profile.avatar.as_deref(), &avatar))
             .flatten()
     });
     ProfileData {
@@ -374,7 +438,6 @@ pub(super) fn profile_data(
             .and_then(|effect| effect.still.as_deref())
             .unwrap_or_default()
             .into(),
-        effect_persistent: effect.is_some_and(|effect| effect.persistent),
         effect_end: effect.map_or(0, |effect| {
             effect
                 .layers
@@ -393,19 +456,11 @@ pub(super) fn profile_data(
         tint: tint(&profile.name),
         picture: avatar.clone(),
         decoration_url: profile.decoration.as_deref().unwrap_or_default().into(),
-        name_style: super::name_style::row(profile.style, &profile.name),
+        name_style: super::name_style::row(profile.style.as_deref(), &profile.name),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
-        tag: profile
-            .tag
-            .as_ref()
-            .map_or_else(Default::default, |tag| tag.text.as_str().into()),
-        tag_badge: profile
-            .tag
-            .as_ref()
-            .and_then(|tag| tag.badge.as_deref())
-            .unwrap_or_default()
-            .into(),
+        tag: tag_text(&profile.tag),
+        tag_badge: tag_badge(&profile.tag),
         banner: banner.clone(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
@@ -523,8 +578,8 @@ pub(super) fn profile_data(
                 })
                 .collect::<Vec<_>>(),
         )),
-        mutual_friends_text: yapfast_core::i18n::mutual_friends(profile.friends.len()).into(),
-        mutual_servers_text: yapfast_core::i18n::mutual_servers(profile.servers.len()).into(),
+        mutual_friends_text: mutual_count(profile.friends.len(), "friend").into(),
+        mutual_servers_text: mutual_count(profile.servers.len(), "server").into(),
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && state.relation(&profile.id) != Relation::Me,
         can_message: state
@@ -535,7 +590,7 @@ pub(super) fn profile_data(
             .person_choices(&profile.id)
             .contains(&MenuChoice::Message)
         {
-            yapfast_core::i18n::message_hint(&profile.name).into()
+            format!("Message @{}", profile.name).into()
         } else {
             Default::default()
         },
@@ -587,6 +642,31 @@ pub(super) fn role_rows(roles: &[ProfileRole], width: f32) -> ModelRc<ProfileRol
     ))
 }
 
+/// How many avatars' colours are kept before they're worked out afresh.
+const AVATAR_COLORS: usize = 64;
+
+thread_local! {
+    /// [`dominant_color`] of the avatars profiles have shown, by address:
+    /// `profile_data` runs on every refresh with a profile open.
+    static AVATAR_COLOR: RefCell<HashMap<String, u32>> = RefCell::default();
+}
+
+/// [`dominant_color`] of the avatar at `url`, worked out once it has arrived.
+pub(super) fn avatar_color(url: Option<&str>, avatar: &slint::Image) -> Option<u32> {
+    let url = url?;
+    AVATAR_COLOR.with_borrow_mut(|colors| {
+        if let Some(color) = colors.get(url) {
+            return Some(*color);
+        }
+        let color = dominant_color(avatar)?;
+        if colors.len() >= AVATAR_COLORS {
+            colors.clear();
+        }
+        colors.insert(url.to_owned(), color);
+        Some(color)
+    })
+}
+
 /// The colour that stands out most in a picture, as 0xRRGGBB: the average of
 /// its opaque pixels, each counted by how saturated it is, so a vivid avatar
 /// on a grey background gives its vivid colour. A grey picture gives its
@@ -619,6 +699,20 @@ pub(super) fn dominant_color(picture: &slint::Image) -> Option<u32> {
         color = (color << 8) | (sum / total).round().clamp(0.0, 255.0) as u32;
     }
     Some(color)
+}
+
+/// A server tag's letters for Slint, or nothing for one who wears none.
+pub(super) fn tag_text(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.as_ref()
+        .map_or_else(Default::default, |tag| (&*tag.text).into())
+}
+
+/// The address of a server tag's badge for Slint, or nothing without one.
+pub(super) fn tag_badge(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.as_ref()
+        .and_then(|tag| tag.badge.as_deref())
+        .unwrap_or_default()
+        .into()
 }
 
 /// A Discord role's RGB colour for Slint.

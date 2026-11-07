@@ -522,7 +522,7 @@ pub struct AppState {
     pub account_avatar: Option<String>,
     /// The decoration around the account's avatar and its nameplate, which
     /// the account card at the bottom of the sidebar shows; Discord's.
-    pub account_decoration: Option<String>,
+    pub account_decoration: Option<Arc<str>>,
     /// The profile effects fetched lately, oldest first, which the profiles
     /// shown name.
     pub profile_effects: Vec<Arc<crate::chat::ProfileEffect>>,
@@ -626,6 +626,9 @@ pub struct AppState {
     /// A message being forwarded, while its dialog is open.
     pub forwarding: Option<Forwarding>,
     pub places_used: PlacesUsed,
+    /// The Discord account's favourite emoji and the emoji it uses, which the
+    /// emoji picker shows first.
+    pub discord_emojis: DiscordEmojiLists,
     /// What the quick switcher searches for, while it's open.
     pub switcher: Option<String>,
     pub new_dm: Option<NewDm>,
@@ -1419,6 +1422,9 @@ pub enum Action {
         key: String,
     },
     RequestDelete(String),
+    /// Delete a message without asking first, as Shift and a click on its
+    /// Delete do in Discord's client.
+    DeleteNow(String),
     /// Vote for these answers of a Discord message's poll, by item, in
     /// place of this account's vote; none takes it back.
     Vote {
@@ -2081,6 +2087,18 @@ pub enum Effect {
 /// A timeline as the app state holds it, sharing its messages.
 type TimelineArc = Arc<Vec<Arc<ChatMessage>>>;
 
+/// The Discord account's emoji, as the picker lists them: custom emoji's ids
+/// and Unicode emoji's Discord names.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscordEmojiLists {
+    /// In the order the account favourited them.
+    pub favorites: Vec<String>,
+    /// Those it uses in messages and those it reacts with, as its clients rank
+    /// them when they came, the most used lately first.
+    pub frequent: Vec<String>,
+    pub reactions: Vec<String>,
+}
+
 #[derive(Default)]
 pub struct Application {
     pub state: AppState,
@@ -2098,6 +2116,8 @@ pub struct Application {
     reaction_uses: HashMap<String, u32>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
+    /// The profile effects' pictures in `AppState::pictures`.
+    effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
     /// The selected room's timeline with the blocked messages
@@ -2218,7 +2238,8 @@ fn visible_range(
 
 /// The server icons and avatars on screen: the rail, the first DMs listed,
 /// the people in the listed voice channels, the call, `timeline` and the
-/// member list, profiles and people to start a DM with.
+/// member list, profiles and people to start a DM with, with the server tags
+/// and role icons by their names.
 fn pictures_on_screen<'a>(
     state: &'a AppState,
     timeline: &'a [Arc<ChatMessage>],
@@ -2236,13 +2257,19 @@ fn pictures_on_screen<'a>(
                 .account_nameplate
                 .as_ref()
                 .filter(|_| !state.hide_nameplates)
-                .map(|plate| plate.picture.as_str()),
+                .map(|plate| &*plate.picture),
         )
         .chain(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .flat_map(|room| [room.avatar.as_deref(), room.decoration.as_deref()])
+                .flat_map(|room| {
+                    [
+                        room.avatar.as_deref(),
+                        room.decoration.as_deref(),
+                        tag_badge(&room.tag),
+                    ]
+                })
                 .flatten()
                 .take(LISTED_PICTURES),
         )
@@ -2250,6 +2277,14 @@ fn pictures_on_screen<'a>(
             state
                 .selected_room()
                 .and_then(|room| room.avatar.as_deref()),
+        )
+        // A DM's row shows its nameplate only selected or under the pointer.
+        .chain(
+            state
+                .selected_room()
+                .filter(|_| !state.hide_nameplates)
+                .and_then(|room| room.nameplate.as_ref())
+                .map(|plate| &*plate.picture),
         )
         .chain(
             state
@@ -2391,7 +2426,7 @@ fn pictures_on_screen<'a>(
                 .profile
                 .iter()
                 .chain(&state.panel_profile)
-                .flat_map(|view| {
+                .flat_map(move |view| {
                     let profile = &view.profile;
                     let effect = profile.effect.as_deref().and_then(|sku| {
                         state
@@ -2399,7 +2434,7 @@ fn pictures_on_screen<'a>(
                             .iter()
                             .find(|effect| effect.sku == sku)
                     });
-                    [&profile.avatar, &profile.decoration, &profile.banner]
+                    [&profile.avatar, &profile.banner]
                         .into_iter()
                         .chain(
                             profile
@@ -2409,8 +2444,23 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
+                        .chain(profile.decoration.as_deref())
+                        .chain(tag_badge(&profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
-                        .chain(effect.into_iter().flat_map(|effect| effect.pictures()))
+                        // Its layers are asked for when it first plays.
+                        .chain(effect.into_iter().flat_map(move |effect| {
+                            effect.still.as_deref().into_iter().chain(
+                                effect
+                                    .layers
+                                    .iter()
+                                    .filter(move |_| list_avatars)
+                                    .map(|layer| layer.src.as_str()),
+                            )
+                        }))
+                        .chain(profile.badges.iter().flat_map(|badge| {
+                            std::iter::once(badge.icon.as_str())
+                                .chain(badge.level.iter().map(|level| level.picture.as_str()))
+                        }))
                 }),
         )
         .chain(
@@ -2441,6 +2491,7 @@ fn pictures_on_screen<'a>(
                         .into_iter()
                         .chain(message.decoration.as_deref())
                         .chain(reply)
+                        .chain(tag_badge(&message.tag))
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2471,10 +2522,14 @@ fn pictures_on_screen<'a>(
                             .nameplate
                             .as_ref()
                             .filter(|_| !state.hide_nameplates)
-                            .map(|plate| plate.picture.as_str()),
+                            .map(|plate| &*plate.picture),
+                        member.group_icon.as_deref(),
+                        member.role_icon.as_deref(),
+                        tag_badge(&member.tag),
                     ]
-                })
-                .flatten(),
+                    .into_iter()
+                    .flatten()
+                }),
         )
         .chain(
             state
@@ -2483,6 +2538,11 @@ fn pictures_on_screen<'a>(
                 .flat_map(NewDm::people)
                 .filter_map(|person| person.avatar.as_deref()),
         )
+}
+
+/// The address of the picture of a server tag's badge.
+fn tag_badge(tag: &Option<chat::ServerTag>) -> Option<&str> {
+    tag.as_ref()?.badge.as_deref()
 }
 
 /// Discord's CDN keeps custom emoji under /emojis/.
@@ -2547,10 +2607,45 @@ impl Application {
         effects
     }
 
+    /// Lets a profile effect's pictures go with its card, rather than with
+    /// the next trim: each is the size of the card, as much as a few hundred
+    /// avatars.
+    fn let_go_of_effect_pictures(&mut self) {
+        if self.effect_pictures.is_empty() {
+            return;
+        }
+        let state = &self.state;
+        let shown: Vec<&str> = state
+            .profile
+            .iter()
+            .chain(&state.panel_profile)
+            .filter_map(|view| view.profile.effect.as_deref())
+            .filter_map(|sku| {
+                state
+                    .profile_effects
+                    .iter()
+                    .find(|effect| effect.sku == sku)
+            })
+            .flat_map(|effect| effect.pictures())
+            .collect();
+        let (kept, gone): (Vec<String>, Vec<String>) = std::mem::take(&mut self.effect_pictures)
+            .into_iter()
+            .partition(|url| shown.contains(&url.as_str()));
+        self.effect_pictures = kept;
+        for url in &gone {
+            self.state.pictures.remove(url);
+            self.requested_pictures.remove(url);
+        }
+        if !gone.is_empty() {
+            self.state.picture_changes += 1;
+        }
+    }
+
     /// Asks for the server icons and avatars on screen that weren't asked
     /// for before; see [`pictures_on_screen`]. The timeline, which can hold
     /// thousands of messages, is gone through only when it changed.
     fn request_pictures(&mut self) -> Option<Effect> {
+        self.let_go_of_effect_pictures();
         let state = &self.state;
         let timeline = if Arc::ptr_eq(&self.pictured_timeline, &state.messages) {
             &[][..]
@@ -2611,6 +2706,9 @@ impl Application {
     /// few servers would let thousands of avatars pile up.
     fn keep_picture(&mut self, url: String, picture: Arc<Picture>) {
         let emoji = is_custom_emoji(&url);
+        if url.ends_with(chat::EFFECT_PICTURE) {
+            self.effect_pictures.push(url.clone());
+        }
         if self.state.pictures.insert(url, picture).is_none() && emoji {
             self.emoji_pictures += 1;
         }
@@ -2757,6 +2855,7 @@ impl Application {
             }
             Action::React { item, key } => self.react(item, key),
             Action::RequestDelete(item) => self.request_delete(item),
+            Action::DeleteNow(item) => self.delete_now(item),
             Action::Vote { item, answers } => self.vote(item, answers),
             Action::OpenPollDraft => self.open_poll_draft(),
             Action::EditPoll(edit) => self.edit_poll(edit),
@@ -3625,6 +3724,18 @@ impl Application {
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),
             Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
+            Event::DiscordEmojis(emojis) => {
+                let (known, now) = (&mut self.state.discord_emojis, crate::clock::now_ms());
+                if let Some(favorites) = emojis.favorites {
+                    known.favorites = favorites;
+                }
+                if let Some(used) = emojis.used {
+                    known.frequent = place_search::rank_emojis(used, now);
+                }
+                if let Some(reactions) = emojis.reactions {
+                    known.reactions = place_search::rank_emojis(reactions, now);
+                }
+            }
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
             Event::Reactors {
                 item,

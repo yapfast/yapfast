@@ -66,15 +66,18 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
-/// Decorations and nameplates: a decoration is 288 pixels square, shrunk to
-/// show sharply at the card's largest; a nameplate, 448x84 or 672x126, keeps
-/// its size, the strip a row's height shows at twice the scale.
+/// Decorations and nameplates. A decoration is 288 pixels square, shrunk to
+/// show on the card's 96 pixels as sharply as an avatar on its 80. A nameplate,
+/// 448x84 or 672x126, is shrunk to the smaller, twice a row's height.
 #[cfg(feature = "discord")]
-const COLLECTIBLE_SIZE: (u32, u32) = (672, 192);
-/// A profile effect's layers, which cover a card: Discord draws them 450 by
-/// 880 pixels, scaled to the card.
+const COLLECTIBLE_SIZE: (u32, u32) = (448, 160);
+/// The most a profile badge's icon is decoded at: twice the 20px it shows at.
 #[cfg(feature = "discord")]
-const EFFECT_SIZE: (u32, u32) = (450, 900);
+const BADGE_SIZE: u32 = 40;
+/// The most a profile effect's picture is decoded at: Discord's are 450 by 880
+/// pixels, and cover a card of 340 pixels or so.
+#[cfg(feature = "discord")]
+const EFFECT_SIZE: (u32, u32) = (340, 680);
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -200,8 +203,8 @@ fn in_voice(snapshot: &Snapshot, channel: &str) -> Vec<VoicePerson> {
 pub fn server_tag(tag: Option<yapfast_discord::message::Tag>) -> Option<chat::ServerTag> {
     let tag = tag?;
     Some(chat::ServerTag {
-        badge: tag.badge_url(),
         text: tag.text,
+        badge: tag.badge,
     })
 }
 
@@ -679,7 +682,8 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         incoming: dm.ringing.iter().any(|person| person.user_id == me),
         avatar: dm.avatar.clone(),
         decoration: dm.decoration.clone(),
-        style: dm.style.map(Into::into),
+        nameplate: dm.nameplate.clone().map(|plate| Arc::new(plate.into())),
+        style: dm.style.map(|style| Arc::new(style.into())),
         upload_limit: yapfast_discord::api::upload_limit(premium, None),
         presence: dm.presence.map(presence),
         activity: dm.activity.clone(),
@@ -690,7 +694,6 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         tag: server_tag(dm.tag.clone()),
         official: dm.official,
         empty: dm.empty,
-        symbol: chat::symbol::TEXT,
         preview: dm.preview.as_ref().map(|preview| {
             Box::new(chat::RequestPreview {
                 text: match (preview.text.trim(), preview.files) {
@@ -826,6 +829,7 @@ fn server_rooms(
                 incoming: false,
                 avatar: None,
                 decoration: None,
+                nameplate: None,
                 style: None,
                 presence: None,
                 activity: None,
@@ -840,15 +844,6 @@ fn server_rooms(
                 tag: None,
                 official: false,
                 empty: false,
-                symbol: private_symbol(
-                    server,
-                    channel,
-                    if channel.stage {
-                        chat::symbol::STAGE
-                    } else {
-                        chat::symbol::TEXT
-                    },
-                ),
                 preview: None,
             }
         } else {
@@ -886,6 +881,7 @@ fn server_rooms(
                 incoming: false,
                 avatar: None,
                 decoration: None,
+                nameplate: None,
                 style: None,
                 presence: None,
                 activity: None,
@@ -900,21 +896,6 @@ fn server_rooms(
                 tag: None,
                 official: false,
                 empty: false,
-                symbol: private_symbol(
-                    server,
-                    channel,
-                    if server.rules_channel.as_deref() == Some(channel.id.as_str()) {
-                        chat::symbol::RULES
-                    } else if channel.announcement {
-                        chat::symbol::ANNOUNCEMENT
-                    } else if channel.media {
-                        chat::symbol::MEDIA
-                    } else if channel.nsfw {
-                        chat::symbol::AGE_RESTRICTED
-                    } else {
-                        chat::symbol::TEXT
-                    },
-                ),
                 preview: None,
             }
         });
@@ -959,20 +940,6 @@ fn server_rooms(
     (rooms, server)
 }
 
-/// A channel's icon `kind`, with the padlock mark when @everyone may not see it.
-#[cfg(feature = "discord")]
-fn private_symbol(
-    server: &MarkedServer,
-    channel: &yapfast_discord::ready::Channel,
-    kind: u8,
-) -> u8 {
-    if server.private(channel) {
-        kind | chat::symbol::PRIVATE
-    } else {
-        kind
-    }
-}
-
 /// A thread as it lists under `parent`, its channel's room.
 #[cfg(feature = "discord")]
 fn thread_room(
@@ -1011,6 +978,7 @@ fn thread_room(
         incoming: false,
         avatar: None,
         decoration: None,
+        nameplate: None,
         style: None,
         presence: None,
         activity: None,
@@ -1022,7 +990,6 @@ fn thread_room(
         tag: None,
         official: false,
         empty: false,
-        symbol: chat::symbol::TEXT,
         preview: None,
     }
 }
@@ -1220,6 +1187,8 @@ impl Pictures {
                     EFFECT_SIZE
                 } else if url.contains("/collectibles-shop/") {
                     COLLECTIBLE_SIZE
+                } else if url.contains("/badge-icons/") {
+                    (BADGE_SIZE, BADGE_SIZE)
                 } else {
                     (PICTURE_SIZE, PICTURE_SIZE)
                 };
@@ -1228,8 +1197,12 @@ impl Pictures {
                 };
                 let address = url.clone();
                 let decoded = tokio::task::spawn_blocking(move || {
-                    chat::decode_picture(&data, width, height)
-                        .map(|picture| read_kept(&address, picture))
+                    let decode = if yapfast_discord::ready::is_asset_svg(&address) {
+                        chat::decode_svg
+                    } else {
+                        chat::decode_picture
+                    };
+                    decode(&data, width, height).map(|picture| read_kept(&address, picture))
                 })
                 .await;
                 match decoded {

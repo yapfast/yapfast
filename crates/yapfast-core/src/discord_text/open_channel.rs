@@ -1733,7 +1733,7 @@ impl OpenChannel {
             decoration: discord.decoration(Some(&self.guild), &message.author_id),
             style: discord
                 .style(Some(&self.guild), &message.author_id)
-                .map(Into::into),
+                .map(|style| Arc::new(style.into())),
             color: server.and_then(|server| discord.color(server, &message.author_id)),
             bot: message.bot,
             tag: discord::server_tag(discord.server_tag(&message.author_id)),

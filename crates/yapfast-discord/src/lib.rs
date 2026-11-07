@@ -52,3 +52,4 @@ pub mod token;
 pub mod unread;
 pub mod voice;
 mod voice_connection;
+mod websocket;

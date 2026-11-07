@@ -969,6 +969,7 @@ fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
         messages: timeline(vec![
             message("e:$bob", false),
             message("e:$mine", true),
+            message("e:$other", true),
             pending,
         ]),
     });
@@ -982,6 +983,22 @@ fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
         app.dispatch(Action::ConfirmDelete).as_slice(),
         [Effect::Backend(Command::Delete { item, .. })] if item == "e:$mine"
     ));
+    // Shift's quick Delete doesn't ask, and leaves another message's
+    // question alone.
+    app.dispatch(Action::RequestDelete("e:$mine".into()));
+    assert!(app.dispatch(Action::DeleteNow("e:$bob".into())).is_empty());
+    assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$mine"));
+    assert!(matches!(
+        app.dispatch(Action::DeleteNow("e:$other".into())).as_slice(),
+        [Effect::Backend(Command::Delete { item, .. })] if item == "e:$other"
+    ));
+    assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$mine"));
+    // A quick Delete of the message being asked about ends the question.
+    assert!(matches!(
+        app.dispatch(Action::DeleteNow("e:$mine".into())).as_slice(),
+        [Effect::Backend(Command::Delete { item, .. })] if item == "e:$mine"
+    ));
+    assert!(app.state.confirm_delete.is_none());
     assert!(app.dispatch(Action::Retry("e:$mine".into())).is_empty());
     assert!(matches!(
         app.dispatch(Action::Retry("t:txn".into())).as_slice(),
@@ -3971,7 +3988,7 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
             decoration: Some("mine.png".into()),
             nameplate: Some(Nameplate {
                 picture: "plate.png".into(),
-                color: Some(0x730bc8),
+                colors: Some([0x730bc8, 0x972fed]),
             }),
             premium_type: 0,
             mfa_enabled: false,
@@ -3984,7 +4001,7 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
     app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
     let view = app.state.profile.as_ref().unwrap();
     assert_eq!(view.profile.decoration.as_deref(), Some("ring.png"));
-    let style = view.profile.style.unwrap();
+    let style = view.profile.style.as_ref().unwrap();
     assert_eq!(
         (style.font, style.effect, style.colors()),
         (4, 3, &[0x00ff00][..])
@@ -3994,8 +4011,8 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
         assert_eq!(app.state.account_decoration.as_deref(), Some("mine.png"));
         let plate = app.state.account_nameplate.as_ref().unwrap();
         assert_eq!(
-            (plate.picture.as_str(), plate.color),
-            ("plate.png", Some(0x730bc8))
+            (&*plate.picture, plate.colors),
+            ("plate.png", Some([0x730bc8, 0x972fed]))
         );
     }
 }
@@ -5216,7 +5233,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
-            color: Some(0x730bc8),
+            colors: Some([0x730bc8, 0x972fed]),
         }),
         ..member("@bob", "Bob")
     }]));
@@ -5244,7 +5261,7 @@ fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
-            color: None,
+            colors: None,
         }),
         ..member("@bob", "Bob")
     }]));
@@ -5265,12 +5282,11 @@ fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
 }
 
 #[test]
-fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_card() {
+fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card() {
     use crate::chat::{EffectLayer, ProfileEffect};
     let effect = |sku: &str| {
         Arc::new(ProfileEffect {
             sku: sku.into(),
-            persistent: true,
             still: Some(format!("{sku}-still.png#effect")),
             layers: vec![EffectLayer {
                 src: format!("{sku}-layer.png#effect"),
@@ -5302,8 +5318,7 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_car
     app.apply(Event::ProfileEffect(effect("5")));
     assert_eq!(app.state.profile_effects.len(), 8);
     assert_eq!(app.state.profile_effects.last().unwrap().sku, "5");
-    // Open on a profile naming effect 9, its pictures stay as pictures
-    // arrive and the rest go.
+    // Open on a profile naming effect 9, only its still picture is asked for.
     app.state.profile = Some(ProfileView {
         profile: Profile {
             id: "1".into(),
@@ -5316,6 +5331,10 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_car
         kept: false,
         note: None,
     });
+    app.dispatch(Action::CloseAside);
+    assert!(app.requested_pictures.contains("9-still.png#effect"));
+    assert!(!app.requested_pictures.contains("9-layer.png#effect"));
+    // Its pictures stay as others arrive, even past the trim.
     for url in ["9-still.png#effect", "9-layer.png#effect"]
         .into_iter()
         .map(String::from)
@@ -5331,6 +5350,79 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_car
         assert!(app.state.pictures.contains_key(shown), "{shown} stays");
     }
     assert!(!app.state.pictures.contains_key("0.png"));
+    // The card closing takes them, though the trim is far off, and opening it
+    // again asks for them again.
+    let changes = app.state.picture_changes;
+    app.dispatch(Action::CloseProfile);
+    for gone in ["9-still.png#effect", "9-layer.png#effect"] {
+        assert!(!app.state.pictures.contains_key(gone), "{gone} goes");
+        assert!(!app.requested_pictures.contains(gone), "{gone} goes");
+    }
+    assert!(
+        app.state.picture_changes > changes,
+        "the window lets go too"
+    );
+    assert!(app.effect_pictures.is_empty());
+}
+
+#[test]
+fn the_selected_dms_nameplate_stays_and_the_others_go() {
+    let mut app = connected();
+    let selected = app.state.selected.clone().unwrap();
+    let plate = |picture: &str| {
+        Some(Arc::new(chat::Nameplate {
+            picture: picture.into(),
+            colors: None,
+        }))
+    };
+    let dm = |id: &str, picture: &str| {
+        let room = app.state.rooms[0].clone();
+        Arc::new(ChatRoom {
+            id: id.into(),
+            nameplate: plate(picture),
+            ..(*room).clone()
+        })
+    };
+    let rooms = vec![dm(&selected, "shown.png"), dm("other", "other.png")];
+    app.state.rooms = rooms;
+    for url in ["shown.png", "other.png"]
+        .into_iter()
+        .map(String::from)
+        .chain((0..KEPT_PICTURES).map(|index| format!("{index}.png")))
+    {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key("shown.png"));
+    assert!(!app.state.pictures.contains_key("other.png"));
+}
+
+#[test]
+fn server_tag_badges_on_screen_stay_with_the_avatars() {
+    let mut app = connected();
+    let badge = "https://cdn.discordapp.com/clan-badges/10/abc.png?size=32";
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![ChatMessage {
+            tag: Some(chat::ServerTag {
+                text: "CODE".into(),
+                badge: Some(badge.into()),
+            }),
+            ..message("e:$ann", false)
+        }]),
+    });
+    for url in std::iter::once(badge.to_owned()).chain((0..KEPT_PICTURES).map(|i| i.to_string())) {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key(badge));
+    assert_eq!(app.state.pictures.len(), 1, "the rest went");
 }
 
 #[test]
@@ -10285,6 +10377,63 @@ fn going_idle_while_signed_out_tells_nobody() {
             DiscordCommand::Inactive { .. }
         ))]
     ));
+}
+
+#[test]
+fn discord_emoji_favourites_and_uses_rank_and_last_through_partial_updates() {
+    let mut app = connected();
+    let now = crate::clock::now_ms();
+    let used = |total, days: &[u64]| crate::chat::PlaceUses {
+        total,
+        recent: days.iter().map(|days| now - days * 86_400_000).collect(),
+    };
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
+        favorites: Some(vec!["skull_crossbones".into()]),
+        used: Some(vec![
+            ("thumbsup".into(), used(2, &[300])),
+            ("joy".into(), used(9, &[0, 0])),
+            ("sob".into(), used(1, &[])),
+        ]),
+        reactions: Some(vec![("fire".into(), used(1, &[0]))]),
+    }));
+    // Used most lately first; even an old use counts for something, but one
+    // with no recent uses isn't frequent.
+    let lists = &app.state.discord_emojis;
+    assert_eq!(lists.frequent, ["joy", "thumbsup"]);
+    assert_eq!(lists.reactions, ["fire"]);
+    // An update that leaves the uses out didn't change them.
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
+        favorites: Some(vec!["heart".into()]),
+        ..Default::default()
+    }));
+    let lists = &app.state.discord_emojis;
+    assert_eq!(lists.favorites, ["heart"]);
+    assert_eq!(lists.frequent, ["joy", "thumbsup"]);
+    assert_eq!(lists.reactions, ["fire"]);
+}
+
+#[test]
+fn only_as_many_frequent_emoji_as_discord_keeps_stay() {
+    let mut app = connected();
+    let now = crate::clock::now_ms();
+    let used = (0..100)
+        .map(|index| {
+            (
+                format!("emoji{index:03}"),
+                crate::chat::PlaceUses {
+                    total: 100 - index,
+                    recent: vec![now],
+                },
+            )
+        })
+        .collect();
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
+        used: Some(used),
+        ..Default::default()
+    }));
+    let frequent = &app.state.discord_emojis.frequent;
+    assert_eq!(frequent.len(), 42);
+    assert_eq!(frequent[0], "emoji000");
 }
 
 #[cfg(feature = "discord")]

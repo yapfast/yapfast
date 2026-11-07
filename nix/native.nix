@@ -12,12 +12,12 @@ rec {
     unzip -q ${webrtcArchive} -d unpacked
     mv unpacked/linux-x64-release "$out"
   '';
-  skiaPackage = "skia-binaries-b7f043e0b1e2a850e702-x86_64-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout.tar.gz";
+  skiaPackage = "skia-binaries-30669978c3f39a73e8a7-x86_64-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout.tar.gz";
   skiaArchive = pkgs.fetchurl {
-    url = "https://github.com/rust-skia/skia-binaries/releases/download/0.153.3/${skiaPackage}";
-    sha256 = "ef41a8ff85bebeb06238df88e144eb04778a368fc1672a63155155d97f0caf10";
+    url = "https://github.com/rust-skia/skia-binaries/releases/download/0.157.0/${skiaPackage}";
+    sha256 = "d5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1";
   };
-  skia = pkgs.runCommand "talk-skia-0.153.3-linux" {
+  skia = pkgs.runCommand "talk-skia-0.157.0-linux" {
     nativeBuildInputs = [ pkgs.python3 pkgs.binutils pkgs.llvmPackages_21.llvm ];
     YAPFAST_SKIA_SOURCE = skiaArchive;
     YAPFAST_SKIA_OBJCOPY = "${pkgs.llvmPackages_21.llvm}/bin/llvm-objcopy";

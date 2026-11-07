@@ -1,16 +1,21 @@
 //! Display name styles as Discord's client colours them: each colour the
-//! person picked is lightened until it reads against the dark background
-//! (`lZ` in the client), and the derived shades the effects use (`$0`) are
-//! made from that. The colours are computed once per style, off the HSL
-//! maths chroma.js does, which the client uses.
+//! person picked is lightened or darkened until it reads against the
+//! background (`lZ` in the client), and the derived shades the effects use
+//! (`$0`) are made from that. A style's colours are computed once, with one
+//! palette for dark themes and one for light, off the HSL maths chroma.js
+//! does, which the client uses, and the rows wearing it share them.
 
 use slint::Color;
 use yapfast_core::chat::NameStyle;
 
 use super::*;
 
-/// The member list's background, which colours are made to read against.
-const GROUND: u32 = 0x121214;
+/// The member list's background on a dark and a light theme, which colours
+/// are made to read against. A toon name reads against `TOON_GROUND` on any,
+/// as its letters are edged.
+const DARK_GROUND: u32 = 0x121214;
+const LIGHT_GROUND: u32 = 0xfbfbfb;
+const TOON_GROUND: u32 = 0x333333;
 /// The contrast a colour keeps against it: gradients and prisms, whose
 /// letters are lit by the colours around them, need less.
 fn contrast_needed(effect: u8) -> f64 {
@@ -88,21 +93,23 @@ fn contrast(a: Rgb, b: Rgb) -> f64 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
-/// `colour` made lighter, five percent of lightness at a time and at most
-/// ten times, until it has `ratio` against `ground`, as the client does on a
-/// dark background.
+/// `colour` made lighter on a dark `ground` and darker on a light one, five
+/// percent of lightness at a time and at most ten times, until it has `ratio`
+/// against `ground`.
 fn readable(color: u32, ground: u32, ratio: f64) -> u32 {
     let ground = unpack(ground);
+    let lighter = luminance(ground) <= 0.5;
     let mut color = unpack(color);
     for _ in 0..10 {
         if contrast(color, ground) >= ratio {
             break;
         }
         let (hue, saturation, lightness) = to_hsl(color);
-        if lightness >= 0.95 {
+        if lighter && lightness >= 0.95 || !lighter && lightness <= 0.05 {
             break;
         }
-        color = unpack(pack(from_hsl(hue, saturation, lightness + 0.05)));
+        let step = if lighter { 0.05 } else { -0.05 };
+        color = unpack(pack(from_hsl(hue, saturation, lightness + step)));
     }
     pack(color)
 }
@@ -171,21 +178,54 @@ fn weight(font: u8) -> i32 {
     }
 }
 
-/// A display name style as the window draws it; none is the default, with
-/// no effect.
-pub(super) fn row(style: Option<NameStyle>, name: &str) -> NameStyleRow {
-    let Some(style) = style else {
-        return NameStyleRow::default();
+/// How many styles' palettes are kept, for the rows built next.
+const ROWS_KEPT: usize = 128;
+
+thread_local! {
+    /// Each style's palettes, with the name for a gummy one, whose letters
+    /// are the name's.
+    static ROWS: RefCell<HashMap<(NameStyle, String), ModelRc<NameStyleRow>>> = RefCell::default();
+}
+
+/// A display name style as the window draws it: its palette on a dark theme and
+/// on a light one, or nothing for no style. Rows wearing the same style share
+/// them.
+pub(super) fn row(style: Option<&NameStyle>, name: &str) -> ModelRc<NameStyleRow> {
+    let Some(style) = style.filter(|style| !style.colors().is_empty()) else {
+        return ModelRc::default();
     };
+    let named = if style.effect == 8 { name } else { "" };
+    let key = (*style, named.to_owned());
+    ROWS.with_borrow_mut(|rows| {
+        if let Some(row) = rows.get(&key) {
+            return row.clone();
+        }
+        if rows.len() >= ROWS_KEPT {
+            rows.clear();
+        }
+        let row = ModelRc::new(VecModel::from(vec![
+            palette(style, name, DARK_GROUND),
+            palette(style, name, LIGHT_GROUND),
+        ]));
+        rows.insert(key, row.clone());
+        row
+    })
+}
+
+/// A style's colours against `ground`. It has at least one.
+fn palette(style: &NameStyle, name: &str, ground: u32) -> NameStyleRow {
     let ratio = contrast_needed(style.effect);
+    let ground = if style.effect == 4 {
+        TOON_GROUND
+    } else {
+        ground
+    };
     let adjusted: Vec<u32> = style
         .colors()
         .iter()
-        .map(|rgb| readable(*rgb, GROUND, ratio))
+        .map(|rgb| readable(*rgb, ground, ratio))
         .collect();
-    let Some(&first) = adjusted.first() else {
-        return NameStyleRow::default();
-    };
+    let first = adjusted[0];
     let shades = shades(first);
     let mut colors: Vec<Color> = adjusted.iter().map(|rgb| color(*rgb)).collect();
     let given = colors.clone();
@@ -212,7 +252,12 @@ pub(super) fn row(style: Option<NameStyle>, name: &str) -> NameStyleRow {
     };
     NameStyleRow {
         letters: ModelRc::new(VecModel::from(letters)),
-        effect: i32::from(style.effect),
+        // An effect this client doesn't know is drawn solid, as Discord's does.
+        effect: if (1..=8).contains(&style.effect) {
+            i32::from(style.effect)
+        } else {
+            1
+        },
         family: family(style.font).into(),
         weight: weight(style.font),
         count: adjusted.len() as i32,
@@ -232,14 +277,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dark_colours_are_lightened_until_they_read() {
+    fn colours_change_until_they_read_against_their_ground() {
         // Black on the dark ground is lifted to the contrast asked for, in
         // steps of five percent.
-        let lifted = readable(0x000000, GROUND, 3.);
-        assert!(contrast(unpack(lifted), unpack(GROUND)) >= 3.);
+        let lifted = readable(0x000000, DARK_GROUND, 3.);
+        assert!(contrast(unpack(lifted), unpack(DARK_GROUND)) >= 3.);
         assert!(lifted != 0x000000);
+        // White on a light one is brought down.
+        let lowered = readable(0xffffff, LIGHT_GROUND, 3.);
+        assert!(contrast(unpack(lowered), unpack(LIGHT_GROUND)) >= 3.);
         // A colour that reads already stays.
-        assert_eq!(readable(0x00ff99, GROUND, 3.), 0x00ff99);
+        assert_eq!(readable(0x00ff99, DARK_GROUND, 3.), 0x00ff99);
     }
 
     #[test]
@@ -255,28 +303,63 @@ mod tests {
         assert!((neon - 0.6).abs() < 0.01);
     }
 
+    fn style(effect: u8, colors: &[u32]) -> NameStyle {
+        NameStyle::new(11, effect, colors)
+    }
+
     #[test]
     fn gummy_letters_take_the_colours_in_turn_leaving_spaces_out() {
-        use yapfast_discord::collectibles::Style;
-        let style = Style::parse(&serde_json::json!(
-            {"font_id": 11, "effect_id": 8, "colors": [0xff0000, 0x00ff00]}
-        ))
-        .map(Into::into);
-        let letters: Vec<_> = row(style, "ab c").letters.iter().collect();
+        let gummy = style(8, &[0xff0000, 0x00ff00]);
+        let palettes = row(Some(&gummy), "ab c");
+        let letters: Vec<_> = palettes.row_data(0).unwrap().letters.iter().collect();
         assert_eq!(letters.len(), 4);
         let reds = |letter: &NameLetter| letter.color.red() > letter.color.green();
         assert!(reds(&letters[0]) && !reds(&letters[1]), "a red, b green");
         assert_eq!(letters[2].text, " ");
         assert!(reds(&letters[3]), "c is the third letter, red again");
         // Other effects have none.
-        let solid =
-            Style::parse(&serde_json::json!({"font_id": 11, "effect_id": 1, "colors": [1]}));
-        assert_eq!(row(solid.map(Into::into), "ab").letters.row_count(), 0);
+        let solid = style(1, &[1]);
+        let palettes = row(Some(&solid), "ab");
+        assert_eq!(palettes.row_data(0).unwrap().letters.row_count(), 0);
     }
 
     #[test]
-    fn a_style_without_an_effect_row_is_the_default() {
-        assert_eq!(row(None, "x").effect, 0);
+    fn rows_wearing_a_style_share_its_palettes_and_a_gummy_name_has_its_own() {
+        let same = |a: &ModelRc<NameStyleRow>, b: &ModelRc<NameStyleRow>| a == b;
+        let solid = style(1, &[0xff0000]);
+        assert!(same(&row(Some(&solid), "Bob"), &row(Some(&solid), "Carol")));
+        let gummy = style(8, &[0xff0000]);
+        assert!(!same(
+            &row(Some(&gummy), "Bob"),
+            &row(Some(&gummy), "Carol")
+        ));
+        assert!(same(&row(Some(&gummy), "Bob"), &row(Some(&gummy), "Bob")));
+    }
+
+    #[test]
+    fn a_light_themes_palette_differs_where_the_colour_needs_it() {
+        let solid = style(1, &[0xffffff]);
+        let palettes = row(Some(&solid), "x");
+        let (dark, light) = (palettes.row_data(0).unwrap(), palettes.row_data(1).unwrap());
+        assert_eq!(dark.main, color(0xffffff));
+        assert!(light.main.red() < 0xff, "white is brought down to read");
+        // A toon name reads against the same grey on both.
+        let toon = style(4, &[0xffffff]);
+        let palettes = row(Some(&toon), "x");
+        assert_eq!(
+            palettes.row_data(0).unwrap().main,
+            palettes.row_data(1).unwrap().main
+        );
+    }
+
+    #[test]
+    fn no_style_has_no_palette_and_an_unknown_effect_is_solid() {
+        assert_eq!(row(None, "x").row_count(), 0);
+        assert_eq!(row(Some(&style(1, &[])), "x").row_count(), 0);
+        assert_eq!(
+            row(Some(&style(99, &[1])), "x").row_data(0).unwrap().effect,
+            1
+        );
         assert_eq!(family(14), "Mainframe");
         assert_eq!(family(11), "");
         assert_eq!(family(7), "", "Medieval isn't bundled");

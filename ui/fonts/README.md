@@ -10,8 +10,9 @@ by Slint. The original copyright and license are preserved in
 [LICENSE-OFL-DMSans.txt](LICENSE-OFL-DMSans.txt), the SIL Open Font License 1.1.
 Binary packages include the license and this provenance note in `licenses/fonts/`.
 
-No proprietary Discord or Windows font files are bundled. The earlier presentation
-mode retains Atkinson Hyperlegible Next and its metrics. DM Sans is an
+No proprietary font files are bundled: Discord's gg sans and Windows' fonts aren't
+here, and the display name fonts below are Discord's copies of fonts under the SIL
+Open Font License. The earlier presentation mode retains Atkinson Hyperlegible Next and its metrics. DM Sans is an
 alternative, not an exact reproduction of gg sans.
 
 Atkinson Hyperlegible Next by the Braille Institute, the UI's typeface: the
@@ -49,7 +50,7 @@ punctuation, which keeps them to 40 to 100 KB each (Monkey Bars, 180 KB). A
 name outside that range falls back to the usual font, as it does in Discord's
 client. They are embedded in the binary by Slint.
 
-Two are not bundled, because I could not confirm their licence from the
+Two are not bundled, because their licence couldn't be confirmed from the
 designer: Medieval (Discord's name for Max Lillo's Néo-Castel) and Vampyre
 (Jules Durand's Sinistre, released by Collletttivo). Their name tables link
 the OFL, but that is Discord's say-so. A name styled with either shows in the

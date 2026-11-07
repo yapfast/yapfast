@@ -30,7 +30,7 @@ pub struct ListedMember {
     pub avatar: String,
     /// The decoration they wear around their avatar, and the nameplate
     /// behind their row.
-    pub decoration: Option<String>,
+    pub decoration: Option<Arc<str>>,
     pub nameplate: Option<Nameplate>,
     /// How they draw their name, when they have a display name style.
     pub style: Option<Style>,
@@ -38,8 +38,8 @@ pub struct ListedMember {
     pub group: String,
     /// The address of the picture of the role their group is, and of the
     /// highest of their roles that has one.
-    pub group_icon: Option<String>,
-    pub role_icon: Option<String>,
+    pub group_icon: Option<Arc<str>>,
+    pub role_icon: Option<Arc<str>>,
     /// The server tag they wear by their name.
     pub tag: Option<Tag>,
     pub presence: Presence,

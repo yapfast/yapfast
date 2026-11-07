@@ -5,7 +5,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
@@ -996,20 +996,19 @@ pub fn is_official(user: &Value) -> bool {
 /// The server tag someone wears beside their name, as Discord's `primary_guild`
 /// gives it: up to four characters from a server they chose to represent,
 /// with that server's badge.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Tag {
-    /// The server it comes from.
-    pub guild: String,
-    pub text: String,
-    /// The hash of the server's tag badge, when it has one.
-    pub badge: Option<String>,
+    pub text: Arc<str>,
+    /// The address of the picture of the server's tag badge, when it has one.
+    pub badge: Option<Arc<str>>,
 }
 
 impl Tag {
     /// A user object's `primary_guild`; none for a person who doesn't wear
-    /// it, who turned it off or whose server has no tag.
+    /// it, who turned it off, whose server has no tag, or who hasn't taken up
+    /// their server's changed tag yet, for whom `identity_enabled` is null.
     pub fn parse(primary: &Value) -> Option<Self> {
-        if primary["identity_enabled"].as_bool() == Some(false) {
+        if primary["identity_enabled"].as_bool() != Some(true) {
             return None;
         }
         let guild = primary["identity_guild_id"]
@@ -1020,18 +1019,12 @@ impl Tag {
             .map(str::trim)
             .filter(|t| !t.is_empty())?;
         Some(Self {
-            guild: guild.to_owned(),
-            text: text.to_owned(),
+            text: text.into(),
             badge: primary["badge"]
                 .as_str()
                 .filter(|hash| !hash.is_empty())
-                .map(str::to_owned),
+                .map(|hash| ready::guild_tag_badge(guild, hash).into()),
         })
-    }
-
-    /// The address of the badge's picture.
-    pub fn badge_url(&self) -> Option<String> {
-        Some(ready::guild_tag_badge(&self.guild, self.badge.as_deref()?))
     }
 }
 
@@ -1049,9 +1042,9 @@ pub struct SavedNames {
     usernames: Vec<(String, String)>,
     #[serde(default)]
     bots: Vec<String>,
-    /// Each person's tag: user id, server id, text and badge hash.
+    /// Each person's tag: user id, text and badge address.
     #[serde(default)]
-    tags: Vec<(String, String, String, Option<String>)>,
+    tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
     /// Avatar decorations' SKUs by user id.
     #[serde(default)]
     decorations: Vec<(String, String)>,
@@ -1084,7 +1077,7 @@ impl serde::Serialize for SavingNames<'_> {
             }
         }
         let names = self.0;
-        let mut saved = serializer.serialize_struct("SavedNames", 14)?;
+        let mut saved = serializer.serialize_struct("SavedNames", 15)?;
         saved.serialize_field(
             "users",
             &List(|| names.users.iter().map(|(user, name)| (Text(*user), name))),
@@ -1145,7 +1138,7 @@ impl serde::Serialize for SavingNames<'_> {
                 names
                     .tags
                     .iter()
-                    .map(|(user, tag)| (Text(*user), &tag.guild, &tag.text, &tag.badge))
+                    .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
             }),
         )?;
         saved.serialize_field(
@@ -1268,6 +1261,9 @@ pub struct Names {
     /// Display name styles, of those who have one, everywhere and per server.
     styles: HashMap<Id, Style>,
     member_styles: HashMap<(Id, Id), Style>,
+    /// The addresses of collectibles' pictures by SKU, one for all who wear
+    /// it and every message and row that shows them. The shop's size bounds it.
+    collectible_pictures: Mutex<HashMap<Id, Arc<str>>>,
     /// Members' roles by server and user id, for the colour of their name.
     /// Member lists and the core share each, rather than copying it.
     roles: HashMap<(Id, Id), Arc<[String]>>,
@@ -1345,9 +1341,7 @@ impl Names {
             tags: saved
                 .tags
                 .into_iter()
-                .filter_map(|(user, guild, text, badge)| {
-                    Some((id(&user)?, Tag { guild, text, badge }))
-                })
+                .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
                 .collect(),
             decorations: saved
                 .decorations
@@ -1755,25 +1749,47 @@ impl Names {
 
     /// The address of the decoration a user wears around their avatar: the
     /// one they set for `guild` where they have one, else their own.
-    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<String> {
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<Arc<str>> {
+        Some(self.collectible_picture(self.decoration_sku(guild, user)?))
+    }
+
+    /// The SKU behind [`Self::decoration`], which says when it changes
+    /// without making the address.
+    pub fn decoration_sku(&self, guild: Option<&str>, user: &str) -> Option<Id> {
         let user_id = id(user)?;
         self.touch(user_id);
-        let sku = guild
+        guild
             .and_then(|guild| member_key(guild, user))
             .and_then(|key| self.member_decorations.get(&key))
-            .or_else(|| self.decorations.get(&user_id))?;
-        Some(collectibles::picture(*sku))
+            .or_else(|| self.decorations.get(&user_id))
+            .copied()
+    }
+
+    fn collectible_picture(&self, sku: Id) -> Arc<str> {
+        self.collectible_pictures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(sku)
+            .or_insert_with(|| collectibles::picture(sku).into())
+            .clone()
     }
 
     /// The nameplate a user equips, in `guild` or everywhere.
     pub fn nameplate(&self, guild: Option<&str>, user: &str) -> Option<Nameplate> {
+        let plate = self.plate(guild, user)?;
+        Some(plate.shown(self.collectible_picture(plate.sku)))
+    }
+
+    /// What [`Self::nameplate`] shows, which says when it changes without
+    /// making the address.
+    pub fn plate(&self, guild: Option<&str>, user: &str) -> Option<Plate> {
         let user_id = id(user)?;
         self.touch(user_id);
         guild
             .and_then(|guild| member_key(guild, user))
             .and_then(|key| self.member_nameplates.get(&key))
             .or_else(|| self.nameplates.get(&user_id))
-            .map(Plate::shown)
+            .copied()
     }
 
     /// The display name style a user draws their name with, in `guild` or
@@ -2618,7 +2634,7 @@ mod tests {
                 .ends_with("/collectibles-shop/77/static")
         );
         let plate = names.nameplate(None, "2").unwrap();
-        assert_eq!(plate.color, Some(0x086460));
+        assert_eq!(plate.colors, Some([0x086460, 0x7deed7]));
         assert!(plate.picture.ends_with("/collectibles-shop/88/static"));
         let style = names.style(None, "2").unwrap();
         assert_eq!((style.font, style.effect), (3, 2));
@@ -2657,7 +2673,7 @@ mod tests {
             "collectibles": {"nameplate": {"sku_id": "90", "palette": "sky"}},
             "display_name_styles": {"font_id": 4, "effect_id": 3, "colors": [2]}}),
         );
-        let ends = |url: Option<String>, sku: &str| {
+        let ends = |url: Option<Arc<str>>, sku: &str| {
             url.is_some_and(|url| url.ends_with(&format!("/collectibles-shop/{sku}/static")))
         };
         assert!(
@@ -2670,8 +2686,8 @@ mod tests {
         );
         assert!(ends(names.decoration(None, "2"), "77"));
         assert_eq!(
-            names.nameplate(Some("10"), "2").unwrap().color,
-            Some(0x0080b7)
+            names.nameplate(Some("10"), "2").unwrap().colors,
+            Some([0x0080b7, 0x56ccff])
         );
         assert_eq!(names.nameplate(Some("11"), "2"), None);
         assert_eq!(names.style(Some("10"), "2").unwrap().font, 4);
@@ -2753,11 +2769,12 @@ mod tests {
         };
         names.learn_user(&wears(true));
         let tag = names.server_tag("2").unwrap();
-        assert_eq!((tag.guild.as_str(), tag.text.as_str()), ("10", "CODE"));
+        assert_eq!(&*tag.text, "CODE");
         assert!(
-            tag.badge_url()
+            tag.badge
+                .as_deref()
                 .unwrap()
-                .ends_with("/clan-badges/10/abc123.png?size=64")
+                .ends_with("/clan-badges/10/abc123.png?size=32")
         );
         assert_eq!(names.server_tag("3"), None);
 
@@ -2770,17 +2787,25 @@ mod tests {
         let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
         assert_eq!(restored.server_tag("2"), names.server_tag("2"));
 
-        // Leaving it off, or taking it away, removes it.
+        // Leaving it off, or taking it away, removes it, and redraws them.
+        let version = names.version();
         names.learn_user(&wears(false));
         assert_eq!(names.server_tag("2"), None);
+        assert!(names.version() > version);
         names.learn_user(&wears(true));
         names.learn_user(&json!({"id": "2", "primary_guild": null}));
+        assert_eq!(names.server_tag("2"), None);
+
+        // Nor does one who hasn't taken up their server's changed tag wear it.
+        names.learn_user(&wears(true));
+        names.learn_user(&json!({"id": "2", "primary_guild": {
+            "identity_guild_id": "10", "identity_enabled": null, "tag": "OLD"}}));
         assert_eq!(names.server_tag("2"), None);
 
         // A server without a badge, or one with no text, shows as it can.
         names.learn_user(&json!({"id": "2", "primary_guild": {
             "identity_guild_id": "10", "identity_enabled": true, "tag": "AB", "badge": null}}));
-        assert_eq!(names.server_tag("2").unwrap().badge_url(), None);
+        assert_eq!(names.server_tag("2").unwrap().badge, None);
         names.learn_user(&json!({"id": "2", "primary_guild": {
             "identity_guild_id": "10", "identity_enabled": true, "tag": " "}}));
         assert_eq!(names.server_tag("2"), None);

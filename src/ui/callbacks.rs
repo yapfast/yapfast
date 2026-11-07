@@ -20,9 +20,10 @@ fn fetch_shown_pictures(adapter: &mut Adapter, window: &YapfastWindow, first: us
     if wanted.is_empty() {
         return;
     }
+    // A locked one shows too, greyed.
     let pictures = adapter
         .app
-        .usable_emoji()
+        .emoji_sets()
         .iter()
         .flat_map(|set| &set.emoji)
         .filter(|emoji| wanted.contains(&emoji::custom_key(emoji)))
@@ -170,16 +171,44 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     let mut adapter = adapter.borrow_mut();
     let (rows, sections) = {
         let custom = adapter.app.emoji_sets();
-        emoji::rows(
-            query,
-            &adapter.app.frequent_reactions(16),
-            &custom,
-            columns,
-            |set| {
-                let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
-                Some(picture(icon))
-            },
-        )
+        // Closing the picker let go of the images made from the pictures still
+        // kept, which won't arrive again.
+        custom_emoji::add_images(
+            custom
+                .iter()
+                .flat_map(|set| &set.emoji)
+                .filter_map(|emoji| super::refresh::arrived(&adapter.app.state, emoji)),
+        );
+        // With no query, the Discord account's favourites, then the emoji it
+        // uses most, or reacts with most for a reaction, as its other clients
+        // keep them, and those this device reacts with.
+        let (favorites, frequent) = if query.trim().trim_matches(':').is_empty() {
+            let by_id: HashMap<&str, &yapfast_core::chat::CustomEmoji> = custom
+                .iter()
+                .flat_map(|set| &set.emoji)
+                .map(|emoji| (emoji.id.as_str(), emoji))
+                .collect();
+            let lists = &adapter.app.state.discord_emojis;
+            let item = window.get_react_item();
+            let used = if item.is_empty() || item.starts_with("yapfast:") {
+                &lists.frequent
+            } else {
+                &lists.reactions
+            };
+            let mut frequent = emoji::discord_keys(used, &by_id);
+            for key in adapter.app.frequent_reactions(16) {
+                if !frequent.iter().any(|(known, _)| *known == key) {
+                    frequent.push((key, true));
+                }
+            }
+            (emoji::discord_keys(&lists.favorites, &by_id), frequent)
+        } else {
+            Default::default()
+        };
+        emoji::rows(query, &favorites, &frequent, &custom, columns, |set| {
+            let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
+            Some(picture(icon))
+        })
     };
     update_model(&adapter.models.emoji_rows, rows);
     adapter.emoji_rows_filled = (0, GRID_ROWS);
@@ -682,6 +711,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     }
     bind_item!(on_request_delete, Action::RequestDelete);
+    bind_item!(on_delete_now, Action::DeleteNow);
     bind_item!(on_pin_message, Action::PinMessage);
     bind_item!(on_retry, Action::Retry);
     bind_item!(on_cancel_send, Action::CancelSend);
@@ -1514,11 +1544,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.twelve_hour_clock = window.get_twelve_hour_clock();
         layout.clock_seconds = window.get_clock_seconds();
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
-        layout.time_zone = usize::try_from(window.get_time_zone() - 1)
-            .ok()
-            .and_then(|index| yapfast_core::clock::ZONES.get(index).copied());
-        layout.language = window.get_language();
-        layout.apply_clock_style(&window);
+        layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());

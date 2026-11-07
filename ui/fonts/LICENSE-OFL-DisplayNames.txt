@@ -1,6 +1,6 @@
 Copyright notices of the display name fonts (DisplayName-*.ttf), as their
-name tables carry them. Discord Inc. made the copies YapCord uses (renamed
-where the licence reserves a name, subset to Latin) and YapCord subset the
+name tables carry them. Discord Inc. made the copies Yapfast uses (renamed
+where the licence reserves a name, subset to Latin) and Yapfast subset the
 largest further; all are licensed as below.
 
 Sakura (Cherry Bomb One): Copyright 2019 The Cherry Bomb Project Authors (https://github.com/satsuyako/CherryBomb)
@@ -12,6 +12,8 @@ Monkey Bars (Playpen Sans): Copyright 2023 The Playpen Sans Project Authors (htt
 Mainframe (Orbitron): Copyright 2018 The Orbitron Project Authors (https://github.com/theleagueof/orbitron), with Reserved Font Name "Orbitron"
 Headbang (New Rocker): Copyright (c) 2012, Pablo Impallari (www.impallari.com|impallari@gmail.com), Copyright (c) 2012, Brenda Gallo (gbrenda1987@gmail.com), Copyright (c) 2012, Rodrigo Fuenzalida (www.rfuenzalida.com|hello@rfuenzalida.com), with Reserved Font Name 'New Rocker'
 Journal (Kalam): Copyright (c) 2014 Indian Type Foundry (info@indiantypefoundry.com)
+
+Each of them also: Portions Copyright 2025 Discord Inc.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

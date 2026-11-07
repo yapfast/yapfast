@@ -102,7 +102,9 @@ pub(super) fn found(
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
         decoration: discord.decoration(guild, &message.author_id),
-        style: discord.style(guild, &message.author_id).map(Into::into),
+        style: discord
+            .style(guild, &message.author_id)
+            .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
         bot: message.bot,
         body,
@@ -534,6 +536,24 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
 
 /// A Discord profile as Yapfast's profile card shows it, with the server's role
 /// names, colours and names known now.
+/// A profile's badges, as the card shows them.
+pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<ProfileBadge> {
+    badges
+        .into_iter()
+        .map(|badge| ProfileBadge {
+            description: badge.description,
+            icon: badge.icon,
+            link: badge.link,
+            level: badge.level.map(|level| ProfileBadgeLevel {
+                kind: level.kind,
+                title: level.title,
+                progress: level.progress,
+                picture: level.picture,
+            }),
+        })
+        .collect()
+}
+
 pub(super) fn chat_profile(
     discord: &Discord,
     guild: &str,
@@ -550,7 +570,9 @@ pub(super) fn chat_profile(
         name: profile.name,
         avatar: Some(profile.avatar),
         decoration: discord.decoration(Some(guild), &profile.user_id),
-        style: discord.style(Some(guild), &profile.user_id).map(Into::into),
+        style: discord
+            .style(Some(guild), &profile.user_id)
+            .map(|style| Arc::new(style.into())),
         effect: profile.effect,
         theme: profile.theme,
         banner: profile.banner,
@@ -597,21 +619,7 @@ pub(super) fn chat_profile(
             })
             .collect(),
         tag: discord::server_tag(profile.tag),
-        badges: profile
-            .badges
-            .into_iter()
-            .map(|badge| ProfileBadge {
-                description: badge.description,
-                icon: badge.icon,
-                link: badge.link,
-                level: badge.level.map(|level| ProfileBadgeLevel {
-                    kind: level.kind,
-                    title: level.title,
-                    progress: level.progress,
-                    picture: level.picture,
-                }),
-            })
-            .collect(),
+        badges: chat_badges(profile.badges),
         bio_emoji,
         // The note comes with its own request; see `fill_profile`.
         note: String::new(),
@@ -749,7 +757,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         avatar: Some(member.avatar),
         decoration: member.decoration,
         nameplate: member.nameplate.map(Into::into),
-        style: member.style.map(Into::into),
+        style: member.style.map(|style| Arc::new(style.into())),
         group: Some(member.group),
         group_icon: member.group_icon,
         role_icon: member.role_icon,

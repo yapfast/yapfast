@@ -159,8 +159,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             // account stands with someone, then notifications, roles,
             // copying, and moderation; a channel's management, then deleting it.
             let starts = match choice {
-                MenuChoice::Apps
-                | MenuChoice::InviteToServer
+                MenuChoice::InviteToServer
                 | MenuChoice::AddFriend
                 | MenuChoice::AcceptFriend
                 | MenuChoice::CancelFriendRequest
@@ -334,14 +333,6 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 notification_rows(app, id)
             } else if row.id == choice_id(MenuChoice::Roles) {
                 role_rows(adapter, id)
-            } else if row.id == choice_id(MenuChoice::Apps) {
-                vec![MenuRow {
-                    id: "no-apps".into(),
-                    text: "No apps".into(),
-                    disabled: true,
-                    plain: true,
-                    ..Default::default()
-                }]
             } else if row.id == choice_id(MenuChoice::InviteToServer) {
                 invite_rows(app, user.as_deref())
             } else if let (true, Some((room, user))) =
@@ -379,7 +370,6 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::CloseDm => ("Close DM", &icons.cancel),
         MenuChoice::LeaveGroup => ("Leave group", &icons.leave),
         MenuChoice::InviteToServer => ("Invite to server", &icons.befriend),
-        MenuChoice::Apps => ("Apps", &icons.befriend),
         MenuChoice::Unfriend => ("Remove friend", &icons.unfriend),
         MenuChoice::Ignore => ("Ignore", &icons.ignore),
         MenuChoice::Unignore => ("Stop ignoring", &icons.ignore),
@@ -435,7 +425,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
 }
 
 /// Where a choice goes in Discord's member menu: Profile, Mention, Message,
-/// Start call and Add note; then Apps, Invite to server and how this account
+/// Start call and Add note; then Invite to server and how this account
 /// stands with them; then the server's nickname and roles; then what the call
 /// and moderation offer; Copy ID last. What a DM adds as a conversation comes
 /// before them all.
@@ -449,7 +439,6 @@ fn discord_rank(choice: MenuChoice) -> u8 {
         MenuChoice::AddNote => 5,
         MenuChoice::AddNickname | MenuChoice::EditNickname => 6,
         MenuChoice::EditServerProfile => 7,
-        MenuChoice::Apps => 10,
         MenuChoice::InviteToServer => 11,
         MenuChoice::AddFriend
         | MenuChoice::AcceptFriend
@@ -465,19 +454,8 @@ fn discord_rank(choice: MenuChoice) -> u8 {
     }
 }
 
-/// Puts a person's choices in Discord's order, with Apps where a member's
-/// menu has it: a menu that offers Message and Add note is a member's.
-pub(super) fn discord_order(choices: &mut Vec<MenuChoice>) {
-    let member = [
-        MenuChoice::Profile,
-        MenuChoice::Message,
-        MenuChoice::AddNote,
-    ]
-    .iter()
-    .all(|choice| choices.contains(choice));
-    if member && !choices.contains(&MenuChoice::Apps) {
-        choices.push(MenuChoice::Apps);
-    }
+/// Puts a person's choices in Discord's order.
+pub(super) fn discord_order(choices: &mut [MenuChoice]) {
     choices.sort_by_key(|choice| discord_rank(*choice));
 }
 
@@ -1018,9 +996,7 @@ pub(super) fn choose(
         }),
         // Its roles are its submenu's, as are the servers to invite to and
         // the channels to move to.
-        MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::Apps | MenuChoice::MoveTo => {
-            None
-        }
+        MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::MoveTo => None,
         MenuChoice::LocalMute => {
             if let Some(muted) = ticked {
                 yapfast_core::volume::mute(&target, muted);
@@ -1154,7 +1130,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 66] = [
+const CHOICES: [MenuChoice; 65] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1172,7 +1148,6 @@ const CHOICES: [MenuChoice; 66] = [
     MenuChoice::CloseDm,
     MenuChoice::LeaveGroup,
     MenuChoice::InviteToServer,
-    MenuChoice::Apps,
     MenuChoice::Unfriend,
     MenuChoice::Ignore,
     MenuChoice::Unignore,
@@ -1242,7 +1217,6 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::CloseDm => "close-dm",
         MenuChoice::LeaveGroup => "leave-group",
         MenuChoice::InviteToServer => "invite-to-server",
-        MenuChoice::Apps => "apps",
         MenuChoice::Unfriend => "unfriend",
         MenuChoice::Ignore => "ignore",
         MenuChoice::Unignore => "unignore",
@@ -1348,7 +1322,6 @@ mod order_tests {
                 MenuChoice::Mention,
                 MenuChoice::Message,
                 MenuChoice::AddNote,
-                MenuChoice::Apps,
                 MenuChoice::InviteToServer,
                 MenuChoice::AddFriend,
                 MenuChoice::Ignore,

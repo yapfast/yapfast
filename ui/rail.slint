@@ -1,8 +1,8 @@
 import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label, Strings } from "theme.slint";
-import { Avatar, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
+import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
 
@@ -42,9 +42,10 @@ export struct RoomRow {
     /// A DM's avatar or group icon, and whether it's a Discord DM.
     picture: image, discord: bool,
     picture-url: string,
-    /// The address of the decoration around a one-to-one DM's avatar, and how
-    /// its person's name is drawn.
-    decoration-url: string, name-style: NameStyleRow,
+    /// The address of the decoration around a one-to-one DM's avatar, its
+    /// person's nameplate's picture with its palette's colours on a dark theme
+    /// and a light one, and how their name is drawn.
+    decoration-url: string, nameplate-url: string, nameplate-color: color, nameplate-light: color, name-style: [NameStyleRow],
     /// Listed but not open to join, such as a Discord channel the account's roles keep it out of.
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
@@ -393,7 +394,11 @@ export component ChannelRow inherits Rectangle {
     in property <image> picture;
     in property <string> picture-url;
     in property <string> decoration-url;
-    in property <NameStyleRow> name-style;
+    in property <[NameStyleRow]> name-style;
+    /// As RoomRow has them.
+    in property <string> nameplate-url;
+    in property <color> nameplate-color;
+    in property <color> nameplate-light;
     /// Marks a Discord DM, as the rail marks Discord servers.
     in property <bool> discord;
     in property <bool> selected;
@@ -464,6 +469,18 @@ export component ChannelRow inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    // Discord's client draws a DM row's plate only while the row is selected,
+    // pointed at or focused, so a long list holds none. It stops short of the
+    // focus ring.
+    if root.nameplate-url != "" && (root.selected || pointer.has-hover || focus.has-focus): Nameplate {
+        x: root.border-width; y: root.border-width;
+        width: root.width - root.border-width * 2; height: root.height - root.border-width * 2;
+        radius: root.border-radius - root.border-width; channel: true;
+        picture-url: root.nameplate-url; palette: Theme.dark ? root.nameplate-color : root.nameplate-light;
+        hovered: pointer.has-hover; selected: root.selected; animate: pointer.has-hover;
+        ground: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
+        content-width: text-column.x + min(text-column.preferred-width, text-column.width);
+    }
     // Unread activity is marked at the sidebar's edge, as on the server rail.
     if root.unread && !root.selected: Rectangle {
         // A thread sits further in, past the line from its channel.
@@ -530,33 +547,33 @@ export component ChannelRow inherits Rectangle {
                     }
                 }
                 if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint; }
-                VerticalLayout {
+                text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
-                        spacing: 4px;
-                        if root.name-style.effect == 0: Text {
+                        alignment: start; spacing: 4px;
+                        if root.name-style.length == 0: Text {
                             text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
                         }
-                        if root.name-style.effect > 0: StyledName {
-                            text: root.text; style: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
+                        if root.name-style.length > 0: StyledName {
+                            text: root.text; styles: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                         }
                         if root.tag != "": Middle { ServerTagChip { text: root.tag; badge: root.tag-badge; } }
                         if root.official: Middle {
                             Rectangle {
                                 // Discord's verified-style badge: blurple, 16px, a check and OFFICIAL.
                                 height: 16px; width: official-text.preferred-width + 24px; border-radius: 4px; background: Theme.accent;
-                                accessible-role: AccessibleRole.text; accessible-label: Strings.official-badge;
+                                accessible-role: AccessibleRole.text; accessible-label: "OFFICIAL";
                                 HorizontalLayout {
                                     padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
                                     Middle { Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: Theme.on-accent; accessible-role: none; } }
-                                    official-text := Text { text: Strings.official-badge; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                                    official-text := Text { text: "OFFICIAL"; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
                                 }
                             }
                         }
                     }
                     if root.official && !root.has-detail && !root.in-voice: Text {
-                        text: Strings.official-message; color: Theme.muted; font-size: 12px; overflow: elide;
+                        text: "Official Discord Message"; color: Theme.muted; font-size: 12px; overflow: elide;
                     }
                     // Their voice channel in full when nothing else is said here,
                     // else a speaker before what is, as the friends list has it.
@@ -581,12 +598,12 @@ export component ChannelRow inherits Rectangle {
                     Rectangle {
                         height: 24px; width: wave-label.preferred-width + 40px; border-radius: 4px;
                         background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent;
-                        accessible-role: button; accessible-label: Strings.wave;
+                        accessible-role: button; accessible-label: "Wave";
                         accessible-action-default => { root.waved(); }
                         HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 4px; alignment: center;
                             Middle { Image { source: @image-url("icons/hand.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; accessible-role: none; } }
-                            wave-label := Text { text: Strings.wave; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
+                            wave-label := Text { text: "Wave"; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
                         }
                         wave-touch := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -1186,7 +1203,8 @@ export component RoomList inherits Rectangle {
                     chat: room.chat;
                     open-chat => { root.open-chat(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
-                    decoration-url: room.decoration-url; name-style: room.name-style;
+                    decoration-url: room.decoration-url; nameplate-url: room.nameplate-url;
+                    nameplate-color: room.nameplate-color; nameplate-light: room.nameplate-light; name-style: room.name-style;
                     tag: room.tag; tag-badge: room.tag-badge; official: room.official; wave: room.wave;
                     waved => { root.wave(room.wave); }
                     selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;

@@ -116,7 +116,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Start call joins the DM's call, as the phone in its header does.
 - Add note writes this account's note on the other person:
   `GET /users/@me/notes/{id}` fills the dialog, a 404 meaning there's none,
-  and `PUT` with `{"note": ...}` saves it, an empty one removing it.
+  and `PUT` with `{"note": ...}` saves it, an empty one removing it. A note
+  read is kept in memory, so opening a profile again asks nothing:
+  USER_NOTE_UPDATE changes it, and a new session forgets them all.
 - Add friend nickname, for a friend, is `PATCH
   /users/@me/relationships/{id}` with `{"nickname": ...}`, or null to remove
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
@@ -280,15 +282,17 @@ Someone's server tag shows as a small chip, as in Discord: the badge of the
 server they represent, then up to four letters. It comes from the
 `primary_guild` of their user object, which has the `tag`, the
 `identity_guild_id`, a `badge` hash that Yapfast fetches from
-`/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, false once
-they stop wearing it; one without a tag, or turned off, shows nothing. The
-chip sits after the name on each message that starts a group, after the name
-in the member list, and beside the handle on a profile card. A tag without a
-badge shows its letters alone. Yapfast learns tags from every user object it
-sees, with the names and avatars, so a tag changes on screen as soon as a
-message, a member list row or a profile carries the new one; a user object
-without `primary_guild`, as a partial one is, changes nothing, and `null`
-takes it away. They are kept with the names across restarts.
+`/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, which is true while
+they wear it. It's false once they stop, and null until they take up a tag
+their server changed; as in Discord's client, those and one without a tag show
+nothing. The chip sits after the name on each message that starts a group,
+after the name in the member list and in a one-to-one DM's row, and beside the
+handle on a profile card. A tag without a badge shows its letters alone.
+Yapfast learns tags from every user object it sees, with the names and avatars,
+so a tag changes on screen as soon as a message, a member list row or a profile
+carries the new one; a user object without `primary_guild`, as a partial one
+is, changes nothing, and `null` takes it away. They are kept with the names
+across restarts.
 
 The card shows the person's badges, as Discord's does, in a row of pictures
 under the name and handle: HypeSquad, Active Developer, a Nitro subscriber's
@@ -310,7 +314,8 @@ than the profile, so the card doesn't wait for it: `Discord::profile` returns
 at once, and `Discord::badge_levels` asks afterwards, only when a badge has a
 `simple_icon_url` or a link, and gives the card its levels as
 `Event::BadgeLevels`. It also puts them in the kept and saved copy of the
-profile, so the next opening has them from the start. Each of its `badges` has a `name` (the kind), an `info_label` (the
+profile, so the next opening has them from the start, and asks once for each
+kept profile, as Discord's client keeps its answer. Each of its `badges` has a `name` (the kind), an `info_label` (the
 progress), a `current_tier` naming one of its `tiers`, whose `name` is the
 level and `complex_icon_static_url` the large picture, an SVG. A badge
 without tiers, such as Quests, shows its own name as the title and its
@@ -318,8 +323,10 @@ without tiers, such as Quests, shows its own name as the title and its
 level's `simple_icon_url`, which both lists carry, else by the icon hash in
 `simple_icon_raster_url`; one the person doesn't own (`owned: false`) is
 skipped. A badge with no entry, such as Nitro's, keeps the plain tooltip, and
-so does every badge when the request fails. The SVGs are drawn by the
-picture decoder (`decode_picture`, with resvg) like any other picture. The
+so does every badge when the request fails. The SVGs are drawn by
+`decode_svg`, with resvg, and only for addresses under Discord's
+`/assets/content/`: an attachment or avatar never reaches it. A badge's icon is
+decoded at 40px at most. The
 card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
 `ui/theme.slint` and drawn by the window above everything else, with
 Discord's own values: 200px wide, 8px corners, the picture 64px high, the
@@ -345,7 +352,11 @@ nameplate among `collectibles` takes them off.
   sits on an avatar, the dot is drawn over the decoration; Discord cuts a hole
   for it, which Slint can't, so the dot's ring takes the row's colour.
 - **Nameplate**, `collectibles.nameplate: {sku_id, asset, label, palette}`: a
-  strip behind a member's row and this account's card. The row fills with a
+  strip behind a member's row, a one-to-one DM's row and this account's card.
+  A DM's row shows it only while the row is selected, pointed at or focused, as
+  in Discord's client, so a long DM list holds none at rest. Its gradient doesn't
+  brighten under the pointer, and its picture starts fading in 5 pixels before
+  the text's end. A member's row fills with a
   gradient in the palette's colour, `transparent` to 8% at 20% across, 8% to
   50%, then 20% at the right edge (30% hovered, 50% selected), with the plate's
   picture at the right end, the row's height tall, at 60% opacity (90%
@@ -354,11 +365,12 @@ nameplate among `collectibles` takes them off.
   with `mask-image`; Slint has no masks, so Yapfast draws the row's colour over
   it in the same gradient. The account card's plate is a 10% to 40% gradient
   under the picture at 40% opacity, with no fade, filling the card and a pixel
-  over its top and bottom. A row with a plate keeps 40 pixels free at its
+  over its top and bottom. A row with a plate keeps 12 pixels free at its
   right, and an offline member's is faded with the rest of the row. The twelve
   palettes (`crimson`, `berry`, `sky`, `teal`, `forest`, `bubble_gum`,
   `violet`, `cobalt`, `clover`, `lemon`, `white`, `black`) have the colours
-  of the client's own `darkBackground` (`collectibles.rs`); a palette it
+  of the client's own `darkBackground` and `lightBackground`, by the theme
+  (`collectibles.rs`); a palette it
   doesn't know, such as `custom_palette`, shows the plate's picture without
   the gradient. Show nameplates in Appearance (on unless turned off, kept in
   `layout.json` as `nameplates`) hides every plate: none is fetched or drawn.
@@ -366,21 +378,22 @@ nameplate among `collectibles` takes them off.
 Both pictures are served by `https://cdn.discordapp.com/media/v1/collectibles-shop/{sku_id}/static`,
 a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The
 client asks for `/animated`, an APNG, or `/video`, a WebM, and Yapfast
-asks for `/animated` (Discord's own client does on Linux and Safari). Which
-surface animates follows `useAvatarDecoration` and `useNameplateAnimation`: a
-decoration plays always on messages and the profile card, but only while the
-pointer is on its row in the member list, a DM's row and the account card; a
-nameplate plays while its row is pointed at or selected, and the account
-card's while the card is. Everything holds still when Yapfast's window isn't
-focused (`Motion.playing`), and a surface that stops being pointed at goes back
-to the still picture. The animated picture is fetched the first time
-something asks for it, and decodes the frame showing: `Picture`'s frames come
-from the kept file one at a time, as a GIF's do, and a decoder is let go a
-second after its last frame shows, so nothing animating off screen keeps
-anything. The pictures are kept in the picture cache with avatars. A
-decoration decodes at up to 192 pixels and a plate whole, where other
-pictures take 128, and the still ones stay while the screen shows their
-person (`pictures_on_screen`).
+asks for `/animated` (Discord's own client does on Linux and Safari). A
+decoration plays on a message while the pointer is on the message that starts
+its group, and on the profile card, in the member list, a DM's row and the
+account card while the pointer is on them. Discord's client plays a chat
+decoration while the pointer is on any message of the group, and a card's
+whenever it's open. A nameplate plays while its row is pointed at, and the
+account card's while the card is; a selected row's holds still, as playing
+costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
+(`Motion.playing`), and a surface that stops being pointed at goes back to the
+still picture. The animated picture is fetched the first time it's to play,
+and decodes the frame showing: `Picture`'s frames come from the kept file one
+at a time, as a GIF's do, and a decoder is let go a second after its last frame
+shows, so nothing animating off screen keeps anything. The pictures are kept in
+the picture cache with avatars. A decoration decodes at up to 160 pixels and a
+plate at up to 448 by 84, where other pictures take 128, and the still ones stay
+while the screen shows their person (`pictures_on_screen`).
 
 What a member sets for one server alone, `avatar_decoration_data`,
 `collectibles` and `display_name_styles` on a member object (member lists,
@@ -396,14 +409,25 @@ expires_at}`, in `user_profile` (or `guild_member_profile`, which wins in its
 server). The effect itself is the shop's: Yapfast asks for it once the card
 shows, `GET /collectibles-products/{sku}` with the account's own login, as
 Discord's client does, and takes the first item with `effects`: its
-`animationType` (1 persistent, 2 intermittent), `staticFrameSrc`,
-`accessibilityLabel` and `effects`, each layer with `src`, `loop`, `start`,
+`staticFrameSrc` (else `reducedMotionSrc`, else `thumbnailPreviewSrc`) and
+`effects`, each layer with `src`, `randomizedSources` (one of which plays in
+each layer in place of `src`, the same one in all), `loop`, `start`,
 `duration` and `loopDelay` in milliseconds, `position` and `zIndex` (the
-fields are camelCase, as the client reads them). The layers are APNGs on the
-CDN, drawn 450 by 880 pixels and scaled to the card; they decode at that size
-(`EFFECT_SIZE`), and stay in the picture cache while their card shows. The
-backend keeps the last eight effects (`Event::ProfileEffect`); each card's
-profile points to one by SKU.
+fields are camelCase, as the client reads them).
+
+Discord's client plays an effect over the card for as long as its window has
+the focus. Yapfast shows the still picture, and plays the layers only while
+the pointer is on the card, starting them over each time, as a card's
+decoration does: playing costs a fifth of a core on the software renderer. An
+effect with no layer that loops stops at the end of its last layer and shows
+the still picture again.
+
+The layers are APNGs on the CDN, 450 by 880 pixels, scaled to the card; each
+picture decodes at no more than `EFFECT_SIZE`, and a layer's is asked for when
+it first plays. An effect's pictures are the size of the card, so they go as
+soon as its card closes (`let_go_of_effect_pictures`) rather than waiting for
+the trim. The backend keeps the last eight effects (`Event::ProfileEffect`);
+each card's profile points to one by SKU.
 
 ## Display name styles
 
@@ -412,7 +436,11 @@ on a user object or a member object (which wins in its server, as the
 decorations do): a font, an effect and up to five colours. Yapfast draws it
 where Discord's client does: a message's author, a member list's rows, a
 one-to-one DM's row and the profile card's name (`StyledName` in
-`ui/controls.slint`; `src/ui/name_style.rs` makes the colours).
+`ui/controls.slint`). `src/ui/name_style.rs` makes the colours, as the client's
+`lZ` does: lighter against a dark theme's background and darker against a light
+one's, until they read, and against #333 for toon on either. Each style's two
+palettes are made once, and the rows wearing it share them; a row without a
+style holds an empty list.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, 8Bit 8, Tempo 12, Monkey Bars 13, Mainframe 14, Headbang 15 and
@@ -427,7 +455,9 @@ one-to-one DM's row and the profile card's name (`StyledName` in
   pop 5 (white letters edged in the darkest shade over a copy in the colour
   a little lower), glow 6 (a gradient, as Discord's client falls back to),
   prism 7 (the colours once round, back to the first) and gummy 8 (the
-  letters in the colours in turn, spaces not counted).
+  letters in the colours in turn, spaces not counted; a name too long for
+  its place is elided in the first colour). An effect this client doesn't know
+  is drawn solid.
 - **Colours** are made to read against the dark ground as the client does:
   lightened five percent of HSL lightness at a time, at most ten times,
   until they have a contrast of 3 with `#121214` (2.5 for gradient, glow and

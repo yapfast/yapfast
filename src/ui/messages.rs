@@ -671,20 +671,12 @@ pub(super) fn message_row_within(
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
         decoration_url: SharedString::default(),
-        name_style: name_style::row(message.style, &message.author),
+        name_style: name_style::row(message.style.as_deref(), &message.author),
         id: message.id.clone().into(),
         item: message.item.clone().into(),
         author: message.author.clone().into(),
-        tag: message
-            .tag
-            .as_ref()
-            .map_or_else(Default::default, |tag| tag.text.as_str().into()),
-        tag_badge: message
-            .tag
-            .as_ref()
-            .and_then(|tag| tag.badge.as_deref())
-            .unwrap_or_default()
-            .into(),
+        tag: tag_text(&message.tag),
+        tag_badge: tag_badge(&message.tag),
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
