@@ -52,8 +52,11 @@
 // its audio every 50 packets, as Discord's voice server sends; POST
 // /_control/voice-link?ping=300&loss=7 holds each heartbeat ACK (op 6) back
 // 300 ms and reports 7% of the audio lost, and with no parameters sets both
-// back to none. POST /_control/camera turns Bob's camera on in the call
-// he's in, and with ?off off again; ?who=carol or dave turns theirs. Calls
+// back to none. POST /_control/discovery-drop?count=2 makes the voice server
+// pass over the next two UDP address discovery asks, as if they were lost,
+// and GET /_control/discovery-drop counts those lost and answered. POST
+// /_control/camera turns Bob's camera on in the call he's in, and with ?off
+// off again; ?who=carol or dave turns theirs. Calls
 // connected there hear of it with op 12, and get the recording, or the
 // Annex B file FAKE_DISCORD_CAMERA names, once they ask with op 15. Alice's camera
 // is decrypted and its frames counted; GET /_control/call-video lists what
@@ -3230,6 +3233,10 @@ type CallAudio = {
 };
 /** What /_control/voice-link set: a heartbeat ACK's delay, and the audio lost. */
 const voiceLink = { ping: 0, loss: 0 };
+/** Address discovery asks the voice server passes over, as if lost on the
+ *  way: POST /_control/discovery-drop?count=N sets how many more; GET
+ *  reports those lost and answered so far. */
+const discovery = { drop: 0, dropped: 0, answered: 0 };
 const callAudio = new Map<number, CallAudio>();
 /** Each call connection's SSRC by its voice session, for resuming. */
 const callSessions = new Map<string, number>();
@@ -4283,6 +4290,12 @@ const udp = await Bun.udpSocket({
         if (reporting) reporting.repairs.receiverReports++;
         return;
       }
+      if (discovery.drop > 0) {
+        discovery.drop--;
+        discovery.dropped++;
+        return;
+      }
+      discovery.answered++;
       peers.set(data.readUInt32BE(4), { address, port });
       const answer = Buffer.alloc(74);
       answer.writeUInt16BE(2, 0);
@@ -7789,6 +7802,13 @@ const server = Bun.serve<SocketData>({
       voiceLink.ping = Number(url.searchParams.get("ping") ?? 0);
       voiceLink.loss = Number(url.searchParams.get("loss") ?? 0);
       return new Response(`heartbeat ACKs ${voiceLink.ping} ms late, ${voiceLink.loss}% of call audio lost\n`);
+    }
+    if (req.method === "POST" && path === "/_control/discovery-drop") {
+      discovery.drop = Number(url.searchParams.get("count") ?? 1);
+      return new Response(`passing over the next ${discovery.drop} address discovery ask(s)\n`);
+    }
+    if (req.method === "GET" && path === "/_control/discovery-drop") {
+      return Response.json({ dropped: discovery.dropped, answered: discovery.answered });
     }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
