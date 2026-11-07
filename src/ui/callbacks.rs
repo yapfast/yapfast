@@ -1475,7 +1475,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     });
     let state = adapter.clone();
-    let weak = window.as_weak();
     window.on_theme_imported(move || {
         let weak = Rc::downgrade(&state);
         state.borrow_mut().dialog(async move {
@@ -1729,7 +1728,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             adapter.layout.write(&adapter.root);
         }
     });
-    let state = adapter.clone();
     let weak = window.as_weak();
     window.on_privacy_measure(move || {
         let Some(window) = weak.upgrade() else {
