@@ -532,6 +532,24 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
 
 /// A Discord profile as Yapfast's profile card shows it, with the server's role
 /// names, colours and names known now.
+/// A profile's badges, as the card shows them.
+pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<ProfileBadge> {
+    badges
+        .into_iter()
+        .map(|badge| ProfileBadge {
+            description: badge.description,
+            icon: badge.icon,
+            link: badge.link,
+            level: badge.level.map(|level| ProfileBadgeLevel {
+                kind: level.kind,
+                title: level.title,
+                progress: level.progress,
+                picture: level.picture,
+            }),
+        })
+        .collect()
+}
+
 pub(super) fn chat_profile(
     discord: &Discord,
     guild: &str,
@@ -591,21 +609,7 @@ pub(super) fn chat_profile(
                 avatar: Some(friend.avatar),
             })
             .collect(),
-        badges: profile
-            .badges
-            .into_iter()
-            .map(|badge| ProfileBadge {
-                description: badge.description,
-                icon: badge.icon,
-                link: badge.link,
-                level: badge.level.map(|level| ProfileBadgeLevel {
-                    kind: level.kind,
-                    title: level.title,
-                    progress: level.progress,
-                    picture: level.picture,
-                }),
-            })
-            .collect(),
+        badges: chat_badges(profile.badges),
         bio_emoji,
         // The note comes with its own request; see `fill_profile`.
         note: String::new(),

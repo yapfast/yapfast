@@ -310,7 +310,7 @@ component ProfileBadge inherits Rectangle {
 }
 
 // The tooltip of a badge that levels up, set by Discord's own values: 200px
-// wide on the surface-high grey, 8px corners and a 1px edge, 12px inside at
+// wide, in the theme's tooltip colour, 8px corners and a 1px edge, 12px inside at
 // the sides and 16px above and below, the level's picture 64px high, then
 // the kind, the level in capitals and the progress 4px apart.
 export component BadgeTipCard inherits Rectangle {
@@ -329,7 +329,7 @@ export component BadgeTipCard inherits Rectangle {
     }
     width: 200px;
     height: card.preferred-height;
-    background: #242429;
+    background: Theme.tooltip;
     border-radius: 8px;
     border-width: 1px;
     border-color: #97979f1f;
@@ -338,7 +338,7 @@ export component BadgeTipCard inherits Rectangle {
     Path {
         x: parent.width / 2 - 8px; y: parent.height - 1px; width: 16px; height: 9px;
         commands: "M 0 0 L 16 0 L 8 9 Z";
-        fill: #242429;
+        fill: Theme.tooltip;
     }
     card := VerticalLayout {
         padding-left: 12px; padding-right: 12px; padding-top: 16px;
@@ -356,9 +356,9 @@ export component BadgeTipCard inherits Rectangle {
         }
         VerticalLayout {
             spacing: 4px;
-            if BadgeTip.kind != "": Text { text: BadgeTip.kind; color: #c5c6ca; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
-            Text { text: BadgeTip.title.to-uppercase(); color: #ffffff; font-size: 16px; font-weight: 900; horizontal-alignment: center; wrap: word-wrap; }
-            if BadgeTip.progress != "": Text { text: BadgeTip.progress; color: #c5c6ca; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
+            if BadgeTip.kind != "": Text { text: BadgeTip.kind; color: Theme.secondary; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
+            Text { text: BadgeTip.title.to-uppercase(); color: Theme.text; font-size: 16px; font-weight: 900; horizontal-alignment: center; wrap: word-wrap; }
+            if BadgeTip.progress != "": Text { text: BadgeTip.progress; color: Theme.secondary; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
         }
     }
 }

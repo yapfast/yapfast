@@ -23,7 +23,7 @@ use crate::{
     mfa,
     notifications::Change,
     oauth,
-    profile::{self, Profile},
+    profile::{self, Badge, Profile},
     ready::{self, PRIVATE, Server},
     scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
@@ -688,6 +688,8 @@ struct Kept {
     user: String,
     guild: String,
     at: Instant,
+    /// Whether [`Discord::badge_levels`] asked for its badges' levels.
+    levels_asked: bool,
     /// Their server nickname and avatar when it was fetched: once
     /// GUILD_MEMBER_UPDATE changes either, it's fetched again, with the
     /// rest of what they changed in their server profile.
@@ -715,9 +717,6 @@ fn keep_note(notes: &Notes, user: &str, note: &str) {
     }
     notes.insert(user.to_owned(), note.to_owned());
 }
-
-/// The levels of someone's badges being fetched, from [`Discord::start_badge_levels`].
-pub struct EarlyBadges(tokio::task::JoinHandle<Result<Value>>);
 
 impl Discord {
     /// Connects on the current Tokio runtime and keeps reconnecting until
@@ -1330,9 +1329,7 @@ impl Discord {
         if let Some(earlier) = earlier {
             kept(earlier);
         }
-        let asked = Instant::now();
         let value = self.api.profile(user, server(guild)).await?;
-        tracing::info!(ms = asked.elapsed().as_millis() as u64, "fetched a profile");
         self.write_names().learn_user(&value["user"]);
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
@@ -1344,6 +1341,7 @@ impl Discord {
                 guild: guild.to_owned(),
                 at: Instant::now(),
                 member: self.member_face(guild, user),
+                levels_asked: false,
                 profile: profile.clone(),
             });
             if profiles.len() > PROFILES {
@@ -1356,65 +1354,44 @@ impl Discord {
     }
 
     /// Adds the levels of a profile's badges, the details its tooltips show,
-    /// to `profile`, and to the copy kept of it. They come from a request of
-    /// their own, which Discord answers more slowly than the profile, so the
-    /// card doesn't wait for it: this runs once it is on screen. Whether any
-    /// badge has a level now.
-    pub async fn badge_levels(
-        &self,
-        guild: &str,
-        user: &str,
-        profile: &mut Profile,
-        early: Option<EarlyBadges>,
-    ) -> bool {
-        if !profile
-            .badges
+    /// to `badges` and to the copy kept of the profile. They come from a request
+    /// of their own, which Discord answers more slowly than the profile, so the
+    /// card doesn't wait for it: this runs once it is on screen. It asks once
+    /// for each kept profile, which then has the levels. Whether any badge has
+    /// a level now.
+    pub async fn badge_levels(&self, guild: &str, user: &str, badges: &mut [Badge]) -> bool {
+        if !badges
             .iter()
             .any(|badge| badge.level_icon.is_some() || badge.link.is_some())
         {
             return false;
         }
-        let asked = Instant::now();
-        let levels = match early {
-            Some(early) => early
-                .0
-                .await
-                .map_err(anyhow::Error::from)
-                .and_then(|levels| levels),
-            None => self.api.badges(user).await,
-        };
-        match levels {
-            Ok(levels) => profile.with_levels(&levels),
+        let same = |kept: &&mut Kept| kept.user == user && kept.guild == guild;
+        if let Some(kept) = self.lock_profiles().iter_mut().find(same) {
+            if kept.levels_asked {
+                return false;
+            }
+            kept.levels_asked = true;
+        }
+        match self.api.badges(user).await {
+            Ok(levels) => profile::with_levels(badges, &levels),
             Err(error) => {
                 tracing::debug!(%error, user, "could not fetch badge levels");
                 return false;
             }
         }
-        tracing::info!(
-            ms = asked.elapsed().as_millis() as u64,
-            "fetched badge levels"
-        );
-        if !profile.badges.iter().any(|badge| badge.level.is_some()) {
+        if !badges.iter().any(|badge| badge.level.is_some()) {
             return false;
         }
-        if let Some(kept) = self
-            .lock_profiles()
-            .iter_mut()
-            .find(|kept| kept.user == user && kept.guild == guild)
-        {
-            kept.profile.badges.clone_from(&profile.badges);
+        let saving = self.lock_profiles().iter_mut().find(same).map(|kept| {
+            kept.profile.badges = badges.to_vec();
+            kept.profile.clone()
+        });
+        if let Some(saving) = saving {
+            let (guild, user) = (guild.to_owned(), user.to_owned());
+            tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         }
-        let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
-        tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         true
-    }
-
-    /// Starts asking for the levels of someone's badges, beside their
-    /// profile, which says whether they have any. The answer is waited for
-    /// in [`Self::badge_levels`]; if there are no badges it is dropped.
-    pub fn start_badge_levels(&self, user: &str) -> EarlyBadges {
-        let (api, user) = (self.api.clone(), user.to_owned());
-        EarlyBadges(tokio::spawn(async move { api.badges(&user).await }))
     }
 
     /// A member's nickname and avatar in a server, as Names knows them.

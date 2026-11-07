@@ -66,6 +66,9 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
+/// The most a profile badge's icon is decoded at: twice the 20px it shows at.
+#[cfg(feature = "discord")]
+const BADGE_SIZE: u32 = 40;
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -1145,6 +1148,8 @@ impl Pictures {
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
+                } else if url.contains("/badge-icons/") {
+                    (BADGE_SIZE, BADGE_SIZE)
                 } else {
                     (PICTURE_SIZE, PICTURE_SIZE)
                 };
@@ -1153,8 +1158,12 @@ impl Pictures {
                 };
                 let address = url.clone();
                 let decoded = tokio::task::spawn_blocking(move || {
-                    chat::decode_picture(&data, width, height)
-                        .map(|picture| read_kept(&address, picture))
+                    let decode = if yapfast_discord::ready::is_asset_svg(&address) {
+                        chat::decode_svg
+                    } else {
+                        chat::decode_picture
+                    };
+                    decode(&data, width, height).map(|picture| read_kept(&address, picture))
                 })
                 .await;
                 match decoded {

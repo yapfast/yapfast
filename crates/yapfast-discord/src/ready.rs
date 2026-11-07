@@ -1555,6 +1555,15 @@ pub fn badge_icon(hash: &str) -> String {
     format!("{}/badge-icons/{hash}.png", cdn())
 }
 
+/// Whether an address is one of Discord's own SVG assets, as the large pictures
+/// of its badges are. Nothing anyone uploads is served from there.
+pub fn is_asset_svg(url: &str) -> bool {
+    url.ends_with(".svg")
+        && url
+            .strip_prefix(cdn())
+            .is_some_and(|path| path.starts_with("/assets/content/"))
+}
+
 pub fn server_icon(guild: &str, hash: &str) -> String {
     format!("{}/icons/{guild}/{hash}.png?size={PICTURE_SIZE}", cdn())
 }

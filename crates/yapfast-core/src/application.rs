@@ -2316,6 +2316,10 @@ fn pictures_on_screen<'a>(
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
+                        .chain(profile.badges.iter().flat_map(|badge| {
+                            std::iter::once(badge.icon.as_str())
+                                .chain(badge.level.iter().map(|level| level.picture.as_str()))
+                        }))
                 }),
         )
         .chain(

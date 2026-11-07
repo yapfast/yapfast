@@ -7,7 +7,7 @@ use super::{
     channels::SEARCH_PAUSE,
     channels::SharedPreviews,
     commands::NOT_DISCORD,
-    render::{chat_profile, found_in, hits_in, with_previews},
+    render::{chat_badges, chat_profile, found_in, hits_in, with_previews},
     *,
 };
 use crate::chat::{
@@ -169,32 +169,28 @@ pub(super) fn command(
                             profile: chat_profile(&discord, &guild, profile),
                         });
                     };
-                    // The badges' levels are asked for beside the profile.
-                    let early = discord.start_badge_levels(&user);
-                    let result = discord.profile(&guild, &user, kept).await;
-                    let Ok(mut profile) = result else {
-                        let error = result.err().map(|error| error.to_string());
-                        tracing::warn!(error, "could not fetch a Discord profile");
-                        let _ = events.send(Event::Profile {
-                            user,
-                            result: Err(error.unwrap_or_default()),
-                        });
-                        return;
+                    let profile = match discord.profile(&guild, &user, kept).await {
+                        Ok(profile) => profile,
+                        Err(error) => {
+                            tracing::warn!(%error, "could not fetch a Discord profile");
+                            let _ = events.send(Event::Profile {
+                                user,
+                                result: Err(error.to_string()),
+                            });
+                            return;
+                        }
                     };
+                    let mut badges = profile.badges.clone();
                     let _ = events.send(Event::Profile {
                         user: user.clone(),
-                        result: Ok(chat_profile(&discord, &guild, profile.clone())),
+                        result: Ok(chat_profile(&discord, &guild, profile)),
                     });
                     // The badges' levels come after the card is on screen.
                     let badges_task = async {
-                        if discord
-                            .badge_levels(&guild, &user, &mut profile, Some(early))
-                            .await
-                        {
-                            let badges = chat_profile(&discord, &guild, profile).badges;
+                        if discord.badge_levels(&guild, &user, &mut badges).await {
                             let _ = events.send(Event::BadgeLevels {
                                 user: user.clone(),
-                                badges,
+                                badges: chat_badges(std::mem::take(&mut badges)),
                             });
                         }
                     };

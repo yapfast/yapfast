@@ -1579,7 +1579,8 @@ export component YapfastWindow inherits Window {
     public function copy-text(text: string) { clipboard.text = text; clipboard.select-all(); clipboard.copy(); clipboard.text = ""; }
     clipboard := TextInput { visible: false; width: 0px; height: 0px; }
     // A tooltip must not outlive the toolbar that showed it.
-    changed active-item => { Tip.text = ""; BadgeTip.title = ""; }
+    function hide-badge-tips() { Tip.text = ""; Tip.pop = false; BadgeTip.title = ""; }
+    changed active-item => { root.hide-badge-tips(); }
 
     // The member list is a second sidebar, on the right of the conversation.
     property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked;
@@ -3986,7 +3987,12 @@ export component YapfastWindow inherits Window {
         }
     }
     // A member's card, beside the member list. Escape or a click outside closes it.
-    profile-motion := PopupMotion { open: root.profile-open && !root.profile-large; }
+    // A card closed from the keyboard goes from under the pointer, which then
+    // never leaves its badge to hide the tooltip.
+    profile-motion := PopupMotion {
+        open: root.profile-open && !root.profile-large;
+        changed shown => { root.hide-badge-tips(); }
+    }
     if profile-motion.shown: Rectangle {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
@@ -4013,7 +4019,10 @@ export component YapfastWindow inherits Window {
         }
     }
     // A full profile over the window, as the viewer shows images.
-    large-profile-motion := PopupMotion { open: root.profile-open && root.profile-large; }
+    large-profile-motion := PopupMotion {
+        open: root.profile-open && root.profile-large;
+        changed shown => { root.hide-badge-tips(); }
+    }
     if large-profile-motion.shown: Rectangle {
         background: rgba(0, 0, 0, 0.7 * large-profile-motion.amount);
         TouchArea { clicked => { root.close-profile(); } }

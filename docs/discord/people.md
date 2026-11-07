@@ -298,7 +298,8 @@ than the profile, so the card doesn't wait for it: `Discord::profile` returns
 at once, and `Discord::badge_levels` asks afterwards, only when a badge has a
 `simple_icon_url` or a link, and gives the card its levels as
 `Event::BadgeLevels`. It also puts them in the kept and saved copy of the
-profile, so the next opening has them from the start. Each of its `badges` has a `name` (the kind), an `info_label` (the
+profile, so the next opening has them from the start, and asks once for each
+kept profile, as Discord's client keeps its answer. Each of its `badges` has a `name` (the kind), an `info_label` (the
 progress), a `current_tier` naming one of its `tiers`, whose `name` is the
 level and `complex_icon_static_url` the large picture, an SVG. A badge
 without tiers, such as Quests, shows its own name as the title and its
@@ -306,8 +307,10 @@ without tiers, such as Quests, shows its own name as the title and its
 level's `simple_icon_url`, which both lists carry, else by the icon hash in
 `simple_icon_raster_url`; one the person doesn't own (`owned: false`) is
 skipped. A badge with no entry, such as Nitro's, keeps the plain tooltip, and
-so does every badge when the request fails. The SVGs are drawn by the
-picture decoder (`decode_picture`, with resvg) like any other picture. The
+so does every badge when the request fails. The SVGs are drawn by
+`decode_svg`, with resvg, and only for addresses under Discord's
+`/assets/content/`: an attachment or avatar never reaches it. A badge's icon is
+decoded at 40px at most. The
 card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
 `ui/theme.slint` and drawn by the window above everything else, with
 Discord's own values: 200px wide, 8px corners, the picture 64px high, the

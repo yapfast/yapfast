@@ -88,10 +88,10 @@ pub struct Badge {
     /// Where Discord's client sends a click on it, when it does.
     pub link: Option<String>,
     /// The address of the picture Discord's profile gives it for its level,
-    /// the key to its details in [`Profile::with_levels`].
+    /// the key to its details in [`with_levels`].
     #[serde(default)]
     pub level_icon: Option<String>,
-    /// What its tooltip says beyond the description, once [`Profile::with_levels`]
+    /// What its tooltip says beyond the description, once [`with_levels`]
     /// has found it: only the badges that level up have any.
     #[serde(default)]
     pub level: Option<BadgeLevel>,
@@ -112,52 +112,50 @@ pub struct BadgeLevel {
     pub picture: String,
 }
 
-impl Profile {
-    /// Adds the levels from `GET /users/{id}/badges`, an answer of
-    /// `{"badges": [{name, info_label, current_tier, tiers, ...}]}`, to the
-    /// badges they belong to. Discord's client matches them by the picture of
-    /// the level, which both lists carry.
-    pub fn with_levels(&mut self, value: &Value) {
-        for entry in value["badges"].as_array().into_iter().flatten() {
-            if entry["owned"].as_bool() == Some(false) {
-                continue;
-            }
-            let (Some(name), Some(progress)) = (text(&entry["name"]), text(&entry["info_label"]))
-            else {
-                continue;
-            };
-            let tier = entry["tiers"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|tier| tier["key"].as_str() == entry["current_tier"].as_str());
-            let picture = [
-                tier.map(|tier| &tier["complex_icon_static_url"]),
-                Some(&entry["complex_icon_static_url"]),
-                Some(&entry["simple_icon_url"]),
-            ]
+/// Adds the levels from `GET /users/{id}/badges`, an answer of
+/// `{"badges": [{name, info_label, current_tier, tiers, ...}]}`, to the
+/// badges they belong to. Discord's client matches them by the picture of
+/// the level, which both lists carry.
+pub fn with_levels(badges: &mut [Badge], value: &Value) {
+    for entry in value["badges"].as_array().into_iter().flatten() {
+        if entry["owned"].as_bool() == Some(false) {
+            continue;
+        }
+        let (Some(name), Some(progress)) = (text(&entry["name"]), text(&entry["info_label"]))
+        else {
+            continue;
+        };
+        let tier = entry["tiers"]
+            .as_array()
             .into_iter()
             .flatten()
-            .find_map(text);
-            let Some(picture) = picture else { continue };
-            let level = BadgeLevel {
-                kind: tier.map(|_| name.to_owned()),
-                title: tier
-                    .and_then(|tier| text(&tier["name"]))
-                    .unwrap_or(name)
-                    .to_owned(),
-                progress: progress.to_owned(),
-                picture: picture.to_owned(),
-            };
-            let simple = text(&entry["simple_icon_url"]);
-            let raster = text(&entry["simple_icon_raster_url"]);
-            let badge = self.badges.iter_mut().find(|badge| {
-                simple.is_some() && badge.level_icon.as_deref() == simple
-                    || raster.is_some_and(|raster| raster == badge.icon)
-            });
-            if let Some(badge) = badge {
-                badge.level = Some(level);
-            }
+            .find(|tier| tier["key"].as_str() == entry["current_tier"].as_str());
+        let picture = [
+            tier.map(|tier| &tier["complex_icon_static_url"]),
+            Some(&entry["complex_icon_static_url"]),
+            Some(&entry["simple_icon_url"]),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(text);
+        let Some(picture) = picture else { continue };
+        let level = BadgeLevel {
+            kind: tier.map(|_| name.to_owned()),
+            title: tier
+                .and_then(|tier| text(&tier["name"]))
+                .unwrap_or(name)
+                .to_owned(),
+            progress: progress.to_owned(),
+            picture: picture.to_owned(),
+        };
+        let simple = text(&entry["simple_icon_url"]);
+        let raster = text(&entry["simple_icon_raster_url"]);
+        let badge = badges.iter_mut().find(|badge| {
+            simple.is_some() && badge.level_icon.as_deref() == simple
+                || raster.is_some_and(|raster| raster == badge.icon)
+        });
+        if let Some(badge) = badge {
+            badge.level = Some(level);
         }
     }
 }
@@ -544,19 +542,22 @@ mod tests {
         )
         .unwrap();
         let quests_raster = ready::badge_icon("7d9a");
-        profile.with_levels(&json!({"badges": [
-            {"name": "Spielzeit", "info_label": "1.816 Stunden gespielt", "owned": true,
-             "simple_icon_url": "https://cdn.example/ironclad.svg",
-             "current_tier": "ironclad",
-             "tiers": [
-                 {"key": "casual", "name": "Locker", "complex_icon_static_url": "https://cdn.example/casual.svg"},
-                 {"key": "ironclad", "name": "Eisern", "complex_icon_static_url": "https://cdn.example/big.svg"},
-             ]},
-            {"name": "Quests", "info_label": "7 Quests Abgeschlossen", "owned": true,
-             "simple_icon_url": "https://cdn.example/quest.svg", "simple_icon_raster_url": quests_raster},
-            {"name": "Streaming", "info_label": "1 Stunde", "owned": false,
-             "simple_icon_url": "https://cdn.example/none.svg"},
-        ]}));
+        with_levels(
+            &mut profile.badges,
+            &json!({"badges": [
+                {"name": "Spielzeit", "info_label": "1.816 Stunden gespielt", "owned": true,
+                 "simple_icon_url": "https://cdn.example/ironclad.svg",
+                 "current_tier": "ironclad",
+                 "tiers": [
+                     {"key": "casual", "name": "Locker", "complex_icon_static_url": "https://cdn.example/casual.svg"},
+                     {"key": "ironclad", "name": "Eisern", "complex_icon_static_url": "https://cdn.example/big.svg"},
+                 ]},
+                {"name": "Quests", "info_label": "7 Quests Abgeschlossen", "owned": true,
+                 "simple_icon_url": "https://cdn.example/quest.svg", "simple_icon_raster_url": quests_raster},
+                {"name": "Streaming", "info_label": "1 Stunde", "owned": false,
+                 "simple_icon_url": "https://cdn.example/none.svg"},
+            ]}),
+        );
         let time = profile.badges[0].level.as_ref().unwrap();
         assert_eq!(time.kind.as_deref(), Some("Spielzeit"));
         assert_eq!(time.title, "Eisern");

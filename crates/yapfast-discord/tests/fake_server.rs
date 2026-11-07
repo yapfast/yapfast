@@ -2410,6 +2410,7 @@ async fn shows_profiles() {
         discord,
         guild,
         bob,
+        server,
         ..
     } = Fixture::start("shows_profiles").await;
     // Bob's profile: in the server, his server bio wins over his own; from
@@ -2445,9 +2446,14 @@ async fn shows_profiles() {
     assert!(in_server.badges.iter().all(|badge| badge.level.is_none()));
     assert!(
         discord
-            .badge_levels(&guild, &bob, &mut in_server, None)
+            .badge_levels(&guild, &bob, &mut in_server.badges)
             .await
     );
+    // Discord is asked once while the profile is kept, which has the levels.
+    let mut again = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    assert!(again.badges[2].level.is_some());
+    assert!(!discord.badge_levels(&guild, &bob, &mut again.badges).await);
+    assert_eq!(control(server, "GET", "/_control/badge-reads", ""), "1");
     assert!(
         in_server.badges[..2]
             .iter()
