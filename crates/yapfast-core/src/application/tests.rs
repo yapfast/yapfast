@@ -5190,6 +5190,149 @@ fn custom_emoji_kept_do_not_let_other_pictures_pile_up() {
     );
 }
 
+#[test]
+fn a_closed_picker_lets_go_of_every_emoji_but_those_on_screen() {
+    let mut app = connected();
+    let shown = "https://cdn.discordapp.com/emojis/1.png".to_owned();
+    let mut message = ChatMessage {
+        item: "m1".into(),
+        ..Default::default()
+    };
+    message.emoji.push(yapfast_core_emoji(&shown));
+    app.state.messages = Arc::new(vec![Arc::new(message)]);
+    let arrive = |app: &mut Application, url: String| {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    };
+    arrive(&mut app, shown.clone());
+    // A handful, far fewer than a large account has.
+    for index in 2..12 {
+        arrive(
+            &mut app,
+            format!("https://cdn.discordapp.com/emojis/{index}.png"),
+        );
+    }
+    arrive(&mut app, "avatar.png".into());
+    app.dispatch(Action::UnloadEmojiPictures);
+    let mut kept: Vec<&str> = app.state.pictures.keys().map(String::as_str).collect();
+    kept.sort_unstable();
+    assert_eq!(kept, ["avatar.png", shown.as_str()]);
+    // The next look asks for those it let go of again.
+    assert!(
+        !app.requested_pictures
+            .contains("https://cdn.discordapp.com/emojis/2.png")
+    );
+    assert!(app.requested_pictures.contains(&shown));
+}
+
+#[test]
+fn emoji_the_picker_let_go_of_are_called_off_and_not_kept_if_they_come() {
+    let mut app = connected();
+    let near = "https://cdn.discordapp.com/emojis/1.png".to_owned();
+    let far = "https://cdn.discordapp.com/emojis/2.png".to_owned();
+    let asked = app.dispatch(Action::LoadPicturesFirst(vec![near.clone(), far.clone()]));
+    assert_eq!(asked.len(), 1);
+    // The picker scrolled on: the far one, not come yet, is called off.
+    let effects = app.dispatch(Action::KeepEmojiPictures(vec![near.clone()]));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::CancelPictures(urls)))]
+            if *urls == [far.clone()]
+    ));
+    // It comes all the same, and isn't kept; the near one is.
+    for url in [&far, &near] {
+        app.apply(Event::Picture {
+            url: url.clone(),
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(!app.state.pictures.contains_key(&far));
+    assert!(app.state.pictures.contains_key(&near));
+    // Asked for again, it is kept when it comes.
+    app.dispatch(Action::LoadPicturesFirst(vec![far.clone()]));
+    app.apply(Event::Picture {
+        url: far.clone(),
+        picture: Arc::new(Picture::default()),
+    });
+    assert!(app.state.pictures.contains_key(&far));
+}
+
+#[test]
+fn animation_pins_cover_viewport_emoji_not_every_loaded_message() {
+    let mut app = connected();
+    app.state.messages = Arc::new(
+        (0..100)
+            .map(|index| {
+                Arc::new(ChatMessage {
+                    item: format!("m{index}"),
+                    emoji: vec![yapfast_core_emoji(&format!("emoji-{index}.gif"))],
+                    ..Default::default()
+                })
+            })
+            .collect(),
+    );
+    assert_eq!(
+        app.visible_message_emoji().count(),
+        0,
+        "no viewport has been reported yet"
+    );
+    app.visible_messages = vec!["m40".into(), "m42".into()];
+    let pictures: Vec<&str> = app
+        .visible_message_emoji()
+        .map(|emoji| emoji.picture.as_str())
+        .collect();
+    assert_eq!(pictures, ["emoji-40.gif", "emoji-41.gif", "emoji-42.gif"]);
+    app.visible_messages = vec!["m90".into()];
+    assert_eq!(app.visible_message_emoji().count(), 1);
+    app.visible_messages.clear();
+    assert_eq!(app.visible_message_emoji().count(), 0);
+}
+
+fn yapfast_core_emoji(picture: &str) -> crate::chat::CustomEmoji {
+    crate::chat::CustomEmoji {
+        text: ":one:".into(),
+        id: "1".into(),
+        animated: false,
+        usable: true,
+        picture: picture.into(),
+    }
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_picker_finds_every_emoji_by_id_and_says_which_it_may_use() {
+    use yapfast_discord::{
+        ready::{Emoji, Server},
+        service::{Snapshot, Status},
+    };
+    let mut app = connected();
+    let emoji = |id: &str, name: &str, animated| Emoji {
+        id: id.into(),
+        name: name.into(),
+        animated,
+        available: true,
+    };
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Elsewhere".into(),
+            emojis: vec![emoji("5", "talk", false), emoji("6", "party", true)].into(),
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    // Without Nitro, another server's emoji are found, locked.
+    let found = app.emoji_by_id(&["6", "7"].into_iter().collect());
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].text, ":party:");
+    assert!(found[0].animated && !found[0].usable);
+    assert!(found[0].picture.contains("/emojis/6"));
+}
+
 #[cfg(feature = "discord")]
 fn unread_channel(unread: bool, last_read: u64) -> Event {
     use yapfast_discord::{
@@ -9076,6 +9219,66 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
         saved.as_slice(),
         [Command::Discord(DiscordCommand::SetFavoriteGifs(favorites))] if favorites.len() == 1
     ));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn emoji_prefetch_fills_partial_accounts_without_repeating_picker_requests() {
+    use yapfast_discord::{
+        ready::{Emoji, Server},
+        service::{Snapshot, Status},
+    };
+    let mut app = connected();
+    let snapshot = |ids: &[&str]| {
+        discord_event(Snapshot {
+            status: Status::Online,
+            servers: vec![MarkedServer::from(Server {
+                id: "10".into(),
+                name: "Test".into(),
+                emojis: ids
+                    .iter()
+                    .map(|id| Emoji {
+                        id: (*id).into(),
+                        name: format!("emoji_{id}"),
+                        available: true,
+                        animated: false,
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+                ..Default::default()
+            })],
+            ..Default::default()
+        })
+    };
+    let prefetched = |effects: Vec<Effect>| -> Vec<String> {
+        effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::PrefetchPictures(urls))) => {
+                    Some(urls)
+                }
+                _ => None,
+            })
+            .flatten()
+            .filter(|url| url.contains("/emojis/"))
+            .collect()
+    };
+    // An early snapshot with no emoji must not mark the whole account done.
+    assert!(prefetched(app.apply(snapshot(&[]))).is_empty());
+    let first = prefetched(app.apply(snapshot(&["5"])));
+    assert_eq!(first.len(), 1);
+    assert!(first[0].contains("/emojis/5.png"));
+    assert!(prefetched(app.dispatch(Action::CacheEmojiPictures)).is_empty());
+    assert!(prefetched(app.apply(snapshot(&["5"]))).is_empty());
+    // A later snapshot adds an emoji; only that picture is queued.
+    let added = prefetched(app.apply(snapshot(&["5", "6"])));
+    assert_eq!(added.len(), 1);
+    assert!(added[0].contains("/emojis/6.png"));
+    assert!(prefetched(app.dispatch(Action::CacheEmojiPictures)).is_empty());
+    assert!(
+        app.state.pictures.is_empty(),
+        "prefetch never requests decoded pictures"
+    );
 }
 
 #[test]

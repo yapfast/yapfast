@@ -341,8 +341,8 @@ an error.
   carries and maps rather than copies, so an emoji is as cheap as a letter. An
   emoji of one character answers to its own code point as well as to the one
   the rewrite gives it, so text that keeps it as typed, as the composer's draft
-  does, draws Twemoji's picture too; a sequence, which this font can't join,
-  draws its picture once rewritten and the system font's until then. A
+  does, draws Twemoji's picture too, and a sequence, such as a flag or a skin
+  tone, is joined into its one picture by the font's ligatures. A
   `:shortcode:` sent without taking its completion draws as its emoji. A
   picture is 22px in the 16px text, and 48px in the large text a message of
   emoji alone shows. That is taller than the line, so a `StyledText` and the
@@ -372,10 +372,13 @@ an error.
   paragraph is shaped again for a frame. Frames decode off the thread that
   draws, ahead of the draw: the ones a refresh shows first, one decode for
   each picture however many messages and cells show it, and a job for an
-  emoji that scrolled away before it started is dropped. The cache keeps 6 MB
-  of frames, letting go the least recently shown, never one on screen. An
-  emoji shows its still first frame until its frames arrive, and if they
-  never do.
+  emoji that scrolled away before it started is dropped. The cache keeps 6 MiB
+  of frames, letting go the least recently shown while preserving message
+  animations pinned by the current view. Eviction removes the renderer's
+  registry entry as well as the cache entry, so both release their shared
+  pixels. Closing the picker drops its unpinned frames and queued jobs;
+  a late decoder result for those rows is discarded. An emoji shows its still
+  first frame until its frames arrive, and if they never do.
 - Stickers show as pictures 160px square, as Discord draws them, whatever size
   their picture came at: the 160px one the CDN gives, decoded at that size
   rather than the timeline's preview. PNG and APNG stickers come from the CDN

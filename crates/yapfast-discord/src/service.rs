@@ -2828,8 +2828,10 @@ impl Discord {
             None => url,
         };
         if let Some(kept) = cache::picture(url).await.filter(|kept| kept.len() <= limit) {
+            tracing::trace!(%url, bytes = kept.len(), "read a Discord picture from cache");
             return Ok(kept);
         }
+        tracing::trace!(%url, queued, "fetching a Discord picture from network");
         let data = if queued {
             self.api.download(url, limit).await?
         } else {

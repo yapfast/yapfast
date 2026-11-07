@@ -1465,10 +1465,20 @@ pub enum Action {
     /// Download pictures that show outside the state, such as the emoji
     /// picker's; see [`DiscordCommand::Pictures`].
     LoadPictures(Vec<String>),
-    /// Lets go of the custom emoji pictures in memory, which the disk cache
-    /// holds: the picker's cells keep their own while it shows, and a later look
-    /// reads them again.
+    /// Download pictures the emoji picker shows or is about to, nearest
+    /// first, ahead of those it asked for before: one already on its way moves
+    /// up rather than going twice. Nothing on screen changes until they come.
+    LoadPicturesFirst(Vec<String>),
+    /// The emoji picker closed: lets go of the custom emoji pictures in memory
+    /// but those the messages on screen show, since the disk cache holds them
+    /// and the next look reads them again.
     UnloadEmojiPictures,
+    /// The emoji picker scrolled on: lets go of the custom emoji pictures
+    /// but these, which are near what it shows, and those shown elsewhere.
+    KeepEmojiPictures(Vec<String>),
+    /// The emoji picker opened: every custom emoji's picture not yet in the
+    /// disk cache is fetched to it, once a session, after whatever shows.
+    CacheEmojiPictures,
     Login {
         homeserver: String,
         username: String,
@@ -2027,6 +2037,10 @@ pub struct Application {
     emoji_favorites: Vec<String>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
+    /// Custom emoji pictures the picker asked for and let go of before they
+    /// came: their downloads were called off, and one that comes all the same
+    /// isn't kept.
+    let_go_emoji: HashSet<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
     /// The selected room's timeline with the blocked messages
@@ -2043,10 +2057,15 @@ pub struct Application {
     pictures_kept: usize,
     /// How many of the pictures kept are custom emoji, which stay.
     emoji_pictures: usize,
-    /// The custom emoji pictures were fetched on this start, for a cache that
-    /// held no picture at all; see [`Application::prefetch_emoji`].
+    /// Custom emoji pictures queued for the disk cache this session. Shared by
+    /// startup and the picker, so neither repeats the other's work, and emoji
+    /// added by a later snapshot are fetched too.
     #[cfg(feature = "discord")]
-    emoji_prefetched: bool,
+    emoji_prefetched: HashSet<String>,
+    /// The current emoji list was checked: searches and reflows need not
+    /// rebuild every server's emoji just to discover there is nothing new.
+    #[cfg(feature = "discord")]
+    emoji_cache_current: bool,
     /// The server icons fetched ahead, so each is fetched once.
     server_icons_prefetched: HashSet<String>,
     /// Names searched for in the selected room, lowercased.
@@ -2126,10 +2145,6 @@ const LISTED_PICTURES: usize = 150;
 /// decoded, and the window keeps a copy of each it shows. The rail, the DMs
 /// listed, a member list and a timeline show a few hundred at most.
 const KEPT_PICTURES: usize = 400;
-/// Custom emoji pictures kept in memory at most: more than a wide picker shows,
-/// and far short of what a large account has, which the disk cache holds. See
-/// [`Application::unload_emoji_pictures`]. One is 16 KB decoded.
-const KEPT_EMOJI: usize = 600;
 /// Timeline rows either side of those on screen whose avatars stay when
 /// pictures go.
 const PICTURED_AROUND: usize = 30;
@@ -2462,6 +2477,7 @@ impl Application {
         for url in pictures_on_screen(state, timeline, false) {
             if !self.requested_pictures.contains(url) {
                 self.requested_pictures.insert(url.to_owned());
+                self.let_go_emoji.remove(url);
                 wanted.push(url.to_owned());
             }
         }
@@ -2473,6 +2489,7 @@ impl Application {
             for url in pictures_on_screen(state, &aside.messages, false) {
                 if !self.requested_pictures.contains(url) {
                     self.requested_pictures.insert(url.to_owned());
+                    self.let_go_emoji.remove(url);
                     wanted.push(url.to_owned());
                 }
             }
@@ -2483,21 +2500,129 @@ impl Application {
         ))))
     }
 
-    /// Lets go of the custom emoji pictures in memory once there are more than
-    /// [`KEPT_EMOJI`], which is more than a wide picker shows: the disk cache
-    /// keeps them all, the grid's cells keep the ones it shows, and a later look
-    /// reads the rest from the disk. So a large account's emoji cost memory only
-    /// while they are looked at. The pictures asked for are forgotten with them,
-    /// so a look asks again rather than showing nothing.
+    /// Lets go of the custom emoji pictures in memory, but those the messages
+    /// on screen and a short scroll away show, the thread beside and the
+    /// topic: the picker that asked for the rest closed, the disk cache keeps
+    /// them all, and its next look reads them from there. So an account's
+    /// emoji cost memory only while they are looked at. The pictures asked for
+    /// are forgotten with them, so a look asks again rather than showing
+    /// nothing. One is 16 KB decoded.
     fn unload_emoji_pictures(&mut self) -> Vec<Effect> {
-        if self.emoji_pictures <= KEPT_EMOJI {
+        let (went, called_off) = self.unload_emoji_pictures_but(&HashSet::new());
+        if went {
+            self.state.picture_changes += 1;
+        }
+        Self::call_off_pictures(called_off)
+    }
+
+    /// The custom emoji pictures the open picker holds that aren't among
+    /// `keep`, the ones near what it shows, nor shown elsewhere, let go of
+    /// as it scrolls: an account's emoji cost memory only as far as the picker
+    /// asks for ahead, however far it scrolled. Nothing on screen changes, so
+    /// nothing is laid out again.
+    fn keep_emoji_pictures(&mut self, keep: Vec<String>) -> Vec<Effect> {
+        let keep: HashSet<String> = keep.into_iter().collect();
+        let (_, called_off) = self.unload_emoji_pictures_but(&keep);
+        Self::call_off_pictures(called_off)
+    }
+
+    /// Fetches custom emoji pictures to disk once per URL this session, at
+    /// startup and when the picker opens. Existing cache entries are read by
+    /// the fetcher without a network request; a partially populated cache must
+    /// not prevent the rest of the account's emoji from being fetched.
+    fn cache_emoji_pictures(&mut self) -> Vec<Effect> {
+        #[cfg(feature = "discord")]
+        {
+            if self.emoji_cache_current {
+                return Vec::new();
+            }
+            self.emoji_cache_current = true;
+            let urls: Vec<String> = self
+                .emoji_sets()
+                .into_iter()
+                .flat_map(|set| set.emoji)
+                .map(|emoji| emoji.picture)
+                .filter(|url| !url.is_empty() && self.emoji_prefetched.insert(url.clone()))
+                .collect();
+            if !urls.is_empty() {
+                tracing::info!(pictures = urls.len(), "prefetching custom emoji pictures");
+                return vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::PrefetchPictures(urls),
+                ))];
+            }
+        }
+        Vec::new()
+    }
+
+    /// Lets go of the custom emoji pictures but `keep` and those shown
+    /// elsewhere; see [`Application::unload_emoji_pictures`]. Says whether
+    /// any went, and gives the ones asked for that hadn't come.
+    fn unload_emoji_pictures_but(&mut self, keep: &HashSet<String>) -> (bool, Vec<String>) {
+        let messages = &self.state.messages;
+        let timeline =
+            visible_range(messages, &self.visible_messages).map_or(&messages[..], |range| {
+                let start = range.start().saturating_sub(PICTURED_AROUND);
+                &messages[start..(range.end() + 1 + PICTURED_AROUND).min(messages.len())]
+            });
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .map_or(&[][..], |aside| aside.messages.as_slice());
+        // The reactions a message's hover bar and menu offer, which draw
+        // their pictures too.
+        let frequent = self.frequent_reactions(4);
+        let frequent: Vec<String> = self
+            .emoji_by_id(
+                &frequent
+                    .iter()
+                    .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
+                    .collect(),
+            )
+            .into_iter()
+            .map(|emoji| emoji.picture)
+            .collect();
+        let shown: HashSet<&str> = timeline
+            .iter()
+            .chain(aside)
+            .flat_map(|message| &message.emoji)
+            .chain(self.state.topic.iter().flat_map(|topic| &topic.emoji))
+            .map(|emoji| emoji.picture.as_str())
+            .chain(frequent.iter().map(String::as_str))
+            .collect();
+        let kept = |url: &String| {
+            !is_custom_emoji(url) || shown.contains(url.as_str()) || keep.contains(url)
+        };
+        let before = self.state.pictures.len();
+        self.state.pictures.retain(|url, _| kept(url));
+        // Those asked for and not come are called off, and not kept if they
+        // come all the same: nothing will show them.
+        let pictures = &self.state.pictures;
+        let called_off: Vec<String> = self
+            .requested_pictures
+            .iter()
+            .filter(|url| !kept(url) && !pictures.contains_key(*url))
+            .cloned()
+            .collect();
+        self.requested_pictures.retain(|url| kept(url));
+        self.let_go_emoji.extend(called_off.iter().cloned());
+        self.emoji_pictures = self
+            .state
+            .pictures
+            .keys()
+            .filter(|url| is_custom_emoji(url))
+            .count();
+        (self.state.pictures.len() != before, called_off)
+    }
+
+    /// Calls off the downloads of `urls`, which nothing will show.
+    fn call_off_pictures(urls: Vec<String>) -> Vec<Effect> {
+        if urls.is_empty() {
             return Vec::new();
         }
-        self.state.pictures.retain(|url, _| !is_custom_emoji(url));
-        self.requested_pictures.retain(|url| !is_custom_emoji(url));
-        self.emoji_pictures = 0;
-        self.state.picture_changes += 1;
-        Vec::new()
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::CancelPictures(urls),
+        ))]
     }
 
     /// Keeps a picture that arrived, and once more than [`KEPT_PICTURES`]
@@ -2508,6 +2633,10 @@ impl Application {
     /// small. They don't count towards when the others go, or the emoji of a
     /// few servers would let thousands of avatars pile up.
     fn keep_picture(&mut self, url: String, picture: Arc<Picture>) {
+        // A custom emoji the picker let go of before it came shows nowhere.
+        if self.let_go_emoji.remove(&url) {
+            return;
+        }
         let emoji = is_custom_emoji(&url);
         if self.state.pictures.insert(url, picture).is_none() && emoji {
             self.emoji_pictures += 1;
@@ -2746,7 +2875,10 @@ impl Application {
             Action::Later => self.later(),
             Action::JumpToPresent => self.jump_to_present(),
             Action::LoadPictures(urls) => self.load_pictures(urls),
+            Action::LoadPicturesFirst(urls) => self.load_pictures_first(urls),
             Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
+            Action::KeepEmojiPictures(keep) => self.keep_emoji_pictures(keep),
+            Action::CacheEmojiPictures => self.cache_emoji_pictures(),
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -3978,6 +4110,76 @@ impl Application {
                 .collect();
         }
         vec![]
+    }
+
+    /// Emoji in the timeline and thread rows reported by the UI's viewports.
+    /// Those reports already include their short scroll margins. Animation
+    /// pins must not cover the entire loaded history: picker downloads could
+    /// otherwise make off-screen message animations unevictable.
+    pub fn visible_message_emoji(&self) -> impl Iterator<Item = &chat::CustomEmoji> {
+        fn shown<'a>(messages: &'a [Arc<ChatMessage>], ids: &[String]) -> &'a [Arc<ChatMessage>] {
+            visible_range(messages, ids).map_or(&[], |range| &messages[range])
+        }
+        let timeline = shown(&self.state.messages, &self.visible_messages);
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .map_or(&[][..], |aside| shown(&aside.messages, &self.aside_visible));
+        timeline
+            .iter()
+            .chain(aside)
+            .flat_map(|message| &message.emoji)
+    }
+
+    /// The custom emoji among `ids`, as [`Application::emoji_sets`] has them,
+    /// each saying whether this account may use it in the selected room, made
+    /// for those alone: the picker asks for the ones near what it shows each
+    /// time a row scrolls in, and making every server's emoji for that cost
+    /// more than the scroll did.
+    pub fn emoji_by_id(&self, ids: &HashSet<&str>) -> Vec<chat::CustomEmoji> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            if ids.is_empty() {
+                return Vec::new();
+            }
+            let here = self
+                .state
+                .selected
+                .as_deref()
+                .and_then(discord::parse_room)
+                .map(|(guild, _)| guild);
+            let nitro = snapshot
+                .account
+                .as_ref()
+                .is_some_and(|account| account.premium_type > 0);
+            return snapshot
+                .servers
+                .iter()
+                .flat_map(|server| {
+                    let ours = Some(server.id.as_str()) == here;
+                    server
+                        .emojis
+                        .iter()
+                        .filter(|emoji| emoji.available && ids.contains(emoji.id.as_str()))
+                        .map(move |emoji| (emoji, nitro || (ours && !emoji.animated)))
+                })
+                .map(|(emoji, usable)| chat::CustomEmoji {
+                    text: format!(":{}:", emoji.name),
+                    id: emoji.id.clone(),
+                    animated: emoji.animated,
+                    usable,
+                    picture: yapfast_discord::ready::custom_emoji(
+                        &emoji.id,
+                        emoji.animated,
+                        chat::EMOJI_PICTURE_SIZE,
+                    ),
+                })
+                .collect();
+        }
+        #[cfg(not(feature = "discord"))]
+        let _ = ids;
+        Vec::new()
     }
 
     /// The custom emoji this account may use in the selected room, by server, the
