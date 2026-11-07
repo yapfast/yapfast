@@ -354,6 +354,13 @@ export component YapfastWindow inherits Window {
     in property <string> room-parent-id;
     /// The thread's channel is a forum, and the thread one of its posts.
     in property <bool> room-parent-forum;
+    /// The open thread is a Discord forum post. Above its messages Discord
+    /// puts a bar to react to the post and to follow it; `forum-post-item`
+    /// is the post's first message once loaded, and `forum-post-follow` 0
+    /// when the post can't be followed, 1 to follow it, 2 when it is.
+    in property <bool> forum-post;
+    in property <string> forum-post-item;
+    in property <int> forum-post-follow;
     in property <image> room-icon;
     in property <bool> room-direct;
     in property <string> room-initial;
@@ -2929,6 +2936,60 @@ export component YapfastWindow inherits Window {
                                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                                     leave-voice => { root.leave-voice(); }
+                                }
+                            }
+                        }
+                        // A forum post's bar, as Discord shows it: react to the post, and
+                        // follow it or copy its link.
+                        if ClientStyle.enabled && root.forum-post && !root.voice-panel && !root.room-forum: Rectangle {
+                            height: 45px; vertical-stretch: 0;
+                            background: Theme.chat;
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.outline-chat; }
+                            if root.forum-post-item != "": react-pill := Rectangle {
+                                x: 16px; y: 7px; height: 31px; width: react-row.preferred-width + 24px;
+                                border-radius: 8px;
+                                background: react-touch.has-hover ? Theme.hover : Theme.field.mix(Theme.chat, 0.5);
+                                react-row := HorizontalLayout {
+                                    x: 12px; spacing: 8px; alignment: start;
+                                    Middle { Image { source: @image-url("icons/smile.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                    Text { text: "React to post"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                                }
+                                react-touch := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.open-picker(root.forum-post-item); }
+                                }
+                                accessible-role: button; accessible-label: "React to post";
+                                accessible-action-default => { root.open-picker(root.forum-post-item); }
+                            }
+                            HorizontalLayout {
+                                alignment: end; padding-right: 16px; padding-top: 7px; padding-bottom: 7px; spacing: 4px;
+                                if root.forum-post-follow > 0: Rectangle {
+                                    width: follow-row.preferred-width + 24px;
+                                    border-radius: 8px;
+                                    background: follow-touch.has-hover ? Theme.hover : Theme.field.mix(Theme.chat, 0.5);
+                                    follow-row := HorizontalLayout {
+                                        x: 12px; spacing: 6px; alignment: start;
+                                        if root.forum-post-follow == 2: Middle { Image { source: @image-url("icons/check.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                        if root.forum-post-follow == 1: Middle { Image { source: @image-url("icons/plus.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                        Text { text: root.forum-post-follow == 2 ? "Following" : "Follow"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                                    }
+                                    follow-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.choose-menu(root.room-id, false, root.forum-post-follow == 2 ? "leave-thread" : "join-thread"); }
+                                    }
+                                    accessible-role: button; accessible-label: root.forum-post-follow == 2 ? "Following" : "Follow";
+                                    accessible-action-default => { root.choose-menu(root.room-id, false, root.forum-post-follow == 2 ? "leave-thread" : "join-thread"); }
+                                }
+                                Rectangle {
+                                    width: 32px; border-radius: 8px;
+                                    background: link-touch.has-hover ? Theme.hover : Theme.field.mix(Theme.chat, 0.5);
+                                    Image { source: @image-url("icons/link.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; }
+                                    link-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.choose-menu(root.room-id, false, "copy-link"); }
+                                    }
+                                    accessible-role: button; accessible-label: "Copy link";
+                                    accessible-action-default => { root.choose-menu(root.room-id, false, "copy-link"); }
                                 }
                             }
                         }
