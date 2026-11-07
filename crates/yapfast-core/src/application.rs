@@ -16,6 +16,7 @@ use crate::{
     voice::{self, JoinSound, Phase},
 };
 
+mod activity_panel;
 mod arrange;
 mod aside;
 mod browse;
@@ -179,6 +180,8 @@ pub struct PersonDialog {
 /// What a [`PersonDialog`] asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PersonAsk {
+    /// Whether to start a call with them, unless told not to ask again.
+    Call,
     Note,
     /// The nickname this account gives a friend.
     Nickname,
@@ -499,6 +502,15 @@ pub struct AppState {
     /// Messages from people this account blocked don't show at all, rather
     /// than collapsed.
     pub hide_blocked: bool,
+    /// A call from someone's menu starts without asking first.
+    pub skip_call_prompt: bool,
+    /// The member list's Activity panel's feed, in Discord's order: what
+    /// everyone this account knows is doing, not just one server.
+    pub activity_feed: Arc<[crate::chat::FeedEntry]>,
+    /// Who of that feed a room's panel may show, as last answered for it.
+    pub activity_people: Option<(String, Arc<[crate::chat::FeedPerson]>)>,
+    /// The panel shows its header alone.
+    pub activity_cards_hidden: bool,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -2025,6 +2037,12 @@ pub enum Action {
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
+    /// Whether a call from someone's menu starts without asking first.
+    SkipCallPrompt(bool),
+    /// The window gained or lost focus.
+    WindowFocused(bool),
+    /// Hides or shows the cards in the member list's Activity panel.
+    ActivityCardsHidden(bool),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -2039,9 +2057,6 @@ pub enum Action {
     /// opens: how many of its members are online, and whether Discover lists
     /// it. Nothing is asked twice for the same server.
     PreviewServer(String),
-    /// Fetch a member's profile ahead of it being opened, so it opens at once.
-    /// The pointer rested on them; nothing shows.
-    PrefetchProfile(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -2102,6 +2117,7 @@ pub struct DiscordEmojiLists {
 #[derive(Default)]
 pub struct Application {
     pub state: AppState,
+    feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,
     matrix_servers: Vec<Arc<ChatServer>>,
@@ -3404,9 +3420,11 @@ impl Application {
                 if self.state.preview || signed_out {
                     return vec![];
                 }
-                vec![Effect::Backend(Command::Discord(
+                let mut effects = self.feed_quiet_since(since);
+                effects.push(Effect::Backend(Command::Discord(
                     DiscordCommand::Inactive { since, show_idle },
-                ))]
+                )));
+                effects
             }
             Action::ConfirmVoiceSwitch => self.confirm_voice_switch(),
             Action::CancelVoiceSwitch => {
@@ -3445,6 +3463,12 @@ impl Application {
                 self.state.hide_nameplates = hide;
                 vec![]
             }
+            Action::WindowFocused(focused) => self.window_focused(focused),
+            Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
+            Action::SkipCallPrompt(skip) => {
+                self.state.skip_call_prompt = skip;
+                vec![]
+            }
             Action::HideBlocked(hide) => {
                 if self.state.hide_blocked == hide {
                     return vec![];
@@ -3469,7 +3493,6 @@ impl Application {
                 vec![]
             }
             Action::ShowProfile { user, large } => self.show_profile(user, large),
-            Action::PrefetchProfile(user) => self.prefetch_profile(user),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::PreviewServer(server) => self.preview_server(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
@@ -3677,6 +3700,9 @@ impl Application {
                 }
             }
             Event::Profile { user, result } => self.show_fetched_profile(user, result),
+            Event::ActivityFeed(entries) => return self.show_activity_feed(entries),
+            Event::ActivityFeedDue => return self.activity_feed_due(),
+            Event::ActivityPeople { room, people } => self.show_activity_people(room, people),
             Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileEffect(effect) => {

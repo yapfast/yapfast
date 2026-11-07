@@ -55,25 +55,6 @@ impl Application {
         self.open_profile(room, profile, large)
     }
 
-    /// Fetches the profile of a member of the open Discord room before it is
-    /// asked for. The fetch keeps it, and nothing is shown for it.
-    pub(super) fn prefetch_profile(&mut self, user: String) -> Vec<Effect> {
-        let Some(room) = self
-            .state
-            .selected_room()
-            .filter(|room| room.network == Network::Discord)
-            .filter(|_| self.state.discord_online && !self.state.preview)
-            .filter(|_| self.state.person(&user).is_some())
-            .map(|room| room.id.clone())
-        else {
-            return vec![];
-        };
-        vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
-            room,
-            user,
-        }))]
-    }
-
     /// Opens a Discord profile named only by its user id, as behind a
     /// `/users/{id}` link. The id stands in as the name until the fetch
     /// fills the card; the open room when it is Discord's is the context

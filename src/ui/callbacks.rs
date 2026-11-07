@@ -697,7 +697,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         on_show_profile,
         (|user| Action::ShowProfile { user, large: false })
     );
-    bind_item!(on_prefetch_profile, Action::PrefetchProfile);
     bind_item!(on_edit, Action::Edit);
     {
         let adapter = adapter.clone();
@@ -727,6 +726,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let adapter = adapter.clone();
         let weak = window.as_weak();
         window.on_inbox_opened(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().refresh(&window);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_activity_clock(move || {
             if let Some(window) = weak.upgrade() {
                 adapter.borrow_mut().refresh(&window);
             }
@@ -1685,6 +1693,26 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 volumes.insert(person.into(), volume);
             }
             adapter.layout.write(&adapter.root);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_activity_cards_hidden_toggled(move |hidden| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.activity_cards_hidden = hidden;
+        adapter.layout.write(&adapter.root);
+        if let Some(window) = weak.upgrade() {
+            adapter.action(&window, Action::ActivityCardsHidden(hidden));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_skip_call_prompt_toggled(move |skip| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.skip_call_prompt = skip;
+        adapter.layout.write(&adapter.root);
+        if let Some(window) = weak.upgrade() {
+            adapter.action(&window, Action::SkipCallPrompt(skip));
         }
     });
     let state = adapter.clone();

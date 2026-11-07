@@ -633,6 +633,15 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
+        let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
+        let events = events.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            let _ = events.send(Event::ActivityFeedDue);
+        });
+        return;
+    }
     if let Ok(Live::FavoriteGifs(favorites)) = &event {
         let _ = events.send(Event::FavoriteGifs(Ok(gifs::favorites(favorites))));
         tokio::spawn(yapfast_discord::service::keep_favorite_gifs(

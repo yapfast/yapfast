@@ -4115,6 +4115,74 @@ async fn changes_notification_settings() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_activity_feed_and_who_a_channel_may_show() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("activity_feed").await;
+    let feed = discord.activity_feed().await.unwrap();
+    assert_eq!(feed.refresh_token.as_deref(), Some("fake-feed-token"));
+    assert_eq!(feed.wait_ms, Some(300_000));
+    let titles: Vec<&str> = feed.entries.iter().map(|entry| &*entry.title).collect();
+    assert_eq!(
+        titles,
+        [
+            "Factorio",
+            "Marconi Union",
+            "Celeste",
+            "Factorio",
+            "Marconi Union",
+            "Nobody's game",
+        ],
+    );
+    assert!(feed.entries[0].live);
+    assert!(!feed.entries[2].live);
+    assert_eq!(feed.entries[3].hours, Some(13));
+    assert_eq!(feed.entries[4].tracks, Some(31));
+
+    // The second asks from where the first left off.
+    discord.activity_feed().await.unwrap();
+    let fetches = control(server, "GET", "/_control/activity-fetches", "");
+    assert_eq!(fetches, r#"[null,"fake-feed-token"]"#);
+
+    let mut live = discord.live();
+    post_control(server, "/_control/activity-stale", "");
+    let stale = live_where(&mut live, |event| match event {
+        Live::ActivityFeedStale { refresh_after_ms } => Some(refresh_after_ms),
+        _ => None,
+    })
+    .await;
+    assert_eq!(stale, Some(0));
+
+    let users: Vec<std::sync::Arc<str>> = feed
+        .entries
+        .iter()
+        .map(|entry| entry.author.clone())
+        .collect();
+    let people = discord.activity_people(&guild, &general, &users).await;
+    assert!(people.iter().any(|person| &*person.id == bob.as_str()));
+    assert!(
+        people
+            .iter()
+            .all(|person| &*person.id != "1400000000000000999"),
+        "someone in no server shared with the account stays out",
+    );
+    assert_eq!(
+        people
+            .iter()
+            .find(|person| &*person.id == bob.as_str())
+            .map(|person| &*person.name),
+        Some("Bob"),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn follows_the_topic() {
     let Fixture {
         _fake,

@@ -77,6 +77,8 @@ events! {
     GuildEmojisUpdate = "GUILD_EMOJIS_UPDATE",
     /// This account's note on someone changed.
     UserNoteUpdate = "USER_NOTE_UPDATE",
+    /// The Activity panel's feed has something new to fetch.
+    ContentInventoryInboxStale = "CONTENT_INVENTORY_INBOX_STALE",
     /// A server's scheduled event, which its header counts.
     GuildScheduledEventCreate = "GUILD_SCHEDULED_EVENT_CREATE",
     GuildScheduledEventUpdate = "GUILD_SCHEDULED_EVENT_UPDATE",
@@ -184,6 +186,10 @@ mod tests {
             ("GUILD_ROLE_DELETE", Event::GuildRoleDelete),
             ("GUILD_EMOJIS_UPDATE", Event::GuildEmojisUpdate),
             ("USER_NOTE_UPDATE", Event::UserNoteUpdate),
+            (
+                "CONTENT_INVENTORY_INBOX_STALE",
+                Event::ContentInventoryInboxStale,
+            ),
             (
                 "GUILD_SCHEDULED_EVENT_CREATE",
                 Event::GuildScheduledEventCreate,

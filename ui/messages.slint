@@ -1264,14 +1264,12 @@ export component ThreadChip inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
-// Discord's tag after a bot's name: white on blurple.
+// Discord's tag after a bot's or app's name: white on blurple.
 export component BotTag inherits Rectangle {
-    /// The member list's mark for an application, which Discord words APP.
-    in property <bool> app: false;
     width: tag-text.preferred-width + 8px; height: 16px; border-radius: 4px;
     background: #5865f2;
-    accessible-role: text; accessible-label: root.app ? "App" : "Bot";
-    tag-text := Text { text: root.app ? "APP" : "BOT"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+    accessible-role: text; accessible-label: "App";
+    tag-text := Text { text: "APP"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
 }
 
 // A block of text: a heading or subtext at its size, or fenced code in its

@@ -40,7 +40,7 @@ fn a_member_below_gets_every_choice_in_discords_order() {
 fn nobody_acts_on_those_above_them_or_the_owner() {
     let app = staff();
     let personal = [
-        Profile, Mention, Message, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
+        Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
     ];
     assert_eq!(app.person_choices("3"), personal, "Cara, a Lead");
     assert_eq!(app.person_choices("99"), personal, "Owen, the owner");
@@ -49,7 +49,7 @@ fn nobody_acts_on_those_above_them_or_the_owner() {
     assert_eq!(
         app.person_choices("3"),
         [
-            Profile, Mention, Message, AddNote, AddFriend, Ignore, Block, CopyId
+            Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, CopyId
         ],
         "Leads may do nothing, to another Lead"
     );
@@ -319,19 +319,61 @@ fn mentioning_a_member_puts_their_name_in_the_draft() {
 }
 
 #[test]
-fn calling_a_friend_starts_the_dm_and_then_its_call() {
+fn calling_someone_starts_the_dm_and_then_its_call() {
     let mut app = staff();
     assert!(matches!(
         app.dispatch(Action::CallPerson("4".into())).as_slice(),
         [Effect::Backend(Command::StartDm { id, discord: true })] if id == "4"
     ));
     assert!(app.pending_call);
-    assert!(
-        app.dispatch(Action::CallPerson("3".into())).is_empty(),
-        "Cara isn't a friend"
-    );
     app.apply(Event::DmStarted(Err("no".into())));
     assert!(!app.pending_call, "nothing to call once it failed");
+    assert!(
+        matches!(
+            app.dispatch(Action::CallPerson("3".into())).as_slice(),
+            [Effect::Backend(Command::StartDm { id, discord: true })] if id == "3"
+        ),
+        "Cara isn't a friend, and can be called all the same"
+    );
+    app.apply(Event::DmStarted(Err("no".into())));
+    assert!(
+        app.dispatch(Action::CallPerson("1".into())).is_empty(),
+        "not oneself"
+    );
+    app.state.discord_blocked.push(chat::Blocked {
+        id: "3".into(),
+        name: "Cara".into(),
+        username: None,
+        avatar: None,
+    });
+    assert!(
+        app.dispatch(Action::CallPerson("3".into())).is_empty(),
+        "not someone blocked"
+    );
+}
+
+#[test]
+fn a_call_from_a_menu_asks_first_unless_told_not_to() {
+    let mut app = staff();
+    let ask = || Action::AskPerson {
+        user: "4".into(),
+        ask: PersonAsk::Call,
+    };
+    assert!(app.dispatch(ask()).is_empty(), "nothing goes yet");
+    assert!(!app.pending_call);
+    assert!(app.state.person_dialog.is_some());
+    assert!(matches!(
+        app.dispatch(Action::AnswerPerson(String::new())).as_slice(),
+        [Effect::Backend(Command::StartDm { id, discord: true })] if id == "4"
+    ));
+    assert!(app.state.person_dialog.is_none());
+    app.apply(Event::DmStarted(Err("no".into())));
+    app.dispatch(Action::SkipCallPrompt(true));
+    assert!(matches!(
+        app.dispatch(ask()).as_slice(),
+        [Effect::Backend(Command::StartDm { id, discord: true })] if id == "4"
+    ));
+    assert!(app.state.person_dialog.is_none());
 }
 
 fn names(servers: Vec<&ChatServer>) -> Vec<&str> {
@@ -379,6 +421,7 @@ fn invite_to_server_lists_where_one_may_invite_but_the_server_theyre_shown_in() 
     // Discord refuses friend requests to bots, so none is offered or sent.
     assert_eq!(app.state.relation("8"), Relation::Bot);
     assert!(!app.person_choices("8").contains(&AddFriend));
+    assert!(!app.person_choices("8").contains(&Call), "nor a call");
     assert!(app.dispatch(Action::Befriend("8".into())).is_empty());
     assert!(!app.person_choices("1").contains(&InviteToServer));
     // Away from the server, its own members may be invited to it too.

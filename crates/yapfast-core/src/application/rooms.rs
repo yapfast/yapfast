@@ -799,6 +799,7 @@ impl Application {
                 .any(|room| room.id == id && self.state.in_scope(room));
         let mut effects = if changes { self.close_aside() } else { vec![] };
         effects.extend(self.show_room(id, chat));
+        effects.extend(self.ask_activity());
         effects
     }
 

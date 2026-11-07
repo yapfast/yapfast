@@ -289,6 +289,8 @@ impl Adapter {
         window.set_can_go_forward(self.app.state.can_go_forward());
         if window.get_inbox_open() {
             self.show_inbox(window);
+        } else {
+            update_model(&self.models.inbox, Vec::new());
         }
         let changes = Changes::read(self, window);
         if changes.reset || self.navigation != self.app.state.navigation {
@@ -1091,60 +1093,37 @@ impl Adapter {
         window.set_notice(state.notice.as_deref().unwrap_or_default().into());
     }
 
-    /// The inbox popout's rows, from what the client already knows: friend
-    /// requests for You, channels and conversations with unread messages, and
-    /// those that mention this account.
+    /// The rows of the inbox popout's open tab, from what the client already
+    /// knows: the channels and conversations with unread messages, muted ones
+    /// only for a mention, or those that mention this account.
     fn show_inbox(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let mut rows = Vec::new();
-        for request in state
-            .friend_requests
+        let mentions_only = window.get_inbox_tab() == 1;
+        let servers: HashMap<&str, &str> = state
+            .servers
             .iter()
-            .filter(|request| request.incoming && !request.spam)
-        {
-            rows.push(InboxRow {
-                id: request.id.as_str().into(),
-                name: request.name.as_str().into(),
-                place: yapfast_core::i18n::tr("inbox_friend_request").into(),
-                initial: initial(&request.name),
-                tint: tint(&request.id),
-                picture_url: request.avatar.as_deref().unwrap_or_default().into(),
-                count: 0,
-                kind: 2,
-                direct: true,
-            });
-        }
-        for room in state
+            .flat_map(|server| {
+                let name = server.name.as_str();
+                server.channels.iter().map(move |id| (id.as_str(), name))
+            })
+            .collect();
+        let rows = state
             .rooms
             .iter()
             .filter(|room| !room.request && !room.unlisted)
-        {
-            let (count, kind) = if room.mentions > 0 {
-                (room.mentions, 0)
-            } else if room.unread > 0 && !room.muted {
-                (room.unread, 1)
-            } else {
-                continue;
-            };
-            let place = if room.direct {
-                String::new()
-            } else {
-                state
-                    .servers
-                    .iter()
-                    .find(|server| server.channels.contains(&room.id))
-                    .map(|server| server.name.clone())
-                    .unwrap_or_default()
-            };
-            rows.push(InboxRow {
+            .filter(|room| room.mentions > 0 || (!mentions_only && room.unread > 0 && !room.muted))
+            .map(|room| InboxRow {
                 id: room.id.as_str().into(),
                 name: if room.direct {
-                    room.name.clone()
+                    room.name.as_str().into()
                 } else {
-                    format!("#{}", room.name)
-                }
-                .into(),
-                place: place.into(),
+                    format!("#{}", room.name).into()
+                },
+                place: servers
+                    .get(room.id.as_str())
+                    .copied()
+                    .unwrap_or_default()
+                    .into(),
                 initial: initial(&room.name),
                 tint: tint(&room.id),
                 picture_url: if room.direct {
@@ -1152,14 +1131,9 @@ impl Adapter {
                 } else {
                     SharedString::default()
                 },
-                count: i32::try_from(count).unwrap_or(i32::MAX),
-                kind,
-                direct: room.direct,
-            });
-        }
-        window.set_inbox_has_for_you(rows.iter().any(|row| row.kind == 2));
-        window.set_inbox_has_unreads(rows.iter().any(|row| row.kind == 1));
-        window.set_inbox_has_mentions(rows.iter().any(|row| row.kind == 0));
+                mentions: i32::try_from(room.mentions).unwrap_or(i32::MAX),
+            })
+            .collect();
         update_model(&self.models.inbox, rows);
     }
 
@@ -1539,28 +1513,29 @@ impl Adapter {
                     Some(server) if first => (
                         "server",
                         server.name.clone(),
-                        yapfast_core::i18n::tr("intro_server_start").to_owned(),
+                        "This is the beginning of this server.".to_owned(),
                     ),
                     _ => (
                         "channel",
-                        yapfast_core::i18n::tr("intro_welcome_channel").replace("{name}", name),
-                        yapfast_core::i18n::tr("intro_channel_start").replace("{name}", name),
+                        format!("Welcome to #{name}!"),
+                        format!("This is the start of the #{name} channel."),
                     ),
                 }
             }
             _ => ("", String::new(), String::new()),
         };
         window.set_intro_kind(intro.into());
-        window.set_intro_welcome(yapfast_core::i18n::tr("intro_welcome_server").into());
+        window.set_intro_welcome("Welcome to".into());
         window.set_intro_title(intro_title.into());
         window.set_intro_text(intro_text.into());
+        // Discord's words: `Message @sam` in a DM, `Message #general` in a
+        // channel, and a group's or thread's own name as it is.
         window.set_composer_placeholder(room.map_or(SharedString::default(), |room| {
-            yapfast_core::i18n::composer_hint(
-                &room.name,
-                room.direct,
-                room.person.is_some(),
-                room.parent.is_none(),
-            )
+            match (room.direct, room.person.is_some(), room.parent.is_none()) {
+                (true, true, _) => format!("Message @{}", room.name),
+                (false, _, true) => format!("Message #{}", room.name),
+                _ => format!("Message {}", room.name),
+            }
             .into()
         }));
         window.set_request_title(
@@ -1788,9 +1763,17 @@ impl Adapter {
             Some(Ok(members)) => members.as_slice(),
             _ => &[],
         };
-        let (activity_rows, activity_total) = activity_panel(members, now);
-        update_model(&self.models.roster_activity, activity_rows);
-        window.set_roster_activity_total(activity_total);
+        // Discord shows the panel in a server's channels, but not its forums.
+        let in_channel = state
+            .selected_room()
+            .filter(|room| !room.direct && !room.forum);
+        update_model(
+            &self.models.roster_activity,
+            match in_channel {
+                Some(room) => activity_panel(state, &room.id, members, now),
+                None => Vec::new(),
+            },
+        );
         let owner = state
             .selected
             .as_deref()
@@ -2673,6 +2656,13 @@ impl Adapter {
                 "Save",
                 false,
             ),
+            PersonAsk::Call => (
+                "Ready to start a call?".into(),
+                "Enjoy this moment. Then jump in when you're ready.".into(),
+                "",
+                "Start Call",
+                false,
+            ),
             PersonAsk::Nickname => (
                 format!("Nickname for {name}"),
                 "Only you see the nickname you give a friend. Leave it empty to remove it.".into(),
@@ -2770,6 +2760,11 @@ impl Adapter {
             options,
             chosen: i32::try_from(dialog.choice).unwrap_or_default(),
             field: field.into(),
+            tick: if dialog.ask == PersonAsk::Call {
+                "Don't ask again".into()
+            } else {
+                SharedString::default()
+            },
             confirm: confirm.into(),
             danger,
             loading: dialog.text.is_none(),

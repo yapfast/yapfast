@@ -65,7 +65,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   hides or shows. A Discord text channel
   lists whoever can read it, grouped as in Discord: under hoisted roles, then
   ONLINE and OFFLINE, with counts, avatars, status dots, role colours,
-  custom statuses, and a red clock beside someone timed out. Yapfast subscribes to the list's
+  custom statuses, and a red clock beside someone timed out. An app has an APP
+  tag after its name and the server's owner a crown, in that order, as in
+  Discord. Above a server channel's list, an Activity panel shows Discord's
+  feed of what people there are doing and did lately; see
+  [the Activity panel](discord/people.md#the-activity-panel). Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
 - Read live text messages. Earlier history loads once the timeline has
   stayed within a screen of its top for 50 ms, a page at a time (30 events
@@ -356,7 +360,16 @@ On Linux desktops that give their windows title bars, Yapfast draws its own
 in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 `ui/title_bar.slint`): a 32px bar on the rail's ground across the top, with
 the server's name, "Direct messages" or "Yapfast" in the middle and
-minimize, maximize or restore, and close at the right. Pressing on it and
+minimize, maximize or restore, and close at the right. Signed in, it also has
+back and forward arrows at the left, which walk the conversations visited as
+Alt+Left and Alt+Right do, up to 50 of them and past any that are gone, and
+Inbox and Help before the window's buttons. Help opens Discord's support site.
+Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
+conversations with unread messages, muted ones only for a mention, and
+Mentions, those that mention this account, each with its count; Discord's own
+Mentions tab lists the messages themselves. A row opens its conversation, and
+clicking outside or Escape closes it. Its rows exist only while it shows.
+Pressing on it and
 moving moves the window, a double click maximizes it, and close does what
 the desktop's close button did. Without the desktop's frame, the window's
 outer 5px resize it, its 8px corners both ways, except while maximized. The

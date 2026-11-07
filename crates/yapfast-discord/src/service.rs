@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::{
-    activity,
+    activity, activity_feed,
     api::{self, Api, PAGE, Span},
     cache, forum, gift, guild, invite, limits,
     marked::MarkedServer,
@@ -386,6 +386,10 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    /// The Activity panel's feed has something new, to fetch after this long.
+    ActivityFeedStale {
+        refresh_after_ms: Option<u64>,
+    },
     Created(Message),
     /// A new message that should notify this account, by its notification settings,
     /// in a server or, with none, a DM.
@@ -671,6 +675,15 @@ impl ChannelSettings {
 }
 
 /// A handle to the connection. It ends when every handle is dropped.
+/// Where the Activity panel's feed last left off.
+#[derive(Default)]
+struct FeedPlace {
+    /// What the next request sends.
+    token: Option<String>,
+    /// How long after Discord says it's stale to ask again.
+    stale_after_ms: Option<u64>,
+}
+
 #[derive(Clone)]
 pub struct Discord {
     requests: mpsc::UnboundedSender<Request>,
@@ -680,6 +693,8 @@ pub struct Discord {
     names: Arc<RwLock<Names>>,
     /// Profiles fetched lately, oldest first.
     profiles: Arc<Mutex<Vec<Kept>>>,
+    /// Where the Activity panel's feed last left off.
+    feed_place: Arc<Mutex<FeedPlace>>,
     /// This account's notes it has read, by user: none is an empty text. The
     /// session keeps them current; see [`session::Shared::notes`].
     notes: Notes,
@@ -809,6 +824,7 @@ impl Discord {
             api,
             names,
             profiles: Arc::default(),
+            feed_place: Arc::default(),
             notes,
             effects: Arc::default(),
             listed_threads: Arc::default(),
@@ -1900,6 +1916,12 @@ impl Discord {
         Ok(Some(effect))
     }
 
+    fn lock_feed_place(&self) -> std::sync::MutexGuard<'_, FeedPlace> {
+        self.feed_place
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn lock_profiles(&self) -> std::sync::MutexGuard<'_, Vec<Kept>> {
         self.profiles
             .lock()
@@ -2736,6 +2758,84 @@ impl Discord {
                     forum::Starter::of(message)
                 });
                 (post.to_owned(), starter)
+            })
+            .collect()
+    }
+
+    /// The Activity panel's feed, asked from where the last answer left off.
+    pub async fn activity_feed(&self) -> Result<activity_feed::Feed> {
+        let token = self.lock_feed_place().token.clone();
+        let value = self.api.activity_feed(token.as_deref()).await?;
+        let feed = activity_feed::parse(&value);
+        *self.lock_feed_place() = FeedPlace {
+            token: feed.refresh_token.clone(),
+            stale_after_ms: feed.stale_after_ms,
+        };
+        Ok(feed)
+    }
+
+    /// How long to wait before asking again once Discord says the feed went
+    /// stale: as it says then, else as the feed said.
+    pub fn activity_feed_stale_wait(&self, refresh_after_ms: Option<u64>) -> Duration {
+        Duration::from_millis(
+            refresh_after_ms
+                .or(self.lock_feed_place().stale_after_ms)
+                .unwrap_or(0),
+        )
+    }
+
+    /// Who of `users` a channel's Activity panel may show, with the name and
+    /// picture it shows them by: those in its server who can see it, as
+    /// Discord's client filters its feed. None for a server that doesn't
+    /// show the panel.
+    pub async fn activity_people(
+        &self,
+        guild: &str,
+        channel: &str,
+        users: &[Arc<str>],
+    ) -> Vec<activity_feed::Person> {
+        let shown = {
+            let snapshot = self.snapshots.borrow();
+            snapshot
+                .servers
+                .iter()
+                .find(|server| server.id == guild)
+                .is_some_and(|server| {
+                    activity_feed::shown_in(server.activity_feed, server.member_count)
+                })
+        };
+        if !shown {
+            return Vec::new();
+        }
+        self.ask_members(guild, users.iter().map(|user| &**user))
+            .await;
+        let snapshot = self.snapshots.borrow().clone();
+        let Some(server) = snapshot.servers.iter().find(|server| server.id == guild) else {
+            return Vec::new();
+        };
+        let Some(open) = server
+            .text_channels
+            .iter()
+            .chain(&server.voice_channels)
+            .find(|found| found.id == channel)
+        else {
+            return Vec::new();
+        };
+        let names = self.read_names();
+        users
+            .iter()
+            .filter(|user| names.knows_member(guild, user))
+            .filter(|user| {
+                server.channel_permissions(open, user, names.roles(guild, user))
+                    & ready::permission::VIEW_CHANNEL
+                    != 0
+            })
+            .filter_map(|user| {
+                Some(activity_feed::Person {
+                    id: user.clone(),
+                    name: names.name(guild, user)?.into(),
+                    avatar: names.avatar(Some(guild), user).into(),
+                })
             })
             .collect()
     }

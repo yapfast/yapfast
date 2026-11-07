@@ -627,6 +627,17 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// The feed behind the member list's Activity panel, from where
+    /// `refresh_token` left off; see [`crate::activity_feed`].
+    pub async fn activity_feed(&self, refresh_token: Option<&str>) -> Result<Value> {
+        let mut path =
+            "/content-inventory/users/@me?for_game_profile=false&feature=inbox".to_owned();
+        if let Some(token) = refresh_token {
+            path.push_str(&format!("&refresh_token={}", encode(token)));
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// A user's levelling badges, with their levels and how far along they
     /// are: `{"badges": [...]}`. The tooltips of a profile's badges show it.
     pub async fn badges(&self, user: &str) -> Result<Value> {

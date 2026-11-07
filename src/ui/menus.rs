@@ -470,13 +470,15 @@ fn role_rows(adapter: &Adapter, user: &str) -> Vec<MenuRow> {
         .app
         .role_choices(place, user)
         .into_iter()
-        // Only the roles this account may give or take, as Discord's lists.
-        .filter(|choice| choice.grantable)
+        // As Discord's list: a role this account can't give or take shows
+        // only while the member holds it, and can't be changed.
+        .filter(|choice| choice.grantable || choice.held)
         .map(|choice| MenuRow {
             id: format!("{ROLE}{}", choice.role.id).into(),
             text: choice.role.name.into(),
             checkbox: true,
             checked: choice.held,
+            disabled: !choice.grantable,
             ..Default::default()
         })
         .collect()
@@ -934,7 +936,7 @@ pub(super) fn choose(
         MenuChoice::MarkRead => Some(Action::MarkRead(target)),
         MenuChoice::JoinVoice => Some(Action::RequestJoinVoice(target)),
         MenuChoice::OpenChat => Some(Action::OpenChat(target)),
-        MenuChoice::Call if person => Some(Action::CallPerson(target.clone())),
+        MenuChoice::Call if person => ask(PersonAsk::Call),
         MenuChoice::Call => room.map(Action::RequestJoinVoice),
         // Discord's Profile opens the full modal, not the popout.
         MenuChoice::Profile if person => Some(Action::ShowProfile {

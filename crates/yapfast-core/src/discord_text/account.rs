@@ -168,6 +168,31 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ActivityFeed) = command {
+        match discord {
+            Ok(discord) => {
+                tokio::spawn(activity_feed(discord.clone(), events.clone()));
+            }
+            Err(_) => {
+                let _ = events.send(Event::ActivityFeed(Arc::default()));
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ActivityPeople { room, users }) = command {
+        if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(&room)) {
+            let (discord, events) = (discord.clone(), events.clone());
+            let (guild, channel) = (guild.to_owned(), channel.to_owned());
+            tokio::spawn(async move {
+                let people = discord.activity_people(&guild, &channel, &users).await;
+                let _ = events.send(Event::ActivityPeople {
+                    room,
+                    people: people.into(),
+                });
+            });
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::Profile { room, user }) = command {
         match (discord, discord::parse_room(&room)) {
             (Ok(discord), Some((guild, _))) => {
@@ -1878,3 +1903,34 @@ fn oauth_preview(
             .collect(),
     }
 }
+
+/// Fetches the Activity panel's feed, retrying as Discord's client does, and
+/// says when to ask again if the feed doesn't leave that to Discord.
+async fn activity_feed(discord: Discord, events: UnboundedSender<Event>) {
+    let mut retries = [1, 2, 4, 8].into_iter();
+    let feed = loop {
+        match discord.activity_feed().await {
+            Ok(feed) => break feed,
+            Err(error) => {
+                tracing::warn!(%error, "could not fetch the Discord activity feed");
+                let Some(minutes) = retries.next() else {
+                    let _ = events.send(Event::ActivityFeed(Arc::default()));
+                    return;
+                };
+                tokio::time::sleep(Duration::from_secs(minutes * 60)).await;
+            }
+        }
+    };
+    drop(discord);
+    let _ = events.send(Event::ActivityFeed(feed.entries));
+    if feed.stale_after_ms.is_none() {
+        let wait = feed.wait_ms.unwrap_or(FEED_WAIT_MS).max(FEED_LEAST_WAIT_MS);
+        tokio::time::sleep(Duration::from_millis(wait)).await;
+        let _ = events.send(Event::ActivityFeedDue);
+    }
+}
+
+/// How long until asking again when Discord doesn't say, in milliseconds.
+const FEED_WAIT_MS: u64 = 5 * 60 * 1000;
+/// The least wait however Discord answers, in milliseconds.
+const FEED_LEAST_WAIT_MS: u64 = 60 * 1000;

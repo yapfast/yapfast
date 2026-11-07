@@ -573,6 +573,11 @@ impl Session<'_> {
                     );
                 }
             }
+            Event::ContentInventoryInboxStale => {
+                let _ = self.shared.live.send(Live::ActivityFeedStale {
+                    refresh_after_ms: data["refresh_after_ms"].as_u64(),
+                });
+            }
             Event::PresenceUpdate => self.shared.lists.presence(&self.tracker, data),
             Event::GuildMemberListUpdate => {
                 if self.shared.lists.update(&self.tracker, data) {

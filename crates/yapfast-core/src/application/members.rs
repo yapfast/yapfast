@@ -265,10 +265,13 @@ impl Application {
     }
 
     /// Whether a member's call can start from their menu: their DM's, or a
-    /// new DM's with a friend.
+    /// new DM's. Discord's menu doesn't offer an app a call.
     #[cfg(feature = "discord")]
     fn can_call(&self, user: &str) -> bool {
         let state = &self.state;
+        if state.relation(user) == Relation::Bot {
+            return false;
+        }
         match state.dm_with(user) {
             Some(dm) => {
                 state.can_join_voice(&dm.id)
@@ -279,11 +282,13 @@ impl Application {
     }
 
     /// Whether a call with someone can start a DM first: Discord's member
-    /// menu offers Call for anyone but oneself, not only friends.
+    /// menu offers Call for anyone but oneself, an app or someone blocked,
+    /// not only friends.
     fn may_start_dm_call(&self, user: &str) -> bool {
         let state = &self.state;
         !user.starts_with('@')
-            && state.relation(user) != Relation::Me
+            && !matches!(state.relation(user), Relation::Me | Relation::Bot)
+            && !state.is_blocked(user)
             && state.discord_online
             && !state.busy
     }
@@ -407,8 +412,8 @@ impl Application {
         self.dispatch(Action::SetDraft(draft))
     }
 
-    /// Opens the DM with someone and starts its call, or starts a DM with a
-    /// friend first, whose call starts once it opens.
+    /// Opens the DM with someone and starts its call, or starts a DM with
+    /// them first, whose call starts once it opens.
     pub(super) fn call_person(&mut self, user: String) -> Vec<Effect> {
         if let Some(dm) = self.state.dm_with(&user) {
             let dm = dm.id.clone();

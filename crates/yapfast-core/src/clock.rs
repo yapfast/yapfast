@@ -49,8 +49,7 @@ pub fn set_date_format(format: Option<DateFormat>) {
 
 fn format_for(twelve_hour: bool) -> DateFormat {
     match FORMAT.load(Ordering::Relaxed) {
-        // Discord's German client writes the day first on any clock.
-        AUTO_FORMAT if twelve_hour && language() != Language::German => DateFormat::MonthDayYear,
+        AUTO_FORMAT if twelve_hour => DateFormat::MonthDayYear,
         AUTO_FORMAT => DateFormat::DayMonthYear,
         chosen => DateFormat::ALL[usize::from(chosen - 1).min(2)],
     }

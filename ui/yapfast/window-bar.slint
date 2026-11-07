@@ -51,7 +51,8 @@ component BarButton inherits Rectangle {
         }
         pointer := TouchArea {
             enabled: root.enabled; mouse-cursor: MouseCursor.pointer;
-            clicked => { root.clicked(); }
+            // What the click opens may open under the tip.
+            clicked => { Tip.text = ""; root.clicked(); }
             changed has-hover => {
                 if self.has-hover {
                     Tip.text = root.label;
@@ -70,18 +71,12 @@ export component WindowBar inherits Rectangle {
     in property <bool> can-go-back;
     in property <bool> can-go-forward;
     in property <bool> inbox-open;
-    in property <string> back-label: "Back";
-    in property <string> forward-label: "Forward";
-    in property <string> inbox-label: "Inbox";
-    in property <string> help-label: "Help";
-    in property <string> download-label: "Download Apps";
     callback go-back;
     callback go-forward;
     callback toggle-inbox;
     callback open-help;
-    callback open-download;
-    /// Where the Inbox button is, for the popout under it.
-    out property <length> inbox-x: inbox-button.absolute-position.x + inbox-button.width;
+    /// The account's screens show; the inbox and help are for them.
+    in property <bool> workspace;
     in property <string> place;
     in property <bool> focused;
     in property <bool> maximized;
@@ -117,17 +112,16 @@ export component WindowBar inherits Rectangle {
     }
     HorizontalLayout {
         alignment: start; padding-left: 8px; spacing: 4px;
-        Middle { BarButton { icon: @image-url("../icons/arrow-left.svg"); label: root.back-label; enabled: root.can-go-back; clicked => { root.go-back(); } } }
-        Middle { BarButton { icon: @image-url("../icons/arrow-right.svg"); label: root.forward-label; enabled: root.can-go-forward; clicked => { root.go-forward(); } } }
+        Middle { BarButton { icon: @image-url("../icons/arrow-left.svg"); label: "Back"; enabled: root.can-go-back; clicked => { root.go-back(); } } }
+        Middle { BarButton { icon: @image-url("../icons/arrow-right.svg"); label: "Forward"; enabled: root.can-go-forward; clicked => { root.go-forward(); } } }
     }
     HorizontalLayout {
         alignment: end; spacing: 0px;
-        Middle {
+        if root.workspace: Middle {
             HorizontalLayout {
                 spacing: 4px; padding-right: 12px;
-                inbox-button := BarButton { icon: @image-url("../icons/inbox.svg"); label: root.inbox-label; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
-                BarButton { icon: @image-url("../icons/help-circle.svg"); label: root.help-label; clicked => { root.open-help(); } }
-                BarButton { icon: @image-url("../icons/download.svg"); label: root.download-label; clicked => { root.open-download(); } }
+                BarButton { icon: @image-url("../icons/inbox.svg"); label: "Inbox"; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
+                BarButton { icon: @image-url("../icons/help-circle.svg"); label: "Help"; clicked => { root.open-help(); } }
             }
         }
         CaptionButton { icon: @image-url("../icons/minus.svg"); label: "Minimize"; clicked => { root.minimize-window(); } }
