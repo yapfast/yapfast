@@ -231,8 +231,8 @@ and the compile-fail tests for it.
   `perl -pi -e 's/\r\n/\n/'` run over them; a one-off normalising commit would
   end the churn.
 
-- `ASTRA.md` is untracked. It is the review this work answers; commit it or keep
-  it out of the tree deliberately.
+- `ASTRA.md` is committed alongside this file: it is the review this work
+  answers, and the two read as a pair.
 
 - Optional follow-ups from ASTRA (O01–O09) were never started: a scaler/readback
   component separate from an NVENC session (O01), the receive-path allocation
