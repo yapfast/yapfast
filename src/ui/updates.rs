@@ -361,7 +361,10 @@ impl Adapter {
                 call: false,
                 mention: false,
             },
-            crate::notify::Style { text: true },
+            crate::notify::Style {
+                text: true,
+                split: false,
+            },
         );
     }
 }
