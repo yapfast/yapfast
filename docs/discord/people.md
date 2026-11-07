@@ -379,12 +379,13 @@ Both pictures are served by `https://cdn.discordapp.com/media/v1/collectibles-sh
 a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The
 client asks for `/animated`, an APNG, or `/video`, a WebM, and Yapfast
 asks for `/animated` (Discord's own client does on Linux and Safari). A
-decoration plays on the profile card, on a message while the pointer is on the
-message that starts its group, and in the member list, a DM's row and the
+decoration plays on a message while the pointer is on the message that starts
+its group, and on the profile card, in the member list, a DM's row and the
 account card while the pointer is on them. Discord's client plays a chat
-decoration while the pointer is on any message of the group. A nameplate plays
-while its row is pointed at or selected, and the account card's while the card
-is. Everything holds still when Yapfast's window isn't focused
+decoration while the pointer is on any message of the group, and a card's
+whenever it's open. A nameplate plays while its row is pointed at, and the
+account card's while the card is; a selected row's holds still, as playing
+costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
 (`Motion.playing`), and a surface that stops being pointed at goes back to the
 still picture. The animated picture is fetched the first time it's to play,
 and decodes the frame showing: `Picture`'s frames come from the kept file one
@@ -408,14 +409,25 @@ expires_at}`, in `user_profile` (or `guild_member_profile`, which wins in its
 server). The effect itself is the shop's: Yapfast asks for it once the card
 shows, `GET /collectibles-products/{sku}` with the account's own login, as
 Discord's client does, and takes the first item with `effects`: its
-`animationType` (1 persistent, 2 intermittent), `staticFrameSrc`,
-`accessibilityLabel` and `effects`, each layer with `src`, `loop`, `start`,
+`staticFrameSrc` (else `reducedMotionSrc`, else `thumbnailPreviewSrc`) and
+`effects`, each layer with `src`, `randomizedSources` (one of which plays in
+each layer in place of `src`, the same one in all), `loop`, `start`,
 `duration` and `loopDelay` in milliseconds, `position` and `zIndex` (the
-fields are camelCase, as the client reads them). The layers are APNGs on the
-CDN, drawn 450 by 880 pixels and scaled to the card; they decode at that size
-(`EFFECT_SIZE`), and stay in the picture cache while their card shows. The
-backend keeps the last eight effects (`Event::ProfileEffect`); each card's
-profile points to one by SKU.
+fields are camelCase, as the client reads them).
+
+Discord's client plays an effect over the card for as long as its window has
+the focus. Yapfast shows the still picture, and plays the layers only while
+the pointer is on the card, starting them over each time, as a card's
+decoration does: playing costs a fifth of a core on the software renderer. An
+effect with no layer that loops stops at the end of its last layer and shows
+the still picture again.
+
+The layers are APNGs on the CDN, 450 by 880 pixels, scaled to the card; each
+picture decodes at no more than `EFFECT_SIZE`, and a layer's is asked for when
+it first plays. An effect's pictures are the size of the card, so they go as
+soon as its card closes (`let_go_of_effect_pictures`) rather than waiting for
+the trim. The backend keeps the last eight effects (`Event::ProfileEffect`);
+each card's profile points to one by SKU.
 
 ## Display name styles
 
@@ -424,7 +436,11 @@ on a user object or a member object (which wins in its server, as the
 decorations do): a font, an effect and up to five colours. Yapfast draws it
 where Discord's client does: a message's author, a member list's rows, a
 one-to-one DM's row and the profile card's name (`StyledName` in
-`ui/controls.slint`; `src/ui/name_style.rs` makes the colours).
+`ui/controls.slint`). `src/ui/name_style.rs` makes the colours, as the client's
+`lZ` does: lighter against a dark theme's background and darker against a light
+one's, until they read, and against #333 for toon on either. Each style's two
+palettes are made once, and the rows wearing it share them; a row without a
+style holds an empty list.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, 8Bit 8, Tempo 12, Monkey Bars 13, Mainframe 14, Headbang 15 and
@@ -439,7 +455,9 @@ one-to-one DM's row and the profile card's name (`StyledName` in
   pop 5 (white letters edged in the darkest shade over a copy in the colour
   a little lower), glow 6 (a gradient, as Discord's client falls back to),
   prism 7 (the colours once round, back to the first) and gummy 8 (the
-  letters in the colours in turn, spaces not counted).
+  letters in the colours in turn, spaces not counted; a name too long for
+  its place is elided in the first colour). An effect this client doesn't know
+  is drawn solid.
 - **Colours** are made to read against the dark ground as the client does:
   lightened five percent of HSL lightness at a time, at most ten times,
   until they have a contrast of 3 with `#121214` (2.5 for gradient, glow and

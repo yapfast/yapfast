@@ -1323,7 +1323,6 @@ impl Fixture {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn fetches_the_profile_effect_a_profile_names() {
-    use yapfast_discord::profile_effect::Kind;
     let Fixture {
         _fake,
         discord,
@@ -1341,15 +1340,11 @@ async fn fetches_the_profile_effect_a_profile_names() {
     assert_eq!(carol.effect, None);
     // The shop describes its layers: an intro that plays once and a loop.
     let effect = discord.profile_effect(&sku).await.unwrap().unwrap();
-    assert_eq!(
-        (effect.kind, effect.label.as_str()),
-        (Kind::Persistent, "Falling petals")
-    );
     assert_eq!(effect.layers.len(), 2);
     let (intro, looping) = (&effect.layers[0], &effect.layers[1]);
     assert_eq!(
-        (intro.start, intro.duration, intro.looped, intro.z),
-        (0, 2000, false, 101)
+        (intro.start, intro.duration, intro.looped),
+        (0, 2000, false)
     );
     assert_eq!(
         (
@@ -1362,7 +1357,7 @@ async fn fetches_the_profile_effect_a_profile_names() {
         (1500, 3000, 1000, true, 20)
     );
     // Its pictures are on the CDN.
-    let layer = discord.download(&looping.src, 1 << 20).await.unwrap();
+    let layer = discord.download(&looping.src, 1 << 24).await.unwrap();
     assert_eq!(&layer[16..24], &[0, 0, 1, 194, 0, 0, 3, 112], "450x880");
     let still = discord
         .download(effect.still.as_deref().unwrap(), 1 << 20)

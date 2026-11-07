@@ -45,7 +45,7 @@ export struct RoomRow {
     /// The address of the decoration around a one-to-one DM's avatar, its
     /// person's nameplate's picture with its palette's colours on a dark theme
     /// and a light one, and how their name is drawn.
-    decoration-url: string, nameplate-url: string, nameplate-color: color, nameplate-light: color, name-style: NameStyleRow,
+    decoration-url: string, nameplate-url: string, nameplate-color: color, nameplate-light: color, name-style: [NameStyleRow],
     /// Listed but not open to join, such as a Discord channel the account's roles keep it out of.
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
@@ -394,7 +394,7 @@ export component ChannelRow inherits Rectangle {
     in property <image> picture;
     in property <string> picture-url;
     in property <string> decoration-url;
-    in property <NameStyleRow> name-style;
+    in property <[NameStyleRow]> name-style;
     /// As RoomRow has them.
     in property <string> nameplate-url;
     in property <color> nameplate-color;
@@ -477,7 +477,7 @@ export component ChannelRow inherits Rectangle {
         width: root.width - root.border-width * 2; height: root.height - root.border-width * 2;
         radius: root.border-radius - root.border-width; channel: true;
         picture-url: root.nameplate-url; palette: Theme.dark ? root.nameplate-color : root.nameplate-light;
-        hovered: pointer.has-hover; selected: root.selected; animate: pointer.has-hover || root.selected;
+        hovered: pointer.has-hover; selected: root.selected; animate: pointer.has-hover;
         ground: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
         content-width: text-column.x + min(text-column.preferred-width, text-column.width);
     }
@@ -551,12 +551,12 @@ export component ChannelRow inherits Rectangle {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
                         alignment: start; spacing: 4px;
-                        if root.name-style.effect == 0: Text {
+                        if root.name-style.length == 0: Text {
                             text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
                         }
-                        if root.name-style.effect > 0: StyledName {
-                            text: root.text; style: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
+                        if root.name-style.length > 0: StyledName {
+                            text: root.text; styles: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                         }
                         if root.tag != "": Middle { ServerTagChip { text: root.tag; badge: root.tag-badge; } }
                         if root.official: Middle {

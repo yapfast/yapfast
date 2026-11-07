@@ -2043,6 +2043,8 @@ pub struct Application {
     reaction_uses: HashMap<String, u32>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
+    /// The profile effects' pictures in `AppState::pictures`.
+    effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
     /// The selected room's timeline with the blocked messages
@@ -2351,7 +2353,7 @@ fn pictures_on_screen<'a>(
                 .profile
                 .iter()
                 .chain(&state.panel_profile)
-                .flat_map(|view| {
+                .flat_map(move |view| {
                     let profile = &view.profile;
                     let effect = profile.effect.as_deref().and_then(|sku| {
                         state
@@ -2372,7 +2374,16 @@ fn pictures_on_screen<'a>(
                         .chain(profile.decoration.as_deref())
                         .chain(tag_badge(&profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
-                        .chain(effect.into_iter().flat_map(|effect| effect.pictures()))
+                        // Its layers are asked for when it first plays.
+                        .chain(effect.into_iter().flat_map(move |effect| {
+                            effect.still.as_deref().into_iter().chain(
+                                effect
+                                    .layers
+                                    .iter()
+                                    .filter(move |_| list_avatars)
+                                    .map(|layer| layer.src.as_str()),
+                            )
+                        }))
                         .chain(profile.badges.iter().flat_map(|badge| {
                             std::iter::once(badge.icon.as_str())
                                 .chain(badge.level.iter().map(|level| level.picture.as_str()))
@@ -2523,10 +2534,45 @@ impl Application {
         effects
     }
 
+    /// Lets a profile effect's pictures go with its card, rather than with
+    /// the next trim: each is the size of the card, as much as a few hundred
+    /// avatars.
+    fn let_go_of_effect_pictures(&mut self) {
+        if self.effect_pictures.is_empty() {
+            return;
+        }
+        let state = &self.state;
+        let shown: Vec<&str> = state
+            .profile
+            .iter()
+            .chain(&state.panel_profile)
+            .filter_map(|view| view.profile.effect.as_deref())
+            .filter_map(|sku| {
+                state
+                    .profile_effects
+                    .iter()
+                    .find(|effect| effect.sku == sku)
+            })
+            .flat_map(|effect| effect.pictures())
+            .collect();
+        let (kept, gone): (Vec<String>, Vec<String>) = std::mem::take(&mut self.effect_pictures)
+            .into_iter()
+            .partition(|url| shown.contains(&url.as_str()));
+        self.effect_pictures = kept;
+        for url in &gone {
+            self.state.pictures.remove(url);
+            self.requested_pictures.remove(url);
+        }
+        if !gone.is_empty() {
+            self.state.picture_changes += 1;
+        }
+    }
+
     /// Asks for the server icons and avatars on screen that weren't asked
     /// for before; see [`pictures_on_screen`]. The timeline, which can hold
     /// thousands of messages, is gone through only when it changed.
     fn request_pictures(&mut self) -> Option<Effect> {
+        self.let_go_of_effect_pictures();
         let state = &self.state;
         let timeline = if Arc::ptr_eq(&self.pictured_timeline, &state.messages) {
             &[][..]
@@ -2587,6 +2633,9 @@ impl Application {
     /// few servers would let thousands of avatars pile up.
     fn keep_picture(&mut self, url: String, picture: Arc<Picture>) {
         let emoji = is_custom_emoji(&url);
+        if url.ends_with(chat::EFFECT_PICTURE) {
+            self.effect_pictures.push(url.clone());
+        }
         if self.state.pictures.insert(url, picture).is_none() && emoji {
             self.emoji_pictures += 1;
         }

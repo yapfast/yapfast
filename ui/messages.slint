@@ -607,7 +607,7 @@ export struct MessageRow {
     /// The address of the decoration around the author's avatar.
     decoration-url: string,
     /// How the author's name is drawn.
-    name-style: NameStyleRow,
+    name-style: [NameStyleRow],
     /// Who wrote it, for their menu: a Discord user id or Matrix ID; empty
     /// for a blocked user.
     sender: string,
@@ -2126,21 +2126,24 @@ export component MessageContent inherits VerticalLayout {
                 // Discord's name line is 22px tall, a little over the text's.
                 padding-bottom: ClientStyle.enabled ? 2px : 0px;
                 Rectangle {
-                    min-width: author-name.min-width; preferred-width: ClientStyle.enabled ? author-plain.preferred-width : author-name.preferred-width;
+                    min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
                     // Discord's names are medium weight, a step under bold.
                     author-plain := Text {
-                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.effect == 0;
+                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
                         text: message.author; color: message.has-color ? message.color : Theme.text;
-                        font-size: root.message-font-size; font-weight: 500; vertical-alignment: center; overflow: elide;
+                        font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
+                        // A styled name measures in its own font.
+                        font-family: message.name-style[0].family;
+                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
                     }
                     author-name := StyledText {
-                        width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.effect == 0;
+                        width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
                         text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
                     }
-                    if message.name-style.effect > 0: StyledName {
+                    if message.name-style.length > 0: StyledName {
                         width: parent.width; height: parent.height;
-                        text: message.author; style: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
+                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
                     }
                     // Underlined while pointed at, as a link is.
                     if author-touch.has-hover: Rectangle {

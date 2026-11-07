@@ -666,6 +666,19 @@ pub struct NameStyle {
 }
 
 impl NameStyle {
+    /// A style with up to five of `colors`.
+    pub fn new(font: u8, effect: u8, colors: &[u32]) -> Self {
+        let len = colors.len().min(5);
+        let mut kept = [0; 5];
+        kept[..len].copy_from_slice(&colors[..len]);
+        Self {
+            font,
+            effect,
+            len: len as u8,
+            colors: kept,
+        }
+    }
+
     /// The RGB colours it asks for.
     pub fn colors(&self) -> &[u32] {
         &self.colors[..usize::from(self.len)]
@@ -675,15 +688,7 @@ impl NameStyle {
 #[cfg(feature = "discord")]
 impl From<yapfast_discord::collectibles::Style> for NameStyle {
     fn from(style: yapfast_discord::collectibles::Style) -> Self {
-        let mut colors = [0; 5];
-        let given = style.colors();
-        colors[..given.len()].copy_from_slice(given);
-        Self {
-            font: style.font,
-            effect: style.effect,
-            len: given.len() as u8,
-            colors,
-        }
+        Self::new(style.font, style.effect, style.colors())
     }
 }
 
@@ -717,10 +722,7 @@ pub struct EffectLayer {
 pub struct ProfileEffect {
     /// The SKU a profile names it by.
     pub sku: String,
-    /// It plays through once and holds `still`, rather than playing while
-    /// Discord's window has the focus.
-    pub persistent: bool,
-    /// The picture a persistent one holds when it has played through.
+    /// The picture that shows while it doesn't play.
     pub still: Option<String>,
     /// Its layers, the lowest first.
     pub layers: Vec<EffectLayer>,
@@ -746,7 +748,6 @@ impl From<&yapfast_discord::profile_effect::Effect> for ProfileEffect {
         let marked = |src: &str| format!("{src}{EFFECT_PICTURE}");
         Self {
             sku: effect.sku.clone(),
-            persistent: effect.kind != yapfast_discord::profile_effect::Kind::Intermittent,
             still: effect.still.as_deref().map(marked),
             layers: effect
                 .layers

@@ -284,7 +284,6 @@ pub(super) fn profile_data(
             .and_then(|effect| effect.still.as_deref())
             .unwrap_or_default()
             .into(),
-        effect_persistent: effect.is_some_and(|effect| effect.persistent),
         effect_end: effect.map_or(0, |effect| {
             effect
                 .layers
@@ -303,7 +302,7 @@ pub(super) fn profile_data(
         tint: tint(&profile.name),
         picture: avatar.clone(),
         decoration_url: profile.decoration.as_deref().unwrap_or_default().into(),
-        name_style: super::name_style::row(profile.style.as_deref().copied(), &profile.name),
+        name_style: super::name_style::row(profile.style.as_deref(), &profile.name),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
         tag: tag_text(&profile.tag),

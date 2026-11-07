@@ -74,10 +74,10 @@ const COLLECTIBLE_SIZE: (u32, u32) = (448, 160);
 /// The most a profile badge's icon is decoded at: twice the 20px it shows at.
 #[cfg(feature = "discord")]
 const BADGE_SIZE: u32 = 40;
-/// A profile effect's layers, which cover a card: Discord draws them 450 by
-/// 880 pixels, scaled to the card.
+/// The most a profile effect's picture is decoded at: Discord's are 450 by 880
+/// pixels, and cover a card of 340 pixels or so.
 #[cfg(feature = "discord")]
-const EFFECT_SIZE: (u32, u32) = (450, 900);
+const EFFECT_SIZE: (u32, u32) = (340, 680);
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]

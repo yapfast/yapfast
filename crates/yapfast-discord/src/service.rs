@@ -1871,23 +1871,12 @@ impl Discord {
         if let Some(kept) = lock().iter().find(|effect| effect.sku == sku) {
             return Ok(Some(kept.clone()));
         }
-        // The client's own list of effects names the layers; the shop's
-        // product is the fallback for one the list doesn't have.
         let asked = Instant::now();
-        let listed = match self.api.user_profile_effects().await {
-            Ok(configs) => profile_effect::find(sku, &configs),
-            Err(error) => {
-                tracing::warn!(%error, sku, "could not list the profile effects");
-                None
-            }
-        };
-        let found = match listed {
-            Some(effect) => Some(effect),
-            None => {
-                let product = self.api.collectibles_product(sku).await?;
-                profile_effect::parse(sku, &product)
-            }
-        };
+        let product = self.api.collectibles_product(sku).await?;
+        let pick = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_nanos() as usize);
+        let found = profile_effect::parse(sku, &product, pick);
         let Some(effect) = found else {
             tracing::info!(sku, "the shop has no profile effect with this SKU");
             return Ok(None);

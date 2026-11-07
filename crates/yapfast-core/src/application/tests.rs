@@ -5277,12 +5277,11 @@ fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
 }
 
 #[test]
-fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_card() {
+fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card() {
     use crate::chat::{EffectLayer, ProfileEffect};
     let effect = |sku: &str| {
         Arc::new(ProfileEffect {
             sku: sku.into(),
-            persistent: true,
             still: Some(format!("{sku}-still.png#effect")),
             layers: vec![EffectLayer {
                 src: format!("{sku}-layer.png#effect"),
@@ -5314,8 +5313,7 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_car
     app.apply(Event::ProfileEffect(effect("5")));
     assert_eq!(app.state.profile_effects.len(), 8);
     assert_eq!(app.state.profile_effects.last().unwrap().sku, "5");
-    // Open on a profile naming effect 9, its pictures stay as pictures
-    // arrive and the rest go.
+    // Open on a profile naming effect 9, only its still picture is asked for.
     app.state.profile = Some(ProfileView {
         profile: Profile {
             id: "1".into(),
@@ -5328,6 +5326,10 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_car
         kept: false,
         note: None,
     });
+    app.dispatch(Action::CloseAside);
+    assert!(app.requested_pictures.contains("9-still.png#effect"));
+    assert!(!app.requested_pictures.contains("9-layer.png#effect"));
+    // Its pictures stay as others arrive, even past the trim.
     for url in ["9-still.png#effect", "9-layer.png#effect"]
         .into_iter()
         .map(String::from)
@@ -5343,6 +5345,19 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_stay_with_the_car
         assert!(app.state.pictures.contains_key(shown), "{shown} stays");
     }
     assert!(!app.state.pictures.contains_key("0.png"));
+    // The card closing takes them, though the trim is far off, and opening it
+    // again asks for them again.
+    let changes = app.state.picture_changes;
+    app.dispatch(Action::CloseProfile);
+    for gone in ["9-still.png#effect", "9-layer.png#effect"] {
+        assert!(!app.state.pictures.contains_key(gone), "{gone} goes");
+        assert!(!app.requested_pictures.contains(gone), "{gone} goes");
+    }
+    assert!(
+        app.state.picture_changes > changes,
+        "the window lets go too"
+    );
+    assert!(app.effect_pictures.is_empty());
 }
 
 #[test]

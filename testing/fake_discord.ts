@@ -14,7 +14,7 @@
 // and testing/envs/example.json uses all of it. Media paths are relative to
 // the env file; videos need ffprobe and ffmpeg, which convert a streamed one
 // once, kept in the system's temporary directory. The seeding options below
-// (--extra, --servers, --dms, --images, --channels, --authors, --folders and
+// (--extra, --servers, --dms, --images, --channels, --authors, --folders, --name-styles and
 // --unread) don't apply, and the controls that act on the fixture's people
 // or channels answer 400; those that only report, such as
 // /_control/video, still work. Without --env the fixture is as it is here.
@@ -314,6 +314,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
     "cdn-delay": { type: "string", default: "0" },
@@ -668,14 +669,23 @@ for (const look of Object.values(serverLooks)) if (look.nameplate) nameplateSkus
 
 const profileEffects = new Set<string>([PROFILE_EFFECT]);
 
-/** A layer of a profile effect: a 450 by 880 picture, clear but for a few
- *  petals, which differ by layer. */
+/** A profile effect's picture, 450 by 880 and clear but for a few petals, which
+ *  differ by name. The intro and the loop are animated, the others still. */
+const effectPictures = new Map<string, Uint8Array>();
 function effectPicture(name: string): Uint8Array {
+  const made = effectPictures.get(name);
+  if (made) return made;
   const shade = crc32(new TextEncoder().encode(name));
-  return png(450, 880, (x, y) => {
-    const petal = (x * 7 + y * 13 + (shade & 255)) % 97 < 2 && (x + y) % 5 < 3;
+  const petals = (fall: number) => (x: number, y: number) => {
+    const petal = (x * 7 + (y - fall) * 13 + (shade & 255)) % 97 < 2 && (x + y) % 5 < 3;
     return petal ? [255, 150 + (shade & 63), 190, 220] : [0, 0, 0, 0];
-  });
+  };
+  const animated = name === "intro" || name === "loop";
+  const picture = animated
+    ? apng(450, 880, Array.from({ length: 25 }, (_, frame) => petals(frame * 4)), 25)
+    : png(450, 880, petals(0));
+  effectPictures.set(name, picture);
+  return picture;
 }
 
 /** A decoration is a ring around a transparent middle, a nameplate a strip
@@ -1034,8 +1044,8 @@ function png(width: number, height: number, pixel: (x: number, y: number) => num
   return new Uint8Array(Buffer.concat(parts));
 }
 
-/** An animated PNG that loops, each of its frames showing for a tenth of a second. */
-function apng(width: number, height: number, frames: ((x: number, y: number) => number[])[]): Uint8Array {
+/** An animated PNG that loops, showing `perSecond` of its frames a second. */
+function apng(width: number, height: number, frames: ((x: number, y: number) => number[])[], perSecond = 10): Uint8Array {
   // The first frame's data is the PNG's own IDAT; each other's goes in an fdAT
   // after its number. Numbers count the fcTL and fdAT chunks in turn.
   let sequence = 0;
@@ -1051,7 +1061,7 @@ function apng(width: number, height: number, frames: ((x: number, y: number) => 
     view.setUint32(4, width);
     view.setUint32(8, height);
     view.setUint16(20, 1);
-    view.setUint16(22, 10);
+    view.setUint16(22, perSecond);
     return chunk("fcTL", body);
   };
   const image = (pixel: (x: number, y: number) => number[]) => {
@@ -1568,12 +1578,26 @@ for (let index = 0; index < extra; index++) {
   }
 }
 
+/** With `--name-styles`, each writer wears the next of Discord's display name
+ *  effects in the next of its fonts, named after them. */
+function nameStyleSample(n: number): Pick<User, "global_name" | "style"> {
+  const effects = ["solid", "gradient", "neon", "toon", "pop", "glow", "prism", "gummy"];
+  const fonts = [3, 4, 6, 8, 12, 13, 14, 15, 16, 11];
+  const palettes = [[0xff7eb3], [0xff7eb3, 0x7a5cff], [0x00ff99], [0xffaa33], [0x3388ff], [0xff5555, 0xffdd55], [0x66ccff, 0xff66cc, 0xffee66], [0x101010, 0x55aa77]];
+  const effect = n % effects.length;
+  return {
+    global_name: `${effects[effect]} name ${n}`,
+    style: { font: fonts[n % fonts.length]!, effect: effect + 1, colors: palettes[effect]! },
+  };
+}
+
 // The channels of `--channels`, written by the people of `--authors`.
 const authors: User[] = Array.from({ length: Number(args.authors) }, (_, n) => ({
   id: (1_700_000_000_000_000_000n + BigInt(n)).toString(),
   username: `writer${n}`,
   global_name: `Writer ${n}`,
   avatar: `w${n}`,
+  ...(args["name-styles"] ? nameStyleSample(n) : {}),
 }));
 for (const author of authors) userById.set(author.id, author);
 const ROOM_HISTORY = 60;
