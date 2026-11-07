@@ -1,17 +1,15 @@
-//! Emoji: the color font for reactions and message text, and the picker's grid.
+//! Emoji: the font for reactions and message text, and the picker's grid.
 //!
-//! A Linux system can have several fonts named "Noto Color Emoji": the bitmap
-//! (CBDT) build Yapfast is designed and tested with, and the COLRv1 build, the
-//! only one Fedora installs. Fontconfig may prefer either. Yapfast registers an
-//! installed emoji font under its own family name and uses that one: a bitmap
-//! font if there is one, a COLR font otherwise.
+//! Every emoji is Twemoji's, as Discord's client draws them, from the font the
+//! program carries ([`crate::emoji_text`]): no system emoji font is used, on
+//! any platform.
 //!
 //! On Windows, text falls back to fonts by script, and emoji, most symbols and
 //! the styled letters of Unicode's mathematical alphabets that names use, such
 //! as 𝓯𝓪𝓷𝓬𝔂, are all of the "Common" script, which no font is picked for. So
 //! Yapfast puts the fonts Windows ships for them in the fallback itself.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use slint::{
     Model, ModelRc, SharedString, VecModel,
@@ -41,23 +39,17 @@ pub fn section_glyph(heading: &str) -> SectionGlyph {
     }
 }
 
-/// The family name Yapfast gives the bitmap emoji font it registers.
-const REGISTERED: &str = "Yapfast Color Emoji";
-
-/// The emoji font family to request. Call after selecting the Slint backend.
+/// The emoji font family to request, everywhere an emoji shows: Twemoji's,
+/// which the program carries ([`crate::twemoji`]) and which Discord's client
+/// draws its emoji from, rather than the system's. Call after selecting the
+/// Slint backend.
 pub fn family() -> &'static str {
     static FAMILY: OnceLock<&'static str> = OnceLock::new();
     FAMILY.get_or_init(|| {
         if cfg!(windows) {
             prefer_families(&mut shared_collection(), &WINDOWS_FALLBACK);
-            "Segoe UI Emoji"
-        } else if cfg!(target_os = "macos") {
-            "Apple Color Emoji"
-        } else if register_color_font() {
-            REGISTERED
-        } else {
-            "Noto Color Emoji"
         }
+        crate::emoji_text::FAMILY
     })
 }
 
@@ -92,6 +84,13 @@ pub fn columns(width: f32) -> usize {
 /// Windows 11 and the Noto Color Emoji builds Yapfast is tested with draw Unicode
 /// 15.0; newer emoji would show as empty boxes.
 const NEWEST: emojis::UnicodeVersion = emojis::UnicodeVersion::new(15, 0);
+
+/// Whether an emoji is one the picker and the suggestions offer: one Twemoji
+/// draws, since no emoji is drawn by the system's font, and of the versions
+/// Discord's client offers.
+fn drawn(emoji: &&'static emojis::Emoji) -> bool {
+    emoji.unicode_version() <= NEWEST && crate::twemoji::has_picture(emoji.as_str())
+}
 
 /// An emoji and its name, such as "Thumbs up", by the reaction it adds: the
 /// emoji itself, or a Discord custom emoji's `name:id`, which shows its glyph
@@ -253,7 +252,7 @@ pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiC
             found.push((rank, false, name.to_owned(), custom_key(emoji)));
         }
     }
-    for emoji in emojis::iter().filter(|emoji| emoji.unicode_version() <= NEWEST) {
+    for emoji in emojis::iter().filter(drawn) {
         if let Some((rank, code)) = emoji
             .shortcodes()
             .filter_map(|code| Some((rank(code)?, code)))
@@ -314,7 +313,7 @@ pub fn rows(
     server_icon: impl Fn(&EmojiSet) -> Option<(String, slint::Image)>,
 ) -> (Vec<EmojiRow>, Vec<EmojiSection>) {
     let query = query.trim().trim_matches(':').to_lowercase();
-    let available = || emojis::iter().filter(|emoji| emoji.unicode_version() <= NEWEST);
+    let available = || emojis::iter().filter(drawn);
     // Each custom emoji with whether this account may use it where it is
     // looking: the picker shows the others greyed with a lock.
     let custom_keys: Vec<Vec<(String, bool)>> = custom
@@ -468,7 +467,7 @@ pub fn rows(
             Some((titled(glyph, name), String::new())),
             group
                 .emojis()
-                .filter(|emoji| emoji.unicode_version() <= NEWEST)
+                .filter(drawn)
                 .map(|emoji| (emoji.as_str().to_owned(), true))
                 .collect(),
         );
@@ -477,10 +476,9 @@ pub fn rows(
 }
 
 /// The fonts every Windows 10 and 11 has for what Segoe UI and Arial, its
-/// usual fallback, lack: color emoji first, as on Linux, then text, symbols
-/// and arrows, the mathematical alphabets, and historic scripts.
-const WINDOWS_FALLBACK: [&str; 5] = [
-    "Segoe UI Emoji",
+/// usual fallback, lack: text, symbols and arrows, the mathematical alphabets,
+/// and historic scripts. Not Segoe UI Emoji: emoji are Twemoji's.
+const WINDOWS_FALLBACK: [&str; 4] = [
     "Segoe UI",
     "Segoe UI Symbol",
     "Cambria Math",
@@ -514,151 +512,11 @@ fn prefer_families(collection: &mut fontique::Collection, names: &[&str]) {
     }
 }
 
-/// Register the first installed emoji font with color bitmaps, or failing that
-/// the first with COLR color layers, and make text fall back to it for emoji.
-fn register_color_font() -> bool {
-    let mut collection = shared_collection();
-    let mut names: Vec<String> = collection
-        .family_names()
-        .filter(|name| name.to_lowercase().contains("emoji"))
-        .map(str::to_owned)
-        .collect();
-    // Noto Color Emoji first, as the font Yapfast is designed and tested with.
-    names.sort_by_key(|name| name != "Noto Color Emoji");
-    let mut layered = None;
-    for name in &names {
-        let Some(family) = collection.family_by_name(name) else {
-            continue;
-        };
-        for font in family.fonts() {
-            let fontique::SourceKind::Path(path) = font.source().kind() else {
-                continue;
-            };
-            let Ok(file) = std::fs::File::open(path) else {
-                continue;
-            };
-            // SAFETY: font files are installed read-only and not modified while
-            // Yapfast runs; the map is shared with the font collection for the
-            // process's lifetime.
-            let Ok(data) = (unsafe { memmap2::Mmap::map(&file) }) else {
-                continue;
-            };
-            match color_kind(&data, font.index()) {
-                Some(ColorKind::Bitmaps) => {
-                    if register_as_emoji(&mut collection, data) {
-                        tracing::info!(family = name, "registered a bitmap color emoji font");
-                        return true;
-                    }
-                }
-                Some(ColorKind::Layers) if layered.is_none() => layered = Some((name, data)),
-                _ => {}
-            }
-        }
-    }
-    if let Some((name, data)) = layered
-        && register_as_emoji(&mut collection, data)
-    {
-        tracing::info!(family = name, "registered a COLR color emoji font");
-        return true;
-    }
-    tracing::warn!("no color emoji font found; emoji may not show");
-    false
-}
-
-/// Register `data` as [`REGISTERED`], and make text fall back to it for emoji.
-fn register_as_emoji(collection: &mut fontique::Collection, data: memmap2::Mmap) -> bool {
-    let registered = collection.register_fonts(
-        fontique::Blob::new(Arc::new(data)),
-        Some(fontique::FontInfoOverride {
-            family_name: Some(REGISTERED),
-            ..Default::default()
-        }),
-    );
-    let Some(&(id, _)) = registered.first() else {
-        return false;
-    };
-    prefer_for_text(collection, id);
-    true
-}
-
-/// Text falls back from the UI typeface through the system's sans-serif and UI
-/// families before the generic emoji family. Fontconfig can list emoji fonts
-/// Slint can't draw there, and display fonts with a few monochrome emoji ahead
-/// of them. So `emoji` leads both lists, and their other emoji fonts are
-/// dropped. Symbols the typeface lacks that have an emoji form, such as ♥, then
-/// show as color emoji.
-fn prefer_for_text(collection: &mut fontique::Collection, emoji: fontique::FamilyId) {
-    use fontique::GenericFamily;
-    for generic in [GenericFamily::SansSerif, GenericFamily::SystemUi] {
-        let families: Vec<_> = collection.generic_families(generic).collect();
-        let mut ordered = vec![emoji];
-        for family in families {
-            let is_emoji = collection
-                .family_name(family)
-                .is_some_and(|name| name.to_lowercase().contains("emoji"));
-            if !is_emoji {
-                ordered.push(family);
-            }
-        }
-        collection.set_generic_families(generic, ordered.into_iter());
-    }
-    collection.set_generic_families(GenericFamily::Emoji, std::iter::once(emoji));
-}
-
-/// How an emoji font draws in color.
-#[derive(Debug, PartialEq)]
-enum ColorKind {
-    /// CBDT or sbix pictures, and no COLR table.
-    Bitmaps,
-    /// COLR layers of outlines.
-    Layers,
-}
-
-/// How the font at `index` in an OpenType file or collection draws in color,
-/// if it does.
-fn color_kind(data: &[u8], index: u32) -> Option<ColorKind> {
-    let u32_at = |offset: usize| {
-        data.get(offset..offset + 4)
-            .map(|bytes| u32::from_be_bytes(bytes.try_into().expect("four bytes")) as usize)
-    };
-    let directory = if data.starts_with(b"ttcf") {
-        u32_at(12 + 4 * index as usize)?
-    } else {
-        0
-    };
-    let count = data
-        .get(directory + 4..directory + 6)
-        .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]) as usize)?;
-    let tags: Vec<&[u8]> = (0..count)
-        .filter_map(|table| {
-            let start = directory + 12 + 16 * table;
-            data.get(start..start + 4)
-        })
-        .collect();
-    if tags.contains(&&b"COLR"[..]) {
-        Some(ColorKind::Layers)
-    } else if tags.iter().any(|tag| matches!(*tag, b"CBDT" | b"sbix")) {
-        Some(ColorKind::Bitmaps)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use slint::Model;
-
-    fn font(tags: &[&[u8; 4]]) -> Vec<u8> {
-        let mut data = vec![0, 1, 0, 0];
-        data.extend((tags.len() as u16).to_be_bytes());
-        data.extend([0; 6]);
-        for tag in tags {
-            data.extend(*tag);
-            data.extend([0; 12]);
-        }
-        data
-    }
+    use std::sync::Arc;
 
     #[test]
     fn pictures_fill_the_picker_in_place() {
@@ -883,26 +741,6 @@ mod tests {
             ("🍕", ":pizza:")
         );
         assert!(suggestions("zzzzzz", &[], 10).is_empty());
-    }
-
-    #[test]
-    fn emoji_fonts_draw_in_bitmaps_or_layers() {
-        let kind = |data: &[u8]| color_kind(data, 0);
-        assert_eq!(
-            kind(&font(&[b"CBDT", b"CBLC", b"cmap"])),
-            Some(ColorKind::Bitmaps)
-        );
-        assert_eq!(kind(&font(&[b"sbix", b"cmap"])), Some(ColorKind::Bitmaps));
-        assert_eq!(
-            kind(&font(&[b"COLR", b"CPAL", b"glyf"])),
-            Some(ColorKind::Layers)
-        );
-        assert_eq!(kind(&font(&[b"CBDT", b"COLR"])), Some(ColorKind::Layers));
-        assert_eq!(kind(&font(&[b"glyf", b"cmap"])), None);
-        assert_eq!(kind(b"ttcf"), None);
-        let mut collection = b"ttcf\0\x01\0\0\0\0\0\x01\0\0\0\x10".to_vec();
-        collection.extend(font(&[b"CBDT"]));
-        assert_eq!(kind(&collection), Some(ColorKind::Bitmaps));
     }
 
     #[test]

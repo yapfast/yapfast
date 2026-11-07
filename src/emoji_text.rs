@@ -75,13 +75,19 @@ pub fn target(link: &str) -> Option<Target> {
     emoji.filter(|emoji| !emoji.is_empty()).map(Target::Unicode)
 }
 
-/// Puts Twemoji's font in text's fallback chain. The font stays where the program
-/// holds it: nothing copies it.
+/// The family Twemoji's font is registered as.
+pub const FAMILY: &str = "Yapfast Twemoji";
+
+/// Puts Twemoji's font in text's fallback chain, as the one emoji font: an
+/// emoji typed into any text, a name's or a reaction's, draws Twemoji's
+/// picture, a sequence such as a flag or a skin tone joined into its one
+/// picture by the font's ligatures. The font stays where the program holds
+/// it: nothing copies it.
 pub fn register() {
     static REGISTERED: Once = Once::new();
     REGISTERED.call_once(|| {
         let font = fontique::Blob::new(std::sync::Arc::new(twemoji::FONT));
-        if !emoji_font::register_blob("Yapfast Twemoji", font) {
+        if !emoji_font::register_emoji(FAMILY, font) {
             tracing::warn!("could not register a font of Twemoji");
         }
     });
@@ -403,14 +409,18 @@ mod tests {
             drawn,
             "the emoji's own code point draws it, as the composer keeps it"
         );
-        assert_eq!(typeface.unichar_to_glyph('x' as i32), 0, "and nothing else");
-        // These join others, which this font can't do, so the system's font must
-        // keep them: a thumb and a skin tone would draw as two pictures here.
-        assert_eq!(typeface.unichar_to_glyph(0x1F3FD), 0, "a skin tone");
-        assert_eq!(typeface.unichar_to_glyph(0x1F1E9), 0, "half a flag");
-        assert_eq!(typeface.unichar_to_glyph(0x200D), 0, "a joiner");
-        // What needs a selector to be an emoji stays text until it has one.
-        assert_eq!(typeface.unichar_to_glyph(0x00A9), 0, "the copyright sign");
+        assert_eq!(typeface.unichar_to_glyph('x' as i32), 0, "and no letter");
+        // What joins others has a glyph here too, so a sequence keeps to this
+        // font and its ligatures join it into one picture rather than the
+        // system's font drawing it: a skin tone and half a flag are pictures
+        // of their own, a joiner and a selector take no room.
+        assert!(typeface.unichar_to_glyph(0x1F3FD) > 0, "a skin tone");
+        assert!(typeface.unichar_to_glyph(0x1F1E9) > 0, "half a flag");
+        assert!(typeface.unichar_to_glyph(0x200D) > 0, "a joiner");
+        assert!(typeface.unichar_to_glyph(0xFE0F) > 0, "a selector");
+        // What is text first, as the copyright sign is, draws Twemoji's picture
+        // only where the UI typeface has none of its own.
+        assert!(typeface.unichar_to_glyph(0x00A9) > 0, "the copyright sign");
     }
 
     #[test]

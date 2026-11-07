@@ -283,6 +283,9 @@ fn prepare(window: &YapfastWindow) {
     }
     window.set_emoji_font(emoji::family().into());
     emoji_text::register();
+    window
+        .global::<Twemoji>()
+        .on_text(|text| emoji_text::text(&text).into());
     copy_whole_messages(window);
     mark_autoscrolls(window);
     type_anywhere(window);

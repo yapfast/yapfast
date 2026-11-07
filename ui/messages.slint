@@ -1,5 +1,5 @@
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
+import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
@@ -68,7 +68,7 @@ export component EmojiFace inherits Rectangle {
         x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
     }
     if root.shown-picture.width == 0 && root.emoji.glyph != root.emoji.name: Text {
-        text: root.emoji.glyph; font-family: root.font; font-size: root.side;
+        text: Twemoji.text(root.emoji.glyph); font-family: root.font; font-size: root.side;
         // An emoji font's line box is taller than its size, so the text needs
         // more room than the glyph takes: at the size itself, Skia cut the top
         // and bottom off the system's emoji, and some fonts' glyphs wholly.
@@ -257,7 +257,7 @@ export component ReactionToggle inherits Rectangle {
     accessible-action-default => { if root.enabled { root.clicked(); } }
     chip := HorizontalLayout {
         padding-left: 8px; padding-right: 9px; spacing: 6px;
-        Text { text: root.label; font-family: root.emoji-font; font-size: 16px; vertical-alignment: center; }
+        Text { text: Twemoji.text(root.label); font-family: root.emoji-font; font-size: 16px; vertical-alignment: center; }
         Text { text: root.count; color: root.mine ? Theme.accent : Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
     }
     property <bool> tip-shown: root.item != "" && ReactionHover.item == root.item && ReactionHover.key == root.key;
@@ -646,7 +646,7 @@ export component PollView inherits HorizontalLayout {
                 }
                 HorizontalLayout {
                     padding-left: 12px; padding-right: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 10px;
-                    if answer.emoji != "": Text { text: answer.emoji; font-family: root.emoji-font; font-size: 20px; vertical-alignment: center; }
+                    if answer.emoji != "": Text { text: Twemoji.text(answer.emoji); font-family: root.emoji-font; font-size: 20px; vertical-alignment: center; }
                     answer-text := Text { text: answer.text; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
                     if root.poll.results && answer.picked: Middle {
                         Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.accent; accessible-label: "You voted for this answer"; }

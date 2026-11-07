@@ -53,7 +53,6 @@ pub fn forget() {
 }
 
 /// Whether Twemoji has a picture for `glyph`, without decoding one.
-#[cfg(test)]
 pub fn has_picture(glyph: &str) -> bool {
     picture_bytes(glyph).is_some()
 }
@@ -175,6 +174,52 @@ mod tests {
         assert!(has_picture("🇩🇰"));
         assert!(has_picture("1️⃣"));
         assert!(picture("👨‍👩‍👧", 36., 1.).is_some());
+    }
+
+    /// The glyphs and advances the font shapes `text` into, as Slint's text
+    /// shapes it.
+    fn shaped(text: &str) -> Vec<(u32, i32)> {
+        let font = harfrust::FontRef::new(FONT).expect("the font reads");
+        let data = harfrust::ShaperData::new(&font);
+        let shaper = data.shaper(&font).build();
+        let mut buffer = harfrust::UnicodeBuffer::new();
+        buffer.push_str(text);
+        buffer.guess_segment_properties();
+        let shaped = shaper.shape(buffer, harfrust::ShapeOptions::new());
+        shaped
+            .glyph_infos()
+            .iter()
+            .zip(shaped.glyph_positions())
+            .map(|(info, position)| (info.glyph_id, position.x_advance))
+            .collect()
+    }
+
+    /// The glyph of `emoji`'s picture in the font.
+    fn picture_glyph(emoji: &str) -> u32 {
+        // Pictures are glyphs 1 on, in the order of their names; their code
+        // points count down from the font's last.
+        crate::emoji_font_tables::TWEMOJI_LAST - glyph(emoji).expect("a picture") as u32 + 1
+    }
+
+    #[test]
+    fn text_typed_as_several_code_points_shapes_into_one_picture() {
+        let advance = shaped("🍕")[0].1;
+        assert_eq!(shaped("🍕"), [(picture_glyph("🍕"), advance)]);
+        // A family, a flag, a skin tone and a keycap, each its one picture.
+        for emoji in ["👨‍👩‍👧", "🇩🇰", "👍🏽", "1️⃣", "🏳️‍🌈", "🏴󠁧󠁢󠁳󠁣󠁴󠁿"]
+        {
+            assert_eq!(
+                shaped(emoji),
+                [(picture_glyph(emoji), advance)],
+                "{emoji} is one picture"
+            );
+        }
+        // A selector after a single emoji takes no room, and typed without
+        // the selector a sequence joins all the same.
+        let heart = shaped("❤️");
+        assert_eq!(heart.iter().map(|(_, x)| x).sum::<i32>(), advance);
+        assert_eq!(heart[0].0, picture_glyph("❤️"));
+        assert_eq!(shaped("🏳‍🌈").len(), 1);
     }
 
     #[test]

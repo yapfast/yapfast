@@ -113,6 +113,8 @@ yapfast-core = { path = "crates/yapfast-core", default-features = false, feature
 # Builds a Discord server's snapshot for the menus' tests.
 yapfast-discord = { path = "crates/yapfast-discord" }
 tempfile.workspace = true
+# Shapes text with Twemoji's font, as Slint's text does, for its ligatures' test.
+harfrust = "0.12"
 
 # Types keys for the push-to-talk hook's test.
 [target.'cfg(windows)'.dev-dependencies]

@@ -578,22 +578,24 @@ To check the window by hand, see [Seeing the app](building.md#seeing-the-app).
 The native file dialogs need an XDG portal, which `scripts/ui-session` doesn't
 run, so Attach and Save are checked only through the integration test.
 
-On Linux Yapfast finds an installed emoji font with CBDT or sbix bitmaps and
-no COLR table, or failing that a COLR one, maps it and registers it with Slint
-as "Yapfast Color Emoji" (`src/emoji.rs`); fontconfig alone can prefer the
-COLRv1 build of Noto Color Emoji when both are installed. That font also leads
-the sans-serif and UI fallback lists, ahead of display fonts that carry a few
-monochrome emoji, so emoji in message text draw in color too; symbols the UI
-typeface lacks that have an emoji form, such as ♥, then show as emoji. Linux
-uses the prebuilt Skia with Skia's own FreeType, which draws COLRv1, the only
-build Fedora installs (issue #32), as `skia_draws_colrv1_glyphs_in_colour`
-checks. Windows uses "Segoe UI Emoji".
+Every emoji is Twemoji's, on every platform, as Discord's client draws them:
+the font `build.rs` makes of Twemoji's pictures is registered as "Yapfast
+Twemoji" (`emoji_text::register`), and is the generic emoji family alone and
+the first of the sans-serif and UI fallback lists, from which the system's
+emoji fonts are taken out (`emoji_font::register_emoji`). So an emoji in any
+text, a name, a status or the composer's draft, draws Twemoji's picture, a
+flag, a keycap or a skin tone joined into its one picture by the font's
+ligatures; symbols the UI typeface lacks that have an emoji form, such as ♥,
+show as Twemoji's. Reactions, poll answers and an emoji shown on its own pass
+their text through `Twemoji.text` (`ui/theme.slint`), which rewrites each emoji
+to its picture's glyph as message text is. Linux uses the prebuilt Skia with
+Skia's own FreeType, which draws COLRv1 (issue #32), as
+`skia_draws_colrv1_glyphs_in_colour` checks; custom emoji fonts are CBDT.
 
 On Windows, fontique falls back by script, with a sample of each script, and
 its sans-serif and UI lists are only Arial and Segoe UI. Emoji, most symbols
 and the styled letters of Unicode's mathematical alphabets that Discord names
 use, such as 𝓯𝓪𝓷𝓬𝔂, are all of the Common script, so they would show as boxes.
-Yapfast puts Segoe UI Emoji, Segoe UI, Segoe UI Symbol, Cambria Math and Segoe
-UI Historic at the front of both lists (`emoji::WINDOWS_FALLBACK`). Wine draws
-no emoji from a bitmap font standing in for Segoe UI Emoji, so color emoji in
-message text need a check on real Windows.
+Yapfast puts Segoe UI, Segoe UI Symbol, Cambria Math and Segoe UI Historic at
+the front of both lists (`emoji::WINDOWS_FALLBACK`), after Twemoji's font, and
+not Segoe UI Emoji.

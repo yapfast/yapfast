@@ -63,9 +63,7 @@ fn fill_rail_glyphs(window: &YapfastWindow, adapter: &Adapter) {
         if icon.picture.size().width > 0 || icon.key.contains(':') || icon.glyph != icon.key {
             continue;
         }
-        if let Some(image) = crate::twemoji::picture(&icon.glyph, emoji::RAIL_GLYPH, scale)
-            .or_else(|| crate::emoji_glyphs::picture(&icon.glyph, emoji::RAIL_GLYPH, scale))
-        {
+        if let Some(image) = crate::twemoji::picture(&icon.glyph, emoji::RAIL_GLYPH, scale) {
             rail.set_row_data(
                 index,
                 RailSection {
@@ -137,8 +135,7 @@ fn fill_row_icons(adapter: &Adapter) {
 }
 
 /// Gives the picker's grid the emoji it shows between `first` and `last` rows a
-/// picture each, drawn once, so scrolling draws a bitmap instead of walking the
-/// colour font's paint graph for every emoji on screen; see [`crate::emoji_glyphs`].
+/// picture each, Twemoji's, decoded once, so scrolling draws a bitmap.
 fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize, last: usize) {
     fill_rail_glyphs(window, adapter);
     fill_rail_icons(adapter);
@@ -167,11 +164,9 @@ fn fill_shown_glyphs(window: &YapfastWindow, adapter: &mut Adapter, first: usize
             if cell.picture.size().width > 0 || cell.key.contains(':') || cell.glyph != cell.key {
                 continue;
             }
-            // Twemoji's picture, as Discord's client draws emoji; a code point it
-            // has none for keeps the system font's glyph, drawn once here too.
-            if let Some(image) = crate::twemoji::picture(&cell.glyph, emoji::GLYPH, scale)
-                .or_else(|| crate::emoji_glyphs::picture(&cell.glyph, emoji::GLYPH, scale))
-            {
+            // Twemoji's picture, as Discord's client draws emoji; the grid lists
+            // only emoji Twemoji has one for.
+            if let Some(image) = crate::twemoji::picture(&cell.glyph, emoji::GLYPH, scale) {
                 row.cells.set_row_data(
                     cell_index,
                     EmojiCell {
@@ -1311,7 +1306,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let Some(window) = weak.upgrade() else { return };
         custom_emoji::forget_images();
         crate::twemoji::forget();
-        crate::emoji_glyphs::forget();
         let mut adapter = state.borrow_mut();
         adapter.models.emoji_rows.set_vec(Vec::new());
         adapter.action(&window, Action::UnloadEmojiPictures);

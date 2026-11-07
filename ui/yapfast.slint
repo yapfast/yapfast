@@ -21,7 +21,7 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion, Twemoji } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
@@ -47,7 +47,7 @@ import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
-export { Theme, Badges, Popup } from "theme.slint";
+export { Theme, Badges, Popup, Twemoji } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
@@ -4242,7 +4242,7 @@ export component YapfastWindow inherits Window {
         accessible-action-default => { root.view-reactions(ReactionHover.item, ReactionHover.key); }
         Text {
             x: 16px; y: (parent.height - 32px) / 2; width: 32px; height: 32px;
-            text: root.reaction-tip-emoji; font-family: root.emoji-font; font-size: 26px;
+            text: Twemoji.text(root.reaction-tip-emoji); font-family: root.emoji-font; font-size: 26px;
             horizontal-alignment: center; vertical-alignment: center;
         }
         reaction-words := Text {
