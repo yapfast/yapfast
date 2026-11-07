@@ -249,14 +249,17 @@ logs and the Wine prefixes.
 
 ## Build for development
 
-For work on Windows code, build with the `fast` profile through cargo-xwin in
-the Windows shell. The app crate needs the prepared Skia archive, as
-`scripts/build-windows` makes it:
+For work on Windows code, build with the `fast` profile in the Windows shell,
+with cargo-xwin's environment. The app crate needs the prepared Skia archive,
+as `scripts/build-windows` makes it, and thorvg-sys's bindgen the target that
+`scripts/release-env` adds, which `cargo xwin build` would overwrite:
 
 ```sh
 nix develop path:./nix#windows --command bash -c '
   export SKIA_BINARIES_URL="file://$(python3 nix/prepare-windows-skia.py)"
-  cargo xwin build --profile fast --target x86_64-pc-windows-msvc \
+  eval "$(cargo xwin env --target x86_64-pc-windows-msvc)"
+  export BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc="$BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc --target=x86_64-pc-windows-msvc"
+  cargo build --profile fast --target x86_64-pc-windows-msvc \
     --no-default-features --features desktop,discord'
 ```
 
