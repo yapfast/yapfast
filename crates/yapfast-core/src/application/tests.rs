@@ -1856,19 +1856,26 @@ fn a_folder_marks_its_servers_read() {
         rooms: rooms.clone(),
         servers: servers.clone(),
     }));
+    // Offered, greyed in the menu as Discord's is, and marking nothing.
+    assert_eq!(
+        app.state.menu_choices("discord-folder:7"),
+        [MenuChoice::MarkRead]
+    );
     assert!(
-        app.state.menu_choices("discord-folder:7").is_empty(),
+        !app.state.folder_unread("discord-folder:7"),
         "nothing unread"
+    );
+    assert!(
+        !app.dispatch(Action::MarkRead("discord-folder:7".into()))
+            .iter()
+            .any(|effect| matches!(effect, Effect::Backend(Command::MarkRead { .. })))
     );
 
     for (id, unread) in [("general", 4), ("standup", 1)] {
         rooms.iter_mut().find(|room| room.id == id).unwrap().unread = unread;
     }
     app.apply(Event::Rooms(RoomIndex { rooms, servers }));
-    assert_eq!(
-        app.state.menu_choices("discord-folder:7"),
-        [MenuChoice::MarkRead]
-    );
+    assert!(app.state.folder_unread("discord-folder:7"));
     let marked: Vec<String> = app
         .dispatch(Action::MarkRead("discord-folder:7".into()))
         .into_iter()
@@ -1878,6 +1885,57 @@ fn a_folder_marks_its_servers_read() {
         })
         .collect();
     assert_eq!(marked, ["general", "standup"]);
+}
+
+#[test]
+fn a_folder_changes_its_servers_notifications_in_one_command() {
+    use chat::{DiscordCommand, Muting, NotificationChange};
+    let mut app = connected();
+    let folder = chat::ServerFolder {
+        id: "discord-folder:7".into(),
+        name: None,
+        color: None,
+    };
+    let mut servers = owned(&app.state.servers);
+    servers[0].folder = Some(folder.clone());
+    servers[0].discord = true;
+    servers.push(ChatServer {
+        id: "discord:20".into(),
+        name: "Work".into(),
+        channels: vec![],
+        folder: Some(folder),
+        ..servers[0].clone()
+    });
+    let first = servers[0].id.clone();
+    app.apply(Event::Rooms(RoomIndex {
+        rooms: owned(&app.state.rooms),
+        servers,
+    }));
+    let change = NotificationChange::Mute(Muting::Minutes(15));
+    let ask = |app: &mut Application| {
+        app.dispatch(Action::ChangeNotifications {
+            place: "discord-folder:7".into(),
+            change,
+        })
+    };
+    assert!(ask(&mut app).is_empty(), "Discord isn't connected");
+    // Without each server's settings, the menu leaves the folder's out.
+    assert!(
+        !app.menu_choices("discord-folder:7")
+            .contains(&MenuChoice::MuteFolder)
+    );
+    app.state.discord_online = true;
+    let sent: Vec<_> = ask(&mut app)
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::FolderNotifications {
+                servers,
+                change,
+            })) => Some((servers, change)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent, [(vec![first, "discord:20".to_owned()], change)]);
 }
 
 #[test]

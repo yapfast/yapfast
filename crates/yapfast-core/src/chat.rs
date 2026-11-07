@@ -2484,6 +2484,14 @@ pub enum DiscordCommand {
         place: String,
         change: NotificationChange,
     },
+    /// Make the same change to the notification settings of several Discord
+    /// servers, by their server ids, in one request, as a rail folder's menu
+    /// does for its servers. Snapshots show it once Discord confirms it; a
+    /// failure comes back as [`Event::Error`].
+    FolderNotifications {
+        servers: Vec<String>,
+        change: NotificationChange,
+    },
     /// Join a Discord thread, by its room id, or leave it with `join`
     /// false, from the menu Discord's client names `location`; snapshots
     /// show it once Discord confirms it, and a failure comes back as

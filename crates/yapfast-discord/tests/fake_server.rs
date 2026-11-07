@@ -4095,6 +4095,67 @@ async fn changes_notification_settings() {
     })
     .await;
 
+    // A folder's menu changes its servers in one request to several
+    // servers' settings: a mute with an end, a level and a switch, each
+    // confirmed as the server's own.
+    discord
+        .change_servers_notifications(
+            &[&guild],
+            Change::Mute {
+                muted: true,
+                seconds: Some(900),
+            },
+        )
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::Level(Some(Level::Nothing)))
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::SuppressEveryone(true))
+        .await
+        .unwrap();
+    let folded = snapshot_where(&discord, |snapshot| {
+        let server = ours(snapshot);
+        let settings = &server.marks.notifications;
+        server.marks.muted
+            && settings.mute.until.is_some()
+            && settings.level == Some(Level::Nothing)
+            && settings.suppress_everyone
+    })
+    .await;
+    assert_eq!(
+        ours(&folded).marks.notifications.of(&general).level,
+        None,
+        "its channels keep their own"
+    );
+    discord
+        .change_servers_notifications(
+            &[&guild],
+            Change::Mute {
+                muted: false,
+                seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::SuppressEveryone(false))
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::Level(Some(Level::Mentions)))
+        .await
+        .unwrap();
+    snapshot_where(&discord, |snapshot| {
+        let server = ours(snapshot);
+        !server.marks.muted
+            && !server.marks.notifications.suppress_everyone
+            && server.marks.notifications.level == Some(Level::Mentions)
+    })
+    .await;
+
     // Pinning #general to the top sets its override's flags, through the
     // settings of several servers at once, and keeps its level; unpinning
     // leaves the opt-in flag that pinning set.

@@ -419,6 +419,39 @@ The window follows Discord's arrangement:
   may change it; where the account may manage channels, Create channel
   and Create category; and, in red, Leave server, which asks first and
   isn't offered to the server's owner.
+  A right click on a folder opens its menu: Mark folder as read, greyed
+  while none of its servers has anything unread, as in Discord. While
+  Discord is connected, three rows follow that each open a list below
+  themselves, inside the menu, when clicked or chosen with Enter or Space,
+  and close it the same way, their arrow turning down and the menu growing
+  to hold it. Mute folder lists the server menu's times, each muting every
+  server in the folder; once all of them are muted it's Unmute folder
+  instead, saying when the last mute ends, which unmutes them all.
+  Notification settings lists All messages, Only @mentions and Nothing,
+  checked when the servers share one, and Suppress @everyone and @here and
+  Suppress all role @mentions, ticked when every server has it on; each
+  sets all of them. Choosing in these lists applies it and leaves the menu
+  open, the choice checked in place. Servers lists the folder's servers,
+  so the menu stays short however many it holds, each saying how it
+  notifies, muted or the level that applies. A click on one goes to it, as
+  its icon on the rail does, and closes the menu; a right click opens its
+  own choices beside it, as its own menu has them in one list: mute for
+  each of the times, or unmute, its levels and its switches, which apply
+  and leave the menu open. Past five servers the list shows five at once
+  and scrolls, under a search that takes the keys as the list opens and
+  keeps only the servers whose names hold what's typed, ignoring case; Up,
+  Down and Enter move through and choose what's left, and Escape clears
+  the search, then closes the list. Close all folders comes last while a
+  folder is open.
+
+  Any menu row can open such a list (`MenuRow::expands`, with
+  `MenuRow::search` for its search, and `MenuRow::keep_open` for choices
+  that leave the menu open); the window reports what's typed with
+  `search-menu`, which `menus::search` answers by setting the list's rows
+  again, and a right click on a row of a list with `list-item-menu`, which
+  `menus::item_rows` answers in `menu-item-rows`. The ContextMenu's
+  `animate` makes the arrows turn and the menu grow smoothly; off, they
+  snap.
 - A sidebar, 240px by default and resizable by dragging its edge, with the
   server name, a filter, and uppercase TEXT CHANNELS and VOICE CHANNELS groups.
   A Discord server's name, with a chevron beside it, opens a dropdown below

@@ -900,6 +900,11 @@ export component MenuItem inherits Rectangle {
     in property <bool> checkbox;
     /// It opens a submenu, which an arrow at its end shows.
     in property <bool> submenu;
+    /// It opens a list below itself, which its arrow, turned down while
+    /// `open`, shows; `animate` turns it smoothly.
+    in property <bool> expands;
+    in property <bool> open;
+    in property <bool> animate: true;
     /// A destructive choice, such as deleting: drawn in red.
     in property <bool> danger;
     /// Shown, greyed, but not to be chosen; a ContextMenu doesn't report it.
@@ -909,6 +914,7 @@ export component MenuItem inherits Rectangle {
     /// Drawn as the pointer's choice; a ContextMenu moves it with the keys too.
     in property <bool> highlighted: pointer.has-hover;
     callback clicked;
+    callback right-clicked;
     callback hovered;
     property <bool> current: root.checked && !root.checkbox;
     height: root.subtitle != "" ? 44px : 32px;
@@ -957,9 +963,11 @@ export component MenuItem inherits Rectangle {
                 }
             }
         }
-        if root.submenu: Image {
+        if root.submenu || root.expands: Image {
             width: 24px; image-fit: contain;
             source: @image-url("icons/chevron-right.svg"); colorize: root.danger && root.highlighted ? Theme.on-danger : Theme.text;
+            transform-rotation: root.expands && root.open ? 90deg : 0deg;
+            animate transform-rotation { duration: root.animate ? Theme.quick : 0ms; easing: ease-in-out; }
         }
     }
     focus := FocusScope {
@@ -972,6 +980,9 @@ export component MenuItem inherits Rectangle {
         pointer := TouchArea {
             mouse-cursor: root.disabled ? MouseCursor.default : MouseCursor.pointer;
             clicked => { root.clicked(); }
+            pointer-event(event) => {
+                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down { root.right-clicked(); }
+            }
             changed has-hover => { if self.has-hover { root.hovered(); } }
         }
     }
@@ -1005,6 +1016,19 @@ export struct MenuRow {
     /// Without room for an icon, unless the row has one, as Discord's person
     /// menu has none on most rows.
     plain: bool,
+    /// Its submenu's rows open below it, inside the menu, when it's clicked,
+    /// and close when it's clicked again, rather than beside it on hover.
+    /// Right-clicking a row of the list asks for that row's own choices,
+    /// beside it, with `item-menu`.
+    expands: bool,
+    /// With `expands`, its list starts with a search field and shows five
+    /// rows at a time, scrolling: the menu reports what's typed with
+    /// `searched`, and whoever filled the list fills it again with the rows
+    /// that match.
+    search: bool,
+    /// Choosing it applies it and leaves the menu open, checked as the
+    /// current choice among its own, as a checkbox stays open ticked.
+    keep-open: bool,
 }
 
 // The rows of a ContextMenu or of a submenu.
@@ -1015,8 +1039,25 @@ component MenuRows inherits VerticalLayout {
     in property <int> current;
     /// The row whose submenu is open, drawn as chosen while the pointer is away.
     in property <int> holding: -1;
+    /// The row with `expands` whose list shows below it, and that list's
+    /// current row; `search-focus` changing gives the list's search the keys.
+    in property <int> expanded: -1;
+    in property <int> list-current: -1;
+    in property <int> search-focus;
+    in-out property <string> query;
+    in property <bool> animate: true;
     callback hovered(int);
     callback clicked(int);
+    callback list-hovered(int);
+    callback list-clicked(int);
+    /// A row of the open list was right-clicked: which, and how far down the
+    /// window it is.
+    callback list-menu(int, length);
+    /// What's typed in the open list's search, and a key pressed there,
+    /// which the menu may take; Enter there.
+    callback list-searched(string);
+    callback list-key(KeyEvent) -> bool;
+    callback list-accepted;
     /// A row became the current one: which, how far down the window, and
     /// how tall it is.
     callback lit(int, length, length);
@@ -1030,11 +1071,82 @@ component MenuRows inherits VerticalLayout {
         MenuItem {
             text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
             checkbox: row.checkbox; checked: row.checked; disabled: row.disabled; plain: row.plain;
-            submenu: root.submenus[index].length > 0;
+            submenu: root.submenus[index].length > 0 && !row.expands;
+            expands: row.expands; open: root.expanded == index; animate: root.animate;
             highlighted: root.current == index || root.holding == index;
             hovered => { root.hovered(index); }
             clicked => { root.clicked(index); }
             changed highlighted => { if self.highlighted { root.lit(index, self.absolute-position.y, self.height); } }
+        }
+        // The list a row with `expands` opens below itself: at most five
+        // rows show, the rest scroll, under its search if it has one.
+        if row.expands: drop := Rectangle {
+            property <bool> open: root.expanded == index;
+            property <[MenuRow]> items: root.submenus[index];
+            property <length> item-height: drop.items.length > 0 && drop.items[0].subtitle != "" ? 44px : 32px;
+            property <length> search-height: row.search ? 40px : 0px;
+            property <length> list-height: row.search ? min(5, drop.items.length) * (drop.item-height + 2px) : inner.preferred-height;
+            // The menu is as wide as its lists from the start, so one
+            // opening moves nothing sideways.
+            preferred-width: inner.preferred-width + 12px;
+            property <int> focus-tick: root.search-focus;
+            property <int> lit: root.list-current;
+            changed focus-tick => { if self.open && row.search { search-input.focus(); } }
+            // Keeps the current row in view as the keys move.
+            changed lit => {
+                if self.open && self.lit >= 0 {
+                    let top = self.lit * (drop.item-height + 2px);
+                    if top + list.content-y < 0px {
+                        list.content-y = -top;
+                    } else if top + drop.item-height + list.content-y > list.height {
+                        list.content-y = list.height - top - drop.item-height;
+                    }
+                }
+            }
+            height: self.open ? self.search-height + self.list-height : 0px;
+            animate height { duration: root.animate ? Theme.quick : 0ms; easing: ease-in-out; }
+            clip: true;
+            Rectangle {
+                visible: row.search;
+                x: 12px; y: 4px; width: parent.width - 12px; height: 30px;
+                border-radius: 4px; background: Theme.sunken;
+                border-width: search-input.has-focus ? 1px : 0px; border-color: Theme.accent.with-alpha(0.8);
+                Text {
+                    x: 8px; width: parent.width - 16px; height: parent.height;
+                    visible: root.query == "";
+                    text: "Search"; color: Theme.muted; font-size: 14px; vertical-alignment: center;
+                }
+                Rectangle {
+                    x: 8px; width: parent.width - 16px; height: parent.height; clip: true;
+                    search-input := TextInput {
+                        width: parent.width; height: parent.height;
+                        text <=> root.query;
+                        enabled: row.search && drop.open;
+                        single-line: true; vertical-alignment: center;
+                        font-size: 14px; color: Theme.text;
+                        selection-background-color: Theme.accent.with-alpha(0.35);
+                        accessible-label: "Search";
+                        edited => { root.list-searched(self.text); }
+                        accepted => { root.list-accepted(); }
+                        key-pressed(event) => { return root.list-key(event) ? accept : reject; }
+                    }
+                }
+            }
+            list := Flickable {
+                x: 12px; y: drop.search-height; width: parent.width - 12px; height: drop.list-height;
+                content-height: inner.preferred-height;
+                inner := VerticalLayout {
+                    spacing: 2px;
+                    for item[i] in drop.items: MenuItem {
+                        text: item.text; subtitle: item.subtitle; icon: item.icon; disabled: item.disabled;
+                        checkbox: item.checkbox; checked: item.checked;
+                        highlighted: root.expanded == index && root.list-current == i;
+                        hovered => { root.list-hovered(i); }
+                        clicked => { root.list-clicked(i); }
+                        right-clicked => { root.list-menu(i, self.absolute-position.y); }
+                    }
+                }
+            }
         }
     }
 }
@@ -1049,6 +1161,17 @@ component MenuRows inherits VerticalLayout {
 // neither. A row whose submenu is a choice of how, as a mute's times are,
 // opens that submenu on hover; clicked itself, it reports its `click-id`
 // and the menu closes. A menu or submenu taller than `tallest` scrolls.
+// A row with `expands` opens its submenu's rows below itself instead, when
+// clicked or chosen with Enter or Space, and closes them the same way, its
+// arrow turning down; the menu grows to hold them, smoothly unless
+// `animate` is off. Down from the row moves into them. Right-clicking one
+// of them asks for its own choices with `item-menu`, which show beside it
+// from `item-rows`. With `search`, the list shows five rows at a time and
+// starts with a search field, which takes the keys as it opens: what's
+// typed goes out through `searched`, Up, Down and Enter still move through
+// and choose the rows, and Escape clears the search, then closes the list.
+// A row with `keep-open`, as a checkbox, reports `toggled` and the menu
+// stays open.
 //
 // The menu stays where it opens. A submenu lines up with its row and moves
 // up to stay within `room-below`, past the menu's top if it must, and
@@ -1080,10 +1203,26 @@ export component ContextMenu inherits Rectangle {
     property <length> sub-top: max(root.room-below - root.tallest, min(root.sub-y, root.room-below - root.sub-height));
     out property <length> lift: root.sub-open ? max(0px, -root.sub-top) : 0px;
     out property <length> content-height: root.lift + max(root.main-height, root.sub-open ? root.sub-top + root.sub-height : 0px);
+    /// Smooth changes, such as a list opening below its row; off, they snap.
+    in property <bool> animate: true;
+    /// The choices of a row of an open list, which right-clicking it asks
+    /// for with `item-menu`, by the list's row's id and its own; they show
+    /// beside it.
+    in property <[MenuRow]> item-rows;
+    callback item-menu(string, string);
     callback chose(string);
     callback toggled(string);
+    /// What's typed in an open list's search, and the id of its row.
+    callback searched(string, string);
     callback close;
     property <int> current: -1;
+    // The row with `expands` whose list is open, the list's current row,
+    // and its search.
+    property <int> expanded: -1;
+    property <int> list-current: -1;
+    property <int> search-focus;
+    property <string> query;
+    property <[MenuRow]> list-rows: root.expanded >= 0 ? root.submenus[root.expanded] : [];
     // The submenu: whether it's open, how far down, and its current choice,
     // -1 while the keys move through the menu.
     property <bool> sub-open;
@@ -1091,7 +1230,11 @@ export component ContextMenu inherits Rectangle {
     property <int> sub-current: -1;
     // The row whose submenu shows, and its rows.
     property <int> sub-row: -1;
-    property <[MenuRow]> subrows: root.sub-row >= 0 ? root.submenus[root.sub-row] : [];
+    property <[MenuRow]> subrows: root.sub-item ? root.item-rows : root.sub-row >= 0 ? root.submenus[root.sub-row] : [];
+    // The side panel shows the choices of a row of the open list,
+    // right-clicked: which one.
+    property <bool> sub-item;
+    property <int> item-index: -1;
     // The row last made current, and how far below the menu's top it is.
     property <int> lit-row: -1;
     property <length> lit-y;
@@ -1100,16 +1243,70 @@ export component ContextMenu inherits Rectangle {
             root.sub-current = Math.mod(root.sub-current + by, root.subrows.length);
             return;
         }
+        // Into an open list from its row, or the row after it, and out of
+        // it at either end.
+        if root.list-current >= 0 {
+            let next = root.list-current + by;
+            if next < 0 {
+                root.list-current = -1;
+                root.current = root.expanded;
+            } else if next >= root.list-rows.length {
+                root.list-current = -1;
+                root.current = Math.mod(root.expanded + 1, root.rows.length);
+            } else {
+                root.list-current = next;
+            }
+            return;
+        }
+        if root.expanded >= 0 && root.list-rows.length > 0 {
+            if by > 0 && root.current == root.expanded {
+                root.list-current = 0;
+                return;
+            }
+            if by < 0 && root.current == Math.mod(root.expanded + 1, root.rows.length) && root.expanded + 1 < root.rows.length {
+                root.list-current = root.list-rows.length - 1;
+                root.current = root.expanded;
+                return;
+            }
+        }
         root.current = root.current < 0
             ? (by > 0 ? 0 : root.rows.length - 1)
             : Math.mod(root.current + by, root.rows.length);
     }
     pure function has-submenu(index: int) -> bool {
-        return root.submenus[index].length > 0;
+        return root.submenus[index].length > 0 && !root.rows[index].expands;
+    }
+    // Opens a row's list below it, closing any other, or closes its own.
+    function toggle-list(index: int) {
+        if root.expanded == index {
+            root.collapse();
+            return;
+        }
+        root.collapse();
+        root.sub-open = false;
+        root.sub-current = -1;
+        root.expanded = index;
+        root.current = index;
+        if root.rows[index].search { root.search-focus += 1; }
+    }
+    function collapse() {
+        if root.expanded >= 0 && root.query != "" {
+            root.query = "";
+            root.searched(root.rows[root.expanded].id, "");
+        }
+        root.expanded = -1;
+        root.list-current = -1;
+        if root.sub-item {
+            root.sub-item = false;
+            root.sub-open = false;
+            root.sub-current = -1;
+        }
+        keys.focus();
     }
     // A submenu lines up with its row; the row may report where it is
     // just before or just after it opens.
     function open-submenu(index: int) {
+        root.sub-item = false;
         root.sub-row = index;
         root.sub-current = -1;
         if root.lit-row == index { root.sub-y = root.lit-y; }
@@ -1117,7 +1314,7 @@ export component ContextMenu inherits Rectangle {
     }
     function pick(row: MenuRow) {
         if row.disabled { return; }
-        if row.checkbox { root.toggled(row.id); } else { root.chose(row.click-id == "" ? row.id : row.click-id); }
+        if row.checkbox || row.keep-open { root.toggled(row.id); } else { root.chose(row.click-id == "" ? row.id : row.click-id); }
     }
     // Where a menu that scrolls goes to show the row lit `y` down it and
     // `height` tall, as the keys move to it.
@@ -1142,6 +1339,10 @@ export component ContextMenu inherits Rectangle {
                 if root.sub-current >= 0 { root.sub-current = root.subrows.length - 1; } else { root.current = root.rows.length - 1; }
             } else if (event.text == Key.Return || event.text == " ") && root.sub-current >= 0 {
                 root.pick(root.subrows[root.sub-current]);
+            } else if (event.text == Key.Return || event.text == " ") && root.list-current >= 0 {
+                root.pick(root.list-rows[root.list-current]);
+            } else if (event.text == Key.Return || event.text == " ") && root.current >= 0 && root.rows[root.current].expands {
+                root.toggle-list(root.current);
             } else if (event.text == Key.Return || event.text == " " || (event.text == (root.flip ? Key.LeftArrow : Key.RightArrow))) && root.current >= 0 && root.sub-current < 0 {
                 if root.has-submenu(root.current) {
                     root.open-submenu(root.current);
@@ -1154,6 +1355,8 @@ export component ContextMenu inherits Rectangle {
             } else if root.sub-open && (event.text == Key.Escape || event.text == (root.flip ? Key.RightArrow : Key.LeftArrow)) {
                 root.sub-open = false;
                 root.sub-current = -1;
+            } else if event.text == Key.Escape && root.expanded >= 0 {
+                root.collapse();
             } else if event.text == Key.Escape {
                 root.close();
             } else {
@@ -1173,19 +1376,74 @@ export component ContextMenu inherits Rectangle {
             main := MenuRows {
                 width: root.menu-width;
                 rows: root.rows; submenus: root.submenus;
-                current: root.sub-current >= 0 ? -1 : root.current;
+                current: root.sub-current >= 0 || root.list-current >= 0 ? -1 : root.current;
                 holding: root.sub-open ? root.sub-row : -1;
+                expanded: root.expanded; list-current: root.list-current;
+                search-focus: root.search-focus; query <=> root.query; animate: root.animate;
                 hovered(index) => {
                     root.current = index;
                     root.sub-current = -1;
+                    root.list-current = -1;
                     if root.has-submenu(index) {
                         root.open-submenu(index);
                     } else {
                         root.sub-open = false;
+                        root.sub-item = false;
                     }
                 }
+                list-hovered(index) => {
+                    root.list-current = index;
+                    root.current = root.expanded;
+                    if !(root.sub-item && root.item-index == index) {
+                        root.sub-open = false;
+                        root.sub-item = false;
+                    }
+                    root.sub-current = -1;
+                }
+                list-menu(index, y) => {
+                    root.item-menu(root.rows[root.expanded].id, root.list-rows[index].id);
+                    if root.item-rows.length == 0 { return; }
+                    root.sub-row = -1;
+                    root.sub-item = true;
+                    root.item-index = index;
+                    root.list-current = index;
+                    root.sub-current = -1;
+                    root.sub-y = max(0px, y - main-panel.absolute-position.y - 6px);
+                    root.sub-open = true;
+                }
+                list-clicked(index) => { root.pick(root.list-rows[index]); }
+                list-searched(text) => {
+                    root.searched(root.rows[root.expanded].id, text);
+                    root.list-current = root.list-rows.length > 0 && !root.list-rows[0].disabled ? 0 : -1;
+                }
+                list-accepted => {
+                    if root.list-current >= 0 && root.list-current < root.list-rows.length {
+                        root.pick(root.list-rows[root.list-current]);
+                    }
+                }
+                // The search keeps what writes; the menu takes moving and
+                // Escape, which clears the search, then closes the list.
+                list-key(event) => {
+                    if event.text == Key.DownArrow || (event.text == Key.Tab && !event.modifiers.shift) {
+                        root.step(1);
+                    } else if event.text == Key.UpArrow || event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) {
+                        root.step(-1);
+                    } else if event.text == Key.Escape {
+                        if root.query != "" {
+                            root.query = "";
+                            root.searched(root.rows[root.expanded].id, "");
+                        } else {
+                            root.collapse();
+                        }
+                    } else {
+                        return false;
+                    }
+                    return true;
+                }
                 clicked(index) => {
-                    if root.has-submenu(index) && root.rows[index].click-id == "" {
+                    if root.rows[index].expands {
+                        root.toggle-list(index);
+                    } else if root.has-submenu(index) && root.rows[index].click-id == "" {
                         root.open-submenu(index);
                     } else {
                         root.pick(root.rows[index]);

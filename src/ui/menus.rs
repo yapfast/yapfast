@@ -4,7 +4,7 @@ use yapfast_core::{
     application::{ChannelAsk, MUTE_TIMES, MenuChoice, OwnershipInput, network_id, network_link},
     chat::{
         ChannelKind, MemberChange, Muting, NotificationChange, Notifications, NotifyLevel,
-        RelationshipChange,
+        RelationshipChange, ServerNotifications,
     },
 };
 
@@ -129,7 +129,8 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
         .iter()
         .any(|found| Some(&found.id) == room.as_ref() && !found.people.is_empty());
     let server = state.servers.iter().any(|server| server.id == id);
-    let category = !server && state.is_category(id);
+    let folder = !server && state.is_folder(id);
+    let category = !server && !folder && state.is_category(id);
     let voice = state
         .rooms
         .iter()
@@ -147,6 +148,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 MenuChoice::Kick => (format!("Kick {}", name()), &icons.kick),
                 MenuChoice::Ban => (format!("Ban {}", name()), &icons.ban),
                 MenuChoice::Invite if server => ("Invite to server".into(), &icons.befriend),
+                MenuChoice::MarkRead if folder => ("Mark folder as read".into(), &icons.read),
                 MenuChoice::CreateChannel if server => ("Create channel".into(), &icons.create),
                 MenuChoice::CreateChannel if voice => {
                     ("Create voice channel".into(), &icons.create)
@@ -179,7 +181,10 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::UnmuteServer
                 | MenuChoice::ServerNotifications
                 | MenuChoice::ShowAllChannels
-                | MenuChoice::HideMuted => 2,
+                | MenuChoice::HideMuted
+                | MenuChoice::MuteFolder
+                | MenuChoice::UnmuteFolder
+                | MenuChoice::FolderNotifications => 2,
                 MenuChoice::CopyLink
                 | MenuChoice::CopyId
                 | MenuChoice::JoinThread
@@ -231,6 +236,13 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                         level_name(own.level.unwrap_or(own.inherited)).to_owned()
                     })
                     .unwrap_or_default(),
+                MenuChoice::UnmuteFolder => folder_muted_until(app, id)
+                    .map(|until| muted_until(until / 1000, adapter.layout.twelve_hour_clock))
+                    .unwrap_or_default(),
+                MenuChoice::FolderNotifications => folder_level(app, id)
+                    .map(level_name)
+                    .unwrap_or_default()
+                    .to_owned(),
                 _ => String::new(),
             };
             let checkbox = matches!(
@@ -286,11 +298,20 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                         | MenuChoice::LeaveGroup
                         | MenuChoice::TransferOwnership
                 ),
+                // A folder's Mark folder as read shows greyed while there's
+                // nothing to read, as Discord's does.
+                disabled: folder && choice == MenuChoice::MarkRead && !state.folder_unread(id),
                 separated,
                 checkbox,
                 checked,
                 plain,
-                ..Default::default()
+                // A folder's open their choices below themselves.
+                expands: matches!(
+                    choice,
+                    MenuChoice::MuteFolder | MenuChoice::FolderNotifications
+                ),
+                search: false,
+                keep_open: false,
             }
         })
         .collect();
@@ -326,6 +347,9 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             notify.dress(adapter, row);
         }
     }
+    if folder {
+        rows.extend(folder_rows(adapter, id));
+    }
     let submenus = rows
         .iter()
         .map(|row| {
@@ -334,6 +358,12 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 mute_times()
             } else if row.id == choice_id(MenuChoice::ServerNotifications) {
                 notification_rows(app, id)
+            } else if row.id == choice_id(MenuChoice::MuteFolder) {
+                keeping_open(mute_times())
+            } else if row.id == choice_id(MenuChoice::FolderNotifications) {
+                keeping_open(folder_notification_rows(app, id))
+            } else if row.id == FOLDER_SERVERS {
+                folder_server_list(adapter, id)
             } else if row.id == choice_id(MenuChoice::Roles) {
                 role_rows(adapter, id)
             } else if row.id == choice_id(MenuChoice::InviteToServer) {
@@ -405,6 +435,9 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::ServerNotifications => ("Notification settings", &icons.unmute),
         MenuChoice::ShowAllChannels => ("Show all channels", &icons.show),
         MenuChoice::HideMuted => ("Hide muted channels", &icons.ignore),
+        MenuChoice::MuteFolder => ("Mute folder", &icons.mute),
+        MenuChoice::UnmuteFolder => ("Unmute folder", &icons.unmute),
+        MenuChoice::FolderNotifications => ("Notification settings", &icons.unmute),
         // A server's says so above.
         MenuChoice::Invite => ("Invite to channel", &icons.befriend),
         MenuChoice::PinChannel => ("Pin channel to top", &icons.pin),
@@ -732,6 +765,354 @@ fn notification_rows(app: &Application, server: &str) -> Vec<MenuRow> {
 const SUPPRESS_EVERYONE: &str = "suppress-everyone";
 const SUPPRESS_ROLES: &str = "suppress-roles";
 
+/// A rail folder's menu lists its servers below its Servers row, which
+/// opens and closes the list in the menu, each named by this, then the
+/// server's id.
+const FOLDER_SERVER: &str = "folder-server:";
+const FOLDER_SERVERS: &str = "folder-servers";
+/// The Servers list shows this many rows before it scrolls; a folder of
+/// more servers gets a search at the top of it.
+const FOLDER_SEARCH: usize = 5;
+/// A row of the choices a server in that list opens beside it is named by
+/// the server's id, this, then the row's id in the server's own menu.
+const IN_SERVER: char = '|';
+/// Closes every open folder on the rail, as Discord's folder menu does.
+const CLOSE_ALL_FOLDERS: &str = "close-all-folders";
+
+/// How each server of a rail folder that Yapfast knows the settings of
+/// notifies this account.
+fn folder_settings(app: &Application, folder: &str) -> Vec<ServerNotifications> {
+    app.folder_notifications(folder)
+        .filter_map(|(_, notifications)| notifications)
+        .collect()
+}
+
+/// The level every server of a folder has, when they agree.
+fn folder_level(app: &Application, folder: &str) -> Option<NotifyLevel> {
+    let levels = folder_settings(app, folder)
+        .into_iter()
+        .map(|known| known.own.level.unwrap_or(known.own.inherited));
+    let mut levels = levels.peekable();
+    let first = *levels.peek()?;
+    levels.all(|level| level == first).then_some(first)
+}
+
+/// When the last of a folder's mutes ends, while every server of it is
+/// muted for a time; none while one is muted until unmuted.
+fn folder_muted_until(app: &Application, folder: &str) -> Option<u64> {
+    folder_settings(app, folder)
+        .into_iter()
+        .map(|known| known.own.muted_until)
+        .try_fold(0, |last, until| Some(last.max(until?)))
+        .filter(|&last| last > 0)
+}
+
+/// A folder's notification submenu: the levels, the one all its servers
+/// share checked, then the switches, ticked when every server has them on.
+fn folder_notification_rows(app: &Application, folder: &str) -> Vec<MenuRow> {
+    let all = folder_settings(app, folder);
+    let shared = folder_level(app, folder);
+    let levels = LEVELS.into_iter().filter_map(|(id, level)| {
+        let level = level?;
+        Some(MenuRow {
+            id: id.into(),
+            text: level_name(level).into(),
+            checked: Some(level) == shared,
+            ..Default::default()
+        })
+    });
+    let switch = |id: &str, text: &str, on: bool, separated: bool| MenuRow {
+        id: id.into(),
+        text: text.into(),
+        checkbox: true,
+        checked: on,
+        separated,
+        ..Default::default()
+    };
+    levels
+        .chain([
+            switch(
+                SUPPRESS_EVERYONE,
+                "Suppress @everyone and @here",
+                all.iter().all(|known| known.suppress_everyone),
+                true,
+            ),
+            switch(
+                SUPPRESS_ROLES,
+                "Suppress all role @mentions",
+                all.iter().all(|known| known.suppress_roles),
+                false,
+            ),
+        ])
+        .collect()
+}
+
+/// The change a choice from a folder's own rows makes to all its servers:
+/// a mute, a level, or a switch, on unless every server has it on already.
+pub(super) fn folder_change(
+    app: &Application,
+    folder: &str,
+    id: &str,
+) -> Option<NotificationChange> {
+    if let Some(muting) = MUTE_TIMES.into_iter().find(|&muting| mute_id(muting) == id) {
+        return Some(NotificationChange::Mute(muting));
+    }
+    if let Some((_, Some(level))) = LEVELS.into_iter().find(|(level, _)| *level == id) {
+        return Some(NotificationChange::Level(Some(level)));
+    }
+    let all = folder_settings(app, folder);
+    match id {
+        SUPPRESS_EVERYONE => Some(NotificationChange::SuppressEveryone(
+            !all.iter().all(|known| known.suppress_everyone),
+        )),
+        SUPPRESS_ROLES => Some(NotificationChange::SuppressRoles(
+            !all.iter().all(|known| known.suppress_roles),
+        )),
+        _ if id == choice_id(MenuChoice::UnmuteFolder) => {
+            Some(NotificationChange::Mute(Muting::Off))
+        }
+        _ => None,
+    }
+}
+
+/// The rows a rail folder's menu adds after its own: Servers, whose list
+/// names each server with how it notifies now, and opens a server's own
+/// notification choices when chosen; then Close all folders while a folder
+/// is open.
+fn folder_rows(adapter: &Adapter, folder: &str) -> Vec<MenuRow> {
+    // One row for its servers, which opens their list below it, so the
+    // menu stays short however many it holds.
+    let servers = folder_server_list(adapter, folder).len();
+    let mut rows = vec![];
+    if servers > 0 {
+        rows.push(MenuRow {
+            id: FOLDER_SERVERS.into(),
+            text: "Servers".into(),
+            subtitle: if servers == 1 {
+                "1 server".into()
+            } else {
+                format!("{servers} servers").into()
+            },
+            icon: adapter.icons.unmute.clone(),
+            separated: true,
+            expands: true,
+            search: servers > FOLDER_SEARCH,
+            ..Default::default()
+        });
+    }
+    if !adapter.layout.open_folders.is_empty() {
+        rows.push(MenuRow {
+            id: CLOSE_ALL_FOLDERS.into(),
+            text: "Close all folders".into(),
+            icon: adapter.icons.folder.clone(),
+            separated: true,
+            ..Default::default()
+        });
+    }
+    rows
+}
+
+/// A row for each server of a folder whose settings Yapfast knows, while
+/// the folder's menu offers its notifications, saying how it notifies now.
+fn folder_server_list(adapter: &Adapter, folder: &str) -> Vec<MenuRow> {
+    let app = &adapter.app;
+    let mut rows: Vec<MenuRow> = vec![];
+    if app
+        .menu_choices(folder)
+        .contains(&MenuChoice::FolderNotifications)
+    {
+        for (server, known) in app.folder_notifications(folder) {
+            let Some(known) = known else { continue };
+            let name = app
+                .state
+                .servers
+                .iter()
+                .find(|listed| listed.id == server)
+                .map(|listed| listed.name.clone())
+                .unwrap_or_default();
+            let own = known.own;
+            let subtitle = match (own.muted, own.muted_until) {
+                (true, Some(until)) => muted_until(until / 1000, adapter.layout.twelve_hour_clock),
+                (true, None) => "Muted".into(),
+                (false, _) => level_name(own.level.unwrap_or(own.inherited)).into(),
+            };
+            rows.push(MenuRow {
+                id: format!("{FOLDER_SERVER}{server}").into(),
+                text: name.into(),
+                subtitle: subtitle.into(),
+                icon: if own.muted {
+                    adapter.icons.mute.clone()
+                } else {
+                    adapter.icons.unmute.clone()
+                },
+                ..Default::default()
+            });
+        }
+    }
+    rows
+}
+
+/// The rows a searchable list shows for what's typed in its search: the
+/// servers of a folder's Servers list whose names hold it, ignoring case,
+/// or a greyed row saying none do.
+pub(super) fn search_rows(adapter: &Adapter, target: &str, row: &str, query: &str) -> Vec<MenuRow> {
+    if row != FOLDER_SERVERS {
+        return vec![];
+    }
+    let query = query.to_lowercase();
+    let rows: Vec<MenuRow> = folder_server_list(adapter, target)
+        .into_iter()
+        .filter(|server| server.text.to_lowercase().contains(&query))
+        .collect();
+    if rows.is_empty() {
+        return vec![MenuRow {
+            text: "No servers match".into(),
+            disabled: true,
+            ..Default::default()
+        }];
+    }
+    rows
+}
+
+/// Shows the rows [`search_rows`] gives in place of the list of the menu's
+/// row `row`.
+pub(super) fn search(
+    adapter: &Adapter,
+    window: &YapfastWindow,
+    target: &str,
+    row: &str,
+    query: &str,
+) {
+    let rows = window.get_menu_rows();
+    let Some(index) = rows.iter().position(|shown| shown.id == row) else {
+        return;
+    };
+    let found = search_rows(adapter, target, row, query);
+    if found.is_empty() {
+        return;
+    }
+    window
+        .get_menu_submenus()
+        .set_row_data(index, ModelRc::new(VecModel::from(found)));
+}
+
+/// What right-clicking the item `item` of the list of the menu's row `row`
+/// opens beside it: a server's notification choices, in a folder's Servers
+/// list.
+pub(super) fn item_rows(adapter: &Adapter, target: &str, row: &str, item: &str) -> Vec<MenuRow> {
+    match item.strip_prefix(FOLDER_SERVER) {
+        Some(server)
+            if row == FOLDER_SERVERS
+                && adapter
+                    .app
+                    .state
+                    .folder_servers(target)
+                    .any(|known| known.id == server) =>
+        {
+            folder_server_rows(adapter, server)
+        }
+        _ => vec![],
+    }
+}
+
+/// What right-clicking a server in a folder's Servers list opens beside
+/// it: what the server's own menu offers for its notifications, in one
+/// list. Muting for each of the times, or while muted unmuting, then its
+/// levels and switches. Each row's id names the server and the row's id in
+/// the server's menu.
+fn folder_server_rows(adapter: &Adapter, server: &str) -> Vec<MenuRow> {
+    let app = &adapter.app;
+    let Some(known) = app.server_notifications(server) else {
+        return vec![];
+    };
+    let mute: Vec<MenuRow> = if known.own.muted {
+        vec![MenuRow {
+            id: choice_id(MenuChoice::UnmuteServer).into(),
+            text: "Unmute server".into(),
+            subtitle: known
+                .own
+                .muted_until
+                .map(|until| muted_until(until / 1000, adapter.layout.twelve_hour_clock))
+                .unwrap_or_default()
+                .into(),
+            icon: adapter.icons.unmute.clone(),
+            ..Default::default()
+        }]
+    } else {
+        mute_times()
+            .into_iter()
+            .map(|row| {
+                let text = row.text.to_string();
+                let mut chars = text.chars();
+                let lower: String = chars
+                    .next()
+                    .map(|first| first.to_lowercase().chain(chars).collect())
+                    .unwrap_or_default();
+                MenuRow {
+                    text: format!("Mute {lower}").into(),
+                    ..row
+                }
+            })
+            .collect()
+    };
+    let mut levels = notification_rows(app, server);
+    if let Some(first) = levels.first_mut() {
+        first.separated = true;
+    }
+    keeping_open(
+        mute.into_iter()
+            .chain(levels)
+            .map(|row| MenuRow {
+                id: format!("{server}{IN_SERVER}{}", row.id).into(),
+                ..row
+            })
+            .collect(),
+    )
+}
+
+/// The rows, each applying what it chooses and leaving the menu open, as a
+/// folder's lists and a server's choices beside them do.
+fn keeping_open(rows: Vec<MenuRow>) -> Vec<MenuRow> {
+    rows.into_iter()
+        .map(|row| MenuRow {
+            keep_open: true,
+            ..row
+        })
+        .collect()
+}
+
+/// Checks the row `id` that keeps the menu open, where it shows, as the
+/// current choice of its group, the rows between two lines, unchecking the
+/// others there but checkboxes.
+pub(super) fn mark(window: &YapfastWindow, id: &str) {
+    let check = |rows: ModelRc<MenuRow>| {
+        let all: Vec<MenuRow> = rows.iter().collect();
+        let Some(at) = all
+            .iter()
+            .position(|row| row.keep_open && !row.checkbox && row.id == id)
+        else {
+            return false;
+        };
+        let start = (0..=at)
+            .rev()
+            .find(|&index| all[index].separated)
+            .unwrap_or(0);
+        let end = (at + 1..all.len())
+            .find(|&index| all[index].separated)
+            .unwrap_or(all.len());
+        for (index, row) in all.into_iter().enumerate().take(end).skip(start) {
+            if !row.checkbox && row.keep_open {
+                let checked = index == at;
+                rows.set_row_data(index, MenuRow { checked, ..row });
+            }
+        }
+        true
+    };
+    let _ = std::iter::once(window.get_menu_item_rows())
+        .chain(window.get_menu_submenus().iter())
+        .any(check);
+}
+
 /// When a mute ends, as its Unmute row says it.
 fn muted_until(seconds: u64, twelve_hour: bool) -> String {
     format!("Muted until {}", until(seconds, twelve_hour))
@@ -787,6 +1168,7 @@ pub(super) fn show(window: &YapfastWindow, (rows, submenus): Menu) {
     };
     window.set_menu_rows(ModelRc::new(VecModel::from(rows)));
     window.set_menu_submenus(ModelRc::new(VecModel::from(submenus)));
+    window.set_menu_item_rows(ModelRc::default());
 }
 
 /// Ticks or unticks the checkbox row `id` in the menu showing, as choosing
@@ -803,6 +1185,7 @@ pub(super) fn toggle(window: &YapfastWindow, id: &str) -> Option<bool> {
     };
     std::iter::once(window.get_menu_rows())
         .chain(window.get_menu_submenus().iter())
+        .chain(std::iter::once(window.get_menu_item_rows()))
         .find_map(flip)
 }
 
@@ -818,8 +1201,12 @@ pub(super) fn choose(
     if target.starts_with(EVENTS) {
         return;
     }
-    // A checkbox shows its new state at once, as the menu stays open.
+    // A checkbox shows its new state at once, as the menu stays open, and
+    // so does a choice that keeps it open.
     let ticked = toggle(window, id);
+    if ticked.is_none() {
+        mark(window, id);
+    }
     // Someone's menu in a voice channel acts on them in its server.
     let in_voice = voice_target(&target).map(|(room, user)| (room.to_owned(), user.to_owned()));
     let target = match &in_voice {
@@ -847,6 +1234,49 @@ pub(super) fn choose(
         .strip_prefix(HEADER)
         .map(str::to_owned)
         .unwrap_or(target);
+    if adapter.app.state.is_folder(&target) {
+        if id == CLOSE_ALL_FOLDERS {
+            adapter.layout.open_folders.clear();
+            adapter.layout.write(&adapter.root);
+            // What the sidebar was built from leaves the layout out.
+            adapter.sidebar = None;
+            adapter.show_sidebar(window);
+            return;
+        }
+        let in_folder = |server: &str| {
+            adapter
+                .app
+                .state
+                .folder_servers(&target)
+                .any(|known| known.id == server)
+        };
+        // A server from the folder's Servers list opens, as its icon on
+        // the rail does.
+        if let Some(server) = id.strip_prefix(FOLDER_SERVER) {
+            if in_folder(server) {
+                let server = server.to_owned();
+                adapter.action(window, Action::Navigate(Navigation::Server(server)));
+            }
+            return;
+        }
+        // A row of the choices a server there opens beside it changes that
+        // server, as its own menu does.
+        if let Some((server, row)) = id.split_once(IN_SERVER) {
+            if in_folder(server)
+                && let Some(change) = server_change(&adapter.app, server, row)
+            {
+                let place = server.to_owned();
+                adapter.action(window, Action::ChangeNotifications { place, change });
+            }
+            return;
+        }
+        // The rest change all the folder's servers.
+        if let Some(change) = folder_change(&adapter.app, &target, id) {
+            let place = target.clone();
+            adapter.action(window, Action::ChangeNotifications { place, change });
+            return;
+        }
+    }
     let server = adapter
         .app
         .state
@@ -1092,7 +1522,10 @@ pub(super) fn choose(
         MenuChoice::MuteServer
         | MenuChoice::UnmuteServer
         | MenuChoice::ServerNotifications
-        | MenuChoice::HideMuted => None,
+        | MenuChoice::HideMuted
+        | MenuChoice::MuteFolder
+        | MenuChoice::UnmuteFolder
+        | MenuChoice::FolderNotifications => None,
     };
     let Some(action) = action else {
         return;
@@ -1135,7 +1568,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 65] = [
+const CHOICES: [MenuChoice; 68] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1176,6 +1609,9 @@ const CHOICES: [MenuChoice; 65] = [
     MenuChoice::UnmuteServer,
     MenuChoice::ServerNotifications,
     MenuChoice::HideMuted,
+    MenuChoice::MuteFolder,
+    MenuChoice::UnmuteFolder,
+    MenuChoice::FolderNotifications,
     MenuChoice::Invite,
     MenuChoice::PinChannel,
     MenuChoice::UnpinChannel,
@@ -1245,6 +1681,9 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::UnmuteServer => "unmute-server",
         MenuChoice::ServerNotifications => "server-notifications",
         MenuChoice::HideMuted => "hide-muted",
+        MenuChoice::MuteFolder => "mute-folder",
+        MenuChoice::UnmuteFolder => "unmute-folder",
+        MenuChoice::FolderNotifications => "folder-notifications",
         MenuChoice::Invite => "invite",
         MenuChoice::PinChannel => "pin-channel",
         MenuChoice::UnpinChannel => "unpin-channel",
