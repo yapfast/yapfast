@@ -968,6 +968,7 @@ fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
         messages: timeline(vec![
             message("e:$bob", false),
             message("e:$mine", true),
+            message("e:$other", true),
             pending,
         ]),
     });
@@ -981,6 +982,22 @@ fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
         app.dispatch(Action::ConfirmDelete).as_slice(),
         [Effect::Backend(Command::Delete { item, .. })] if item == "e:$mine"
     ));
+    // Shift's quick Delete doesn't ask, and leaves another message's
+    // question alone.
+    app.dispatch(Action::RequestDelete("e:$mine".into()));
+    assert!(app.dispatch(Action::DeleteNow("e:$bob".into())).is_empty());
+    assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$mine"));
+    assert!(matches!(
+        app.dispatch(Action::DeleteNow("e:$other".into())).as_slice(),
+        [Effect::Backend(Command::Delete { item, .. })] if item == "e:$other"
+    ));
+    assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$mine"));
+    // A quick Delete of the message being asked about ends the question.
+    assert!(matches!(
+        app.dispatch(Action::DeleteNow("e:$mine".into())).as_slice(),
+        [Effect::Backend(Command::Delete { item, .. })] if item == "e:$mine"
+    ));
+    assert!(app.state.confirm_delete.is_none());
     assert!(app.dispatch(Action::Retry("e:$mine".into())).is_empty());
     assert!(matches!(
         app.dispatch(Action::Retry("t:txn".into())).as_slice(),
@@ -5257,6 +5274,31 @@ fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
     }
     assert!(app.state.pictures.contains_key("bobs-ring.png"));
     assert!(!app.state.pictures.contains_key("plate.png"));
+}
+
+#[test]
+fn server_tag_badges_on_screen_stay_with_the_avatars() {
+    let mut app = connected();
+    let badge = "https://cdn.discordapp.com/clan-badges/10/abc.png?size=32";
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![ChatMessage {
+            tag: Some(chat::ServerTag {
+                text: "CODE".into(),
+                badge: Some(badge.into()),
+            }),
+            ..message("e:$ann", false)
+        }]),
+    });
+    for url in std::iter::once(badge.to_owned()).chain((0..KEPT_PICTURES).map(|i| i.to_string())) {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key(badge));
+    assert_eq!(app.state.pictures.len(), 1, "the rest went");
 }
 
 #[test]

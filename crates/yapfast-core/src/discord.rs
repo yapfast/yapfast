@@ -71,6 +71,9 @@ const PICTURE_SIZE: u32 = 128;
 /// its size, the strip a row's height shows at twice the scale.
 #[cfg(feature = "discord")]
 const COLLECTIBLE_SIZE: (u32, u32) = (672, 192);
+/// The most a profile badge's icon is decoded at: twice the 20px it shows at.
+#[cfg(feature = "discord")]
+const BADGE_SIZE: u32 = 40;
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -196,8 +199,8 @@ fn in_voice(snapshot: &Snapshot, channel: &str) -> Vec<VoicePerson> {
 pub fn server_tag(tag: Option<yapfast_discord::message::Tag>) -> Option<chat::ServerTag> {
     let tag = tag?;
     Some(chat::ServerTag {
-        badge: tag.badge_url(),
         text: tag.text,
+        badge: tag.badge,
     })
 }
 
@@ -686,7 +689,6 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         tag: server_tag(dm.tag.clone()),
         official: dm.official,
         empty: dm.empty,
-        symbol: chat::symbol::TEXT,
         preview: dm.preview.as_ref().map(|preview| {
             Box::new(chat::RequestPreview {
                 text: match (preview.text.trim(), preview.files) {
@@ -836,15 +838,6 @@ fn server_rooms(
                 tag: None,
                 official: false,
                 empty: false,
-                symbol: private_symbol(
-                    server,
-                    channel,
-                    if channel.stage {
-                        chat::symbol::STAGE
-                    } else {
-                        chat::symbol::TEXT
-                    },
-                ),
                 preview: None,
             }
         } else {
@@ -896,21 +889,6 @@ fn server_rooms(
                 tag: None,
                 official: false,
                 empty: false,
-                symbol: private_symbol(
-                    server,
-                    channel,
-                    if server.rules_channel.as_deref() == Some(channel.id.as_str()) {
-                        chat::symbol::RULES
-                    } else if channel.announcement {
-                        chat::symbol::ANNOUNCEMENT
-                    } else if channel.media {
-                        chat::symbol::MEDIA
-                    } else if channel.nsfw {
-                        chat::symbol::AGE_RESTRICTED
-                    } else {
-                        chat::symbol::TEXT
-                    },
-                ),
                 preview: None,
             }
         });
@@ -953,20 +931,6 @@ fn server_rooms(
             .collect(),
     };
     (rooms, server)
-}
-
-/// A channel's icon `kind`, with the padlock mark when @everyone may not see it.
-#[cfg(feature = "discord")]
-fn private_symbol(
-    server: &MarkedServer,
-    channel: &yapfast_discord::ready::Channel,
-    kind: u8,
-) -> u8 {
-    if server.private(channel) {
-        kind | chat::symbol::PRIVATE
-    } else {
-        kind
-    }
 }
 
 /// A thread as it lists under `parent`, its channel's room.
@@ -1018,7 +982,6 @@ fn thread_room(
         tag: None,
         official: false,
         empty: false,
-        symbol: chat::symbol::TEXT,
         preview: None,
     }
 }
@@ -1214,6 +1177,8 @@ impl Pictures {
                     BANNER_SIZE
                 } else if url.contains("/collectibles-shop/") {
                     COLLECTIBLE_SIZE
+                } else if url.contains("/badge-icons/") {
+                    (BADGE_SIZE, BADGE_SIZE)
                 } else {
                     (PICTURE_SIZE, PICTURE_SIZE)
                 };
@@ -1222,8 +1187,12 @@ impl Pictures {
                 };
                 let address = url.clone();
                 let decoded = tokio::task::spawn_blocking(move || {
-                    chat::decode_picture(&data, width, height)
-                        .map(|picture| read_kept(&address, picture))
+                    let decode = if yapfast_discord::ready::is_asset_svg(&address) {
+                        chat::decode_svg
+                    } else {
+                        chat::decode_picture
+                    };
+                    decode(&data, width, height).map(|picture| read_kept(&address, picture))
                 })
                 .await;
                 match decoded {

@@ -669,6 +669,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     }
     bind_item!(on_request_delete, Action::RequestDelete);
+    bind_item!(on_delete_now, Action::DeleteNow);
     bind_item!(on_pin_message, Action::PinMessage);
     bind_item!(on_retry, Action::Retry);
     bind_item!(on_cancel_send, Action::CancelSend);
@@ -1490,11 +1491,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.twelve_hour_clock = window.get_twelve_hour_clock();
         layout.clock_seconds = window.get_clock_seconds();
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
-        layout.time_zone = usize::try_from(window.get_time_zone() - 1)
-            .ok()
-            .and_then(|index| yapfast_core::clock::ZONES.get(index).copied());
-        layout.language = window.get_language();
-        layout.apply_clock_style(&window);
+        layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());

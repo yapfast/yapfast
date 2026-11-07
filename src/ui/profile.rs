@@ -16,6 +16,12 @@ fn bio_with_emoji(bio: &str, emoji: &[yapfast_core::chat::CustomEmoji]) -> Strin
     out
 }
 
+/// "1 mutual friend" or "5 mutual servers".
+fn mutual_count(count: usize, what: &str) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} mutual {what}{plural}")
+}
+
 /// Only mentions get a number; plain unread activity is a dot, because sync
 /// does not deliver every message of a room that isn't open.
 /// "Ann is", "Ann and Bob are", or "Ann, Bob and 3 others are".
@@ -242,7 +248,7 @@ pub(super) fn profile_data(
     // with the avatar's dominant colour.
     let accent = profile.accent.or_else(|| {
         (profile.banner.is_none() && profile.theme.is_none())
-            .then(|| dominant_color(&avatar))
+            .then(|| avatar_color(profile.avatar.as_deref(), &avatar))
             .flatten()
     });
     ProfileData {
@@ -257,16 +263,8 @@ pub(super) fn profile_data(
         decoration_url: profile.decoration.as_deref().unwrap_or_default().into(),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
-        tag: profile
-            .tag
-            .as_ref()
-            .map_or_else(Default::default, |tag| tag.text.as_str().into()),
-        tag_badge: profile
-            .tag
-            .as_ref()
-            .and_then(|tag| tag.badge.as_deref())
-            .unwrap_or_default()
-            .into(),
+        tag: tag_text(&profile.tag),
+        tag_badge: tag_badge(&profile.tag),
         banner: banner.clone(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
@@ -384,8 +382,8 @@ pub(super) fn profile_data(
                 })
                 .collect::<Vec<_>>(),
         )),
-        mutual_friends_text: yapfast_core::i18n::mutual_friends(profile.friends.len()).into(),
-        mutual_servers_text: yapfast_core::i18n::mutual_servers(profile.servers.len()).into(),
+        mutual_friends_text: mutual_count(profile.friends.len(), "friend").into(),
+        mutual_servers_text: mutual_count(profile.servers.len(), "server").into(),
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && state.relation(&profile.id) != Relation::Me,
         can_message: state
@@ -396,7 +394,7 @@ pub(super) fn profile_data(
             .person_choices(&profile.id)
             .contains(&MenuChoice::Message)
         {
-            yapfast_core::i18n::message_hint(&profile.name).into()
+            format!("Message @{}", profile.name).into()
         } else {
             Default::default()
         },
@@ -448,6 +446,31 @@ pub(super) fn role_rows(roles: &[ProfileRole], width: f32) -> ModelRc<ProfileRol
     ))
 }
 
+/// How many avatars' colours are kept before they're worked out afresh.
+const AVATAR_COLORS: usize = 64;
+
+thread_local! {
+    /// [`dominant_color`] of the avatars profiles have shown, by address:
+    /// `profile_data` runs on every refresh with a profile open.
+    static AVATAR_COLOR: RefCell<HashMap<String, u32>> = RefCell::default();
+}
+
+/// [`dominant_color`] of the avatar at `url`, worked out once it has arrived.
+pub(super) fn avatar_color(url: Option<&str>, avatar: &slint::Image) -> Option<u32> {
+    let url = url?;
+    AVATAR_COLOR.with_borrow_mut(|colors| {
+        if let Some(color) = colors.get(url) {
+            return Some(*color);
+        }
+        let color = dominant_color(avatar)?;
+        if colors.len() >= AVATAR_COLORS {
+            colors.clear();
+        }
+        colors.insert(url.to_owned(), color);
+        Some(color)
+    })
+}
+
 /// The colour that stands out most in a picture, as 0xRRGGBB: the average of
 /// its opaque pixels, each counted by how saturated it is, so a vivid avatar
 /// on a grey background gives its vivid colour. A grey picture gives its
@@ -480,6 +503,20 @@ pub(super) fn dominant_color(picture: &slint::Image) -> Option<u32> {
         color = (color << 8) | (sum / total).round().clamp(0.0, 255.0) as u32;
     }
     Some(color)
+}
+
+/// A server tag's letters for Slint, or nothing for one who wears none.
+pub(super) fn tag_text(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.as_ref()
+        .map_or_else(Default::default, |tag| (&*tag.text).into())
+}
+
+/// The address of a server tag's badge for Slint, or nothing without one.
+pub(super) fn tag_badge(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.as_ref()
+        .and_then(|tag| tag.badge.as_deref())
+        .unwrap_or_default()
+        .into()
 }
 
 /// A Discord role's RGB colour for Slint.

@@ -1368,6 +1368,9 @@ pub enum Action {
         key: String,
     },
     RequestDelete(String),
+    /// Delete a message without asking first, as Shift and a click on its
+    /// Delete do in Discord's client.
+    DeleteNow(String),
     /// Vote for these answers of a Discord message's poll, by item, in
     /// place of this account's vote; none takes it back.
     Vote {
@@ -2157,7 +2160,8 @@ fn visible_range(
 
 /// The server icons and avatars on screen: the rail, the first DMs listed,
 /// the people in the listed voice channels, the call, `timeline` and the
-/// member list, profiles and people to start a DM with.
+/// member list, profiles and people to start a DM with, with the server tags
+/// and role icons by their names.
 fn pictures_on_screen<'a>(
     state: &'a AppState,
     timeline: &'a [Arc<ChatMessage>],
@@ -2181,7 +2185,13 @@ fn pictures_on_screen<'a>(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .flat_map(|room| [room.avatar.as_deref(), room.decoration.as_deref()])
+                .flat_map(|room| {
+                    [
+                        room.avatar.as_deref(),
+                        room.decoration.as_deref(),
+                        tag_badge(&room.tag),
+                    ]
+                })
                 .flatten()
                 .take(LISTED_PICTURES),
         )
@@ -2342,7 +2352,12 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
+                        .chain(tag_badge(&profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
+                        .chain(profile.badges.iter().flat_map(|badge| {
+                            std::iter::once(badge.icon.as_str())
+                                .chain(badge.level.iter().map(|level| level.picture.as_str()))
+                        }))
                 }),
         )
         .chain(
@@ -2373,6 +2388,7 @@ fn pictures_on_screen<'a>(
                         .into_iter()
                         .chain(message.decoration.as_deref())
                         .chain(reply)
+                        .chain(tag_badge(&message.tag))
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2404,9 +2420,13 @@ fn pictures_on_screen<'a>(
                             .as_ref()
                             .filter(|_| !state.hide_nameplates)
                             .map(|plate| plate.picture.as_str()),
+                        member.group_icon.as_deref(),
+                        member.role_icon.as_deref(),
+                        tag_badge(&member.tag),
                     ]
-                })
-                .flatten(),
+                    .into_iter()
+                    .flatten()
+                }),
         )
         .chain(
             state
@@ -2415,6 +2435,11 @@ fn pictures_on_screen<'a>(
                 .flat_map(NewDm::people)
                 .filter_map(|person| person.avatar.as_deref()),
         )
+}
+
+/// The address of the picture of a server tag's badge.
+fn tag_badge(tag: &Option<chat::ServerTag>) -> Option<&str> {
+    tag.as_ref()?.badge.as_deref()
 }
 
 /// Discord's CDN keeps custom emoji under /emojis/.
@@ -2689,6 +2714,7 @@ impl Application {
             }
             Action::React { item, key } => self.react(item, key),
             Action::RequestDelete(item) => self.request_delete(item),
+            Action::DeleteNow(item) => self.delete_now(item),
             Action::Vote { item, answers } => self.vote(item, answers),
             Action::OpenPollDraft => self.open_poll_draft(),
             Action::EditPoll(edit) => self.edit_poll(edit),

@@ -23,7 +23,7 @@ use crate::{
     mfa,
     notifications::Change,
     oauth,
-    profile::{self, Profile},
+    profile::{self, Badge, Profile},
     ready::{self, PRIVATE, Server},
     scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
@@ -673,6 +673,9 @@ pub struct Discord {
     names: Arc<RwLock<Names>>,
     /// Profiles fetched lately, oldest first.
     profiles: Arc<Mutex<Vec<Kept>>>,
+    /// This account's notes it has read, by user: none is an empty text. The
+    /// session keeps them current; see [`session::Shared::notes`].
+    notes: Notes,
     /// The threads a list of a channel's threads found, by id, while it's
     /// open: one opens from what Discord gave rather than asking again.
     listed_threads: Arc<Mutex<HashMap<String, Value>>>,
@@ -699,6 +702,8 @@ struct Kept {
     user: String,
     guild: String,
     at: Instant,
+    /// Whether [`Discord::badge_levels`] asked for its badges' levels.
+    levels_asked: bool,
     /// Their server nickname and avatar when it was fetched: once
     /// GUILD_MEMBER_UPDATE changes either, it's fetched again, with the
     /// rest of what they changed in their server profile.
@@ -711,8 +716,21 @@ const LIVE_BACKLOG: usize = 256;
 const PROFILE_AGE: Duration = Duration::from_secs(5 * 60);
 const PROFILES: usize = 32;
 
-/// The levels of someone's badges being fetched, from [`Discord::start_badge_levels`].
-pub struct EarlyBadges(tokio::task::JoinHandle<Result<Value>>);
+/// How many users' notes are kept before they're read afresh.
+const NOTES: usize = 256;
+
+type Notes = Arc<Mutex<HashMap<String, String>>>;
+
+/// Keeps a note this account has on `user`.
+fn keep_note(notes: &Notes, user: &str, note: &str) {
+    let mut notes = notes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if notes.len() >= NOTES && !notes.contains_key(user) {
+        notes.clear();
+    }
+    notes.insert(user.to_owned(), note.to_owned());
+}
 
 impl Discord {
     /// Connects on the current Tokio runtime and keeps reconnecting until
@@ -744,6 +762,7 @@ impl Discord {
         cached.names = SharedNames::new(names.clone());
         let (snapshots, watcher) = watch::channel(Arc::new(cached));
         let (live, _) = broadcast::channel(LIVE_BACKLOG);
+        let notes = Notes::default();
         // Sharing waits for READY unless an earlier session's settings said.
         let (show_game, shown) = watch::channel(watcher.borrow().show_game);
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
@@ -755,6 +774,7 @@ impl Discord {
                 snapshots,
                 live: live.clone(),
                 names: names.clone(),
+                notes: notes.clone(),
                 api: api.clone(),
                 lists: MemberLists::new(
                     lists,
@@ -777,6 +797,7 @@ impl Discord {
             api,
             names,
             profiles: Arc::default(),
+            notes,
             listed_threads: Arc::default(),
             new_dms: Arc::new(Mutex::new(limits::Window::new(NEW_DMS, NEW_DM_SPAN))),
             application_icons: Arc::default(),
@@ -1322,16 +1343,10 @@ impl Discord {
         if let Some(earlier) = earlier {
             kept(earlier);
         }
-        let asked = Instant::now();
         let value = self.api.profile(user, server(guild)).await?;
-        tracing::info!(ms = asked.elapsed().as_millis() as u64, "fetched a profile");
         self.write_names().learn_user(&value["user"]);
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
-        tracing::info!(
-            theme = ?profile.theme,
-            "the theme colours a profile arrived with"
-        );
         {
             let mut profiles = self.lock_profiles();
             profiles.retain(|old| !same(&old));
@@ -1340,6 +1355,7 @@ impl Discord {
                 guild: guild.to_owned(),
                 at: Instant::now(),
                 member: self.member_face(guild, user),
+                levels_asked: false,
                 profile: profile.clone(),
             });
             if profiles.len() > PROFILES {
@@ -1352,65 +1368,44 @@ impl Discord {
     }
 
     /// Adds the levels of a profile's badges, the details its tooltips show,
-    /// to `profile`, and to the copy kept of it. They come from a request of
-    /// their own, which Discord answers more slowly than the profile, so the
-    /// card doesn't wait for it: this runs once it is on screen. Whether any
-    /// badge has a level now.
-    pub async fn badge_levels(
-        &self,
-        guild: &str,
-        user: &str,
-        profile: &mut Profile,
-        early: Option<EarlyBadges>,
-    ) -> bool {
-        if !profile
-            .badges
+    /// to `badges` and to the copy kept of the profile. They come from a request
+    /// of their own, which Discord answers more slowly than the profile, so the
+    /// card doesn't wait for it: this runs once it is on screen. It asks once
+    /// for each kept profile, which then has the levels. Whether any badge has
+    /// a level now.
+    pub async fn badge_levels(&self, guild: &str, user: &str, badges: &mut [Badge]) -> bool {
+        if !badges
             .iter()
             .any(|badge| badge.level_icon.is_some() || badge.link.is_some())
         {
             return false;
         }
-        let asked = Instant::now();
-        let levels = match early {
-            Some(early) => early
-                .0
-                .await
-                .map_err(anyhow::Error::from)
-                .and_then(|levels| levels),
-            None => self.api.badges(user).await,
-        };
-        match levels {
-            Ok(levels) => profile.with_levels(&levels),
+        let same = |kept: &&mut Kept| kept.user == user && kept.guild == guild;
+        if let Some(kept) = self.lock_profiles().iter_mut().find(same) {
+            if kept.levels_asked {
+                return false;
+            }
+            kept.levels_asked = true;
+        }
+        match self.api.badges(user).await {
+            Ok(levels) => profile::with_levels(badges, &levels),
             Err(error) => {
                 tracing::debug!(%error, user, "could not fetch badge levels");
                 return false;
             }
         }
-        tracing::info!(
-            ms = asked.elapsed().as_millis() as u64,
-            "fetched badge levels"
-        );
-        if !profile.badges.iter().any(|badge| badge.level.is_some()) {
+        if !badges.iter().any(|badge| badge.level.is_some()) {
             return false;
         }
-        if let Some(kept) = self
-            .lock_profiles()
-            .iter_mut()
-            .find(|kept| kept.user == user && kept.guild == guild)
-        {
-            kept.profile.badges.clone_from(&profile.badges);
+        let saving = self.lock_profiles().iter_mut().find(same).map(|kept| {
+            kept.profile.badges = badges.to_vec();
+            kept.profile.clone()
+        });
+        if let Some(saving) = saving {
+            let (guild, user) = (guild.to_owned(), user.to_owned());
+            tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         }
-        let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
-        tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         true
-    }
-
-    /// Starts asking for the levels of someone's badges, beside their
-    /// profile, which says whether they have any. The answer is waited for
-    /// in [`Self::badge_levels`]; if there are no badges it is dropped.
-    pub fn start_badge_levels(&self, user: &str) -> EarlyBadges {
-        let (api, user) = (self.api.clone(), user.to_owned());
-        EarlyBadges(tokio::spawn(async move { api.badges(&user).await }))
     }
 
     /// A member's nickname and avatar in a server, as Names knows them.
@@ -2071,14 +2066,28 @@ impl Discord {
         self.api.set_friend_nickname(user, nickname).await
     }
 
-    /// This account's note on someone; empty when it has none.
+    /// This account's note on someone; empty when it has none. Discord is
+    /// asked once for each user, as its client does.
     pub async fn note(&self, user: &str) -> Result<String> {
-        self.api.note(user).await
+        let kept = self
+            .notes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(user)
+            .cloned();
+        if let Some(kept) = kept {
+            return Ok(kept);
+        }
+        let note = self.api.note(user).await?;
+        keep_note(&self.notes, user, &note);
+        Ok(note)
     }
 
     /// Sets this account's note on someone; empty removes it.
     pub async fn set_note(&self, user: &str, note: &str) -> Result<()> {
-        self.api.set_note(user, note).await
+        self.api.set_note(user, note).await?;
+        keep_note(&self.notes, user, note);
+        Ok(())
     }
 
     /// Sets the nickname of `user` in a server, this account's own included;

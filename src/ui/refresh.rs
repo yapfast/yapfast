@@ -199,39 +199,18 @@ impl SidebarShown {
 impl Icons {
     /// A conversation's icon, as the sidebar shows it.
     fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
-        use yapfast_core::chat::symbol;
-        // Discord puts a padlock on the icon of a channel @everyone can't see.
-        let private = room.symbol & symbol::PRIVATE != 0;
-        let kind = room.symbol & !symbol::PRIVATE;
         if room.locked {
             self.lock.clone()
         } else if room.voice {
-            match (kind == symbol::STAGE, private) {
-                (true, true) => self.stage_private.clone(),
-                (true, false) => self.stage.clone(),
-                (false, true) => self.voice_private.clone(),
-                (false, false) => self.voice.clone(),
-            }
+            self.voice.clone()
         } else if room.forum {
-            match (kind == symbol::MEDIA, private) {
-                (true, true) => self.media_private.clone(),
-                (true, false) => self.media.clone(),
-                (false, true) => self.forum_private.clone(),
-                (false, false) => self.forum.clone(),
-            }
+            self.forum.clone()
         } else if room.direct {
             self.dm.clone()
         } else if room.parent.is_some() {
             self.thread.clone()
         } else {
-            match kind {
-                symbol::RULES => self.rules.clone(),
-                symbol::ANNOUNCEMENT if private => self.announcement_private.clone(),
-                symbol::ANNOUNCEMENT => self.announcement.clone(),
-                symbol::AGE_RESTRICTED => self.age_restricted.clone(),
-                _ if private => self.text_private.clone(),
-                _ => self.text.clone(),
-            }
+            self.text.clone()
         }
     }
 }
@@ -840,16 +819,8 @@ impl Adapter {
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
-                    tag: room
-                        .tag
-                        .as_ref()
-                        .map_or_else(Default::default, |tag| tag.text.as_str().into()),
-                    tag_badge: room
-                        .tag
-                        .as_ref()
-                        .and_then(|tag| tag.badge.as_deref())
-                        .unwrap_or_default()
-                        .into(),
+                    tag: tag_text(&room.tag),
+                    tag_badge: tag_badge(&room.tag),
                     official: room.official,
                     wave: if room.empty && !room.request {
                         room.person.as_deref().unwrap_or_default().into()
@@ -1700,16 +1671,8 @@ impl Adapter {
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
                         group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
-                        tag: member
-                            .tag
-                            .as_ref()
-                            .map_or_else(Default::default, |tag| tag.text.as_str().into()),
-                        tag_badge: member
-                            .tag
-                            .as_ref()
-                            .and_then(|tag| tag.badge.as_deref())
-                            .unwrap_or_default()
-                            .into(),
+                        tag: tag_text(&member.tag),
+                        tag_badge: tag_badge(&member.tag),
                         decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
                         nameplate_url: member
                             .nameplate
@@ -3139,7 +3102,9 @@ impl Adapter {
             && discord_room
             && room.is_some_and(|room| !room.request && (room.read_only || room.locked));
         window.set_composer_locked(no_permission);
-        window.set_composer_locked_text(yapfast_core::i18n::tr("composer_no_permission").into());
+        window.set_composer_locked_text(
+            "You do not have permission to send messages in this channel.".into(),
+        );
         window.set_composer_hint(
             if room.is_none() {
                 "Choose a DM or server channel to write a message."

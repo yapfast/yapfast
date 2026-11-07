@@ -218,7 +218,6 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         tag: None,
         official: false,
         empty: false,
-        symbol: 0,
         preview: None,
     }
 }

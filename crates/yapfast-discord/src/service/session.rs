@@ -35,6 +35,9 @@ pub(super) struct Shared {
     pub(super) snapshots: watch::Sender<Arc<Snapshot>>,
     pub(super) live: broadcast::Sender<Live>,
     pub(super) names: Arc<RwLock<Names>>,
+    /// The notes this account has read: USER_NOTE_UPDATE changes them, and a
+    /// new session, which may have missed some, forgets them.
+    pub(super) notes: super::Notes,
     pub(super) api: Arc<Api>,
     pub(super) lists: MemberLists,
     /// The presence this session last sent, which it identifies with again.
@@ -211,6 +214,11 @@ async fn connected_session(
         return Ended::Failed(anyhow!("Discord's READY had no user"));
     };
     let mut tracker = Tracker::from_ready(me, &ready, shared.names.clone());
+    shared
+        .notes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
     // READY can contain tens of megabytes of JSON. Only the parsed account
     // state is needed while connected; release the payload before waiting.
     drop(ready);
@@ -556,6 +564,15 @@ impl Session<'_> {
         // Whether the tracker already took this event in, and changed.
         let mut applied = None;
         match event {
+            Event::UserNoteUpdate => {
+                if let Some(user) = data["id"].as_str() {
+                    super::keep_note(
+                        &self.shared.notes,
+                        user,
+                        data["note"].as_str().unwrap_or_default(),
+                    );
+                }
+            }
             Event::PresenceUpdate => self.shared.lists.presence(&self.tracker, data),
             Event::GuildMemberListUpdate => {
                 if self.shared.lists.update(&self.tracker, data) {

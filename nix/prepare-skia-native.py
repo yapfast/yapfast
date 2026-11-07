@@ -25,14 +25,14 @@ ArchiveMembers = dict[str, Payloads]
 native_target: str = os.environ.get('YAPFAST_SKIA_TARGET', 'linux')
 pins: dict[str, tuple[str, str | None]] = {
     'linux': ('x86_64-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout',
-              'ef41a8ff85bebeb06238df88e144eb04778a368fc1672a63155155d97f0caf10'),
+              'd5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1'),
     'windows': ('x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static',
                 os.environ.get('YAPFAST_SKIA_STATIC_SHA256')),
 }
 suffix, source_sha256 = pins[native_target]
 if not source_sha256:
     raise SystemExit('Windows preparation requires the verified source-build archive')
-key: str = 'b7f043e0b1e2a850e702-' + suffix
+key: str = '30669978c3f39a73e8a7-' + suffix
 package: str = 'skia-binaries-' + key + '.tar.gz'
 old_symbol: str = 'jpeg_natural_order'
 new_symbol: str = 'yapfast_skia_jpeg_natural_order'
@@ -57,7 +57,7 @@ except ValueError:
 if objcopy_major < 21:
     raise SystemExit('Unexpected objcopy version: ' + objcopy_version)
 stamp: dict[str, object] = {
-    'tag': '0.153.3', 'key': key, 'upstream_sha256': source_sha256,
+    'tag': '0.157.0', 'key': key, 'upstream_sha256': source_sha256,
     'helper_sha256': script_sha256, 'objcopy_version': objcopy_version,
     'rename': {old_symbol: new_symbol},
 }
@@ -167,7 +167,7 @@ with tempfile.TemporaryDirectory(prefix='skia-native-prepare-', dir=target.paren
     with tarfile.open(fileobj=io.BytesIO(source)) as archive:
         archive.extractall(temporary, filter='data')
     native_root = temporary / 'skia-binaries'
-    if (native_root / 'key.txt').read_text().strip() != key or (native_root / 'tag.txt').read_text().strip() != '0.153.3':
+    if (native_root / 'key.txt').read_text().strip() != key or (native_root / 'tag.txt').read_text().strip() != '0.157.0':
         raise SystemExit('Pinned Skia native archive key/tag mismatch')
     original_symbols: dict[str, list[str]] = {}
     original_payloads: dict[str, ArchiveMembers] = {}

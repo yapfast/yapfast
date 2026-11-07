@@ -215,7 +215,7 @@ The first run downloads the Microsoft CRT/SDK and compiles the C++ media
 bindings.
 
 The Windows Nix shell supplies the matching `webrtc-51ef663` archive, LLVM 21,
-GN, Protobuf, NASM, Wine and checksum-pinned Skia 0.153.3 source with its
+GN, Protobuf, NASM, Wine and checksum-pinned Skia 0.157.0 source with its
 dependencies. `scripts/build-windows` builds Skia with `/MT` to match WebRTC;
 the upstream Skia Windows archive uses an incompatible dynamic CRT. This source
 build uses two native jobs and is cached. Preparation then gives Skia's JPEG

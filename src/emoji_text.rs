@@ -7,7 +7,7 @@
 
 use std::{cell::RefCell, collections::HashMap, sync::Once};
 
-use slint::fontique_011::fontique;
+use slint::fontique_012::fontique;
 
 use crate::{emoji_font, emoji_font_tables::TWEMOJI_LAST, twemoji};
 

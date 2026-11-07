@@ -116,7 +116,9 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Start call joins the DM's call, as the phone in its header does.
 - Add note writes this account's note on the other person:
   `GET /users/@me/notes/{id}` fills the dialog, a 404 meaning there's none,
-  and `PUT` with `{"note": ...}` saves it, an empty one removing it.
+  and `PUT` with `{"note": ...}` saves it, an empty one removing it. A note
+  read is kept in memory, so opening a profile again asks nothing:
+  USER_NOTE_UPDATE changes it, and a new session forgets them all.
 - Add friend nickname, for a friend, is `PATCH
   /users/@me/relationships/{id}` with `{"nickname": ...}`, or null to remove
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
@@ -280,15 +282,17 @@ Someone's server tag shows as a small chip, as in Discord: the badge of the
 server they represent, then up to four letters. It comes from the
 `primary_guild` of their user object, which has the `tag`, the
 `identity_guild_id`, a `badge` hash that Yapfast fetches from
-`/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, false once
-they stop wearing it; one without a tag, or turned off, shows nothing. The
-chip sits after the name on each message that starts a group, after the name
-in the member list, and beside the handle on a profile card. A tag without a
-badge shows its letters alone. Yapfast learns tags from every user object it
-sees, with the names and avatars, so a tag changes on screen as soon as a
-message, a member list row or a profile carries the new one; a user object
-without `primary_guild`, as a partial one is, changes nothing, and `null`
-takes it away. They are kept with the names across restarts.
+`/clan-badges/{guild}/{badge}.png`, and `identity_enabled`, which is true while
+they wear it. It's false once they stop, and null until they take up a tag
+their server changed; as in Discord's client, those and one without a tag show
+nothing. The chip sits after the name on each message that starts a group,
+after the name in the member list and in a one-to-one DM's row, and beside the
+handle on a profile card. A tag without a badge shows its letters alone.
+Yapfast learns tags from every user object it sees, with the names and avatars,
+so a tag changes on screen as soon as a message, a member list row or a profile
+carries the new one; a user object without `primary_guild`, as a partial one
+is, changes nothing, and `null` takes it away. They are kept with the names
+across restarts.
 
 The card shows the person's badges, as Discord's does, in a row of pictures
 under the name and handle: HypeSquad, Active Developer, a Nitro subscriber's
@@ -310,7 +314,8 @@ than the profile, so the card doesn't wait for it: `Discord::profile` returns
 at once, and `Discord::badge_levels` asks afterwards, only when a badge has a
 `simple_icon_url` or a link, and gives the card its levels as
 `Event::BadgeLevels`. It also puts them in the kept and saved copy of the
-profile, so the next opening has them from the start. Each of its `badges` has a `name` (the kind), an `info_label` (the
+profile, so the next opening has them from the start, and asks once for each
+kept profile, as Discord's client keeps its answer. Each of its `badges` has a `name` (the kind), an `info_label` (the
 progress), a `current_tier` naming one of its `tiers`, whose `name` is the
 level and `complex_icon_static_url` the large picture, an SVG. A badge
 without tiers, such as Quests, shows its own name as the title and its
@@ -318,8 +323,10 @@ without tiers, such as Quests, shows its own name as the title and its
 level's `simple_icon_url`, which both lists carry, else by the icon hash in
 `simple_icon_raster_url`; one the person doesn't own (`owned: false`) is
 skipped. A badge with no entry, such as Nitro's, keeps the plain tooltip, and
-so does every badge when the request fails. The SVGs are drawn by the
-picture decoder (`decode_picture`, with resvg) like any other picture. The
+so does every badge when the request fails. The SVGs are drawn by
+`decode_svg`, with resvg, and only for addresses under Discord's
+`/assets/content/`: an attachment or avatar never reaches it. A badge's icon is
+decoded at 40px at most. The
 card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
 `ui/theme.slint` and drawn by the window above everything else, with
 Discord's own values: 200px wide, 8px corners, the picture 64px high, the

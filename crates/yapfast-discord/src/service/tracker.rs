@@ -1204,11 +1204,6 @@ impl Tracker {
         if let Some(list) = settings::server_list(encoded) {
             self.order = list.order;
             self.folders = list.folders;
-            tracing::info!(
-                "the server list has {} folders over {} servers",
-                self.folders.len(),
-                self.order.len()
-            );
             self.sort_servers();
         }
     }
@@ -1522,13 +1517,7 @@ impl Tracker {
                 self.presences.get(user),
             )
                 .hash(&mut hasher);
-            (
-                names
-                    .server_tag(user)
-                    .map(|tag| (&tag.guild, &tag.text, &tag.badge)),
-                names.is_official(user),
-            )
-                .hash(&mut hasher);
+            (names.server_tag(user), names.is_official(user)).hash(&mut hasher);
         }
         let ringing = self.calls.get(&private.id);
         ringing.is_some().hash(&mut hasher);

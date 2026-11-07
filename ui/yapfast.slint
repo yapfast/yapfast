@@ -26,7 +26,7 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Strings } from "theme.slint";
+import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
@@ -52,7 +52,7 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
-export { Theme, Badges, Popup, Strings } from "theme.slint";
+export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
@@ -573,7 +573,7 @@ export component YapfastWindow inherits Window {
     in-out property <int> active-index: -1;
     // The message list has the keyboard: Up and Down step through messages and
     // letters act on the active one.
-    property <bool> browsing: timeline-keys.has-focus;
+    out property <bool> browsing: timeline-keys.has-focus;
     // A popup the keyboard asked for, "menu" or "react", which the active row opens
     // beside itself.
     property <string> keyboard-popup;
@@ -1077,8 +1077,6 @@ export component YapfastWindow inherits Window {
     in-out property <bool> twelve-hour-clock;
     in-out property <bool> clock-seconds;
     in-out property <int> date-format: -1;
-    in-out property <int> time-zone;
-    in-out property <int> language;
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size: 1;
     in-out property <bool> link-previews: true;
@@ -1341,6 +1339,8 @@ export component YapfastWindow inherits Window {
     callback remove-reactor(string);
     callback close-reactions;
     callback request-delete(string);
+    /// Delete a message without asking, from its quick actions.
+    callback delete-now(string);
     /// Pin a message, or unpin a pinned one.
     callback pin-message(string);
     callback emoji-search(string);
@@ -1385,6 +1385,58 @@ export component YapfastWindow inherits Window {
     callback aside-resized(length);
 
     public function focus-composer() { composer.focus-input(); }
+    // Something over the conversation that typing and Escape mustn't reach
+    // behind, as Discord's focus locks, modals and layers stop them: the
+    // settings, a full profile or a card, a dialog, a panel such as the pins,
+    // the image viewer or the call in full screen. Those with a field of their
+    // own take the text first.
+    property <bool> composer-covered: root.settings-open || root.server-settings-open
+        || root.channel-settings-open || root.profile-editor-open || root.profile-open
+        || root.role-open || root.server-card-open || root.emoji-card-open || root.topic-open
+        || root.pins-open || root.threads-open || root.add-people-open || root.viewer-open
+        || (VideoPlayer.expanded && VideoPlayer.item != "") || root.stage-full
+        || root.switcher-open || root.mfa-open || root.add-friend-open || root.invite-open
+        || root.join-open || root.event-open || root.gift-open || root.oauth-open
+        || root.channel-open || root.move-sync-open || root.leave-open || root.person-open
+        || root.status-open || root.poll-open || root.new-dm-open || root.reactions-open
+        || root.forward-open || root.leaving-link != "" || root.switch-prompt != ""
+        || root.confirm-delete != "" || root.incoming-open;
+    // The channel has no composer here: a call, a forum, a message request, the
+    // friends list, the friend requests or Browse Channels.
+    property <bool> composer-missing: !root.room-selected || root.voice-panel || root.room-forum
+        || root.room-request || root.friends-open || root.requests-open || root.browse-open;
+    // Typing goes to the composer used last, as in Discord: the panel's from
+    // when it opens, until the channel's takes the keyboard.
+    property <bool> aside-composer-last;
+    changed aside-docked => { root.aside-composer-last = root.aside-docked; }
+    property <int> aside-typing-tick;
+    /// A key was typed with nothing focused: focuses the composer it goes to,
+    /// with its caret at the end; whether there is one.
+    public function type-into-composer() -> bool {
+        if !root.workspace || root.composer-covered { return false; }
+        if root.aside-docked && root.aside-composer-last {
+            if !root.new-thread-open && !root.aside-composer-enabled { return false; }
+            root.aside-typing-tick += 1;
+            return true;
+        }
+        if !root.composer-enabled || root.composer-missing { return false; }
+        composer.focus-input();
+        composer.place-caret(1000000);
+        return true;
+    }
+    /// Escape that nothing above took, from anywhere, in Discord's order: the
+    /// search, then a reply or an edit in the channel, then in the thread
+    /// beside it, then the new thread's form; whether it did anything.
+    public function escape-composing() -> bool {
+        if !root.workspace || root.composer-covered { return false; }
+        if root.search-open { root.search-text = ""; root.search(""); return true; }
+        if root.compose-label != "" { root.cancel-compose(); return true; }
+        if !root.aside-docked { return false; }
+        if root.new-thread-open { root.close-new-thread(); return true; }
+        if root.aside-compose-label == "" { return false; }
+        root.aside-cancel-compose();
+        return true;
+    }
     // The menu is open on a message of the thread beside, whose composer
     // its Reply and Edit focus.
     property <bool> menu-aside;
@@ -1401,6 +1453,9 @@ export component YapfastWindow inherits Window {
     public function timeline-at-end() -> bool { return root.follow-latest; }
     // Yapfast's window has the keyboard focus.
     in property <bool> window-focused;
+    /// Shift is held, which turns a message's hover bar into its quick
+    /// actions, as in Discord's client.
+    in property <bool> shift-held;
     // The newest message was read since the "New" divider was placed, so the bar
     // that jumps back to it is gone.
     in property <bool> caught-up;
@@ -1526,7 +1581,8 @@ export component YapfastWindow inherits Window {
     public function copy-text(text: string) { clipboard.text = text; clipboard.select-all(); clipboard.copy(); clipboard.text = ""; }
     clipboard := TextInput { visible: false; width: 0px; height: 0px; }
     // A tooltip must not outlive the toolbar that showed it.
-    changed active-item => { Tip.text = ""; BadgeTip.title = ""; }
+    function hide-badge-tips() { Tip.text = ""; Tip.pop = false; BadgeTip.title = ""; }
+    changed active-item => { root.hide-badge-tips(); }
 
     // The member list is a second sidebar, on the right of the conversation.
     property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked;
@@ -1884,6 +1940,7 @@ export component YapfastWindow inherits Window {
         root.menu-message = message;
         root.menu-selection = root.selection-at(root.anchor-x, root.anchor-y);
         root.menu-aside = false;
+        root.aside-composer-last = false;
         root.menu-media = media;
         root.menu-video = video;
         root.menu-link = media >= 0 ? root.attachment-link(message.item, media) : root.link-at(root.anchor-x, root.anchor-y);
@@ -2206,7 +2263,7 @@ export component YapfastWindow inherits Window {
                                 }
                                 if root.header-server != "" && root.header-invite: IconButton {
                                     x: parent.width - self.width - 8px; y: 8px;
-                                    icon: @image-url("icons/user-plus.svg"); label: Strings.invite-people; size: 32px; glyph: 20px; tip-side: 2;
+                                    icon: @image-url("icons/user-plus.svg"); label: "Invite people"; size: 32px; glyph: 20px; tip-side: 2;
                                     clicked => { root.open-invite(root.header-server); }
                                 }
                                 if !ClientStyle.enabled && root.dms-selected && !root.preview && root.discord-linked: IconButton {
@@ -3031,11 +3088,17 @@ export component YapfastWindow inherits Window {
                                             }
                                             // Actions, the reaction picker and delete confirmation float over the
                                             // row's top edge, so opening them never moves the timeline.
-                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": Rectangle {
+                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
                                                 x: parent.width - self.width - 16px; y: parent.body + (index == 0 && parent.head == 0px ? 4px : -16px);
                                                 width: actions.preferred-width; height: actions.preferred-height;
                                                 background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                                                 drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
+                                                // Holding Shift swaps the frequent reactions for Pin, Create Thread
+                                                // and, on your own message, Reply, adds Forward, and swaps More for a
+                                                // Delete that doesn't ask, as in Discord's client; not while the
+                                                // picker or menu is open.
+                                                property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
+                                                property <bool> deletes: self.quick && message.can-delete && root.composer-enabled;
                                                 actions := HorizontalLayout {
                                                     padding: 3px; spacing: 0px;
                                                     if root.confirm-delete == message.item: HorizontalLayout {
@@ -3048,16 +3111,32 @@ export component YapfastWindow inherits Window {
                                                     // Reply on someone else's, and everything else under More.
                                                     if root.confirm-delete != message.item: HorizontalLayout {
                                                         spacing: 0px;
+                                                        if message-bar.quick && message.can-pin: IconButton {
+                                                            icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                                            label: message.pinned ? "Unpin" : "Pin";
+                                                            clicked => { root.pin-message(message.item); }
+                                                        }
+                                                        if message-bar.quick && root.can-start-threads && message.can-reply && message.thread-room == "": IconButton {
+                                                            icon: @image-url("icons/thread.svg"); label: "Create Thread";
+                                                            clicked => { root.new-thread(message.item, "message"); }
+                                                        }
+                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
+                                                            icon: @image-url("icons/reply.svg"); label: "Reply";
+                                                            clicked => { root.reply(message.item); root.focus-composer(); }
+                                                        }
                                                         if message.can-react && root.composer-enabled: HorizontalLayout {
                                                             spacing: 0px;
-                                                            for cell in root.bar-reactions: EmojiButton {
-                                                                animation-key: cell.key;
-                                                                emoji: cell; font: root.emoji-font;
-                                                                clicked => { root.react(message.item, cell.key); }
-                                                            }
-                                                            Rectangle {
-                                                                width: 9px;
-                                                                Rectangle { width: 1px; height: 20px; background: Theme.line; }
+                                                            if !message-bar.quick: HorizontalLayout {
+                                                                spacing: 0px;
+                                                                for cell in root.bar-reactions: EmojiButton {
+                                                                    animation-key: cell.key;
+                                                                    emoji: cell; font: root.emoji-font;
+                                                                    clicked => { root.react(message.item, cell.key); }
+                                                                }
+                                                                Rectangle {
+                                                                    width: 9px;
+                                                                    Rectangle { width: 1px; height: 20px; background: Theme.line; }
+                                                                }
                                                             }
                                                             IconButton {
                                                                 icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
@@ -3069,7 +3148,15 @@ export component YapfastWindow inherits Window {
                                                         }
                                                         if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                                         if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
-                                                        IconButton {
+                                                        if message-bar.quick && message.can-forward && root.forward-allowed: IconButton {
+                                                            icon: @image-url("icons/forward.svg"); label: "Forward";
+                                                            clicked => { root.start-forward(message.item); }
+                                                        }
+                                                        if message-bar.deletes: IconButton {
+                                                            icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
+                                                            clicked => { root.delete-now(message.item); }
+                                                        }
+                                                        if !message-bar.deletes: IconButton {
                                                             icon: @image-url("icons/ellipsis.svg"); label: "More";
                                                             clicked => {
                                                                 root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
@@ -3273,6 +3360,8 @@ export component YapfastWindow inherits Window {
                                             }
                                             up-from-empty => { root.edit-last(); }
                                             up-to-messages => { root.browse-messages(); }
+                                            escaped => { return root.escape-composing(); }
+                                            got-focus => { root.aside-composer-last = false; }
                                             paste => { root.paste-into-composer(); }
                                             expressions(tab) => {
                                                 if tab == 0 && !root.can-pick-gifs { return; }
@@ -3352,6 +3441,9 @@ export component YapfastWindow inherits Window {
                         can-private: root.new-thread-can-private; only-private: root.new-thread-only-private;
                         private: root.new-thread-private; starting: root.new-thread-starting;
                         error: root.new-thread-error; leaving: root.new-thread-leaving;
+                        typing-tick: root.aside-typing-tick;
+                        composer-focused => { root.aside-composer-last = true; }
+                        escape-composing => { return root.escape-composing(); }
                         init => { self.focus-composer(); }
                         name-edited(text) => { root.new-thread-name-edited(text); }
                         body-edited(text) => { root.new-thread-body-edited(text); }
@@ -3368,6 +3460,9 @@ export component YapfastWindow inherits Window {
                         name: root.aside-name; messages: root.aside-messages; ready: root.aside-ready;
                         loading: root.aside-loading; start: root.aside-start; failed: root.aside-failed;
                         focus-tick: root.aside-focus-tick;
+                        typing-tick: root.aside-typing-tick;
+                        composer-focused => { root.aside-composer-last = true; }
+                        escape-composing => { return root.escape-composing(); }
                         busy: root.busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }
@@ -3379,6 +3474,11 @@ export component YapfastWindow inherits Window {
                         paste => { root.aside-paste(); }
                         emoji-font: root.emoji-font; message-font-size: root.message-font-size; bar-reactions: root.bar-reactions;
                         active-item <=> root.active-item; react-item: root.react-item; menu-item: root.menu-item; confirm-delete: root.confirm-delete;
+                        shift-held: root.shift-held;
+                        forward-allowed: root.forward-allowed;
+                        pin-message(item) => { root.pin-message(item); }
+                        start-forward(item) => { root.start-forward(item); }
+                        delete-now(item) => { root.delete-now(item); }
                         close => { root.aside-close(); }
                         expand => { root.aside-expand(); }
                         more(x, y) => { root.open-context-menu("thread-sidebar:" + root.aside-room, false, x, y); }
@@ -3414,8 +3514,8 @@ export component YapfastWindow inherits Window {
                         edit(item) => { root.edit(item); }
                         react(item, key) => { root.react(item, key); }
                         open-picker(item, x, y, width, height) => { root.anchor(x, y, width, height, false); root.open-picker(item); }
-                        open-menu(message, x, y, width, height) => { root.anchor(x, y, width, height, width == 0px); root.open-menu(message); root.menu-aside = true; }
-                        open-media-menu(message, index, video, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-message-menu(message, index, video); root.menu-aside = true; }
+                        open-menu(message, x, y, width, height) => { root.anchor(x, y, width, height, width == 0px); root.open-menu(message); root.menu-aside = true; root.aside-composer-last = true; }
+                        open-media-menu(message, index, video, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-message-menu(message, index, video); root.menu-aside = true; root.aside-composer-last = true; }
                         confirm-delete-message => { root.confirm-delete-message(); }
                         cancel-delete => { root.cancel-delete(); }
                         author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
@@ -3681,7 +3781,7 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 2: MessageSettings {
             message-font-size: root.message-font-size;
-            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; time-zone <=> root.time-zone; language <=> root.language; text-size <=> root.text-size;
+            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
             link-previews <=> root.link-previews; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
@@ -3896,7 +3996,12 @@ export component YapfastWindow inherits Window {
         }
     }
     // A member's card, beside the member list. Escape or a click outside closes it.
-    profile-motion := PopupMotion { open: root.profile-open && !root.profile-large; }
+    // A card closed from the keyboard goes from under the pointer, which then
+    // never leaves its badge to hide the tooltip.
+    profile-motion := PopupMotion {
+        open: root.profile-open && !root.profile-large;
+        changed shown => { root.hide-badge-tips(); }
+    }
     if profile-motion.shown: Rectangle {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
@@ -3923,7 +4028,10 @@ export component YapfastWindow inherits Window {
         }
     }
     // A full profile over the window, as the viewer shows images.
-    large-profile-motion := PopupMotion { open: root.profile-open && root.profile-large; }
+    large-profile-motion := PopupMotion {
+        open: root.profile-open && root.profile-large;
+        changed shown => { root.hide-badge-tips(); }
+    }
     if large-profile-motion.shown: Rectangle {
         background: rgba(0, 0, 0, 0.7 * large-profile-motion.amount);
         TouchArea { clicked => { root.close-profile(); } }
