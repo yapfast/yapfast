@@ -540,6 +540,7 @@ impl Application {
         effects.extend(self.follow_channel_settings());
         effects.extend(self.mark_discord_read());
         effects.extend(self.mark_aside_read());
+        effects.extend(self.restore_split());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
         effects.extend(self.prefetch_emoji());

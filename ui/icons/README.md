@@ -34,7 +34,7 @@ glyphs such as check, x and chevrons.
   id-filled, music, plus, trophy, tv and verified.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
-LICENSE (ISC): calendar, check, chevron-down, chevron-left, chevron-right,
+LICENSE (ISC): arrow-left-right, calendar, check, chevron-down, chevron-left, chevron-right,
 hand, maximize, minimize, minus, restore, slash, square and x. restore is
 Lucide's copy icon, which the title bar shows for its restore button. forward
 and reply are Lucide's corner-up-right and corner-up-left.

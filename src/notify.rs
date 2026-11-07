@@ -10,6 +10,9 @@ pub struct Style {
     /// Say what the message says, rather than only who wrote.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub text: bool,
+    /// Offer to open it in split view, as well as in the conversation.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub split: bool,
 }
 
 /// Shows notifications from a thread of its own, so a slow notification service never
@@ -21,8 +24,9 @@ pub struct Notifier {
 
 impl Notifier {
     /// Starts showing notifications. `opened` runs on Slint's event loop with the
-    /// conversation of a notification someone clicked.
-    pub fn start(opened: fn(String)) -> Self {
+    /// conversation of a notification someone clicked, and whether its "Open in
+    /// split view" was.
+    pub fn start(opened: fn(String, bool)) -> Self {
         #[cfg(target_os = "linux")]
         {
             let (requests, alerts) = std::sync::mpsc::channel();
@@ -80,7 +84,7 @@ mod linux {
 
     /// Shows each alert until the window closes, and opens the conversation of one
     /// that's clicked.
-    pub fn run(alerts: Receiver<(Alert, Style)>, opened: fn(String)) {
+    pub fn run(alerts: Receiver<(Alert, Style)>, opened: fn(String, bool)) {
         let connection = match Connection::session() {
             Ok(connection) => connection,
             Err(error) => {
@@ -121,14 +125,20 @@ mod linux {
             {
                 hints.insert("image-data", image);
             }
-            let actions = ["default", "Open"];
+            // A desktop's notifications say only which action was clicked,
+            // not the keys held, so split view gets an action of its own.
+            let actions: &[&str] = if style.split {
+                &["default", "Open", "split", "Open in split view"]
+            } else {
+                &["default", "Open"]
+            };
             let request = (
                 "Yapfast",
                 0u32,
                 "",
                 alert.title.as_str(),
                 body.as_str(),
-                &actions[..],
+                actions,
                 hints,
                 -1i32,
             );
@@ -148,7 +158,11 @@ mod linux {
     }
 
     /// Opens the conversation of a notification that's clicked, and forgets those closed.
-    fn listen(connection: &Connection, shown: &Mutex<HashMap<u32, String>>, opened: fn(String)) {
+    fn listen(
+        connection: &Connection,
+        shown: &Mutex<HashMap<u32, String>>,
+        opened: fn(String, bool),
+    ) {
         let rule = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .interface(SERVICE)
@@ -176,8 +190,13 @@ mod linux {
                         continue;
                     };
                     let room = shown().get(&id).cloned();
-                    if let (Some(room), "default") = (room, action.as_str()) {
-                        let _ = slint::invoke_from_event_loop(move || opened(room));
+                    let split = match action.as_str() {
+                        "default" => false,
+                        "split" => true,
+                        _ => continue,
+                    };
+                    if let Some(room) = room {
+                        let _ = slint::invoke_from_event_loop(move || opened(room, split));
                     }
                 }
                 Some("NotificationClosed") => {

@@ -3630,6 +3630,316 @@ fn discord_threads_show_beside_their_channel() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn split_view_shows_a_dm_beside_a_channel_and_keeps_it() {
+    use yapfast_discord::{
+        ready::{Channel, Server},
+        service::{Conversation, Snapshot, Status},
+    };
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Test".into(),
+            text_channels: vec![
+                Channel {
+                    id: "21".into(),
+                    name: "general".into(),
+                    ..Default::default()
+                },
+                Channel {
+                    id: "22".into(),
+                    name: "news".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })],
+        conversations: vec![Arc::new(Conversation {
+            id: "30".into(),
+            name: "Annie".into(),
+            person: Some("2".into()),
+            people: 2,
+            unread: true,
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    let dm = "discord:@me:30";
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom("discord:10:21".into()));
+
+    // Off, as it starts, menus don't offer it, and a Ctrl-click opens the
+    // room as a click does.
+    assert!(!app.menu_choices(dm).contains(&MenuChoice::OpenInSplit));
+    app.dispatch(Action::OpenSplit("discord:10:22".into()));
+    assert!(app.state.aside.is_none());
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:22"));
+    app.dispatch(Action::SelectRoom("discord:10:21".into()));
+
+    // On, any Discord room but the open one offers it.
+    app.dispatch(Action::SplitView(true));
+    assert!(app.menu_choices(dm).contains(&MenuChoice::OpenInSplit));
+    assert!(
+        app.menu_choices("discord:10:22")
+            .contains(&MenuChoice::OpenInSplit)
+    );
+    assert!(
+        !app.menu_choices("discord:10:21")
+            .contains(&MenuChoice::OpenInSplit)
+    );
+    let effects = app.dispatch(Action::OpenSplit(dm.into()));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Aside(Some(room)))] if room == dm
+    ));
+    assert!(app.state.aside.as_ref().is_some_and(|aside| aside.split));
+    assert!(
+        !app.menu_choices(dm).contains(&MenuChoice::OpenInSplit),
+        "it shows already"
+    );
+
+    // It's read as it shows, as the open room is, and its composer writes
+    // there.
+    let effects = app.apply(Event::Timeline {
+        room: dm.into(),
+        messages: timeline(vec![ChatMessage {
+            item: "d:5".into(),
+            body: "Lunch?".into(),
+            can_reply: true,
+            ..Default::default()
+        }]),
+    });
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Backend(Command::MarkRead { room, .. }) if room == dm
+    )));
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:21"));
+    app.dispatch(Action::SetAsideDraft("Sure".into()));
+    let effects = app.dispatch(Action::SendAside);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Send { room, body, .. })] if room == dm && body == "Sure"
+    ));
+    app.apply(Event::SendResult {
+        room: dm.into(),
+        body: "Sure".into(),
+        result: Ok(()),
+    });
+
+    // It stays while the conversation goes to another channel, unlike a
+    // thread beside it.
+    let effects = app.dispatch(Action::SelectRoom("discord:10:22".into()));
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Backend(Command::Aside(_))))
+    );
+    assert!(
+        app.state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.room == dm)
+    );
+
+    // Opening its room in the conversation takes it out of split view.
+    let effects = app.dispatch(Action::Open(dm.into()));
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Backend(Command::Aside(None))))
+    );
+    assert!(app.state.aside.is_none());
+    assert_eq!(app.state.selected.as_deref(), Some(dm));
+
+    // Turning it off closes what it shows.
+    app.dispatch(Action::OpenSplit("discord:10:21".into()));
+    assert!(app.state.aside.as_ref().is_some_and(|aside| aside.split));
+    let effects = app.dispatch(Action::SplitView(false));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Aside(None))]
+    ));
+    assert!(app.state.aside.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn split_view_swaps_sides_and_comes_back_after_a_restart() {
+    use yapfast_discord::{
+        ready::{Channel, Server},
+        service::{Conversation, Snapshot, Status},
+    };
+    let snapshot = || Snapshot {
+        status: Status::Online,
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Test".into(),
+            text_channels: vec![Channel {
+                id: "21".into(),
+                name: "general".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })],
+        conversations: vec![Arc::new(Conversation {
+            id: "30".into(),
+            name: "Annie".into(),
+            person: Some("2".into()),
+            people: 2,
+            ..Default::default()
+        })],
+        ..Default::default()
+    };
+    let dm = "discord:@me:30";
+    let mut app = connected();
+    app.dispatch(Action::SplitView(true));
+    app.apply(discord_event(snapshot()));
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom("discord:10:21".into()));
+    app.dispatch(Action::OpenSplit(dm.into()));
+    assert!(app.state.can_swap_split());
+
+    // Swapping shows the DM in the conversation and the channel beside it,
+    // each still open, so neither loads again.
+    let effects = app.dispatch(Action::SwapSplit);
+    assert_eq!(app.state.selected.as_deref(), Some(dm));
+    assert!(
+        app.state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.split && aside.room == "discord:10:21")
+    );
+    let commands: Vec<String> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Backend(Command::Aside(None)) => Some("close".to_owned()),
+            Effect::Backend(Command::Aside(Some(room))) => Some(format!("beside {room}")),
+            Effect::Backend(Command::Open(room)) => Some(format!("open {room}")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(commands.first().map(String::as_str), Some("close"));
+    assert!(
+        commands
+            .iter()
+            .any(|command| command == "open discord:@me:30")
+    );
+    assert_eq!(
+        commands.last().map(String::as_str),
+        Some("beside discord:10:21")
+    );
+
+    // With split view closed there is nothing to swap.
+    app.dispatch(Action::CloseAside);
+    assert!(!app.state.can_swap_split());
+
+    // After a restart, the room split view showed comes back once it's
+    // listed and a room is open.
+    let mut app = connected();
+    app.dispatch(Action::SplitView(true));
+    assert!(
+        app.dispatch(Action::RestoreSplit(dm.into())).is_empty(),
+        "not listed yet"
+    );
+    assert!(app.state.selected.is_some());
+    let effects = app.apply(discord_event(snapshot()));
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Backend(Command::Aside(Some(room))) if room == dm
+    )));
+    assert!(app.state.aside.as_ref().is_some_and(|aside| aside.split));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_open_room_moves_to_split_view_and_the_conversation_goes_back() {
+    use yapfast_discord::{
+        ready::{Channel, Server},
+        service::{Conversation, Snapshot, Status},
+    };
+    let mut app = connected();
+    app.dispatch(Action::SplitView(true));
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Test".into(),
+            text_channels: vec![
+                Channel {
+                    id: "21".into(),
+                    name: "general".into(),
+                    ..Default::default()
+                },
+                Channel {
+                    id: "22".into(),
+                    name: "news".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })],
+        conversations: vec![Arc::new(Conversation {
+            id: "30".into(),
+            name: "Annie".into(),
+            person: Some("2".into()),
+            people: 2,
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    let dm = "discord:@me:30";
+    let split = |app: &Application| {
+        app.state
+            .aside
+            .as_ref()
+            .filter(|aside| aside.split)
+            .map(|aside| aside.room.clone())
+    };
+
+    // Back to the room shown before it.
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom("discord:10:21".into()));
+    app.dispatch(Action::SelectRoom("discord:10:22".into()));
+    app.dispatch(Action::OpenSplit("discord:10:22".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:21"));
+    assert_eq!(split(&app).as_deref(), Some("discord:10:22"));
+
+    // The room before it in split view: they change places.
+    app.dispatch(Action::OpenSplit("discord:10:21".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:22"));
+    assert_eq!(split(&app).as_deref(), Some("discord:10:21"));
+
+    // Without one, a channel's server's first text channel.
+    app.dispatch(Action::CloseAside);
+    app.previous_room = None;
+    app.dispatch(Action::OpenSplit("discord:10:22".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:21"));
+    assert_eq!(split(&app).as_deref(), Some("discord:10:22"));
+
+    // The room before is the one that showed, not one the way there
+    // passed: going to a DM from a channel goes back to the channel.
+    app.dispatch(Action::CloseAside);
+    app.dispatch(Action::Open(dm.into()));
+    app.dispatch(Action::OpenSplit(dm.into()));
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:21"));
+    assert_eq!(split(&app).as_deref(), Some(dm));
+
+    // And a DM's, the friends list, where split view stays.
+    app.dispatch(Action::CloseAside);
+    app.dispatch(Action::Open(dm.into()));
+    app.previous_room = None;
+    app.dispatch(Action::OpenSplit(dm.into()));
+    assert_eq!(app.state.selected, None);
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert_eq!(split(&app).as_deref(), Some(dm));
+    // Opening a conversation from there keeps it.
+    app.dispatch(Action::SelectRoom("dm".into()));
+    assert_eq!(split(&app).as_deref(), Some(dm));
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
     use yapfast_discord::{
         ready::{Access, Channel, Server},
