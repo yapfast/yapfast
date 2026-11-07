@@ -121,6 +121,47 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
+fn this_accounts_own_profile_shares_its_friends_and_servers_with_nobody() {
+    let view = |id: &str| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: id.into(),
+            name: "Sam".into(),
+            servers: vec![yapfast_core::chat::ProfileServer {
+                id: "s".into(),
+                name: "Server".into(),
+                icon: None,
+                banner: None,
+                members: None,
+                channels: 2,
+                nick: None,
+            }],
+            friends: vec![yapfast_core::chat::ProfileFriend {
+                id: "7".into(),
+                name: "Bob".into(),
+                avatar: None,
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = yapfast_core::application::AppState::default();
+    state.discord_user = Some("42".into());
+    let mut pictures = HashMap::new();
+
+    // Anyone else's card names what the account shares with them.
+    let other = profile_data(&mut pictures, &state, &view("7"));
+    assert_eq!(other.mutual_friends_text, "1 mutual friend");
+    assert_eq!(other.mutual_servers_text, "1 mutual server");
+    assert!(!other.own);
+
+    // Its own profile shares them with nobody, so it names them plainly.
+    let own = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(own.mutual_friends_text, "1 friend");
+    assert_eq!(own.mutual_servers_text, "1 server");
+    assert!(own.own);
+}
+
+#[test]
 fn blank_lines_between_lines_show() {
     assert_eq!(keep_blank_lines("a\n\nb"), "a\n\u{a0}\nb");
     assert_eq!(keep_blank_lines("a\n\n\nb"), "a\n\u{a0}\n\u{a0}\nb");
