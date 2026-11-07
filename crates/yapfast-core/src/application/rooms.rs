@@ -10,6 +10,8 @@ pub enum MenuChoice {
     JoinVoice,
     /// A voice channel's chat, without joining it.
     OpenChat,
+    /// Show it beside the open room, in split view.
+    OpenInSplit,
     /// The other person's profile, in a one-to-one DM.
     Profile,
     /// Open the DM with someone, starting it if need be.
@@ -261,6 +263,9 @@ impl AppState {
         if room.voice_chat() {
             choices.push(MenuChoice::OpenChat);
         }
+        if self.can_split(id) {
+            choices.push(MenuChoice::OpenInSplit);
+        }
         if room.person.is_some() {
             choices.push(MenuChoice::Profile);
         }
@@ -460,10 +465,16 @@ impl Application {
                 .find(|server| server.channels.contains(&id))
                 .map(|server| Navigation::Server(server.id.clone()))
         };
+        // The room before is the one on screen now, not one going there
+        // shows on the way.
+        let before = self.state.selected.clone();
         let mut effects = navigation
             .map(|navigation| self.dispatch(Action::Navigate(navigation)))
             .unwrap_or_default();
         effects.extend(self.select_showing(id, chat));
+        if before.is_some() && before != self.state.selected {
+            self.previous_room = before;
+        }
         effects
     }
 
@@ -758,8 +769,14 @@ impl Application {
     /// Selects a room; with `chat`, a voice channel shows its chat rather
     /// than its call.
     fn select_showing(&mut self, id: String, chat: bool) -> Vec<Effect> {
-        // A thread beside the channel goes when another room shows.
+        // A thread beside the channel goes when another room shows. A room
+        // in split view stays, unless it's the one that shows.
         let changes = self.state.selected.as_ref() != Some(&id)
+            && self
+                .state
+                .aside
+                .as_ref()
+                .is_none_or(|aside| !aside.split || aside.room == id)
             && self
                 .state
                 .rooms
@@ -790,6 +807,9 @@ impl Application {
             .flatten();
         // Messages after the last one read are new.
         let seen = room.last_read.clone();
+        if let Some(old) = self.state.selected.as_ref().filter(|old| **old != id) {
+            self.previous_room = Some(old.clone());
+        }
         self.remember_view();
         self.last_selected
             .insert(self.state.navigation.clone(), id.clone());
@@ -917,8 +937,14 @@ impl Application {
     }
 
     /// Closes the conversation on screen, leaving none selected.
+    /// Closes the conversation on screen, leaving none selected. A room in
+    /// split view stays, as on the friends list.
     pub(super) fn deselect(&mut self) -> Vec<Effect> {
-        let mut effects = self.close_aside();
+        let mut effects = if self.state.aside.as_ref().is_some_and(|aside| aside.split) {
+            vec![]
+        } else {
+            self.close_aside()
+        };
         effects.extend(self.close_room());
         effects
     }

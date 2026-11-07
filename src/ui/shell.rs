@@ -56,9 +56,9 @@ impl Shell {
         *shell.window.borrow_mut() = Some(window);
         SHELL.with(|current| *current.borrow_mut() = Rc::downgrade(&shell));
         OPEN.with(|open| {
-            *open.borrow_mut() = Some(Box::new(|room| {
+            *open.borrow_mut() = Some(Box::new(|room, split| {
                 if let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) {
-                    shell.open_room(room);
+                    shell.open_room(room, split);
                 }
             }));
         });
@@ -260,13 +260,14 @@ impl Shell {
         tracing::warn!("a later start handed Yapfast a link it can't open");
     }
 
-    /// Opens the window on a conversation, as a clicked notification does.
-    fn open_room(self: &Rc<Self>, room: String) {
+    /// Opens the window on a conversation, as a clicked notification does,
+    /// or with `split` in split view, when split view can show it.
+    fn open_room(self: &Rc<Self>, room: String, split: bool) {
         if let Some(window) = self.open() {
             window.set_settings_open(false);
-            self.adapter
-                .borrow_mut()
-                .action(&window, Action::OpenChat(room));
+            let mut adapter = self.adapter.borrow_mut();
+            let action = super::split_or(&adapter.app, room, split, Action::OpenChat);
+            adapter.action(&window, action);
         }
     }
 

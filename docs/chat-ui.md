@@ -327,6 +327,64 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   @room. Their own messages are never highlighted. Yapfast counts unread messages on this device; for a room that isn't open,
   sync often delivers only the newest event, so Yapfast shows that something is
   unread rather than how much.
+- Split view, a Yapfast addition that Discord doesn't have, off unless
+  "Split view" in Messages settings turns it on (`split_view` in
+  `layout.json`): a Discord channel, thread or DM opens beside the open
+  conversation. While it's on, switches under it turn its parts off, each
+  on unless turned off and each doing nothing when off: "Drag rows to open"
+  (`split_drag`), "Ctrl+click and middle click to open" (`split_click`, for
+  list rows, mentions and the rail's unread DMs), "Notification button"
+  (`split_notify`), "Reopen the split on start" (`split_restore`, which off
+  also forgets the room kept) and "Unread dot" (`split_dot`). Its menu item
+  and Swap sides stay while it's on. Its animations, the ghost's trail, the
+  drop zone fading and lighting up, and its divider's line, follow the
+  window's `split-animate`, on by default; off, they snap. It opens from the room's menu's "Open in split view"; with
+  Ctrl+click or a middle click on its row in the channel or DM list; by
+  dragging its row out sideways, a few pixels so a click stays a click, and
+  dropping it on the right half of the conversation; with Ctrl+click on
+  an unread DM on the server rail or on a `#channel` mention in a message; and
+  from a desktop notification's "Open in split view" button, since the
+  notification service says which button was clicked but not the keys held.
+  While a row is dragged, it stays dimmed in the list, the pointer is the
+  grabbing hand, a faint copy of the row, centred on the pointer, trails it
+  by about a tenth of a second, and the right half shows a drop zone,
+  outlined and labelled "Open in split view", that lights up with the
+  pointer over it; letting go anywhere else, or Escape, opens nothing.
+  Opening the conversation's own room there, by dragging or Ctrl+click,
+  moves it to split view, and the conversation goes to the room shown
+  before it; without one, to its server's first text channel, or for a DM,
+  to the friends list. Slint stops telling the
+  row about the pointer once it leaves the row, so the window follows the
+  rest of the drag, and where it's let go, from winit's events (`src/ui.rs`).
+  It shows where a thread beside its channel does, with the same panel
+  (`ui/thread.slint`) and model (`AppState::aside`, `application/aside.rs`):
+  its own messages, history and composer, which replies, edits, reacts and
+  takes files as the thread's does. Its header has the room's name with `#`
+  or `@`, Swap sides, More (the room's menu), a button to show it in place of
+  the conversation, and Close. Swap sides shows it in the conversation and
+  the conversation's room in split view, when that's a room split view can
+  show; both channels stay open in the Discord backend as they change places,
+  so neither loads again. It replaces a thread beside the channel, and a
+  thread opened from a message replaces it; a thread opened in split view
+  looks as a thread beside its channel does, with its width, but stays as
+  split view does. It stays while the conversation goes to other rooms or
+  to the friends list. It goes when its own room opens in the
+  conversation, when it's closed, with Ctrl+W, or when the switch goes off. The room it shows is kept
+  (`split_room` in `layout.json`) and shows again on the next start, once
+  it's listed and a conversation is open. Its edge drags as the thread's does
+  (`split_width` in `layout.json`), from half the room beside the sidebar to
+  320px, leaving the conversation 420px; a double click goes back to half.
+  Typing goes to one side at a time, split view's from when it opens: a
+  press anywhere on the other side, a message's text too, moves it there
+  (the window sees the press before what's under it, `pane-pressed`), as
+  does Ctrl+Tab, and keys typed with nothing focused go to that side's
+  composer. A message from someone else that comes to split view while
+  typing goes to the conversation puts a dot by its name, until typing moves
+  to it. It's read while it shows, as the thread beside is. It holds no copy
+  of its own: Discord keeps it open beside the open channel, live, as the
+  thread beside is, and closing it keeps it among the recently open channels
+  and drops its rows. Matrix rooms don't offer it, as Matrix shows no thread
+  beside a room either.
 - Show sync status in the account panel. Reconnect appears there when offline;
   sign out (which retains encrypted stores) is in settings.
 

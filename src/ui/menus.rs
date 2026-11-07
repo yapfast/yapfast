@@ -201,6 +201,8 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::Ban => 5,
                 // Its own group, as in Discord's.
                 MenuChoice::TransferOwnership => 9,
+                // Yapfast's own, so apart from Discord's.
+                MenuChoice::OpenInSplit => 10,
                 MenuChoice::ServerSettings
                 | MenuChoice::EditServerProfile
                 | MenuChoice::CreateChannel
@@ -355,6 +357,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::MarkRead => ("Mark as read", &icons.read),
         MenuChoice::JoinVoice => ("Join voice", &icons.call),
         MenuChoice::OpenChat => ("Open chat", &icons.chat),
+        MenuChoice::OpenInSplit => ("Open in split view", &icons.chat),
         MenuChoice::Profile => ("Profile", &icons.profile),
         MenuChoice::Message => ("Message", &icons.dm),
         MenuChoice::AddFriend => ("Add friend", &icons.befriend),
@@ -933,6 +936,7 @@ pub(super) fn choose(
         MenuChoice::MarkRead => Some(Action::MarkRead(target)),
         MenuChoice::JoinVoice => Some(Action::RequestJoinVoice(target)),
         MenuChoice::OpenChat => Some(Action::OpenChat(target)),
+        MenuChoice::OpenInSplit => Some(Action::OpenSplit(target)),
         MenuChoice::Call if person => Some(Action::CallPerson(target.clone())),
         MenuChoice::Call => room.map(Action::RequestJoinVoice),
         // Discord's Profile opens the full modal, not the popout.
@@ -1129,10 +1133,11 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 65] = [
+const CHOICES: [MenuChoice; 66] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
+    MenuChoice::OpenInSplit,
     MenuChoice::Profile,
     MenuChoice::Message,
     MenuChoice::AddFriend,
@@ -1202,6 +1207,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::MarkRead => "mark-read",
         MenuChoice::JoinVoice => "join-voice",
         MenuChoice::OpenChat => "open-chat",
+        MenuChoice::OpenInSplit => "open-in-split",
         MenuChoice::Profile => "profile",
         MenuChoice::Message => "message",
         MenuChoice::AddFriend => "add-friend",

@@ -1056,6 +1056,12 @@ export component MessageSettings inherits VerticalLayout {
     in-out property <int> animate;
     in-out property <bool> reply-ping;
     in-out property <bool> strip-tracking;
+    in-out property <bool> split-view;
+    in-out property <bool> split-drag;
+    in-out property <bool> split-click;
+    in-out property <bool> split-notify;
+    in-out property <bool> split-restore;
+    in-out property <bool> split-dot;
     /// The networks in use, which the descriptions name.
     in property <bool> matrix;
     in property <bool> discord;
@@ -1145,6 +1151,47 @@ export component MessageSettings inherits VerticalLayout {
         description: "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page.";
         checked <=> root.strip-tracking;
         toggled => { root.preferences-changed(); }
+    }
+    // Yapfast's own, not Discord's: off unless turned on.
+    if root.discord: SettingsSwitch {
+        text: "Split view";
+        description: "Open a Discord channel or DM beside the one you're in, from its menu, with Ctrl+click or with a middle click, to follow and answer both. Discord doesn't have this.";
+        checked <=> root.split-view;
+        toggled => { root.preferences-changed(); }
+    }
+    // Its parts, under it while it's on.
+    if root.discord && root.split-view: VerticalLayout {
+        padding-left: 18px; spacing: 12px;
+        SettingsSwitch {
+            text: "Drag rows to open";
+            description: "Drag a channel or DM out of the list onto the right half of the conversation.";
+            checked <=> root.split-drag;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Ctrl+click and middle click to open";
+            description: "On channels and DMs in the list, #channel mentions in messages, and unread DMs on the server list.";
+            checked <=> root.split-click;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Notification button";
+            description: "Desktop notifications get an \"Open in split view\" button.";
+            checked <=> root.split-notify;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Reopen the split on start";
+            description: "What split view showed when Yapfast closed shows there again.";
+            checked <=> root.split-restore;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Unread dot";
+            description: "A dot by split view's name when a message comes there while you type on the other side.";
+            checked <=> root.split-dot;
+            toggled => { root.preferences-changed(); }
+        }
     }
 }
 

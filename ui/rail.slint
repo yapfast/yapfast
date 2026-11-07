@@ -449,6 +449,18 @@ export component ChannelRow inherits Rectangle {
     // Refused until the button goes down again.
     property <bool> refused;
     callback clicked;
+    /// With `splits`, a Ctrl-click or a middle click asks for split view,
+    /// and with `split-drags`, dragging it out sideways.
+    in property <bool> splits;
+    in property <bool> split-drags;
+    callback split-clicked;
+    property <bool> control-held;
+    /// With `splits`, dragging it out sideways starts dragging it for split
+    /// view, where the pointer is in the window. Slint stops sending the row
+    /// the pointer's moves once it leaves the row, so the window follows the
+    /// rest, and where it's let go, from winit's events (`src/ui.rs`).
+    callback split-dragged(length, length);
+    property <bool> split-dragging;
     /// Their person's voice channel was clicked, to go to it.
     callback open-voice;
     callback open-chat;
@@ -499,13 +511,24 @@ export component ChannelRow inherits Rectangle {
             return reject;
         }
         pointer := TouchArea {
-            mouse-cursor: root.dragging ? MouseCursor.grabbing : MouseCursor.pointer;
+            mouse-cursor: root.dragging || root.split-dragging ? MouseCursor.grabbing : MouseCursor.pointer;
             // Slint reports the click before the button going up, which
             // ends a drag.
             clicked => {
-                if !root.dragging { root.clicked(); }
+                if root.dragging || root.split-dragging { return; }
+                if root.splits && root.control-held { root.split-clicked(); } else { root.clicked(); }
             }
             moved => {
+                // Out sideways, a few pixels and further than up or down,
+                // it's for split view; a click doesn't move that far.
+                if self.pressed && root.split-drags && !root.dragging && !root.split-dragging
+                    && self.mouse-x - self.pressed-x > 8px && self.mouse-x - self.pressed-x > abs(self.mouse-y - self.pressed-y) {
+                    root.split-dragging = true;
+                }
+                if root.split-dragging {
+                    if self.pressed { root.split-dragged(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                    return;
+                }
                 if self.pressed && root.draggable && !root.dragging && !root.refused && abs(self.mouse-y - self.pressed-y) > 4px {
                     root.dragging = root.start-drag(self.pressed-y);
                     root.refused = !root.dragging;
@@ -518,6 +541,15 @@ export component ChannelRow inherits Rectangle {
                 }
                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
                     root.refused = false;
+                    root.control-held = event.modifiers.control;
+                    // A drag let go outside the row ended there.
+                    root.split-dragging = false;
+                }
+                if root.splits && event.button == PointerEventButton.middle && event.kind == PointerEventKind.up {
+                    root.split-clicked();
+                }
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                    root.split-dragging = false;
                 }
                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && (root.dragging || root.tracking) {
                     root.dragging = false;
@@ -990,6 +1022,17 @@ export component RoomList inherits Rectangle {
     /// Said under the rooms, such as when none match the filter.
     in property <string> sidebar-empty;
     callback select-room(string);
+    /// A conversation was Ctrl-clicked or middle-clicked, for split view.
+    callback open-split(string);
+    /// Whether rows open split view with Ctrl+click and a middle click, and
+    /// by dragging.
+    in property <bool> split-clicks;
+    in property <bool> split-drags;
+    /// A conversation is dragged out sideways, for split view: its row, and
+    /// where the pointer is in the window. The one dragged, by id, stays
+    /// dimmed meanwhile.
+    callback split-drag(RoomRow, length, length);
+    in property <string> split-dragged;
     /// A DM person's voice channel was clicked: its room id.
     callback open-voice(string);
     /// Wave at a DM's person (their id), by the button an empty DM offers.
@@ -1180,7 +1223,7 @@ export component RoomList inherits Rectangle {
                     }
                     ChannelRow {
                         text: room.name; thread: true;
-                        opacity: root.dimmed(false) ? 0.3 : 1;
+                        opacity: root.dimmed(false) || room.id == root.split-dragged ? 0.3 : 1;
                         tracking: root.arranging > 0;
                         dragged(y) => { root.drag-y = y; }
                         dropped => { root.finish(); }
@@ -1188,6 +1231,9 @@ export component RoomList inherits Rectangle {
                             + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
                         selected: room.selected; unread: room.unread; badge: room.badge; muted: room.muted;
                         clicked => { root.select-room(room.id); }
+                        splits: root.split-clicks; split-drags: root.split-drags;
+                        split-clicked => { root.open-split(room.id); }
+                        split-dragged(x, y) => { root.split-drag(room, x, y); }
                         context-menu(x, y) => { root.open-room-menu(room.id, x, y); }
                     }
                 }
@@ -1213,9 +1259,12 @@ export component RoomList inherits Rectangle {
                     // Discord doesn't dim a muted voice channel, only a text one.
                     pinned: room.pinned && room.direct; muted: room.muted && !room.voice;
                     clicked => { root.select-room(room.id); }
+                    splits: root.split-clicks && !room.voice; split-drags: root.split-drags && !room.voice;
+                    split-clicked => { root.open-split(room.id); }
+                    split-dragged(x, y) => { root.split-drag(room, x, y); }
                     open-voice => { root.open-voice(room.voice-room); }
                     context-menu(x, y) => { root.open-room-menu(room.id, x, y); }
-                    opacity: root.dimmed(room.voice) ? 0.3 : 1;
+                    opacity: root.dimmed(room.voice) || room.id == root.split-dragged ? 0.3 : 1;
                     draggable: room.place > 0; tracking: root.arranging > 0;
                     start-drag(y) => { return root.begin(room.place, room, false, y); }
                     dragged(y) => { root.drag-y = y; }

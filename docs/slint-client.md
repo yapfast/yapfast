@@ -26,7 +26,8 @@ application model are in `yapfast-core`.
   messages (text size, clock and link previews), notifications, sounds, Discord
   and advanced (the renderer, closing to the tray), closed by its close button
   or Escape. Desktop notifications for DMs and mentions show while Yapfast
-  isn't in front; clicking one opens the conversation. Closing the window
+  isn't in front; clicking one opens the conversation, and with split view
+  on, its "Open in split view" button opens it there. Closing the window
   leaves Yapfast in the [tray](tray.md).
 
 `ui/yapfast.slint` defines the window, with its controls and parts in the other

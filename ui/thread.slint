@@ -11,6 +11,17 @@ import { EmojiCell, EmojiButton, MessageRow, MessageContent, HistoryEdge } from 
 /// way to show it in place of the channel.
 export component ThreadPanel inherits Rectangle {
     in property <string> name;
+    /// A channel or, with `dm`, a DM in split view rather than a thread.
+    in property <bool> split;
+    in property <bool> dm;
+    /// Split view's room and the open one can change places, which `swap`
+    /// asks for.
+    in property <bool> can-swap;
+    callback swap;
+    /// A message came while typing went to the other side: a dot by the name.
+    in property <bool> unseen;
+    // A split view's channel as its composer names it, #general or @Bob.
+    property <string> shown-name: !root.split ? root.name : (root.dm ? "@" : "#") + root.name;
     in property <[MessageRow]> messages;
     /// Its timeline came.
     in property <bool> ready;
@@ -126,7 +137,7 @@ export component ThreadPanel inherits Rectangle {
     property <bool> is-editing: root.compose-label == "Editing your message";
     background: Theme.chat;
     accessible-role: list;
-    accessible-label: root.name + " thread";
+    accessible-label: root.name + (root.split ? ", split view" : " thread");
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
 
     // The newest message stays in view as rows come, until scrolled away from,
@@ -159,8 +170,28 @@ export component ThreadPanel inherits Rectangle {
             height: 48px;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 8px;
-                Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
-                Text { text: root.name; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Middle {
+                    Image {
+                        source: !root.split ? @image-url("icons/thread.svg") : root.dm ? @image-url("icons/at-sign.svg") : @image-url("icons/hash.svg");
+                        width: 18px; height: 18px; colorize: Theme.muted;
+                    }
+                }
+                HorizontalLayout {
+                    horizontal-stretch: 1; spacing: 8px; alignment: LayoutAlignment.start;
+                    Text { text: root.name; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+                    if root.unseen: Middle {
+                        Rectangle {
+                            width: 8px; height: 8px; border-radius: 4px; background: Theme.text;
+                            accessible-role: text; accessible-label: "New messages";
+                        }
+                    }
+                }
+                if root.can-swap: Middle {
+                    IconButton {
+                        icon: @image-url("icons/arrow-left-right.svg"); label: "Swap sides"; size: 28px; glyph: 18px; tip-side: 2;
+                        clicked => { root.swap(); }
+                    }
+                }
                 Middle {
                     IconButton {
                         icon: @image-url("icons/ellipsis.svg"); label: "More"; size: 28px; glyph: 18px; tip-side: 2;
@@ -168,7 +199,7 @@ export component ThreadPanel inherits Rectangle {
                     }
                 }
                 Middle { IconButton { icon: @image-url("icons/maximize.svg"); label: "Open in full view"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.expand(); } } }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close thread"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: root.split ? "Close split view" : "Close thread"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -212,7 +243,7 @@ export component ThreadPanel inherits Rectangle {
                             spacing: 0px;
                             if index == 0: HistoryEdge {
                                 loading: root.loading; failed: root.failed; start: root.start;
-                                enabled: !root.busy; room-thread: true; room-name: root.name;
+                                enabled: !root.busy; room-thread: !root.split; room-direct: root.split && root.dm; room-name: root.name;
                                 earlier => { root.earlier(); }
                             }
                             if message.day != "": HorizontalLayout {
@@ -314,7 +345,7 @@ export component ThreadPanel inherits Rectangle {
             }
             if root.messages.length == 0 && root.ready: Text {
                 x: 16px; width: parent.width - 32px;
-                text: "This is the start of the " + root.name + " thread.";
+                text: !root.split ? "This is the start of the " + root.name + " thread." : root.dm ? "This is the beginning of your messages with " + root.name + "." : "This is the start of #" + root.name + ".";
                 color: Theme.muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
         }
@@ -363,8 +394,8 @@ export component ThreadPanel inherits Rectangle {
                             }
                         }
                         composer := Composer {
-                            text <=> root.draft; enabled: root.composer-enabled; label: "Message " + root.name;
-                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : "Message " + root.name;
+                            text <=> root.draft; enabled: root.composer-enabled; label: "Message " + root.shown-name;
+                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : "Message " + root.shown-name;
                             edited(text) => { root.draft-edited(text); }
                             accepted => { root.send(); }
                             paste => { root.paste(); }
