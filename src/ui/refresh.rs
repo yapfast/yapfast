@@ -818,6 +818,8 @@ impl Adapter {
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
+                    tag: tag_text(&room.tag),
+                    tag_badge: tag_badge(&room.tag),
                     official: room.official,
                     wave: if room.empty && !room.request {
                         room.person.as_deref().unwrap_or_default().into()
@@ -1645,6 +1647,8 @@ impl Adapter {
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
                         group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
+                        tag: tag_text(&member.tag),
+                        tag_badge: tag_badge(&member.tag),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),

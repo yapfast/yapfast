@@ -262,6 +262,8 @@ pub(super) fn profile_data(
         picture: avatar.clone(),
         handle: profile.handle.as_str().into(),
         pronouns: profile.pronouns.as_str().into(),
+        tag: tag_text(&profile.tag),
+        tag_badge: tag_badge(&profile.tag),
         banner: banner.clone(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
@@ -500,6 +502,20 @@ pub(super) fn dominant_color(picture: &slint::Image) -> Option<u32> {
         color = (color << 8) | (sum / total).round().clamp(0.0, 255.0) as u32;
     }
     Some(color)
+}
+
+/// A server tag's letters for Slint, or nothing for one who wears none.
+pub(super) fn tag_text(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.as_ref()
+        .map_or_else(Default::default, |tag| (&*tag.text).into())
+}
+
+/// The address of a server tag's badge for Slint, or nothing without one.
+pub(super) fn tag_badge(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.as_ref()
+        .and_then(|tag| tag.badge.as_deref())
+        .unwrap_or_default()
+        .into()
 }
 
 /// A Discord role's RGB colour for Slint.

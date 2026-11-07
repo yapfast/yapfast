@@ -283,6 +283,7 @@ fn members_belong_to_the_selected_text_room() {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        tag: None,
         group_icon: None,
         role_icon: None,
     };
@@ -2983,6 +2984,7 @@ fn member(id: &str, name: &str) -> ChatMember {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        tag: None,
         group_icon: None,
         role_icon: None,
     }
@@ -3907,6 +3909,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            tag: None,
             group_icon: None,
             role_icon: None,
         }]),
@@ -5140,6 +5143,31 @@ fn pictures_off_screen_go_once_many_have_arrived() {
         "asked for again when shown"
     );
     assert_eq!(app.state.picture_changes, KEPT_PICTURES as u64 + 2);
+}
+
+#[test]
+fn server_tag_badges_on_screen_stay_with_the_avatars() {
+    let mut app = connected();
+    let badge = "https://cdn.discordapp.com/clan-badges/10/abc.png?size=32";
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![ChatMessage {
+            tag: Some(chat::ServerTag {
+                text: "CODE".into(),
+                badge: Some(badge.into()),
+            }),
+            ..message("e:$ann", false)
+        }]),
+    });
+    for url in std::iter::once(badge.to_owned()).chain((0..KEPT_PICTURES).map(|i| i.to_string())) {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(app.state.pictures.contains_key(badge));
+    assert_eq!(app.state.pictures.len(), 1, "the rest went");
 }
 
 #[test]

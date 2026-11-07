@@ -599,6 +599,7 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
                 timed_out_until: None,
                 group_icon: None,
                 role_icon: None,
+                tag: None,
             }]),
         });
         adapter.refresh(&window);
@@ -3917,6 +3918,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         parent: None,
         forum: false,
         unlisted: false,
+        tag: None,
         official: false,
         empty: false,
         preview: None,
@@ -6616,6 +6618,7 @@ fn requests_list_someone_once_with_their_message() {
         parent: None,
         forum: false,
         unlisted: false,
+        tag: None,
         official: false,
         empty: false,
         preview: Some(Box::new(RequestPreview {

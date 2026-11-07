@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
-import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField } from "controls.slint";
+import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField, ServerTagChip } from "controls.slint";
 import { StatusDot } from "rail.slint";
 
 /// A member of the open room. A heading starts each role's group.
@@ -18,6 +18,8 @@ export struct MemberRow {
     picture-url: string,
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
+    /// The server tag they wear by their name, and its badge's address.
+    tag: string, tag-badge: string,
     /// The pictures of the role their group is and of their highest role that
     /// has one, which Discord draws by the group's heading and their name.
     group-icon: string, role-icon: string,
@@ -123,13 +125,16 @@ export component MemberPanel inherits Rectangle {
                     VerticalLayout {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
-                            alignment: start; spacing: 6px;
+                            alignment: start; spacing: 4px;
                             Text {
                                 text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500; overflow: elide;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
                             if member.role-icon != "": Middle {
                                 RoleIcon { url: member.role-icon; size: 16px; opacity: member.presence == "offline" ? 0.5 : 1; }
+                            }
+                            if member.tag != "": Middle {
+                                ServerTagChip { text: member.tag; badge: member.tag-badge; opacity: member.presence == "offline" ? 0.5 : 1; }
                             }
                             if member.timed-out: Image {
                                 source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
@@ -202,6 +207,8 @@ export struct ProfileData {
     theme-primary: color, theme-secondary: color, has-theme: bool,
     /// A Discord username or Matrix ID, and the pronouns they give.
     handle: string, pronouns: string,
+    /// The server tag they wear by their name, and its badge's address.
+    tag: string, tag-badge: string,
     /// The banner picture, else its colour.
     banner: image, accent: color, has-accent: bool,
     /// As in MemberRow.
@@ -687,12 +694,13 @@ export component ProfileCard inherits Rectangle {
                             overflow: elide;
                             if !root.large && !root.preview: TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                         }
-                        if root.data.handle != "": HorizontalLayout {
+                        if root.data.handle != "" || root.data.tag != "": HorizontalLayout {
                             spacing: 6px; alignment: start;
                             if root.data.handle != "": Text {
                                 text: root.data.handle + (root.data.pronouns != "" ? " \u{2022} " + root.data.pronouns : "");
                                 color: Theme.text; font-size: 14px; font-weight: 400; overflow: elide; vertical-alignment: center;
                             }
+                            if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: #97979f1f; outline: #97979f0a; outline-width: 1px; } }
                         }
                         if root.data.activity != "" || root.data.activity-emoji != "": StatusText {
                             text: root.data.activity; emoji-url: root.data.activity-emoji;

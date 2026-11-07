@@ -597,6 +597,12 @@ function wireUser(user: User) {
     discriminator: "0",
     public_flags: 0,
     avatar_decoration_data: null,
+    // Bob wears the server's tag, as Discord sends the server a user
+    // chose to represent them; everyone else has none.
+    primary_guild:
+      user.id === users.bob.id
+        ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
+        : null,
   };
 }
 
@@ -7721,7 +7727,7 @@ const server = Bun.serve<SocketData>({
     if (req.method === "GET" && /^\/(app-icons\/\d+\/[a-z0-9]+\.png|app-assets\/\d+\/[a-z0-9]+\.png|spotify\/[A-Za-z0-9]+)$/.test(path)) {
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
     }
-    if (req.method === "GET" && /^\/(icons\/\d+|avatars\/\d+|banners\/\d+|splashes\/\d+|role-icons\/\d+|badge-icons|embed\/avatars|guilds\/\d+\/users\/\d+\/(avatars|banners))\/[^/]+\.png$/.test(path)) {
+    if (req.method === "GET" && /^\/(icons\/\d+|avatars\/\d+|banners\/\d+|splashes\/\d+|role-icons\/\d+|clan-badges\/\d+|badge-icons|embed\/avatars|guilds\/\d+\/users\/\d+\/(avatars|banners))\/[^/]+\.png$/.test(path)) {
       const uploaded = uploadedPictures.get(path.slice(path.lastIndexOf("/") + 1, -".png".length));
       if (uploaded) return new Response(uploaded.data, { headers: { "content-type": uploaded.type } });
       return new Response(picture(path), { headers: { "content-type": "image/png" } });

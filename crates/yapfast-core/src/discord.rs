@@ -190,6 +190,16 @@ fn in_voice(snapshot: &Snapshot, channel: &str) -> Vec<VoicePerson> {
 }
 
 #[cfg(feature = "discord")]
+/// A server tag as Yapfast's chat shows it.
+pub fn server_tag(tag: Option<yapfast_discord::message::Tag>) -> Option<chat::ServerTag> {
+    let tag = tag?;
+    Some(chat::ServerTag {
+        text: tag.text,
+        badge: tag.badge,
+    })
+}
+
+#[cfg(feature = "discord")]
 /// Discord's presence as Yapfast's chat names it.
 pub fn presence(presence: yapfast_discord::member_list::Presence) -> chat::Presence {
     use yapfast_discord::member_list::Presence as Discord;
@@ -669,6 +679,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         parent: None,
         forum: false,
         unlisted: false,
+        tag: server_tag(dm.tag.clone()),
         official: dm.official,
         empty: dm.empty,
         preview: dm.preview.as_ref().map(|preview| {
@@ -815,6 +826,7 @@ fn server_rooms(
                 parent: None,
                 forum: false,
                 unlisted: false,
+                tag: None,
                 official: false,
                 empty: false,
                 preview: None,
@@ -863,6 +875,7 @@ fn server_rooms(
                 parent: None,
                 forum: channel.forum.is_some(),
                 unlisted: unlisted(channel),
+                tag: None,
                 official: false,
                 empty: false,
                 preview: None,
@@ -953,6 +966,7 @@ fn thread_room(
         parent: Some(parent.id.clone()),
         forum: false,
         unlisted: parent.unlisted,
+        tag: None,
         official: false,
         empty: false,
         preview: None,

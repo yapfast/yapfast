@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::{
     activity::{Activities, activities},
-    message::{self, CustomEmoji, Names},
+    message::{self, CustomEmoji, Names, Tag},
     ready::Server,
 };
 
@@ -31,6 +31,8 @@ pub struct ListedMember {
     /// highest of their roles that has one.
     pub group_icon: Option<Arc<str>>,
     pub role_icon: Option<Arc<str>>,
+    /// The server tag they wear by their name.
+    pub tag: Option<Tag>,
     pub presence: Presence,
     /// The RGB colour of their highest coloured role.
     pub color: Option<u32>,
@@ -320,6 +322,7 @@ impl MemberList {
                             .as_ref()
                             .and_then(|(id, _)| server?.group_role_icon(id)),
                         role_icon: server.and_then(|server| server.role_icon(&person.roles)),
+                        tag: names.server_tag(user).cloned(),
                         presence: person.presence,
                         color: server.and_then(|server| server.color(&person.roles)),
                         activity: person.activity,

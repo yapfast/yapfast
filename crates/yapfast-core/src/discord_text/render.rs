@@ -609,6 +609,7 @@ pub(super) fn chat_profile(
                 avatar: Some(friend.avatar),
             })
             .collect(),
+        tag: discord::server_tag(profile.tag),
         badges: chat_badges(profile.badges),
         bio_emoji,
         // The note comes with its own request; see `fill_profile`.
@@ -753,6 +754,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         activities: member.activities,
         roles: member.roles,
         timed_out_until: member.timed_out_until,
+        tag: discord::server_tag(member.tag),
     }
 }
 

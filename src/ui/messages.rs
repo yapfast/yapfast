@@ -664,6 +664,8 @@ pub(super) fn message_row_within(
         id: message.id.clone().into(),
         item: message.item.clone().into(),
         author: message.author.clone().into(),
+        tag: tag_text(&message.tag),
+        tag_badge: tag_badge(&message.tag),
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),

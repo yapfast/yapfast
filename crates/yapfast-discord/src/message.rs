@@ -992,6 +992,41 @@ pub fn is_official(user: &Value) -> bool {
             .is_some_and(|flags| flags & (1 << 12) != 0)
 }
 
+/// The server tag someone wears beside their name, as Discord's `primary_guild`
+/// gives it: up to four characters from a server they chose to represent,
+/// with that server's badge.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct Tag {
+    pub text: Arc<str>,
+    /// The address of the picture of the server's tag badge, when it has one.
+    pub badge: Option<Arc<str>>,
+}
+
+impl Tag {
+    /// A user object's `primary_guild`; none for a person who doesn't wear
+    /// it, who turned it off, whose server has no tag, or who hasn't taken up
+    /// their server's changed tag yet, for whom `identity_enabled` is null.
+    pub fn parse(primary: &Value) -> Option<Self> {
+        if primary["identity_enabled"].as_bool() != Some(true) {
+            return None;
+        }
+        let guild = primary["identity_guild_id"]
+            .as_str()
+            .filter(|g| id(g).is_some())?;
+        let text = primary["tag"]
+            .as_str()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())?;
+        Some(Self {
+            text: text.into(),
+            badge: primary["badge"]
+                .as_str()
+                .filter(|hash| !hash.is_empty())
+                .map(|hash| ready::guild_tag_badge(guild, hash).into()),
+        })
+    }
+}
+
 /// [`Names`] as saved to disk, where maps keyed by server and user become
 /// lists.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -1006,6 +1041,9 @@ pub struct SavedNames {
     usernames: Vec<(String, String)>,
     #[serde(default)]
     bots: Vec<String>,
+    /// Each person's tag: user id, text and badge address.
+    #[serde(default)]
+    tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
 }
 
 /// [`Names`] serialized as [`SavedNames`]; see [`Names::saving`].
@@ -1022,7 +1060,7 @@ impl serde::Serialize for SavingNames<'_> {
             }
         }
         let names = self.0;
-        let mut saved = serializer.serialize_struct("SavedNames", 8)?;
+        let mut saved = serializer.serialize_struct("SavedNames", 9)?;
         saved.serialize_field(
             "users",
             &List(|| names.users.iter().map(|(user, name)| (Text(*user), name))),
@@ -1077,6 +1115,15 @@ impl serde::Serialize for SavingNames<'_> {
             }),
         )?;
         saved.serialize_field("bots", &List(|| names.bots.iter().copied().map(Text)))?;
+        saved.serialize_field(
+            "tags",
+            &List(|| {
+                names
+                    .tags
+                    .iter()
+                    .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
+            }),
+        )?;
         saved.end()
     }
 }
@@ -1118,6 +1165,8 @@ pub struct Names {
     members: HashSet<(Id, Id)>,
     /// Avatar hashes by user id, of those who set one.
     avatars: HashMap<Id, String>,
+    /// The server tags of those who wear one, by user id.
+    tags: HashMap<Id, Tag>,
     /// Discord's own accounts, such as the one that sends its official
     /// messages, which a DM list marks.
     officials: HashSet<Id>,
@@ -1197,6 +1246,11 @@ impl Names {
                 .collect(),
             usernames: by_user(saved.usernames),
             bots: saved.bots.iter().filter_map(|user| id(user)).collect(),
+            tags: saved
+                .tags
+                .into_iter()
+                .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
+                .collect(),
             ..Self::default()
         };
         // Those kept from before go before anyone learned since.
@@ -1257,6 +1311,7 @@ impl Names {
         self.bots.retain(|user| seen.contains_key(user));
         self.officials.retain(|user| seen.contains_key(user));
         self.avatars.retain(|user, _| seen.contains_key(user));
+        self.tags.retain(|user, _| seen.contains_key(user));
         self.nicknames
             .retain(|(_, user), _| seen.contains_key(user));
         self.members.retain(|(_, user)| seen.contains_key(user));
@@ -1308,6 +1363,15 @@ impl Names {
                 learned |= changed(&mut self.avatars, id, Some(hash.clone()));
             }
             Some(Value::Null) => learned |= changed(&mut self.avatars, id, None),
+            _ => {}
+        }
+        // Partial user objects leave the tag out; null takes it away, and
+        // so does turning it off.
+        match user.get("primary_guild") {
+            Some(primary @ Value::Object(_)) => {
+                learned |= changed(&mut self.tags, id, Tag::parse(primary));
+            }
+            Some(Value::Null) => learned |= changed(&mut self.tags, id, None),
             _ => {}
         }
         self.version += u64::from(known && learned);
@@ -1503,6 +1567,13 @@ impl Names {
     /// Whether a user is one of Discord's own accounts.
     pub fn is_official(&self, user: &str) -> bool {
         id(user).is_some_and(|user| self.officials.contains(&user))
+    }
+
+    /// The server tag a user wears beside their name, if they do.
+    pub fn server_tag(&self, user: &str) -> Option<&Tag> {
+        let user = id(user)?;
+        self.touch(user);
+        self.tags.get(&user)
     }
 
     /// The avatar hash [`Self::avatar`] makes a user's address from outside
@@ -2360,6 +2431,58 @@ mod tests {
         assert!(restored.is_bot("2"));
         names.learn_user(&json!({"id": "2", "username": "helper", "bot": false}));
         assert!(!names.is_bot("2"));
+    }
+
+    #[test]
+    fn learns_server_tags_and_keeps_them_across_partial_objects() {
+        let mut names = Names::default();
+        let wears = |enabled: bool| {
+            json!({"id": "2", "username": "ann", "primary_guild": {
+                "identity_guild_id": "10", "identity_enabled": enabled,
+                "tag": "CODE", "badge": "abc123"}})
+        };
+        names.learn_user(&wears(true));
+        let tag = names.server_tag("2").unwrap();
+        assert_eq!(&*tag.text, "CODE");
+        assert!(
+            tag.badge
+                .as_deref()
+                .unwrap()
+                .ends_with("/clan-badges/10/abc123.png?size=32")
+        );
+        assert_eq!(names.server_tag("3"), None);
+
+        // A partial user object, as a mention's, says nothing of it.
+        names.learn_user(&json!({"id": "2"}));
+        assert!(names.server_tag("2").is_some());
+
+        // It survives a restart.
+        let saved = serde_json::to_vec(&names.saving()).unwrap();
+        let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
+        assert_eq!(restored.server_tag("2"), names.server_tag("2"));
+
+        // Leaving it off, or taking it away, removes it, and redraws them.
+        let version = names.version();
+        names.learn_user(&wears(false));
+        assert_eq!(names.server_tag("2"), None);
+        assert!(names.version() > version);
+        names.learn_user(&wears(true));
+        names.learn_user(&json!({"id": "2", "primary_guild": null}));
+        assert_eq!(names.server_tag("2"), None);
+
+        // Nor does one who hasn't taken up their server's changed tag wear it.
+        names.learn_user(&wears(true));
+        names.learn_user(&json!({"id": "2", "primary_guild": {
+            "identity_guild_id": "10", "identity_enabled": null, "tag": "OLD"}}));
+        assert_eq!(names.server_tag("2"), None);
+
+        // A server without a badge, or one with no text, shows as it can.
+        names.learn_user(&json!({"id": "2", "primary_guild": {
+            "identity_guild_id": "10", "identity_enabled": true, "tag": "AB", "badge": null}}));
+        assert_eq!(names.server_tag("2").unwrap().badge, None);
+        names.learn_user(&json!({"id": "2", "primary_guild": {
+            "identity_guild_id": "10", "identity_enabled": true, "tag": " "}}));
+        assert_eq!(names.server_tag("2"), None);
     }
 
     #[test]

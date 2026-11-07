@@ -240,6 +240,54 @@ export global EmojiAnimations {
     pure callback frame(string, int) -> image;
 }
 
+// The server tag someone wears by their name, as Discord's client draws it: a
+// small grey chip with their server's badge, when it has one, before up to four
+// letters.
+export component ServerTagChip inherits Rectangle {
+    in property <string> text;
+    /// The address of the badge's picture, or empty for a tag without one.
+    in property <string> badge;
+    // Discord's chip: 12px text on a 16px line, 4px sides, 4px corners, a 14px
+    // badge 2px before the text, a grey wash at 20%. Everything scales with the
+    // text so the chip can be set smaller in messages.
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 600;
+    in property <length> chip-height: root.font-size * 1.3333;
+    in property <length> pad: 4px;
+    in property <length> radius: 4px;
+    in property <color> fill: #97979f33;
+    in property <color> outline: transparent;
+    in property <length> outline-width: 0px;
+    property <length> badge-size: root.font-size + 2px;
+    property <length> gap: 2px;
+    property <image> badge-picture: root.badge != "" ? PictureStore.picture(root.badge, PictureStore.revision) : @image-url("");
+    function request() {
+        if root.badge != "" && root.badge-picture.width == 0 {
+            PictureStore.request(root.badge);
+        }
+    }
+    init => { root.request(); }
+    changed badge => { root.request(); }
+    changed badge-picture => { root.request(); }
+    // The badge's room is kept from the start, so that the row doesn't move
+    // when its picture arrives; one that fails leaves the room empty, as Discord's does.
+    width: tag-text.preferred-width + (root.badge != "" ? root.badge-size + root.gap : 0px) + root.pad * 2 + root.outline-width * 2;
+    height: root.chip-height; border-radius: root.radius;
+    background: root.fill;
+    border-width: root.outline-width; border-color: root.outline;
+    accessible-role: AccessibleRole.text; accessible-label: "Server tag " + root.text;
+    HorizontalLayout {
+        padding-left: root.pad; padding-right: root.pad; spacing: root.gap; alignment: center;
+        if root.badge != "": Middle {
+            Image { source: root.badge-picture; width: root.badge-size; height: root.badge-size; image-fit: contain; }
+        }
+        tag-text := Text {
+            text: root.text; color: Theme.text; font-size: root.font-size; font-weight: root.font-weight;
+            vertical-alignment: center;
+        }
+    }
+}
+
 // A person's picture, or a round initial in their own tint until it arrives;
 // optionally ringed while they speak.
 export component Avatar inherits Rectangle {

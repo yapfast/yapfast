@@ -4,7 +4,7 @@
 use serde_json::Value;
 
 use crate::{
-    message::{iso_ms, snowflake_ms},
+    message::{Tag, iso_ms, snowflake_ms},
     ready,
 };
 
@@ -33,6 +33,9 @@ pub struct Profile {
     pub mutual_servers: Vec<MutualServer>,
     /// The friends this account shares with them.
     pub mutual_friends: Vec<MutualFriend>,
+    /// The server tag they wear by their name.
+    #[serde(default)]
+    pub tag: Option<Tag>,
     /// The badges their profile shows, in Discord's order.
     #[serde(default)]
     pub badges: Vec<Badge>,
@@ -336,6 +339,7 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
                 })
             })
             .collect(),
+        tag: Tag::parse(&user["primary_guild"]),
         theme: theme_colors(&server["theme_colors"]).or_else(|| theme_colors(&own["theme_colors"])),
         badges: value["badges"]
             .as_array()
