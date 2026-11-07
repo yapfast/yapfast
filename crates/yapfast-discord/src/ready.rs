@@ -208,6 +208,12 @@ pub struct Server {
     /// header counts; see [`ScheduledEvent`].
     #[serde(default)]
     pub events: Arc<Vec<ScheduledEvent>>,
+    /// How many boosts it has, and whether its owner shows the progress bar
+    /// toward the next goal at the top of its channel list.
+    #[serde(default)]
+    pub boosts: u32,
+    #[serde(default)]
+    pub boost_bar: bool,
     /// When this account joined it, as Discord's ISO 8601 time.
     pub joined_at: Option<String>,
     /// Out of reach in a Discord outage: still listed, with what was last
@@ -1401,6 +1407,14 @@ pub fn server(guild: &Value) -> Option<Server> {
             .map_or(0, |level| u8::try_from(level).unwrap_or(1)),
         emojis: Arc::new(emojis(&guild["emojis"])),
         events: Arc::new(scheduled_events(&guild["guild_scheduled_events"])),
+        boosts: guild["premium_subscription_count"]
+            .as_u64()
+            .or_else(|| guild["properties"]["premium_subscription_count"].as_u64())
+            .map_or(0, |count| u32::try_from(count).unwrap_or(u32::MAX)),
+        boost_bar: guild["premium_progress_bar_enabled"]
+            .as_bool()
+            .or_else(|| guild["properties"]["premium_progress_bar_enabled"].as_bool())
+            .unwrap_or(false),
         joined_at: guild["joined_at"].as_str().map(str::to_owned),
         default_level: Level::from(&guild["properties"]["default_message_notifications"])
             .or_else(|| Level::from(&guild["default_message_notifications"]))

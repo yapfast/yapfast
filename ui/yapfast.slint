@@ -181,6 +181,12 @@ export component YapfastWindow inherits Window {
     in property <string> header-banner;
     /// How many scheduled events the server has; the "N Events" row opens them.
     in property <int> header-events;
+    /// Whether the header's server shows Discord's Events row, which a
+    /// Community server has without events.
+    in property <bool> header-events-row;
+    /// The boosts of the header's server, or -1 where the progress bar
+    /// above its channels is off.
+    in property <int> header-boosts: -1;
     // A Discord server's or channel's invite dialog: the link, and the
     // choices for another, as indices into each list it offers.
     in property <bool> invite-open;
@@ -2394,13 +2400,48 @@ export component YapfastWindow inherits Window {
                                 }
                                 if !header-box.banner: Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
                             }
+                            // Discord's boost goal bar under the server's name: a pill 26px
+                            // tall, its fill the share of the goal the boosts reach.
+                            if ClientStyle.enabled && root.header-server != "" && root.header-boosts >= 0: boost-bar := Rectangle {
+                                height: 39px;
+                                property <float> share: min(1.0, root.header-boosts / 33.0);
+                                pill := Rectangle {
+                                    x: 12px; y: 4px; width: parent.width - 16px; height: 26px;
+                                    background: Theme.hover;
+                                    border-radius: 13px;
+                                    if boost-bar.share > 0: Rectangle {
+                                        x: 2px; y: 2px; height: parent.height - 4px;
+                                        width: (parent.width - 4px) * boost-bar.share;
+                                        border-radius: 11px;
+                                        background: @linear-gradient(270deg, #ff73fa66, #ff73fa1a);
+                                    }
+                                    Text {
+                                        x: 8px; width: parent.width - 40px; height: parent.height;
+                                        text: "Boost Goal"; font-size: 14px; font-weight: 600; color: Theme.text;
+                                        vertical-alignment: center; overflow: elide;
+                                    }
+                                    Text {
+                                        x: parent.width - self.width - 26px; width: self.preferred-width; height: parent.height;
+                                        text: root.header-boosts + "/33 Boosts"; font-size: 14px; font-weight: 500;
+                                        color: Theme.text.transparentize(0.3);
+                                        vertical-alignment: center;
+                                    }
+                                    Image {
+                                        x: parent.width - 8px - self.width; y: (parent.height - self.height) / 2; width: 16px; height: 16px;
+                                        source: @image-url("icons/chevron-right.svg"); colorize: Theme.muted; accessible-role: none;
+                                    }
+                                }
+                                Rectangle { x: 8px; y: parent.height - 1px; width: parent.width - 8px; height: 1px; background: Theme.outline; }
+                                accessible-role: text;
+                                accessible-label: "Boost Goal, " + root.header-boosts + " of 33 boosts";
+                            }
                             // Discord's "N Events" row under the server's name.
-                            if ClientStyle.enabled && root.header-server != "" && root.header-events > 0: events-row := Rectangle {
+                            if ClientStyle.enabled && root.header-server != "" && root.header-events-row: events-row := Rectangle {
                                 height: 60px;
                                 Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/calendar.svg"); colorize: Theme.muted; accessible-role: none; }
                                 Text {
                                     x: 44px; width: parent.width - 60px; height: parent.height;
-                                    text: root.header-events == 1 ? "1 Event" : root.header-events + " Events";
+                                    text: root.header-events == 0 ? "Events" : root.header-events == 1 ? "1 Event" : root.header-events + " Events";
                                     font-size: 14px; font-weight: 500; color: Theme.muted;
                                     vertical-alignment: center; overflow: elide;
                                 }
