@@ -350,7 +350,7 @@ Wayland socket's path longer than its 108-byte limit.
 
 ```sh
 nix develop path:./nix#windows --command env TMPDIR=/tmp \
-  scripts/ui-session start --discord --bin /tmp/wine-yapfast.sh
+  scripts/ui-session start --discord --desktop --bin /tmp/wine-yapfast.sh
 ```
 
 There are two ways to show the window, and each misses something:
@@ -361,7 +361,13 @@ There are two ways to show the window, and each misses something:
   larger than the configured fullscreen state", since the desktop's frame
   doesn't fit the kiosk window. Screen capture gets no frames, the preview of
   a share is black, Weston's kiosk shell ignores moves and resizes, and the
-  tray's menu never shows.
+  tray's menu never shows. Start the session with `--desktop`: Yapfast's own
+  title bar leaves the window frameless, so the kiosk shell sizes it to the
+  whole display. Wine then confines the pointer to it, as to any fullscreen
+  window, and moving that lock trips an assertion in Weston 14
+  (`weston_coord_surface_to_global`). Weston quits, and Wine's Wayland driver
+  ends every process with exit code 1 ("Failed to read events from the
+  compositor"), a few seconds after Yapfast starts.
 - Wine's X11 driver, on a rootful Xwayland inside the session: the script
   starts `Xwayland :58 -geometry 1120x760` (the session's size; not
   `-fullscreen`, which gives 640×480 stretched), then, with `DISPLAY=:58`,
