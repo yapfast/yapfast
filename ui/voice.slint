@@ -337,6 +337,10 @@ export component VoiceDock inherits Rectangle {
     in property <string> voice-time;
     in property <string> voice-detail;
     in property <string> voice-name;
+    /// The call's channel, by room id, which its line under the status
+    /// opens, as Discord's does.
+    in property <string> call-room;
+    callback open-call-room(string);
     in property <color> voice-color;
     in property <bool> voice-active;
     in property <bool> voice-ready;
@@ -387,18 +391,36 @@ export component VoiceDock inherits Rectangle {
                 min-height: status-text.min-height; preferred-height: status-text.preferred-height;
                 status-text := VerticalLayout {
                     alignment: center;
-                    HorizontalLayout {
-                        spacing: 6px;
-                        Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 700; overflow: elide; }
-                        if root.voice-time != "": Text {
-                            text: root.voice-time; color: Theme.muted; font-size: 13px; vertical-alignment: center;
-                            accessible-label: "Call time " + root.voice-time;
+                    // The status and time show how the connection is.
+                    Rectangle {
+                        min-height: status-line.min-height; preferred-height: status-line.preferred-height;
+                        status-line := HorizontalLayout {
+                            spacing: 6px;
+                            Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 700; overflow: elide; }
+                            if root.voice-time != "": Text {
+                                text: root.voice-time; color: Theme.muted; font-size: 13px; vertical-alignment: center;
+                                accessible-label: "Call time " + root.voice-time;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
                         }
-                        Rectangle { horizontal-stretch: 1; }
+                        LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
                     }
-                    if root.voice-active: Text { text: root.voice-detail; color: Theme.muted; font-size: 13px; overflow: elide; }
+                    // The channel's line goes to the channel.
+                    if root.voice-active: Rectangle {
+                        min-height: detail-text.min-height; preferred-height: detail-text.preferred-height;
+                        accessible-role: button;
+                        accessible-label: root.voice-detail;
+                        accessible-action-default => { if root.call-room != "" { root.open-call-room(root.call-room); } }
+                        detail-text := Text {
+                            text: root.voice-detail; overflow: elide; font-size: 13px;
+                            color: detail-touch.has-hover && root.call-room != "" ? Theme.text : Theme.muted;
+                        }
+                        detail-touch := TouchArea {
+                            mouse-cursor: root.call-room != "" ? MouseCursor.pointer : MouseCursor.default;
+                            clicked => { if root.call-room != "" { root.open-call-room(root.call-room); } }
+                        }
+                    }
                 }
-                LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
             }
             if root.voice-active: IconButton {
                 icon: @image-url("icons/phone-off.svg"); label: "Leave voice"; danger: true;

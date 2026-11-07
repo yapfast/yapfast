@@ -2403,6 +2403,8 @@ export component YapfastWindow inherits Window {
                 // rail's axis, 36px from the left; names and status start at 64px.
                 if root.voice-visible: VoiceDock {
                     voice-status: root.voice-status; voice-time: root.voice-time; voice-detail: root.voice-detail; voice-name: root.voice-name;
+                    call-room: root.voice-channel;
+                    open-call-room(room) => { root.open-conversation(room); }
                     voice-color: root.voice-color;
                     voice-active: root.voice-active; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
                     voice-warning: root.voice-warning; voice-error: root.voice-error;
