@@ -139,6 +139,49 @@ pub const YAP: Theme = Theme {
     avatar: rgb(0x6b7280),
 };
 
+/// Yapfast's own colours on a true-black ground, for OLED screens that
+/// switch off every pixel that's black. The surfaces are black rather than
+/// dark grey, and the rail, sidebar and sunken steps are shades of black so
+/// they still differ by a little; the accent and text stay Yap's marigold
+/// and near-white.
+const OLED: Theme = Theme {
+    dark: true,
+    rail: rgb(0x000000),
+    sidebar: rgb(0x050505),
+    panel: rgb(0x000000),
+    chat: rgb(0x0a0a0a),
+    stage: rgb(0x0a0a0a),
+    raised: rgb(0x141414),
+    field: rgb(0x1a1a1a),
+    sunken: rgb(0x000000),
+    hover: rgb(0x111111),
+    active: rgb(0x1f1f1f),
+    row_hover: rgb(0x0d0d0d),
+    line: rgb(0x1c1c1c),
+    edge: rgb(0x000000),
+    text: rgb(0xf2f2f2),
+    secondary: rgb(0xcfcfcf),
+    muted: rgb(0x9a9a9a),
+    faint: rgb(0x6e6e6e),
+    accent: rgb(0xffbf47),
+    accent_hover: rgb(0xffd27a),
+    on_accent: rgb(0x1d1607),
+    accent_soft: rgba(0xffbf4726),
+    danger: rgb(0xf0545e),
+    danger_hover: rgb(0xf46f77),
+    on_danger: rgb(0xffffff),
+    live: rgb(0x3ecf7e),
+    loud: rgb(0xff8c42),
+    link: rgb(0x7cc4ff),
+    button_default: rgb(0x242424),
+    button_default_hover: rgb(0x2e2e2e),
+    overlay: rgb(0xffffff),
+    shimmer: rgba(0xffffff10),
+    reply_spine: rgb(0x2a2a2a),
+    tooltip: rgb(0x050505),
+    avatar: rgb(0x595959),
+};
+
 /// Discord's own dark theme (Dark, `.theme-dark` with `.theme-darker` in its
 /// web client's CSS) on Yapfast's surfaces, with blurple for the accent.
 const BONFIRE: Theme = Theme {
@@ -502,11 +545,16 @@ pub struct BuiltIn {
 
 /// The themes Yapfast comes with, as Appearance lists them: the dark ones, then
 /// the light ones. The palettes credited in docs/themes.md are MIT licensed.
-pub const BUILT_IN: [BuiltIn; 10] = [
+pub const BUILT_IN: [BuiltIn; 11] = [
     BuiltIn {
         id: "yap",
         name: "Yap",
         theme: YAP,
+    },
+    BuiltIn {
+        id: "oled",
+        name: "OLED Black",
+        theme: OLED,
     },
     BuiltIn {
         id: "bonfire",
@@ -574,8 +622,295 @@ pub fn lookup<'a>(id: &str, custom: &'a [Custom]) -> Option<(&'a str, Theme)> {
 /// The theme a layout chose, and its id: Yap when it chose none, or one
 /// this version doesn't have or the person deleted.
 pub fn chosen<'a>(id: Option<&str>, custom: &'a [Custom]) -> (&'a str, Theme) {
-    id.and_then(|id| lookup(id, custom))
+    chosen_with_extra(id, custom, &[])
+}
+
+/// A theme a plugin contributes, as colours over its base theme: `None`
+/// when the base is unknown.
+pub fn from_contribution(contribution: &yapfast_core::plugins::ThemeContribution) -> Option<Theme> {
+    let mut theme = find(contribution.base)?.theme;
+    theme.dark = contribution.dark;
+    for (token, text) in &contribution.colours {
+        if let (Some(slot), Some(colour)) = (
+            token_index(token).and_then(|index| theme.colour_mut(index)),
+            parse(text),
+        ) {
+            *slot = colour;
+        }
+    }
+    Some(theme)
+}
+
+/// Like [`lookup`], with themes contributed by enabled plugins.
+pub fn lookup_with_extra<'a>(
+    id: &str,
+    custom: &'a [Custom],
+    extra: &'a [yapfast_core::plugins::ThemeContribution],
+) -> Option<(&'a str, Theme)> {
+    lookup(id, custom).or_else(|| {
+        extra
+            .iter()
+            .find(|contribution| contribution.id == id)
+            .map(|contribution| (contribution.id.as_str(), from_contribution(contribution).unwrap_or(YAP)))
+    })
+}
+
+/// Like [`chosen`], with themes contributed by enabled plugins.
+pub fn chosen_with_extra<'a>(
+    id: Option<&str>,
+    custom: &'a [Custom],
+    extra: &'a [yapfast_core::plugins::ThemeContribution],
+) -> (&'a str, Theme) {
+    id.and_then(|id| lookup_with_extra(id, custom, extra))
         .unwrap_or((BUILT_IN[0].id, YAP))
+}
+
+/// The id Appearance stores for "the theme's own accent".
+pub const ACCENT_SYSTEM: &str = "system";
+
+/// An accent a preset brings: the accent and its hover and soft wash, and
+/// the text on it. It repaints buttons, mentions and highlights on any
+/// theme; the theme's other colours stay.
+pub struct AccentPreset {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub accent: Color,
+    pub accent_hover: Color,
+    pub on_accent: Color,
+    pub accent_soft: Color,
+}
+
+/// The accent presets, as Appearance shows them after "Own".
+pub const ACCENT_PRESETS: [AccentPreset; 8] = [
+    AccentPreset {
+        id: "marigold",
+        name: "Marigold",
+        accent: rgb(0xffbf47),
+        accent_hover: rgb(0xffd27a),
+        on_accent: rgb(0x1d1607),
+        accent_soft: rgba(0xffbf4726),
+    },
+    AccentPreset {
+        id: "blue",
+        name: "Blue",
+        accent: rgb(0x5865f2),
+        accent_hover: rgb(0x4752d1),
+        on_accent: rgb(0xffffff),
+        accent_soft: rgba(0x5865f226),
+    },
+    AccentPreset {
+        id: "cyan",
+        name: "Cyan",
+        accent: rgb(0x22b5f6),
+        accent_hover: rgb(0x1a9de0),
+        on_accent: rgb(0xffffff),
+        accent_soft: rgba(0x22b5f626),
+    },
+    AccentPreset {
+        id: "green",
+        name: "Green",
+        accent: rgb(0x3ecf7e),
+        accent_hover: rgb(0x34bc74),
+        on_accent: rgb(0x06231a),
+        accent_soft: rgba(0x3ecf7e26),
+    },
+    AccentPreset {
+        id: "orange",
+        name: "Orange",
+        accent: rgb(0xfe8019),
+        accent_hover: rgb(0xe56e0e),
+        on_accent: rgb(0xffffff),
+        accent_soft: rgba(0xfe801926),
+    },
+    AccentPreset {
+        id: "pink",
+        name: "Pink",
+        accent: rgb(0xd5588a),
+        accent_hover: rgb(0xc44a7b),
+        on_accent: rgb(0xffffff),
+        accent_soft: rgba(0xd5588a26),
+    },
+    AccentPreset {
+        id: "purple",
+        name: "Purple",
+        accent: rgb(0xbd93f9),
+        accent_hover: rgb(0xa67dec),
+        on_accent: rgb(0x191a21),
+        accent_soft: rgba(0xbd93f926),
+    },
+    AccentPreset {
+        id: "red",
+        name: "Red",
+        accent: rgb(0xf0545e),
+        accent_hover: rgb(0xe04552),
+        on_accent: rgb(0xffffff),
+        accent_soft: rgba(0xf0545e26),
+    },
+];
+
+/// The preset a stored accent id names; `None` for "system" and for ids
+/// Yapfast doesn't know, which both mean the theme's own accent.
+pub fn accent_preset(id: &str) -> Option<&'static AccentPreset> {
+    ACCENT_PRESETS.iter().find(|preset| preset.id == id)
+}
+
+/// The theme with a preset's accent laid over it: only the accent colours
+/// change, and "system" changes nothing.
+pub fn apply_accent(theme: Theme, id: Option<&str>) -> Theme {
+    let Some(preset) = id.and_then(accent_preset) else {
+        return theme;
+    };
+    Theme {
+        accent: preset.accent,
+        accent_hover: preset.accent_hover,
+        on_accent: preset.on_accent,
+        accent_soft: preset.accent_soft,
+        ..theme
+    }
+}
+
+/// Appearance's accent swatches: "Own" first, showing the shown theme's
+/// accent, then each preset.
+pub fn accent_cards(shown: &Theme, chosen_id: &str) -> ModelRc<yapfast_ui::AccentPreset> {
+    let cards: Vec<_> = std::iter::once(yapfast_ui::AccentPreset {
+        id: ACCENT_SYSTEM.into(),
+        name: "Own".into(),
+        accent: shown.accent,
+    })
+    .chain(ACCENT_PRESETS.iter().map(|preset| yapfast_ui::AccentPreset {
+        id: preset.id.into(),
+        name: preset.name.into(),
+        accent: preset.accent,
+    }))
+    .collect();
+    let _ = chosen_id;
+    ModelRc::new(VecModel::from(cards))
+}
+
+/// The accent id Appearance shows for a stored one: "system" for none or
+/// for one Yapfast doesn't know.
+pub fn accent_shown(id: Option<&str>) -> &str {
+    match id.and_then(accent_preset) {
+        Some(preset) => preset.id,
+        None => ACCENT_SYSTEM,
+    }
+}
+
+/// The JSON format version an exported theme carries.
+const EXPORT_VERSION: u32 = 1;
+
+/// A theme file: one theme, or a list, as a JSON object or array.
+///
+/// A file takes the same shape as one entry of `custom_themes` in
+/// `layout.json`, with a `version`, so it survives editing and can be
+/// shared. A colour that's missing or isn't a colour takes the base's
+/// value, as when reading `layout.json`.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct Exported {
+    version: u32,
+    id: String,
+    name: String,
+    base: String,
+    dark: Option<bool>,
+    colours: std::collections::BTreeMap<String, String>,
+}
+
+impl Default for Exported {
+    fn default() -> Self {
+        Self {
+            version: EXPORT_VERSION,
+            id: String::new(),
+            name: String::new(),
+            base: String::new(),
+            dark: None,
+            colours: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+/// The shown theme as a JSON file: its name and base, and every colour.
+pub fn export_json(name: &str, base: &str, theme: &Theme) -> String {
+    let colours = Theme::NAMES
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| Some((token(name), hex(theme.colour(index)?))))
+        .collect();
+    let exported = Exported {
+        version: EXPORT_VERSION,
+        id: String::new(),
+        name: name.to_owned(),
+        base: base.to_owned(),
+        dark: Some(theme.dark),
+        colours,
+    };
+    serde_json::to_string_pretty(&exported).unwrap_or_else(|_| "{}".into())
+}
+
+/// A file name for a theme to export under, sanitised for one.
+pub fn export_name(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || matches!(character, '-' | '_' | ' ') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim().to_owned();
+    if cleaned.is_empty() {
+        "theme.json".into()
+    } else {
+        format!("{cleaned}.json")
+    }
+}
+
+/// Themes from a file's text: one theme, or a list, as your own.
+///
+/// Returns the themes, each with a fresh id, or why the file isn't one.
+/// A file from a newer version is refused rather than misread.
+pub fn import_json_many(text: &str, custom: &[Custom]) -> Result<Vec<Custom>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|_| "That file isn't theme JSON.".to_owned())?;
+    let stored: Vec<Exported> = if value.is_array() {
+        serde_json::from_value(value).map_err(|_| "That file isn't theme JSON.".to_owned())?
+    } else {
+        vec![serde_json::from_value(value).map_err(|_| "That file isn't theme JSON.".to_owned())?]
+    };
+    if stored.is_empty() {
+        return Err("That file holds no themes.".into());
+    }
+    if stored.iter().any(|exported| exported.version > EXPORT_VERSION) {
+        return Err("That file was saved by a newer version.".into());
+    }
+    let mut imported = Vec::with_capacity(stored.len());
+    for exported in stored {
+        let base = find(&exported.base).unwrap_or(&BUILT_IN[0]);
+        let mut theme = base.theme;
+        theme.dark = exported.dark.unwrap_or(theme.dark);
+        for (token, text) in &exported.colours {
+            if let (Some(slot), Some(colour)) = (
+                token_index(token).and_then(|index| theme.colour_mut(index)),
+                parse(text),
+            ) {
+                *slot = colour;
+            }
+        }
+        let name = match exported.name.trim() {
+            "" => "Imported theme".to_owned(),
+            name => name.to_owned(),
+        };
+        imported.push(Custom {
+            id: new_id(&[custom.to_vec(), imported].concat()),
+            name,
+            base: base.id,
+            theme,
+        });
+    }
+    Ok(imported)
 }
 
 /// A colour's name as `ui/theme.slint` and `layout.json` have it.
@@ -736,6 +1071,14 @@ pub struct Start<'a> {
 /// What a new theme can start as: every theme Appearance offers, in its
 /// order.
 pub fn starts(custom: &[Custom]) -> impl Iterator<Item = Start<'_>> {
+    starts_with_extra(custom, &[])
+}
+
+/// Like [`starts`], with themes contributed by enabled plugins.
+pub fn starts_with_extra<'a>(
+    custom: &'a [Custom],
+    extra: &'a [yapfast_core::plugins::ThemeContribution],
+) -> impl Iterator<Item = Start<'a>> {
     BUILT_IN
         .iter()
         .map(|built_in| Start {
@@ -744,6 +1087,14 @@ pub fn starts(custom: &[Custom]) -> impl Iterator<Item = Start<'_>> {
             name: built_in.name,
             theme: built_in.theme,
         })
+        .chain(extra.iter().filter_map(|contribution| {
+            from_contribution(contribution).map(|theme| Start {
+                id: &contribution.id,
+                base: contribution.base,
+                name: &contribution.name,
+                theme,
+            })
+        }))
         .chain(custom.iter().map(|custom| Start {
             id: &custom.id,
             base: custom.base,
@@ -791,6 +1142,14 @@ impl Theme {
 /// Appearance's cards: each theme's name and the colours its preview draws
 /// with, the built-in ones first.
 pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
+    cards_with_extra(custom, &[])
+}
+
+/// Like [`cards`], with themes contributed by enabled plugins.
+pub fn cards_with_extra(
+    custom: &[Custom],
+    extra: &[yapfast_core::plugins::ThemeContribution],
+) -> ModelRc<yapfast_ui::ThemeCard> {
     let card = |id: &str, name: &str, custom: bool, theme: &Theme| yapfast_ui::ThemeCard {
         id: id.into(),
         name: name.into(),
@@ -806,6 +1165,10 @@ pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
     let cards: Vec<_> = BUILT_IN
         .iter()
         .map(|built_in| card(built_in.id, built_in.name, false, &built_in.theme))
+        .chain(extra.iter().filter_map(|contribution| {
+            from_contribution(contribution)
+                .map(|theme| card(&contribution.id, &contribution.name, false, &theme))
+        }))
         .chain(
             custom
                 .iter()

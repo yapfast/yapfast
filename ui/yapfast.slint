@@ -29,7 +29,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, AccentPreset, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, PluginsSettings, PluginRow } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -46,7 +46,7 @@ import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
-export { Theme, Badges, Popup } from "theme.slint";
+export { Theme, Density, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
@@ -1074,6 +1074,13 @@ export component YapfastWindow inherits Window {
     in-out property <bool> notifications: true;
     in-out property <bool> notification-text: true;
     in-out property <bool> flash-taskbar: true;
+    /// Native plugins for Settings; see docs/plugins.md.
+    in property <[PluginRow]> plugins;
+    /// The notification filter's mode: 0 all, 1 mentions, 2 keywords.
+    in-out property <int> plugin-filter-mode;
+    in-out property <string> plugin-filter-keywords;
+    callback plugin-toggled(string, bool);
+    callback plugin-filter-changed(int, string);
     /// Yapfast's sounds: their set, their volume as a percentage, and each one's
     /// own, which each-sound-changed reports. play-sound plays one to try it.
     in-out property <int> sound-set;
@@ -1131,6 +1138,21 @@ export component YapfastWindow inherits Window {
     callback save-theme();
     callback cancel-theme();
     callback delete-theme();
+    /// The accent presets, and the one chosen; "system" is the theme's own.
+    in property <[AccentPreset]> accents;
+    in property <string> accent-id;
+    callback accent-chosen(string);
+    /// Interface density: 0 compact, 1 cozy, 2 comfortable.
+    in-out property <int> density: 1;
+    /// Animations hold still while this is on.
+    in-out property <bool> reduced-motion;
+    /// How much space sits above the next message: the density's gap.
+    out property <length> message-gap: root.density == 0 ? 0px : root.density == 2 ? 6px : 1px;
+    callback display-changed();
+    /// The last import or export's result, such as a bad file.
+    in property <string> theme-json-note;
+    callback theme-exported();
+    callback theme-imported();
     changed settings-section => { if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); } }
     out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : 16px;
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
@@ -2849,7 +2871,7 @@ export component YapfastWindow inherits Window {
                                                     }
                                                 }
                                                 col := VerticalLayout {
-                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? 16px : 1px;
+                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? 16px : root.message-gap;
                                                     // The last row leaves room for the bar over a window's end.
                                                     padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : 1px;
                                                     spacing: 0px;
@@ -3508,6 +3530,9 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 7: AppearanceSettings {
             themes: root.themes; theme-id: root.theme-id;
+            accents: root.accents; accent-id: root.accent-id;
+            density <=> root.density; text-size <=> root.text-size; reduced-motion <=> root.reduced-motion;
+            theme-json-note: root.theme-json-note;
             editor: root.theme-editor; colours: root.theme-colours;
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
             editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;
@@ -3517,6 +3542,10 @@ export component YapfastWindow inherits Window {
             choose-theme(id) => { root.choose-theme(id); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }
+            accent-chosen(id) => { root.accent-chosen(id); }
+            display-changed => { root.display-changed(); }
+            theme-exported => { root.theme-exported(); }
+            theme-imported => { root.theme-imported(); }
             start-chosen(index) => { root.theme-start-chosen(index); }
             colour-edited(index, text) => { root.theme-colour-edited(index, text); }
             dark-toggled(dark) => { root.theme-dark-toggled(dark); }
@@ -3564,6 +3593,12 @@ export component YapfastWindow inherits Window {
             flash-taskbar <=> root.flash-taskbar;
             matrix: root.matrix-build; discord: root.discord-linked;
             preferences-changed => { root.preferences-changed(); }
+        }
+        if root.settings-section == 9: PluginsSettings {
+            plugins: root.plugins;
+            filter-mode <=> root.plugin-filter-mode; filter-keywords <=> root.plugin-filter-keywords;
+            plugin-toggled(id, on) => { root.plugin-toggled(id, on); }
+            filter-changed(mode, keywords) => { root.plugin-filter-changed(mode, keywords); }
         }
         if root.settings-section == 5: SoundSettings {
             sound-set <=> root.sound-set; volume <=> root.sound-volume;

@@ -63,6 +63,7 @@ pub mod meter;
 pub mod network;
 pub mod noise;
 pub mod picture;
+pub mod plugins;
 #[cfg(feature = "discord")]
 pub mod playback;
 pub mod push_to_talk;

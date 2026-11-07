@@ -326,7 +326,7 @@ export component SettingsCard inherits Rectangle {
 export component SettingsScreen inherits Rectangle {
     /// The section showing: 0 account, 1 voice and video, 2 messages,
     /// 3 notifications, 4 Discord, 5 sounds, 6 advanced, 7 appearance,
-    /// 8 game activity.
+    /// 8 game activity, 9 plugins.
     in-out property <int> settings-section;
     in property <bool> discord-build;
     in property <bool> preview;
@@ -344,6 +344,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
+        { text: "Plugins", icon: @image-url("icons/settings.svg"), id: 9 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     property <[SettingsRow]> without-discord: [
@@ -354,6 +355,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
+        { text: "Plugins", icon: @image-url("icons/settings.svg"), id: 9 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     SettingsCard {
@@ -755,6 +757,13 @@ export struct ThemeColour {
     wrong: bool,
 }
 
+/// An accent colour Appearance offers: the preset's id and name, and the colour its swatch shows.
+export struct AccentPreset {
+    id: string,
+    name: string,
+    accent: color,
+}
+
 // A theme to choose: a small window drawn in its own colours, with its name
 // below. The current one has an accent ring and a check; the person's own
 // themes have a pencil that edits them.
@@ -858,6 +867,40 @@ component ThemeColourRow inherits HorizontalLayout {
     }
 }
 
+// An accent preset to choose: a round swatch in the preset's colour, with
+// its name below. The chosen one has an accent ring.
+component AccentButton inherits VerticalLayout {
+    in property <AccentPreset> preset;
+    in property <bool> current;
+    callback choose();
+    spacing: 4px;
+    Middle {
+        Rectangle {
+            width: 30px; height: 30px; border-radius: 15px; background: root.preset.accent;
+            border-width: root.current ? 2px : 1px;
+            border-color: root.current ? Theme.text : Theme.line;
+            animate border-color { duration: Theme.quick; }
+            focus := FocusScope {
+                accessible-role: button;
+                accessible-label: root.current ? root.preset.name + ", chosen" : root.preset.name;
+                accessible-action-default => { root.choose(); }
+                key-pressed(event) => {
+                    if event.text == " " || event.text == "\n" { root.choose(); return accept; }
+                    return reject;
+                }
+                pointer := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.choose(); }
+                }
+            }
+        }
+    }
+    Text {
+        text: root.preset.name; color: root.current ? Theme.text : Theme.muted; font-size: 11px;
+        font-weight: root.current ? 600 : 500; horizontal-alignment: center; overflow: elide;
+    }
+}
+
 // Settings: the window's colours, from the themes Yapfast comes with and the
 // person's own. A click shows one at once. New theme opens the editor, whose
 // changes show at once too; Save keeps them, Cancel restores the theme from
@@ -865,6 +908,21 @@ component ThemeColourRow inherits HorizontalLayout {
 export component AppearanceSettings inherits VerticalLayout {
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
+    /// The accent presets, and the one chosen; "system" is the theme's own.
+    in property <[AccentPreset]> accents;
+    in property <string> accent-id;
+    callback accent-chosen(string);
+    /// Interface density: 0 compact, 1 cozy, 2 comfortable. Text size is
+    /// 0 small, 1 default, 2 large, as in Messages.
+    in-out property <int> density;
+    in-out property <int> text-size;
+    in-out property <bool> reduced-motion;
+    callback display-changed();
+    /// Themes saved to and loaded from JSON files; the note says what
+    /// happened, such as a bad file.
+    in property <string> theme-json-note;
+    callback theme-exported();
+    callback theme-imported();
     /// The editor, while it's open: the colours, the name, whether the theme
     /// is dark, and whether it edits a saved theme rather than making one,
     /// from the theme at start-index among the starts.
@@ -918,6 +976,65 @@ export component AppearanceSettings inherits VerticalLayout {
                 edit => { root.edit-theme(card.id); }
             }
         }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "ACCENT"; }
+        Rectangle {
+            property <length> gap: 8px;
+            property <int> columns: max(1, floor((self.width + self.gap) / (56px + self.gap)));
+            property <length> cell-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+            property <length> cell-height: 52px;
+            height: ceil(root.accents.length / self.columns) * (self.cell-height + self.gap) - self.gap;
+            accessible-role: groupbox; accessible-label: "Accent";
+            for preset[index] in root.accents: AccentButton {
+                x: mod(index, parent.columns) * (parent.cell-width + parent.gap);
+                y: floor(index / parent.columns) * (parent.cell-height + parent.gap);
+                width: parent.cell-width;
+                preset: preset; current: preset.id == root.accent-id;
+                choose => { root.accent-chosen(preset.id); }
+            }
+        }
+        Label { text: "Recolours buttons, mentions and highlights on any theme. \"Own\" keeps the theme's accent."; }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "DISPLAY"; }
+        VerticalLayout {
+            spacing: 8px;
+            SettingsHeading { text: "DENSITY"; }
+            Choices {
+                label: "Density"; options: ["Compact", "Cozy", "Comfortable"];
+                current <=> root.density;
+                chosen => { root.display-changed(); }
+            }
+        }
+        VerticalLayout {
+            spacing: 8px;
+            SettingsHeading { text: "TEXT SIZE"; }
+            Choices {
+                label: "Text size"; options: ["Small", "Default", "Large"];
+                current <=> root.text-size;
+                chosen => { root.display-changed(); }
+            }
+        }
+        SettingsSwitch {
+            text: "Reduced motion";
+            description: "Animations, pop-ups and sweeps stay still; GIFs and animated emoji hold their first frame.";
+            checked <=> root.reduced-motion;
+            toggled => { root.display-changed(); }
+        }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "SHARE THEME"; }
+        Label { text: "Export saves the shown theme as a JSON file; Import loads one theme or a list, as your own themes."; }
+        HorizontalLayout {
+            spacing: 8px;
+            ActionButton { text: "Export theme"; small: true; clicked => { root.theme-exported(); } }
+            ActionButton { text: "Import theme"; small: true; clicked => { root.theme-imported(); } }
+        }
+        if root.theme-json-note != "": Label { text: root.theme-json-note; }
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {
         text: "Use the system title bar";
@@ -1426,6 +1543,51 @@ export component DiscordSettings inherits VerticalLayout {
                 text: "See " + (root.blocked.length - root.blocked-shown) + " more"; ghost: true; small: true;
                 clicked => { root.blocked-shown += 5; }
             }
+        }
+    }
+}
+
+// A plugin in Settings: its name, version, what it does, and the
+// capabilities it was granted.
+export struct PluginRow { id: string, name: string, version: string, description: string, capabilities: string, enabled: bool }
+
+// Settings: native plugins and their capabilities; see docs/plugins.md.
+// A plugin without a capability cannot use it, and privileged ones
+// (credentials, files, network, processes, the Discord API) are denied
+// by default and unavailable in v1.
+export component PluginsSettings inherits VerticalLayout {
+    in property <[PluginRow]> plugins;
+    /// The notification filter's mode: 0 all, 1 mentions, 2 keywords.
+    in-out property <int> filter-mode;
+    in-out property <string> filter-keywords;
+    callback plugin-toggled(string, bool);
+    callback filter-changed(int, string);
+    spacing: 16px;
+    SettingsTitle { text: "Plugins"; }
+    Label { text: "Plugins run inside Yapfast and may only use the capabilities they declare. Nothing here can read your sign-in credentials, files or network unless a future version grants it and you allow it."; }
+    for plugin in root.plugins: VerticalLayout {
+        spacing: 8px;
+        Rectangle { height: 1px; background: Theme.line; }
+        SettingsSwitch {
+            text: plugin.name + " " + plugin.version;
+            description: plugin.description + " Capabilities: " + plugin.capabilities + ".";
+            checked: plugin.enabled;
+            toggled(on) => { root.plugin-toggled(plugin.id, on); }
+        }
+        if plugin.id == "notification-filter" && plugin.enabled: VerticalLayout {
+            spacing: 8px;
+            SettingsHeading { text: "NOTIFICATION FILTER"; }
+            Choices {
+                label: "Notification filter mode"; options: ["All messages", "Mentions only", "Keywords"];
+                current <=> root.filter-mode;
+                chosen(index) => { root.filter-changed(index, root.filter-keywords); }
+            }
+            if root.filter-mode == 2: TextField {
+                text <=> root.filter-keywords; label: "Keywords"; placeholder: "Comma-separated keywords";
+                accepted => { root.filter-changed(root.filter-mode, root.filter-keywords); }
+                edited(text) => { root.filter-changed(2, text); }
+            }
+            Label { text: "Calls always show. Keywords match the message or its author, ignoring case."; }
         }
     }
 }

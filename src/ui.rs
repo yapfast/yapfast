@@ -1083,6 +1083,10 @@ struct Layout {
     system_title_bar: Option<bool>,
     /// Where the window was when Yapfast last ran, and how big.
     window: Option<placement::Placement>,
+    /// Which native plugins are on, by plugin id; see `docs/plugins.md`.
+    plugins_enabled: std::collections::HashMap<String, bool>,
+    /// Each plugin's settings, by plugin id.
+    plugins_config: std::collections::HashMap<String, yapfast_core::plugins::PluginConfig>,
 }
 
 /// Yapfast's sounds start as they're made: 12 dB under full scale at the loudest.
@@ -1215,6 +1219,45 @@ impl Layout {
         discord::set_custom_games(&self.game_executables);
     }
 
+    /// The installed native plugins with the layout's enabled state and
+    /// settings applied; see `docs/plugins.md`.
+    fn plugins(&self) -> yapfast_core::plugins::PluginManager {
+        let mut manager = yapfast_core::plugins::PluginManager::with_builtins();
+        manager.apply_state(&self.plugins_enabled, &self.plugins_config);
+        manager
+    }
+
+    /// Shows the plugins in Settings, and the notification filter's mode
+    /// and keywords.
+    fn apply_plugins(&self, window: &YapfastWindow, manager: &yapfast_core::plugins::PluginManager) {
+        let rows: Vec<_> = manager
+            .manifests()
+            .iter()
+            .map(|manifest| PluginRow {
+                id: manifest.id.as_str().into(),
+                name: manifest.name.as_str().into(),
+                version: manifest.version.as_str().into(),
+                description: manifest.description.as_str().into(),
+                capabilities: manifest
+                    .capabilities
+                    .iter()
+                    .map(|capability| capability.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                enabled: manager.is_enabled(&manifest.id),
+            })
+            .collect();
+        window.set_plugins(ModelRc::new(VecModel::from(rows)));
+        let filter = manager.config("notification-filter");
+        let mode = filter
+            .get("mode")
+            .and_then(|mode| yapfast_core::plugins::FILTER_MODES.iter().position(|candidate| *candidate == mode))
+            .unwrap_or(0) as i32;
+        window.set_plugin_filter_mode(mode);
+        window.set_plugin_filter_keywords(filter.get("keywords").unwrap_or_default().into());
+    }
+
     /// A sound's own volume as a percentage: 100% unless adjusted.
     fn each_sound(&self, sound: Sound) -> u8 {
         self.each_sound
@@ -1237,10 +1280,20 @@ impl Layout {
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
         // Before the first frame, which the event loop draws. A window made
         // again, after closing to the tray, keeps the theme this way too.
-        let (id, chosen) = theme::chosen(self.theme.as_deref(), &self.custom_themes);
+        let plugins = self.plugins();
+        let extra = plugins.theme_contributions();
+        let (id, chosen) = theme::chosen_with_extra(
+            self.theme.as_deref(),
+            &self.custom_themes,
+            &extra,
+        );
         chosen.apply(window);
         window.set_theme_id(id.into());
-        window.set_themes(theme::cards(&self.custom_themes));
+        window.set_themes(theme::cards_with_extra(&self.custom_themes, &extra));
+        window
+            .global::<Density>()
+            .set_compact(plugins.compact_mode());
+        self.apply_plugins(window, &plugins);
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }
@@ -1669,6 +1722,8 @@ struct Adapter {
     restyle: bool,
     /// Appearance's theme editor, while it's open.
     theme_editor: Option<theme::Editor>,
+    /// The installed native plugins; see `docs/plugins.md`.
+    plugins: yapfast_core::plugins::PluginManager,
     /// Where the `@` of the word being mentioned is in the composer text.
     mention_at: Option<usize>,
     /// What the composer's mentions were last coloured for.
@@ -1850,6 +1905,7 @@ impl Adapter {
         models.attach(window);
         let layout = Layout::read(&root);
         layout.apply(window);
+        let plugins = layout.plugins();
         let mut app = Application::default();
         app.remember_reaction_uses(layout.reactions.clone());
         app.dispatch(Action::ShowHiddenChannels(layout.show_hidden_channels));
@@ -1911,6 +1967,7 @@ impl Adapter {
                 clock_minute: 0,
                 restyle: false,
                 theme_editor: None,
+                plugins,
                 aside_messages: Arc::new(Vec::new()),
                 aside_fit: 0,
                 aside_rows: Vec::new(),

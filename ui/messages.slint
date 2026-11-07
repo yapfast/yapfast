@@ -1,5 +1,5 @@
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
+import { Theme, Density, Tip, ReactionHover, Middle, Label } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
@@ -2009,7 +2009,7 @@ export component MessageContent inherits VerticalLayout {
     callback save-attachment(string, int);
     callback media-menu(string, int, bool, length, length);
     HorizontalLayout {
-        padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 4px; padding-bottom: 4px; spacing: 16px;
+        padding-left: root.start-padding; padding-right: root.end-padding; padding-top: Density.compact ? 2px : 4px; padding-bottom: Density.compact ? 2px : 4px; spacing: Density.compact ? 8px : 16px;
         Rectangle {
             width: 40px;
             min-height: message.first && message.notice == "" ? (message.has-reply ? 64px : 40px) : 0px;

@@ -55,6 +55,12 @@ export global Theme {
     out property <duration> quick: 120ms;
 }
 
+export global Density {
+    /// Whether the compact-mode plugin draws denser rows and tighter
+    /// spacing; see docs/plugins.md.
+    in-out property <bool> compact: false;
+}
+
 // One tooltip for the whole window, drawn above everything else.
 export global Tip {
     in-out property <string> text;
