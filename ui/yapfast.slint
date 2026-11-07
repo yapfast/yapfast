@@ -1397,6 +1397,13 @@ export component YapfastWindow inherits Window {
     callback copy-attachment(string, int);
     /// An attachment's address on the web, or empty when it has none.
     pure callback attachment-link(string, int) -> string;
+    /// A Discord message's link, and its id, for its menu; empty for any
+    /// other message.
+    pure callback message-link(string) -> string;
+    pure callback message-id(string) -> string;
+    /// Whether a message's menu offers Mark Unread.
+    pure callback can-mark-unread(string) -> bool;
+    callback mark-unread(string);
     /// The text selected in the message at this point in the window, as
     /// copied, or empty when none is.
     pure callback selection-at(length, length) -> string;
@@ -1968,6 +1975,9 @@ export component YapfastWindow inherits Window {
     property <int> menu-media: -1;
     property <bool> menu-video;
     property <string> menu-link;
+    property <string> menu-message-link;
+    property <string> menu-message-id;
+    property <bool> menu-can-mark-unread;
     // Read as the menu opens: the press on its item clears the selection.
     property <string> menu-selection;
     function open-message-menu(message: MessageRow, media: int, video: bool) {
@@ -1978,6 +1988,9 @@ export component YapfastWindow inherits Window {
         root.menu-media = media;
         root.menu-video = video;
         root.menu-link = media >= 0 ? root.attachment-link(message.item, media) : root.link-at(root.anchor-x, root.anchor-y);
+        root.menu-message-link = root.message-link(message.item);
+        root.menu-message-id = root.message-id(message.item);
+        root.menu-can-mark-unread = root.can-mark-unread(message.item);
         message-menu.show();
     }
     property <bool> picker-open: emoji-picker.is-open;
@@ -2219,6 +2232,8 @@ export component YapfastWindow inherits Window {
             start-forward(item) => { root.start-forward(item); message-menu.close(); }
             copy-text(text) => { root.copy-text(text); message-menu.close(); }
             pin-message(item) => { root.pin-message(item); message-menu.close(); }
+            message-link: root.menu-message-link; message-id: root.menu-message-id; can-mark-unread: root.menu-can-mark-unread;
+            mark-unread(item) => { root.mark-unread(item); message-menu.close(); }
             request-delete(item) => { root.request-delete(item); message-menu.close(); }
             end-poll(item) => { Polls.ask-end(item); message-menu.close(); }
             media-index: root.menu-media; media-video: root.menu-video; link: root.menu-link;
@@ -2912,6 +2927,10 @@ export component YapfastWindow inherits Window {
                                     if event.text == Key.Escape { root.focus-composer(); return accept; }
                                     if root.active-index < 0 || root.active-index >= root.messages.length { return reject; }
                                     if root.keyed-message.deleted || root.keyed-message.delivery != "" { return reject; }
+                                    if event.text == Key.Return && event.modifiers.alt {
+                                        if root.can-mark-unread(root.keyed-message.item) { root.mark-unread(root.keyed-message.item); }
+                                        return accept;
+                                    }
                                     if event.text == Key.Return || event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
                                         root.keyboard-popup = "menu"; return accept;
                                     }

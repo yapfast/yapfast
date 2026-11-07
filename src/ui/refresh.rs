@@ -3387,7 +3387,12 @@ impl Adapter {
             self.clock_minute = minute;
             self.restyle |= polls::open_poll(&state.messages, minute * 60) | new_day;
         }
-        let restyle = std::mem::take(&mut self.restyle);
+        // A divider that moved, as Mark Unread moves it, goes on its new row.
+        let unread_moved = self.unread_shown != state.first_unread;
+        if unread_moved {
+            self.unread_shown.clone_from(&state.first_unread);
+        }
+        let restyle = std::mem::take(&mut self.restyle) || unread_moved && !reset;
         // The thread beside builds its rows again with the timeline's.
         self.aside_restyle |= restyle;
         if messages_changed || selection_changed || reset || pictures_arrived || restyle {
@@ -3444,7 +3449,7 @@ impl Adapter {
             Some((index, item))
         });
         window.set_caught_up(state.caught_up);
-        if messages_changed || selection_changed || reset {
+        if messages_changed || selection_changed || reset || unread_moved {
             window.set_unread_index(
                 unread.map_or(-1, |(index, _)| i32::try_from(index).unwrap_or(i32::MAX)),
             );

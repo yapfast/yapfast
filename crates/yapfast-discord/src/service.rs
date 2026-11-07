@@ -611,6 +611,12 @@ enum Request {
         channel: String,
         sync: bool,
     },
+    MarkUnread {
+        channel: String,
+        last: u64,
+        mentions: u64,
+        sync: bool,
+    },
     GoLive {
         guild: String,
         channel: String,
@@ -860,6 +866,18 @@ impl Discord {
         let _ = self.requests.send(Request::MarkRead {
             guild: guild.into(),
             channel: channel.into(),
+            sync,
+        });
+    }
+
+    /// Marks a channel unread in Yapfast after the message `last`, with
+    /// `mentions` of those after it calling on this account, and on Discord
+    /// too with `sync`, as Mark Unread in Discord's client does.
+    pub fn mark_unread(&self, channel: &str, last: u64, mentions: u64, sync: bool) {
+        let _ = self.requests.send(Request::MarkUnread {
+            channel: channel.into(),
+            last,
+            mentions,
             sync,
         });
     }

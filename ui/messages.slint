@@ -1008,7 +1008,13 @@ export component MessageMenu inherits Rectangle {
     /// from a verified device.
     in property <bool> forward-allowed;
     in property <bool> preview;
+    /// A Discord message's link and id, for Copy Message Link and Copy
+    /// Message ID; empty for any other message.
+    in property <string> message-link;
+    in property <string> message-id;
+    in property <bool> can-mark-unread;
     out property <length> content-height: menu-content.preferred-height;
+    callback mark-unread(string);
     callback react(string, string);
     callback open-picker(string);
     callback edit(string);
@@ -1088,6 +1094,15 @@ export component MessageMenu inherits Rectangle {
             icon: root.menu-message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
             clicked => { root.pin-message(root.menu-message.item); }
         }
+        // After pinning, as in Discord's menu.
+        if root.can-mark-unread: MenuItem {
+            text: "Mark Unread"; icon: @image-url("icons/message-circle.svg");
+            clicked => { root.mark-unread(root.menu-message.item); }
+        }
+        if root.message-link != "": MenuItem {
+            text: "Copy Message Link"; icon: @image-url("icons/link.svg");
+            clicked => { root.copy-text(root.message-link); }
+        }
         if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
         if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
             text: "Copy Image"; icon: @image-url("icons/image.svg");
@@ -1110,6 +1125,12 @@ export component MessageMenu inherits Rectangle {
         if root.menu-message.can-delete && root.composer-enabled: MenuItem {
             text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
             clicked => { root.request-delete(root.menu-message.item); }
+        }
+        // Last, as Discord's client puts it.
+        if root.message-id != "": Rectangle { height: 1px; background: Theme.line; }
+        if root.message-id != "": MenuItem {
+            text: "Copy Message ID"; icon: @image-url("icons/hash.svg");
+            clicked => { root.copy-text(root.message-id); }
         }
     }
 }

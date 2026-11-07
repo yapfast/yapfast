@@ -649,6 +649,11 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
     let edits = Rc::new(Cell::new(0));
     let count = edits.clone();
     window.on_edit_last(move || count.set(count.get() + 1));
+    // Alt+Enter marks a Discord message unread, as Discord's key does.
+    let unread = Rc::new(RefCell::new(String::new()));
+    let mark = unread.clone();
+    window.on_mark_unread(move |item| *mark.borrow_mut() = item.into());
+    window.on_can_mark_unread(|item| item == "i1");
     let key = |text: SharedString, pressed: bool| {
         window.window().dispatch_event(if pressed {
             WindowEvent::KeyPressed { text }
@@ -674,6 +679,10 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
     assert_eq!(window.get_active_item(), "i0", "the first stays");
     press(Key::DownArrow.into());
     assert_eq!(window.get_active_item(), "i1");
+    key(Key::Alt.into(), true);
+    press(Key::Return.into());
+    key(Key::Alt.into(), false);
+    assert_eq!(*unread.borrow(), "i1");
     press("r".into());
     assert_eq!(*replied.borrow(), "i1");
     // The reply goes back to the composer, so letters type again.
