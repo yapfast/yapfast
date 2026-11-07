@@ -319,6 +319,7 @@ impl Shell {
             Some(window) => adapter.action(&window, action),
             None => {
                 let effects = adapter.app.dispatch(action);
+                adapter.sync_alone_after_effects(&effects);
                 adapter.execute(effects);
                 adapter.show_tray();
             }

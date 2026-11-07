@@ -2589,13 +2589,8 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
-        let leaving = matches!(&action, Action::Voice(voice::Command::Leave));
         let effects = self.app.dispatch(action);
-        if leaving {
-            self.stop_alone_timer();
-        } else {
-            self.sync_alone_timer();
-        }
+        self.sync_alone_after_effects(&effects);
         self.execute(effects);
         if channel_setting {
             self.show_channel_settings(window);
@@ -2627,7 +2622,7 @@ impl Adapter {
         } else {
             Reach::EVERYTHING
         };
-        self.sync_alone_timer();
+        self.sync_alone_after_effects(&effects);
         self.execute(effects);
         reach
     }

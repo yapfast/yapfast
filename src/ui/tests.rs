@@ -1228,6 +1228,33 @@ fn the_alone_timeout_arms_only_for_a_private_discord_call_with_no_one_else() {
 }
 
 #[test]
+fn accepting_another_call_cancels_the_previous_alone_deadline() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let (_directory, adapter) = alone_test_adapter(&window);
+    alone_test_call(&adapter, "sam", 0);
+
+    let mut adapter = adapter.borrow_mut();
+    adapter.sync_alone_timer();
+    assert!(adapter.alone.started.is_some());
+    let room = adapter
+        .app
+        .state
+        .rooms
+        .iter_mut()
+        .map(Arc::make_mut)
+        .find(|room| room.id == "riley")
+        .unwrap();
+    room.network = Network::Discord;
+    room.capabilities = Network::Discord.capabilities();
+    adapter.app.state.discord_online = true;
+    // A real backend leaves the old state in place until its events arrive.
+    adapter.app.state.preview = false;
+    adapter.action(&window, Action::AcceptCall("riley".into()));
+    assert!(adapter.alone.started.is_none());
+}
+
+#[test]
 fn sound_settings_are_remembered() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

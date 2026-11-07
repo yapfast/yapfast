@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 
 use slint::{Timer, TimerMode};
 use yapfast_core::{
-    application::{Action, AppState},
+    application::{Action, AppState, Effect},
+    chat::Command,
     network::Network,
     voice::{self, Phase},
 };
@@ -126,9 +127,20 @@ impl Adapter {
         self.show_tray();
     }
 
-    /// A manual leave must cancel a deadline that is about to fire, even
-    /// before the backend reports the disconnected state.
-    pub(super) fn stop_alone_timer(&mut self) {
-        self.alone.stop();
+    /// Cancels as soon as an action asks to leave, including the Leave + Join
+    /// effects of a switch or accepted call. Waiting for the backend event
+    /// would leave a due callback able to append a Leave in the new call.
+    pub(super) fn sync_alone_after_effects(&mut self, effects: &[Effect]) {
+        let leaving = effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Backend(Command::Voice(voice::Command::Leave))
+            )
+        });
+        if leaving {
+            self.alone.stop();
+        } else {
+            self.sync_alone_timer();
+        }
     }
 }
