@@ -1495,6 +1495,11 @@ export component YapfastWindow inherits Window {
     callback jump-to(string);
     // Uncovers a spoiler picture: the message's item and the attachment's index.
     callback reveal-attachment(string, int);
+    /// Long messages fold to a few lines, with Show more; and Show more or
+    /// Show less was clicked on one, by its item, saying whether it shows
+    /// whole now.
+    in-out property <bool> collapse-long;
+    callback fold-message(string, bool);
     /// Brings the message at `index` into view: an estimate first, so the list builds its
     /// row, then the row places itself on each `settle-jump` as the rows around it measure.
     /// A lit message sits a third of the way down, highlighted; another at the top.
@@ -3062,6 +3067,17 @@ export component YapfastWindow inherits Window {
                                                     MessageContent {
                                                         message: message; active-item: root.active-item; preview: root.preview; composer-enabled: root.composer-enabled;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
+                                                        collapse-long: root.collapse-long;
+                                                        // The view keeps the message's top: it stops following
+                                                        // the newest, and Show less on a message whose top is
+                                                        // above the view brings its top back into it.
+                                                        fold(item, whole, y) => {
+                                                            root.follow-latest = false;
+                                                            if !whole && y < timeline.absolute-position.y {
+                                                                timeline.content-y += timeline.absolute-position.y - y;
+                                                            }
+                                                            root.fold-message(item, whole);
+                                                        }
                                                         author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
                                                         author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
                                                         jump-to(item) => { root.jump-to(item); }
@@ -3539,6 +3555,8 @@ export component YapfastWindow inherits Window {
                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                         view-image(id, index) => { root.view-image(id, index); }
                         save-attachment(id, index) => { root.save-attachment(id, index); }
+                        collapse-long: root.collapse-long;
+                        fold(item, whole) => { root.fold-message(item, whole); }
                     }
                     if root.members-docked: MemberPanel {
                         width: ClientStyle.members-width; rows: root.roster; note: root.roster-note; selected: root.profile-member;
@@ -3795,6 +3813,7 @@ export component YapfastWindow inherits Window {
             link-previews <=> root.link-previews; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
+            collapse-long <=> root.collapse-long;
             matrix: root.matrix-build; discord: root.discord-linked;
             preferences-changed => { root.preferences-changed(); }
         }
