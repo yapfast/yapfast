@@ -94,3 +94,27 @@ links against. It needs, none of which are on `D:` yet:
 - the `xwin` SDK cache in `D:/RatFast/cache/cargo-xwin`.
 
 Until those exist, GitHub Actions is the supported build.
+
+## Typechecking the desktop binary without the pinned Skia
+
+`skia-safe` only needs `bindings.rs` to *check* the desktop crate; it needs the
+real static archive to link. So a machine can typecheck `src/` and every `.slint`
+file, which is where the compile errors in UI work show up, by serving the
+upstream Skia archive under the name the build asks for:
+
+```bash
+# Once: take the published archive and put it where the build looks.
+mkdir -p D:/RatFast/temp/skiabin2/0.153.3
+curl -L -o "D:/RatFast/temp/skiabin2/0.153.3/skia-binaries-b7f043e0b1e2a850e702-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static.tar.gz"   https://github.com/rust-skia/skia-binaries/releases/download/0.153.3/skia-binaries-b7f043e0b1e2a850e702-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-textlayout.tar.gz
+cd D:/RatFast/temp/skiabin2 && python -m http.server 8766 --bind 127.0.0.1 &
+
+# Every time:
+export SKIA_BINARIES_URL="http://127.0.0.1:8766/{tag}/skia-binaries-{key}.tar.gz"
+cargo check --offline --target x86_64-pc-windows-msvc   --no-default-features --features desktop,discord
+```
+
+`{tag}` and `{key}` are placeholders the build script fills; without them it
+requests the wrong path and the download 404s. The archive is the dynamic-CRT
+build, so it is **only** good for `cargo check`: linking an executable against
+it would fail, and shipping one built this way would be wrong. The first check
+takes about 25 minutes because it compiles libwebrtc; later ones are minutes.
