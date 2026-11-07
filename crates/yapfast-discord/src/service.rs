@@ -23,7 +23,7 @@ use crate::{
     mfa,
     notifications::Change,
     oauth,
-    profile::{self, Profile},
+    profile::{self, Badge, Profile},
     ready::{self, PRIVATE, Server},
     scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
@@ -688,6 +688,8 @@ struct Kept {
     user: String,
     guild: String,
     at: Instant,
+    /// Whether [`Discord::badge_levels`] asked for its badges' levels.
+    levels_asked: bool,
     /// Their server nickname and avatar when it was fetched: once
     /// GUILD_MEMBER_UPDATE changes either, it's fetched again, with the
     /// rest of what they changed in their server profile.
@@ -1339,6 +1341,7 @@ impl Discord {
                 guild: guild.to_owned(),
                 at: Instant::now(),
                 member: self.member_face(guild, user),
+                levels_asked: false,
                 profile: profile.clone(),
             });
             if profiles.len() > PROFILES {
@@ -1348,6 +1351,47 @@ impl Discord {
         let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
         tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         Ok(profile)
+    }
+
+    /// Adds the levels of a profile's badges, the details its tooltips show,
+    /// to `badges` and to the copy kept of the profile. They come from a request
+    /// of their own, which Discord answers more slowly than the profile, so the
+    /// card doesn't wait for it: this runs once it is on screen. It asks once
+    /// for each kept profile, which then has the levels. Whether any badge has
+    /// a level now.
+    pub async fn badge_levels(&self, guild: &str, user: &str, badges: &mut [Badge]) -> bool {
+        if !badges
+            .iter()
+            .any(|badge| badge.level_icon.is_some() || badge.link.is_some())
+        {
+            return false;
+        }
+        let same = |kept: &&mut Kept| kept.user == user && kept.guild == guild;
+        if let Some(kept) = self.lock_profiles().iter_mut().find(same) {
+            if kept.levels_asked {
+                return false;
+            }
+            kept.levels_asked = true;
+        }
+        match self.api.badges(user).await {
+            Ok(levels) => profile::with_levels(badges, &levels),
+            Err(error) => {
+                tracing::debug!(%error, user, "could not fetch badge levels");
+                return false;
+            }
+        }
+        if !badges.iter().any(|badge| badge.level.is_some()) {
+            return false;
+        }
+        let saving = self.lock_profiles().iter_mut().find(same).map(|kept| {
+            kept.profile.badges = badges.to_vec();
+            kept.profile.clone()
+        });
+        if let Some(saving) = saving {
+            let (guild, user) = (guild.to_owned(), user.to_owned());
+            tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
+        }
+        true
     }
 
     /// A member's nickname and avatar in a server, as Names knows them.

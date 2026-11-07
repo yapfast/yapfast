@@ -627,6 +627,13 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// A user's levelling badges, with their levels and how far along they
+    /// are: `{"badges": [...]}`. The tooltips of a profile's badges show it.
+    pub async fn badges(&self, user: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, &format!("/users/{user}/badges")))
+            .await
+    }
+
     /// Applications' public objects, with their names and icons, as the
     /// client fetches them for activities: `[{id, name, icon, ...}]`.
     pub async fn public_applications(&self, ids: &[&str]) -> Result<Value> {

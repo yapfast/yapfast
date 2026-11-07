@@ -26,7 +26,7 @@ import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, PictureStore } from "controls.slint";
@@ -35,7 +35,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } fro
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
+import { MemberRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
@@ -59,7 +59,7 @@ export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
-export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
+export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
@@ -1579,7 +1579,8 @@ export component YapfastWindow inherits Window {
     public function copy-text(text: string) { clipboard.text = text; clipboard.select-all(); clipboard.copy(); clipboard.text = ""; }
     clipboard := TextInput { visible: false; width: 0px; height: 0px; }
     // A tooltip must not outlive the toolbar that showed it.
-    changed active-item => { Tip.text = ""; }
+    function hide-badge-tips() { Tip.text = ""; Tip.pop = false; BadgeTip.title = ""; }
+    changed active-item => { root.hide-badge-tips(); }
 
     // The member list is a second sidebar, on the right of the conversation.
     property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked;
@@ -3986,7 +3987,12 @@ export component YapfastWindow inherits Window {
         }
     }
     // A member's card, beside the member list. Escape or a click outside closes it.
-    profile-motion := PopupMotion { open: root.profile-open && !root.profile-large; }
+    // A card closed from the keyboard goes from under the pointer, which then
+    // never leaves its badge to hide the tooltip.
+    profile-motion := PopupMotion {
+        open: root.profile-open && !root.profile-large;
+        changed shown => { root.hide-badge-tips(); }
+    }
     if profile-motion.shown: Rectangle {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
@@ -4013,7 +4019,10 @@ export component YapfastWindow inherits Window {
         }
     }
     // A full profile over the window, as the viewer shows images.
-    large-profile-motion := PopupMotion { open: root.profile-open && root.profile-large; }
+    large-profile-motion := PopupMotion {
+        open: root.profile-open && root.profile-large;
+        changed shown => { root.hide-badge-tips(); }
+    }
     if large-profile-motion.shown: Rectangle {
         background: rgba(0, 0, 0, 0.7 * large-profile-motion.amount);
         TouchArea { clicked => { root.close-profile(); } }
@@ -4441,15 +4450,30 @@ export component YapfastWindow inherits Window {
     if root.title-height > 0 && !root.window-maximized: ResizeEdges {
         resize-window(direction) => { root.resize-window(direction); }
     }
-    if Tip.text != "": Rectangle {
+    if Tip.text != "": tip-card := Rectangle {
         property <length> w: tip-text.preferred-width + 20px;
         property <length> h: 32px;
         x: Tip.side == 1 ? Tip.x + 10px : max(8px, min(root.width - self.w - 8px, Tip.x - self.w / 2));
         y: Tip.side == 1 ? Tip.y - self.h / 2 : Tip.side == 0 ? max(4px, Tip.y - self.h - 6px) : Tip.y + 6px;
         width: self.w; height: self.h;
+        property <bool> shown: !Tip.pop;
+        opacity: self.shown ? 1 : 0;
+        animate opacity { duration: 120ms; easing: ease-out; }
+        transform-scale: self.shown ? 1 : 0.95;
+        transform-origin: { x: self.w / 2, y: self.h };
+        animate transform-scale { duration: 120ms; easing: ease-out; }
+        Timer {
+            interval: 16ms;
+            running: Tip.pop && !tip-card.shown;
+            triggered => { tip-card.shown = true; }
+        }
         border-radius: 6px; background: Theme.tooltip;
         drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
         tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 700; }
+    }
+    if BadgeTip.title != "": BadgeTipCard {
+        x: max(8px, min(root.width - self.width - 8px, BadgeTip.x - self.width / 2));
+        y: max(4px, BadgeTip.y - self.height - 10px);
     }
     if Autoscroll.shown: AutoscrollMarker {}
 }

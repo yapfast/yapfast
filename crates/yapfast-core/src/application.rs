@@ -2316,6 +2316,10 @@ fn pictures_on_screen<'a>(
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
+                        .chain(profile.badges.iter().flat_map(|badge| {
+                            std::iter::once(badge.icon.as_str())
+                                .chain(badge.level.iter().map(|level| level.picture.as_str()))
+                        }))
                 }),
         )
         .chain(
@@ -3452,6 +3456,7 @@ impl Application {
             }
             Event::Profile { user, result } => self.show_fetched_profile(user, result),
             Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
+            Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::Members { room, members } => {
                 // A list that came stays when a later check finds none came.
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));

@@ -234,6 +234,18 @@ impl Application {
         }
     }
 
+    /// Gives the profiles on screen of `user` the levels of their badges, which
+    /// come after the rest.
+    pub(super) fn show_badge_levels(&mut self, user: &str, badges: Vec<crate::chat::ProfileBadge>) {
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .filter_map(Option::as_mut)
+            .filter(|view| view.profile.id == user && !view.loading)
+        {
+            view.profile.badges.clone_from(&badges);
+        }
+    }
+
     /// Saves this account's note on a Discord user, which the profiles on
     /// screen show at once; Discord keeps no empty notes.
     pub(super) fn save_note(&mut self, user: String, note: String) -> Vec<Effect> {

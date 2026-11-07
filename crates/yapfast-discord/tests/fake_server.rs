@@ -2410,17 +2410,19 @@ async fn shows_profiles() {
         discord,
         guild,
         bob,
+        server,
         ..
     } = Fixture::start("shows_profiles").await;
     // Bob's profile: in the server, his server bio wins over his own; from
     // a DM, his own shows.
-    let in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    let mut in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
     assert_eq!(in_server.name, "Bob");
     assert_eq!(in_server.pronouns.as_deref(), Some("he/him"));
     assert_eq!(in_server.bio.as_deref(), Some("Keeps #general tidy."));
     assert!(
         in_server
             .banner
+            .as_ref()
             .is_some_and(|banner| banner.contains("/banners/"))
     );
     assert_eq!(in_server.roles.len(), 1, "Bob is a Mod");
@@ -2429,6 +2431,46 @@ async fn shows_profiles() {
     assert_eq!(in_server.mutual_servers[0].id, guild);
     assert_eq!(in_server.mutual_friends.len(), 1);
     assert_eq!(in_server.mutual_friends[0].name, "Carol");
+    let badges: Vec<_> = in_server
+        .badges
+        .iter()
+        .map(|badge| badge.description.as_str())
+        .collect();
+    assert_eq!(
+        badges,
+        ["HypeSquad Bravery", "Active Developer", "Spielzeit"]
+    );
+    assert!(in_server.badges[0].link.is_some() && in_server.badges[1].link.is_none());
+    // The levels come after the profile, from /users/{id}/badges, and only the
+    // badge that levels up has one.
+    assert!(in_server.badges.iter().all(|badge| badge.level.is_none()));
+    assert!(
+        discord
+            .badge_levels(&guild, &bob, &mut in_server.badges)
+            .await
+    );
+    // Discord is asked once while the profile is kept, which has the levels.
+    let mut again = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    assert!(again.badges[2].level.is_some());
+    assert!(!discord.badge_levels(&guild, &bob, &mut again.badges).await);
+    assert_eq!(control(server, "GET", "/_control/badge-reads", ""), "1");
+    assert!(
+        in_server.badges[..2]
+            .iter()
+            .all(|badge| badge.level.is_none())
+    );
+    let level = in_server.badges[2]
+        .level
+        .as_ref()
+        .expect("playing time has a level");
+    assert_eq!(level.kind.as_deref(), Some("Spielzeit"));
+    assert_eq!(level.title, "Eisern");
+    assert_eq!(level.progress, "1.816 Stunden gespielt");
+    assert!(
+        level
+            .picture
+            .ends_with("d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg")
+    );
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());

@@ -7,7 +7,7 @@ use super::{
     channels::SEARCH_PAUSE,
     channels::SharedPreviews,
     commands::NOT_DISCORD,
-    render::{chat_profile, found_in, hits_in, with_previews},
+    render::{chat_badges, chat_profile, found_in, hits_in, with_previews},
     *,
 };
 use crate::chat::{
@@ -169,29 +169,41 @@ pub(super) fn command(
                             profile: chat_profile(&discord, &guild, profile),
                         });
                     };
-                    let result = discord
-                        .profile(&guild, &user, kept)
-                        .await
-                        .map(|profile| chat_profile(&discord, &guild, profile))
-                        .map_err(|error| {
+                    let profile = match discord.profile(&guild, &user, kept).await {
+                        Ok(profile) => profile,
+                        Err(error) => {
                             tracing::warn!(%error, "could not fetch a Discord profile");
-                            error.to_string()
-                        });
-                    let failed = result.is_err();
+                            let _ = events.send(Event::Profile {
+                                user,
+                                result: Err(error.to_string()),
+                            });
+                            return;
+                        }
+                    };
+                    let mut badges = profile.badges.clone();
                     let _ = events.send(Event::Profile {
                         user: user.clone(),
-                        result,
+                        result: Ok(chat_profile(&discord, &guild, profile)),
                     });
-                    if failed {
-                        return;
-                    }
+                    // The badges' levels come after the card is on screen.
+                    let badges_task = async {
+                        if discord.badge_levels(&guild, &user, &mut badges).await {
+                            let _ = events.send(Event::BadgeLevels {
+                                user: user.clone(),
+                                badges: chat_badges(std::mem::take(&mut badges)),
+                            });
+                        }
+                    };
                     // The note this account keeps on them fills the full profile's.
-                    if let Ok(note) = discord.note(&user).await {
-                        let _ = events.send(Event::Note {
-                            user: user.clone(),
-                            result: Ok(note),
-                        });
-                    }
+                    let note_task = async {
+                        if let Ok(note) = discord.note(&user).await {
+                            let _ = events.send(Event::Note {
+                                user: user.clone(),
+                                result: Ok(note),
+                            });
+                        }
+                    };
+                    tokio::join!(badges_task, note_task);
                 });
             }
             (discord, _) => {

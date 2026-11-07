@@ -213,6 +213,7 @@ pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Opt
     data.servers = same_list(&shown.servers, data.servers);
     data.friends = same_list(&shown.friends, data.friends);
     data.activities = same_list(&shown.activities, data.activities);
+    data.badges = same_list(&shown.badges, data.badges);
     data.connections = same_list(&shown.connections, data.connections);
     data.role_rows = same_role_rows(&shown.role_rows, data.role_rows);
     data.role_rows_large = same_role_rows(&shown.role_rows_large, data.role_rows_large);
@@ -268,6 +269,41 @@ pub(super) fn profile_data(
         activity: activity.into(),
         activity_emoji: activity_emoji.unwrap_or_default().into(),
         activities: activity_rows(&profile.activities),
+        badges: ModelRc::new(VecModel::from(
+            profile
+                .badges
+                .iter()
+                .map(|badge| ProfileBadgeRow {
+                    icon: badge.icon.as_str().into(),
+                    description: badge.description.as_str().into(),
+                    link: badge.link.as_deref().unwrap_or_default().into(),
+                    kind: badge
+                        .level
+                        .as_ref()
+                        .and_then(|l| l.kind.as_deref())
+                        .unwrap_or_default()
+                        .into(),
+                    title: badge
+                        .level
+                        .as_ref()
+                        .map(|l| l.title.as_str())
+                        .unwrap_or_default()
+                        .into(),
+                    progress: badge
+                        .level
+                        .as_ref()
+                        .map(|l| l.progress.as_str())
+                        .unwrap_or_default()
+                        .into(),
+                    picture: badge
+                        .level
+                        .as_ref()
+                        .map(|l| l.picture.as_str())
+                        .unwrap_or_default()
+                        .into(),
+                })
+                .collect::<Vec<_>>(),
+        )),
         bio: markdown(&bio_with_emoji(&profile.bio, &profile.bio_emoji)),
         has_bio: !profile.bio.trim().is_empty(),
         role_rows: role_rows(&profile.roles, PROFILE_CARD_WIDTH),
