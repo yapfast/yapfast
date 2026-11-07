@@ -24,6 +24,10 @@ export global Theme {
     in-out property <color> outline-chat: #2c2d34;
     /// The outline of the message box.
     in-out property <color> outline-field: #2c2d34;
+    // The outline of the account and voice-controls card.
+    in-out property <color> outline-panel: #00000000;
+    // The sidebar/chat divider, transparent in themes without one.
+    in-out property <color> outline-sidebar: #00000000;
     /// The ground of a context menu: on a dark theme Discord's panel, a step
     /// above the raised surfaces (40, 40, 45 on its own dark theme).
     out property <color> menu: self.dark ? self.raised.mix(#ffffff, 0.98) : self.raised;
@@ -37,15 +41,15 @@ export global Theme {
     in-out property <color> accent-hover: #ffcd70;
     in-out property <color> on-accent: #1d1607;
     in-out property <color> accent-soft: #ffbf4726;
-    // A message that mentions you: Discord's hsl(39.4 100% 48.6%) at 12%, 16% under the pointer.
-    in-out property <color> mentioned: #f8a5001f;
-    in-out property <color> mentioned-hover: #f8a50029;
+    // A message that mentions you: 8% yellow normally, fading to 4% on hover.
+    in-out property <color> mentioned: #f8a50014;
+    in-out property <color> mentioned-hover: #f8a5000a;
     in-out property <color> danger: #f0545e;
     in-out property <color> danger-hover: #f46f77;
+    // The composer and its placeholder have independent theme colours.
+    in-out property <color> composer: #2c2d34;
+    in-out property <color> placeholder: #6b6e78;
     /// A destructive menu row's text and icon, Discord's lighter red on a dark theme.
-    /// Discord's composer: a hair lighter than a plain field, with a dimmer placeholder.
-    out property <color> composer: self.dark ? self.field.mix(#ffffff, 0.99) : self.field;
-    out property <color> placeholder: self.dark ? self.muted.mix(self.field, 0.66) : self.muted;
     out property <color> danger-text: self.dark ? #fa777c : self.danger;
     /// Text and icons on a danger fill: badges, the LIVE pill, leaving a call.
     in-out property <color> on-danger: #ffffff;

@@ -190,11 +190,11 @@ export component ThreadPanel inherits Rectangle {
                     changed height => { self.report-view(); }
                     changed view-tick => { self.report-view(); }
                     height: col.preferred-height;
-                    background: self.lit ? Theme.row-hover : transparent;
+                    background: self.lit && !message.highlighted ? Theme.row-hover : transparent;
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
                         background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
-                        Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                        Rectangle { x: 0px; width: 2px; background: Theme.loud; }
                     }
                     row-pointer := TouchArea {
                         changed has-hover => { if self.has-hover { root.active-item = message.item; } }
