@@ -26,7 +26,7 @@ use crate::{
     call_video::{self, Camera, Receiving, VideoFrame},
     dave::Dave,
     opus, rtp,
-    voice::{FRAME, Listener, Surplus},
+    voice::{FRAME, Listener, MOVE_GRACE, Surplus},
     voice_connection::{Closed, Connection, Identity, lock, receive, send_json},
 };
 
@@ -156,10 +156,19 @@ async fn run(
     let mut drops = 0;
     loop {
         let up = std::time::Instant::now();
-        match media
+        let mut ended = media
             .run(&mut connection, &listener, &sending, &mut orders)
-            .await
+            .await;
+        // Disconnected from the call: kicked from voice, or moved to a
+        // channel on another voice server, which Discord names just after.
+        // The call waits a while for the move before it ends.
+        if let Ended::Dropped(error) = &ended
+            && closed(error) == Some(4014)
         {
+            listener.disconnected(&format!("{error:#}"));
+            ended = media.wait_for_move(&connection, &mut orders).await;
+        }
+        match ended {
             Ended::Left => {
                 let _ = connection.ws.close(None).await;
                 return;
@@ -189,11 +198,8 @@ async fn run(
                     drops = 0;
                 }
                 drops += 1;
-                let code = error
-                    .downcast_ref::<Closed>()
-                    .and_then(|closed| closed.code);
-                // Disconnected from the call, or the session ended: final.
-                if matches!(code, Some(4014 | 4006)) || drops > RETRIES {
+                // The session ended: final.
+                if closed(&error) == Some(4006) || drops > RETRIES {
                     listener.disconnected(&format!("{error:#}"));
                     return;
                 }
@@ -224,6 +230,13 @@ async fn run(
             }
         }
     }
+}
+
+/// The voice gateway's close code, when it closed with one.
+fn closed(error: &anyhow::Error) -> Option<u16> {
+    error
+        .downcast_ref::<Closed>()
+        .and_then(|closed| closed.code)
 }
 
 /// What a call offers: Opus, H264 for the camera both ways, and VP8 to
@@ -412,6 +425,32 @@ impl Media {
         }
         .await;
         result.unwrap_or_else(Ended::Dropped)
+    }
+
+    /// Waits, with no connection, for the call to move to another voice
+    /// server, for [`MOVE_GRACE`]; orders meanwhile apply once it's there.
+    /// Without a move it has ended.
+    async fn wait_for_move(
+        &mut self,
+        connection: &Connection,
+        orders: &mut mpsc::UnboundedReceiver<Order>,
+    ) -> Ended {
+        let given_up = tokio::time::sleep(MOVE_GRACE);
+        tokio::pin!(given_up);
+        loop {
+            tokio::select! {
+                order = orders.recv() => match order {
+                    None | Some(Order::Leave) => return Ended::Left,
+                    Some(Order::Move(to, reply)) => return Ended::Moved(to, reply),
+                    // Announced on the new connection.
+                    Some(Order::Film(camera)) => {
+                        self.filming = camera.map(|camera| call_video::Sending::new(camera, connection));
+                    }
+                    Some(Order::Want(wants)) => self.watching.want(wants),
+                },
+                () = &mut given_up => return Ended::Left,
+            }
+        }
     }
 
     /// Notes whether frames leave end-to-end encrypted, and the group's

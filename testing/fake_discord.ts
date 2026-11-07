@@ -67,7 +67,9 @@
 // counted, and AV1's RTP aggregation and OBU framing are checked too. GET
 // /_control/video lists what each stream received.
 // /_control/voice-move moves Alice's call in the server to another voice
-// server, and GET /_control/voice-identifies lists the tokens voice
+// server, or with ?channel=ID moves her to that channel on another voice
+// server, as a member who drags her there does; POST /_control/voice-kick
+// disconnects her from voice. GET /_control/voice-identifies lists the tokens voice
 // connections identified with. POST /_control/elsewhere has Alice join the
 // Lounge on another client, whose session her voice state then names, and
 // ends her calls here; ?leave leaves it there. Op 4 with no channel takes
@@ -7513,7 +7515,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
  *  and channels. */
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
-  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move",
+  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
@@ -8190,14 +8192,38 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/voice-move") {
       // Discord moves Alice's call in the server to another voice server: it
       // names the new one, and the old one closes with 4014 once she's there.
+      // Someone moving her to ?channel=ID on another voice server goes as on
+      // Discord: her voice state says where, the old server closes her call
+      // with 4014, and the new one is named 40 ms later.
       const state = voice.get(ALICE);
       if (!state?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
-      voiceToken = MOVED_VOICE_TOKEN;
-      for (const ws of sockets) {
-        if (ws.data.session !== state.session) continue;
-        send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+      const name = () => {
+        voiceToken = MOVED_VOICE_TOKEN;
+        for (const ws of sockets) {
+          if (ws.data.session !== state.session) continue;
+          send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+        }
+      };
+      const to = url.searchParams.get("channel");
+      if (!to) {
+        name();
+        return new Response("moved Alice's call\n");
       }
-      return new Response("moved Alice's call\n");
+      state.channel = to;
+      announce(ALICE);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      setTimeout(name, 40);
+      return new Response(`moved Alice to ${to}\n`);
+    }
+    if (req.method === "POST" && path === "/_control/voice-kick") {
+      // Someone disconnects Alice from voice: her voice state has no
+      // channel, and the voice server closes her call with 4014.
+      const before = voice.get(ALICE);
+      if (!before?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
+      voice.delete(ALICE);
+      moved(ALICE, before, origin);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      return new Response("disconnected Alice from voice\n");
     }
     if (req.method === "POST" && path === "/_control/elsewhere") {
       // Alice joins the Lounge on another client, such as her phone, or
