@@ -697,9 +697,9 @@ impl Adapter {
                 .and_then(|server| server.boosts)
                 .map_or(-1, |boosts| i32::try_from(boosts).unwrap_or(i32::MAX)),
         );
-        window.set_header_events_row(header_server.is_some_and(|server| {
-            server.community || !server.events.is_empty()
-        }));
+        window.set_header_events_row(
+            header_server.is_some_and(|server| server.community || !server.events.is_empty()),
+        );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {
                 "Find a DM"
