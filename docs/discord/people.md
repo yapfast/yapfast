@@ -153,8 +153,12 @@ neither pinning, closing, leaving nor muting, as it waits for an answer.
 ## A DM's header
 
 A DM or group DM's header has, as Discord's does, its call, its pinned
-messages, adding friends, the profile or member list, and a search. Video
-calls aren't there yet. A server's text channel has, after its icon and name,
+messages, adding friends, the profile or member list, and a search. Its call
+is two buttons, Start Voice Call and Start Video Call, which joins and turns
+the camera on once the call connects. Once someone is in the call, the first
+reads Join Voice Call and the second goes, and in the call both go; Discord's
+keeps a Join Video Call for a call already on video, which Yapfast doesn't
+offer. A server's text channel has, after its icon and name,
 its topic, then on the right Discord's buttons in Discord's order: the bell
 of its [notification settings](messages.md#notification-settings), its pinned
 messages, the member list's toggle, bright while the list shows, and the
@@ -331,6 +335,48 @@ card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
 `ui/theme.slint` and drawn by the window above everything else, with
 Discord's own values: 200px wide, 8px corners, the picture 64px high, the
 kind and progress in 14px medium and the level in 16px black.
+
+## The Activity panel
+
+Above a server channel's member list, as Discord's own client, the panel shows
+what people are doing and did lately. Forums, DMs and group DMs have none, nor
+does a server that turned it off with `ACTIVITY_FEED_DISABLED_BY_USER`; without
+either that or `ACTIVITY_FEED_ENABLED_BY_USER`, only one with under 10,000
+members shows it.
+
+The feed comes from `GET /content-inventory/users/@me`, in Discord's ranked
+order, and isn't any one server's: its entries are everything Discord thinks
+this account's people did. A channel shows those whose author is a member of
+its server and can see it, asking the gateway for members Yapfast doesn't know
+yet, and leaves out a live entry of someone listed offline. Each card has the
+author, the title and a 48 px picture, with their presence's picture while it's
+live and the feed's otherwise. Cards say:
+
+| Entry | Icon | Time |
+| --- | --- | --- |
+| Game or Activity, live | controller, green | `for 12 min`, from the presence or else the entry |
+| Music or show, live | music or TV, green | the same |
+| Finished | the same, grey | `3h ago`, in Discord's steps |
+| The week's top game | trophy | `Most played: 13h` |
+| The week's top artist | trophy | `31 tracks this week` |
+
+Times step by the minute, on a timer that runs while there are cards, where
+Discord's client ticks seconds. Other content types and the feed's badges (new
+player, streak, marathon and so on) don't show. Three cards show until the
+header opens the rest, whose pictures aren't asked for until then, and the eye
+in the header hides them all, as Discord's "Hide Activity Cards" does. Yapfast
+remembers that in `layout.json`, and clicking the header brings them back.
+
+Yapfast asks for the feed only while a server's channel shows, when the window
+is focused, the gateway connected and someone used Yapfast in the last 15
+minutes, and not with the cards hidden once it has a feed. It sends the
+`refresh_token` of the last answer, and asks again after
+`wait_ms_until_next_fetch`, at least a minute. An answer with
+`refresh_stale_inbox_after_ms` waits instead for the gateway's
+`CONTENT_INVENTORY_INBOX_STALE`. A failure retries after 1, 2, 4 and 8 minutes
+and then leaves the panel empty. A wait that ends while it can't ask leaves the
+feed due, for the next time it can. The answer's shape comes from Discord's
+client, as docs.discord.food doesn't cover this endpoint.
 
 ## Avatar decorations and nameplates
 

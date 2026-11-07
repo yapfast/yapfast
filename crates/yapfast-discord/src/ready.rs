@@ -186,6 +186,9 @@ pub struct Server {
     /// would go on drawing icons the client doesn't.
     #[serde(default)]
     pub role_icons_allowed: bool,
+    /// What its owner chose about the member list's Activity panel; see
+    /// [`crate::activity_feed::shown_in`].
+    pub activity_feed: Option<bool>,
     /// 1 when its moderators need two-factor authentication, which its
     /// owner then needs to delete it or give it away.
     #[serde(default)]
@@ -1344,6 +1347,13 @@ pub fn server(guild: &Value) -> Option<Server> {
         owner_id,
         premium_tier: u8::try_from(premium_tier).unwrap_or(u8::MAX),
         role_icons_allowed: premium_tier >= 2 || has("ROLE_ICONS"),
+        activity_feed: if has("ACTIVITY_FEED_ENABLED_BY_USER") {
+            Some(true)
+        } else if has("ACTIVITY_FEED_DISABLED_BY_USER") {
+            Some(false)
+        } else {
+            None
+        },
         mfa_level: guild["mfa_level"]
             .as_u64()
             .or_else(|| guild["properties"]["mfa_level"].as_u64())

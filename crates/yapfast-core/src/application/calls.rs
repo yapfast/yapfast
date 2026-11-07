@@ -133,6 +133,37 @@ impl Application {
         }
     }
 
+    /// Joins a room's call and, once it is connected, turns the camera on,
+    /// as Discord's video call button does; in a call already, only the
+    /// camera goes on.
+    pub(super) fn request_video_call(&mut self, id: String) -> Vec<Effect> {
+        if !self.state.can_join_voice(&id) {
+            return vec![];
+        }
+        if self.state.voice.active() && self.state.voice.room.as_ref() == Some(&id) {
+            if self.state.voice.camera_phase == voice::CameraPhase::Off {
+                return self.voice_command(voice::Command::Video(true));
+            }
+            return vec![];
+        }
+        self.state.pending_camera = Some(id.clone());
+        self.request_join_voice(id)
+    }
+
+    /// Turns the camera on for the call [`AppState::pending_camera`] waits
+    /// for, once it connects.
+    pub(super) fn film_when_connected(&mut self) -> Vec<Effect> {
+        let voice = &self.state.voice;
+        let ready = self.state.pending_camera.as_ref().is_some_and(|room| {
+            voice.phase == Phase::Connected && voice.room.as_ref() == Some(room)
+        });
+        if ready {
+            self.state.pending_camera = None;
+            return self.voice_command(voice::Command::Video(true));
+        }
+        vec![]
+    }
+
     pub(super) fn accept_call(&mut self, id: String) -> Vec<Effect> {
         if !self.state.can_join_voice(&id) {
             return vec![];
@@ -250,6 +281,7 @@ impl Application {
         if matches!(command, voice::Command::Leave) {
             self.state.switch_voice = None;
             self.state.pending_watch = None;
+            self.state.pending_camera = None;
         }
         if !self.state.preview {
             return vec![Effect::Backend(Command::Voice(command))];

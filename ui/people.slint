@@ -3,6 +3,7 @@ import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip } from "controls.slint";
 import { StatusDot } from "rail.slint";
+import { BotTag } from "messages.slint";
 
 /// A member of the open room. A heading starts each role's group.
 export struct MemberRow {
@@ -15,6 +16,9 @@ export struct MemberRow {
     /// A custom status or what they're doing, under the name, and the
     /// address of its custom emoji's picture.
     activity: string, activity-emoji: string,
+    /// The icon for what they're doing (see StatusText.icon), and whether a
+    /// bullet follows it.
+    activity-icon: int, activity-bullet: bool,
     picture-url: string,
     /// The address of the decoration around their avatar, and of their
     /// nameplate's picture with its palette's colours on a dark theme and a
@@ -24,6 +28,8 @@ export struct MemberRow {
     name-style: [NameStyleRow],
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
+    /// An application's account, marked APP, and the server's owner, marked with a crown.
+    bot: bool, owner: bool,
     /// The server tag they wear by their name, and its badge's address.
     tag: string, tag-badge: string,
     /// The pictures of the role their group is and of their highest role that
@@ -71,9 +77,29 @@ component ActivityPicture inherits Rectangle {
     Image { source: root.picture; width: root.size; height: root.size; image-fit: cover; }
 }
 
+/// A card in the panel above the member list, from Discord's activity feed.
+export struct MemberActivityRow {
+    id: string, name: string, initial: string, tint: color, picture-url: string,
+    /// The game, artist or show, the words about it, and its picture's address.
+    game: string, since: string, thumb-url: string,
+    /// The icon for its kind, as in StatusText.icon.
+    icon: int,
+    /// Going on now, which its icon and time show in green.
+    live: bool,
+}
+
 // The open room's members, grouped by role under the conversation header.
 export component MemberPanel inherits Rectangle {
     in property <[MemberRow]> rows;
+    /// What people here are doing or did lately, in Discord's order; the
+    /// panel above the list shows the first three until its header is opened.
+    in property <[MemberActivityRow]> activity-rows;
+    property <bool> activity-open;
+    /// The panel shows its header alone.
+    in-out property <bool> activity-hidden;
+    callback activity-hidden-toggled(bool);
+    /// Once a minute while there are cards, to bring their times up to date.
+    callback activity-clock();
     /// Shown instead of the list while it loads or when it can't.
     in property <string> note;
     /// The member whose profile card is open.
@@ -87,7 +113,119 @@ export component MemberPanel inherits Rectangle {
     accessible-role: list;
     accessible-label: "Members";
     if ClientStyle.enabled: Rectangle { x: 0px; width: 1px; background: Theme.outline-chat; }
+    Timer {
+        interval: 60s;
+        running: root.activity-rows.length > 0;
+        triggered => { root.activity-clock(); }
+    }
     VerticalLayout {
+        if root.activity-rows.length > 0: VerticalLayout {
+            padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
+            activity-header := Rectangle {
+                // Opening it shows the cards again if they were hidden, as
+                // there's otherwise nothing to open.
+                property <bool> opens: root.activity-rows.length > 3 || root.activity-hidden;
+                function toggled() {
+                    if root.activity-hidden {
+                        root.activity-hidden = false;
+                        root.activity-hidden-toggled(false);
+                    } else if self.opens {
+                        root.activity-open = !root.activity-open;
+                    }
+                }
+                height: 32px; border-radius: 4px;
+                background: activity-head.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
+                accessible-role: button;
+                accessible-label: "Activity, " + root.activity-rows.length + (root.activity-hidden ? ", show cards" : root.activity-open ? ", collapse" : ", expand");
+                accessible-action-default => { self.toggled(); }
+                activity-head := TouchArea {
+                    enabled: activity-header.opens; mouse-cursor: activity-header.opens ? MouseCursor.pointer : MouseCursor.default;
+                    clicked => { activity-header.toggled(); }
+                }
+                HorizontalLayout {
+                    padding-left: 8px; padding-right: 8px; spacing: 4px;
+                    Text { text: "Activity \u{2014} " + root.activity-rows.length; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Middle {
+                        Rectangle {
+                            width: 20px; height: 20px; border-radius: 4px;
+                            background: hide-touch.has-hover ? Theme.overlay.with-alpha(0.12) : transparent;
+                            accessible-role: button;
+                            accessible-label: root.activity-hidden ? "Show Activity Cards" : "Hide Activity Cards";
+                            accessible-action-default => {
+                                root.activity-hidden = !root.activity-hidden;
+                                root.activity-hidden-toggled(root.activity-hidden);
+                            }
+                            Image {
+                                source: root.activity-hidden ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
+                                width: 16px; height: 16px; colorize: hide-touch.has-hover ? Theme.text : Theme.muted;
+                            }
+                            hide-touch := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => {
+                                    root.activity-hidden = !root.activity-hidden;
+                                    root.activity-hidden-toggled(root.activity-hidden);
+                                }
+                            }
+                        }
+                    }
+                    if activity-header.opens: Middle {
+                        Image {
+                            source: @image-url("icons/chevron-right.svg"); width: 16px; height: 16px; colorize: Theme.muted;
+                            transform-rotation: root.activity-open && !root.activity-hidden ? 90deg : 0deg;
+                        }
+                    }
+                }
+            }
+            // Discord's cards: 8px radius and padding, a 1px border, the name,
+            // the title in bold, the kind's icon with the time, and a 48px picture.
+            for row[index] in root.activity-rows: Rectangle {
+                // Each card keeps 8px beneath it; the rest stay unmade, and their
+                // pictures unasked for, until the panel opens.
+                height: !root.activity-hidden && (root.activity-open || index < 3) ? 76px : 0px;
+                if !root.activity-hidden && (root.activity-open || index < 3): Rectangle {
+                    y: 0px; height: 68px;
+                    border-radius: 8px; border-width: 1px;
+                    border-color: Theme.line;
+                    background: activity-touch.has-hover ? Theme.overlay.with-alpha(0.12) : Theme.overlay.with-alpha(0.06);
+                    accessible-role: button;
+                    accessible-label: row.name + ", " + row.game + ", " + row.since + ", show profile";
+                    accessible-action-default => { root.open-profile(row.id, self.absolute-position.y); }
+                    HorizontalLayout {
+                        padding: 8px; spacing: 8px;
+                        VerticalLayout {
+                            alignment: center; horizontal-stretch: 1; spacing: 2px;
+                            HorizontalLayout {
+                                spacing: 6px; alignment: start;
+                                Middle { Avatar { size: 16px; initial: row.initial; tint: row.tint; picture-url: row.picture-url; } }
+                                Text { text: row.name; color: Theme.secondary; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
+                            }
+                            Text { text: row.game; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                            HorizontalLayout {
+                                spacing: 4px; alignment: start;
+                                Middle {
+                                    Image {
+                                        source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : @image-url("icons/gamepad.svg");
+                                        width: 16px; height: 16px; image-fit: contain; colorize: row.live ? Theme.live : Theme.muted;
+                                    }
+                                }
+                                Text { text: row.since; color: row.live ? Theme.live : Theme.muted; font-size: 12px; overflow: elide; vertical-alignment: center; }
+                            }
+                        }
+                        if row.thumb-url != "": Middle { ActivityPicture { size: 48px; url: row.thumb-url; label: row.game; } }
+                    }
+                    activity-touch := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.open-profile(row.id, self.absolute-position.y); }
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                root.open-member-menu(row.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if root.note != "": HorizontalLayout { padding: 16px; Label { text: root.note; } }
         // A list view makes only the rows in sight, which matters in large servers.
         ListView {
@@ -154,6 +292,14 @@ export component MemberPanel inherits Rectangle {
                             if member.tag != "": Middle {
                                 ServerTagChip { text: member.tag; badge: member.tag-badge; opacity: member.presence == "offline" ? 0.5 : 1; }
                             }
+                            if member.bot: Middle { BotTag { opacity: member.presence == "offline" ? 0.5 : 1; } }
+                            if member.owner: Middle {
+                                Image {
+                                    source: @image-url("icons/crown.svg"); width: 14px; height: 14px; image-fit: contain;
+                                    colorize: #f0b232; opacity: member.presence == "offline" ? 0.5 : 1;
+                                    accessible-role: image; accessible-label: "Server Owner";
+                                }
+                            }
                             if member.timed-out: Image {
                                 source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
                                 colorize: Theme.danger;
@@ -162,6 +308,7 @@ export component MemberPanel inherits Rectangle {
                         }
                         if member.activity != "" || member.activity-emoji != "": StatusText {
                             text: member.activity; emoji-url: member.activity-emoji; font-size: 12px;
+                            icon: member.activity-icon; bullet: member.activity-bullet;
                             opacity: member.presence == "offline" ? 0.5 : 1;
                         }
                     }

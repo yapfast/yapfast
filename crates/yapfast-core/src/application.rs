@@ -16,6 +16,7 @@ use crate::{
     voice::{self, JoinSound, Phase},
 };
 
+mod activity_panel;
 mod arrange;
 mod aside;
 mod browse;
@@ -179,6 +180,8 @@ pub struct PersonDialog {
 /// What a [`PersonDialog`] asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PersonAsk {
+    /// Whether to start a call with them, unless told not to ask again.
+    Call,
     Note,
     /// The nickname this account gives a friend.
     Nickname,
@@ -499,11 +502,28 @@ pub struct AppState {
     /// Messages from people this account blocked don't show at all, rather
     /// than collapsed.
     pub hide_blocked: bool,
+    /// A call from someone's menu starts without asking first.
+    pub skip_call_prompt: bool,
+    /// The member list's Activity panel's feed, in Discord's order: what
+    /// everyone this account knows is doing, not just one server.
+    pub activity_feed: Arc<[crate::chat::FeedEntry]>,
+    /// Who of that feed a room's panel may show, as last answered for it.
+    pub activity_people: Option<(String, Arc<[crate::chat::FeedPerson]>)>,
+    /// The panel shows its header alone.
+    pub activity_cards_hidden: bool,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
     /// their user id. Discord drops a watch made before.
     pub pending_watch: Option<(String, String)>,
+    /// A video call's room: the camera goes on once its call connects.
+    pub pending_camera: Option<String>,
+    /// The conversations visited before this one, newest last, and those
+    /// stepped back from, for the title bar's back and forward arrows.
+    pub nav_back: Vec<String>,
+    pub nav_forward: Vec<String>,
+    /// A step through that history is under way: it records no visit.
+    pub nav_walking: bool,
     pub account: Option<String>,
     /// The account's name, avatar address and connection status, where the
     /// network gives them; a Discord-only build shows Discord's.
@@ -818,6 +838,43 @@ impl AppState {
             || self.viewer.is_some()
     }
 
+    /// The most conversations the back arrow remembers.
+    const HISTORY: usize = 50;
+
+    /// Notes that the conversation on screen gives way to `next`, which
+    /// forgets what going back would have gone forward to.
+    pub(crate) fn record_visit(&mut self, next: &str) {
+        let Some(previous) = self
+            .selected
+            .as_deref()
+            .filter(|previous| *previous != next)
+        else {
+            return;
+        };
+        if self.nav_back.last().map(String::as_str) != Some(previous) {
+            let previous = previous.to_owned();
+            self.nav_back.push(previous);
+            if self.nav_back.len() > Self::HISTORY {
+                self.nav_back.remove(0);
+            }
+        }
+        self.nav_forward.clear();
+    }
+
+    /// Whether the title bar's back arrow has somewhere to go.
+    pub fn can_go_back(&self) -> bool {
+        self.nav_back
+            .iter()
+            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+    }
+
+    /// Whether the title bar's forward arrow has somewhere to go.
+    pub fn can_go_forward(&self) -> bool {
+        self.nav_forward
+            .iter()
+            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+    }
+
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
         match &self.navigation {
             Navigation::DirectMessages => room.direct,
@@ -923,6 +980,7 @@ impl AppState {
         };
         if let Some(message) = self.messages.iter().rev().find(sender) {
             return Some(ChatMember {
+                bot: false,
                 id: user.to_owned(),
                 name: message.author.clone(),
                 username: None,
@@ -953,6 +1011,7 @@ impl AppState {
             .find(|person| person.id == user)
         {
             return Some(ChatMember {
+                bot: false,
                 id: user.to_owned(),
                 name: person.name.clone(),
                 username: None,
@@ -983,6 +1042,7 @@ impl AppState {
         // Matrix links name no one; their id does.
         let name = mentioned.or_else(|| user.starts_with('@').then(|| user.to_owned()))?;
         Some(ChatMember {
+            bot: false,
             id: user.to_owned(),
             name,
             username: None,
@@ -1511,6 +1571,13 @@ pub enum Action {
     Logout,
     Preview,
     RequestJoinVoice(String),
+    /// Join a room's call with the camera on, as Discord's video call button does.
+    StartVideoCall(String),
+    /// Go back to the conversation visited before this one, as Discord's
+    /// title bar arrow and Alt+Left do.
+    NavigateBack,
+    /// Go forward again after going back.
+    NavigateForward,
     /// Answer a Discord DM call ringing this account: open the conversation
     /// and join, leaving any other call, or decline it.
     AcceptCall(String),
@@ -1970,6 +2037,12 @@ pub enum Action {
     /// Leave out messages from people this account blocked, rather than
     /// collapsing them.
     HideBlocked(bool),
+    /// Whether a call from someone's menu starts without asking first.
+    SkipCallPrompt(bool),
+    /// The window gained or lost focus.
+    WindowFocused(bool),
+    /// Hides or shows the cards in the member list's Activity panel.
+    ActivityCardsHidden(bool),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -2044,6 +2117,7 @@ pub struct DiscordEmojiLists {
 #[derive(Default)]
 pub struct Application {
     pub state: AppState,
+    feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,
     matrix_servers: Vec<Arc<ChatServer>>,
@@ -2920,6 +2994,9 @@ impl Application {
             Action::Logout => self.logout(),
             Action::Preview => self.start_preview(),
             Action::RequestJoinVoice(id) => self.request_join_voice(id),
+            Action::StartVideoCall(id) => self.request_video_call(id),
+            Action::NavigateBack => self.walk_history(true),
+            Action::NavigateForward => self.walk_history(false),
             Action::AcceptCall(id) => self.accept_call(id),
             Action::DeclineCall(room) => vec![Effect::Backend(Command::Discord(
                 DiscordCommand::DeclineCall { room },
@@ -3343,14 +3420,17 @@ impl Application {
                 if self.state.preview || signed_out {
                     return vec![];
                 }
-                vec![Effect::Backend(Command::Discord(
+                let mut effects = self.feed_quiet_since(since);
+                effects.push(Effect::Backend(Command::Discord(
                     DiscordCommand::Inactive { since, show_idle },
-                ))]
+                )));
+                effects
             }
             Action::ConfirmVoiceSwitch => self.confirm_voice_switch(),
             Action::CancelVoiceSwitch => {
                 self.state.switch_voice = None;
                 self.state.pending_watch = None;
+                self.state.pending_camera = None;
                 vec![]
             }
             Action::ShowVoicePerson { room, user } => self.show_voice_person(room, user),
@@ -3381,6 +3461,12 @@ impl Application {
             }
             Action::HideNameplates(hide) => {
                 self.state.hide_nameplates = hide;
+                vec![]
+            }
+            Action::WindowFocused(focused) => self.window_focused(focused),
+            Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
+            Action::SkipCallPrompt(skip) => {
+                self.state.skip_call_prompt = skip;
                 vec![]
             }
             Action::HideBlocked(hide) => {
@@ -3507,9 +3593,17 @@ impl Application {
                 {
                     self.state.pending_watch = None;
                 }
+                // The same for a video call's camera.
+                if let Some(room) = &self.state.pending_camera
+                    && self.state.voice.room.as_ref() == Some(room)
+                    && state.room.as_ref() != Some(room)
+                {
+                    self.state.pending_camera = None;
+                }
                 self.state.voice = state;
                 let mut effects = sounds;
                 effects.extend(self.watch_when_connected());
+                effects.extend(self.film_when_connected());
                 return effects;
             }
             Event::Connected {
@@ -3606,6 +3700,9 @@ impl Application {
                 }
             }
             Event::Profile { user, result } => self.show_fetched_profile(user, result),
+            Event::ActivityFeed(entries) => return self.show_activity_feed(entries),
+            Event::ActivityFeedDue => return self.activity_feed_due(),
+            Event::ActivityPeople { room, people } => self.show_activity_people(room, people),
             Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileEffect(effect) => {

@@ -38,6 +38,7 @@ import "fonts/DisplayName-Journal.ttf";
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
 import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
+import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
@@ -45,7 +46,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } fro
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { MemberRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
+import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
@@ -62,6 +63,7 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
+export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
@@ -69,7 +71,7 @@ export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
-export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
+export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
@@ -376,6 +378,10 @@ export component YapfastWindow inherits Window {
     in property <string> room-activity-emoji;
     property <bool> room-has-activity: root.room-activity != "" || root.room-activity-emoji != "";
     in property <[MemberRow]> roster;
+    in property <[MemberActivityRow]> roster-activity;
+    in-out property <bool> activity-cards-hidden;
+    callback activity-cards-hidden-toggled(bool);
+    callback activity-clock();
     in property <string> roster-note;
     /// Whether the member list is wanted beside the conversation; Yapfast stores it.
     in-out property <bool> member-list: true;
@@ -411,6 +417,9 @@ export component YapfastWindow inherits Window {
     callback remove-game-executable(int);
     in-out property <bool> hide-blocked;
     callback hide-blocked-toggled(bool);
+    /// A call from someone's menu starts without asking first; Yapfast stores it.
+    in-out property <bool> skip-call-prompt;
+    callback skip-call-prompt-toggled(bool);
     /// Those the Discord account blocked, for Settings, and unblocking one
     /// by user id.
     in property <[BlockedRow]> blocked-people;
@@ -896,9 +905,22 @@ export component YapfastWindow inherits Window {
     in property <string> dm-person;
     /// A Discord DM is open, whose call can be started or joined from its header.
     in property <bool> can-call;
+    /// The title bar's back and forward arrows have somewhere to go.
+    in property <bool> can-go-back;
+    in property <bool> can-go-forward;
+    callback go-back;
+    callback go-forward;
+    /// The inbox popout: its open tab, 0 for Unreads and 1 for Mentions, and
+    /// that tab's rows, made only while it shows.
+    in-out property <bool> inbox-open;
+    in-out property <int> inbox-tab;
+    in property <[InboxRow]> inbox-rows;
+    /// The inbox opened or changed tab.
+    callback inbox-opened;
     /// Someone is in the open DM's call, so the header joins rather than starts it.
     in property <bool> call-going;
     callback start-call;
+    callback start-video-call;
     /// The open DM's header lists its pinned messages, searches it, and adds
     /// friends to it.
     in property <bool> can-pin;
@@ -2617,9 +2639,16 @@ export component YapfastWindow inherits Window {
                         }
                         if root.can-call: Middle {
                             IconButton {
-                                icon: @image-url("icons/phone.svg"); label: root.call-going ? "Join the call" : "Start a call";
+                                icon: @image-url("icons/phone.svg"); label: root.call-going ? "Join Voice Call" : "Start Voice Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-call(); }
+                            }
+                        }
+                        if root.can-call && !root.call-going: Middle {
+                            IconButton {
+                                icon: @image-url("icons/video.svg"); label: "Start Video Call";
+                                size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
+                                clicked => { root.start-video-call(); }
                             }
                         }
                         if root.can-list-threads: Middle {
@@ -3541,7 +3570,10 @@ export component YapfastWindow inherits Window {
                         save-attachment(id, index) => { root.save-attachment(id, index); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: ClientStyle.members-width; rows: root.roster; note: root.roster-note; selected: root.profile-member;
+                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member;
+                        activity-hidden <=> root.activity-cards-hidden;
+                        activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
+                        activity-clock => { root.activity-clock(); }
                         open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
                     }
@@ -4234,7 +4266,8 @@ export component YapfastWindow inherits Window {
     person-motion := PopupMotion { open: root.person-open; }
     if person-motion.shown: PersonDialog {
         motion: person-motion.amount;
-        prompt: root.person-prompt; text <=> root.person-text;
+        prompt: root.person-prompt; text <=> root.person-text; ticked <=> root.skip-call-prompt;
+        tick(skip) => { root.skip-call-prompt-toggled(skip); }
         answer(text) => { root.answer-person(text); }
         choose(index) => { root.choose-person-option(index); }
         close => { root.close-person(); }
@@ -4457,9 +4490,36 @@ export component YapfastWindow inherits Window {
         maximize-window => { root.maximize-window(); }
         close-window => { root.close-window(); }
     }
+    if root.title-height > 0 && ClientStyle.enabled && root.workspace && root.inbox-open: TouchArea {
+        x: 0px; y: root.title-height; width: root.width; height: root.height - root.title-height;
+        clicked => { root.inbox-open = false; }
+    }
+    if root.title-height > 0 && ClientStyle.enabled && root.workspace && root.inbox-open: InboxPopout {
+        x: root.width - self.width - 8px; y: root.title-height + 4px;
+        height: min(560px, root.height - root.title-height - 16px);
+        rows: root.inbox-rows;
+        tab <=> root.inbox-tab;
+        changed-tab => { root.inbox-opened(); }
+        open(id) => {
+            root.inbox-open = false;
+            root.switch-to(id);
+        }
+        close => { root.inbox-open = false; }
+    }
     if root.title-height > 0 && ClientStyle.enabled: WindowBar {
         x: 0px; y: 0px; width: root.width;
         place: root.workspace ? (root.dms-selected ? "Direct Messages" : root.sidebar-title) : "Yapfast";
+        workspace: root.workspace;
+        can-go-back: root.workspace && !root.settings-open && root.can-go-back;
+        can-go-forward: root.workspace && !root.settings-open && root.can-go-forward;
+        inbox-open: root.inbox-open;
+        go-back => { root.go-back(); }
+        go-forward => { root.go-forward(); }
+        toggle-inbox => {
+            root.inbox-open = !root.inbox-open;
+            if root.inbox-open { root.inbox-opened(); }
+        }
+        open-help => { root.open-link("https://support.discord.com"); }
         focused: root.window-focused; maximized: root.window-maximized;
         move-window => { root.move-window(); }
         minimize-window => { root.minimize-window(); }

@@ -22,6 +22,8 @@ pub const ROWS: usize = 100;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListedMember {
     pub user_id: String,
+    /// An application's account.
+    pub bot: bool,
     pub name: String,
     pub username: Option<String>,
     /// The address of the avatar Discord shows for them on this server.
@@ -315,6 +317,7 @@ impl MemberList {
                     }
                     members.push(ListedMember {
                         user_id: user.clone(),
+                        bot: names.is_bot(user),
                         name: names
                             .name(&self.guild, user)
                             .unwrap_or("Discord user")

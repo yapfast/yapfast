@@ -603,6 +603,7 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
                 decoration: None,
                 nameplate: None,
                 style: None,
+                bot: false,
             }]),
         });
         adapter.refresh(&window);
@@ -1826,7 +1827,8 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
         ]
     );
 
-    // Roles: every one, ticked where held, greyed where out of reach.
+    // Roles: those this account may give or take, ticked where held. One out
+    // of reach would show, greyed, only if Dave held it.
     let roles = window.get_menu_submenus().row_data(10).unwrap();
     let shown: Vec<(String, bool, bool)> = roles
         .iter()
@@ -1835,13 +1837,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     let row = |name: &str, checked, disabled| (name.to_owned(), checked, disabled);
     assert_eq!(
         shown,
-        [
-            row("Leads", false, true),
-            row("Staff", false, true),
-            row("Crew", true, false),
-            row("Bot", false, true),
-            row("Wardens", false, false),
-        ]
+        [row("Crew", true, false), row("Wardens", false, false),]
     );
     assert!(roles.iter().all(|row| row.checkbox));
     window.invoke_choose_menu("4".into(), true, "role:20".into());
@@ -1850,7 +1846,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             .get_menu_submenus()
             .row_data(10)
             .unwrap()
-            .row_data(2)
+            .row_data(0)
             .unwrap()
             .checked,
         "Crew unticks at once, and the menu stays open"
@@ -2264,6 +2260,136 @@ fn dragging_the_thread_beside_resizes_it_within_limits_and_remembers_it() {
     window.hide().unwrap();
 }
 
+#[cfg(feature = "discord")]
+#[test]
+fn the_activity_panel_shows_discords_feed_in_its_order_for_those_the_channel_may_show() {
+    use yapfast_core::{
+        application::AppState,
+        chat::{ChatMember, FeedEntry, FeedPerson, Presence, Role},
+        discord::room_id,
+        yapfast_discord::activity_feed::Kind,
+    };
+    let hour = 60 * 60_000;
+    let now = 100 * hour;
+    let entry = |author: &str, kind, title: &str, live, at_ms| FeedEntry {
+        author: author.into(),
+        kind,
+        title: title.into(),
+        picture: Some("discord-app-icon:42".into()),
+        live,
+        expires_ms: None,
+        at_ms,
+        hours: None,
+        tracks: None,
+    };
+    let person = |id: &str| FeedPerson {
+        id: id.into(),
+        name: format!("Member {id}").into(),
+        avatar: "".into(),
+    };
+    let member = |id: &str, presence, activities: serde_json::Value| ChatMember {
+        bot: false,
+        id: id.to_owned(),
+        name: id.to_owned(),
+        username: None,
+        role: Role::Member,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
+        tag: None,
+        group: None,
+        presence: Some(presence),
+        color: None,
+        activity: None,
+        activities: yapfast_core::yapfast_discord::activity::activities(&activities),
+        roles: Default::default(),
+        role_icon: None,
+        group_icon: None,
+        timed_out_until: None,
+    };
+    let room = room_id("1", "2");
+    let mut state = AppState::default();
+    state.activity_feed = vec![
+        entry("7", Kind::Game, "Factorio", true, now - 3 * hour),
+        entry("8", Kind::Listened, "Marconi Union", true, now - 60_000),
+        entry("9", Kind::Game, "Celeste", false, now - 3 * hour),
+        FeedEntry {
+            hours: Some(13),
+            ..entry("7", Kind::TopGame, "Factorio", false, now - 50 * hour)
+        },
+        FeedEntry {
+            tracks: Some(31),
+            ..entry(
+                "8",
+                Kind::TopArtist,
+                "Marconi Union",
+                false,
+                now - 50 * hour,
+            )
+        },
+        entry("6", Kind::Game, "Offline's", true, now - hour),
+        entry("5", Kind::Game, "Elsewhere", false, now - hour),
+    ]
+    .into();
+    state.activity_people = Some((room.clone(), ["7", "8", "9", "6"].map(person).into()));
+    let members = [
+        member(
+            "7",
+            Presence::DoNotDisturb,
+            serde_json::json!([{"type": 0, "name": "Factorio", "timestamps": {"start": now - 5 * 60_000}}]),
+        ),
+        member("6", Presence::Offline, serde_json::json!([])),
+    ];
+    let rows = activity_panel(&state, &room, &members, now);
+    let shown: Vec<(&str, &str, &str)> = rows
+        .iter()
+        .map(|row| (row.name.as_str(), row.game.as_str(), row.since.as_str()))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            // Their presence says when it started, which the feed's id may not.
+            ("Member 7", "Factorio", "for 5 min"),
+            ("Member 8", "Marconi Union", "for 1 min"),
+            ("Member 9", "Celeste", "3h ago"),
+            ("Member 7", "Factorio", "Most played: 13h"),
+            ("Member 8", "Marconi Union", "31 tracks this week"),
+        ],
+    );
+    assert!(rows[0].live && rows[1].live && !rows[2].live);
+    assert_eq!(rows[1].icon, 2);
+    assert_eq!(rows[3].icon, 5);
+    assert_eq!(rows[0].thumb_url, "discord-app-icon:42");
+
+    // Another channel of the server keeps them until its answer comes.
+    assert_eq!(
+        activity_panel(&state, &room_id("1", "3"), &members, now).len(),
+        5
+    );
+    assert!(activity_panel(&state, &room_id("4", "3"), &members, now).is_empty());
+    state.activity_people = None;
+    assert!(activity_panel(&state, &room, &members, now).is_empty());
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn a_finished_activity_says_how_long_ago_in_discords_steps() {
+    let (minute, hour, day) = (60_000, 3_600_000, 86_400_000);
+    let at = 100 * day;
+    for (ago, words) in [
+        (5_000, "5s ago"),
+        (12 * minute, "12m ago"),
+        (3 * hour, "3h ago"),
+        (13 * hour, "1d ago"),
+        (8 * day, "8d ago"),
+        (15 * day, "2w ago"),
+        (60 * day, "2mo ago"),
+    ] {
+        assert_eq!(finished_ago(at - ago, at), words);
+    }
+}
+
 #[test]
 fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     use yapfast_core::chat::{ChatMember, Nameplate, Role};
@@ -2284,6 +2410,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         colors: Some([0x730bc8, 0x972fed]),
     };
     let member = |id: &str, name: &str| ChatMember {
+        bot: false,
         id: id.into(),
         name: name.into(),
         username: None,
@@ -2308,6 +2435,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         let state = &mut adapter.app.state;
         state.members = Some(Ok(vec![
             ChatMember {
+                bot: false,
                 decoration: Some("ring.png".into()),
                 nameplate: Some(plate("strip.png")),
                 style: Some(Arc::new(yapfast_core::chat::NameStyle::new(

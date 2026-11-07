@@ -16,6 +16,160 @@ fn bio_with_emoji(bio: &str, emoji: &[yapfast_core::chat::CustomEmoji]) -> Strin
     out
 }
 
+/// A running time as the activity panel words it: "for 12 min".
+#[cfg(feature = "discord")]
+fn running_for(started_ms: u64, now_ms: u64) -> String {
+    let minutes = now_ms.saturating_sub(started_ms) / 60_000;
+    match minutes {
+        0 => "just started".to_owned(),
+        1..=59 => format!("for {minutes} min"),
+        60..=1439 => format!("for {} hr", minutes / 60),
+        _ => format!("for {} d", minutes / 1440),
+    }
+}
+
+/// How long ago something finished as the activity panel words it, in
+/// Discord's steps: "3h ago", "2d ago".
+#[cfg(feature = "discord")]
+pub(super) fn finished_ago(at_ms: u64, now_ms: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+    let seconds = now_ms.saturating_sub(at_ms) / 1000;
+    match seconds {
+        0..MINUTE => format!("{seconds}s ago"),
+        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
+        _ if seconds < 12 * HOUR => format!("{}h ago", seconds / HOUR),
+        _ if seconds < 9 * DAY => format!("{}d ago", (seconds / DAY).max(1)),
+        _ if seconds < 28 * DAY => format!("{}w ago", seconds / (7 * DAY)),
+        _ => format!("{}mo ago", (seconds / (30 * DAY)).max(1)),
+    }
+}
+
+/// What the channel's Activity panel shows: Discord's feed, in its order, of
+/// those `state.activity_people` says it may show. Between two channels of a
+/// server the last answer shows until this one's comes.
+#[cfg(feature = "discord")]
+pub(super) fn activity_panel(
+    state: &yapfast_core::application::AppState,
+    room: &str,
+    members: &[yapfast_core::chat::ChatMember],
+    now_ms: u64,
+) -> Vec<MemberActivityRow> {
+    use yapfast_core::{
+        chat::{ActivityKind, FeedEntry, Presence},
+        discord::parse_room,
+        yapfast_discord::activity_feed::Kind,
+    };
+    let Some((asked, people)) = &state.activity_people else {
+        return Vec::new();
+    };
+    let server = |room| parse_room(room).map(|(server, _)| server);
+    if server(asked) != server(room) {
+        return Vec::new();
+    }
+    // What their presence says of it, which is more than the feed does.
+    let doing = |member: &yapfast_core::chat::ChatMember, entry: &FeedEntry| {
+        member
+            .activities
+            .iter()
+            .find(|activity| match entry.kind {
+                Kind::Game | Kind::Launched => {
+                    activity.kind == ActivityKind::Playing && activity.name == entry.title
+                }
+                Kind::Listened => activity.kind == ActivityKind::Listening,
+                Kind::Watched => activity.kind == ActivityKind::Watching,
+                Kind::TopGame | Kind::TopArtist => false,
+            })
+            .cloned()
+    };
+    state
+        .activity_feed
+        .iter()
+        .filter_map(|entry| {
+            let person = people.iter().find(|person| person.id == entry.author)?;
+            let live = entry.live_at(now_ms);
+            let member = live
+                .then(|| members.iter().find(|member| *member.id == *entry.author))
+                .flatten();
+            // Discord's client leaves out what someone offline "is" doing.
+            if member.is_some_and(|member| member.presence == Some(Presence::Offline)) {
+                return None;
+            }
+            let activity = member.and_then(|member| doing(member, entry));
+            let since = match (entry.hours, entry.tracks) {
+                (Some(hours), _) if entry.kind == Kind::TopGame => {
+                    format!("Most played: {hours}h")
+                }
+                (_, Some(tracks)) if entry.kind == Kind::TopArtist => {
+                    format!("{tracks} tracks this week")
+                }
+                _ if live => running_for(
+                    activity
+                        .as_ref()
+                        .and_then(|activity| activity.start)
+                        .unwrap_or(entry.at_ms),
+                    now_ms,
+                ),
+                _ => finished_ago(entry.at_ms, now_ms),
+            };
+            let picture = activity
+                .as_ref()
+                .and_then(|activity| activity.large_image.as_deref())
+                .or(entry.picture.as_deref())
+                .unwrap_or_default();
+            Some(MemberActivityRow {
+                id: (*person.id).into(),
+                name: (*person.name).into(),
+                initial: initial(&person.name),
+                tint: tint(&person.name),
+                picture_url: (*person.avatar).into(),
+                icon: match entry.kind {
+                    Kind::Game | Kind::Launched => 1,
+                    Kind::Listened => 2,
+                    Kind::Watched => 3,
+                    Kind::TopGame | Kind::TopArtist => 5,
+                },
+                live,
+                game: (*entry.title).into(),
+                since: since.into(),
+                thumb_url: yapfast_core::yapfast_discord::activity::small_picture(picture)
+                    .as_ref()
+                    .into(),
+            })
+        })
+        .collect()
+}
+
+/// The icon, bullet and replacing words of the line under a name for what
+/// someone is doing; see `yapfast_discord::activity::subline`.
+#[cfg(feature = "discord")]
+pub(super) fn subline(
+    activities: &yapfast_core::chat::Activities,
+    line: Option<&str>,
+) -> (i32, bool, Option<String>) {
+    let subline = yapfast_core::yapfast_discord::activity::subline(activities, line);
+    (i32::from(subline.icon), subline.bullet, subline.name)
+}
+
+#[cfg(not(feature = "discord"))]
+pub(super) fn subline(
+    _activities: &yapfast_core::chat::Activities,
+    _line: Option<&str>,
+) -> (i32, bool, Option<String>) {
+    (0, false, None)
+}
+
+#[cfg(not(feature = "discord"))]
+pub(super) fn activity_panel(
+    _state: &yapfast_core::application::AppState,
+    _room: &str,
+    _members: &[yapfast_core::chat::ChatMember],
+    _now_ms: u64,
+) -> Vec<MemberActivityRow> {
+    Vec::new()
+}
+
 /// "1 mutual friend" or "5 mutual servers".
 fn mutual_count(count: usize, what: &str) -> String {
     let plural = if count == 1 { "" } else { "s" };

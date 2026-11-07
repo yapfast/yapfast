@@ -2,6 +2,7 @@
 //! See docs/discord/README.md. Everything Discord-specific stays in this crate.
 
 pub mod activity;
+pub mod activity_feed;
 pub mod api;
 pub mod cache;
 mod call_connection;

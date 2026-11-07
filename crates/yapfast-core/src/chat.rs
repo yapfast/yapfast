@@ -37,6 +37,18 @@ pub enum Activity {}
 #[cfg(not(feature = "discord"))]
 pub type Activities = Arc<[Activity]>;
 
+/// What the member list's Activity panel shows, from Discord's feed.
+#[cfg(feature = "discord")]
+pub use yapfast_discord::activity_feed::{Entry as FeedEntry, Person as FeedPerson};
+
+/// Only Discord has a feed.
+#[cfg(not(feature = "discord"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FeedEntry {}
+#[cfg(not(feature = "discord"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FeedPerson {}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
     pub id: String,
@@ -893,6 +905,8 @@ pub struct ProfileRole {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatMember {
     pub id: String,
+    /// A Discord application's account, which the list marks APP.
+    pub bot: bool,
     /// The display name, or the user ID without one, as on the member's messages.
     pub name: String,
     /// Their Discord username, such as `ann`.
@@ -2284,6 +2298,15 @@ pub struct OAuthPreview {
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
+    /// and [`Event::ActivityFeedDue`] when it's time to ask again.
+    ActivityFeed,
+    /// Who of these people a channel's Activity panel may show;
+    /// [`Event::ActivityPeople`] follows.
+    ActivityPeople {
+        room: String,
+        users: Vec<Arc<str>>,
+    },
     /// Downloads these pictures for the disk cache alone, decoding none and
     /// holding none in memory: what a start prefetches so that the picker's
     /// first look finds its emoji kept. See [`Pictures::prefetch`].
@@ -3545,6 +3568,15 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// The Activity panel's feed, in Discord's order; empty if it can't be had.
+    ActivityFeed(Arc<[FeedEntry]>),
+    /// It's time to ask for the Activity panel's feed again.
+    ActivityFeedDue,
+    /// The answer to [`DiscordCommand::ActivityPeople`].
+    ActivityPeople {
+        room: String,
+        people: Arc<[FeedPerson]>,
+    },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
     KeptProfile {

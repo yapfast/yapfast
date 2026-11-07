@@ -459,6 +459,11 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         if *focused {
                             attention(&window, false);
                         }
+                        if let Some(adapter) = adapter.upgrade()
+                            && let Ok(mut adapter) = adapter.try_borrow_mut()
+                        {
+                            adapter.action(&window, Action::WindowFocused(*focused));
+                        }
                     }
                 }
                 if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
@@ -575,6 +580,34 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             }
                         });
                     }
+                }
+                // Alt+Left and Alt+Right go back and forward through the
+                // conversations visited, as in Discord.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.alt_only()
+                    && let Key::Named(named @ (NamedKey::ArrowLeft | NamedKey::ArrowRight)) =
+                        key.logical_key
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                {
+                    if !key.repeat {
+                        let action = if named == NamedKey::ArrowLeft {
+                            Action::NavigateBack
+                        } else {
+                            Action::NavigateForward
+                        };
+                        let (adapter, weak) = (adapter.clone(), weak.clone());
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let (Some(adapter), Some(window)) =
+                                (adapter.upgrade(), weak.upgrade())
+                            {
+                                adapter.borrow_mut().action(&window, action);
+                            }
+                        });
+                    }
+                    return EventResult::PreventDefault;
                 }
                 let step = match outcome {
                     zoom::Outcome::Pass => return EventResult::Propagate,
@@ -1028,6 +1061,10 @@ struct Layout {
     game_executables: Vec<(String, String)>,
     /// Messages from people this account blocked don't show at all.
     hide_blocked: bool,
+    /// A call from someone's menu starts without asking first.
+    skip_call_prompt: bool,
+    /// The member list's Activity panel shows only its header.
+    activity_cards_hidden: bool,
     /// A message that notifies while Yapfast isn't in front flashes the
     /// taskbar; on unless turned off.
     flash_taskbar: Option<bool>,
@@ -1302,6 +1339,8 @@ impl Layout {
         self.apply_custom_games(window);
         window.set_show_idle(self.show_idle.unwrap_or(true));
         window.set_hide_blocked(self.hide_blocked);
+        window.set_skip_call_prompt(self.skip_call_prompt);
+        window.set_activity_cards_hidden(self.activity_cards_hidden);
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
         self.apply_appearance(window);
         if let Some(width) = self.aside_width {
@@ -1454,6 +1493,10 @@ struct Models {
     /// The messages of the thread beside the open channel.
     aside_messages: Rc<VecModel<MessageRow>>,
     roster: Rc<VecModel<MemberRow>>,
+    /// What the members are doing, in the panel above the member list.
+    roster_activity: Rc<VecModel<MemberActivityRow>>,
+    /// What waits in the title bar's inbox, while it is open.
+    inbox: Rc<VecModel<InboxRow>>,
     mentions: Rc<VecModel<MentionRow>>,
     new_dm_people: Rc<VecModel<ContactRow>>,
     /// The open DM's pinned messages, what its search found, and the
@@ -1528,6 +1571,8 @@ impl Models {
         window.set_messages(ModelRc::from(self.messages.clone()));
         window.set_aside_messages(ModelRc::from(self.aside_messages.clone()));
         window.set_roster(ModelRc::from(self.roster.clone()));
+        window.set_roster_activity(ModelRc::from(self.roster_activity.clone()));
+        window.set_inbox_rows(ModelRc::from(self.inbox.clone()));
         window.set_mentions(ModelRc::from(self.mentions.clone()));
         window.set_new_dm_people(ModelRc::from(self.new_dm_people.clone()));
         window.set_pins(ModelRc::from(self.pins.clone()));
@@ -1922,6 +1967,8 @@ impl Adapter {
         ));
         app.dispatch(Action::ReplyPing(layout.reply_ping.unwrap_or(true)));
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
+        app.dispatch(Action::SkipCallPrompt(layout.skip_call_prompt));
+        app.dispatch(Action::ActivityCardsHidden(layout.activity_cards_hidden));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));

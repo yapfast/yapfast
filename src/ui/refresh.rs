@@ -285,6 +285,13 @@ impl Adapter {
             .set_revision(self.app.state.picture_changes as i32);
         self.show_viewer(window);
         self.show_profile(window);
+        window.set_can_go_back(self.app.state.can_go_back());
+        window.set_can_go_forward(self.app.state.can_go_forward());
+        if window.get_inbox_open() {
+            self.show_inbox(window);
+        } else {
+            update_model(&self.models.inbox, Vec::new());
+        }
         let changes = Changes::read(self, window);
         if changes.reset || self.navigation != self.app.state.navigation {
             window.set_filter(SharedString::default());
@@ -1086,6 +1093,50 @@ impl Adapter {
         window.set_notice(state.notice.as_deref().unwrap_or_default().into());
     }
 
+    /// The rows of the inbox popout's open tab, from what the client already
+    /// knows: the channels and conversations with unread messages, muted ones
+    /// only for a mention, or those that mention this account.
+    fn show_inbox(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let mentions_only = window.get_inbox_tab() == 1;
+        let servers: HashMap<&str, &str> = state
+            .servers
+            .iter()
+            .flat_map(|server| {
+                let name = server.name.as_str();
+                server.channels.iter().map(move |id| (id.as_str(), name))
+            })
+            .collect();
+        let rows = state
+            .rooms
+            .iter()
+            .filter(|room| !room.request && !room.unlisted)
+            .filter(|room| room.mentions > 0 || (!mentions_only && room.unread > 0 && !room.muted))
+            .map(|room| InboxRow {
+                id: room.id.as_str().into(),
+                name: if room.direct {
+                    room.name.as_str().into()
+                } else {
+                    format!("#{}", room.name).into()
+                },
+                place: servers
+                    .get(room.id.as_str())
+                    .copied()
+                    .unwrap_or_default()
+                    .into(),
+                initial: initial(&room.name),
+                tint: tint(&room.id),
+                picture_url: if room.direct {
+                    room.avatar.as_deref().unwrap_or_default().into()
+                } else {
+                    SharedString::default()
+                },
+                mentions: i32::try_from(room.mentions).unwrap_or(i32::MAX),
+            })
+            .collect();
+        update_model(&self.models.inbox, rows);
+    }
+
     /// Starting a thread: what the open channel offers, and the "New
     /// Thread" form beside it.
     fn show_new_thread(&mut self, window: &YapfastWindow) {
@@ -1439,6 +1490,54 @@ impl Adapter {
         window.set_room_activity_emoji(activity_emoji);
         window.set_profile_available(state.one_to_one().is_some());
         window.set_room_request(room.is_some_and(|room| room.request));
+        // What opens a server channel's history in Discord's client: "Welcome
+        // to" the server for its first channel, else the channel itself.
+        let (intro, intro_title, intro_text) = match (room, &state.navigation) {
+            (Some(room), Navigation::Server(id))
+                if room.network == Network::Discord
+                    && !room.direct
+                    && !room.voice
+                    && room.parent.is_none() =>
+            {
+                let server = state.servers.iter().find(|server| &server.id == id);
+                let first = server.is_some_and(|server| {
+                    server
+                        .channels
+                        .iter()
+                        .filter_map(|channel| state.rooms.iter().find(|room| &room.id == channel))
+                        .find(|room| !room.voice && room.parent.is_none() && !room.forum)
+                        .is_some_and(|first| first.id == room.id)
+                });
+                let name = room.name.as_str();
+                match server {
+                    Some(server) if first => (
+                        "server",
+                        server.name.clone(),
+                        "This is the beginning of this server.".to_owned(),
+                    ),
+                    _ => (
+                        "channel",
+                        format!("Welcome to #{name}!"),
+                        format!("This is the start of the #{name} channel."),
+                    ),
+                }
+            }
+            _ => ("", String::new(), String::new()),
+        };
+        window.set_intro_kind(intro.into());
+        window.set_intro_welcome("Welcome to".into());
+        window.set_intro_title(intro_title.into());
+        window.set_intro_text(intro_text.into());
+        // Discord's words: `Message @sam` in a DM, `Message #general` in a
+        // channel, and a group's or thread's own name as it is.
+        window.set_composer_placeholder(room.map_or(SharedString::default(), |room| {
+            match (room.direct, room.person.is_some(), room.parent.is_none()) {
+                (true, true, _) => format!("Message @{}", room.name),
+                (false, _, true) => format!("Message #{}", room.name),
+                _ => format!("Message {}", room.name),
+            }
+            .into()
+        }));
         window.set_request_title(
             match room {
                 Some(room) if room.category == discord::SPAM => {
@@ -1664,6 +1763,21 @@ impl Adapter {
             Some(Ok(members)) => members.as_slice(),
             _ => &[],
         };
+        // Discord shows the panel in a server's channels, but not its forums.
+        let in_channel = state
+            .selected_room()
+            .filter(|room| !room.direct && !room.forum);
+        update_model(
+            &self.models.roster_activity,
+            match in_channel {
+                Some(room) => activity_panel(state, &room.id, members, now),
+                None => Vec::new(),
+            },
+        );
+        let owner = state
+            .selected
+            .as_deref()
+            .and_then(|room| self.app.server_owner(room));
         window.set_roster_note(
             match &state.members {
                 None => "Loading members...",
@@ -1679,8 +1793,13 @@ impl Adapter {
                 .iter()
                 .enumerate()
                 .map(|(index, member)| {
-                    let (activity, activity_emoji) = activity_line(member.activity.as_deref());
+                    let (activity_icon, activity_bullet, named) =
+                        subline(&member.activities, member.activity.as_deref());
+                    let (activity, activity_emoji) =
+                        activity_line(named.as_deref().or(member.activity.as_deref()));
                     MemberRow {
+                        activity_icon,
+                        activity_bullet,
                         id: member.id.clone().into(),
                         name: member.name.clone().into(),
                         initial: initial(&member.name),
@@ -1713,6 +1832,8 @@ impl Adapter {
                                 .and_then(|plate| Some(plate.colors?[1])),
                         ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
+                        bot: member.bot,
+                        owner: owner.as_deref() == Some(member.id.as_str()),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
                         has_color: member.color.is_some(),
@@ -2535,6 +2656,13 @@ impl Adapter {
                 "Save",
                 false,
             ),
+            PersonAsk::Call => (
+                "Ready to start a call?".into(),
+                "Enjoy this moment. Then jump in when you're ready.".into(),
+                "",
+                "Start Call",
+                false,
+            ),
             PersonAsk::Nickname => (
                 format!("Nickname for {name}"),
                 "Only you see the nickname you give a friend. Leave it empty to remove it.".into(),
@@ -2632,6 +2760,11 @@ impl Adapter {
             options,
             chosen: i32::try_from(dialog.choice).unwrap_or_default(),
             field: field.into(),
+            tick: if dialog.ask == PersonAsk::Call {
+                "Don't ask again".into()
+            } else {
+                SharedString::default()
+            },
             confirm: confirm.into(),
             danger,
             loading: dialog.text.is_none(),

@@ -41,6 +41,8 @@
 // in, and /_control/speakers-stop stops them.
 // POST /_control/chat-start makes Bob post in
 // #general every 2 s; POST /_control/chat-stop stops him. POST
+// /_control/activity-stale says the member list's Activity feed is stale, and
+// GET /_control/activity-fetches lists the refresh token of each fetch. POST
 // /_control/gallery makes him post three photos in one message. Joining voice
 // connects to a voice server here that answers the handshake without DAVE and
 // counts the audio each call connection sends: GET /_control/call-audio
@@ -2822,6 +2824,58 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   },
   [users.dave.id]: { status: "offline", activities: [] },
 };
+
+// The member list's Activity feed, as /content-inventory/users/@me answers:
+// Bob and Carol now, Dave's game earlier, this week's top ones, then what no
+// panel here shows: someone in no server, and a custom status.
+const feedFetches: (string | null)[] = [];
+function feedEntries(origin: string) {
+  const entry = (
+    author: { id: string },
+    content_type: number,
+    at: number,
+    extra: Record<string, unknown>,
+    traits: Record<string, unknown>[] = [],
+  ) => ({
+    id: snowflake(at),
+    author_id: author.id,
+    author_type: 1,
+    content_type,
+    traits,
+    extra,
+    participants: [author.id],
+    expires_at: iso(at + 24 * 60 * 60_000),
+  });
+  const live = [{ type: 3, is_live: true }];
+  return [
+    entry(users.bob, 1, fakeStarted - 42 * 60_000, { game_name: "Factorio", application_id: FACTORIO }, live),
+    entry(
+      users.carol,
+      5,
+      fakeStarted - 80_000,
+      {
+        entries: [{
+          media: {
+            title: "Weightless",
+            image_url: `${origin}/spotify/ab67616d0000b273fake`,
+            artists: [{ name: "Marconi Union" }],
+          },
+        }],
+      },
+      live,
+    ),
+    entry(users.dave, 1, fakeStarted - 3 * 60 * 60_000, { game_name: "Celeste", application_id: FACTORIO }),
+    entry(users.bob, 3, fakeStarted - 2 * 24 * 60 * 60_000, { game_name: "Factorio", application_id: FACTORIO }, [
+      { type: 4, range: 1 },
+      { type: 2, duration_seconds: 13 * 3600 },
+    ]),
+    entry(users.carol, 6, fakeStarted - 24 * 60 * 60_000, { artist: { name: "Marconi Union" }, media: {} }, [
+      { type: 12, count: 31 },
+    ]),
+    entry({ id: "1400000000000000999" }, 1, fakeStarted - 60_000, { game_name: "Nobody's game" }, live),
+    entry(users.bob, 7, fakeStarted - 60_000, {}),
+  ];
+}
 
 // The member list of a channel everyone reads, as Discord groups it: Bob under
 // the hoisted Mods role, then who is online, then Dave, who isn't.
@@ -6207,6 +6261,15 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // Alice's settings: Yapfast changes the status, the custom status, the
   // soundboard's volume or the join sounds, which every session hears of.
   // Each top-level field sent replaces hers whole, as on Discord.
+  if (method === "GET" && path === "/content-inventory/users/@me") {
+    feedFetches.push(url.searchParams.get("refresh_token"));
+    return json({
+      request_id: "fake-feed",
+      refresh_token: "fake-feed-token",
+      wait_ms_until_next_fetch: 300_000,
+      entries: env ? [] : feedEntries(url.origin).map((content) => ({ content })),
+    });
+  }
   if (method === "GET" && path === "/users/@me/settings-proto/1") return json({ settings });
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
@@ -8782,6 +8845,11 @@ const server = Bun.serve<SocketData>({
       crowd = undefined;
       return new Response(`crowd stopped after ${crowdCount}\n`);
     }
+    if (req.method === "POST" && path === "/_control/activity-stale") {
+      dispatch("CONTENT_INVENTORY_INBOX_STALE", { refresh_after_ms: 0 });
+      return new Response("activity feed stale\n");
+    }
+    if (req.method === "GET" && path === "/_control/activity-fetches") return json(feedFetches);
     if (req.method === "POST" && path === "/_control/chat-stop") {
       clearInterval(chat);
       chat = undefined;

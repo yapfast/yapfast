@@ -63,6 +63,11 @@ impl Keys {
         self.control && !self.alt && !self.shift
     }
 
+    /// Alt is held, without Ctrl or Shift.
+    pub fn alt_only(&self) -> bool {
+        self.alt && !self.control && !self.shift
+    }
+
     /// Shift is held, as far as the window knows: losing the focus lets go
     /// of it, since it may be let go elsewhere.
     pub fn shift(&self) -> bool {

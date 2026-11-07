@@ -519,6 +519,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_start_video_call(move || {
+        if let Some(window) = weak.upgrade() {
+            let id = state.borrow().app.state.selected.clone();
+            if let Some(id) = id {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::StartVideoCall(id));
+            }
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_answer_call(move |room, accept| {
         if let Some(window) = weak.upgrade() {
             let room = room.to_string();
@@ -710,6 +722,26 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_new_dm, Action::OpenNewDm);
     bind!(on_open_add_friend, Action::OpenAddFriend);
     bind!(on_open_requests, Action::OpenDmScreen(DmScreen::Requests));
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_inbox_opened(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().refresh(&window);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_activity_clock(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().refresh(&window);
+            }
+        });
+    }
+    bind!(on_go_back, Action::NavigateBack);
+    bind!(on_go_forward, Action::NavigateForward);
     bind!(on_open_friends, Action::OpenDmScreen(DmScreen::Friends));
     bind!(on_open_browse, Action::BrowseChannels);
     bind_item!(on_message_friend, Action::MessagePerson);
@@ -1661,6 +1693,26 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 volumes.insert(person.into(), volume);
             }
             adapter.layout.write(&adapter.root);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_activity_cards_hidden_toggled(move |hidden| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.activity_cards_hidden = hidden;
+        adapter.layout.write(&adapter.root);
+        if let Some(window) = weak.upgrade() {
+            adapter.action(&window, Action::ActivityCardsHidden(hidden));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_skip_call_prompt_toggled(move |skip| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.skip_call_prompt = skip;
+        adapter.layout.write(&adapter.root);
+        if let Some(window) = weak.upgrade() {
+            adapter.action(&window, Action::SkipCallPrompt(skip));
         }
     });
     let state = adapter.clone();

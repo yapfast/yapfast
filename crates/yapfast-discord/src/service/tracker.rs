@@ -1118,6 +1118,7 @@ impl Tracker {
                 let known = self.presences.get(user).cloned().unwrap_or_default();
                 ListedMember {
                     user_id: user.clone(),
+                    bot: names.is_bot(user),
                     name: names.user_name(user).unwrap_or("Discord user").to_owned(),
                     username: names.username(user).map(str::to_owned),
                     avatar: names.avatar(None, user),

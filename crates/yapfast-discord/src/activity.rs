@@ -3,7 +3,7 @@
 //! pictures and times. A custom status shows on its own line, as
 //! [`crate::member_list::activity`] writes it, so it isn't one of these.
 
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use serde_json::Value;
 
@@ -89,6 +89,57 @@ impl Activity {
             Kind::Watching => "Watching".into(),
             Kind::Competing => "Competing in".into(),
             Kind::Hang => "Hanging out".into(),
+        }
+    }
+}
+
+/// How the one line under a name shows an activity, as Discord's member list
+/// does: a small icon for its kind, then the custom status after a bullet,
+/// or the activity's own name when there is no custom status.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Subline {
+    /// 0 for none, then 1 a controller (playing), 2 a music note
+    /// (listening), 3 a screen (watching), 4 a camera (streaming) and 5 a
+    /// trophy (competing).
+    pub icon: u8,
+    /// A bullet follows the icon: the line is a custom status.
+    pub bullet: bool,
+    /// What replaces the line, the activity's name; none keeps the line.
+    pub name: Option<String>,
+}
+
+/// The [`Subline`] for someone's activities and the line
+/// [`crate::member_list::activity`] wrote for them.
+pub fn subline(activities: &[Activity], line: Option<&str>) -> Subline {
+    let Some(first) = activities
+        .iter()
+        .find(|activity| activity.kind != Kind::Hang)
+    else {
+        return Subline::default();
+    };
+    let icon = match first.kind {
+        Kind::Playing => 1,
+        Kind::Listening => 2,
+        Kind::Watching => 3,
+        Kind::Streaming => 4,
+        Kind::Competing => 5,
+        Kind::Hang => 0,
+    };
+    if line.is_some() && line == first.line().as_deref() {
+        let name = match first.kind {
+            Kind::Streaming => first.details.as_deref().unwrap_or(&first.name),
+            _ => &first.name,
+        };
+        Subline {
+            icon,
+            bullet: false,
+            name: Some(name.to_owned()),
+        }
+    } else {
+        Subline {
+            icon,
+            bullet: line.is_some_and(|line| !line.is_empty()),
+            name: None,
         }
     }
 }
@@ -236,6 +287,11 @@ fn custom_emoji(emoji: &Value) -> Option<Box<str>> {
 /// asset, an image through Discord's media proxy, or Spotify's, YouTube's or
 /// Twitch's. Anyone may set these keys, so only plain ones resolve.
 fn image(application: Option<&str>, key: &str) -> Option<Box<str>> {
+    asset(application, key)
+}
+
+/// The address of a picture from its key; see [`image`].
+pub(crate) fn asset(application: Option<&str>, key: &str) -> Option<Box<str>> {
     let plain = |text: &str, extra: &[u8]| {
         !text.is_empty()
             && !text.contains("..")
@@ -275,6 +331,13 @@ fn image(application: Option<&str>, key: &str) -> Option<Box<str>> {
     Some(url.into())
 }
 
+/// An address standing for an application's icon, once it's named by id.
+pub(crate) fn application_icon(id: &str) -> Option<Box<str>> {
+    id.bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| format!("{ICON}{id}").into())
+}
+
 /// The application whose icon an address of [`ICON`] stands for.
 pub(crate) fn icon_application(url: &str) -> Option<&str> {
     url.strip_prefix(ICON)
@@ -287,6 +350,27 @@ pub(crate) fn icon_url(application: &Value) -> Option<String> {
         |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_alphanumeric());
     (plain(id) && plain(icon))
         .then(|| format!("{}/app-icons/{id}/{icon}.png?size=160", ready::cdn()))
+}
+
+/// The address of a smaller copy of an activity's picture, for where it shows
+/// small: decoded, Spotify's 640px cover takes 1.6 MiB and its 64px one 16 KiB.
+/// YouTube's thumbnail goes from 480px wide to 120px, and the media proxy's
+/// picture to 96px. An address of Discord's own CDN is 160px already.
+pub fn small_picture(url: &str) -> Cow<'_, str> {
+    const SPOTIFY: &str = "https://i.scdn.co/image/ab67616d0000b273";
+    if let Some(cover) = url.strip_prefix(SPOTIFY) {
+        return format!("https://i.scdn.co/image/ab67616d00004851{cover}").into();
+    }
+    if let Some(video) = url
+        .strip_prefix("https://i.ytimg.com/vi/")
+        .and_then(|rest| rest.strip_suffix("/hqdefault.jpg"))
+    {
+        return format!("https://i.ytimg.com/vi/{video}/default.jpg").into();
+    }
+    if url.starts_with(ready::media()) && !url.contains('?') {
+        return format!("{url}?width=96&height=96").into();
+    }
+    url.into()
 }
 
 /// Whether `url` is a picture an activity may show from outside Discord:
@@ -306,6 +390,37 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn subline_names_the_activity_without_a_status_and_bullets_a_status() {
+        let parsed = activities(&json!([
+            {"type": 0, "name": "Factorio"},
+        ]));
+        let without = subline(&parsed, Some("Playing Factorio"));
+        assert_eq!(
+            without,
+            Subline {
+                icon: 1,
+                bullet: false,
+                name: Some("Factorio".into())
+            }
+        );
+        let with = subline(&parsed, Some("IT, AI and Games"));
+        assert_eq!(
+            with,
+            Subline {
+                icon: 1,
+                bullet: true,
+                name: None
+            }
+        );
+        assert!(!subline(&parsed, None).bullet);
+        assert_eq!(subline(&[], Some("brb")), Subline::default());
+        let music = activities(&json!([{"type": 2, "name": "Spotify"}]));
+        assert_eq!(subline(&music, Some("Listening to Spotify")).icon, 2);
+        let hang = activities(&json!([{"type": 6, "state": "custom", "details": "Chilling"}]));
+        assert_eq!(subline(&hang, Some("Chilling")), Subline::default());
+    }
 
     #[test]
     fn reads_a_game_with_its_pictures_and_times() {
@@ -332,6 +447,25 @@ mod tests {
             Some("https://media.discordapp.net/external/a/b.png")
         );
         assert_eq!(game.heading(), "Playing");
+    }
+
+    #[test]
+    fn small_pictures_ask_for_the_smaller_copy() {
+        assert_eq!(
+            small_picture("https://i.scdn.co/image/ab67616d0000b273abc"),
+            "https://i.scdn.co/image/ab67616d00004851abc"
+        );
+        assert_eq!(
+            small_picture("https://i.ytimg.com/vi/abc/hqdefault.jpg"),
+            "https://i.ytimg.com/vi/abc/default.jpg"
+        );
+        let proxied = format!("{}/external/a/b.png", ready::media());
+        assert_eq!(
+            small_picture(&proxied),
+            format!("{proxied}?width=96&height=96")
+        );
+        let icon = "https://cdn.discordapp.com/app-icons/42/abc.png?size=160";
+        assert_eq!(small_picture(icon), icon);
     }
 
     #[test]
