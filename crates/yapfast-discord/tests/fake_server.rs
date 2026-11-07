@@ -1322,6 +1322,58 @@ impl Fixture {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_profile_effect_a_profile_names() {
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        bob,
+        ..
+    } = Fixture::start("fetches_the_profile_effect_a_profile_names").await;
+    // Bob's profile names an effect; Carol's, none.
+    let profile = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    let sku = profile.effect.expect("Bob equips an effect");
+    let carol = discord
+        .profile(&guild, "1400000000000000003", |_| {})
+        .await
+        .unwrap();
+    assert_eq!(carol.effect, None);
+    // The shop describes its layers: an intro that plays once and a loop.
+    let effect = discord.profile_effect(&sku).await.unwrap().unwrap();
+    assert_eq!(effect.layers.len(), 2);
+    let (intro, looping) = (&effect.layers[0], &effect.layers[1]);
+    assert_eq!(
+        (intro.start, intro.duration, intro.looped),
+        (0, 2000, false)
+    );
+    assert_eq!(
+        (
+            looping.start,
+            looping.duration,
+            looping.loop_delay,
+            looping.looped,
+            looping.y
+        ),
+        (1500, 3000, 1000, true, 20)
+    );
+    // Its pictures are on the CDN.
+    let layer = discord.download(&looping.src, 1 << 24).await.unwrap();
+    assert_eq!(&layer[16..24], &[0, 0, 1, 194, 0, 0, 3, 112], "450x880");
+    let still = discord
+        .download(effect.still.as_deref().unwrap(), 1 << 20)
+        .await
+        .unwrap();
+    assert!(still.starts_with(b"\x89PNG"));
+    // Asked again, it comes from what was kept; a SKU that isn't one is nothing.
+    assert!(Arc::ptr_eq(
+        &effect,
+        &discord.profile_effect(&sku).await.unwrap().unwrap()
+    ));
+    assert!(discord.profile_effect("1").await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn shows_decorations_and_nameplates() {
     let Fixture {
         _fake,

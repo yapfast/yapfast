@@ -671,6 +671,7 @@ pub(super) fn message_row_within(
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
         decoration_url: SharedString::default(),
+        name_style: name_style::row(message.style.as_deref(), &message.author),
         id: message.id.clone().into(),
         item: message.item.clone().into(),
         author: message.author.clone().into(),

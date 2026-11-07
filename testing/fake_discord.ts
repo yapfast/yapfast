@@ -14,7 +14,7 @@
 // and testing/envs/example.json uses all of it. Media paths are relative to
 // the env file; videos need ffprobe and ffmpeg, which convert a streamed one
 // once, kept in the system's temporary directory. The seeding options below
-// (--extra, --servers, --dms, --images, --channels, --authors, --folders and
+// (--extra, --servers, --dms, --images, --channels, --authors, --folders, --name-styles and
 // --unread) don't apply, and the controls that act on the fixture's people
 // or channels answer 400; those that only report, such as
 // /_control/video, still work. Without --env the fixture is as it is here.
@@ -314,6 +314,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
     "cdn-delay": { type: "string", default: "0" },
@@ -368,6 +369,8 @@ const STICKER_BOUNCE = "1400000000000000311";
 const STICKER_LOTTIE = "1400000000000000312";
 const ALICE = "1400000000000000001";
 
+/** The profile effect Bob equips: an intro layer and a looping one over the card. */
+const PROFILE_EFFECT = "1500000000000000010";
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
 // How many times a collectible's animated picture was asked for.
@@ -380,6 +383,9 @@ type User = {
   nameplate?: { sku: string; palette: string };
   /** `display_name_styles`: Discord's font and effect ids, and RGB colours. */
   style?: { font: number; effect: number; colors: number[] };
+  /** The SKU of the profile effect they equip, which GET
+   *  /collectibles-products/{sku} describes. */
+  effect?: string;
 };
 const users: Record<string, User> = {
   alice: {
@@ -389,6 +395,7 @@ const users: Record<string, User> = {
   // Bob, who has a DM, wears both, as Alice's card does; Carol a nameplate.
   bob: {
     id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1", decoration: "1500000000000000001",
+    effect: PROFILE_EFFECT,
     nameplate: { sku: "1500000000000000006", palette: "sky" },
   },
   carol: {
@@ -620,7 +627,7 @@ function timeOf(id: string): number {
 const COLLECTIBLES_PATH = /^\/media\/v1\/collectibles-shop\/(\d+)\/(static|animated|video)$/;
 
 function wireUser(user: User) {
-  const { decoration, nameplate, style, ...rest } = user;
+  const { decoration, nameplate, style, effect: _effect, ...rest } = user;
   return {
     ...rest,
     discriminator: "0",
@@ -660,14 +667,36 @@ const serverLooks: Record<string, Pick<User, "decoration" | "nameplate" | "style
 };
 for (const look of Object.values(serverLooks)) if (look.nameplate) nameplateSkus.add(look.nameplate.sku);
 
+const profileEffects = new Set<string>([PROFILE_EFFECT]);
+
+/** A profile effect's picture, 450 by 880 and clear but for a few petals, which
+ *  differ by name. The intro and the loop are animated, the others still. */
+const effectPictures = new Map<string, Uint8Array>();
+function effectPicture(name: string): Uint8Array {
+  const made = effectPictures.get(name);
+  if (made) return made;
+  const shade = crc32(new TextEncoder().encode(name));
+  const petals = (fall: number) => (x: number, y: number) => {
+    const petal = (x * 7 + (y - fall) * 13 + (shade & 255)) % 97 < 2 && (x + y) % 5 < 3;
+    return petal ? [255, 150 + (shade & 63), 190, 220] : [0, 0, 0, 0];
+  };
+  const animated = name === "intro" || name === "loop";
+  const picture = animated
+    ? apng(450, 880, Array.from({ length: 25 }, (_, frame) => petals(frame * 4)), 25)
+    : png(450, 880, petals(0));
+  effectPictures.set(name, picture);
+  return picture;
+}
+
 /** A decoration is a ring around a transparent middle, a nameplate a strip
  *  that fades in from its left. */
-function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style">) {
+function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style" | "effect">) {
   if (spec.nameplate) nameplateSkus.add(spec.nameplate.sku);
   return {
     ...(spec.decoration ? { decoration: spec.decoration } : {}),
     ...(spec.nameplate ? { nameplate: spec.nameplate } : {}),
     ...(spec.style ? { style: spec.style } : {}),
+    ...(spec.effect ? { effect: spec.effect } : {}),
   };
 }
 
@@ -916,7 +945,7 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -1015,8 +1044,8 @@ function png(width: number, height: number, pixel: (x: number, y: number) => num
   return new Uint8Array(Buffer.concat(parts));
 }
 
-/** An animated PNG that loops, each of its frames showing for a tenth of a second. */
-function apng(width: number, height: number, frames: ((x: number, y: number) => number[])[]): Uint8Array {
+/** An animated PNG that loops, showing `perSecond` of its frames a second. */
+function apng(width: number, height: number, frames: ((x: number, y: number) => number[])[], perSecond = 10): Uint8Array {
   // The first frame's data is the PNG's own IDAT; each other's goes in an fdAT
   // after its number. Numbers count the fcTL and fdAT chunks in turn.
   let sequence = 0;
@@ -1032,7 +1061,7 @@ function apng(width: number, height: number, frames: ((x: number, y: number) => 
     view.setUint32(4, width);
     view.setUint32(8, height);
     view.setUint16(20, 1);
-    view.setUint16(22, 10);
+    view.setUint16(22, perSecond);
     return chunk("fcTL", body);
   };
   const image = (pixel: (x: number, y: number) => number[]) => {
@@ -1549,12 +1578,26 @@ for (let index = 0; index < extra; index++) {
   }
 }
 
+/** With `--name-styles`, each writer wears the next of Discord's display name
+ *  effects in the next of its fonts, named after them. */
+function nameStyleSample(n: number): Pick<User, "global_name" | "style"> {
+  const effects = ["solid", "gradient", "neon", "toon", "pop", "glow", "prism", "gummy"];
+  const fonts = [3, 4, 6, 8, 12, 13, 14, 15, 16, 11];
+  const palettes = [[0xff7eb3], [0xff7eb3, 0x7a5cff], [0x00ff99], [0xffaa33], [0x3388ff], [0xff5555, 0xffdd55], [0x66ccff, 0xff66cc, 0xffee66], [0x101010, 0x55aa77]];
+  const effect = n % effects.length;
+  return {
+    global_name: `${effects[effect]} name ${n}`,
+    style: { font: fonts[n % fonts.length]!, effect: effect + 1, colors: palettes[effect]! },
+  };
+}
+
 // The channels of `--channels`, written by the people of `--authors`.
 const authors: User[] = Array.from({ length: Number(args.authors) }, (_, n) => ({
   id: (1_700_000_000_000_000_000n + BigInt(n)).toString(),
   username: `writer${n}`,
   global_name: `Writer ${n}`,
   avatar: `w${n}`,
+  ...(args["name-styles"] ? nameStyleSample(n) : {}),
 }));
 for (const author of authors) userById.set(author.id, author);
 const ROOM_HISTORY = 60;
@@ -5452,6 +5495,28 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return new Response(null, { status: 204 });
   }
 
+  // The shop's product for a profile effect, whose layers Discord's client
+  // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
+    const sku = m[1]!;
+    if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
+    const layer = (name: string) => `${url.origin}/assets/profile_effects/${sku}/${name}.png`;
+    return json({
+      sku_id: sku, store_listing_id: "1", type: 1, name: "Petals", summary: "Falling petals", premium_type: 2,
+      items: [
+        { type: 1, sku_id: sku, title: "Petals", description: "Falling petals", accessibilityLabel: "Falling petals",
+          animationType: 1, thumbnailPreviewSrc: layer("thumbnail"), reducedMotionSrc: layer("reduced"),
+          staticFrameSrc: layer("still"),
+          effects: [
+            { src: layer("intro"), loop: false, height: 880, width: 450, duration: 2000, start: 0, loopDelay: 0,
+              position: { x: 0, y: 0 }, zIndex: 101, randomizedSources: [] },
+            { src: layer("loop"), loop: true, height: 880, width: 450, duration: 3000, start: 1500, loopDelay: 1000,
+              position: { x: 0, y: 20 }, zIndex: 102, randomizedSources: [] },
+          ] },
+      ],
+    });
+  }
+
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
     const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
     if (!user) return notFound("Unknown User", 10013);
@@ -7400,6 +7465,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     decoration: undefined,
     nameplate: undefined,
     style: undefined,
+    effect: undefined,
     ...collectiblesOf(me),
   });
   userById.set(ALICE, users.alice);
@@ -7721,7 +7787,7 @@ function envProfile(world: World, user: User, guild: string | null) {
   const server = guild ? world.byId.get(guild) : undefined;
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(server?.members.has(user.id)
       ? { guild_member_profile: guildMemberProfile(user.id, server.id), guild_member: { ...memberIn(server.id, user), bio: "" } }
       : {}),
@@ -7872,6 +7938,10 @@ const server = Bun.serve<SocketData>({
       return new Response(svg, { headers: { "content-type": "image/svg+xml" } });
     }
     // Activities' pictures: games' icons and assets, and Spotify's covers.
+    const effectLayer = req.method === "GET" ? path.match(/^\/assets\/profile_effects\/(\d+)\/(\w+)\.png$/) : null;
+    if (effectLayer && profileEffects.has(effectLayer[1]!)) {
+      return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
+    }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
       if (collectible[2] === "animated") collectibleAnimations++;

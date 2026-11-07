@@ -573,6 +573,7 @@ pub(super) fn chat_profile(
         style: discord
             .style(Some(guild), &profile.user_id)
             .map(|style| Arc::new(style.into())),
+        effect: profile.effect,
         theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,

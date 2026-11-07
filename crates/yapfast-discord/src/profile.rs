@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     message::{Tag, iso_ms, snowflake_ms},
-    ready,
+    profile_effect, ready,
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -39,6 +39,10 @@ pub struct Profile {
     /// The badges their profile shows, in Discord's order.
     #[serde(default)]
     pub badges: Vec<Badge>,
+    /// The SKU of the profile effect they equip, which
+    /// [`crate::service::Discord::profile_effect`] describes.
+    #[serde(default)]
+    pub effect: Option<String>,
     /// The two colours of their profile's theme, a Nitro setting: the card's
     /// gradient runs from the first to the second.
     #[serde(default)]
@@ -340,6 +344,7 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
             })
             .collect(),
         tag: Tag::parse(&user["primary_guild"]),
+        effect: profile_effect::sku(value, guild.is_some()),
         theme: theme_colors(&server["theme_colors"]).or_else(|| theme_colors(&own["theme_colors"])),
         badges: value["badges"]
             .as_array()

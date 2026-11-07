@@ -34,6 +34,7 @@ pub mod oauth;
 pub mod opus;
 pub mod own_activity;
 pub mod profile;
+pub mod profile_effect;
 pub mod ready;
 pub mod remote_auth;
 #[cfg(target_os = "linux")]

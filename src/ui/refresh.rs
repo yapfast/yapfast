@@ -833,6 +833,7 @@ impl Adapter {
                             .as_ref()
                             .and_then(|plate| Some(plate.colors?[1])),
                     ),
+                    name_style: name_style::row(room.style.as_deref(), &room.name),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
@@ -1691,6 +1692,7 @@ impl Adapter {
                         tag: tag_text(&member.tag),
                         tag_badge: tag_badge(&member.tag),
                         decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
+                        name_style: name_style::row(member.style.as_deref(), &member.name),
                         nameplate_url: member
                             .nameplate
                             .as_ref()

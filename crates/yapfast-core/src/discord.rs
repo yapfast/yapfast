@@ -74,6 +74,10 @@ const COLLECTIBLE_SIZE: (u32, u32) = (448, 160);
 /// The most a profile badge's icon is decoded at: twice the 20px it shows at.
 #[cfg(feature = "discord")]
 const BADGE_SIZE: u32 = 40;
+/// The most a profile effect's picture is decoded at: Discord's are 450 by 880
+/// pixels, and cover a card of 340 pixels or so.
+#[cfg(feature = "discord")]
+const EFFECT_SIZE: (u32, u32) = (340, 680);
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -1179,6 +1183,8 @@ impl Pictures {
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
+                } else if url.ends_with(chat::EFFECT_PICTURE) {
+                    EFFECT_SIZE
                 } else if url.contains("/collectibles-shop/") {
                     COLLECTIBLE_SIZE
                 } else if url.contains("/badge-icons/") {

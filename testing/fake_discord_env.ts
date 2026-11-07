@@ -46,6 +46,8 @@ export type Me = {
   decoration?: string;
   nameplate?: Nameplate;
   style?: DisplayNameStyle;
+  /** The SKU of the profile effect they equip; see `Person`. */
+  effect?: string;
   nitro?: boolean;
   status?: Status;
   customStatus?: CustomStatus;
@@ -70,6 +72,8 @@ export type Person = {
   decoration?: string;
   nameplate?: Nameplate;
   style?: DisplayNameStyle;
+  /** The SKU of a profile effect they equip, such as "1500000000000000010", the one the fake serves: layers over their profile card. */
+  effect?: string;
   bot?: boolean;
   /** "online" without one. */
   status?: Status;

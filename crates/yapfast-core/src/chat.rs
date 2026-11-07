@@ -666,6 +666,19 @@ pub struct NameStyle {
 }
 
 impl NameStyle {
+    /// A style with up to five of `colors`.
+    pub fn new(font: u8, effect: u8, colors: &[u32]) -> Self {
+        let len = colors.len().min(5);
+        let mut kept = [0; 5];
+        kept[..len].copy_from_slice(&colors[..len]);
+        Self {
+            font,
+            effect,
+            len: len as u8,
+            colors: kept,
+        }
+    }
+
     /// The RGB colours it asks for.
     pub fn colors(&self) -> &[u32] {
         &self.colors[..usize::from(self.len)]
@@ -675,15 +688,7 @@ impl NameStyle {
 #[cfg(feature = "discord")]
 impl From<yapfast_discord::collectibles::Style> for NameStyle {
     fn from(style: yapfast_discord::collectibles::Style) -> Self {
-        let mut colors = [0; 5];
-        let given = style.colors();
-        colors[..given.len()].copy_from_slice(given);
-        Self {
-            font: style.font,
-            effect: style.effect,
-            len: given.len() as u8,
-            colors,
-        }
+        Self::new(style.font, style.effect, style.colors())
     }
 }
 
@@ -693,6 +698,70 @@ impl From<yapfast_discord::collectibles::Nameplate> for Nameplate {
         Self {
             picture: plate.picture,
             colors: plate.colors,
+        }
+    }
+}
+
+/// One layer of a profile effect: an animated picture laid over a profile
+/// card at a place, shown from a time for a duration, and again after a delay
+/// when it loops. Times are milliseconds after the card opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffectLayer {
+    /// The address of its picture; see [`DiscordCommand::Pictures`].
+    pub src: String,
+    pub x: i32,
+    pub y: i32,
+    pub start: u32,
+    pub duration: u32,
+    pub looped: bool,
+    pub loop_delay: u32,
+}
+
+/// A Discord profile effect, which plays over a profile card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileEffect {
+    /// The SKU a profile names it by.
+    pub sku: String,
+    /// The picture that shows while it doesn't play.
+    pub still: Option<String>,
+    /// Its layers, the lowest first.
+    pub layers: Vec<EffectLayer>,
+}
+
+impl ProfileEffect {
+    /// The addresses of its pictures.
+    pub fn pictures(&self) -> impl Iterator<Item = &str> {
+        self.still
+            .as_deref()
+            .into_iter()
+            .chain(self.layers.iter().map(|layer| layer.src.as_str()))
+    }
+}
+
+/// Marks the address of a profile effect's picture, which decodes at the
+/// card's size rather than an avatar's.
+pub const EFFECT_PICTURE: &str = "#effect";
+
+#[cfg(feature = "discord")]
+impl From<&yapfast_discord::profile_effect::Effect> for ProfileEffect {
+    fn from(effect: &yapfast_discord::profile_effect::Effect) -> Self {
+        let marked = |src: &str| format!("{src}{EFFECT_PICTURE}");
+        Self {
+            sku: effect.sku.clone(),
+            still: effect.still.as_deref().map(marked),
+            layers: effect
+                .layers
+                .iter()
+                .map(|layer| EffectLayer {
+                    src: marked(&layer.src),
+                    x: layer.x,
+                    y: layer.y,
+                    start: layer.start,
+                    duration: layer.duration,
+                    looped: layer.looped,
+                    loop_delay: layer.loop_delay,
+                })
+                .collect(),
         }
     }
 }
@@ -712,6 +781,9 @@ pub struct Profile {
     pub decoration: Option<Arc<str>>,
     /// How they draw their name.
     pub style: Option<Arc<NameStyle>>,
+    /// The SKU of the profile effect they equip, which
+    /// [`Event::ProfileEffect`] describes.
+    pub effect: Option<String>,
     /// The two colours of their profile's theme, when they set one.
     pub theme: Option<[u32; 2]>,
     /// The address of their banner, and its colour when there's no picture.
@@ -3454,6 +3526,8 @@ pub enum Event {
         user: String,
         badges: Vec<ProfileBadge>,
     },
+    /// The layers of a profile effect a [`Profile::effect`] names.
+    ProfileEffect(Arc<ProfileEffect>),
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
     KeptProfile {

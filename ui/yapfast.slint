@@ -12,6 +12,16 @@ import "fonts/AtkinsonHyperlegibleNext-Medium.ttf";
 import "fonts/AtkinsonHyperlegibleNext-Bold.ttf";
 import "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf";
 import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
+// The fonts of display name styles, nine of Discord's eleven; see fonts/README.md.
+import "fonts/DisplayName-Sakura.ttf";
+import "fonts/DisplayName-Jellybean.ttf";
+import "fonts/DisplayName-Modern.ttf";
+import "fonts/DisplayName-8Bit.ttf";
+import "fonts/DisplayName-Tempo.ttf";
+import "fonts/DisplayName-MonkeyBars.ttf";
+import "fonts/DisplayName-Mainframe.ttf";
+import "fonts/DisplayName-Headbang.ttf";
+import "fonts/DisplayName-Journal.ttf";
 // The second choice, Satoshi, isn't in the repository (fonts/README.md): to
 // switch back, download it into fonts/, import these instead, set
 // `default-font-family` below to "Satoshi", and use Satoshi's metrics in
@@ -56,7 +66,7 @@ export { Theme, Badges, Popup } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, EmojiAnimations, Motion, AccountLook } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
