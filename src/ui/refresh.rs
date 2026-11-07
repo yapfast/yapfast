@@ -402,6 +402,7 @@ impl Adapter {
         self.show_server_settings(window);
         self.show_channel_settings(window);
         self.show_mfa(window);
+        self.show_bot_interactions(window);
         self.show_dialogs(window);
         self.show_reactions(window);
         self.show_gifs(window);
@@ -531,6 +532,98 @@ impl Adapter {
         let Adapter { app, pictures, .. } = self;
         let card = messages::emoji_card_for(app, target, pictures);
         window.set_emoji_card(card);
+    }
+
+    pub(super) fn show_bot_interactions(&mut self, window: &YapfastWindow) {
+        window.set_bot_control_busy(self.app.state.pending_interaction.is_some());
+        let select = self.app.state.select_menu.as_ref();
+        window.set_bot_select_open(select.is_some());
+        if let Some(select) = select {
+            window.set_bot_select_heading(select.label.as_str().into());
+            window.set_bot_select_query(select.query.as_str().into());
+            window.set_bot_select_min(select.min as i32);
+            window.set_bot_select_max(select.max as i32);
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::hash::DefaultHasher::new();
+            select.hash(&mut hasher);
+            let shown = hasher.finish();
+            if self.bot_select_shown != Some(shown) {
+                let query = select.query.to_lowercase();
+                let rows = select
+                    .choices
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, choice)| {
+                        query.is_empty()
+                            || choice.label.to_lowercase().contains(&query)
+                            || choice.description.to_lowercase().contains(&query)
+                    })
+                    .map(|(index, choice)| SelectChoice {
+                        index: index as i32,
+                        label: choice.label.as_str().into(),
+                        value: choice.value.as_str().into(),
+                        description: choice.description.as_str().into(),
+                        selected: choice.selected,
+                    })
+                    .collect::<Vec<_>>();
+                let current = window.get_bot_select_choices();
+                if let Some(model) = current.as_any().downcast_ref::<VecModel<SelectChoice>>() {
+                    update_model(model, rows);
+                } else {
+                    window.set_bot_select_choices(ModelRc::new(VecModel::from(rows)));
+                }
+                self.bot_select_shown = Some(shown);
+            }
+        } else if self.bot_select_shown.take().is_some() {
+            window.set_bot_select_choices(ModelRc::default());
+        }
+        let modal = self.app.state.interaction_modal.as_ref();
+        window.set_bot_modal_open(modal.is_some());
+        if let Some(modal) = modal {
+            window.set_bot_modal_heading(modal.title.as_str().into());
+            window.set_bot_modal_supported(modal.supported);
+            window.set_bot_modal_saving(modal.saving);
+            window.set_bot_modal_error(modal.error.as_deref().unwrap_or_default().into());
+            let fields = modal
+                .fields
+                .iter()
+                .map(|field| ModalField {
+                    label: field.label.as_str().into(),
+                    value: field.value.as_str().into(),
+                    placeholder: field.placeholder.as_str().into(),
+                    required: field.required,
+                    paragraph: field.paragraph,
+                    kind: field.kind as i32,
+                    summary: field
+                        .values
+                        .iter()
+                        .map(|value| {
+                            field
+                                .options
+                                .iter()
+                                .find(|option| &option.value == value)
+                                .map_or(value.as_str(), |option| option.label.as_str())
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                        .into(),
+                })
+                .collect::<Vec<_>>();
+            // Keep the repeater's model alive while typing so Slint keeps
+            // each input's focus and cursor.
+            let current = window.get_bot_modal_fields();
+            if let Some(model) = current.as_any().downcast_ref::<VecModel<ModalField>>()
+                && model.row_count() == fields.len()
+            {
+                for (index, field) in fields.into_iter().enumerate() {
+                    if model.row_data(index).as_ref() != Some(&field) {
+                        model.set_row_data(index, field);
+                    }
+                }
+            } else {
+                window.set_bot_modal_fields(ModelRc::new(VecModel::from(fields)));
+            }
+        }
     }
 
     /// Whether Yapfast is signed in or previewing, what the account is doing, and

@@ -31,6 +31,28 @@ author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
 authors' member profiles.
 
+Bot message controls can be used in the timeline and threads. Yapfast sends
+ordinary button clicks, string and user/role/mentionable/channel selections,
+and modal form submissions through the linked account's Discord session. A
+modal can contain text inputs or selection fields. Failed submissions keep the
+form and its answers available to retry. Pending controls unlock after 15 seconds
+if Discord never confirms the interaction, including during a reconnect. When a
+bot message omits its application ID, Yapfast refreshes the message and asks for
+the bot's profile to identify its application. Webhook authors are never used as
+guessed application IDs; unresolved controls show a notice. Optional single
+selections can be cleared, and channel menus respect the bot's channel-type restrictions, including
+visible categories. Default entity selections show their known names, or their
+IDs when a name is unavailable.
+Entity menus use the people,
+roles and channels Yapfast knows, and searching people also asks Discord for
+matching server members. Link buttons open their URL. Premium buttons open the
+bot's store offer in Discord's App Directory; purchasing happens there.
+Embedded activities and any modal field Yapfast cannot represent still need
+Discord's client. Modals containing informational text also require Discord;
+Yapfast blocks submission so instructions or warnings cannot be skipped.
+These user interaction endpoints are not covered by Discord's
+public bot API, so live compatibility should be checked against a test bot.
+
 Yapfast keeps the open channel's messages in memory, and those of the 40
 channels open before it, so going back to one shows it at once. A closed
 channel keeps its newest 200 messages as metadata and follows new messages,

@@ -420,10 +420,8 @@ export struct EmbedCard {
     images: [ImageCell], gallery-width: int, gallery-height: int,
     video: bool,
 }
-/// A Discord app's button. Only a link's is `enabled`: the others would ask
-/// the app, which Yapfast can't yet.
-export enum CardButtonStyle { primary, secondary, success, danger, link }
-export struct CardButton { label: string, style: CardButtonStyle, url: string, enabled: bool }
+export enum CardButtonStyle { primary, secondary, success, danger, link, premium }
+export struct CardButton { label: string, style: CardButtonStyle, url: string, custom-id: string, sku-id: string, enabled: bool }
 export enum CardRowKind { text, media, separator, buttons, select, unknown }
 /// A row of a Discord app's card, of one `kind`, with the fields it uses:
 /// text and what a section shows beside it; pictures in a gallery and file
@@ -438,7 +436,7 @@ export struct CardRow {
     images: [ImageCell], gallery-width: int, gallery-height: int, files: [FileCell],
     divider: bool, large: bool,
     buttons: [CardButton],
-    select: string,
+    select: string, select-id: string, select-enabled: bool,
 }
 /// A container of a Discord message's components, framed with a bar of its
 /// colour, or the components outside one.
@@ -652,6 +650,7 @@ export struct MessageRow {
     embeds: [EmbedCard],
     /// A Discord app's buttons and menus, or a message made of components.
     cards: [ComponentCard],
+    app-id: string,
     /// The body in blocks, when it has headings, subtext, quotes or code;
     /// otherwise empty, and the body is `styled`.
     blocks: [TextBlock],
@@ -1383,7 +1382,7 @@ export component EmbedView inherits HorizontalLayout {
                 for row in root.embed.field-rows: HorizontalLayout {
                     spacing: 8px;
                     for field in row.fields: VerticalLayout {
-                        spacing: 2px; horizontal-stretch: 1;
+                        spacing: 6px; horizontal-stretch: 1;
                         StyledText { text: field.name; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
                         if field.value-blocks.length == 0: StyledText {
                             text: field.value; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
@@ -1457,20 +1456,28 @@ export component EmbedView inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
-// A Discord app's button. A link's opens its page; the others show what the
-// app offers, but would ask the app, which Yapfast can't yet.
+// A Discord app's button: invoke its component, open a link, or view its offer.
 component CardButtonView inherits ActionButton {
     in property <CardButton> button;
+    in property <string> item;
+    in property <string> app-id;
+    in property <bool> busy;
     callback open-link(string);
+    callback use-button(string, string);
     property <image> no-icon;
-    text: root.button.label;
+    text: root.button.style == CardButtonStyle.premium ? "View offer" : root.button.label;
     icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg") : root.no-icon;
     primary: root.button.style == CardButtonStyle.primary;
     success: root.button.style == CardButtonStyle.success;
     danger: root.button.style == CardButtonStyle.danger;
-    enabled: root.button.enabled;
+    enabled: root.button.enabled && !root.busy && (root.button.style != CardButtonStyle.premium || root.app-id != "");
     small: true;
-    clicked => { root.open-link(root.button.url); }
+    clicked => {
+        if root.button.custom-id != "" { root.use-button(root.item, root.button.custom-id); }
+        else if root.button.sku-id != "" && root.app-id != "" {
+            root.open-link("https://discord.com/application-directory/" + root.app-id + "/store/" + root.button.sku-id);
+        } else { root.open-link(root.button.url); }
+    }
 }
 
 // A Discord message's container of components, or those outside one: text
@@ -1480,16 +1487,21 @@ export component CardView inherits HorizontalLayout {
     /// The message's item, which its pictures open by, and its delivery
     /// state, empty once it's sent.
     in property <string> item;
+    in property <string> app-id;
+    in property <bool> busy;
     in property <string> delivery;
     in property <string> active-item;
     in property <bool> preview;
     in property <length> message-font-size;
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
     callback reveal-attachment(string, int);
     callback view-image(string, int);
     callback save-attachment(string, int);
     callback media-menu(string, int, bool, length, length);
-    padding-top: 4px;
+    padding-top: 10px;
+    padding-bottom: 6px;
     Rectangle {
         max-width: root.card.framed ? 600px : 100000px; horizontal-stretch: 100;
         background: root.card.framed ? Theme.sidebar : transparent;
@@ -1534,7 +1546,7 @@ export component CardView inherits HorizontalLayout {
                     }
                     if row.has-button: VerticalLayout {
                         alignment: start;
-                        CardButtonView { button: row.button; open-link(link) => { root.open-link(link); } }
+                        CardButtonView { button: row.button; item: root.item; app-id: root.app-id; busy: root.busy; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
                     }
                 }
                 if row.kind == CardRowKind.media && row.images.length > 0: MessageGallery {
@@ -1558,18 +1570,22 @@ export component CardView inherits HorizontalLayout {
                 }
                 if row.kind == CardRowKind.buttons: HorizontalLayout {
                     spacing: 8px; alignment: start;
-                    for button in row.buttons: CardButtonView { button: button; open-link(link) => { root.open-link(link); } }
+                    for button in row.buttons: CardButtonView { button: button; item: root.item; app-id: root.app-id; busy: root.busy; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
                 }
                 if row.kind == CardRowKind.select: HorizontalLayout {
-                    // It doesn't open, so it shows as disabled.
                     Rectangle {
-                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: 0.5;
+                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: row.select-enabled && !root.busy ? 1 : 0.5;
                         background: Theme.field; border-width: 1px; border-color: Theme.edge;
-                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: false;
+                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: row.select-enabled && !root.busy;
+                        accessible-action-default => { if row.select-enabled && !root.busy { root.open-select(root.item, row.select-id); } }
                         HorizontalLayout {
                             padding-left: 12px; padding-right: 12px; spacing: 8px;
                             Text { text: row.select; color: Theme.secondary; font-weight: 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+                        }
+                        TouchArea {
+                            enabled: row.select-enabled && !root.busy; mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.open-select(root.item, row.select-id); }
                         }
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -2028,6 +2044,7 @@ export component MessageContent inherits VerticalLayout {
     /// The message the pointer or keyboard is on, whose time shows.
     in property <string> active-item;
     in property <bool> preview;
+    in property <bool> bot-control-busy;
     /// Adding to the message's reactions, or taking one's own back.
     in property <bool> reactions-enabled;
     in property <string> emoji-font;
@@ -2041,6 +2058,8 @@ export component MessageContent inherits VerticalLayout {
     /// A link in the text, which opens beside the pointer; and one in an embed.
     callback link-clicked(string);
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
     callback open-thread(string);
     callback react(string, string);
     callback retry(string);
@@ -2265,9 +2284,12 @@ export component MessageContent inherits VerticalLayout {
                 media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
             }
             for card in message.cards: CardView {
-                card: card; item: message.item; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
+                padding-left: message.embeds.length > 0 ? 1px : 0px;
+                card: card; item: message.item; app-id: message.app-id; busy: root.bot-control-busy; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
                 message-font-size: root.message-font-size;
                 open-link(link) => { root.open-link(link); }
+                use-button(item, id) => { root.use-button(item, id); }
+                open-select(item, id) => { root.open-select(item, id); }
                 reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                 view-image(id, index) => { root.view-image(id, index); }
                 save-attachment(id, index) => { root.save-attachment(id, index); }

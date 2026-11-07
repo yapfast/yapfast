@@ -83,6 +83,20 @@ pub enum Row {
     Select {
         text: String,
         disabled: bool,
+        #[serde(default)]
+        kind: u64,
+        #[serde(default)]
+        custom_id: String,
+        #[serde(default)]
+        options: Vec<SelectOption>,
+        #[serde(default)]
+        defaults: Vec<String>,
+        #[serde(default)]
+        channel_types: Vec<u64>,
+        #[serde(default)]
+        min_values: u64,
+        #[serde(default)]
+        max_values: u64,
     },
     /// Components of a kind Yapfast can't show, one or more.
     Unknown,
@@ -104,7 +118,17 @@ pub struct Button {
     pub style: Style,
     /// Where a link button leads.
     pub url: Option<String>,
+    pub custom_id: Option<String>,
+    pub sku_id: Option<String>,
     pub disabled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SelectOption {
+    pub label: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub default: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -114,6 +138,7 @@ pub enum Style {
     Success,
     Danger,
     Link,
+    Premium,
 }
 
 /// A message's components as cards, and their pictures and files as
@@ -263,8 +288,7 @@ fn text(component: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// A button as it shows. Premium buttons, which name a purchase Discord's
-/// store prices, are left out.
+/// A button as it shows. Premium buttons name a purchase in Discord's store.
 fn button(component: &Value) -> Option<Button> {
     let style = match component["style"].as_u64()? {
         1 => Style::Primary,
@@ -272,6 +296,7 @@ fn button(component: &Value) -> Option<Button> {
         3 => Style::Success,
         4 => Style::Danger,
         5 => Style::Link,
+        6 => Style::Premium,
         _ => return None,
     };
     let emoji = &component["emoji"];
@@ -288,7 +313,7 @@ fn button(component: &Value) -> Option<Button> {
         (None, None) => None,
     };
     let label = component["label"].as_str().unwrap_or_default().to_owned();
-    if label.is_empty() && emoji.is_none() {
+    if label.is_empty() && emoji.is_none() && style != Style::Premium {
         return None;
     }
     Some(Button {
@@ -299,12 +324,27 @@ fn button(component: &Value) -> Option<Button> {
             .as_str()
             .filter(|_| style == Style::Link)
             .map(str::to_owned),
+        custom_id: component["custom_id"].as_str().map(str::to_owned),
+        sku_id: component["sku_id"].as_str().map(str::to_owned),
         disabled: component["disabled"].as_bool().unwrap_or(false),
     })
 }
 
 /// A select menu, by the options it picks by default or its placeholder.
 fn select(component: &Value) -> Row {
+    let options: Vec<SelectOption> = component["options"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|option| {
+            Some(SelectOption {
+                label: option["label"].as_str()?.to_owned(),
+                value: option["value"].as_str()?.to_owned(),
+                description: option["description"].as_str().map(str::to_owned),
+                default: option["default"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect();
     let picked: Vec<&str> = component["options"]
         .as_array()
         .into_iter()
@@ -323,6 +363,26 @@ fn select(component: &Value) -> Row {
     Row::Select {
         text,
         disabled: component["disabled"].as_bool().unwrap_or(false),
+        kind: component["type"].as_u64().unwrap_or_default(),
+        custom_id: component["custom_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+        options,
+        defaults: component["default_values"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value["id"].as_str().map(str::to_owned))
+            .collect(),
+        channel_types: component["channel_types"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect(),
+        min_values: component["min_values"].as_u64().unwrap_or(1),
+        max_values: component["max_values"].as_u64().unwrap_or(1),
     }
 }
 
@@ -394,6 +454,14 @@ mod tests {
     }
 
     #[test]
+    fn channel_select_preserves_its_type_filter() {
+        let row = select(
+            &serde_json::json!({"type": 8, "custom_id": "channel", "channel_types": [0, 5]}),
+        );
+        assert!(matches!(row, Row::Select { channel_types, .. } if channel_types == [0, 5]));
+    }
+
+    #[test]
     fn containers_become_framed_cards_and_loose_components_share_one() {
         let parsed = parse(&json!([
             {"type": 10, "content": "Above"},
@@ -441,10 +509,13 @@ mod tests {
         let Row::Buttons(buttons) = &card.rows[5] else {
             panic!("a row of buttons");
         };
-        assert_eq!(buttons.len(), 2, "the premium button is left out");
+        assert_eq!(buttons.len(), 3);
         assert_eq!(buttons[0].url.as_deref(), Some("https://discord.com/blog"));
         assert_eq!(buttons[1].emoji.as_deref(), Some("👍"));
         assert_eq!(buttons[1].url, None);
+        assert_eq!(buttons[1].custom_id.as_deref(), Some("yes"));
+        assert_eq!(buttons[2].style, Style::Premium);
+        assert_eq!(buttons[2].sku_id.as_deref(), Some("1"));
         // Two kinds Yapfast doesn't know are told of once.
         assert_eq!(
             below.rows,
@@ -452,7 +523,19 @@ mod tests {
                 Row::Unknown,
                 Row::Select {
                     text: "Pick one".into(),
-                    disabled: false
+                    disabled: false,
+                    kind: 3,
+                    custom_id: "pick".into(),
+                    options: vec![SelectOption {
+                        label: "A".into(),
+                        value: "a".into(),
+                        description: None,
+                        default: false
+                    }],
+                    defaults: vec![],
+                    channel_types: vec![],
+                    min_values: 1,
+                    max_values: 1,
                 }
             ]
         );

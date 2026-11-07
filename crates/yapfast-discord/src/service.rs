@@ -386,6 +386,14 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    InteractionModal(Value),
+    InteractionFailure {
+        nonce: String,
+        reason: u64,
+    },
+    InteractionSuccess {
+        nonce: String,
+    },
     /// The Activity panel's feed has something new, to fetch after this long.
     ActivityFeedStale {
         refresh_after_ms: Option<u64>,
@@ -994,6 +1002,35 @@ impl Discord {
     /// Votes for `answers` of a message's poll; none takes the vote back.
     pub async fn vote(&self, channel: &str, id: &str, answers: &[u64]) -> Result<()> {
         self.api.vote(channel, id, answers).await
+    }
+
+    /// Use a message component or submit a modal in this Gateway session.
+    /// `body` contains the interaction's application, target and data.
+    pub async fn interact(&self, mut body: Value) -> Result<()> {
+        if body["application_id"].is_null() {
+            let channel = body["channel_id"]
+                .as_str()
+                .context("Missing interaction channel.")?;
+            let message = body["message_id"]
+                .as_str()
+                .context("Missing interaction message.")?;
+            body["application_id"] = self
+                .api
+                .component_application(channel, message)
+                .await?
+                .into();
+        }
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        body["session_id"] = session.into();
+        self.api.interact(&body).await
     }
 
     /// Closes this account's poll now.

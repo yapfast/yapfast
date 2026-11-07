@@ -309,6 +309,9 @@ pub fn emojis(list: &Value) -> Vec<Emoji> {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Channel {
+    /// Discord channel type, when supplied by the gateway or cached snapshot.
+    #[serde(default)]
+    pub channel_type: Option<u64>,
     pub id: String,
     pub name: String,
     pub position: i64,
@@ -1531,6 +1534,7 @@ pub fn parse_thread(value: &Value) -> Option<Channel> {
 
 fn parse_channel(channel: &Value) -> Option<Channel> {
     Some(Channel {
+        channel_type: channel["type"].as_u64(),
         id: channel["id"].as_str()?.to_owned(),
         name: channel["name"].as_str().unwrap_or_default().to_owned(),
         position: channel["position"].as_i64().unwrap_or_default(),
@@ -1741,6 +1745,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn preserves_exact_channel_types_for_component_filters() {
+        for kind in [0, 2, 5, 10, 11, 12, 13, 15, 16] {
+            let channel = parse_channel(&serde_json::json!({"id": "1", "type": kind})).unwrap();
+            assert_eq!(channel.channel_type, Some(kind));
+        }
+    }
 
     #[test]
     fn servers_offer_their_tag_from_their_profile() {

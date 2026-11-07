@@ -14,6 +14,21 @@ fn message(id: &str, nonce: Option<&str>) -> Message {
 }
 
 #[test]
+fn unavailable_discord_fails_the_interaction_with_its_nonce() {
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    without(
+        Command::Discord(DiscordCommand::Interact(
+            serde_json::json!({"nonce": "click"}),
+        )),
+        "Offline",
+        &events,
+    );
+    assert!(
+        matches!(received.try_recv(), Ok(Event::InteractionFailed { nonce, reason }) if nonce == "click" && reason == "Offline")
+    );
+}
+
+#[test]
 fn answers_discord_commands_while_discord_is_away() {
     let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
     let why = "Discord couldn't start: the credential store is locked";

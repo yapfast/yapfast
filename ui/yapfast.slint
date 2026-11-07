@@ -60,6 +60,7 @@ import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateR
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
+import { BotSelectDialog, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
@@ -79,6 +80,7 @@ export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
+export { SelectChoice, ModalField } from "interactions.slint";
 
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
@@ -421,6 +423,29 @@ export component YapfastWindow inherits Window {
     callback show-hidden-channels-toggled(bool);
     /// A link in a message was clicked.
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
+    in property <bool> bot-select-open;
+    in-out property <bool> bot-control-busy;
+    in property <string> bot-select-heading;
+    in property <[SelectChoice]> bot-select-choices;
+    in property <string> bot-select-query;
+    in property <int> bot-select-min;
+    in property <int> bot-select-max;
+    callback bot-select-toggle(int);
+    callback bot-select-search(string);
+    callback bot-select-submit;
+    callback bot-select-close;
+    in property <bool> bot-modal-open;
+    in property <string> bot-modal-heading;
+    in property <[ModalField]> bot-modal-fields;
+    in property <bool> bot-modal-supported;
+    in property <bool> bot-modal-saving;
+    in property <string> bot-modal-error;
+    callback bot-modal-field-edited(int, string);
+    callback bot-modal-open-select(int);
+    callback bot-modal-submit;
+    callback bot-modal-close;
     in-out property <bool> sync-discord-reads;
     callback sync-discord-reads-toggled(bool);
     in-out property <bool> show-idle: true;
@@ -3085,7 +3110,7 @@ export component YapfastWindow inherits Window {
                                             height: col.preferred-height + self.top;
                                             // The last row's tints stop above the space it leaves at the end,
                                             // where the typing line sits on the chat's own colour.
-                                            property <length> tail: index == root.messages.length - 1 ? (root.detached ? 74px : 20px) : 0px;
+                                            property <length> tail: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : 0px;
                                             // Where the message itself starts: its tint, hover bar and edge
                                             // leave out the history notice and the dividers above it.
                                             property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height) : 42px) : 0px)
@@ -3170,7 +3195,7 @@ export component YapfastWindow inherits Window {
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
                                                     }
                                                     MessageContent {
-                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled;
+                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-control-busy: root.bot-control-busy;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
@@ -3192,6 +3217,8 @@ export component YapfastWindow inherits Window {
                                                             root.open-link(link);
                                                         }
                                                         open-link(link) => { root.open-link(link); }
+                                                        use-button(item, id) => { root.use-button(item, id); }
+                                                        open-select(item, id) => { root.open-select(item, id); }
                                                         open-thread(room) => { root.open-aside(room); }
                                                         react(item, key) => { root.react(item, key); }
                                                         retry(item) => { root.retry(item); }
@@ -3595,7 +3622,7 @@ export component YapfastWindow inherits Window {
                         typing-tick: root.aside-typing-tick;
                         composer-focused => { root.aside-composer-last = true; }
                         escape-composing => { return root.escape-composing(); }
-                        busy: root.busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
+                        busy: root.busy; bot-control-busy: root.bot-control-busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
                         reactions-enabled: root.aside-reactions-enabled; new-reactions-enabled: root.aside-new-reactions-enabled;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }
@@ -3656,6 +3683,8 @@ export component YapfastWindow inherits Window {
                         jump-to(item) => { root.jump-to(item); }
                         link-clicked(link, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-link(link); }
                         open-link(link) => { root.open-link(link); }
+                        use-button(item, id) => { root.use-button(item, id); }
+                        open-select(item, id) => { root.open-select(item, id); }
                         open-thread(room) => { root.open-aside(room); }
                         retry(item) => { root.retry(item); }
                         cancel-send(item) => { root.cancel-send(item); }
@@ -4584,6 +4613,23 @@ export component YapfastWindow inherits Window {
         close-switcher => { root.close-switcher(); }
     }
     // Over everything, as the request it confirms may come from anywhere.
+    if root.bot-modal-open: BotModalDialog {
+        heading: root.bot-modal-heading; fields: root.bot-modal-fields; supported: root.bot-modal-supported;
+        saving: root.bot-modal-saving; error: root.bot-modal-error;
+        field-edited(index, value) => { root.bot-modal-field-edited(index, value); }
+        open-select(index) => { root.bot-modal-open-select(index); }
+        submit => { root.bot-modal-submit(); }
+        close => { root.bot-modal-close(); }
+    }
+    if root.bot-select-open: BotSelectDialog {
+        heading: root.bot-select-heading; choices: root.bot-select-choices;
+        query: root.bot-select-query;
+        min-values: root.bot-select-min; max-values: root.bot-select-max;
+        toggle(index) => { root.bot-select-toggle(index); }
+        search(query) => { root.bot-select-search(query); }
+        submit => { root.bot-select-submit(); }
+        close => { root.bot-select-close(); }
+    }
     mfa-motion := PopupMotion { open: root.mfa-open; }
     if mfa-motion.shown: MfaDialog {
         motion: mfa-motion.amount;

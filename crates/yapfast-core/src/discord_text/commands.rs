@@ -21,6 +21,38 @@ pub fn command(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    if let Command::Discord(DiscordCommand::Interact(body)) = &command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events, body) = (discord.clone(), events.clone(), body.clone());
+                tokio::spawn(async move {
+                    let nonce = body["nonce"].as_str().unwrap_or_default().to_owned();
+                    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+                    match tokio::time::timeout_at(deadline, discord.interact(body)).await {
+                        Ok(Err(error)) => {
+                            let _ = events.send(Event::InteractionFailed {
+                                nonce,
+                                reason: format!("Discord couldn't use this control: {error}"),
+                            });
+                        }
+                        Ok(Ok(())) | Err(_) => {
+                            // Bound the session lookup, HTTP request and gateway
+                            // receipt together, including across reconnects.
+                            tokio::time::sleep_until(deadline).await;
+                            let _ = events.send(Event::InteractionSettled(nonce));
+                        }
+                    }
+                });
+            }
+            Err(reason) => {
+                let _ = events.send(Event::InteractionFailed {
+                    nonce: body["nonce"].as_str().unwrap_or_default().to_owned(),
+                    reason: reason.to_owned(),
+                });
+            }
+        }
+        return;
+    }
     if matches!(command, Command::Open(_) | Command::CloseRoom) {
         channels.close();
     }
@@ -633,6 +665,21 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    if let Ok(Live::InteractionModal(modal)) = &event {
+        let _ = events.send(Event::InteractionModal(modal.clone()));
+        return;
+    }
+    if let Ok(Live::InteractionFailure { nonce, reason }) = &event {
+        let _ = events.send(Event::InteractionFailed {
+            nonce: nonce.clone(),
+            reason: format!("The bot couldn't complete this action (Discord error {reason})."),
+        });
+        return;
+    }
+    if let Ok(Live::InteractionSuccess { nonce }) = &event {
+        let _ = events.send(Event::InteractionSucceeded(nonce.clone()));
+        return;
+    }
     if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
         let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
         let events = events.clone();
