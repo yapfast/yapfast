@@ -1229,7 +1229,11 @@ impl Layout {
 
     /// Shows the plugins in Settings, and the notification filter's mode
     /// and keywords.
-    fn apply_plugins(&self, window: &YapfastWindow, manager: &yapfast_core::plugins::PluginManager) {
+    fn apply_plugins(
+        &self,
+        window: &YapfastWindow,
+        manager: &yapfast_core::plugins::PluginManager,
+    ) {
         let rows: Vec<_> = manager
             .manifests()
             .iter()
@@ -1252,7 +1256,11 @@ impl Layout {
         let filter = manager.config("notification-filter");
         let mode = filter
             .get("mode")
-            .and_then(|mode| yapfast_core::plugins::FILTER_MODES.iter().position(|candidate| *candidate == mode))
+            .and_then(|mode| {
+                yapfast_core::plugins::FILTER_MODES
+                    .iter()
+                    .position(|candidate| *candidate == mode)
+            })
             .unwrap_or(0) as i32;
         window.set_plugin_filter_mode(mode);
         window.set_plugin_filter_keywords(filter.get("keywords").unwrap_or_default().into());
@@ -1275,6 +1283,8 @@ impl Layout {
 
     fn apply(&self, window: &YapfastWindow) {
         self.apply_custom_games(window);
+        // The build's own version, for Settings > About.
+        window.set_app_version(env!("CARGO_PKG_VERSION").into());
         window.set_show_idle(self.show_idle.unwrap_or(true));
         window.set_hide_blocked(self.hide_blocked);
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
@@ -1282,11 +1292,8 @@ impl Layout {
         // again, after closing to the tray, keeps the theme this way too.
         let plugins = self.plugins();
         let extra = plugins.theme_contributions();
-        let (id, chosen) = theme::chosen_with_extra(
-            self.theme.as_deref(),
-            &self.custom_themes,
-            &extra,
-        );
+        let (id, chosen) =
+            theme::chosen_with_extra(self.theme.as_deref(), &self.custom_themes, &extra);
         chosen.apply(window);
         window.set_theme_id(id.into());
         window.set_themes(theme::cards_with_extra(&self.custom_themes, &extra));

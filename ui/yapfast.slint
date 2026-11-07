@@ -29,7 +29,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, AccentPreset, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, PluginsSettings, PluginRow, PrivacySettings } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, AccentPreset, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, PluginsSettings, PluginRow, PrivacySettings, AboutSettings } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1090,6 +1090,8 @@ export component YapfastWindow inherits Window {
     callback privacy-measure;
     /// Deletes the pictures and previews that can be fetched again.
     callback privacy-clear;
+    /// This build's version, for the About page.
+    in property <string> app-version;
     /// Yapfast's sounds: their set, their volume as a percentage, and each one's
     /// own, which each-sound-changed reports. play-sound plays one to try it.
     in-out property <int> sound-set;
@@ -3613,6 +3615,7 @@ export component YapfastWindow inherits Window {
             plugin-toggled(id, on) => { root.plugin-toggled(id, on); }
             filter-changed(mode, keywords) => { root.plugin-filter-changed(mode, keywords); }
         }
+        if root.settings-section == 11: AboutSettings { app-version: root.app-version; }
         if root.settings-section == 10: PrivacySettings {
             usage: root.privacy-usage; cleared: root.privacy-cleared; measuring: root.privacy-measuring;
             measure => { root.privacy-measure(); }

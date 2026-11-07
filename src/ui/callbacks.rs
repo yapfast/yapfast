@@ -1427,6 +1427,77 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_theme_exported(move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let Some(text) = state.borrow().theme_json(&window) else {
+            window.set_theme_json_note("The theme shown can't be written as a file.".into());
+            return;
+        };
+        let name = window.get_theme_id().to_string().replace(':', "-");
+        let weak = window.as_weak();
+        state.borrow_mut().dialog(async move {
+            let picked = rfd::AsyncFileDialog::new()
+                .set_title("Export theme")
+                .add_filter("Themes", &["json"])
+                .set_file_name(format!("{name}.json"))
+                .save_file()
+                .await;
+            let note = match picked {
+                Some(file) => match std::fs::write(file.path(), text.as_bytes()) {
+                    Ok(()) => "The theme was saved.".to_owned(),
+                    Err(error) => format!("The theme couldn't be saved: {error}"),
+                },
+                None => String::new(),
+            };
+            if note.is_empty() {
+                return;
+            }
+            weak.upgrade_in_event_loop(move |window| window.set_theme_json_note(note.into()))
+                .ok();
+        });
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_theme_imported(move || {
+        let weak = Rc::downgrade(&state);
+        state.borrow_mut().dialog(async move {
+            let picked = rfd::AsyncFileDialog::new()
+                .set_title("Import theme")
+                .add_filter("Themes", &["json"])
+                .pick_file()
+                .await;
+            let Some(file) = picked else {
+                return;
+            };
+            let text = match std::fs::read_to_string(file.path()) {
+                Ok(text) => text,
+                Err(error) => {
+                    if let Some(adapter) = weak.upgrade()
+                        && let Some(window) = adapter.borrow().window.upgrade()
+                    {
+                        let note = format!("That file couldn't be read: {error}");
+                        window.set_theme_json_note(note.into());
+                    }
+                    return;
+                }
+            };
+            let Some(adapter) = weak.upgrade() else {
+                return;
+            };
+            let window = adapter.borrow().window.upgrade();
+            if let Some(window) = window {
+                let note = match adapter.borrow_mut().add_theme_json(&window, &text) {
+                    Ok(name) => format!("Now showing {name}."),
+                    Err(why) => why,
+                };
+                window.set_theme_json_note(note.into());
+            }
+        });
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_save_theme(move || {
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().save_theme(&window);

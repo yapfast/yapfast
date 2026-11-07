@@ -174,6 +174,63 @@ impl Adapter {
         }
     }
 
+    /// The theme shown, as the JSON a theme file holds, or `None` for a theme
+    /// this build doesn't know. A built-in one exports as a theme based on
+    /// itself, so a file always names a base a reader can start from.
+    pub(super) fn theme_json(&self, window: &YapfastWindow) -> Option<String> {
+        let id = window.get_theme_id().to_string();
+        let custom = match self
+            .layout
+            .custom_themes
+            .iter()
+            .find(|custom| custom.id == id)
+        {
+            Some(custom) => custom.clone(),
+            None => {
+                let (id, theme) = theme::chosen(Some(&id), &self.layout.custom_themes);
+                let built_in = theme::find(id)?;
+                theme::Custom {
+                    id: theme::new_id(&self.layout.custom_themes),
+                    name: built_in.name.to_owned(),
+                    base: built_in.id,
+                    theme,
+                }
+            }
+        };
+        match serde_json::to_string_pretty(&custom) {
+            Ok(text) => Some(text),
+            Err(error) => {
+                tracing::warn!(%error, "could not write a theme as JSON");
+                None
+            }
+        }
+    }
+
+    /// Adds a theme read from a theme file and chooses it. Returns the theme's
+    /// name, or why the file could not be read.
+    pub(super) fn add_theme_json(
+        &mut self,
+        window: &YapfastWindow,
+        text: &str,
+    ) -> Result<String, String> {
+        let mut custom: theme::Custom = serde_json::from_str(text)
+            .map_err(|error| format!("That file isn't a theme: {error}"))?;
+        if custom.name.trim().is_empty() {
+            custom.name = "Imported theme".to_owned();
+        }
+        // The file's own id would collide with a theme already here, so it
+        // takes the next one; the name it keeps.
+        custom.id = theme::new_id(&self.layout.custom_themes);
+        let name = custom.name.clone();
+        let id = custom.id.clone();
+        self.layout.custom_themes.push(custom);
+        window.set_themes(theme::cards(&self.layout.custom_themes));
+        if !self.choose_theme(window, &id) {
+            return Err("That theme could not be shown.".to_owned());
+        }
+        Ok(name)
+    }
+
     /// Deletes the theme being edited. If it was the chosen one, Yap shows.
     pub(super) fn delete_theme(&mut self, window: &YapfastWindow) {
         let Some(editor) = self.theme_editor.take() else {

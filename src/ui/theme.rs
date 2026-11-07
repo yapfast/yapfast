@@ -651,7 +651,12 @@ pub fn lookup_with_extra<'a>(
         extra
             .iter()
             .find(|contribution| contribution.id == id)
-            .map(|contribution| (contribution.id.as_str(), from_contribution(contribution).unwrap_or(YAP)))
+            .map(|contribution| {
+                (
+                    contribution.id.as_str(),
+                    from_contribution(contribution).unwrap_or(YAP),
+                )
+            })
     })
 }
 
@@ -777,11 +782,15 @@ pub fn accent_cards(shown: &Theme, chosen_id: &str) -> ModelRc<yapfast_ui::Accen
         name: "Own".into(),
         accent: shown.accent,
     })
-    .chain(ACCENT_PRESETS.iter().map(|preset| yapfast_ui::AccentPreset {
-        id: preset.id.into(),
-        name: preset.name.into(),
-        accent: preset.accent,
-    }))
+    .chain(
+        ACCENT_PRESETS
+            .iter()
+            .map(|preset| yapfast_ui::AccentPreset {
+                id: preset.id.into(),
+                name: preset.name.into(),
+                accent: preset.accent,
+            }),
+    )
     .collect();
     let _ = chosen_id;
     ModelRc::new(VecModel::from(cards))
@@ -883,7 +892,10 @@ pub fn import_json_many(text: &str, custom: &[Custom]) -> Result<Vec<Custom>, St
     if stored.is_empty() {
         return Err("That file holds no themes.".into());
     }
-    if stored.iter().any(|exported| exported.version > EXPORT_VERSION) {
+    if stored
+        .iter()
+        .any(|exported| exported.version > EXPORT_VERSION)
+    {
         return Err("That file was saved by a newer version.".into());
     }
     let mut imported = Vec::with_capacity(stored.len());

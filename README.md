@@ -2,18 +2,11 @@
   <img src="packaging/icon.svg" width="96" height="96" alt="">
 </p>
 
-<h1 align="center">Yapfast</h1>
-
-<p align="center">
-  <a href="https://github.com/yapfast/yapfast/releases/latest"><img src="https://img.shields.io/github/v/release/yapfast/yapfast?label=beta&color=f0b232" alt="The latest release, a beta"></a>
-  <a href="#get-started"><img src="https://img.shields.io/badge/Windows%20%7C%20Linux-0078D4" alt="Windows and Linux"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/yapfast/yapfast?color=blue" alt="License: GPL 3.0"></a>
-  <a href="https://yapfast.com/discord-invite"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Yapfast Discord server"></a>
-</p>
+<h1 align="center">RatFast</h1>
 
 <p align="center">
   <b>A Discord client without the web browser.</b><br>
-  About 30 MB of RAM idle, where Discord's app takes 720 MB (<a href="#measured-against-discord">measured as Vesktop</a>).
+  About 30 MB of RAM idle, where Discord's app takes 720 MB.
 </p>
 
 <p align="center">
@@ -21,17 +14,36 @@
 </p>
 
 <p align="center">
-  <a href="#windows-10-and-11"><b>Download for Windows</b></a>
-  &nbsp;·&nbsp;
-  <a href="#linux"><b>Download for Linux</b></a>
-  &nbsp;·&nbsp;
-  <a href="https://yapfast.com">yapfast.com</a>
+  A fork of <a href="https://github.com/yapfast/yapfast">Yapfast</a>, GPL-3.0-or-later.
 </p>
 
-<p align="center">
-  <img src="docs/images/yapfast.png" alt="Yapfast showing a group DM, with the server list on the left, the conversation in the middle and its members on the right"><br>
-  <sub>A test account on a fake Discord server. Nobody in there said any of this, or endorses Yapfast (sadly).</sub>
-</p>
+> **This is not an official Discord client.** It signs in with your account
+> token, which Discord's Terms of Service forbid, so using it puts the account
+> at risk of suspension. It is not made by, endorsed by or affiliated with
+> Discord. Read [privacy](docs/privacy.md) before you sign in.
+
+## What this fork adds
+
+- **Settings → Plugins**: a native plugin system — manifests, declared
+  capabilities, a host that refuses what a plugin did not declare, and three
+  bundled extensions (compact mode, a theme contribution, notification
+  filtering). Plugin switches and the filter actually work; see
+  [plugins](docs/plugins.md).
+- **Settings → Privacy**: what is kept on this device, how much of it, and a
+  button that deletes the media which can be fetched again. Gateway payloads
+  are no longer written to debug logs.
+- **Settings → About**: version, licence and the disclaimer above.
+- **Build**: `.github/workflows/ratfast-dev.yml` builds this branch on every
+  push and hands back the AppImage and the Windows ZIP. The Windows toolchain
+  that runs on a machine is documented in
+  [RatFast building](docs/ratfast-building.md).
+- **Interface**: one 4px spacing grid, weights capped at 600, and a marigold
+  edge pill marking where you are in the rail and the channel list.
+- **Faster hot paths**: the custom emoji catalogue is cached, the animation pass
+  is skipped when nothing animated changed, and the account cache is written
+  only when it changed. See [performance](docs/performance.md).
+
+## Why?
 
 ## Why?
 
