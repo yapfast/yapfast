@@ -1159,6 +1159,10 @@ fn a_private_discord_call_leaves_after_its_alone_timeout() {
             .map(|(room, _)| room.as_str()),
         Some("sam")
     );
+    adapter.fire_alone_timeout();
+    assert!(adapter.app.state.voice.active());
+    assert!(adapter.alone.started.is_some());
+
     adapter.alone.started = Some((
         "sam".into(),
         std::time::Instant::now() - std::time::Duration::from_secs(10 * 60 + 1),
@@ -1185,6 +1189,8 @@ fn the_alone_timeout_arms_only_for_a_private_discord_call_with_no_one_else() {
     alone_test_call(&adapter, "sam", 1);
     adapter.borrow_mut().sync_alone_timer();
     assert!(adapter.borrow().alone.started.is_none());
+    adapter.borrow_mut().fire_alone_timeout();
+    assert!(adapter.borrow().app.state.voice.active());
 
     alone_test_call(&adapter, "lounge", 0);
     adapter.borrow_mut().sync_alone_timer();
