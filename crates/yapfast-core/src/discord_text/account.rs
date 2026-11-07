@@ -7,7 +7,7 @@ use super::{
     channels::SEARCH_PAUSE,
     channels::SharedPreviews,
     commands::NOT_DISCORD,
-    render::{chat_profile, found_in, hits_in, with_previews},
+    render::{chat_badges, chat_profile, found_in, hits_in, with_previews},
     *,
 };
 use crate::chat::{
@@ -76,9 +76,13 @@ pub(super) fn command(
                 .members_with_role(guild, &role)
                 .into_iter()
                 .map(|user| ChatMember {
+                    bot: false,
                     name: discord.name(guild, &user).unwrap_or_else(|| user.clone()),
                     username: discord.username(&user),
                     avatar: Some(discord.avatar(Some(guild), &user)),
+                    decoration: None,
+                    nameplate: None,
+                    style: None,
                     color: server.and_then(|server| discord.color(server, &user)),
                     role: Role::Member,
                     group: None,
@@ -87,7 +91,10 @@ pub(super) fn command(
                     activities: Default::default(),
                     roles: discord.roles(guild, &user),
                     timed_out_until: None,
+                    tag: None,
                     id: user,
+                    group_icon: None,
+                    role_icon: None,
                 })
                 .collect();
             members.sort_by_key(|member| member.name.to_lowercase());
@@ -131,9 +138,13 @@ pub(super) fn command(
                 let members = found
                     .into_iter()
                     .map(|user| ChatMember {
+                        bot: false,
                         name: discord.name(&guild, &user).unwrap_or_else(|| user.clone()),
                         username: discord.username(&user),
                         avatar: Some(discord.avatar(Some(&guild), &user)),
+                        decoration: None,
+                        nameplate: None,
+                        style: None,
                         color: server.and_then(|server| discord.color(server, &user)),
                         role: Role::Member,
                         group: None,
@@ -142,13 +153,41 @@ pub(super) fn command(
                         activities: Default::default(),
                         roles: discord.roles(&guild, &user),
                         timed_out_until: None,
+                        tag: None,
                         id: user,
+                        group_icon: None,
+                        role_icon: None,
                     })
                     .collect();
                 let _ = events.send(Event::MemberMatches {
                     room,
                     query,
                     members,
+                });
+            });
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ActivityFeed) = command {
+        match discord {
+            Ok(discord) => {
+                tokio::spawn(activity_feed(discord.clone(), events.clone()));
+            }
+            Err(_) => {
+                let _ = events.send(Event::ActivityFeed(Arc::default()));
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ActivityPeople { room, users }) = command {
+        if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(&room)) {
+            let (discord, events) = (discord.clone(), events.clone());
+            let (guild, channel) = (guild.to_owned(), channel.to_owned());
+            tokio::spawn(async move {
+                let people = discord.activity_people(&guild, &channel, &users).await;
+                let _ = events.send(Event::ActivityPeople {
+                    room,
+                    people: people.into(),
                 });
             });
         }
@@ -165,15 +204,60 @@ pub(super) fn command(
                             profile: chat_profile(&discord, &guild, profile),
                         });
                     };
-                    let result = discord
-                        .profile(&guild, &user, kept)
-                        .await
-                        .map(|profile| chat_profile(&discord, &guild, profile))
-                        .map_err(|error| {
+                    let profile = match discord.profile(&guild, &user, kept).await {
+                        Ok(profile) => profile,
+                        Err(error) => {
                             tracing::warn!(%error, "could not fetch a Discord profile");
-                            error.to_string()
-                        });
-                    let _ = events.send(Event::Profile { user, result });
+                            let _ = events.send(Event::Profile {
+                                user,
+                                result: Err(error.to_string()),
+                            });
+                            return;
+                        }
+                    };
+                    // The effect over the card is the shop's to describe, and
+                    // comes after the card does.
+                    let effect = profile.effect.clone();
+                    let mut badges = profile.badges.clone();
+                    let _ = events.send(Event::Profile {
+                        user: user.clone(),
+                        result: Ok(chat_profile(&discord, &guild, profile)),
+                    });
+                    // The effect and the badges' levels come after the card is
+                    // on screen, and together, as neither waits for the other.
+                    let effect_events = events.clone();
+                    let effect_discord = discord.clone();
+                    let effect_task = async move {
+                        let Some(sku) = effect else { return };
+                        match effect_discord.profile_effect(&sku).await {
+                            Ok(Some(effect)) => {
+                                let _ = effect_events
+                                    .send(Event::ProfileEffect(Arc::new((&*effect).into())));
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::warn!(%error, "could not fetch a Discord profile effect");
+                            }
+                        }
+                    };
+                    let badges_task = async {
+                        if discord.badge_levels(&guild, &user, &mut badges).await {
+                            let _ = events.send(Event::BadgeLevels {
+                                user: user.clone(),
+                                badges: chat_badges(std::mem::take(&mut badges)),
+                            });
+                        }
+                    };
+                    // The note this account keeps on them fills the full profile's.
+                    let note_task = async {
+                        if let Ok(note) = discord.note(&user).await {
+                            let _ = events.send(Event::Note {
+                                user: user.clone(),
+                                result: Ok(note),
+                            });
+                        }
+                    };
+                    tokio::join!(effect_task, badges_task, note_task);
                 });
             }
             (discord, _) => {
@@ -1720,6 +1804,15 @@ pub(super) fn places_used(
         .collect()
 }
 
+/// The favourite and used emoji, as the application keeps them.
+pub(super) fn emojis(emojis: yapfast_discord::frecency::Emojis) -> crate::chat::DiscordEmojis {
+    crate::chat::DiscordEmojis {
+        favorites: emojis.favorites,
+        used: emojis.used.map(places_used),
+        reactions: emojis.reactions.map(places_used),
+    }
+}
+
 /// What an invite shows, as the application keeps it.
 fn invite_preview(preview: &yapfast_discord::invite::Preview) -> InvitePreview {
     InvitePreview {
@@ -1810,3 +1903,34 @@ fn oauth_preview(
             .collect(),
     }
 }
+
+/// Fetches the Activity panel's feed, retrying as Discord's client does, and
+/// says when to ask again if the feed doesn't leave that to Discord.
+async fn activity_feed(discord: Discord, events: UnboundedSender<Event>) {
+    let mut retries = [1, 2, 4, 8].into_iter();
+    let feed = loop {
+        match discord.activity_feed().await {
+            Ok(feed) => break feed,
+            Err(error) => {
+                tracing::warn!(%error, "could not fetch the Discord activity feed");
+                let Some(minutes) = retries.next() else {
+                    let _ = events.send(Event::ActivityFeed(Arc::default()));
+                    return;
+                };
+                tokio::time::sleep(Duration::from_secs(minutes * 60)).await;
+            }
+        }
+    };
+    drop(discord);
+    let _ = events.send(Event::ActivityFeed(feed.entries));
+    if feed.stale_after_ms.is_none() {
+        let wait = feed.wait_ms.unwrap_or(FEED_WAIT_MS).max(FEED_LEAST_WAIT_MS);
+        tokio::time::sleep(Duration::from_millis(wait)).await;
+        let _ = events.send(Event::ActivityFeedDue);
+    }
+}
+
+/// How long until asking again when Discord doesn't say, in milliseconds.
+const FEED_WAIT_MS: u64 = 5 * 60 * 1000;
+/// The least wait however Discord answers, in milliseconds.
+const FEED_LEAST_WAIT_MS: u64 = 60 * 1000;

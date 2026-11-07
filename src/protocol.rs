@@ -49,6 +49,9 @@ use linux as platform;
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
+// src/notify.rs registers Yapfast's toasts with it.
+#[cfg(windows)]
+pub(crate) use windows::set_string;
 
 #[cfg(not(any(windows, target_os = "linux")))]
 mod none {
@@ -205,7 +208,7 @@ mod windows {
         command.contains("yapfast.exe") && command.contains("%1")
     }
 
-    fn set_string(key: &str, name: Option<&str>, value: &str) -> io::Result<()> {
+    pub(crate) fn set_string(key: &str, name: Option<&str>, value: &str) -> io::Result<()> {
         set_value(key, name, value, REG_SZ)
     }
 

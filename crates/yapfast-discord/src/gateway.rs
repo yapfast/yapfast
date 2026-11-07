@@ -1299,12 +1299,12 @@ mod tests {
         assert_eq!(next(&mut gateway).await.unwrap().event, Event::TypingStart);
 
         // An event Yapfast doesn't know passes through by name, with its data.
-        peer.dispatch("GUILD_SCHEDULED_EVENT_CREATE", json!({"id": "7"}))
+        peer.dispatch("GUILD_AUDIT_LOG_ENTRY_CREATE", json!({"id": "7"}))
             .await;
         let other = next(&mut gateway).await.unwrap();
         assert_eq!(
             other.event,
-            Event::Other("GUILD_SCHEDULED_EVENT_CREATE".into())
+            Event::Other("GUILD_AUDIT_LOG_ENTRY_CREATE".into())
         );
         assert_eq!(other.data["id"], "7");
     }

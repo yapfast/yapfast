@@ -274,7 +274,7 @@ impl Shell {
     /// the conversation scrolled to the same message, and everything else from
     /// the application's state.
     fn make(self: &Rc<Self>) -> Result<YapfastWindow, slint::PlatformError> {
-        let window = YapfastWindow::new()?;
+        let window = yapfast::window()?;
         let view = self.view.borrow_mut().take();
         let adapter = self.adapter.borrow();
         title_bar::show(&window, adapter.layout.system_title_bar);

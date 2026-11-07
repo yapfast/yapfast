@@ -157,11 +157,13 @@ pub(super) fn command(
                     let kept = kept.into_iter().map(favorite).collect();
                     let _ = events.send(Event::KeptFavoriteGifs(kept));
                 }
-                let result = discord
-                    .favorite_gifs()
-                    .await
-                    .map(|favorites| favorites.into_iter().map(favorite).collect())
-                    .map_err(|error| format!("Couldn't load your favourite GIFs: {error}"));
+                let result = match discord.favorite_gifs_and_emojis().await {
+                    Ok((favorites, emojis)) => {
+                        let _ = events.send(Event::DiscordEmojis(super::account::emojis(emojis)));
+                        Ok(favorites.into_iter().map(favorite).collect())
+                    }
+                    Err(error) => Err(format!("Couldn't load your favourite GIFs: {error}")),
+                };
                 let _ = events.send(Event::FavoriteGifs(result));
             });
         }

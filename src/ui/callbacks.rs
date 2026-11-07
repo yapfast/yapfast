@@ -435,53 +435,48 @@ fn refresh_emoji_favorites(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindo
 /// fetches the pictures of the custom emoji it shows.
 fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &str, columns: usize) {
     let mut adapter = adapter.borrow_mut();
-    let custom = adapter.app.emoji_sets();
-    // Each server's icon heads its emoji in the rail, and need not be on
-    // screen anywhere else, so the ones that aren't here yet are asked for.
-    let wanted: Vec<String> = custom
-        .iter()
-        .filter_map(|set| set.icon.clone())
-        .filter(|url| !adapter.app.state.pictures.contains_key(url))
-        .collect();
-    // The custom emoji whose pictures this device still holds, such as those
-    // in the messages on screen, draw them: the picker let go of its own copies
-    // as it last closed, and they were asked for already, so none arrives.
-    let pictures = &adapter.app.state.pictures;
-    custom_emoji::add_images(
-        custom
-            .iter()
-            .flat_map(|set| &set.emoji)
-            .filter_map(|emoji| Some((emoji.id.as_str(), pictures.get(&emoji.picture)?.as_ref()))),
-    );
-    let (rows, sections) = emoji::rows(
-        query,
-        adapter.app.emoji_favorites(),
-        &adapter.app.frequent_reactions(16),
-        &custom,
-        columns,
-        |set| {
+    let (rows, sections) = {
+        let custom = adapter.app.emoji_sets();
+        // Closing the picker let go of the images made from the pictures still
+        // kept, which won't arrive again.
+        custom_emoji::add_images(
+            custom
+                .iter()
+                .flat_map(|set| &set.emoji)
+                .filter_map(|emoji| super::refresh::arrived(&adapter.app.state, emoji)),
+        );
+        // With no query, the Discord account's favourites, then the emoji it
+        // uses most, or reacts with most for a reaction, as its other clients
+        // keep them, and those this device reacts with.
+        let (favorites, frequent) = if query.trim().trim_matches(':').is_empty() {
+            let by_id: HashMap<&str, &yapfast_core::chat::CustomEmoji> = custom
+                .iter()
+                .flat_map(|set| &set.emoji)
+                .map(|emoji| (emoji.id.as_str(), emoji))
+                .collect();
+            let lists = &adapter.app.state.discord_emojis;
+            let item = window.get_react_item();
+            let used = if item.is_empty() || item.starts_with("yapfast:") {
+                &lists.frequent
+            } else {
+                &lists.reactions
+            };
+            let mut frequent = emoji::discord_keys(used, &by_id);
+            for key in adapter.app.frequent_reactions(16) {
+                if !frequent.iter().any(|(known, _)| *known == key) {
+                    frequent.push((key, true));
+                }
+            }
+            (emoji::discord_keys(&lists.favorites, &by_id), frequent)
+        } else {
+            Default::default()
+        };
+        emoji::rows(query, &favorites, &frequent, &custom, columns, |set| {
             let url = set.icon.clone()?;
             let icon = adapter.app.state.pictures.get(&url)?;
             Some((url, picture(icon)))
-        },
-    );
-    if !wanted.is_empty() {
-        adapter.action(window, Action::WantedPictures(wanted));
-    }
-    // The rail lists the same sections the grid has, at the rows they start
-    // and end at.
-    let rail: Vec<RailSection> = sections
-        .iter()
-        .map(|section| RailSection {
-            name: section.icon.name.clone(),
-            icon: section.icon.clone(),
-            // The sticker picker's clock, for the one heading both share.
-            glyph: emoji::section_glyph(section.icon.name.as_str()),
-            top: section.top,
-            end: section.end,
         })
-        .collect();
-    update_model(&adapter.models.emoji_rail, rail);
+    };
     let grid_height = rows.last().map_or(0.0, |row| row.top + row.height);
     update_model(&adapter.models.emoji_rows, rows);
     window.set_emoji_grid_height(grid_height);
@@ -588,6 +583,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         .on_frame(|key, _revision| {
             i_slint_core::yapfast_emoji::frame_of_key(key.as_str()).unwrap_or_default()
         });
+    window
+        .global::<PictureStore>()
+        .on_animated(|url| animated_url(url.as_str()).into());
+    window
+        .global::<PictureStore>()
+        .on_frames(|url, _revision| avatar_animation(url.as_str()).0);
+    window
+        .global::<PictureStore>()
+        .on_delays(|url, _revision| avatar_animation(url.as_str()).1);
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -785,6 +789,28 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_message_person(move |user| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MessagePerson(user.into()));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_save_note(move |user, note| {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(
+                &window,
+                Action::SaveNote {
+                    user: user.into(),
+                    note: note.into(),
+                },
+            );
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_befriend(move |user| {
         if let Some(window) = weak.upgrade() {
             state
@@ -823,6 +849,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 state
                     .borrow_mut()
                     .action(&window, Action::RequestJoinVoice(id));
+            }
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_start_video_call(move || {
+        if let Some(window) = weak.upgrade() {
+            let id = state.borrow().app.state.selected.clone();
+            if let Some(id) = id {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::StartVideoCall(id));
             }
         }
     });
@@ -937,6 +975,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     {
         let adapter = adapter.clone();
+        window.on_may_create_channel(move |category| {
+            adapter.borrow().app.may_create_channel(&category)
+        });
+    }
+    {
+        let adapter = adapter.clone();
         // An empty category's heading names the category itself.
         window.on_category_of(move |room| {
             let app = &adapter.borrow().app;
@@ -1013,6 +1057,26 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_new_dm, Action::OpenNewDm);
     bind!(on_open_add_friend, Action::OpenAddFriend);
     bind!(on_open_requests, Action::OpenDmScreen(DmScreen::Requests));
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_inbox_opened(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().refresh(&window);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_activity_clock(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().refresh(&window);
+            }
+        });
+    }
+    bind!(on_go_back, Action::NavigateBack);
+    bind!(on_go_forward, Action::NavigateForward);
     bind!(on_open_friends, Action::OpenDmScreen(DmScreen::Friends));
     bind!(on_open_browse, Action::BrowseChannels);
     bind_item!(on_message_friend, Action::MessagePerson);
@@ -1598,6 +1662,30 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             adapter.action(&window, Action::ShowHiddenChannels(shown));
         }
     });
+    // Show more or Show less on a long message: only its own rows change,
+    // in the timeline and the thread beside it.
+    let state = adapter.clone();
+    window.on_fold_message(move |item, whole| {
+        let mut adapter = state.borrow_mut();
+        let key = messages::fold_key(&item);
+        if whole {
+            adapter.revealed.insert(key);
+        } else {
+            adapter.revealed.remove(&key);
+        }
+        let adapter = &mut *adapter;
+        for (model, rows) in [
+            (&adapter.models.messages, &mut adapter.rows),
+            (&adapter.models.aside_messages, &mut adapter.aside_rows),
+        ] {
+            for (index, row) in rows.iter_mut().enumerate() {
+                if row.item == item && row.expanded != whole {
+                    row.expanded = whole;
+                    model.set_row_data(index, row.clone());
+                }
+            }
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_reveal_attachment(move |item, index| {
@@ -1820,10 +1908,14 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let layout = &mut adapter.layout;
         layout.twelve_hour_clock = window.get_twelve_hour_clock();
         layout.clock_seconds = window.get_clock_seconds();
+        layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
+        layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
+        layout.nameplates = Some(window.get_show_nameplates());
+        layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
@@ -1859,6 +1951,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
         layout.close_to_tray = Some(window.get_close_to_tray());
         layout.multiple_windows = window.get_multiple_windows();
+        layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
         adapter.watch_talk_key(&window);
         let start = window.get_start_on_sign_in();
@@ -1885,6 +1978,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             (window.get_reply_ping_default(), window.get_strip_tracking());
         adapter.app.dispatch(Action::ReplyPing(reply_ping));
         adapter.app.dispatch(Action::StripTracking(strip_tracking));
+        adapter
+            .app
+            .dispatch(Action::HideNameplates(!window.get_show_nameplates()));
         adapter.restyle = true;
         adapter.refresh(&window);
     });
@@ -1956,6 +2052,26 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 volumes.insert(person.into(), volume);
             }
             adapter.layout.write(&adapter.root);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_activity_cards_hidden_toggled(move |hidden| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.activity_cards_hidden = hidden;
+        adapter.layout.write(&adapter.root);
+        if let Some(window) = weak.upgrade() {
+            adapter.action(&window, Action::ActivityCardsHidden(hidden));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_skip_call_prompt_toggled(move |skip| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.skip_call_prompt = skip;
+        adapter.layout.write(&adapter.root);
+        if let Some(window) = weak.upgrade() {
+            adapter.action(&window, Action::SkipCallPrompt(skip));
         }
     });
     let state = adapter.clone();

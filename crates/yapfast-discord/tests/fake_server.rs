@@ -1322,6 +1322,164 @@ impl Fixture {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_favourite_and_used_emoji_with_the_favourite_gifs() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("fetches_the_favourite_and_used_emoji_with_the_favourite_gifs").await;
+    let (gifs, emojis) = discord.favorite_gifs_and_emojis().await.unwrap();
+    assert!(!gifs.is_empty());
+    let names = |used: Option<Vec<(String, yapfast_discord::frecency::Uses)>>| {
+        used.unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(emojis.favorites.unwrap()[1], "skull_crossbones");
+    assert_eq!(names(emojis.used), ["joy", "thumbsup_tone4"]);
+    assert_eq!(names(emojis.reactions), ["fire", "100"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_profile_effect_a_profile_names() {
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        bob,
+        ..
+    } = Fixture::start("fetches_the_profile_effect_a_profile_names").await;
+    // Bob's profile names an effect; Carol's, none.
+    let profile = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    let sku = profile.effect.expect("Bob equips an effect");
+    let carol = discord
+        .profile(&guild, "1400000000000000003", |_| {})
+        .await
+        .unwrap();
+    assert_eq!(carol.effect, None);
+    // The shop describes its layers: an intro that plays once and a loop.
+    let effect = discord.profile_effect(&sku).await.unwrap().unwrap();
+    assert_eq!(effect.layers.len(), 2);
+    let (intro, looping) = (&effect.layers[0], &effect.layers[1]);
+    assert_eq!(
+        (intro.start, intro.duration, intro.looped),
+        (0, 2000, false)
+    );
+    assert_eq!(
+        (
+            looping.start,
+            looping.duration,
+            looping.loop_delay,
+            looping.looped,
+            looping.y
+        ),
+        (1500, 3000, 1000, true, 20)
+    );
+    // Its pictures are on the CDN.
+    let layer = discord.download(&looping.src, 1 << 24).await.unwrap();
+    assert_eq!(&layer[16..24], &[0, 0, 1, 194, 0, 0, 3, 112], "450x880");
+    let still = discord
+        .download(effect.still.as_deref().unwrap(), 1 << 20)
+        .await
+        .unwrap();
+    assert!(still.starts_with(b"\x89PNG"));
+    // Asked again, it comes from what was kept; a SKU that isn't one is nothing.
+    assert!(Arc::ptr_eq(
+        &effect,
+        &discord.profile_effect(&sku).await.unwrap().unwrap()
+    ));
+    assert!(discord.profile_effect("1").await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn shows_decorations_and_nameplates() {
+    let Fixture {
+        _fake,
+        discord,
+        snapshot,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("shows_decorations_and_nameplates").await;
+    // Alice's own user, from READY, has both; her account card shows them.
+    let account = snapshot.account.as_ref().unwrap();
+    assert!(account.decoration.as_deref().is_some_and(|url| {
+        url.ends_with("/media/v1/collectibles-shop/1500000000000000003/static")
+    }));
+    let plate = account.nameplate.as_ref().unwrap();
+    assert_eq!(plate.colors, Some([0xdc3e97, 0xf957b3]), "bubble gum");
+    assert!(
+        plate
+            .picture
+            .ends_with("/collectibles-shop/1500000000000000004/static")
+    );
+
+    // The member list's users carry them: both for Bob, a nameplate for Carol.
+    let mut live = discord.live();
+    discord.view(&guild, Some(&general));
+    let members = live_where(&mut live, |event| match event {
+        Live::Members { channel, members } if channel == general => Some(members),
+        _ => None,
+    })
+    .await;
+    let person = |name: &str| members.iter().find(|member| member.name == name).unwrap();
+    assert!(person("Bob").decoration.is_some() && person("Bob").nameplate.is_some());
+    assert!(person("Carol").decoration.is_none());
+    assert_eq!(
+        person("Carol").nameplate.as_ref().unwrap().colors,
+        Some([0x730bc8, 0x972fed])
+    );
+    // Dave has none of his own, but wears a decoration and a nameplate for
+    // this server alone, which member objects carry; Bob's name takes a
+    // style there, and Carol's everywhere.
+    assert!(
+        person("Dave")
+            .decoration
+            .as_deref()
+            .is_some_and(|url| url.ends_with("/collectibles-shop/1500000000000000005/static"))
+    );
+    assert_eq!(
+        person("Dave").nameplate.as_ref().unwrap().colors,
+        Some([0x086460, 0x7deed7])
+    );
+    let bob_style = person("Bob").style.unwrap();
+    assert_eq!((bob_style.font, bob_style.effect), (14, 3));
+    assert_eq!(bob_style.colors(), [0x00ff99]);
+    let carol_style = person("Carol").style.unwrap();
+    assert_eq!((carol_style.font, carol_style.effect), (3, 2));
+    assert_eq!(carol_style.colors(), [0xff7eb3, 0x7a5cff]);
+    assert!(person("Alice").style.is_none());
+
+    // What messages learn of an author is the same as the list's.
+    discord
+        .history(&guild, &general, Span::Latest)
+        .await
+        .unwrap();
+    assert_eq!(
+        discord.decoration(Some(&guild), &bob),
+        person("Bob").decoration
+    );
+
+    // Both pictures are on the CDN, as PNGs, at the address Discord's client
+    // asks for.
+    let decoration = discord
+        .download(person("Bob").decoration.as_deref().unwrap(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(&decoration[16..24], &[0, 0, 1, 32, 0, 0, 1, 32], "288x288");
+    let strip = discord
+        .download(
+            &person("Carol").nameplate.as_ref().unwrap().picture,
+            1 << 20,
+        )
+        .await
+        .unwrap();
+    assert_eq!(&strip[16..24], &[0, 0, 1, 192, 0, 0, 0, 84], "448x84");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn reads_history_and_member_lists() {
     let Fixture {
         _fake,
@@ -1421,7 +1579,7 @@ async fn reads_history_and_member_lists() {
         .await
         .unwrap();
     assert!(preview.starts_with(b"\x89PNG"));
-    assert_eq!(&preview[16..24], &[0, 0, 1, 104, 0, 0, 0, 225], "360x225");
+    assert_eq!(&preview[16..24], &[0, 0, 2, 38, 0, 0, 1, 88], "550x344");
 
     // The channel's member list arrives once it's on screen, grouped as in
     // Discord: the hoisted Mods role, then online, then offline.
@@ -2410,17 +2568,19 @@ async fn shows_profiles() {
         discord,
         guild,
         bob,
+        server,
         ..
     } = Fixture::start("shows_profiles").await;
     // Bob's profile: in the server, his server bio wins over his own; from
     // a DM, his own shows.
-    let in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    let mut in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
     assert_eq!(in_server.name, "Bob");
     assert_eq!(in_server.pronouns.as_deref(), Some("he/him"));
     assert_eq!(in_server.bio.as_deref(), Some("Keeps #general tidy."));
     assert!(
         in_server
             .banner
+            .as_ref()
             .is_some_and(|banner| banner.contains("/banners/"))
     );
     assert_eq!(in_server.roles.len(), 1, "Bob is a Mod");
@@ -2429,6 +2589,55 @@ async fn shows_profiles() {
     assert_eq!(in_server.mutual_servers[0].id, guild);
     assert_eq!(in_server.mutual_friends.len(), 1);
     assert_eq!(in_server.mutual_friends[0].name, "Carol");
+    // Bob wears the server's tag; Carol has none.
+    let tag = in_server.tag.as_ref().expect("Bob has a server tag");
+    assert_eq!(&*tag.text, "BOB");
+    assert!(
+        tag.badge
+            .as_deref()
+            .is_some_and(|url| url.contains(&format!("/clan-badges/{guild}/")))
+    );
+    assert_eq!(discord.server_tag(&bob).as_ref(), Some(tag));
+    let badges: Vec<_> = in_server
+        .badges
+        .iter()
+        .map(|badge| badge.description.as_str())
+        .collect();
+    assert_eq!(
+        badges,
+        ["HypeSquad Bravery", "Active Developer", "Spielzeit"]
+    );
+    assert!(in_server.badges[0].link.is_some() && in_server.badges[1].link.is_none());
+    // The levels come after the profile, from /users/{id}/badges, and only the
+    // badge that levels up has one.
+    assert!(in_server.badges.iter().all(|badge| badge.level.is_none()));
+    assert!(
+        discord
+            .badge_levels(&guild, &bob, &mut in_server.badges)
+            .await
+    );
+    // Discord is asked once while the profile is kept, which has the levels.
+    let mut again = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    assert!(again.badges[2].level.is_some());
+    assert!(!discord.badge_levels(&guild, &bob, &mut again.badges).await);
+    assert_eq!(control(server, "GET", "/_control/badge-reads", ""), "1");
+    assert!(
+        in_server.badges[..2]
+            .iter()
+            .all(|badge| badge.level.is_none())
+    );
+    let level = in_server.badges[2]
+        .level
+        .as_ref()
+        .expect("playing time has a level");
+    assert_eq!(level.kind.as_deref(), Some("Spielzeit"));
+    assert_eq!(level.title, "Eisern");
+    assert_eq!(level.progress, "1.816 Stunden gespielt");
+    assert!(
+        level
+            .picture
+            .ends_with("d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg")
+    );
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
@@ -2948,6 +3157,71 @@ async fn calls_and_goes_live() {
     call.leave();
     discord.leave(&guild);
     snapshot_where(&discord, |snapshot| in_lounge(snapshot).is_none()).await;
+}
+
+/// Address discovery's UDP asks can be lost, on a lossy link or behind a
+/// NAT: a call and a stream ask again until the voice server answers, and a
+/// stream whose server never answers gives up after five asks, five seconds.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn asks_again_when_address_discovery_is_lost() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        bob,
+        ..
+    } = Fixture::start("asks_again_when_address_discovery_is_lost").await;
+    let asks = || -> serde_json::Value {
+        serde_json::from_str(&control(server, "GET", "/_control/discovery-drop", "")).unwrap()
+    };
+    let assigned = discord.join(&guild, &lounge).await.unwrap();
+    post_control(server, "/_control/discovery-drop?count=2", "");
+    let _call = timeout(
+        WAIT,
+        Call::connect(&assigned, &guild, &lounge, Arc::new(Quiet)),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+    assert_eq!(asks(), serde_json::json!({"dropped": 2, "answered": 1}));
+
+    // Watching Bob, the stream's first three asks are lost.
+    let watched = discord
+        .watch(&stream::key(&guild, &lounge, &bob))
+        .await
+        .unwrap();
+    post_control(server, "/_control/discovery-drop?count=3", "");
+    let decodes = vec![Codec::H264, Codec::Vp8];
+    let again = (watched.clone(), decodes.clone());
+    tokio::task::spawn_blocking(move || watch_frames(&again.0, again.1, 3))
+        .await
+        .unwrap();
+    assert_eq!(asks(), serde_json::json!({"dropped": 5, "answered": 2}));
+
+    // A voice server that never answers.
+    post_control(server, "/_control/discovery-drop?count=100", "");
+    let started = std::time::Instant::now();
+    let receiver = StreamReceiver::start(watched, decodes).unwrap();
+    let reason = loop {
+        assert!(started.elapsed() < WAIT, "{:?}", receiver.link());
+        if let Link::Ended(reason) = receiver.link() {
+            break reason;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let took = started.elapsed();
+    assert_eq!(
+        reason,
+        "the voice server didn't answer address discovery, asked 5 times over 5 s"
+    );
+    assert!(
+        (Duration::from_secs(5)..Duration::from_secs(7)).contains(&took),
+        "{took:?}"
+    );
+    assert_eq!(asks(), serde_json::json!({"dropped": 10, "answered": 2}));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -3657,6 +3931,22 @@ async fn acts_from_a_dms_menu() {
         .await
         .unwrap();
     assert_eq!(discord.note(&dave_user).await.unwrap(), "Met at the jam");
+    // Discord is asked once; another client's change comes by the gateway.
+    let note_reads = || control(server, "GET", "/_control/note-reads", "");
+    assert_eq!(note_reads(), "1");
+    post_control(
+        server,
+        &format!("/_control/note-elsewhere?user={dave_user}&note=Owes+me"),
+        "",
+    );
+    timeout(WAIT, async {
+        while discord.note(&dave_user).await.unwrap() != "Owes me" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(note_reads(), "1");
     discord.ignore(&dave_user, true).await.unwrap();
     snapshot_where(&discord, |snapshot| {
         *snapshot.ignored == [dave_user.clone()]
@@ -3886,6 +4176,74 @@ async fn changes_notification_settings() {
     .await;
     mute_category(false).await;
     snapshot_where(&discord, |snapshot| !general_muted(snapshot)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_activity_feed_and_who_a_channel_may_show() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("activity_feed").await;
+    let feed = discord.activity_feed().await.unwrap();
+    assert_eq!(feed.refresh_token.as_deref(), Some("fake-feed-token"));
+    assert_eq!(feed.wait_ms, Some(300_000));
+    let titles: Vec<&str> = feed.entries.iter().map(|entry| &*entry.title).collect();
+    assert_eq!(
+        titles,
+        [
+            "Factorio",
+            "Marconi Union",
+            "Celeste",
+            "Factorio",
+            "Marconi Union",
+            "Nobody's game",
+        ],
+    );
+    assert!(feed.entries[0].live);
+    assert!(!feed.entries[2].live);
+    assert_eq!(feed.entries[3].hours, Some(13));
+    assert_eq!(feed.entries[4].tracks, Some(31));
+
+    // The second asks from where the first left off.
+    discord.activity_feed().await.unwrap();
+    let fetches = control(server, "GET", "/_control/activity-fetches", "");
+    assert_eq!(fetches, r#"[null,"fake-feed-token"]"#);
+
+    let mut live = discord.live();
+    post_control(server, "/_control/activity-stale", "");
+    let stale = live_where(&mut live, |event| match event {
+        Live::ActivityFeedStale { refresh_after_ms } => Some(refresh_after_ms),
+        _ => None,
+    })
+    .await;
+    assert_eq!(stale, Some(0));
+
+    let users: Vec<std::sync::Arc<str>> = feed
+        .entries
+        .iter()
+        .map(|entry| entry.author.clone())
+        .collect();
+    let people = discord.activity_people(&guild, &general, &users).await;
+    assert!(people.iter().any(|person| &*person.id == bob.as_str()));
+    assert!(
+        people
+            .iter()
+            .all(|person| &*person.id != "1400000000000000999"),
+        "someone in no server shared with the account stays out",
+    );
+    assert_eq!(
+        people
+            .iter()
+            .find(|person| &*person.id == bob.as_str())
+            .map(|person| &*person.name),
+        Some("Bob"),
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

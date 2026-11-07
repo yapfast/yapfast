@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Writes src/discord_emoji_names.rs: the Unicode emoji Discord names
+differently from GitHub's shortcodes, which the `emojis` crate knows.
+
+Discord's settings name a favourite or used Unicode emoji by its short name,
+such as `slight_smile`, which follows JoyPixels' shortcodes; the `emojis`
+crate knows GitHub's, such as `slightly_smiling_face`. The table holds each
+JoyPixels shortcode GitHub's don't have, from emojibase-data (MIT).
+Run it again to follow a newer emojibase-data.
+"""
+import json
+import re
+import urllib.request
+from pathlib import Path
+
+VERSION = '15.3.0'
+BASE = f'https://cdn.jsdelivr.net/npm/emojibase-data@{VERSION}/en'
+OUT = Path(__file__).resolve().parent.parent / 'src' / 'discord_emoji_names.rs'
+
+
+def fetch(name):
+    with urllib.request.urlopen(f'{BASE}/{name}') as answer:
+        return json.load(answer)
+
+
+def names(value):
+    return value if isinstance(value, list) else [value]
+
+
+emoji = {entry['hexcode']: entry['unicode'] for entry in fetch('compact.json')}
+github = {name for value in fetch('shortcodes/github.json').values() for name in names(value)}
+table = {}
+for hexcode, value in fetch('shortcodes/joypixels.json').items():
+    # Skin tones come from the base emoji's name and `_toneN`.
+    if re.search(r'-1F3F[B-F]', hexcode) or hexcode not in emoji:
+        continue
+    for name in names(value):
+        if name not in github and name.removeprefix('flag_') not in github:
+            table[name] = emoji[hexcode]
+
+# Where Discord means another emoji by a name than JoyPixels does, or names one
+# with an underscore where GitHub has a hyphen.
+table.update({
+    'beach_umbrella': '\u26f1\ufe0f',
+    'city_sunset': '\U0001f307',
+    'non_potable_water': '\U0001f6b1',
+})
+
+rows = ''.join(f'    ({json.dumps(name)}, {json.dumps(glyph, ensure_ascii=False)}),\n'
+               for name, glyph in sorted(table.items()))
+OUT.write_text(f'''//! The Unicode emoji Discord names differently from GitHub's shortcodes, by
+//! Discord's name, sorted. Written by `scripts/discord-emoji-names` from
+//! emojibase-data {VERSION} (MIT); see there.
+
+#[rustfmt::skip]
+pub const NAMES: &[(&str, &str)] = &[
+{rows}];
+''')
+print(f'{len(table)} names in {OUT.relative_to(OUT.parent.parent)}')

@@ -1,5 +1,9 @@
 # Chat UI
 
+A refined presentation of these widgets is the default; see
+[Yapfast UI](yapfast-ui.md) for its metrics and the switch back to
+the earlier look.
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and Slint's
 Markdown draws formatted text. `pulldown-cmark` in `yapfast-core` reads
@@ -61,7 +65,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   hides or shows. A Discord text channel
   lists whoever can read it, grouped as in Discord: under hoisted roles, then
   ONLINE and OFFLINE, with counts, avatars, status dots, role colours,
-  custom statuses, and a red clock beside someone timed out. Yapfast subscribes to the list's
+  custom statuses, and a red clock beside someone timed out. An app has an APP
+  tag after its name and the server's owner a crown, in that order, as in
+  Discord. Above a server channel's list, an Activity panel shows Discord's
+  feed of what people there are doing and did lately; see
+  [the Activity panel](discord/people.md#the-activity-panel). Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
 - Read live text messages. Earlier history loads once the timeline has
   stayed within a screen of its top for 50 ms, a page at a time (30 events
@@ -98,6 +106,18 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   selectable across messages through Yapfast's patched Slint
   ([building](building.md#dependencies)); Ctrl+C or the menu's Copy selection
   copies it, and Copy text copies a whole message.
+- Fold long messages, a Yapfast addition that Discord doesn't have. With
+  "Collapse long messages" on in Settings > Messages (`collapse_long` in
+  `layout.json`, off by default), a message whose text, code blocks and all,
+  runs past fifteen lines shows its first twelve, cut off, with Show more
+  under it; Show more shows it whole, and Show less folds it again. Its
+  pictures, embeds and reactions show under it either way. Each message
+  keeps its own choice while Yapfast runs, in the timeline and the thread
+  beside it, and starts folded again after a restart. Folding measures the
+  text as laid out, so it follows the window's width and the text size.
+  Clicking either stops the view following the newest message, so the
+  message's top stays where it is as it grows, and Show less on a message
+  whose top is above the view brings its top back into view.
 - Start a DM from the pen in the DM list's header: type a name to search the
   homeserver's user directory, or a full Matrix id. Yapfast opens the DM you
   already have with them, or starts an encrypted one and opens it once sync
@@ -151,8 +171,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   with Manage Messages. Until you have reacted, the most used reactions are 👍,
   ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
   in `layout.json` on this computer. The icons have tooltips and accessible
-  names. Add reaction opens a picker with a search field, frequently used emoji
-  and every category of the `emojis` crate up to Unicode 15.0, which Noto Color
+  names. Add reaction opens a picker with a search field, favourite emoji,
+  frequently used emoji and every category of the `emojis` crate up to
+  Unicode 15.0, which Noto Color
   Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
   reaction adds or removes yours.
 - Holding Shift turns the toolbar into quick actions, as in Discord's
@@ -416,7 +437,16 @@ On Linux desktops that give their windows title bars, Yapfast draws its own
 in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 `ui/title_bar.slint`): a 32px bar on the rail's ground across the top, with
 the server's name, "Direct messages" or "Yapfast" in the middle and
-minimize, maximize or restore, and close at the right. Pressing on it and
+minimize, maximize or restore, and close at the right. Signed in, it also has
+back and forward arrows at the left, which walk the conversations visited as
+Alt+Left and Alt+Right do, up to 50 of them and past any that are gone, and
+Inbox and Help before the window's buttons. Help opens Discord's support site.
+Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
+conversations with unread messages, muted ones only for a mention, and
+Mentions, those that mention this account, each with its count; Discord's own
+Mentions tab lists the messages themselves. A row opens its conversation, and
+clicking outside or Escape closes it. Its rows exist only while it shows.
+Pressing on it and
 moving moves the window, a double click maximizes it, and close does what
 the desktop's close button did. Without the desktop's frame, the window's
 outer 5px resize it, its 8px corners both ways, except while maximized. The
@@ -438,7 +468,10 @@ Weston's desktop shell, whose windows move and resize, where its kiosk shell
 makes the window full screen, which hides the bar. A window
 without the desktop's frame gets no shadow from KWin or Mutter, and the
 desktop's title bar menu isn't offered: winit can't show it on Linux. In
-full screen, as a call's stage is, the bar goes. Windows keeps its own frame.
+full screen, as a call's stage is, the bar goes. The earlier
+presentation on Windows keeps its own frame. The refined presentation
+defaults to an integrated Windows bar, with the same saved system-frame
+setting; see [Yapfast UI](yapfast-ui.md).
 
 The window follows Discord's arrangement:
 
@@ -541,7 +574,7 @@ The window follows Discord's arrangement:
   and status show a Discord call's ping on hover and its connection details
   on a click (see [Connection details](discord/voice.md#connection-details)), then the account panel
   with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock and link previews, notifications,
+  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu; the input menu shows a local level meter. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in
@@ -585,6 +618,11 @@ The window follows Discord's arrangement:
   other person's menu is the DM's own, less Mark as read and Copy link, and
   Copy ID copies theirs. Clicking an author's avatar or name, which underlines while
   pointed at, shows their card beside it.
+- Copy ID, in every menu that has it, shows only with Settings → Advanced →
+  Developer Mode on, as in Discord, where the setting shows the same "Copy …
+  ID" items. It's off unless turned on, and kept in `layout.json` on this
+  device: Discord syncs it with its appearance settings, which Yapfast
+  doesn't read.
 - A voice stage with participant tiles, a green border while someone speaks,
   and round mute, deafen and leave controls.
 

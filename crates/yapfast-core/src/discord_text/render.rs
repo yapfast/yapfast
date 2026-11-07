@@ -101,6 +101,10 @@ pub(super) fn found(
         sender: discord::sender_id(&message.author_id),
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
+        decoration: discord.decoration(guild, &message.author_id),
+        style: discord
+            .style(guild, &message.author_id)
+            .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
         bot: message.bot,
         body,
@@ -534,6 +538,24 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
 
 /// A Discord profile as Yapfast's profile card shows it, with the server's role
 /// names, colours and names known now.
+/// A profile's badges, as the card shows them.
+pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<ProfileBadge> {
+    badges
+        .into_iter()
+        .map(|badge| ProfileBadge {
+            description: badge.description,
+            icon: badge.icon,
+            link: badge.link,
+            level: badge.level.map(|level| ProfileBadgeLevel {
+                kind: level.kind,
+                title: level.title,
+                progress: level.progress,
+                picture: level.picture,
+            }),
+        })
+        .collect()
+}
+
 pub(super) fn chat_profile(
     discord: &Discord,
     guild: &str,
@@ -545,9 +567,16 @@ pub(super) fn chat_profile(
         .iter()
         .find(|server| server.id == guild)
         .map(|server| &*server.server);
+    let bio_emoji = profile.bio.as_deref().map(emoji_in).unwrap_or_default();
     Profile {
         name: profile.name,
         avatar: Some(profile.avatar),
+        decoration: discord.decoration(Some(guild), &profile.user_id),
+        style: discord
+            .style(Some(guild), &profile.user_id)
+            .map(|style| Arc::new(style.into())),
+        effect: profile.effect,
+        theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
         pronouns: profile.pronouns.unwrap_or_default(),
@@ -561,8 +590,8 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(yapfast_discord::message::date(profile.created)),
-        joined: profile.joined.map(yapfast_discord::message::date),
+        created: Some(crate::clock::day(profile.created / 1000)),
+        joined: profile.joined.map(|ms| crate::clock::day(ms / 1000)),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -589,6 +618,22 @@ pub(super) fn chat_profile(
                 id: friend.id,
                 name: friend.name,
                 avatar: Some(friend.avatar),
+            })
+            .collect(),
+        tag: discord::server_tag(profile.tag),
+        badges: chat_badges(profile.badges),
+        bio_emoji,
+        // The note comes with its own request; see `fill_profile`.
+        note: String::new(),
+        connections: profile
+            .connections
+            .into_iter()
+            .map(|connection| ProfileConnection {
+                kind: connection.kind,
+                name: connection.name,
+                verified: connection.verified,
+                url: connection.url,
+                since: connection.since.map(|ms| crate::clock::day(ms / 1000)),
             })
             .collect(),
         handle: profile.username,
@@ -706,18 +751,25 @@ pub(super) fn chat_embed(
 
 pub(super) fn chat_member(member: ListedMember) -> ChatMember {
     ChatMember {
+        bot: member.bot,
         id: member.user_id,
         name: member.name,
         username: member.username,
         role: Role::Member,
         avatar: Some(member.avatar),
+        decoration: member.decoration,
+        nameplate: member.nameplate.map(Into::into),
+        style: member.style.map(|style| Arc::new(style.into())),
         group: Some(member.group),
+        group_icon: member.group_icon,
+        role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,
         timed_out_until: member.timed_out_until,
+        tag: discord::server_tag(member.tag),
     }
 }
 

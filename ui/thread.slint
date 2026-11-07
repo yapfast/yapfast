@@ -88,6 +88,10 @@ export component ThreadPanel inherits Rectangle {
     callback retry(string);
     callback cancel-send(string);
     callback reveal-attachment(string, int);
+    /// Long messages fold, and Show more or Show less was clicked on one:
+    /// its item, and whether it shows whole now.
+    in property <bool> collapse-long;
+    callback fold(string, bool);
     callback view-image(string, int);
     callback open-sticker(string, int, length, length, length, length);
     callback save-attachment(string, int);
@@ -194,7 +198,7 @@ export component ThreadPanel inherits Rectangle {
                     background: self.lit ? Theme.row-hover : transparent;
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
-                        background: Theme.accent.transparentize(0.9);
+                        background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
                         Rectangle { x: 0px; width: 2px; background: Theme.accent; }
                     }
                     row-pointer := TouchArea {
@@ -225,7 +229,17 @@ export component ThreadPanel inherits Rectangle {
                             MessageContent {
                                 message: message; active-item: root.active-item; composer-enabled: root.composer-enabled;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
-                                end-padding: 16px;
+                                end-padding: 16px; collapse-long: root.collapse-long;
+                                // The view keeps the message's top: it stops following
+                                // the newest, and Show less on a message whose top is
+                                // above the view brings its top back into it.
+                                fold(item, whole, y) => {
+                                    root.follow-latest = false;
+                                    if !whole && y < thread-list.absolute-position.y {
+                                        thread-list.content-y += thread-list.absolute-position.y - y;
+                                    }
+                                    root.fold(item, whole);
+                                }
                                 author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
                                 author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
                                 jump-to(item) => { root.jump-to(item); }

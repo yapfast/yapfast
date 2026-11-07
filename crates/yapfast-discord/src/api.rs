@@ -637,6 +637,31 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// The feed behind the member list's Activity panel, from where
+    /// `refresh_token` left off; see [`crate::activity_feed`].
+    pub async fn activity_feed(&self, refresh_token: Option<&str>) -> Result<Value> {
+        let mut path =
+            "/content-inventory/users/@me?for_game_profile=false&feature=inbox".to_owned();
+        if let Some(token) = refresh_token {
+            path.push_str(&format!("&refresh_token={}", encode(token)));
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// A user's levelling badges, with their levels and how far along they
+    /// are: `{"badges": [...]}`. The tooltips of a profile's badges show it.
+    pub async fn badges(&self, user: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, &format!("/users/{user}/badges")))
+            .await
+    }
+
+    /// A shop product, such as the profile effect of a SKU, as the client
+    /// fetches it to show the effect.
+    pub async fn collectibles_product(&self, sku: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, &format!("/collectibles-products/{sku}")))
+            .await
+    }
+
     /// Applications' public objects, with their names and icons, as the
     /// client fetches them for activities: `[{id, name, icon, ...}]`.
     pub async fn public_applications(&self, ids: &[&str]) -> Result<Value> {

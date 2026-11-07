@@ -2,6 +2,7 @@
 //! See docs/discord/README.md. Everything Discord-specific stays in this crate.
 
 pub mod activity;
+pub mod activity_feed;
 pub mod api;
 pub mod cache;
 mod call_connection;
@@ -9,6 +10,7 @@ pub mod call_stats;
 pub mod call_video;
 pub mod captcha;
 pub mod client;
+pub mod collectibles;
 pub mod components;
 pub mod cookies;
 mod dave;
@@ -33,6 +35,7 @@ pub mod oauth;
 pub mod opus;
 pub mod own_activity;
 pub mod profile;
+pub mod profile_effect;
 pub mod ready;
 pub mod remote_auth;
 #[cfg(target_os = "linux")]

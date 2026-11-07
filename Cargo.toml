@@ -23,7 +23,7 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -86,6 +86,8 @@ xkeysym = { version = "0.2.1", optional = true }
 # for a paste. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+# Toasts, through WinRT, in the version Slint and yapfast-core already build.
+windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], optional = true }
 # The GPU setting draws through Direct3D 12 on Windows: NVIDIA's OpenGL driver
 # spins a core while it waits for the screen. See src/graphics.rs.
 i-slint-renderer-skia = { version = "=1.19.0", features = ["wgpu-30"], optional = true }

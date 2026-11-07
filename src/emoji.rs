@@ -9,6 +9,7 @@
 //! as 𝓯𝓪𝓷𝓬𝔂, are all of the "Common" script, which no font is picked for. So
 //! Yapfast puts the fonts Windows ships for them in the fallback itself.
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use slint::{
@@ -205,11 +206,70 @@ fn with_picture(shown: EmojiCell) -> Option<EmojiCell> {
         return None;
     }
     let picture = cell(&shown.key).picture;
-    (picture.size().width > 0).then_some(EmojiCell {
-        usable: true,
-        picture,
-        ..shown
-    })
+    (picture.size().width > 0).then_some(EmojiCell { picture, ..shown })
+}
+
+/// The picker's key for an emoji as Discord's settings name it, and whether it
+/// may be used here: a custom emoji's id, found in `custom`, or a Unicode
+/// emoji's Discord name, such as `slight_smile`, `thumbsup_tone2`,
+/// `person_tone1_bald` or `flag_fr`, from Discord's own names where they differ
+/// from GitHub's shortcodes. `None` for a custom emoji not there, or a name
+/// Yapfast doesn't know. A number can be a Unicode emoji's name too: `100`.
+pub fn discord_key(
+    name: &str,
+    custom: &HashMap<&str, &yapfast_core::chat::CustomEmoji>,
+) -> Option<(String, bool)> {
+    if let Some(emoji) = custom.get(name) {
+        return Some((custom_key(emoji), emoji.usable));
+    }
+    // A skin tone comes last in most names, but in some within them.
+    let (base, tone) = match name.split_once("_tone") {
+        Some((start, rest)) if !rest.contains("_tone") => {
+            let (tone, end) = rest.split_at_checked(1)?;
+            (format!("{start}{end}"), tone)
+        }
+        _ => (name.to_owned(), ""),
+    };
+    let names = crate::discord_emoji_names::NAMES;
+    let emoji = names
+        .binary_search_by_key(&base.as_str(), |(name, _)| name)
+        .ok()
+        .and_then(|at| emojis::get(names[at].1))
+        .or_else(|| country_flag(&base))
+        .or_else(|| emojis::get_by_shortcode(&base))?;
+    let emoji = match tone {
+        "" => emoji,
+        "1" => emoji.with_skin_tone(emojis::SkinTone::Light)?,
+        "2" => emoji.with_skin_tone(emojis::SkinTone::MediumLight)?,
+        "3" => emoji.with_skin_tone(emojis::SkinTone::Medium)?,
+        "4" => emoji.with_skin_tone(emojis::SkinTone::MediumDark)?,
+        "5" => emoji.with_skin_tone(emojis::SkinTone::Dark)?,
+        _ => return None,
+    };
+    (emoji.unicode_version() <= NEWEST).then(|| (emoji.as_str().to_owned(), true))
+}
+
+/// The flag `flag_xx` names, from its country's two letters: GitHub's shortcode
+/// `cl` is the CL button, not Chile's flag.
+fn country_flag(name: &str) -> Option<&'static emojis::Emoji> {
+    let code = name.strip_prefix("flag_").filter(|code| code.len() == 2)?;
+    let flag: String = code
+        .bytes()
+        .map(|letter| char::from_u32(0x1F1E6 + u32::from(letter.checked_sub(b'a')?)))
+        .collect::<Option<_>>()?;
+    emojis::get(&flag)
+}
+
+/// The picker's keys of the emoji `names`, those Discord's settings name, and
+/// whether each may be used here, leaving out those there's no showing.
+pub fn discord_keys<'a>(
+    names: impl IntoIterator<Item = &'a String>,
+    custom: &HashMap<&str, &yapfast_core::chat::CustomEmoji>,
+) -> Vec<(String, bool)> {
+    names
+        .into_iter()
+        .filter_map(|name| discord_key(name, custom))
+        .collect()
 }
 
 /// A custom emoji's reaction key, Discord's `name:id`.
@@ -330,8 +390,8 @@ pub fn visible_rows(rows: &VecModel<EmojiRow>, top: f32, height: f32) -> (usize,
 /// that has one, and its first emoji otherwise.
 pub fn rows(
     query: &str,
-    favorites: &[String],
-    frequent: &[String],
+    favorites: &[(String, bool)],
+    frequent: &[(String, bool)],
     custom: &[EmojiSet],
     columns: usize,
     server_icon: impl Fn(&EmojiSet) -> Option<(String, slint::Image)>,
@@ -363,7 +423,7 @@ pub fn rows(
         let heading = rows.len() as i32;
         if let Some((icon, _)) = &icon {
             rows.push(EmojiRow {
-                heading: icon.name.as_str().into(),
+                heading: icon.name.to_uppercase().into(),
                 cells: ModelRc::default(),
                 // A server's icon beside its name, once its picture has come;
                 // the picker fills it then (see `fill_row_icons`).
@@ -409,26 +469,6 @@ pub fn rows(
         name: name.into(),
         ..cell(glyph)
     };
-    // The emoji this device keeps, under a star, first.
-    section(
-        Some((
-            EmojiCell {
-                name: FAVORITES.into(),
-                usable: true,
-                ..Default::default()
-            },
-            String::new(),
-        )),
-        favorites
-            .iter()
-            .filter(|key| {
-                let name = cell(key).name.to_lowercase();
-                query.is_empty() || name.contains(&query)
-            })
-            .cloned()
-            .map(|key| (key, true))
-            .collect(),
-    );
     if !query.is_empty() {
         section(
             None,
@@ -449,15 +489,12 @@ pub fn rows(
         return (rows, sections);
     }
     section(
-        Some((
-            EmojiCell {
-                name: FREQUENTLY_USED.into(),
-                usable: true,
-                ..Default::default()
-            },
-            String::new(),
-        )),
-        frequent.iter().map(|key| (key.clone(), true)).collect(),
+        Some((titled("⭐", FAVORITES), String::new())),
+        favorites.to_vec(),
+    );
+    section(
+        Some((titled("🕒", FREQUENTLY_USED), String::new())),
+        frequent.to_vec(),
     );
     for (set, keys) in custom.iter().zip(custom_keys) {
         let Some((first_key, _)) = keys.first() else {
@@ -640,7 +677,14 @@ mod tests {
 
     #[test]
     fn the_grid_finds_the_rows_a_scroll_shows() {
-        let (all, _) = rows("", &[], &["🔥".into()], &[], columns(408.), |_| None);
+        let (all, _) = rows(
+            "",
+            &[],
+            &[("🔥".into(), true)],
+            &[],
+            columns(408.),
+            |_| None,
+        );
         let model = VecModel::from(all.clone());
         let height = 3.0 * ROW_HEIGHT;
         // A scroll into a heading's tighter row reports that heading.
@@ -660,18 +704,23 @@ mod tests {
 
     #[test]
     fn the_picker_lists_categories_or_matches_and_names_emoji() {
-        let (all, sections) = rows("", &[], &["🔥".into()], &[], columns(408.), |_| None);
-        assert_eq!(all[0].heading, "Frequently Used");
-        assert_eq!(all[1].cells.row_count(), 1);
-        assert_eq!(all[2].heading, "Smileys & emotion");
+        let (all, sections) = rows(
+            "",
+            &[("☠️".into(), true)],
+            &[("🔥".into(), true)],
+            &[],
+            columns(408.),
+            |_| None,
+        );
+        assert_eq!(all[0].heading, "FAVORITES");
+        assert_eq!(all[2].heading, "FREQUENTLY USED");
+        assert_eq!(all[3].cells.row_count(), 1);
+        assert_eq!(all[4].heading, "SMILEYS & EMOTION");
         assert!(all.iter().all(|row| row.cells.row_count() <= columns(408.)));
         // The sidebar jumps to each heading; a section ends where the next begins.
-        assert_eq!(sections.len(), 1 + emojis::Group::iter().count());
-        // A section starts at its heading's row, which is tighter than one of
-        // emoji, and ends where the next begins.
+        assert_eq!(sections.len(), 2 + emojis::Group::iter().count());
         assert_eq!((sections[0].heading, sections[0].top), (0, 0.0));
-        assert!(all[0].height < all[1].height, "a heading's row is tighter");
-        assert_eq!(sections[1].icon.name, "Smileys & emotion");
+        assert_eq!(sections[2].icon.name, "Smileys & emotion");
         for (section, next) in sections.iter().zip(&sections[1..]) {
             assert!(!all[section.heading as usize].heading.is_empty());
             assert_eq!(section.end, next.top);
@@ -713,7 +762,7 @@ mod tests {
                 icon.clone(),
             ))
         });
-        assert_eq!(all[0].heading, "Games");
+        assert_eq!(all[0].heading, "GAMES");
         let pog = all[1].cells.row_data(0).unwrap();
         assert_eq!((pog.glyph.as_str(), pog.key.as_str()), (":pog:", "pog:5"));
         assert_eq!(sections[0].icon.name, "Games");
@@ -730,6 +779,41 @@ mod tests {
                 .key,
             "pog:5"
         );
+    }
+
+    #[test]
+    fn finds_emoji_by_discord_names() {
+        let names = crate::discord_emoji_names::NAMES;
+        assert!(names.windows(2).all(|pair| pair[0].0 < pair[1].0), "sorted");
+        let talk = yapfast_core::chat::CustomEmoji {
+            text: ":talk:".into(),
+            id: "5".into(),
+            animated: false,
+            usable: false,
+            picture: String::new(),
+        };
+        let custom = HashMap::from([("5", &talk)]);
+        let key = |name| discord_key(name, &custom).map(|(key, _)| key);
+        // Discord's own names, then GitHub's that it shares.
+        assert_eq!(key("skull_crossbones").as_deref(), Some("☠️"));
+        assert_eq!(key("slight_smile").as_deref(), Some("🙂"));
+        assert_eq!(key("joy").as_deref(), Some("😂"));
+        assert_eq!(key("thumbsup_tone4").as_deref(), Some("👍🏾"));
+        assert_eq!(key("person_tone1_bald").as_deref(), Some("🧑🏻‍🦲"));
+        assert_eq!(key("6"), None, "a custom emoji not usable here");
+        assert_eq!(key("no_such_emoji"), None);
+        // Whether it may be used comes with a custom emoji.
+        assert_eq!(discord_key("5", &custom), Some(("talk:5".into(), false)));
+        // A number that's no custom emoji can be a Unicode emoji's name.
+        assert_eq!(key("100").as_deref(), Some("💯"));
+        assert_eq!(key("1234").as_deref(), Some("🔢"));
+        // Flags are their country's, though GitHub's shortcode is something else.
+        assert_eq!(key("flag_fr").as_deref(), Some("🇫🇷"));
+        assert_eq!(key("flag_cl").as_deref(), Some("🇨🇱"));
+        assert_eq!(key("flag_tv").as_deref(), Some("🇹🇻"));
+        // Where JoyPixels and Discord mean different emoji by a name.
+        assert_eq!(key("beach_umbrella").as_deref(), Some("⛱️"));
+        assert_eq!(key("city_sunset").as_deref(), Some("🌇"));
     }
 
     #[test]

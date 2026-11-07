@@ -147,6 +147,16 @@ speaker who stays silent for 100 ms drops out of the mix until they speak
 again. When the voice gateway drops, the connection resumes with op 7, and
 connects again from scratch if resuming fails.
 
+Before it selects the protocol, a connection, a call's or a stream's, learns
+its public address and port with UDP address discovery: a 74-byte ask, which
+the voice server answers with them. A lost packet would otherwise end the
+connection, so it asks again each second while no answer comes, up to five
+times, and takes the first answer it can read, passing over any other packet.
+After five asks without one, five seconds, the connection fails with "the
+voice server didn't answer address discovery". At the default log level, an
+answer to a later ask logs at info ("address discovery answered on attempt 3
+of 5"), and giving up logs a warning with the number of asks.
+
 ## Camera video
 
 Turning the camera on in a call does what Discord's clients do: the main

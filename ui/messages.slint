@@ -1,6 +1,7 @@
+import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
@@ -724,6 +725,10 @@ export component PollView inherits HorizontalLayout {
 export struct MessageRow {
     id: string, item: string, author: string, initial: string, tint: color, picture: image, body: string, time: string, short-time: string, own: bool,
     picture-url: string, reply-picture-url: string,
+    /// The address of the decoration around the author's avatar.
+    decoration-url: string,
+    /// How the author's name is drawn.
+    name-style: [NameStyleRow],
     /// Who wrote it, for their menu: a Discord user id or Matrix ID; empty
     /// for a blocked user.
     sender: string,
@@ -731,6 +736,8 @@ export struct MessageRow {
     color: color, has-color: bool,
     /// The author is a Discord bot or webhook: tagged after their name.
     bot: bool,
+    /// The server tag the author wears by their name, and its badge's address.
+    tag: string, tag-badge: string,
     /// Starts a group: shows the avatar and author. Later messages from the same person follow compactly.
     first: bool,
     /// A date divider above this message, when it starts a new day.
@@ -753,7 +760,7 @@ export struct MessageRow {
     notice: string,
     /// Forwarded on Discord: the body, files and embeds are the original's.
     forwarded: bool,
-    reply-author: string, reply-body: string, reply-initial: string, reply-tint: color, reply-picture: image, has-reply: bool,
+    reply-author: string, reply-body: string, reply-initial: string, reply-tint: color, reply-color: color, reply-has-color: bool, reply-picture: image, has-reply: bool,
     /// The original message's item; clicking the reply jumps to it.
     reply-item: string,
     reactions: [ReactionChip],
@@ -769,6 +776,9 @@ export struct MessageRow {
     /// The body in blocks, when it has headings, subtext, quotes or code;
     /// otherwise empty, and the body is `styled`.
     blocks: [TextBlock],
+    /// Show more was clicked on its long body, which then shows whole
+    /// though long messages fold.
+    expanded: bool,
     /// Says a card is hidden, for a message that is only one, with link previews off.
     hidden-card: string,
     delivery: string, delivery-failed: bool, can-retry: bool, can-cancel: bool,
@@ -1306,15 +1316,17 @@ export component MessageMenu inherits Rectangle {
     callback copy-image(string, int);
     callback save-attachment(string, int);
     callback open-link(string);
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+    background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     menu-content := VerticalLayout {
         padding: 6px; spacing: 2px;
+        // Discord's quick reactions: 44px tiles, spread across the menu.
         if root.menu-can-react: HorizontalLayout {
-            spacing: 4px; padding-bottom: 4px;
+            spacing: 4px; padding-bottom: 4px; padding-left: 2px; padding-right: 2px;
+            alignment: space-between;
             for cell in root.menu-reactions: EmojiButton {
                 animation-key: cell.key;
-                emoji: cell; font: root.emoji-font; size: 50px; height: 40px; glyph: 22px; fill: Theme.field;
+                emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field;
                 clicked => { root.react(root.menu-message.item, cell.key); }
             }
         }
@@ -1414,7 +1426,9 @@ export component MessageGallery inherits HorizontalLayout {
         width: root.gallery-width * 1px; height: root.gallery-height * 1px;
         for cell in root.images: Rectangle {
             x: cell.x * 1px; y: cell.y * 1px; width: cell.width * 1px; height: cell.height * 1px;
-            border-radius: 8px; clip: true; background: Theme.sunken;
+            border-radius: 8px; clip: true;
+            // Discord draws a transparent picture straight on the message background.
+            background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
             if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
             if cell.spoiler: SpoilerCover {}
@@ -1549,12 +1563,12 @@ export component ThreadChip inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
-// Discord's tag after a bot's name: white on blurple.
+// Discord's tag after a bot's or app's name: white on blurple.
 export component BotTag inherits Rectangle {
     width: tag-text.preferred-width + 8px; height: 16px; border-radius: 4px;
     background: #5865f2;
-    accessible-role: text; accessible-label: "Bot";
-    tag-text := Text { text: "BOT"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+    accessible-role: text; accessible-label: "App";
+    tag-text := Text { text: "APP"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
 }
 
 // A block of text: a heading or subtext at its size, or fenced code in its
@@ -1683,7 +1697,7 @@ export component EmbedView inherits HorizontalLayout {
                         width: root.embed.gallery-width * 1px; height: root.embed.gallery-height * 1px;
                         for cell in root.embed.images: Rectangle {
                             x: cell.x * 1px; y: cell.y * 1px; width: cell.width * 1px; height: cell.height * 1px;
-                            border-radius: 4px; clip: true; background: Theme.sunken;
+                            border-radius: 4px; clip: true; background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
                             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
                             if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
                             if cell.spoiler: SpoilerCover {}
@@ -1793,7 +1807,7 @@ export component CardView inherits HorizontalLayout {
                     if row.has-thumbnail: VerticalLayout {
                         alignment: start;
                         Rectangle {
-                            width: 85px; height: 85px; border-radius: 8px; clip: true; background: Theme.sunken;
+                            width: 85px; height: 85px; border-radius: 8px; clip: true; background: ClientStyle.enabled && !row.thumbnail-loading ? transparent : Theme.sunken;
                             if row.thumbnail-loading: Skeleton { width: parent.width; height: parent.height; }
                             if !row.thumbnail-spoiler: Image {
                                 source: row.thumbnail; width: parent.width; height: parent.height; image-fit: cover;
@@ -1898,10 +1912,36 @@ export component HistoryEdge inherits HorizontalLayout {
     /// A Discord thread, named as one rather than as a channel.
     in property <bool> room-thread;
     in property <string> room-name;
+    /// Discord's welcome block, in place of the one line: "server" for a
+    /// server's first channel, "channel" for another, empty for neither.
+    in property <string> intro;
+    in property <string> intro-welcome;
+    in property <string> intro-title;
+    in property <string> intro-text;
     callback earlier;
     property <string> which: root.newer ? "newer" : "earlier";
-    alignment: center; height: 42px; padding-top: 4px; padding-bottom: 8px;
-    if root.start: Text {
+    property <bool> welcome: ClientStyle.enabled && root.start && !root.newer && root.intro != "";
+    out property <length> block: !root.welcome ? 42px : root.intro == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height;
+    alignment: center; height: root.block; padding-top: root.welcome ? 0px : 4px; padding-bottom: root.welcome ? 0px : 8px;
+    if root.welcome: VerticalLayout {
+        alignment: LayoutAlignment.start; spacing: 0px; padding-top: 47px; padding-bottom: 12px;
+        // A server's: its welcome over its name, in two lines.
+        if root.intro == "server": Text { text: root.intro-welcome; color: Theme.text; font-size: 32px; font-weight: 600; horizontal-alignment: center; overflow: elide; height: 40px; }
+        if root.intro == "server": Text { text: root.intro-title; color: Theme.text; font-size: 32px; font-weight: 600; horizontal-alignment: center; overflow: elide; height: 40px; }
+        // A channel's: a hash in a circle, then its welcome.
+        if root.intro == "channel": HorizontalLayout {
+            alignment: center; height: 68px;
+            Rectangle {
+                width: 68px; height: 68px; border-radius: 34px; background: Theme.field;
+                Image { source: @image-url("icons/hash.svg"); width: 40px; height: 40px; colorize: Theme.text; }
+            }
+        }
+        if root.intro == "channel": Rectangle { height: 8px; }
+        if root.intro == "channel": Text { text: root.intro-title; color: Theme.text; font-size: 32px; font-weight: 700; horizontal-alignment: center; overflow: elide; height: 40px; }
+        Rectangle { height: 8px; }
+        Text { text: root.intro-text; color: Theme.secondary; font-size: root.intro == "server" ? 14px : 16px; horizontal-alignment: center; overflow: elide; height: 20px; }
+    }
+    if root.start && !root.welcome: Text {
         text: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
             : root.room-thread ? "This is the start of the " + root.room-name + " thread."
             : "This is the start of #" + root.room-name + ".";
@@ -2306,6 +2346,15 @@ export component MessageContent inherits VerticalLayout {
     /// A sticker in the message was clicked: its card opens there.
     callback open-sticker(string, int, length, length, length, length);
     callback media-menu(string, int, bool, length, length);
+    /// Long bodies fold to twelve lines of text, with Show more.
+    in property <bool> collapse-long;
+    /// Show more or Show less was clicked: the message's item, whether it
+    /// shows whole now, and where its top is in the window.
+    callback fold(string, bool, length);
+    // A body folds to twelve lines of text, once it's a few lines longer
+    // than that, so Show more never uncovers only a line or two. A line of
+    // message text is 1.3 times its size, as the font lays it out.
+    property <length> line-height: root.message-font-size * 1.3;
     HorizontalLayout {
         padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
         Rectangle {
@@ -2331,6 +2380,7 @@ export component MessageContent inherits VerticalLayout {
             if message.first && message.notice == "": Avatar {
                 x: 0px; y: message.has-reply ? 24px : 2px;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
+                decoration-url: message.decoration-url; animate: root.active-item == message.item;
             }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.
@@ -2353,7 +2403,7 @@ export component MessageContent inherits VerticalLayout {
             }
         }
         VerticalLayout {
-            spacing: 3px; horizontal-stretch: 1;
+            spacing: ClientStyle.message-gap; horizontal-stretch: 1;
             // Clicking the quote jumps to the message it quotes.
             if message.has-reply: Rectangle {
                 height: 22px;
@@ -2364,10 +2414,15 @@ export component MessageContent inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 6px;
                     if message.reply-author != "": Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
-                    if message.reply-author != "": Text { text: message.reply-author; color: Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                    if message.reply-author != "": Text {
+                        // Discord quotes "@Name" in the author's role colour, regular weight.
+                        text: ClientStyle.enabled ? "@" + message.reply-author : message.reply-author;
+                        color: ClientStyle.enabled && message.reply-has-color ? message.reply-color : Theme.secondary;
+                        font-size: 14px; font-weight: ClientStyle.enabled ? 400 : 700; vertical-alignment: center;
+                    }
                     Text {
-                        text: message.reply-body; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
-                        color: reply-touch.has-hover ? Theme.text : Theme.muted;
+                        text: message.reply-body; font-size: ClientStyle.enabled ? 13px : 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                        color: reply-touch.has-hover ? Theme.text : ClientStyle.enabled ? Theme.secondary : Theme.muted;
                     }
                 }
                 reply-touch := TouchArea {
@@ -2378,12 +2433,27 @@ export component MessageContent inherits VerticalLayout {
             }
             if message.first && message.notice == "": HorizontalLayout {
                 spacing: 8px;
+                // Discord's name line is 22px tall, a little over the text's.
+                padding-bottom: ClientStyle.enabled ? 2px : 0px;
                 Rectangle {
-                    min-width: author-name.min-width; preferred-width: author-name.preferred-width;
+                    min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
+                    // Discord's names are medium weight, a step under bold.
+                    author-plain := Text {
+                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
+                        text: message.author; color: message.has-color ? message.color : Theme.text;
+                        font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
+                        // A styled name measures in its own font.
+                        font-family: message.name-style[0].family;
+                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
+                    }
                     author-name := StyledText {
-                        width: parent.width; height: parent.height;
+                        width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
                         text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
+                    }
+                    if message.name-style.length > 0: StyledName {
+                        width: parent.width; height: parent.height;
+                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
                     }
                     // Underlined while pointed at, as a link is.
                     if author-touch.has-hover: Rectangle {
@@ -2401,8 +2471,9 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
+                if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - 3px; max-lines: 1; vertical-alignment: center; }
+                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.
@@ -2411,23 +2482,57 @@ export component MessageContent inherits VerticalLayout {
                 Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                 Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
-            if message.body != "" && message.blocks.length == 0: StyledText {
-                // An overlong word breaks, as in Discord's client, rather than widening the row.
-                min-width: 0px;
-                text: message.styled; link-color: Theme.link;
-                default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
-                // Discord's large emoji are 48 pixels where text's are 22.
-                default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
-                // A mention's card opens beside the pointer.
-                link-clicked(link) => { root.link-clicked(link); }
-                accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
-            }
-            if message.blocks.length > 0: Rectangle {
-                accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
-                TextBlocks {
-                    blocks: message.blocks; font-size: root.message-font-size;
-                    color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
-                    open-link(link) => { root.link-clicked(link); }
+            // The body, cut off at its folded height while it folds, with
+            // Show more under it. The view keeps the message's top.
+            if message.body != "": body-fold := VerticalLayout {
+                property <bool> long: root.collapse-long && body.preferred-height > root.line-height * 15;
+                property <bool> folded: self.long && !message.expanded;
+                Rectangle {
+                    height: body-fold.folded ? root.line-height * 12 : body.preferred-height;
+                    clip: body-fold.folded;
+                    body := VerticalLayout {
+                        y: 0px; height: self.preferred-height;
+                        if message.blocks.length == 0: StyledText {
+                            // An overlong word breaks, as in Discord's client, rather than widening the row.
+                            min-width: 0px;
+                            text: message.styled; link-color: Theme.link;
+                            default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
+                            // Discord's large emoji are 48 pixels where text's are 22.
+                            default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
+                            // A mention's card opens beside the pointer.
+                            link-clicked(link) => { root.link-clicked(link); }
+                            accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
+                        }
+                        if message.blocks.length > 0: Rectangle {
+                            accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
+                            TextBlocks {
+                                blocks: message.blocks; font-size: root.message-font-size;
+                                color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                                open-link(link) => { root.link-clicked(link); }
+                            }
+                        }
+                    }
+                }
+                // Made only while long messages fold. It's there for a short
+                // body too, empty, as a row that came and went with the
+                // body's length would change the width it's measured at.
+                if root.collapse-long: HorizontalLayout {
+                    alignment: start;
+                    // 3px below the body, as the parts of a message are.
+                    height: body-fold.long ? self.preferred-height + 3px : 0px;
+                    visible: body-fold.long;
+                    Text {
+                        vertical-alignment: bottom;
+                        text: message.expanded ? "Show less" : "Show more";
+                        color: fold-touch.has-hover ? Theme.text : Theme.link;
+                        font-size: root.message-font-size * 0.875; font-weight: 600;
+                        accessible-role: button; accessible-label: self.text;
+                        accessible-action-default => { root.fold(message.item, !message.expanded, root.absolute-position.y); }
+                        fold-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.fold(message.item, !message.expanded, root.absolute-position.y); }
+                        }
+                    }
                 }
             }
             if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }

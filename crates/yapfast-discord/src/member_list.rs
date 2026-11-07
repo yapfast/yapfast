@@ -10,7 +10,8 @@ use serde_json::Value;
 
 use crate::{
     activity::{Activities, activities},
-    message::{self, CustomEmoji, Names},
+    collectibles::{Nameplate, Style},
+    message::{self, CustomEmoji, Names, Tag},
     ready::Server,
 };
 
@@ -21,12 +22,26 @@ pub const ROWS: usize = 100;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListedMember {
     pub user_id: String,
+    /// An application's account.
+    pub bot: bool,
     pub name: String,
     pub username: Option<String>,
     /// The address of the avatar Discord shows for them on this server.
     pub avatar: String,
+    /// The decoration they wear around their avatar, and the nameplate
+    /// behind their row.
+    pub decoration: Option<Arc<str>>,
+    pub nameplate: Option<Nameplate>,
+    /// How they draw their name, when they have a display name style.
+    pub style: Option<Style>,
     /// The heading they're listed under, with its size, such as `Mods — 2`.
     pub group: String,
+    /// The address of the picture of the role their group is, and of the
+    /// highest of their roles that has one.
+    pub group_icon: Option<Arc<str>>,
+    pub role_icon: Option<Arc<str>>,
+    /// The server tag they wear by their name.
+    pub tag: Option<Tag>,
     pub presence: Presence,
     /// The RGB colour of their highest coloured role.
     pub color: Option<u32>,
@@ -302,16 +317,25 @@ impl MemberList {
                     }
                     members.push(ListedMember {
                         user_id: user.clone(),
+                        bot: names.is_bot(user),
                         name: names
                             .name(&self.guild, user)
                             .unwrap_or("Discord user")
                             .to_owned(),
                         username: names.username(user).map(str::to_owned),
                         avatar: names.avatar(Some(&self.guild), user),
+                        decoration: names.decoration(Some(&self.guild), user),
+                        nameplate: names.nameplate(Some(&self.guild), user),
+                        style: names.style(Some(&self.guild), user),
                         group: group
                             .as_ref()
                             .map(|(_, heading)| heading.clone())
                             .unwrap_or_default(),
+                        group_icon: group
+                            .as_ref()
+                            .and_then(|(id, _)| server?.group_role_icon(id)),
+                        role_icon: server.and_then(|server| server.role_icon(&person.roles)),
+                        tag: names.server_tag(user).cloned(),
                         presence: person.presence,
                         color: server.and_then(|server| server.color(&person.roles)),
                         activity: person.activity,

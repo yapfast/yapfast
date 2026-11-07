@@ -14,7 +14,7 @@
 // and testing/envs/example.json uses all of it. Media paths are relative to
 // the env file; videos need ffprobe and ffmpeg, which convert a streamed one
 // once, kept in the system's temporary directory. The seeding options below
-// (--extra, --servers, --dms, --images, --channels, --authors, --folders and
+// (--extra, --servers, --dms, --images, --channels, --authors, --folders, --name-styles and
 // --unread) don't apply, and the controls that act on the fixture's people
 // or channels answer 400; those that only report, such as
 // /_control/video, still work. Without --env the fixture is as it is here.
@@ -41,6 +41,8 @@
 // in, and /_control/speakers-stop stops them.
 // POST /_control/chat-start makes Bob post in
 // #general every 2 s; POST /_control/chat-stop stops him. POST
+// /_control/activity-stale says the member list's Activity feed is stale, and
+// GET /_control/activity-fetches lists the refresh token of each fetch. POST
 // /_control/gallery makes him post three photos in one message. Joining voice
 // connects to a voice server here that answers the handshake without DAVE and
 // counts the audio each call connection sends: GET /_control/call-audio
@@ -52,8 +54,11 @@
 // its audio every 50 packets, as Discord's voice server sends; POST
 // /_control/voice-link?ping=300&loss=7 holds each heartbeat ACK (op 6) back
 // 300 ms and reports 7% of the audio lost, and with no parameters sets both
-// back to none. POST /_control/camera turns Bob's camera on in the call
-// he's in, and with ?off off again; ?who=carol or dave turns theirs. Calls
+// back to none. POST /_control/discovery-drop?count=2 makes the voice server
+// pass over the next two UDP address discovery asks, as if they were lost,
+// and GET /_control/discovery-drop counts those lost and answered. POST
+// /_control/camera turns Bob's camera on in the call he's in, and with ?off
+// off again; ?who=carol or dave turns theirs. Calls
 // connected there hear of it with op 12, and get the recording, or the
 // Annex B file FAKE_DISCORD_CAMERA names, once they ask with op 15. Alice's camera
 // is decrypted and its frames counted; GET /_control/call-video lists what
@@ -122,7 +127,10 @@
 // Discord's do, with MESSAGE_POLL_VOTE_ADD and _REMOVE, and once a poll ends,
 // a MESSAGE_UPDATE and a "poll closed" notice (type 46).
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
-// banner and a server bio, Carol a banner colour, and the rest nothing more.
+// banner, a server bio and three badges, Carol a banner colour, and the rest
+// nothing more. GET /users/{id}/badges gives Bob's playing time its level,
+// GET /_control/badge-reads counts those requests, and /assets/content/ serves
+// the level's SVGs.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -184,7 +192,9 @@
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
 // stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, DELETE /channels/{id} closes a DM
+// read and write Alice's note on someone, GET /_control/note-reads counts the
+// reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
+// another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
 // with its `silent` query as sent, and PATCH /users/@me/guilds/@me/settings mutes and unmutes DMs. PATCH
 // /users/@me/guilds/{id}/settings changes her notification settings for a
@@ -312,6 +322,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
     "cdn-delay": { type: "string", default: "0" },
@@ -371,12 +382,40 @@ const STICKER_PARTY = "1400000000000000331";
 const STICKER_PUFF = "1400000000000000332";
 const ALICE = "1400000000000000001";
 
+/** The profile effect Bob equips: an intro layer and a looping one over the card. */
+const PROFILE_EFFECT = "1500000000000000010";
+// The SKUs that are nameplates, whose pictures are strips.
+const nameplateSkus = new Set<string>();
+// How many times a collectible's animated picture was asked for.
+let collectibleAnimations = 0;
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
-type User = { id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean };
+type User = {
+  id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean;
+  /** The SKU of the avatar decoration they wear, and their nameplate. */
+  decoration?: string;
+  nameplate?: { sku: string; palette: string };
+  /** `display_name_styles`: Discord's font and effect ids, and RGB colours. */
+  style?: { font: number; effect: number; colors: number[] };
+  /** The SKU of the profile effect they equip, which GET
+   *  /collectibles-products/{sku} describes. */
+  effect?: string;
+};
 const users: Record<string, User> = {
-  alice: { id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1" },
-  bob: { id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1" },
-  carol: { id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1" },
+  alice: {
+    id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1", decoration: "1500000000000000003",
+    nameplate: { sku: "1500000000000000004", palette: "bubble_gum" },
+  },
+  // Bob, who has a DM, wears both, as Alice's card does; Carol a nameplate.
+  bob: {
+    id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1", decoration: "1500000000000000001",
+    effect: PROFILE_EFFECT,
+    nameplate: { sku: "1500000000000000006", palette: "sky" },
+  },
+  carol: {
+    id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1",
+    nameplate: { sku: "1500000000000000002", palette: "violet" },
+    style: { font: 3, effect: 2, colors: [0xff7eb3, 0x7a5cff] },
+  },
   dave: { id: "1400000000000000004", username: "dave", global_name: "Dave", avatar: null },
 };
 // People Alice shares no server with, who wrote to her anyway.
@@ -384,6 +423,7 @@ const strangers: Record<string, User> = {
   erin: { id: "1400000000000000005", username: "erin", global_name: "Erin", avatar: "erin1" },
   frank: { id: "1400000000000000006", username: "frank_deals", global_name: "Free Nitro", avatar: null },
 };
+for (const user of Object.values(users)) if (user.nameplate) nameplateSkus.add(user.nameplate.sku);
 const userById = new Map([...Object.values(users), ...Object.values(strangers)].map((user) => [user.id, user]));
 
 // Alice's relationships by user id: Bob and Carol are friends (1), and Erin
@@ -402,6 +442,7 @@ const FRIEND_ACCEPT_MS = 2000;
 const ignored = new Set<string>();
 const nicknames = new Map<string, string>();
 const notes = new Map<string, string>();
+let noteReads = 0;
 const wireRelationship = (id: string, type: number) => ({
   id, type, nickname: nicknames.get(id) ?? null, user_id: id, since: JOINED_AT, user_ignored: ignored.has(id),
   stranger_request: strangerRequests.has(id),
@@ -593,13 +634,101 @@ function timeOf(id: string): number {
   return Number((BigInt(id) >> 22n) + DISCORD_EPOCH);
 }
 
+// What a person equips from the collectibles shop, as user objects carry it:
+// `avatar_decoration_data`, and `collectibles.nameplate`. Their pictures are
+// served under /media/v1/collectibles-shop/{sku}/static.
+const COLLECTIBLES_PATH = /^\/media\/v1\/collectibles-shop\/(\d+)\/(static|animated|video)$/;
+
 function wireUser(user: User) {
+  const { decoration, nameplate, style, effect: _effect, ...rest } = user;
   return {
-    ...user,
+    ...rest,
     discriminator: "0",
     public_flags: 0,
-    avatar_decoration_data: null,
+    // Bob wears the server's tag, as Discord sends the server a user
+    // chose to represent them; everyone else has none.
+    primary_guild:
+      user.id === users.bob.id
+        ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
+        : null,
+    avatar_decoration_data: decoration
+      ? { asset: `a_${decoration}`, sku_id: decoration, expires_at: null }
+      : null,
+    collectibles: nameplate
+      ? {
+          nameplate: {
+            sku_id: nameplate.sku, asset: `nameplates/${nameplate.palette}/`,
+            label: `A ${nameplate.palette} nameplate`, palette: nameplate.palette, expires_at: null,
+          },
+        }
+      : null,
+    display_name_styles: style ? wireStyle(style) : null,
   };
+}
+
+function wireStyle(style: NonNullable<User["style"]>) {
+  return { font_id: style.font, effect_id: style.effect, colors: style.colors };
+}
+
+/** What a member equips for "Server" alone, which member objects carry as
+ *  `avatar_decoration_data`, `collectibles` and `display_name_styles`:
+ *  Dave wears a decoration and a teal nameplate there, and Bob a green neon
+ *  Mainframe name. */
+const serverLooks: Record<string, Pick<User, "decoration" | "nameplate" | "style">> = {
+  "1400000000000000004": { decoration: "1500000000000000005", nameplate: { sku: "1500000000000000007", palette: "teal" } },
+  "1400000000000000002": { style: { font: 14, effect: 3, colors: [0x00ff99] } },
+};
+for (const look of Object.values(serverLooks)) if (look.nameplate) nameplateSkus.add(look.nameplate.sku);
+
+const profileEffects = new Set<string>([PROFILE_EFFECT]);
+
+/** A profile effect's picture, 450 by 880 and clear but for a few petals, which
+ *  differ by name. The intro and the loop are animated, the others still. */
+const effectPictures = new Map<string, Uint8Array>();
+function effectPicture(name: string): Uint8Array {
+  const made = effectPictures.get(name);
+  if (made) return made;
+  const shade = crc32(new TextEncoder().encode(name));
+  const petals = (fall: number) => (x: number, y: number) => {
+    const petal = (x * 7 + (y - fall) * 13 + (shade & 255)) % 97 < 2 && (x + y) % 5 < 3;
+    return petal ? [255, 150 + (shade & 63), 190, 220] : [0, 0, 0, 0];
+  };
+  const animated = name === "intro" || name === "loop";
+  const picture = animated
+    ? apng(450, 880, Array.from({ length: 25 }, (_, frame) => petals(frame * 4)), 25)
+    : png(450, 880, petals(0));
+  effectPictures.set(name, picture);
+  return picture;
+}
+
+/** A decoration is a ring around a transparent middle, a nameplate a strip
+ *  that fades in from its left. */
+function collectiblesOf(spec: Pick<User, "decoration" | "nameplate" | "style" | "effect">) {
+  if (spec.nameplate) nameplateSkus.add(spec.nameplate.sku);
+  return {
+    ...(spec.decoration ? { decoration: spec.decoration } : {}),
+    ...(spec.nameplate ? { nameplate: spec.nameplate } : {}),
+    ...(spec.style ? { style: spec.style } : {}),
+    ...(spec.effect ? { effect: spec.effect } : {}),
+  };
+}
+
+function collectiblePicture(sku: string, animated: boolean): Uint8Array {
+  if (nameplateSkus.has(sku)) {
+    const [width, height] = [448, 84];
+    const strip = (shade: number) => (x: number) => [255, shade, 255, Math.round((255 * x) / width)];
+    return animated
+      ? apng(width, height, [strip(255), strip(120)])
+      : png(width, height, strip(255));
+  }
+  const size = 288;
+  const ring = (red: number) => (x: number, y: number) => {
+    const radius = Math.hypot(x - size / 2, y - size / 2) / (size / 2);
+    return radius > 0.83 && radius < 1 ? [red, 120, 180, 255] : [0, 0, 0, 0];
+  };
+  return animated
+    ? apng(size, size, [ring(255), ring(90), ring(255), ring(90)])
+    : png(size, size, ring(255));
 }
 
 // --- Server members ---------------------------------------------------------
@@ -735,6 +864,20 @@ function resetMembers() {
 resetMembers();
 seedAudit();
 
+function serverLook(user: User) {
+  const look = serverLooks[user.id];
+  if (!look) return {};
+  return {
+    avatar_decoration_data: look.decoration
+      ? { asset: `a_${look.decoration}`, sku_id: look.decoration, expires_at: null }
+      : null,
+    collectibles: look.nameplate
+      ? { nameplate: { sku_id: look.nameplate.sku, asset: "nameplates/x/", label: "A nameplate", palette: look.nameplate.palette } }
+      : null,
+    display_name_styles: look.style ? wireStyle(look.style) : null,
+  };
+}
+
 function member(user: User, roles: string[] = memberRoles.get(user.id) ?? []) {
   return {
     user: wireUser(user),
@@ -744,6 +887,7 @@ function member(user: User, roles: string[] = memberRoles.get(user.id) ?? []) {
     communication_disabled_until: timeouts.get(user.id) ?? null,
     avatar: serverProfiles.get(user.id)?.avatar ?? null,
     banner: serverProfiles.get(user.id)?.banner ?? null,
+    ...serverLook(user),
     joined_at: JOINED_AT,
     premium_since: null,
     deaf: voice.get(user.id)?.deaf ?? false,
@@ -796,9 +940,11 @@ function picture(path: string): Uint8Array {
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
+const IRONCLAD_ICON = "/assets/content/d705628490898f2cc22d669cf8b415bc03fed1ddaf98a2a8cbd97442a509293c.svg";
+let badgeReads = 0;
 // A person's profile as GET /users/{id}/profile gives it, with the server's
 // side when asked for with guild_id.
-function wireProfile(user: User, guild: string | null) {
+function wireProfile(user: User, guild: string | null, origin: string) {
   if (world) return envProfile(world, user, guild);
   const bob = user.id === users.bob.id;
   const carol = user.id === users.carol.id;
@@ -812,7 +958,7 @@ function wireProfile(user: User, guild: string | null) {
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -821,7 +967,20 @@ function wireProfile(user: User, guild: string | null) {
       : {}),
     mutual_guilds: inServer ? [{ id: GUILD, nick: null }] : [],
     mutual_friends: bob ? [wireUser(users.carol)] : [],
-    badges: [],
+    badges: bob
+      ? [
+          {
+            id: "hypesquad_house_1",
+            description: "HypeSquad Bravery",
+            icon: "8a88d63823d8a71cd5e390baa45efa02",
+            link: "https://support.discord.com/hc/en-us/articles/360035962891",
+          },
+          { id: "active_developer", description: "Active Developer", icon: "6bdc42827a38498929a4920da12695d9" },
+          // A badge that levels up carries only its label and the picture
+          // of its level here; GET /users/{id}/badges has the rest.
+          { id: "game_time", description: "Spielzeit", icon: "208e1bb66e311286cae364bc6f19277a", simple_icon_url: origin + IRONCLAD_ICON },
+        ]
+      : [],
     premium_type: null,
   };
 }
@@ -895,6 +1054,51 @@ function png(width: number, height: number, pixel: (x: number, y: number) => num
     chunk("IDAT", deflateSync(raw)),
     chunk("IEND", new Uint8Array()),
   ];
+  return new Uint8Array(Buffer.concat(parts));
+}
+
+/** An animated PNG that loops, showing `perSecond` of its frames a second. */
+function apng(width: number, height: number, frames: ((x: number, y: number) => number[])[], perSecond = 10): Uint8Array {
+  // The first frame's data is the PNG's own IDAT; each other's goes in an fdAT
+  // after its number. Numbers count the fcTL and fdAT chunks in turn.
+  let sequence = 0;
+  const number = (value: number) => {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value);
+    return bytes;
+  };
+  const control = () => {
+    const body = new Uint8Array(26);
+    const view = new DataView(body.buffer);
+    view.setUint32(0, sequence++);
+    view.setUint32(4, width);
+    view.setUint32(8, height);
+    view.setUint16(20, 1);
+    view.setUint16(22, perSecond);
+    return chunk("fcTL", body);
+  };
+  const image = (pixel: (x: number, y: number) => number[]) => {
+    const raw = new Uint8Array((width * 4 + 1) * height);
+    for (let y = 0; y < height; y++) {
+      const row = y * (width * 4 + 1);
+      for (let x = 0; x < width; x++) raw.set(pixel(x, y), row + 1 + x * 4);
+    }
+    return deflateSync(raw);
+  };
+  const header = new Uint8Array(13);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  header.set([8, 6, 0, 0, 0], 8);
+  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header)];
+  parts.push(chunk("acTL", new Uint8Array([...number(frames.length), ...number(0)])));
+  frames.forEach((frame, index) => {
+    parts.push(control());
+    parts.push(index === 0
+      ? chunk("IDAT", image(frame))
+      : chunk("fdAT", new Uint8Array([...number(sequence++), ...image(frame)])));
+  });
+  parts.push(chunk("IEND", new Uint8Array()));
   return new Uint8Array(Buffer.concat(parts));
 }
 
@@ -1387,12 +1591,26 @@ for (let index = 0; index < extra; index++) {
   }
 }
 
+/** With `--name-styles`, each writer wears the next of Discord's display name
+ *  effects in the next of its fonts, named after them. */
+function nameStyleSample(n: number): Pick<User, "global_name" | "style"> {
+  const effects = ["solid", "gradient", "neon", "toon", "pop", "glow", "prism", "gummy"];
+  const fonts = [3, 4, 6, 8, 12, 13, 14, 15, 16, 11];
+  const palettes = [[0xff7eb3], [0xff7eb3, 0x7a5cff], [0x00ff99], [0xffaa33], [0x3388ff], [0xff5555, 0xffdd55], [0x66ccff, 0xff66cc, 0xffee66], [0x101010, 0x55aa77]];
+  const effect = n % effects.length;
+  return {
+    global_name: `${effects[effect]} name ${n}`,
+    style: { font: fonts[n % fonts.length]!, effect: effect + 1, colors: palettes[effect]! },
+  };
+}
+
 // The channels of `--channels`, written by the people of `--authors`.
 const authors: User[] = Array.from({ length: Number(args.authors) }, (_, n) => ({
   id: (1_700_000_000_000_000_000n + BigInt(n)).toString(),
   username: `writer${n}`,
   global_name: `Writer ${n}`,
   avatar: `w${n}`,
+  ...(args["name-styles"] ? nameStyleSample(n) : {}),
 }));
 for (const author of authors) userById.set(author.id, author);
 const ROOM_HISTORY = 60;
@@ -2657,6 +2875,58 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+// The member list's Activity feed, as /content-inventory/users/@me answers:
+// Bob and Carol now, Dave's game earlier, this week's top ones, then what no
+// panel here shows: someone in no server, and a custom status.
+const feedFetches: (string | null)[] = [];
+function feedEntries(origin: string) {
+  const entry = (
+    author: { id: string },
+    content_type: number,
+    at: number,
+    extra: Record<string, unknown>,
+    traits: Record<string, unknown>[] = [],
+  ) => ({
+    id: snowflake(at),
+    author_id: author.id,
+    author_type: 1,
+    content_type,
+    traits,
+    extra,
+    participants: [author.id],
+    expires_at: iso(at + 24 * 60 * 60_000),
+  });
+  const live = [{ type: 3, is_live: true }];
+  return [
+    entry(users.bob, 1, fakeStarted - 42 * 60_000, { game_name: "Factorio", application_id: FACTORIO }, live),
+    entry(
+      users.carol,
+      5,
+      fakeStarted - 80_000,
+      {
+        entries: [{
+          media: {
+            title: "Weightless",
+            image_url: `${origin}/spotify/ab67616d0000b273fake`,
+            artists: [{ name: "Marconi Union" }],
+          },
+        }],
+      },
+      live,
+    ),
+    entry(users.dave, 1, fakeStarted - 3 * 60 * 60_000, { game_name: "Celeste", application_id: FACTORIO }),
+    entry(users.bob, 3, fakeStarted - 2 * 24 * 60 * 60_000, { game_name: "Factorio", application_id: FACTORIO }, [
+      { type: 4, range: 1 },
+      { type: 2, duration_seconds: 13 * 3600 },
+    ]),
+    entry(users.carol, 6, fakeStarted - 24 * 60 * 60_000, { artist: { name: "Marconi Union" }, media: {} }, [
+      { type: 12, count: 31 },
+    ]),
+    entry({ id: "1400000000000000999" }, 1, fakeStarted - 60_000, { game_name: "Nobody's game" }, live),
+    entry(users.bob, 7, fakeStarted - 60_000, {}),
+  ];
+}
+
 // The member list of a channel everyone reads, as Discord groups it: Bob under
 // the hoisted Mods role, then who is online, then Dave, who isn't.
 /** A channel's member list id, as Discord's client works it out: everyone
@@ -3277,6 +3547,10 @@ type CallAudio = {
 };
 /** What /_control/voice-link set: a heartbeat ACK's delay, and the audio lost. */
 const voiceLink = { ping: 0, loss: 0 };
+/** Address discovery asks the voice server passes over, as if lost on the
+ *  way: POST /_control/discovery-drop?count=N sets how many more; GET
+ *  reports those lost and answered so far. */
+const discovery = { drop: 0, dropped: 0, answered: 0 };
 const callAudio = new Map<number, CallAudio>();
 /** Each call connection's SSRC by its voice session, for resuming. */
 const callSessions = new Map<string, number>();
@@ -4330,6 +4604,12 @@ const udp = await Bun.udpSocket({
         if (reporting) reporting.repairs.receiverReports++;
         return;
       }
+      if (discovery.drop > 0) {
+        discovery.drop--;
+        discovery.dropped++;
+        return;
+      }
+      discovery.answered++;
       peers.set(data.readUInt32BE(4), { address, port });
       const answer = Buffer.alloc(74);
       answer.writeUInt16BE(2, 0);
@@ -4621,7 +4901,37 @@ function favoriteGifs(origin: string): string {
       ...entry("https://klipy.com/gifs/hello-9000", `${origin}/_gifs/hello.gif`, 220, 165, 1),
       ...entry(linkedGif("wave", "webp"), `${origin}/_gifs/wave.webp`, 220, 165, 2),
     ]);
-  return Buffer.from(new Uint8Array([...protoBytes(2, gifs), ...placesUsed(), ...favoriteSounds()])).toString("base64");
+  return Buffer.from(new Uint8Array([...protoBytes(2, gifs), ...emojisUsed(), ...placesUsed(), ...favoriteSounds()])).toString("base64");
+}
+
+// Alice's favorite_emojis and emoji_frecency, as every client of hers keeps
+// them, a custom emoji by its id and a Unicode one by its Discord name: her
+// favourites are :talk: and the skull and crossbones, and she uses the
+// crying-laughing face most, today, then a medium-dark thumbs up, and reacts
+// with fire and :100:, which is a Unicode emoji's name, not an id.
+function emojisUsed(): Uint8Array {
+  const varint = (value: bigint) => {
+    const out: number[] = [];
+    for (; value >= 0x80n; value >>= 7n) out.push(Number(value & 0x7fn) | 0x80);
+    out.push(Number(value));
+    return out;
+  };
+  const used = (name: string, total: number, ago: number[]) => {
+    const recent = ago.flatMap((ms) => varint(BigInt(Date.now() - ms)));
+    const item = new Uint8Array([...protoNumber(1, total), ...protoBytes(2, new Uint8Array(recent))]);
+    return protoBytes(1, new Uint8Array([...protoBytes(1, text(name)), ...protoBytes(2, item)]));
+  };
+  return new Uint8Array([
+    ...protoBytes(5, new Uint8Array([...protoBytes(1, text(EMOJI_TALK)), ...protoBytes(1, text("skull_crossbones"))])),
+    ...protoBytes(6, new Uint8Array([
+      ...used("joy", 9, [3_600_000, 600_000]),
+      ...used("thumbsup_tone4", 4, [2 * 86_400_000]),
+    ])),
+    ...protoBytes(13, new Uint8Array([
+      ...used("fire", 5, [600_000]),
+      ...used("100", 2, [86_400_000]),
+    ])),
+  ]);
 }
 
 // Alice's favourite sounds, favorite_soundboard_sounds: the applause, then
@@ -5339,10 +5649,59 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return new Response(null, { status: 204 });
   }
 
+  // The shop's product for a profile effect, whose layers Discord's client
+  // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
+    const sku = m[1]!;
+    if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
+    const layer = (name: string) => `${url.origin}/assets/profile_effects/${sku}/${name}.png`;
+    return json({
+      sku_id: sku, store_listing_id: "1", type: 1, name: "Petals", summary: "Falling petals", premium_type: 2,
+      items: [
+        { type: 1, sku_id: sku, title: "Petals", description: "Falling petals", accessibilityLabel: "Falling petals",
+          animationType: 1, thumbnailPreviewSrc: layer("thumbnail"), reducedMotionSrc: layer("reduced"),
+          staticFrameSrc: layer("still"),
+          effects: [
+            { src: layer("intro"), loop: false, height: 880, width: 450, duration: 2000, start: 0, loopDelay: 0,
+              position: { x: 0, y: 0 }, zIndex: 101, randomizedSources: [] },
+            { src: layer("loop"), loop: true, height: 880, width: 450, duration: 3000, start: 1500, loopDelay: 1000,
+              position: { x: 0, y: 20 }, zIndex: 102, randomizedSources: [] },
+          ] },
+      ],
+    });
+  }
+
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
     const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
     if (!user) return notFound("Unknown User", 10013);
-    return json(wireProfile(user, url.searchParams.get("guild_id")));
+    return json(wireProfile(user, url.searchParams.get("guild_id"), origin));
+  }
+
+  // The levels of someone's badges, as the client asks for them to fill a
+  // badge's tooltip: Bob has played for 1,816 hours, "Eisern".
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/badges$/))) {
+    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    badgeReads += 1;
+    return json({
+      badges:
+        m[1] === users.bob.id
+          ? [
+              {
+                badge_id: 20,
+                name: "Spielzeit",
+                info_label: "1.816 Stunden gespielt",
+                owned: true,
+                simple_icon_url: origin + IRONCLAD_ICON,
+                complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg",
+                current_tier: "ironclad",
+                tiers: [
+                  { key: "casual", name: "Locker", owned: true, complex_icon_static_url: origin + "/assets/content/1f9d42f34184814a137e40b0de83e2cac0ae44d83531777b9369d2e2a6ddfeb3.svg" },
+                  { key: "ironclad", name: "Eisern", owned: true, simple_icon_url: origin + IRONCLAD_ICON, complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg" },
+                ],
+              },
+            ]
+          : [],
+    });
   }
 
   // Opening a DM finds the one Alice has with them, or starts one; with
@@ -5989,6 +6348,15 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // Alice's settings: Yapfast changes the status, the custom status, the
   // soundboard's volume or the join sounds, which every session hears of.
   // Each top-level field sent replaces hers whole, as on Discord.
+  if (method === "GET" && path === "/content-inventory/users/@me") {
+    feedFetches.push(url.searchParams.get("refresh_token"));
+    return json({
+      request_id: "fake-feed",
+      refresh_token: "fake-feed-token",
+      wait_ms_until_next_fetch: 300_000,
+      entries: env ? [] : feedEntries(url.origin).map((content) => ({ content })),
+    });
+  }
   if (method === "GET" && path === "/users/@me/settings-proto/1") return json({ settings });
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
@@ -6125,6 +6493,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if ((m = path.match(/^\/users\/@me\/notes\/(\d+)$/))) {
     const id = m[1]!;
     if (method === "GET") {
+      noteReads += 1;
       const note = notes.get(id);
       if (note === undefined) return notFound("Unknown User", 10013);
       return json({ note, note_user_id: id, user_id: ALICE });
@@ -7273,6 +7642,11 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     username: me.username ?? users.alice.username,
     global_name: me.name ?? me.username ?? users.alice.global_name,
     avatar: pictureHash(me.avatar, users.alice.avatar),
+    decoration: undefined,
+    nameplate: undefined,
+    style: undefined,
+    effect: undefined,
+    ...collectiblesOf(me),
   });
   userById.set(ALICE, users.alice);
   nitro = me.nitro ?? nitro;
@@ -7300,6 +7674,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
     const user: User = {
       id: newId(), username, global_name: person.name ?? username, avatar: pictureHash(person.avatar, `${person.key}1`),
       ...(person.bot ? { bot: true } : {}),
+      ...collectiblesOf(person),
     };
     byKey.set(person.key, user);
     userById.set(user.id, user);
@@ -7592,7 +7967,7 @@ function envProfile(world: World, user: User, guild: string | null) {
   const server = guild ? world.byId.get(guild) : undefined;
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: profile,
+    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
     ...(server?.members.has(user.id)
       ? { guild_member_profile: guildMemberProfile(user.id, server.id), guild_member: { ...memberIn(server.id, user), bio: "" } }
       : {}),
@@ -7737,11 +8112,25 @@ const server = Bun.serve<SocketData>({
     }
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
+    // Discord's own assets, such as the large pictures of badges' levels.
+    if (req.method === "GET" && /^\/assets\/content\/[0-9a-f]+\.svg$/.test(path)) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="156" height="100" viewBox="0 0 156 100"><rect width="156" height="100" rx="16" fill="#7a8a99"/></svg>`;
+      return new Response(svg, { headers: { "content-type": "image/svg+xml" } });
+    }
     // Activities' pictures: games' icons and assets, and Spotify's covers.
+    const effectLayer = req.method === "GET" ? path.match(/^\/assets\/profile_effects\/(\d+)\/(\w+)\.png$/) : null;
+    if (effectLayer && profileEffects.has(effectLayer[1]!)) {
+      return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
+    }
+    const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
+    if (collectible) {
+      if (collectible[2] === "animated") collectibleAnimations++;
+      return new Response(collectiblePicture(collectible[1]!, collectible[2] === "animated"), { headers: { "content-type": "image/png" } });
+    }
     if (req.method === "GET" && /^\/(app-icons\/\d+\/[a-z0-9]+\.png|app-assets\/\d+\/[a-z0-9]+\.png|spotify\/[A-Za-z0-9]+)$/.test(path)) {
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
     }
-    if (req.method === "GET" && /^\/(icons\/\d+|avatars\/\d+|banners\/\d+|splashes\/\d+|role-icons\/\d+|embed\/avatars|guilds\/\d+\/users\/\d+\/(avatars|banners))\/[^/]+\.png$/.test(path)) {
+    if (req.method === "GET" && /^\/(icons\/\d+|avatars\/\d+|banners\/\d+|splashes\/\d+|role-icons\/\d+|clan-badges\/\d+|badge-icons|embed\/avatars|guilds\/\d+\/users\/\d+\/(avatars|banners))\/[^/]+\.png$/.test(path)) {
       const uploaded = uploadedPictures.get(path.slice(path.lastIndexOf("/") + 1, -".png".length));
       if (uploaded) return new Response(uploaded.data, { headers: { "content-type": uploaded.type } });
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
@@ -7860,6 +8249,13 @@ const server = Bun.serve<SocketData>({
       voiceLink.loss = Number(url.searchParams.get("loss") ?? 0);
       return new Response(`heartbeat ACKs ${voiceLink.ping} ms late, ${voiceLink.loss}% of call audio lost\n`);
     }
+    if (req.method === "POST" && path === "/_control/discovery-drop") {
+      discovery.drop = Number(url.searchParams.get("count") ?? 1);
+      return new Response(`passing over the next ${discovery.drop} address discovery ask(s)\n`);
+    }
+    if (req.method === "GET" && path === "/_control/discovery-drop") {
+      return Response.json({ dropped: discovery.dropped, answered: discovery.answered });
+    }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
       for (const ws of calls) ws.close(4015, "Voice server crashed.");
@@ -7932,6 +8328,17 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/sessions") return Response.json(sessionCounts);
     if (path === "/_control/cookies") return Response.json(cookieCounts);
     if (path === "/_control/list-requests") return Response.json(listRequests);
+    if (path === "/_control/note-reads") return Response.json(noteReads);
+    if (path === "/_control/badge-reads") return Response.json(badgeReads);
+    if (path === "/_control/collectible-animations") return Response.json(collectibleAnimations);
+    if (req.method === "POST" && path === "/_control/note-elsewhere") {
+      const id = url.searchParams.get("user") ?? "";
+      const note = url.searchParams.get("note") ?? "";
+      if (note) notes.set(id, note);
+      else notes.delete(id);
+      dispatch("USER_NOTE_UPDATE", { id, note });
+      return new Response("changed\n");
+    }
     if (path === "/_control/audit-log") return Response.json(auditLog);
     if (req.method === "POST" && path === "/_control/audit-entries") {
       const body: any = await req.json().catch(() => ({}));
@@ -8532,6 +8939,11 @@ const server = Bun.serve<SocketData>({
       crowd = undefined;
       return new Response(`crowd stopped after ${crowdCount}\n`);
     }
+    if (req.method === "POST" && path === "/_control/activity-stale") {
+      dispatch("CONTENT_INVENTORY_INBOX_STALE", { refresh_after_ms: 0 });
+      return new Response("activity feed stale\n");
+    }
+    if (req.method === "GET" && path === "/_control/activity-fetches") return json(feedFetches);
     if (req.method === "POST" && path === "/_control/chat-stop") {
       clearInterval(chat);
       chat = undefined;
