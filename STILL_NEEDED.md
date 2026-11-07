@@ -13,43 +13,42 @@ reviewed head `55e74718`:
 | `1687b5aa` | F01, F11, F12, O09, features 1, 3 (partial), 4, 5, 6 (worker side) |
 | `442d7c91` | feature 2's audible position, feature 6's window-side release |
 
-Verified on this machine: `cargo check --profile fast --tests` clean,
-`yapfast-core` 572 tests passed (39 ignored), `yapfast-discord` 294 passed,
-`allocations` 1 passed, `call_link` 5 passed. `scripts/check` and
-`scripts/test-fake-discord` were **not** run: both enter the nix development
-shell, which this machine does not have.
+Verified on this machine, on the merge of `upstream-yapfast/main` described
+below: `cargo check --profile fast` and `cargo build --profile fast` both
+clean, `yapfast-core` 592 tests passed (39 ignored), `yapfast-discord` 323
+passed, `allocations` 1 passed, and 254 of the app's 255 — the one failure is
+`emoji_text`'s round-edge test, a pixel over its threshold at 16-pixel text
+(see G). `scripts/check` and `scripts/test-fake-discord` were **not** run: both
+enter the nix development shell, which this machine does not have.
+
+## The upstream merge
+
+`upstream-yapfast/main` is in: 51 commits of Discord parity, Developer Mode,
+toasts, Slint master (1.19.0) and skia-safe 0.157.0, merged on top of
+`472a3b48` with every commit of this branch kept. Four files conflicted:
+
+- **`Cargo.toml`** takes upstream's pins, and keeps what `src/ui/gpu.rs` needs:
+  `unstable-wgpu-30` on both `slint` and `i-slint-renderer-skia`, `pollster`,
+  and `dep:windows` in the `desktop` feature. Upstream and this branch each
+  declared a `windows` dependency in the Windows target; there is one entry
+  now, carrying the toast features and Direct3D 12's together.
+- **`Cargo.lock`** starts from upstream's and `cargo metadata` regenerated it,
+  which is what adds the wgpu crates our renderer feature asks for.
+- **`native/video.c`** keeps both headers, `<stdatomic.h>` and `<stddef.h>`,
+  and both new functions: this branch's dav1d unit wrap and upstream's VP9
+  alpha decode.
+- **`ui/settings.slint`** shows upstream's Developer Mode switch, then this
+  branch's capture-method choice.
+
+The Skia archive that had blocked the merge builds now. `nix/skia-windows-builder`
+pinned `bindgen` against a `prettyplease` built on another `syn`, which upstream
+fixed in `46ff92cd`; `python scripts/prepare-windows-skia.py` then wrote
+`.local/windows/skia/prepared/skia-binaries-…-d3d-ganesh-gl-…-static.tar.gz`,
+and with `SKIA_BINARIES_URL` pointing at it the app builds and links.
 
 ## Blocked, not done
 
-### 1. The upstream merge (`upstream-yapfast/main`, 20 commits)
-
-Fetched and merged; the conflicts were only `Cargo.toml`/`Cargo.lock`. Upstream
-bumps Slint 1.18.1 → 1.19.0 and skia-safe 0.153.3 → 0.157.0, and its vendored
-`i-slint-*` crates and `[patch.crates-io]` set follow that bump. The build then
-needs the prebuilt static-CRT Skia archive for `0.157.0`, key
-`30669978c3f39a73e8a7-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static`.
-It is not in `C:\Users\desu\skia-cache`, and `skia-safe` is pinned with
-`no-compile`, so cargo will not build it from source. The tool that makes the
-archive, `scripts/prepare-windows-skia.py --build`, fails here: its own builder
-cargo project cannot compile `bindgen` outside the nix toolchain.
-
-The merge was aborted rather than commit a tree that does not build. To finish:
-
-```sh
-nix develop path:./nix --command python3 nix/prepare-windows-skia.py   # or scripts/prepare-windows-skia.py --build
-git merge upstream-yapfast/main                                        # keep upstream's Slint/skia pins
-nix develop path:./nix --command cargo check --profile fast --tests
-```
-
-Resolution notes for the merge, if it is redone: our additions to `Cargo.toml`
-must survive — `unstable-wgpu-30` on `slint` and `i-slint-renderer-skia`,
-`dep:pollster` and `dep:windows` in the `desktop` feature, and the `windows`
-(0.62, `Win32_Graphics_Direct3D12`, `Win32_System_Threading`) and `pollster`
-dependencies, which `src/ui/gpu.rs` needs. Upstream's own additions
-(`slint-build`, `i-slint-core-macros`, `vtable`, `const-field-offset` git
-patches) must be kept too.
-
-### 2. Intel QSV in the vendored FFmpeg (feature 3)
+### 1. Intel QSV in the vendored FFmpeg (feature 3)
 
 `vendor/ffmpeg-src/update.sh` regenerates `ffmpeg/`, `include/` and `gen/` and
 **requires nix** (it re-execs itself inside `nix shell` for make, clang,
@@ -77,7 +76,7 @@ has to decode it. Nothing in the Rust side advertises QSV yet beyond the
 capability probe, so `encode.rs`'s probe must list the QSV encoders once the
 build carries them.
 
-### 3. FFmpeg's own hardware decode (d3d11va, parsers, decoders)
+### 2. FFmpeg's own hardware decode (d3d11va, parsers, decoders)
 
 This is the change that lets Yapfast stop owning a decoder. The vendored FFmpeg
 is built with `CONFIG_HWACCELS 0`, `CONFIG_PARSERS 0`, `CONFIG_D3D11VA 0` and a
@@ -225,6 +224,15 @@ and the compile-fail tests for it.
 - `scripts/check --fast` and, for the stream connection changes,
   `scripts/test-fake-discord` have not been run; both need nix.
 
+- The Skia 0.157 bump changes one test's verdict: `emoji_text`'s
+  `a_picture_keeps_its_round_edges_wherever_it_lands` now sees 9 solid pixels
+  on 21–22 at 16-pixel text, 40–42% of the edge against the 40% it allows. No
+  other size is over 37%, and nothing is flat, so the margin added by
+  `34119c01` still holds; the threshold was tuned on Skia 0.153.3, which drew
+  the same glyph a pixel narrower. Either the margin needs another pixel at the
+  smallest size, which shrinks every emoji, or the limit is re-measured for
+  0.157 — decided by what 😄 looks like at 16 pixel text, not by the number.
+
 - `crates/yapfast-core/src/frames.rs` is CRLF in the index while the rest of the
   repository is LF, and the formatter here rewrites whole files with CRLF after
   an edit. Before committing, files whose committed version is LF need
@@ -256,6 +264,6 @@ and the compile-fail tests for it.
 | 9 | Feature 2: A/V timing and bounded synchronization | partial — audible position done; **mapping, scheduler and hardware lip-sync missing** |
 | 10 | Feature 6: memory-pressure policy | done, worker and window sides |
 | 11 | Docs cleanup and final check | docs done; **`scripts/check` not run** |
-| 12 | Merge `upstream-yapfast/main` | **blocked on the Skia 0.157 archive** |
+| 12 | Merge `upstream-yapfast/main` | done — see [the merge](#the-upstream-merge) |
 | 13 | oneVPL in the vendored FFmpeg | **blocked, needs nix + an Intel machine**; same `update.sh` pass as 14 |
-| 14 | FFmpeg's own d3d11va decode, decoders and parsers — retires the Media Foundation decoder | **blocked on the same regeneration**; order and the code it lets us delete are in section 3 |
+| 14 | FFmpeg's own d3d11va decode, decoders and parsers — retires the Media Foundation decoder | **blocked on the same regeneration**; order and the code it lets us delete are in section 2 |

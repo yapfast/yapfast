@@ -518,7 +518,7 @@ export component LeavingDialog inherits Rectangle {
 
 // A status in the status menu: its dot, its name and what it does, with a
 // check beside the current one.
-component StatusOption inherits Rectangle {
+export component StatusOption inherits Rectangle {
     in property <string> key;
     in property <string> name;
     in property <string> note;
@@ -630,6 +630,8 @@ export struct PersonPrompt {
     chosen: int,
     /// What its field is for, as its label; empty for a dialog that only asks.
     field: string,
+    /// A box to tick under it, by its label; empty for none.
+    tick: string,
     /// What its button says, and whether it does something hard to undo.
     confirm: string,
     danger: bool,
@@ -645,6 +647,8 @@ export struct PersonPrompt {
 export component PersonDialog inherits Rectangle {
     in property <PersonPrompt> prompt;
     in-out property <string> text;
+    in-out property <bool> ticked;
+    callback tick(bool);
     callback answer(string);
     callback choose(int);
     callback close;
@@ -694,6 +698,10 @@ export component PersonDialog inherits Rectangle {
                     placeholder: root.prompt.loading ? "Loading..." : root.prompt.field; label: root.prompt.field;
                     text <=> root.text;
                     accepted => { root.answer(root.text); }
+                }
+                if root.prompt.tick != "": MenuItem {
+                    text: root.prompt.tick; checkbox: true; checked: root.ticked;
+                    clicked => { root.ticked = !root.ticked; root.tick(root.ticked); }
                 }
                 if root.prompt.error != "": Text {
                     text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap;

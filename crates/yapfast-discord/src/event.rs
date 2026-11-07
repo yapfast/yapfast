@@ -75,6 +75,14 @@ events! {
     GuildRoleUpdate = "GUILD_ROLE_UPDATE",
     GuildRoleDelete = "GUILD_ROLE_DELETE",
     GuildEmojisUpdate = "GUILD_EMOJIS_UPDATE",
+    /// This account's note on someone changed.
+    UserNoteUpdate = "USER_NOTE_UPDATE",
+    /// The Activity panel's feed has something new to fetch.
+    ContentInventoryInboxStale = "CONTENT_INVENTORY_INBOX_STALE",
+    /// A server's scheduled event, which its header counts.
+    GuildScheduledEventCreate = "GUILD_SCHEDULED_EVENT_CREATE",
+    GuildScheduledEventUpdate = "GUILD_SCHEDULED_EVENT_UPDATE",
+    GuildScheduledEventDelete = "GUILD_SCHEDULED_EVENT_DELETE",
     GuildStickersUpdate = "GUILD_STICKERS_UPDATE",
     ChannelCreate = "CHANNEL_CREATE",
     ChannelUpdate = "CHANNEL_UPDATE",
@@ -177,6 +185,23 @@ mod tests {
             ("GUILD_ROLE_UPDATE", Event::GuildRoleUpdate),
             ("GUILD_ROLE_DELETE", Event::GuildRoleDelete),
             ("GUILD_EMOJIS_UPDATE", Event::GuildEmojisUpdate),
+            ("USER_NOTE_UPDATE", Event::UserNoteUpdate),
+            (
+                "CONTENT_INVENTORY_INBOX_STALE",
+                Event::ContentInventoryInboxStale,
+            ),
+            (
+                "GUILD_SCHEDULED_EVENT_CREATE",
+                Event::GuildScheduledEventCreate,
+            ),
+            (
+                "GUILD_SCHEDULED_EVENT_UPDATE",
+                Event::GuildScheduledEventUpdate,
+            ),
+            (
+                "GUILD_SCHEDULED_EVENT_DELETE",
+                Event::GuildScheduledEventDelete,
+            ),
             ("GUILD_STICKERS_UPDATE", Event::GuildStickersUpdate),
             ("CHANNEL_CREATE", Event::ChannelCreate),
             ("CHANNEL_UPDATE", Event::ChannelUpdate),
@@ -234,9 +259,9 @@ mod tests {
 
     #[test]
     fn keeps_other_events_by_name() {
-        let other = Event::parse("GUILD_SCHEDULED_EVENT_CREATE");
-        assert_eq!(other, Event::Other("GUILD_SCHEDULED_EVENT_CREATE".into()));
-        assert_eq!(other.name(), "GUILD_SCHEDULED_EVENT_CREATE");
+        let other = Event::parse("GUILD_AUDIT_LOG_ENTRY_CREATE");
+        assert_eq!(other, Event::Other("GUILD_AUDIT_LOG_ENTRY_CREATE".into()));
+        assert_eq!(other.name(), "GUILD_AUDIT_LOG_ENTRY_CREATE");
         assert_eq!(
             Event::parse("message_create"),
             Event::Other("message_create".into()),

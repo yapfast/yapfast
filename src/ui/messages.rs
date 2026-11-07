@@ -53,6 +53,8 @@ struct Decoration<'a> {
     day: Option<String>,
     picture_url: &'a str,
     reply_picture_url: &'a str,
+    /// The decoration around the author's avatar, shown with it.
+    decoration_url: &'a str,
     unread_start: bool,
     highlighted: bool,
 }
@@ -65,6 +67,7 @@ impl Decoration<'_> {
             || row.day.as_str() != day
             || row.picture_url.as_str() != self.picture_url
             || row.reply_picture_url.as_str() != self.reply_picture_url
+            || row.decoration_url.as_str() != self.decoration_url
             || row.unread_start != self.unread_start
             || row.highlighted != self.highlighted;
         if changed {
@@ -72,6 +75,7 @@ impl Decoration<'_> {
             row.day = day.into();
             row.picture_url = self.picture_url.into();
             row.reply_picture_url = self.reply_picture_url.into();
+            row.decoration_url = self.decoration_url.into();
             row.unread_start = self.unread_start;
             row.highlighted = self.highlighted;
         }
@@ -132,6 +136,11 @@ pub(super) fn show_timeline(
                 .as_ref()
                 .and_then(|reply| reply.avatar.as_deref())
                 .unwrap_or_default(),
+            decoration_url: if collapsed(message, marks.revealed) {
+                ""
+            } else {
+                message.decoration.as_deref().unwrap_or_default()
+            },
             unread_start,
             highlighted: message.highlighted(index >= marks.first_new),
         };
@@ -661,9 +670,13 @@ pub(super) fn message_row_within(
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
+        decoration_url: SharedString::default(),
+        name_style: name_style::row(message.style.as_deref(), &message.author),
         id: message.id.clone().into(),
         item: message.item.clone().into(),
         author: message.author.clone().into(),
+        tag: tag_text(&message.tag),
+        tag_badge: tag_badge(&message.tag),
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
@@ -703,6 +716,11 @@ pub(super) fn message_row_within(
         reply_author: reply_author.into(),
         reply_initial: initial(reply_author),
         reply_tint: tint(reply_author),
+        reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
+        reply_has_color: message
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.color.is_some()),
         // Virtualized avatars resolve their URLs when their components are built.
         reply_picture: slint::Image::default(),
         reply_body: message

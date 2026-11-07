@@ -6,6 +6,7 @@
  * plays. Pictures show in 4:2:0, 4:2:2 or 4:4:4 at 8 or 10 bits, or in
  * 4:2:0 at 12, as far as libyuv goes. */
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 #include "dav1d/dav1d.h"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
+#include "libavutil/intreadwrite.h"
 #include "libavutil/pixdesc.h"
 #include "libyuv/convert_argb.h"
 #include "libyuv/scale.h"
@@ -66,6 +68,9 @@ struct planes {
   int stride[3];
   int bt709;
   int full_range;
+  /* How see-through it is, when it says: an 8-bit plane of its own size. */
+  const uint8_t *alpha;
+  int alpha_stride;
 };
 
 struct yapfast_video {
@@ -85,6 +90,13 @@ struct yapfast_video {
   int vpx_ready;
   vpx_codec_iter_t vpx_iter;
   int64_t vpx_pts;
+  /* A WebM's transparency is a second video, packet by packet alongside the
+   * first, whose brightness is the picture's alpha. */
+  vpx_codec_iface_t *vpx_codec;
+  vpx_codec_ctx_t vpx_alpha;
+  int vpx_alpha_ready;
+  vpx_codec_iter_t vpx_alpha_iter;
+  int vpx_alpha_fresh;
   Dav1dContext *dav1d;
   Dav1dData dav1d_pending;
   Dav1dPicture dav1d_picture;
@@ -125,6 +137,9 @@ struct yapfast_video {
   /* Planes scaled to the size asked for. */
   uint8_t *scaled;
   size_t scaled_size;
+  /* The alpha plane scaled to the size asked for. */
+  uint8_t *scaled_alpha;
+  size_t scaled_alpha_size;
 };
 
 static int read_packet(void *opaque, uint8_t *buffer, int size) {
@@ -159,6 +174,7 @@ void yapfast_video_free(struct yapfast_video *video) {
   avcodec_free_context(&video->context);
   av_frame_free(&video->frame);
   if (video->vpx_ready) vpx_codec_destroy(&video->vpx);
+  if (video->vpx_alpha_ready) vpx_codec_destroy(&video->vpx_alpha);
   if (video->dav1d) {
     if (video->dav1d_holds) dav1d_picture_unref(&video->dav1d_picture);
     dav1d_data_unref(&video->dav1d_pending);
@@ -171,6 +187,7 @@ void yapfast_video_free(struct yapfast_video *video) {
   av_frame_free(&video->sound_frame);
   free(video->samples);
   free(video->scaled);
+  free(video->scaled_alpha);
   free(video);
 }
 
@@ -194,6 +211,7 @@ static int open_decoder(struct yapfast_video *video, const AVCodecParameters *pa
       vpx_codec_iface_t *codec =
           parameters->codec_id == AV_CODEC_ID_VP8 ? vpx_codec_vp8_dx() : vpx_codec_vp9_dx();
       video->decoder = DECODER_VPX;
+      video->vpx_codec = codec;
       if (vpx_codec_dec_init(&video->vpx, codec, &config, 0)) return FAILED;
       video->vpx_ready = 1;
       return 0;
@@ -411,6 +429,14 @@ static int receive_picture(struct yapfast_video *video, int64_t *time_ms) {
         planes->data[plane] = image->planes[plane];
         planes->stride[plane] = image->stride[plane];
       }
+      if (video->vpx_alpha_fresh) {
+        vpx_image_t *alpha = vpx_codec_get_frame(&video->vpx_alpha, &video->vpx_alpha_iter);
+        if (alpha && alpha->d_w == image->d_w && alpha->d_h == image->d_h &&
+            !(alpha->fmt & VPX_IMG_FMT_HIGHBITDEPTH)) {
+          planes->alpha = alpha->planes[0];
+          planes->alpha_stride = alpha->stride[0];
+        }
+      }
       *time_ms = milliseconds(video, video->stream, video->vpx_pts);
       return 1;
     }
@@ -568,6 +594,26 @@ static int wrap_unit(struct yapfast_video *video, const AVPacket *packet) {
   return 0;
 }
 
+/* Decodes a packet's transparency, when it has some. Without it, or if it
+ * fails, the picture simply shows solid. */
+static void feed_alpha(struct yapfast_video *video, const AVPacket *packet) {
+  /* The packet's BlockAdditional: an 8-byte id, 1 for alpha, then its video. */
+  size_t size = 0;
+  const uint8_t *data =
+      av_packet_get_side_data(packet, AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL, &size);
+  video->vpx_alpha_fresh = 0;
+  if (!data || size <= 8 || AV_RB64(data) != 1) return;
+  if (!video->vpx_alpha_ready) {
+    /* A picture's alpha takes little, and most videos have none. */
+    vpx_codec_dec_cfg_t config = {.threads = 1};
+    if (vpx_codec_dec_init(&video->vpx_alpha, video->vpx_codec, &config, 0)) return;
+    video->vpx_alpha_ready = 1;
+  }
+  video->vpx_alpha_iter = NULL;
+  video->vpx_alpha_fresh =
+      vpx_codec_decode(&video->vpx_alpha, data + 8, (unsigned)(size - 8), NULL, 0) == VPX_CODEC_OK;
+}
+
 /* Hands the picture decoder its next packet, held back or read from the
  * file, or tells it the file ended. */
 static int feed(struct yapfast_video *video) {
@@ -600,6 +646,7 @@ static int feed(struct yapfast_video *video) {
       video->vpx_iter = NULL;
       video->vpx_pts = packet->pts;
       vpx_codec_decode(&video->vpx, packet->data, (unsigned)packet->size, NULL, 0);
+      feed_alpha(video, packet);
       break;
     default: {
       /* dav1d takes no empty data. */
@@ -684,6 +731,33 @@ static const scale_16 SCALE_16[] = {I420Scale_16, I422Scale_16, I444Scale_16};
 static const to_argb_8 TO_ARGB_8[] = {I420ToARGBMatrix, I422ToARGBMatrix, I444ToARGBMatrix};
 static const to_argb_16 TO_ARGB_10[] = {I010ToARGBMatrix, I210ToARGBMatrix, I410ToARGBMatrix};
 
+/* Puts the picture's alpha, when it has one, into `rgba`, `width` by `height`. */
+static int apply_alpha(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
+  const struct planes *planes = &video->planes;
+  const uint8_t *alpha = planes->alpha;
+  int stride = planes->alpha_stride;
+  if (!alpha) return 0;
+  if (width != planes->width || height != planes->height) {
+    size_t size = (size_t)width * (size_t)height;
+    if (video->scaled_alpha_size < size) {
+      uint8_t *grown = realloc(video->scaled_alpha, size);
+      if (!grown) return FAILED;
+      video->scaled_alpha = grown;
+      video->scaled_alpha_size = size;
+    }
+    ScalePlane(alpha, stride, planes->width, planes->height, video->scaled_alpha, width, width,
+               height, kFilterBox);
+    alpha = video->scaled_alpha;
+    stride = width;
+  }
+  for (int row = 0; row < height; row++) {
+    const uint8_t *from = alpha + (ptrdiff_t)row * stride;
+    unsigned char *to = rgba + (ptrdiff_t)row * width * 4 + 3;
+    for (int column = 0; column < width; column++) to[column * 4] = from[column];
+  }
+  return 0;
+}
+
 /* Writes the picture yapfast_video_next gave last into `rgba`, `width * 4`
  * bytes a row, scaled to `width` by `height`. */
 int yapfast_video_picture(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
@@ -725,10 +799,11 @@ int yapfast_video_picture(struct yapfast_video *video, unsigned char *rgba, int 
                     : (planes->full_range ? &kYvuJPEGConstants : &kYvuI601Constants);
   /* libyuv's ABGR is R, G, B, A in memory: its ARGB with U and V swapped. */
   if (bytes == 1) {
-    return TO_ARGB_8[layout](y, y_stride, v, v_stride, u, u_stride, rgba, width * 4, matrix, width,
-                             height)
-               ? FAILED
-               : 0;
+    if (TO_ARGB_8[layout](y, y_stride, v, v_stride, u, u_stride, rgba, width * 4, matrix, width,
+                          height)) {
+      return FAILED;
+    }
+    return apply_alpha(video, rgba, width, height);
   }
   /* yapfast_video_next gives 12-bit pictures only in 4:2:0. */
   to_argb_16 to_argb = planes->depth == 10 ? TO_ARGB_10[layout] : I012ToARGBMatrix;

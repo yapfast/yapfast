@@ -63,7 +63,8 @@ use crate::{
 /// Changes within this long go to disk together.
 const SAVE_DELAY: Duration = Duration::from_secs(20);
 /// Where on Discord's CDN the pictures Yapfast keeps live.
-const PICTURE_PATHS: [&str; 9] = [
+const PICTURE_PATHS: [&str; 11] = [
+    "/assets/",
     "/app-assets/",
     "/app-icons/",
     "/avatars/",
@@ -71,6 +72,7 @@ const PICTURE_PATHS: [&str; 9] = [
     "/embed/avatars/",
     "/guilds/",
     "/icons/",
+    "/media/v1/collectibles-shop/",
     "/emojis/",
     "/stickers/",
 ];
@@ -1076,8 +1078,11 @@ mod tests {
             status: Status::Online,
             user_id: Some("1".into()),
             account: Some(Account {
+                username: String::new(),
                 name: "Alice".into(),
                 avatar: "a.png".into(),
+                decoration: None,
+                nameplate: None,
                 premium_type: 0,
                 mfa_enabled: false,
                 has_email: true,

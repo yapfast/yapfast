@@ -136,8 +136,11 @@ fn safety_setup_saves_each_choice_as_its_made_and_puts_it_back_if_refused() {
     assert_eq!(app.mfa_rule(SERVER), MfaRule::OwnerWithoutMfa);
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     snapshot.account = Some(yapfast_discord::service::Account {
+        username: String::new(),
         name: "Alice".into(),
         avatar: String::new(),
+        decoration: None,
+        nameplate: None,
         premium_type: 0,
         mfa_enabled: true,
         has_email: true,

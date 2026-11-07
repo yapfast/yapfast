@@ -21,19 +21,16 @@ use futures_util::{SinkExt, StreamExt};
 use rsa::{Oaep, RsaPrivateKey, pkcs8::EncodePublicKey, rand_core::OsRng};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{
-        Message,
-        client::IntoClientRequest,
-        http::{HeaderValue, header},
-    },
+use tokio_tungstenite::tungstenite::{
+    Message,
+    client::IntoClientRequest,
+    http::{HeaderValue, header},
 };
 
 use crate::{
     api::Api,
     captcha::{self, Captcha},
-    client, ready,
+    client, ready, websocket,
 };
 
 type Socket =
@@ -80,7 +77,6 @@ impl std::error::Error for Stopped {}
 /// login once the person confirms on their phone. Errors are [`Stopped`]
 /// when the code expired or the person said no.
 pub async fn link(mut step: impl FnMut(Step)) -> Result<String> {
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     Api::anonymous()?.learn_build_number().await;
     let key = tokio::task::spawn_blocking(|| RsaPrivateKey::new(&mut OsRng, KEY_BITS))
         .await?
@@ -108,7 +104,7 @@ pub async fn link(mut step: impl FnMut(Step)) -> Result<String> {
         header::ORIGIN,
         HeaderValue::from_static("https://discord.com"),
     );
-    let (mut socket, _) = connect_async(request)
+    let (mut socket, _) = websocket::connect(request)
         .await
         .context("Can't reach Discord's login service.")?;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(40));

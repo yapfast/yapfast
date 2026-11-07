@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::{
-    activity,
+    activity, activity_feed,
     api::{self, Api, PAGE, Span},
     cache, forum, gift, guild, invite, limits,
     marked::MarkedServer,
@@ -23,7 +23,8 @@ use crate::{
     mfa,
     notifications::Change,
     oauth,
-    profile::{self, Profile},
+    profile::{self, Badge, Profile},
+    profile_effect,
     ready::{self, PRIVATE, Server},
     scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
@@ -80,8 +81,17 @@ pub struct VoiceMember {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
     pub name: String,
+    /// Its username, such as `derfayberr`, which the account card shows
+    /// under the pointer; empty while unknown.
+    #[serde(default)]
+    pub username: String,
     /// The address of its avatar.
     pub avatar: String,
+    /// The decoration it wears around its avatar, and its nameplate.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
     /// [`crate::api::upload_limit`].
     pub premium_type: u8,
@@ -103,7 +113,26 @@ pub struct Conversation {
     pub name: String,
     /// The other person's avatar in a DM, or a group DM's icon.
     pub avatar: Option<String>,
+    /// The decoration the other person in a DM wears around their avatar.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
+    /// The nameplate the other person in a DM equips.
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
+    /// The display name style of the other person in a DM.
+    #[serde(default)]
+    pub style: Option<crate::collectibles::Style>,
     pub group: bool,
+    /// The server tag the other person in a DM wears by their name.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
+    /// The other person is Discord's own account, which is marked as official.
+    #[serde(default)]
+    pub official: bool,
+    /// A one-to-one DM nobody has written in yet, where the DM list offers to
+    /// wave.
+    #[serde(default)]
+    pub empty: bool,
     /// Everyone in it, this account included.
     pub people: usize,
     /// A message request, waiting to be accepted or ignored. Requests count
@@ -357,6 +386,10 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    /// The Activity panel's feed has something new, to fetch after this long.
+    ActivityFeedStale {
+        refresh_after_ms: Option<u64>,
+    },
     Created(Message),
     /// A new message that should notify this account, by its notification settings,
     /// in a server or, with none, a DM.
@@ -411,6 +444,9 @@ pub enum Live {
     /// The servers and channels this account used, as another client counted
     /// them; see [`crate::frecency`].
     PlacesUsed(Vec<(String, crate::frecency::Uses)>),
+    /// The account's favourite emoji and the emoji it uses, as another
+    /// client changed them; see [`crate::frecency::Emojis`].
+    Emojis(crate::frecency::Emojis),
     /// Who watches a stream this account is in, and whether it's paused.
     StreamUpdated {
         stream_key: String,
@@ -639,6 +675,15 @@ impl ChannelSettings {
 }
 
 /// A handle to the connection. It ends when every handle is dropped.
+/// Where the Activity panel's feed last left off.
+#[derive(Default)]
+struct FeedPlace {
+    /// What the next request sends.
+    token: Option<String>,
+    /// How long after Discord says it's stale to ask again.
+    stale_after_ms: Option<u64>,
+}
+
 #[derive(Clone)]
 pub struct Discord {
     requests: mpsc::UnboundedSender<Request>,
@@ -648,6 +693,13 @@ pub struct Discord {
     names: Arc<RwLock<Names>>,
     /// Profiles fetched lately, oldest first.
     profiles: Arc<Mutex<Vec<Kept>>>,
+    /// Where the Activity panel's feed last left off.
+    feed_place: Arc<Mutex<FeedPlace>>,
+    /// This account's notes it has read, by user: none is an empty text. The
+    /// session keeps them current; see [`session::Shared::notes`].
+    notes: Notes,
+    /// Profile effects fetched lately, oldest first.
+    effects: Arc<Mutex<Vec<Arc<profile_effect::Effect>>>>,
     /// The threads a list of a channel's threads found, by id, while it's
     /// open: one opens from what Discord gave rather than asking again.
     listed_threads: Arc<Mutex<HashMap<String, Value>>>,
@@ -669,11 +721,16 @@ pub struct Discord {
 const NEW_DMS: usize = 8;
 const NEW_DM_SPAN: Duration = Duration::from_secs(10 * 60);
 
+/// The most profile effects kept: a few cards' worth.
+const EFFECTS: usize = 8;
+
 /// A profile fetched lately, for a user in a server.
 struct Kept {
     user: String,
     guild: String,
     at: Instant,
+    /// Whether [`Discord::badge_levels`] asked for its badges' levels.
+    levels_asked: bool,
     /// Their server nickname and avatar when it was fetched: once
     /// GUILD_MEMBER_UPDATE changes either, it's fetched again, with the
     /// rest of what they changed in their server profile.
@@ -685,6 +742,22 @@ const LIVE_BACKLOG: usize = 256;
 /// Profiles are fetched again after this long; Discord limits how often.
 const PROFILE_AGE: Duration = Duration::from_secs(5 * 60);
 const PROFILES: usize = 32;
+
+/// How many users' notes are kept before they're read afresh.
+const NOTES: usize = 256;
+
+type Notes = Arc<Mutex<HashMap<String, String>>>;
+
+/// Keeps a note this account has on `user`.
+fn keep_note(notes: &Notes, user: &str, note: &str) {
+    let mut notes = notes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if notes.len() >= NOTES && !notes.contains_key(user) {
+        notes.clear();
+    }
+    notes.insert(user.to_owned(), note.to_owned());
+}
 
 impl Discord {
     /// Connects on the current Tokio runtime and keeps reconnecting until
@@ -716,6 +789,7 @@ impl Discord {
         cached.names = SharedNames::new(names.clone());
         let (snapshots, watcher) = watch::channel(Arc::new(cached));
         let (live, _) = broadcast::channel(LIVE_BACKLOG);
+        let notes = Notes::default();
         // Sharing waits for READY unless an earlier session's settings said.
         let (show_game, shown) = watch::channel(watcher.borrow().show_game);
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
@@ -727,6 +801,7 @@ impl Discord {
                 snapshots,
                 live: live.clone(),
                 names: names.clone(),
+                notes: notes.clone(),
                 api: api.clone(),
                 lists: MemberLists::new(
                     lists,
@@ -749,6 +824,9 @@ impl Discord {
             api,
             names,
             profiles: Arc::default(),
+            feed_place: Arc::default(),
+            notes,
+            effects: Arc::default(),
             listed_threads: Arc::default(),
             new_dms: Arc::new(Mutex::new(limits::Window::new(NEW_DMS, NEW_DM_SPAN))),
             application_icons: Arc::default(),
@@ -1306,6 +1384,7 @@ impl Discord {
                 guild: guild.to_owned(),
                 at: Instant::now(),
                 member: self.member_face(guild, user),
+                levels_asked: false,
                 profile: profile.clone(),
             });
             if profiles.len() > PROFILES {
@@ -1315,6 +1394,47 @@ impl Discord {
         let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
         tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         Ok(profile)
+    }
+
+    /// Adds the levels of a profile's badges, the details its tooltips show,
+    /// to `badges` and to the copy kept of the profile. They come from a request
+    /// of their own, which Discord answers more slowly than the profile, so the
+    /// card doesn't wait for it: this runs once it is on screen. It asks once
+    /// for each kept profile, which then has the levels. Whether any badge has
+    /// a level now.
+    pub async fn badge_levels(&self, guild: &str, user: &str, badges: &mut [Badge]) -> bool {
+        if !badges
+            .iter()
+            .any(|badge| badge.level_icon.is_some() || badge.link.is_some())
+        {
+            return false;
+        }
+        let same = |kept: &&mut Kept| kept.user == user && kept.guild == guild;
+        if let Some(kept) = self.lock_profiles().iter_mut().find(same) {
+            if kept.levels_asked {
+                return false;
+            }
+            kept.levels_asked = true;
+        }
+        match self.api.badges(user).await {
+            Ok(levels) => profile::with_levels(badges, &levels),
+            Err(error) => {
+                tracing::debug!(%error, user, "could not fetch badge levels");
+                return false;
+            }
+        }
+        if !badges.iter().any(|badge| badge.level.is_some()) {
+            return false;
+        }
+        let saving = self.lock_profiles().iter_mut().find(same).map(|kept| {
+            kept.profile.badges = badges.to_vec();
+            kept.profile.clone()
+        });
+        if let Some(saving) = saving {
+            let (guild, user) = (guild.to_owned(), user.to_owned());
+            tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
+        }
+        true
     }
 
     /// A member's nickname and avatar in a server, as Names knows them.
@@ -1759,6 +1879,49 @@ impl Discord {
         });
     }
 
+    /// The profile effect sold as `sku`: its layers, from the shop, asked for
+    /// once and kept for the next few cards. None for a SKU that isn't one.
+    pub async fn profile_effect(&self, sku: &str) -> Result<Option<Arc<profile_effect::Effect>>> {
+        let lock = || {
+            self.effects
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        if let Some(kept) = lock().iter().find(|effect| effect.sku == sku) {
+            return Ok(Some(kept.clone()));
+        }
+        let asked = Instant::now();
+        let product = self.api.collectibles_product(sku).await?;
+        let pick = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_nanos() as usize);
+        let found = profile_effect::parse(sku, &product, pick);
+        let Some(effect) = found else {
+            tracing::info!(sku, "the shop has no profile effect with this SKU");
+            return Ok(None);
+        };
+        tracing::info!(
+            sku,
+            layers = effect.layers.len(),
+            ms = asked.elapsed().as_millis() as u64,
+            "fetched a profile effect"
+        );
+        let effect = Arc::new(effect);
+        let mut kept = lock();
+        kept.retain(|old| old.sku != sku);
+        kept.push(effect.clone());
+        if kept.len() > EFFECTS {
+            kept.remove(0);
+        }
+        Ok(Some(effect))
+    }
+
+    fn lock_feed_place(&self) -> std::sync::MutexGuard<'_, FeedPlace> {
+        self.feed_place
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn lock_profiles(&self) -> std::sync::MutexGuard<'_, Vec<Kept>> {
         self.profiles
             .lock()
@@ -1907,10 +2070,21 @@ impl Discord {
 
     /// The account's favourite GIFs, kept on disk too.
     pub async fn favorite_gifs(&self) -> Result<Vec<crate::gifs::Favorite>> {
+        Ok(self.favorite_gifs_and_emojis().await?.0)
+    }
+
+    /// The account's favourite GIFs and its favourite and used emoji, which
+    /// the same settings hold: one request for both, at a start.
+    pub async fn favorite_gifs_and_emojis(
+        &self,
+    ) -> Result<(Vec<crate::gifs::Favorite>, crate::frecency::Emojis)> {
         let settings = self.api.frecency_settings().await?;
         let favorites = crate::gifs::read_favorites(&settings).unwrap_or_default();
         keep_favorite_gifs(favorites.clone()).await;
-        Ok(favorites)
+        Ok((
+            favorites,
+            crate::frecency::read_emojis(&settings).unwrap_or_default(),
+        ))
     }
 
     /// The servers and channels this account used, by id, as Discord's
@@ -1975,14 +2149,28 @@ impl Discord {
         self.api.set_friend_nickname(user, nickname).await
     }
 
-    /// This account's note on someone; empty when it has none.
+    /// This account's note on someone; empty when it has none. Discord is
+    /// asked once for each user, as its client does.
     pub async fn note(&self, user: &str) -> Result<String> {
-        self.api.note(user).await
+        let kept = self
+            .notes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(user)
+            .cloned();
+        if let Some(kept) = kept {
+            return Ok(kept);
+        }
+        let note = self.api.note(user).await?;
+        keep_note(&self.notes, user, &note);
+        Ok(note)
     }
 
     /// Sets this account's note on someone; empty removes it.
     pub async fn set_note(&self, user: &str, note: &str) -> Result<()> {
-        self.api.set_note(user, note).await
+        self.api.set_note(user, note).await?;
+        keep_note(&self.notes, user, note);
+        Ok(())
     }
 
     /// Sets the nickname of `user` in a server, this account's own included;
@@ -2574,6 +2762,84 @@ impl Discord {
             .collect()
     }
 
+    /// The Activity panel's feed, asked from where the last answer left off.
+    pub async fn activity_feed(&self) -> Result<activity_feed::Feed> {
+        let token = self.lock_feed_place().token.clone();
+        let value = self.api.activity_feed(token.as_deref()).await?;
+        let feed = activity_feed::parse(&value);
+        *self.lock_feed_place() = FeedPlace {
+            token: feed.refresh_token.clone(),
+            stale_after_ms: feed.stale_after_ms,
+        };
+        Ok(feed)
+    }
+
+    /// How long to wait before asking again once Discord says the feed went
+    /// stale: as it says then, else as the feed said.
+    pub fn activity_feed_stale_wait(&self, refresh_after_ms: Option<u64>) -> Duration {
+        Duration::from_millis(
+            refresh_after_ms
+                .or(self.lock_feed_place().stale_after_ms)
+                .unwrap_or(0),
+        )
+    }
+
+    /// Who of `users` a channel's Activity panel may show, with the name and
+    /// picture it shows them by: those in its server who can see it, as
+    /// Discord's client filters its feed. None for a server that doesn't
+    /// show the panel.
+    pub async fn activity_people(
+        &self,
+        guild: &str,
+        channel: &str,
+        users: &[Arc<str>],
+    ) -> Vec<activity_feed::Person> {
+        let shown = {
+            let snapshot = self.snapshots.borrow();
+            snapshot
+                .servers
+                .iter()
+                .find(|server| server.id == guild)
+                .is_some_and(|server| {
+                    activity_feed::shown_in(server.activity_feed, server.member_count)
+                })
+        };
+        if !shown {
+            return Vec::new();
+        }
+        self.ask_members(guild, users.iter().map(|user| &**user))
+            .await;
+        let snapshot = self.snapshots.borrow().clone();
+        let Some(server) = snapshot.servers.iter().find(|server| server.id == guild) else {
+            return Vec::new();
+        };
+        let Some(open) = server
+            .text_channels
+            .iter()
+            .chain(&server.voice_channels)
+            .find(|found| found.id == channel)
+        else {
+            return Vec::new();
+        };
+        let names = self.read_names();
+        users
+            .iter()
+            .filter(|user| names.knows_member(guild, user))
+            .filter(|user| {
+                server.channel_permissions(open, user, names.roles(guild, user))
+                    & ready::permission::VIEW_CHANNEL
+                    != 0
+            })
+            .filter_map(|user| {
+                Some(activity_feed::Person {
+                    id: user.clone(),
+                    name: names.name(guild, user)?.into(),
+                    avatar: names.avatar(Some(guild), user).into(),
+                })
+            })
+            .collect()
+    }
+
     /// Learns the names of these members of a server, asking the gateway
     /// for those Yapfast doesn't know yet.
     pub async fn learn_members(&self, guild: &str, users: &[String]) {
@@ -2840,6 +3106,32 @@ impl Discord {
     /// The address of a user's avatar, in a server or in DMs.
     pub fn avatar(&self, guild: Option<&str>, user: &str) -> String {
         self.read_names().avatar(guild.and_then(server), user)
+    }
+
+    /// The server tag a user wears beside their name, if they do.
+    pub fn server_tag(&self, user: &str) -> Option<crate::message::Tag> {
+        self.read_names().server_tag(user).cloned()
+    }
+
+    /// The address of the decoration a user wears around their avatar, in a
+    /// server or in DMs.
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<Arc<str>> {
+        self.read_names().decoration(guild.and_then(server), user)
+    }
+
+    /// The nameplate a user equips, in a server or in DMs.
+    pub fn nameplate(
+        &self,
+        guild: Option<&str>,
+        user: &str,
+    ) -> Option<crate::collectibles::Nameplate> {
+        self.read_names().nameplate(guild.and_then(server), user)
+    }
+
+    /// The display name style a user draws their name with, in a server or
+    /// in DMs.
+    pub fn style(&self, guild: Option<&str>, user: &str) -> Option<crate::collectibles::Style> {
+        self.read_names().style(guild.and_then(server), user)
     }
 
     /// A member's roles in a server by id, as far as they're known, shared

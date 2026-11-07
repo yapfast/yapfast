@@ -22,7 +22,7 @@ messages only to subscribers. Yapfast sends, replies, edits, deletes, reacts
 and sends files through Discord's cloud uploads. Mentions and timestamps show
 as text, custom emoji and stickers as pictures, every attachment shows, images
 with previews scaled by Discord's media proxy, and channels the account can't
-send in are read-only. Bots and webhooks have a BOT tag after their name. An
+send in are read-only. Bots and webhooks have an APP tag after their name. An
 author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
 authors' member profiles.
@@ -298,6 +298,9 @@ an error.
   play, with H264, VP8, VP9 or AV1 pictures in 4:2:0, 4:2:2 or 4:4:4 at
   8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound;
   HEVC, which iPhones record, doesn't, as libwebrtc's FFmpeg lacks it.
+  A WebM's transparency shows, at 8 bits: it's a second video, in each block's
+  BlockAdditional, whose brightness is the picture's alpha, which
+  `native/video.c` decodes with a second libvpx decoder when a packet has one.
   The file downloads into `discord-videos/` beside the account file, and
   plays as it arrives: the worker's reads wait for the download. It goes
   when the video stops, as when its channel, or its thread beside the
@@ -376,6 +379,22 @@ an error.
   of frames, letting go the least recently shown, never one on screen. An
   emoji shows its still first frame until its frames arrive, and if they
   never do.
+- The emoji picker's Favorites and the start of its Frequently used are the
+  account's own, as every Discord client of it shows them: `favorite_emojis`,
+  `emoji_frecency` and, for a reaction's picker, `emoji_reaction_frecency` in
+  `FrecencyUserSettings`, the second settings protobuf. They come with the
+  favourite GIFs' request when Discord connects, and through
+  USER_SETTINGS_PROTO_UPDATE, where a partial update's missing field keeps what
+  Yapfast had. They're ranked when they come, as Discord's client ranks them
+  (`rank_emojis`, the top 42), which weighs a use by its age otherwise than a
+  place's. This computer's reaction counts follow them. The settings name a
+  custom emoji by its id, shown greyed if it's locked here and not at all if
+  the account has left its server, and a Unicode emoji by Discord's name, such
+  as `slight_smile`; `src/discord_emoji_names.rs`, which
+  `scripts/discord-emoji-names` writes from emojibase-data (MIT, whose licence
+  packages carry), holds those that differ from GitHub's shortcodes, which the
+  `emojis` crate knows. A flag comes from its country's two letters. Yapfast
+  doesn't change them yet.
 - Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
   GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation
@@ -399,6 +418,16 @@ an error.
   another, with one request for an original at a time; if Discord doesn't
   answer, the line says it couldn't be loaded and still jumps there, and asks
   again the next time the channel opens.
+  In Discord's style the quote reads "@Name" in the author's role colour
+  (`Reply.color`, from the member's roles when the original is known), in
+  regular weight, before 13px text in the secondary colour.
+- A picture in a message sits straight on the message background: a
+  transparent PNG or GIF shows no backdrop, as in Discord. Only the
+  loading skeleton draws a fill.
+- The context menus (channel, server, member and message) use Discord's
+  shades (`Theme.menu`, `Theme.menu-line`, `Theme.danger-text`), a 255px
+  minimum width, icons only on the rows Discord gives them, and a greyed
+  "Mark as read" first row when there is nothing to read.
 - Desktop notifications follow the person's Discord settings: each channel's,
   category's or server's level (every message, mentions only or nothing),
   falling back to the server's default, with mutes leaving only mentions. DMs
@@ -407,7 +436,8 @@ an error.
   joins, pins and call notices don't. Nothing notifies while the account's
   status is Do Not Disturb. They show while Yapfast
   isn't in front, titled with who wrote where, and clicking one opens the
-  conversation. On Linux they go to the freedesktop notification service.
+  conversation. On Linux they go to the freedesktop notification service; on
+  Windows they're toasts ([Windows](../windows-beta.md#notifications-on-windows)).
   Each also plays Yapfast's message sound, or its mention sound, unless it's in
   the conversation in front; see [voice](../voice.md#sounds).
 - Mentions in messages are links on a light fill, in the role's colour or the
@@ -691,3 +721,18 @@ Discord's do, built alike in `src/ui/menus.rs` (`Notify`):
   heading names its first channel, and Yapfast finds the channel's category
   (`Application::category_of`); an empty category's heading names the
   category itself.
+
+## Writing without permission
+
+In Discord mode, in a channel the account can read but not write in (no
+`SEND_MESSAGES`, a locked thread or an archived one), the composer is one
+disabled bar in place of the box and its toolbar, with Discord's words "You do
+not have permission to send messages in this channel."
+A timed-out account keeps its own banner.
+
+## Dates
+
+A day divider reads 12px semibold. With a 12-hour clock dates are month-first
+as in en-US ("November 4, 2026"); with a 24-hour clock they are day-first,
+unless Settings chooses a date format. The chat header
+puts a 4px round dot between the channel name and its topic.

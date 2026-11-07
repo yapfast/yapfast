@@ -25,7 +25,9 @@ it.
 
 Right-clicking someone in a server channel's member list, or a message's
 author there, opens their menu in the order of Discord's: Profile, Mention,
-Message, Call, Add note and the friend nickname; Change nickname, [Invite to
+Message, Call for anyone but oneself, an app or someone blocked, which asks
+first, as Discord's does, until "Don't ask again" is ticked, Add note and the
+friend nickname; Change nickname, [Invite to
 server](#invite-to-server), friendship, Ignore and Block; Roles; in red,
 Time out, Kick and Ban, each naming them; then Copy ID, last as in
 Discord's `GuildChannelUserContextMenu`. In a voice channel it has more; see
@@ -48,10 +50,11 @@ copying them.
   resets it. One's own entry offers Edit server profile in its place, as
   Discord's menu does, which opens the [per-server profile
   editor](people.md#editing-ones-server-profile).
-- Roles needs Manage Roles. Its submenu lists every role but @everyone,
-  highest first, ticked where they hold it. Roles at or above this account's
-  highest, and those an integration manages, show greyed, as Discord shows
-  them. Ticking one is `PUT` or `DELETE
+- Roles needs Manage Roles in the server, whatever the channel's overwrites
+  say. Its submenu lists the roles this account can give or take, highest
+  first, ticked where they hold it. A role at or above this account's highest,
+  or one an integration manages, shows only while they hold it, greyed, as in
+  Discord's. Ticking one is `PUT` or `DELETE
   /guilds/{id}/members/{user}/roles/{role}`; the box changes at once and the
   menu stays open.
 - Time out needs Moderate Members and outranking them, and isn't offered for
@@ -245,6 +248,34 @@ CHANNEL_CREATE, UPDATE and DELETE, which the service already applies to the one
 server they name, so the sidebar rebuilds that server's rows and keeps the
 others. Names are 1 to 100 characters and topics up to 1024, checked before
 asking.
+
+## The server header, events and private channels
+
+In Discord mode the sidebar header shows the server's banner (`guild.banner`,
+from GUILD_CREATE) behind its name when it has one: the header grows by 81px,
+the name and chevron turn white over a gradient at the top, and the line
+under the header goes away. A verified server (`features` has `VERIFIED`)
+shows a green badge with a check after its name instead of the community
+icon; other community servers keep the community icon.
+
+Under the header a 60px row reads "N Events" with a calendar icon, where N
+counts the scheduled events that haven't ended (status 1 scheduled or 2
+active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
+current by GUILD_SCHEDULED_EVENT_CREATE, UPDATE and DELETE. Clicking the row
+opens a menu with one row per event: its name, and "Happening now" or the
+start time (12 or 24 hours as the clock is set) followed by its place.
+Yapfast doesn't fetch `/guilds/{id}/scheduled-events` and doesn't draw
+Discord's event cards, so interest counts aren't shown.
+
+## A chat's first message
+
+At the start of a channel's history Discord writes a welcome block, which
+Yapfast now draws as well. In a server's first channel: "Welcome to" over the server's name
+in 32px semibold, then "This is the beginning of this server." in 14px, all
+centred, measured against Discord to 12px between the text and the date
+divider. In any other channel: a 68px circle with a hash, "Welcome to
+#{name}!" in 32px bold and "This is the start of the #{name} channel." under
+it. DMs and rooms outside Discord keep the one-line text.
 
 ## A channel's menu
 

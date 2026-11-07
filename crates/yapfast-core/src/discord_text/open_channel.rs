@@ -1568,6 +1568,7 @@ impl OpenChannel {
                             &discord.render(server.map(|server| &**server), &original.content),
                         )),
                         item: Some(format!("d:{id}")),
+                        color: server.and_then(|server| discord.color(server, &original.author_id)),
                     })
                 }),
                 attachments: pending
@@ -1698,12 +1699,14 @@ impl OpenChannel {
                 avatar: Some(discord.avatar(Some(&self.guild), author_id)),
                 body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
                 item: Some(format!("d:{id}")),
+                color: server.and_then(|server| discord.color(server, author_id)),
             },
             DiscordReply::Deleted => Reply {
                 author: String::new(),
                 avatar: None,
                 body: "The original message was deleted.".into(),
                 item: None,
+                color: None,
             },
             DiscordReply::Unknown { id } => Reply {
                 author: String::new(),
@@ -1715,6 +1718,7 @@ impl OpenChannel {
                 }
                 .into(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
+                color: None,
             },
         });
         let timestamp = message.timestamp();
@@ -1726,8 +1730,13 @@ impl OpenChannel {
             sender: discord::sender_id(&message.author_id),
             spoilers: true,
             avatar: Some(discord.avatar(Some(&self.guild), &message.author_id)),
+            decoration: discord.decoration(Some(&self.guild), &message.author_id),
+            style: discord
+                .style(Some(&self.guild), &message.author_id)
+                .map(|style| Arc::new(style.into())),
             color: server.and_then(|server| discord.color(server, &message.author_id)),
             bot: message.bot,
+            tag: discord::server_tag(discord.server_tag(&message.author_id)),
             forwarded: message.forwarded,
             body,
             formatted: ordinary,

@@ -285,6 +285,13 @@ impl Adapter {
             .set_revision(self.app.state.picture_changes as i32);
         self.show_viewer(window);
         self.show_profile(window);
+        window.set_can_go_back(self.app.state.can_go_back());
+        window.set_can_go_forward(self.app.state.can_go_forward());
+        if window.get_inbox_open() {
+            self.show_inbox(window);
+        } else {
+            update_model(&self.models.inbox, Vec::new());
+        }
         let changes = Changes::read(self, window);
         if changes.reset || self.navigation != self.app.state.navigation {
             window.set_filter(SharedString::default());
@@ -588,6 +595,27 @@ impl Adapter {
             Navigation::Server(id) => self.app.header_choices(id).contains(&MenuChoice::Invite),
             Navigation::DirectMessages => false,
         });
+        window.set_header_community(match &state.navigation {
+            Navigation::Server(id) => state
+                .servers
+                .iter()
+                .any(|server| &server.id == id && server.community),
+            Navigation::DirectMessages => false,
+        });
+        let header_server = match &state.navigation {
+            Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+            Navigation::DirectMessages => None,
+        };
+        window.set_header_verified(header_server.is_some_and(|server| server.verified));
+        window.set_header_banner(
+            header_server
+                .and_then(|server| server.banner.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_header_events(
+            header_server.map_or(0, |server| i32::try_from(server.events.len()).unwrap_or(0)),
+        );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {
                 "Find a DM"
@@ -759,7 +787,7 @@ impl Adapter {
                     let this = (room.category_id.as_deref(), room.category.as_str());
                     if category.replace(this) != Some(this) {
                         folds_by = room.category_id.as_deref();
-                        room.category.to_uppercase()
+                        room.category.clone()
                     } else {
                         String::new()
                     }
@@ -794,9 +822,36 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
+                    decoration_url: room.decoration.as_deref().unwrap_or_default().into(),
+                    nameplate_url: room
+                        .nameplate
+                        .as_ref()
+                        .filter(|_| !state.hide_nameplates)
+                        .map(|plate| &*plate.picture)
+                        .unwrap_or_default()
+                        .into(),
+                    nameplate_color: role_color(
+                        room.nameplate
+                            .as_ref()
+                            .and_then(|plate| Some(plate.colors?[0])),
+                    ),
+                    nameplate_light: role_color(
+                        room.nameplate
+                            .as_ref()
+                            .and_then(|plate| Some(plate.colors?[1])),
+                    ),
+                    name_style: name_style::row(room.style.as_deref(), &room.name),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
+                    tag: tag_text(&room.tag),
+                    tag_badge: tag_badge(&room.tag),
+                    official: room.official,
+                    wave: if room.empty && !room.request {
+                        room.person.as_deref().unwrap_or_default().into()
+                    } else {
+                        Default::default()
+                    },
                     pinned: if room.direct {
                         state.pinned.contains(&room.id)
                     } else {
@@ -966,6 +1021,8 @@ impl Adapter {
             .unwrap_or_else(|| display_part(account));
         window.set_account(account.into());
         window.set_account_name(account_name.into());
+        window.set_account_username(state.account_username.as_deref().unwrap_or_default().into());
+        window.set_account_user_id(state.discord_user.as_deref().unwrap_or_default().into());
         window.set_account_initial(initial(account_name));
         window.set_account_tint(tint(account_name));
         window.set_account_picture(cached_picture(
@@ -973,6 +1030,29 @@ impl Adapter {
             state,
             state.account_avatar.as_deref(),
         ));
+        let look = window.global::<AccountLook>();
+        look.set_decoration_url(
+            state
+                .account_decoration
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
+        );
+        look.set_nameplate_url(
+            state
+                .account_nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates)
+                .map(|plate| &*plate.picture)
+                .unwrap_or_default()
+                .into(),
+        );
+        let colors = state
+            .account_nameplate
+            .as_ref()
+            .and_then(|plate| plate.colors);
+        look.set_nameplate_color(role_color(colors.map(|colors| colors[0])));
+        look.set_nameplate_light(role_color(colors.map(|colors| colors[1])));
         let (custom_status, status_emoji) = state
             .custom_status
             .as_ref()
@@ -980,11 +1060,21 @@ impl Adapter {
             .map(status_line)
             .unzip();
         window.set_account_status_emoji(status_emoji.flatten().unwrap_or_default().into());
+        // The game Yapfast shows as playing, as the activity icon Discord puts
+        // before the status: alone it names the game, before a status it adds a bullet.
+        let playing = state
+            .discord_playing
+            .as_ref()
+            .filter(|_| state.online && !state.preview && state.discord_show_game);
+        window.set_account_activity_icon(i32::from(playing.is_some()));
+        window.set_account_activity_bullet(playing.is_some() && custom_status.is_some());
         window.set_account_status(
             if state.preview {
                 "Local only"
             } else if let Some(status) = &custom_status {
                 status
+            } else if let Some(playing) = playing {
+                &playing.name
             } else if let Some(status) = &state.account_status {
                 status
             } else if state.online {
@@ -1001,6 +1091,50 @@ impl Adapter {
         window.set_discord_status(state.discord_presence.as_deref().unwrap_or("online").into());
         window.set_storage(state.storage.unwrap_or_default().into());
         window.set_notice(state.notice.as_deref().unwrap_or_default().into());
+    }
+
+    /// The rows of the inbox popout's open tab, from what the client already
+    /// knows: the channels and conversations with unread messages, muted ones
+    /// only for a mention, or those that mention this account.
+    fn show_inbox(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let mentions_only = window.get_inbox_tab() == 1;
+        let servers: HashMap<&str, &str> = state
+            .servers
+            .iter()
+            .flat_map(|server| {
+                let name = server.name.as_str();
+                server.channels.iter().map(move |id| (id.as_str(), name))
+            })
+            .collect();
+        let rows = state
+            .rooms
+            .iter()
+            .filter(|room| !room.request && !room.unlisted)
+            .filter(|room| room.mentions > 0 || (!mentions_only && room.unread > 0 && !room.muted))
+            .map(|room| InboxRow {
+                id: room.id.as_str().into(),
+                name: if room.direct {
+                    room.name.as_str().into()
+                } else {
+                    format!("#{}", room.name).into()
+                },
+                place: servers
+                    .get(room.id.as_str())
+                    .copied()
+                    .unwrap_or_default()
+                    .into(),
+                initial: initial(&room.name),
+                tint: tint(&room.id),
+                picture_url: if room.direct {
+                    room.avatar.as_deref().unwrap_or_default().into()
+                } else {
+                    SharedString::default()
+                },
+                mentions: i32::try_from(room.mentions).unwrap_or(i32::MAX),
+            })
+            .collect();
+        update_model(&self.models.inbox, rows);
     }
 
     /// Starting a thread: what the open channel offers, and the "New
@@ -1356,6 +1490,54 @@ impl Adapter {
         window.set_room_activity_emoji(activity_emoji);
         window.set_profile_available(state.one_to_one().is_some());
         window.set_room_request(room.is_some_and(|room| room.request));
+        // What opens a server channel's history in Discord's client: "Welcome
+        // to" the server for its first channel, else the channel itself.
+        let (intro, intro_title, intro_text) = match (room, &state.navigation) {
+            (Some(room), Navigation::Server(id))
+                if room.network == Network::Discord
+                    && !room.direct
+                    && !room.voice
+                    && room.parent.is_none() =>
+            {
+                let server = state.servers.iter().find(|server| &server.id == id);
+                let first = server.is_some_and(|server| {
+                    server
+                        .channels
+                        .iter()
+                        .filter_map(|channel| state.rooms.iter().find(|room| &room.id == channel))
+                        .find(|room| !room.voice && room.parent.is_none() && !room.forum)
+                        .is_some_and(|first| first.id == room.id)
+                });
+                let name = room.name.as_str();
+                match server {
+                    Some(server) if first => (
+                        "server",
+                        server.name.clone(),
+                        "This is the beginning of this server.".to_owned(),
+                    ),
+                    _ => (
+                        "channel",
+                        format!("Welcome to #{name}!"),
+                        format!("This is the start of the #{name} channel."),
+                    ),
+                }
+            }
+            _ => ("", String::new(), String::new()),
+        };
+        window.set_intro_kind(intro.into());
+        window.set_intro_welcome("Welcome to".into());
+        window.set_intro_title(intro_title.into());
+        window.set_intro_text(intro_text.into());
+        // Discord's words: `Message @sam` in a DM, `Message #general` in a
+        // channel, and a group's or thread's own name as it is.
+        window.set_composer_placeholder(room.map_or(SharedString::default(), |room| {
+            match (room.direct, room.person.is_some(), room.parent.is_none()) {
+                (true, true, _) => format!("Message @{}", room.name),
+                (false, _, true) => format!("Message #{}", room.name),
+                _ => format!("Message {}", room.name),
+            }
+            .into()
+        }));
         window.set_request_title(
             match room {
                 Some(room) if room.category == discord::SPAM => {
@@ -1581,6 +1763,21 @@ impl Adapter {
             Some(Ok(members)) => members.as_slice(),
             _ => &[],
         };
+        // Discord shows the panel in a server's channels, but not its forums.
+        let in_channel = state
+            .selected_room()
+            .filter(|room| !room.direct && !room.forum);
+        update_model(
+            &self.models.roster_activity,
+            match in_channel {
+                Some(room) => activity_panel(state, &room.id, members, now),
+                None => Vec::new(),
+            },
+        );
+        let owner = state
+            .selected
+            .as_deref()
+            .and_then(|room| self.app.server_owner(room));
         window.set_roster_note(
             match &state.members {
                 None => "Loading members...",
@@ -1596,15 +1793,47 @@ impl Adapter {
                 .iter()
                 .enumerate()
                 .map(|(index, member)| {
-                    let (activity, activity_emoji) = activity_line(member.activity.as_deref());
+                    let (activity_icon, activity_bullet, named) =
+                        subline(&member.activities, member.activity.as_deref());
+                    let (activity, activity_emoji) =
+                        activity_line(named.as_deref().or(member.activity.as_deref()));
                     MemberRow {
+                        activity_icon,
+                        activity_bullet,
                         id: member.id.clone().into(),
                         name: member.name.clone().into(),
                         initial: initial(&member.name),
                         tint: tint(&member.name),
                         picture: slint::Image::default(),
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
+                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
+                        role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
+                        tag: tag_text(&member.tag),
+                        tag_badge: tag_badge(&member.tag),
+                        decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
+                        name_style: name_style::row(member.style.as_deref(), &member.name),
+                        nameplate_url: member
+                            .nameplate
+                            .as_ref()
+                            .filter(|_| !state.hide_nameplates)
+                            .map(|plate| &*plate.picture)
+                            .unwrap_or_default()
+                            .into(),
+                        nameplate_color: role_color(
+                            member
+                                .nameplate
+                                .as_ref()
+                                .and_then(|plate| Some(plate.colors?[0])),
+                        ),
+                        nameplate_light: role_color(
+                            member
+                                .nameplate
+                                .as_ref()
+                                .and_then(|plate| Some(plate.colors?[1])),
+                        ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
+                        bot: member.bot,
+                        owner: owner.as_deref() == Some(member.id.as_str()),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
                         has_color: member.color.is_some(),
@@ -1614,7 +1843,7 @@ impl Adapter {
                         // Discord names its groups; Matrix members group by role.
                         heading: if let Some(group) = &member.group {
                             if index == 0 || members[index - 1].group.as_ref() != Some(group) {
-                                group.to_uppercase().into()
+                                group.as_str().into()
                             } else {
                                 SharedString::default()
                             }
@@ -2427,6 +2656,13 @@ impl Adapter {
                 "Save",
                 false,
             ),
+            PersonAsk::Call => (
+                "Ready to start a call?".into(),
+                "Enjoy this moment. Then jump in when you're ready.".into(),
+                "",
+                "Start Call",
+                false,
+            ),
             PersonAsk::Nickname => (
                 format!("Nickname for {name}"),
                 "Only you see the nickname you give a friend. Leave it empty to remove it.".into(),
@@ -2524,6 +2760,11 @@ impl Adapter {
             options,
             chosen: i32::try_from(dialog.choice).unwrap_or_default(),
             field: field.into(),
+            tick: if dialog.ask == PersonAsk::Call {
+                "Don't ask again".into()
+            } else {
+                SharedString::default()
+            },
             confirm: confirm.into(),
             danger,
             loading: dialog.text.is_none(),
@@ -3014,11 +3255,22 @@ impl Adapter {
                     super::menus::until(until / 1000, self.layout.twelve_hour_clock)
                 )
             });
+        // Discord swaps the composer for one disabled bar saying so, with no
+        // buttons and no caption.
+        let no_permission = window.global::<ClientStyle>().get_enabled()
+            && timed_out.is_none()
+            && !state.preview
+            && discord_room
+            && room.is_some_and(|room| !room.request && (room.read_only || room.locked));
+        window.set_composer_locked(no_permission);
+        window.set_composer_locked_text(
+            "You do not have permission to send messages in this channel.".into(),
+        );
         window.set_composer_hint(
             if room.is_none() {
                 "Choose a DM or server channel to write a message."
             } else if state.preview {
-                "Enter to send locally, Shift+Enter for a new line."
+                ""
             } else if room.is_some_and(|room| room.request) {
                 if discord_only {
                     ""
@@ -3027,6 +3279,8 @@ impl Adapter {
                 }
             } else if let Some(timed_out) = &timed_out {
                 timed_out
+            } else if no_permission {
+                ""
             } else if discord_room && room.is_some_and(|room| room.read_only || room.locked) {
                 "You can't send messages in this Discord channel."
             } else if discord_room && !state.discord_online {
@@ -4259,7 +4513,7 @@ pub(super) fn with_empty_categories(
     // Its id names the category, for the heading's menu.
     let heading = |category: &ListedCategory| RoomRow {
         id: category.id.as_str().into(),
-        heading: category.name.to_uppercase().into(),
+        heading: category.name.as_str().into(),
         category: category.id.as_str().into(),
         hidden: true,
         ..Default::default()
@@ -4344,7 +4598,7 @@ fn staged_rows(
     rows
 }
 
-fn arrived<'a>(
+pub(super) fn arrived<'a>(
     state: &'a AppState,
     emoji: &'a yapfast_core::chat::CustomEmoji,
 ) -> Option<(&'a str, &'a yapfast_core::chat::Picture)> {
