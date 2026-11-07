@@ -280,7 +280,7 @@ pub(super) fn read_sticker(path: &Path) -> Result<PickedPicture, String> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let unreadable = || format!("Yapfast could not read {name}.");
+    let unreadable = || format!("RatFast could not read {name}.");
     let size = std::fs::metadata(path)
         .ok()
         .filter(std::fs::Metadata::is_file)

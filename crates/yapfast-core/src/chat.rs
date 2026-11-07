@@ -231,7 +231,7 @@ impl Staged {
         let metadata = std::fs::metadata(&path)
             .ok()
             .filter(std::fs::Metadata::is_file)
-            .ok_or_else(|| format!("Yapfast could not read {name}."))?;
+            .ok_or_else(|| format!("RatFast could not read {name}."))?;
         if metadata.len() > limit {
             return Err(format!(
                 "{name} is {}; files here can be up to {}.",

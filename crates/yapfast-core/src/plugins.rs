@@ -172,8 +172,9 @@ impl Manifest {
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
-        && id.bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'.')
+        && id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'.'
+        })
         && !id.starts_with(['-', '.'])
         && !id.ends_with(['-', '.'])
 }
@@ -191,23 +192,42 @@ fn valid_version(version: &str) -> bool {
 pub enum PluginError {
     BadManifest(String),
     InvalidManifest(String),
-    UnsupportedApi { plugin: String, wanted: u32, host: u32 },
-    PrivilegedDenied { plugin: String, capability: Capability },
+    UnsupportedApi {
+        plugin: String,
+        wanted: u32,
+        host: u32,
+    },
+    PrivilegedDenied {
+        plugin: String,
+        capability: Capability,
+    },
     DuplicateId(String),
     UnknownPlugin(String),
-    CapabilityDenied { plugin: String, capability: Capability },
+    CapabilityDenied {
+        plugin: String,
+        capability: Capability,
+    },
     /// The capability is granted and policy allows it, but the in-process
     /// host has no implementation: see `docs/plugins-wasm.md`. Privileged
     /// native plugins stay off until the sandbox lands.
-    UnavailableInV1 { plugin: String, capability: Capability },
+    UnavailableInV1 {
+        plugin: String,
+        capability: Capability,
+    },
 }
 
 impl std::fmt::Display for PluginError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PluginError::BadManifest(error) => write!(f, "could not parse plugin manifest: {error}"),
+            PluginError::BadManifest(error) => {
+                write!(f, "could not parse plugin manifest: {error}")
+            }
             PluginError::InvalidManifest(error) => write!(f, "invalid plugin manifest: {error}"),
-            PluginError::UnsupportedApi { plugin, wanted, host } => write!(
+            PluginError::UnsupportedApi {
+                plugin,
+                wanted,
+                host,
+            } => write!(
                 f,
                 "plugin {plugin} needs host API {wanted}, this host has {host}"
             ),
@@ -444,7 +464,11 @@ impl PluginManager {
     pub fn register(&mut self, plugin: Box<dyn Plugin>) -> Result<(), PluginError> {
         let manifest = plugin.manifest();
         manifest.validate(self.allow_privileged)?;
-        if self.plugins.iter().any(|installed| installed.manifest().id == manifest.id) {
+        if self
+            .plugins
+            .iter()
+            .any(|installed| installed.manifest().id == manifest.id)
+        {
             return Err(PluginError::DuplicateId(manifest.id));
         }
         let enabled = manifest.enabled_by_default;
@@ -455,10 +479,13 @@ impl PluginManager {
     }
 
     pub fn manifests(&self) -> Vec<Manifest> {
-        self.plugins.iter().map(|plugin| plugin.manifest()).collect()
+        self.plugins
+            .iter()
+            .map(|plugin| plugin.manifest())
+            .collect()
     }
 
-    pub fn get(&self, id: &str) -> Option<&Manifest> {
+    pub fn get(&self, id: &str) -> Option<Manifest> {
         self.plugins
             .iter()
             .map(|plugin| plugin.manifest())
@@ -481,7 +508,11 @@ impl PluginManager {
 
     /// Restores the enabled state and settings after reading `layout.json`.
     /// Unknown ids are ignored, so a layout from a newer build still loads.
-    pub fn apply_state(&mut self, enabled: &HashMap<String, bool>, config: &HashMap<String, PluginConfig>) {
+    pub fn apply_state(
+        &mut self,
+        enabled: &HashMap<String, bool>,
+        config: &HashMap<String, PluginConfig>,
+    ) {
         for (id, on) in enabled {
             if self.enabled.contains_key(id) {
                 self.enabled.insert(id.clone(), *on);
@@ -495,7 +526,11 @@ impl PluginManager {
     }
 
     pub fn set_enabled(&mut self, id: &str, on: bool) -> Result<(), PluginError> {
-        let Some(plugin) = self.plugins.iter().find(|plugin| plugin.manifest().id == id) else {
+        let Some(plugin) = self
+            .plugins
+            .iter()
+            .find(|plugin| plugin.manifest().id == id)
+        else {
             return Err(PluginError::UnknownPlugin(id.to_owned()));
         };
         let host = Host::new(plugin.manifest(), self.allow_privileged);
@@ -516,17 +551,23 @@ impl PluginManager {
         if !self.enabled.contains_key(id) {
             return Err(PluginError::UnknownPlugin(id.to_owned()));
         }
-        self.config.entry(id.to_owned()).or_default().set(key, value);
+        self.config
+            .entry(id.to_owned())
+            .or_default()
+            .set(key, value);
         Ok(())
     }
 
     fn enabled_plugins(&self) -> impl Iterator<Item = &dyn Plugin> {
-        self.plugins.iter().filter(|plugin| {
-            self.enabled
-                .get(&plugin.manifest().id)
-                .copied()
-                .unwrap_or(false)
-        })
+        self.plugins
+            .iter()
+            .filter(|plugin| {
+                self.enabled
+                    .get(&plugin.manifest().id)
+                    .copied()
+                    .unwrap_or(false)
+            })
+            .map(|plugin| plugin.as_ref())
     }
 
     /// Whether any enabled plugin draws the window denser.
@@ -555,7 +596,8 @@ impl PluginManager {
         for plugin in self.enabled_plugins() {
             let host = Host::new(plugin.manifest(), self.allow_privileged);
             let config = self.config(plugin.manifest().id.as_str());
-            if let Ok(FilterDecision::Suppress) = plugin.filter_notification(&host, alert, &config) {
+            if let Ok(FilterDecision::Suppress) = plugin.filter_notification(&host, alert, &config)
+            {
                 return FilterDecision::Suppress;
             }
         }
@@ -580,7 +622,9 @@ impl Plugin for CompactModePlugin {
             id: "compact-mode".to_owned(),
             name: "Compact mode".to_owned(),
             version: "1.0.0".to_owned(),
-            description: "Denser rows and tighter spacing, for fitting more of the conversation on screen.".to_owned(),
+            description:
+                "Denser rows and tighter spacing, for fitting more of the conversation on screen."
+                    .to_owned(),
             api_version: HOST_API_VERSION,
             capabilities: vec![Capability::UiDensity],
             bundled: true,
@@ -663,7 +707,9 @@ impl Plugin for NotificationFilterPlugin {
             id: "notification-filter".to_owned(),
             name: "Notification filter".to_owned(),
             version: "1.0.0".to_owned(),
-            description: "Show only mentions, or only messages that match your keywords. Calls always show.".to_owned(),
+            description:
+                "Show only mentions, or only messages that match your keywords. Calls always show."
+                    .to_owned(),
             api_version: HOST_API_VERSION,
             capabilities: vec![Capability::NotificationsFilter],
             bundled: true,
@@ -822,7 +868,10 @@ mod tests {
         // Granted and allowed by policy, still not implemented: the native
         // host must not pretend to sandbox what it cannot.
         let host = Host::new(
-            manifest("privileged", vec![Capability::Network, Capability::Filesystem]),
+            manifest(
+                "privileged",
+                vec![Capability::Network, Capability::Filesystem],
+            ),
             true,
         );
         assert!(matches!(
@@ -875,16 +924,24 @@ mod tests {
     #[test]
     fn builtins_install_and_start_disabled() {
         let manager = PluginManager::with_builtins();
-        let ids: Vec<&str> = manager
-            .manifests()
+        let manifests = manager.manifests();
+        let ids: Vec<&str> = manifests
             .iter()
             .map(|manifest| manifest.id.as_str())
             .collect();
-        assert_eq!(ids, ["compact-mode", "theme-extension", "notification-filter"]);
+        assert_eq!(
+            ids,
+            ["compact-mode", "theme-extension", "notification-filter"]
+        );
         for manifest in manager.manifests() {
             assert!(manifest.bundled);
             assert!(!manager.is_enabled(&manifest.id));
-            assert!(manifest.capabilities.iter().all(|capability| !capability.is_privileged()));
+            assert!(
+                manifest
+                    .capabilities
+                    .iter()
+                    .all(|capability| !capability.is_privileged())
+            );
         }
     }
 
@@ -906,7 +963,10 @@ mod tests {
         let themes = manager.theme_contributions();
         assert_eq!(themes.len(), 1);
         assert_eq!(themes[0].id, "midnight-pine");
-        assert_eq!(themes[0].colours.get("accent").map(String::as_str), Some("#4fd1a5"));
+        assert_eq!(
+            themes[0].colours.get("accent").map(String::as_str),
+            Some("#4fd1a5")
+        );
         for hex in themes[0].colours.values() {
             assert!(hex.starts_with('#'), "colour {hex} is not hex");
         }
@@ -923,7 +983,10 @@ mod tests {
         manager
             .set_config("notification-filter", "mode", "mentions")
             .unwrap();
-        assert_eq!(manager.filter_notification(&plain), FilterDecision::Suppress);
+        assert_eq!(
+            manager.filter_notification(&plain),
+            FilterDecision::Suppress
+        );
         assert_eq!(
             manager.filter_notification(&alert(true, false, "hi")),
             FilterDecision::Allow
@@ -963,7 +1026,10 @@ mod tests {
         restored.apply_state(&enabled, &config);
         assert!(restored.is_enabled("compact-mode"));
         assert!(restored.compact_mode());
-        assert_eq!(restored.config("notification-filter").get("mode"), Some("mentions"));
+        assert_eq!(
+            restored.config("notification-filter").get("mode"),
+            Some("mentions")
+        );
         // Unknown ids from a newer layout are ignored, not fatal.
         let mut stray = HashMap::new();
         stray.insert("from-the-future".to_owned(), true);

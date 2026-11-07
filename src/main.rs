@@ -150,7 +150,7 @@ fn main() -> Result<()> {
         [argument] if argument == "--smoke-test" => {
             runtime.block_on(runtime.spawn(yapfast_core::check_build()))?;
             println!(
-                "Yapfast {}: Tokio, LiveKit{}{} build check passed.",
+                "RatFast {}: Tokio, LiveKit{}{} build check passed.",
                 env!("CARGO_PKG_VERSION"),
                 if cfg!(feature = "matrix") {
                     ", Matrix SDK, MatrixRTC"

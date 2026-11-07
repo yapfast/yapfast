@@ -255,7 +255,7 @@ impl Watcher {
         {
             let _ = runtime;
             report(Reach::Focused(
-                "Yapfast can't watch keys in other apps on this system yet",
+                "RatFast can't watch keys in other apps on this system yet",
             ));
         }
         Self {
@@ -356,7 +356,7 @@ mod linux {
                         error = format!("{error:#}"),
                         "no global push-to-talk key on X11"
                     );
-                    report(Reach::Focused("Yapfast couldn't watch keys in other apps"));
+                    report(Reach::Focused("RatFast couldn't watch keys in other apps"));
                     None
                 }
             }
@@ -582,7 +582,7 @@ mod linux {
                             Err(error) => {
                                 tracing::warn!(%error, "lost the X server's keys");
                                 yapfast_core::push_to_talk::hold(false);
-                                report(Reach::Focused("Yapfast lost the X server's keys"));
+                                report(Reach::Focused("RatFast lost the X server's keys"));
                                 break;
                             }
                         }

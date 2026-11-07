@@ -339,7 +339,7 @@ impl Chat {
             Err(error) => {
                 tracing::warn!(error = format!("{error:#}"), "could not play a video");
                 video.loading = false;
-                video.error = Some("Yapfast couldn't play this video.".into());
+                video.error = Some("RatFast couldn't play this video.".into());
                 let _ = events.send(Event::Video(Some(video)));
             }
         }

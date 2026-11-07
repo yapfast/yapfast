@@ -220,8 +220,8 @@ fn webm(width: u32, height: u32, frames: &[Encoded], duration: u64) -> Vec<u8> {
     uint(&mut info, TIMESTAMP_SCALE, 1_000_000);
     head(&mut info, DURATION, 8);
     info.extend((duration as f64).to_be_bytes());
-    bytes(&mut info, MUXING_APP, b"Yapfast");
-    bytes(&mut info, WRITING_APP, b"Yapfast");
+    bytes(&mut info, MUXING_APP, b"RatFast");
+    bytes(&mut info, WRITING_APP, b"RatFast");
     let mut video = Vec::new();
     uint(&mut video, PIXEL_WIDTH, width.into());
     uint(&mut video, PIXEL_HEIGHT, height.into());

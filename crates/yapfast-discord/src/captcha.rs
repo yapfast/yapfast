@@ -262,9 +262,9 @@ fn page(captcha: &Captcha) -> String {
       const answer = await fetch(location.pathname, {{ method: "POST", body: solution }});
       note.textContent = answer.ok
         ? "Done. You can close this page and go back to Yapfast."
-        : "Yapfast didn't take it. Start linking again in Yapfast.";
+        : "RatFast didn't take it. Start linking again in Yapfast.";
     }} catch {{
-      note.textContent = "Yapfast stopped waiting. Start linking again in Yapfast.";
+      note.textContent = "RatFast stopped waiting. Start linking again in Yapfast.";
     }}
   }}
 </script>

@@ -164,7 +164,7 @@ pub struct TooManyIdentifies;
 
 impl std::fmt::Display for TooManyIdentifies {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Yapfast started too many Discord gateway sessions within the hour")
+        f.write_str("RatFast started too many Discord gateway sessions within the hour")
     }
 }
 
@@ -1072,8 +1072,8 @@ mod tests {
             loop {
                 let message = timeout(Duration::from_secs(5), self.socket.next())
                     .await
-                    .expect("Yapfast sent nothing")
-                    .expect("Yapfast closed the connection")
+                    .expect("RatFast sent nothing")
+                    .expect("RatFast closed the connection")
                     .unwrap();
                 let Message::Text(text) = message else {
                     continue;

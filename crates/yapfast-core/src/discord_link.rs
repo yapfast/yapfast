@@ -69,7 +69,7 @@ async fn with_token(token: String, progress: impl Fn(Progress)) {
                     error = format!("{error:#}"),
                     "could not link Discord by token"
                 );
-                Progress::Failed(format!("Yapfast couldn't link Discord: {error}"))
+                Progress::Failed(format!("RatFast couldn't link Discord: {error}"))
             }
         },
     });
@@ -92,7 +92,7 @@ async fn run(progress: impl Fn(Progress)) {
             Some(stopped) => Progress::Failed(stopped.to_string()),
             None => {
                 tracing::warn!(error = format!("{error:#}"), "could not link Discord");
-                Progress::Failed(format!("Yapfast couldn't link Discord: {error}"))
+                Progress::Failed(format!("RatFast couldn't link Discord: {error}"))
             }
         },
     });

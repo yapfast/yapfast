@@ -997,7 +997,7 @@ impl Discord {
         let channel = match (in_server, channel) {
             (Some(_), _) => "",
             (None, Some(channel)) => channel,
-            (None, None) => bail!("Yapfast can't tell which DM to search."),
+            (None, None) => bail!("RatFast can't tell which DM to search."),
         };
         let mut params = query.params();
         for name in &query.channels {
@@ -1079,7 +1079,7 @@ impl Discord {
             .find(|id| called(id))
             .or(found.first())
             .cloned()
-            .ok_or_else(|| anyhow!("Yapfast can't find anyone called {name} here."))
+            .ok_or_else(|| anyhow!("RatFast can't find anyone called {name} here."))
     }
 
     /// Makes a group DM with `users`; returns its channel id. The DM list
@@ -1176,7 +1176,7 @@ impl Discord {
                 .iter()
                 .find(|server| server.id == guild)
                 .and_then(|server| server.channel(forum))
-                .ok_or_else(|| anyhow!("Yapfast doesn't know that forum."))?;
+                .ok_or_else(|| anyhow!("RatFast doesn't know that forum."))?;
             match forum.archive_after {
                 0 => DEFAULT_ARCHIVE,
                 minutes => minutes,
@@ -1729,7 +1729,7 @@ impl Discord {
         self.ask_members(guild, std::iter::once(user)).await;
         let held = self.roles(guild, user);
         if !held.iter().any(|known| known == role) {
-            bail!("Yapfast doesn't know that member's roles yet. Try again.");
+            bail!("RatFast doesn't know that member's roles yet. Try again.");
         }
         let kept: Vec<String> = held.iter().filter(|held| *held != role).cloned().collect();
         self.api.set_member_roles(guild, user, &kept).await
@@ -2659,7 +2659,7 @@ impl Discord {
                 .iter()
                 .find(|server| server.id == guild)
                 .and_then(|server| server.channel(channel))
-                .ok_or_else(|| anyhow!("Yapfast doesn't know that channel."))?;
+                .ok_or_else(|| anyhow!("RatFast doesn't know that channel."))?;
             (parent.announcement, parent.archive_after)
         };
         let kind = match (private, announcement) {

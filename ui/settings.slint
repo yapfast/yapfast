@@ -326,7 +326,7 @@ export component SettingsCard inherits Rectangle {
 export component SettingsScreen inherits Rectangle {
     /// The section showing: 0 account, 1 voice and video, 2 messages,
     /// 3 notifications, 4 Discord, 5 sounds, 6 advanced, 7 appearance,
-    /// 8 game activity, 9 plugins.
+    /// 8 game activity, 9 plugins, 10 privacy.
     in-out property <int> settings-section;
     in property <bool> discord-build;
     in property <bool> preview;
@@ -334,6 +334,44 @@ export component SettingsScreen inherits Rectangle {
     in property <float> motion: 1;
     callback close;
     callback refresh-devices;
+
+// What RatFast keeps on this device, and the media it can fetch again. The
+// sizes are measured off the UI thread and arrive as `usage`; see
+// docs/privacy.md for what each folder holds and what stays put.
+export component PrivacySettings inherits VerticalLayout {
+    /// The measured sizes, as sentences, one per line.
+    in property <string> usage;
+    /// What the last clear freed, if one has run.
+    in property <string> cleared;
+    in property <bool> measuring;
+    callback measure;
+    callback clear;
+    spacing: 16px;
+    SettingsTitle { text: "Privacy" }
+    Label { text: "RatFast is an unofficial Discord client. It signs in with your account token, which Discord's Terms of Service forbid; this page only covers what it keeps on this device."; }
+    Rectangle { height: 1px; background: Theme.line; }
+    SettingsHeading { text: "Kept on this device" }
+    Label { text: "Your token and session live in the operating system's credential store. Servers, channels and saved messages are sealed with a key from it. Pictures and previews are fetched from Discord's CDN and can be downloaded again."; }
+    if root.usage != "": Text {
+        text: root.usage;
+        color: Theme.secondary;
+        font-size: 13px;
+        wrap: word-wrap;
+    }
+    if root.measuring: Label { text: "Measuring the cache..." }
+    HorizontalLayout {
+        spacing: 8px;
+        ActionButton { text: root.measuring ? "Measuring" : "Measure"; enabled: !root.measuring; clicked => { root.measure(); } }
+        ActionButton { text: "Clear pictures and previews"; enabled: !root.measuring; clicked => { root.clear(); } }
+    }
+    if root.cleared != "": Label { text: root.cleared; }
+    Rectangle { height: 1px; background: Theme.line; }
+    SettingsHeading { text: "What it does not do" }
+    Label { text: "No analytics, telemetry, crash reports or advertising. No uploads of logs or screenshots. The only connections are Discord's API and gateway, the CDN, and the GIF services you open."; }
+    SettingsHeading { text: "Logs" }
+    Label { text: "Logs record the opcode and size of gateway payloads, never their contents, message bodies, tokens or passwords. The log file is capped at 4 MiB and readable only by you."; }
+}
+
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
@@ -345,6 +383,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
         { text: "Plugins", icon: @image-url("icons/settings.svg"), id: 9 },
+        { text: "Privacy", icon: @image-url("icons/lock.svg"), id: 10 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     property <[SettingsRow]> without-discord: [
@@ -356,6 +395,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Plugins", icon: @image-url("icons/settings.svg"), id: 9 },
+        { text: "Privacy", icon: @image-url("icons/lock.svg"), id: 10 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     SettingsCard {
@@ -674,8 +714,8 @@ export component VoiceSettings inherits VerticalLayout {
             chosen => { root.preferences-changed(); }
         }
         Label {
-            text: root.input-mode == 0 ? "Yapfast sends your voice when it hears you speak."
-                : "Yapfast sends your microphone only while you hold a key.";
+            text: root.input-mode == 0 ? "RatFast sends your voice when it hears you speak."
+                : "RatFast sends your microphone only while you hold a key.";
         }
     }
     if root.input-mode == 1: VerticalLayout {
@@ -728,7 +768,7 @@ export component VoiceSettings inherits VerticalLayout {
         }
         Label {
             text: root.gate-meter-note != "" ? root.gate-meter-note
-                : "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide.";
+                : "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as RatFast hears it to decide.";
         }
     }
 }
@@ -1038,7 +1078,7 @@ export component AppearanceSettings inherits VerticalLayout {
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {
         text: "Use the system title bar";
-        description: "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.";
+        description: "Your desktop draws the window's title bar and buttons, as on its other windows. Off, RatFast draws its own.";
         checked <=> root.system-title-bar;
         toggled => { root.title-bar-toggled(); }
     }
@@ -1171,7 +1211,7 @@ export component MessageSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "PLAY GIFS, EMOJI AND STICKERS"; }
         Choices {
-            label: "Play GIFs, emoji and stickers"; options: ["While Yapfast is focused", "Always", "Never"];
+            label: "Play GIFs, emoji and stickers"; options: ["While RatFast is focused", "Always", "Never"];
             current <=> root.animate;
             chosen => { root.preferences-changed(); }
         }
@@ -1217,7 +1257,7 @@ export component NotificationSettings inherits VerticalLayout {
     SettingsTitle { text: "Notifications"; }
     SettingsSwitch {
         text: "Show desktop notifications";
-        description: "For new messages while Yapfast isn't in front. "
+        description: "For new messages while RatFast isn't in front. "
             + (root.matrix && root.discord ? "Each Discord server's notification settings and your Matrix notification rules decide"
                 : root.matrix ? "Your Matrix notification rules decide" : "Each Discord server's notification settings decide")
             + " which: usually DMs and mentions. Clicking one opens the conversation.";
@@ -1233,7 +1273,7 @@ export component NotificationSettings inherits VerticalLayout {
     }
     SettingsSwitch {
         text: "Flash the taskbar";
-        description: "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way.";
+        description: "For a message that notifies while RatFast isn't in front. The window's title counts mentions and DMs waiting either way.";
         checked <=> root.flash-taskbar;
         toggled => { root.preferences-changed(); }
     }
@@ -1564,7 +1604,7 @@ export component PluginsSettings inherits VerticalLayout {
     callback filter-changed(int, string);
     spacing: 16px;
     SettingsTitle { text: "Plugins"; }
-    Label { text: "Plugins run inside Yapfast and may only use the capabilities they declare. Nothing here can read your sign-in credentials, files or network unless a future version grants it and you allow it."; }
+    Label { text: "Plugins run inside RatFast and may only use the capabilities they declare. Nothing here can read your sign-in credentials, files or network unless a future version grants it and you allow it."; }
     for plugin in root.plugins: VerticalLayout {
         spacing: 8px;
         Rectangle { height: 1px; background: Theme.line; }

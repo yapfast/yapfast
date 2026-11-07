@@ -81,7 +81,7 @@ pub fn register() {
     static REGISTERED: Once = Once::new();
     REGISTERED.call_once(|| {
         let font = fontique::Blob::new(std::sync::Arc::new(twemoji::FONT));
-        if !emoji_font::register_blob("Yapfast Twemoji", font) {
+        if !emoji_font::register_blob("RatFast Twemoji", font) {
             tracing::warn!("could not register a font of Twemoji");
         }
     });

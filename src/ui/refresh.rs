@@ -1717,7 +1717,7 @@ impl Adapter {
                 match &role.members {
                     None => "Loading...",
                     Some(members) if members.is_empty() => {
-                        "Yapfast hasn't seen anyone with this role yet."
+                        "RatFast hasn't seen anyone with this role yet."
                     }
                     Some(_) => "",
                 }

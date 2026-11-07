@@ -78,7 +78,7 @@ pub async fn provision() -> Result<PathBuf> {
         channels.push(room.room_id().to_owned());
     }
     let mut request = create_room::v3::Request::new();
-    request.name = Some("Yapfast voice test".into());
+    request.name = Some("RatFast voice test".into());
     request.creation_content = Some(Raw::from_json_string(
         json!({"type":"m.space"}).to_string(),
     )?);

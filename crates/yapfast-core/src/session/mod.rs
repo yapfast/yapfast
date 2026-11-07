@@ -82,7 +82,7 @@ impl Session {
         client
             .matrix_auth()
             .login_username(username, password)
-            .initial_device_display_name("Yapfast")
+            .initial_device_display_name("RatFast")
             .send()
             .await
             .map_err(|_| {

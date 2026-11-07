@@ -789,7 +789,7 @@ async fn set_muted(
             track.unmute();
         } else {
             let track =
-                LocalAudioTrack::create_audio_track("Yapfast microphone", audio.rtc_source());
+                LocalAudioTrack::create_audio_track("RatFast microphone", audio.rtc_source());
             let result = tokio::time::timeout(
                 Duration::from_secs(10),
                 call.publish_audio_track(
@@ -893,14 +893,14 @@ mod tests {
         let microphone = state
             .microphones
             .iter()
-            .find(|device| device.name.contains("Yapfast_test_microphone"))
+            .find(|device| device.name.contains("RatFast_test_microphone"))
             .expect("run scripts/test-voice to create the virtual microphone")
             .id
             .clone();
         let speaker = state
             .speakers
             .iter()
-            .find(|device| device.name.contains("Yapfast_test_speakers"))
+            .find(|device| device.name.contains("RatFast_test_speakers"))
             .expect("run scripts/test-voice to create virtual speakers")
             .id
             .clone();

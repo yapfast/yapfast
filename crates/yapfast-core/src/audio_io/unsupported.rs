@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 
 use super::Format;
 
-const UNSUPPORTED: &str = "Yapfast has no sound on this system yet.";
+const UNSUPPORTED: &str = "RatFast has no sound on this system yet.";
 
 pub struct Output;
 
@@ -53,5 +53,5 @@ pub fn others(
     _: super::Hear,
     _: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<std::thread::JoinHandle<()>> {
-    bail!("Yapfast shares sound on Linux only for now")
+    bail!("RatFast shares sound on Linux only for now")
 }

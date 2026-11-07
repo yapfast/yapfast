@@ -1606,6 +1606,95 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_privacy_measure(move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        // Reading every file's length walks the cache, so it runs beside the
+        // window and the page shows what it found when it's done.
+        window.set_privacy_measuring(true);
+        let weak = window.as_weak();
+        std::thread::spawn(move || {
+            let sizes = kept_sizes();
+            weak.upgrade_in_event_loop(move |window| {
+                window.set_privacy_usage(sizes.into());
+                window.set_privacy_measuring(false);
+            })
+            .ok();
+        });
+    });
+    let weak = window.as_weak();
+    window.on_privacy_clear(move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        window.set_privacy_measuring(true);
+        let weak = window.as_weak();
+        std::thread::spawn(move || {
+            let freed = yapfast_core::yapfast_discord::cache::clear_media();
+            let sizes = kept_sizes();
+            let line = format!("Freed {}.", bytes_text(freed));
+            weak.upgrade_in_event_loop(move |window| {
+                window.set_privacy_cleared(line.into());
+                window.set_privacy_usage(sizes.into());
+                window.set_privacy_measuring(false);
+            })
+            .ok();
+        });
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_plugin_toggled(move |id, on| {
+        let id = id.to_string();
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let mut adapter = state.borrow_mut();
+        // The plugin's `on_enable` or `on_disable` runs here, so a plugin whose
+        // capabilities don't cover what it wants to do stays as it was.
+        if let Err(error) = adapter.plugins.set_enabled(&id, on) {
+            tracing::warn!(%error, %id, "could not change a plugin's state");
+            return;
+        }
+        adapter.layout.plugins_enabled = adapter.plugins.enabled_state();
+        adapter.layout.plugins_config = adapter.plugins.config_state();
+        adapter.layout.write(&adapter.root);
+        // Density, themes and the rows come from the plugins, as at a start.
+        adapter.layout.apply(&window);
+        adapter.restyle = true;
+        adapter.refresh(&window);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_plugin_filter_changed(move |mode, keywords| {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let Some(name) = yapfast_core::plugins::FILTER_MODES.get(mode.max(0) as usize) else {
+            return;
+        };
+        let mut adapter = state.borrow_mut();
+        if let Err(error) = adapter
+            .plugins
+            .set_config("notification-filter", "mode", name)
+        {
+            tracing::warn!(%error, "could not keep the notification filter");
+            return;
+        }
+        if let Err(error) =
+            adapter
+                .plugins
+                .set_config("notification-filter", "keywords", keywords.as_str())
+        {
+            tracing::warn!(%error, "could not keep the notification filter's keywords");
+            return;
+        }
+        adapter.layout.plugins_config = adapter.plugins.config_state();
+        adapter.layout.write(&adapter.root);
+        adapter.layout.apply(&window);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_hide_blocked_toggled(move |hide| {
         let mut adapter = state.borrow_mut();
         adapter.layout.hide_blocked = hide;
@@ -2799,7 +2888,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             window.set_meter_note(SharedString::from(if !meter::AVAILABLE {
                 "The level meter isn't available on this system yet."
             } else if meter.failed() {
-                "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                "RatFast can't read this microphone. Check that it's connected, or choose another."
             } else {
                 ""
             }));
@@ -2824,7 +2913,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     if !yapfast_core::discord_audio::AVAILABLE {
                         "Discord voice and its level aren't available on this system yet."
                     } else if meter.failed() {
-                        "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                        "RatFast can't read this microphone. Check that it's connected, or choose another."
                     } else {
                         ""
                     },
@@ -3052,6 +3141,40 @@ fn report_delay(last: &Cell<Option<std::time::Instant>>) -> Duration {
     });
     last.set(Some(now + delay));
     delay
+}
+
+/// What RatFast keeps on this device, as the Privacy page shows it: the media
+/// it can fetch again, then the timelines and the account it keeps.
+fn kept_sizes() -> String {
+    #[cfg(feature = "discord")]
+    {
+        let sizes = yapfast_core::yapfast_discord::cache::kept_bytes();
+        let media = sizes.pictures + sizes.previews + sizes.gifs + sizes.videos;
+        format!(
+            "Pictures, previews and GIFs: {}. Saved messages: {}. Everything kept: {}.",
+            bytes_text(media),
+            bytes_text(sizes.messages),
+            bytes_text(sizes.total),
+        )
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        "This build has no Discord account, so it keeps no cache.".to_owned()
+    }
+}
+
+/// A byte count as bytes, kibibytes or mebibytes, to one decimal place.
+fn bytes_text(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    let bytes = bytes as f64;
+    if bytes >= MIB {
+        format!("{:.1} MiB", bytes / MIB)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB", bytes / KIB)
+    } else {
+        format!("{bytes:.0} bytes")
+    }
 }
 
 #[cfg(test)]

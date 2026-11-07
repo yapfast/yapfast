@@ -278,6 +278,79 @@ pub fn pictures_kept() -> usize {
     pictures().map(|folder| kept_in(&folder)).unwrap_or(0)
 }
 
+/// What a kept cache holds, in bytes: the media a Privacy page can clear, and
+/// the messages and account it must not.
+#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
+pub struct KeptBytes {
+    /// Avatars, banners, server icons, emoji and stickers.
+    pub pictures: u64,
+    /// The media proxy's previews of attachments.
+    pub previews: u64,
+    /// Favourite GIFs' thumbnails.
+    pub gifs: u64,
+    /// The video playing, while it is.
+    pub videos: u64,
+    /// The saved timelines.
+    pub messages: u64,
+    /// Everything kept, including the account and the profiles.
+    pub total: u64,
+}
+
+/// Measures what this login keeps on disk. It reads the disk, so the async side
+/// calls it off its threads.
+pub fn kept_bytes() -> KeptBytes {
+    let folder_size = |folder: Option<PathBuf>| folder.map(|f| bytes_in(&f)).unwrap_or(0);
+    KeptBytes {
+        pictures: folder_size(pictures()),
+        previews: folder_size(previews()),
+        gifs: folder_size(gifs()),
+        videos: folder_size(videos()),
+        messages: folder_size(messages_directory()),
+        total: file()
+            .and_then(|file| file.parent().map(std::path::Path::to_path_buf))
+            .map(|folder| bytes_in(&folder))
+            .unwrap_or(0),
+    }
+}
+
+/// How many bytes the files under `folder` take, which is none that aren't
+/// there.
+fn bytes_in(folder: &std::path::Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return 0;
+    };
+    let mut total = 0;
+    for entry in entries.filter_map(Result::ok) {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            total += bytes_in(&entry.path());
+        } else if let Ok(metadata) = entry.metadata() {
+            total += metadata.len();
+        }
+    }
+    total
+}
+
+/// Deletes what can be downloaded again, keeping the account, the saved
+/// timelines and the favourite GIFs' list. The pictures, previews and playing
+/// videos go; the next start fetches them as they're shown.
+///
+/// Returns how many bytes the deleted files took.
+pub fn clear_media() -> u64 {
+    let mut freed = 0;
+    for directory in [pictures(), previews(), videos()].into_iter().flatten() {
+        freed += bytes_in(&directory);
+        match std::fs::remove_dir_all(&directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!(%error, "could not delete kept Discord pictures"),
+        }
+    }
+    freed
+}
+
 /// The files `folder` holds, which is none that isn't there.
 fn kept_in(folder: &std::path::Path) -> usize {
     std::fs::read_dir(folder)

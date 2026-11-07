@@ -108,7 +108,7 @@ async fn experiment(
 pub(crate) async fn require_trusted_encrypted_room(room: &Room) -> Result<()> {
     ensure!(
         room.latest_encryption_state().await?.is_encrypted(),
-        "Yapfast calls require an encrypted room; upgrade encryption explicitly first"
+        "RatFast calls require an encrypted room; upgrade encryption explicitly first"
     );
     let client = room.client();
     ensure!(
@@ -353,7 +353,7 @@ pub(crate) async fn publish_tone_while(
 ) -> Result<Tone> {
     let source = NativeAudioSource::new(AudioSourceOptions::default(), 48_000, 1, 50);
     let track = LocalAudioTrack::create_audio_track(
-        "Yapfast synthetic test",
+        "RatFast synthetic test",
         RtcAudioSource::Native(source.clone()),
     );
     call.session()

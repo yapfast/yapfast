@@ -11,7 +11,7 @@ pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows));
 /// The name the entry goes by: the Run key's value, and the Inno Setup
 /// installer's, which writes the same one.
 #[cfg(windows)]
-const NAME: &str = "Yapfast";
+const NAME: &str = "RatFast";
 
 /// Whether Yapfast starts when the person signs in.
 pub fn enabled() -> bool {

@@ -171,7 +171,7 @@ mod windows {
         let program = super::command(root)?
             .into_iter()
             .next()
-            .ok_or_else(|| io::Error::other("Yapfast's own path is unavailable"))?;
+            .ok_or_else(|| io::Error::other("RatFast's own path is unavailable"))?;
         set_string(
             YAPFAST_ICON,
             None,
@@ -375,7 +375,7 @@ mod linux {
         if enabled {
             desktop_entry::install();
             if !desktop_exists() {
-                return Err(io::Error::other("Yapfast's desktop entry isn't installed"));
+                return Err(io::Error::other("RatFast's desktop entry isn't installed"));
             }
         }
         apply(&list, &root.join(PREVIOUS), enabled)

@@ -123,7 +123,7 @@ mod linux {
             }
             let actions = ["default", "Open"];
             let request = (
-                "Yapfast",
+                "RatFast",
                 0u32,
                 "",
                 alert.title.as_str(),

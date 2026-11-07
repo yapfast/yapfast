@@ -626,7 +626,7 @@ pub(super) fn command(
                                 .unwrap_or_default();
                             let data = tokio::fs::read(&file.path)
                                 .await
-                                .map_err(|_| format!("Yapfast could not read {name}."))?;
+                                .map_err(|_| format!("RatFast could not read {name}."))?;
                             read.push((
                                 super::open_channel::upload_name(&name, file.spoiler),
                                 data,

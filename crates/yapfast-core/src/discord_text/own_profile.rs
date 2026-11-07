@@ -230,7 +230,7 @@ pub(super) fn read_shaped(
     let size = std::fs::metadata(path)
         .ok()
         .filter(std::fs::Metadata::is_file)
-        .ok_or_else(|| format!("Yapfast could not read {name}."))?
+        .ok_or_else(|| format!("RatFast could not read {name}."))?
         .len();
     if size > PICTURE_LIMIT {
         return Err(format!(
@@ -239,7 +239,7 @@ pub(super) fn read_shaped(
             file_size(PICTURE_LIMIT)
         ));
     }
-    let data = std::fs::read(path).map_err(|_| format!("Yapfast could not read {name}."))?;
+    let data = std::fs::read(path).map_err(|_| format!("RatFast could not read {name}."))?;
     let not_a_picture = || format!("{name} isn't a PNG, JPG, GIF or WebP picture.");
     let format = image::guess_format(&data)
         .ok()

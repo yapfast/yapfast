@@ -29,7 +29,7 @@ export component SignInScreen inherits Rectangle {
     callback link-discord-token(string);
     callback open-discord-captcha;
     background: Theme.rail;
-    Text { x: 32px; y: 24px; text: "Yapfast"; color: Theme.accent; font-size: 24px; font-weight: 600; letter-spacing: -0.4px; }
+    Text { x: 32px; y: 24px; text: "RatFast"; color: Theme.accent; font-size: 24px; font-weight: 600; letter-spacing: -0.4px; }
     ScrollView {
         y: 64px; height: parent.height - 64px;
         VerticalLayout {
@@ -51,7 +51,7 @@ export component SignInScreen inherits Rectangle {
                         // A build without Matrix signs in by linking Discord.
                         if !root.matrix-build: VerticalLayout {
                             spacing: 8px; horizontal-stretch: 1; min-width: 300px;
-                            Text { text: "Sign in to Yapfast"; color: Theme.text; font-size: 26px; font-weight: 600; horizontal-alignment: center; }
+                            Text { text: "Sign in to RatFast"; color: Theme.text; font-size: 26px; font-weight: 600; horizontal-alignment: center; }
                             Text { text: "Link your Discord account with your phone."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
                             Rectangle { height: 12px; }
                             if !root.busy: DiscordLinkPanel {
@@ -69,7 +69,7 @@ export component SignInScreen inherits Rectangle {
                             property <int> focus-asked: root.sign-in-focus;
                             changed focus-asked => { username-field.focus-input(); }
                             spacing: 8px; horizontal-stretch: 1; min-width: 300px;
-                            Text { text: "Sign in to Yapfast"; color: Theme.text; font-size: 26px; font-weight: 600; horizontal-alignment: center; }
+                            Text { text: "Sign in to RatFast"; color: Theme.text; font-size: 26px; font-weight: 600; horizontal-alignment: center; }
                             Text { text: "Use your existing Matrix account."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
                             Rectangle { height: 12px; }
                             Text { text: "HOMESERVER"; color: Theme.secondary; font-size: 12px; font-weight: 600; letter-spacing: 0.6px; }
@@ -124,7 +124,7 @@ export component VerifyBanner inherits Rectangle {
         VerticalLayout {
             spacing: 8px;
             Text { text: "Verify this device to send messages"; color: Theme.text; font-weight: 600; }
-            Label { text: "Use your Matrix recovery key, or verify Yapfast in another client and check again."; color: Theme.secondary; font-size: 14px; }
+            Label { text: "Use your Matrix recovery key, or verify RatFast in another client and check again."; color: Theme.secondary; font-size: 14px; }
             HorizontalLayout {
                 spacing: 8px;
                 TextField { text <=> root.recovery; password: true; placeholder: "Recovery key"; label: "Matrix recovery key"; enabled: !root.busy; min-height: 36px; accepted => { root.recover(); } }

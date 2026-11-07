@@ -195,7 +195,7 @@ mod linux {
         }
 
         fn title(&self) -> String {
-            "Yapfast".into()
+            "RatFast".into()
         }
 
         fn category(&self) -> ksni::Category {
@@ -208,7 +208,7 @@ mod linux {
 
         fn tool_tip(&self) -> ksni::ToolTip {
             ksni::ToolTip {
-                title: "Yapfast".into(),
+                title: "RatFast".into(),
                 description: if self.shown.unread {
                     "Unread messages".into()
                 } else {
@@ -324,7 +324,7 @@ mod windows {
                 let class = WNDCLASSW {
                     lpfnWndProc: Some(procedure),
                     hInstance: instance,
-                    lpszClassName: w!("YapfastTray"),
+                    lpszClassName: w!("RatFastTray"),
                     ..std::mem::zeroed()
                 };
                 RegisterClassW(&class);
@@ -332,8 +332,8 @@ mod windows {
                 // which wouldn't hear that Explorer restarted.
                 let window = CreateWindowExW(
                     0,
-                    w!("YapfastTray"),
-                    w!("Yapfast"),
+                    w!("RatFastTray"),
+                    w!("RatFast"),
                     WS_OVERLAPPED,
                     0,
                     0,
@@ -360,7 +360,7 @@ mod windows {
                     hIcon: icons[0],
                     ..std::mem::zeroed()
                 };
-                for (place, unit) in data.szTip.iter_mut().zip("Yapfast".encode_utf16()) {
+                for (place, unit) in data.szTip.iter_mut().zip("RatFast".encode_utf16()) {
                     *place = unit;
                 }
                 let added = notify(NIM_ADD, &data);

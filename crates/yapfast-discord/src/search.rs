@@ -152,7 +152,7 @@ fn tokens(text: &str) -> Vec<String> {
 /// the next.
 fn day_span(day: &str) -> Result<(u64, u64), String> {
     let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
-        .map_err(|_| format!("Yapfast reads dates as 2026-10-13, not {day}."))?;
+        .map_err(|_| format!("RatFast reads dates as 2026-10-13, not {day}."))?;
     let start = |date: NaiveDate| {
         let midnight = date.and_hms_opt(0, 0, 0)?;
         let at = Local.from_local_datetime(&midnight).earliest()?;

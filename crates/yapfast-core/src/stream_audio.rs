@@ -40,7 +40,7 @@ const BITRATE: i32 = 64_000;
 /// one playing a watched stream, and Discord's own client and those built
 /// on it.
 fn is_discord_client(name: &str) -> bool {
-    if name == "Yapfast" {
+    if name == "RatFast" {
         return true;
     }
     let name = name.to_lowercase();
@@ -428,14 +428,14 @@ mod tests {
         let others = inputs.lock().unwrap().len();
         stop.store(true, Ordering::Relaxed);
         capture.join().unwrap();
-        assert_eq!(ours, 0, "Yapfast's own playback was captured");
+        assert_eq!(ours, 0, "RatFast's own playback was captured");
         eprintln!("monitored {others} other applications' streams");
     }
 
     #[test]
     fn leaves_out_other_discord_clients() {
         for client in [
-            "Yapfast",
+            "RatFast",
             "Discord",
             "DiscordCanary",
             ".Discord-wrapped",

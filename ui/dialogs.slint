@@ -484,7 +484,7 @@ export component LeavingDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Leaving Yapfast";
+        accessible-label: "Leaving RatFast";
         TouchArea { }
         FocusScope {
             init => { self.focus(); }
@@ -495,7 +495,7 @@ export component LeavingDialog inherits Rectangle {
             }
             content := VerticalLayout {
                 padding: 20px; spacing: 12px;
-                Text { text: "Leaving Yapfast"; color: Theme.text; font-size: 18px; font-weight: 600; }
+                Text { text: "Leaving RatFast"; color: Theme.text; font-size: 18px; font-weight: 600; }
                 Text { text: "This link goes to"; color: Theme.secondary; font-size: 15px; }
                 Text { text: root.site; color: Theme.text; font-size: 17px; font-weight: 600; wrap: word-wrap; }
                 Rectangle {
@@ -596,7 +596,7 @@ export component StatusMenu inherits Rectangle {
             { key: "online", name: "Online", note: "" },
             { key: "idle", name: "Idle", note: "" },
             { key: "dnd", name: "Do Not Disturb", note: "You won't get message notifications." },
-            { key: "invisible", name: "Invisible", note: "You'll show as offline, but can use Yapfast as usual." },
+            { key: "invisible", name: "Invisible", note: "You'll show as offline, but can use RatFast as usual." },
         ]: StatusOption {
             key: option.key; name: option.name; note: option.note; checked: root.status == option.key;
             clicked => { root.choose(option.key); }

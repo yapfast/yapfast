@@ -248,7 +248,7 @@ pub fn run(
         Err(error) => failed(error, "Slint's desktop event loop failed"),
         Ok(()) if missing_window.get() => failed(
             "the window did not appear".into(),
-            "Yapfast's window did not appear",
+            "RatFast's window did not appear",
         ),
         Ok(()) if restart => Ok(Exit::Restart),
         Ok(()) => Ok(Exit::Closed),
@@ -2224,7 +2224,7 @@ impl Adapter {
             Ok(handle) => self.dialog = Some(handle),
             Err(error) => {
                 tracing::error!(%error, "could not open the file dialog");
-                self.app.state.notice = Some("Yapfast could not open a file dialog.".into());
+                self.app.state.notice = Some("RatFast could not open a file dialog.".into());
             }
         }
     }

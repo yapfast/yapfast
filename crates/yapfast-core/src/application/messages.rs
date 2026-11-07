@@ -728,7 +728,7 @@ impl Application {
             }
         } else if !seeking.unread {
             self.state.notice =
-                Some("Yapfast couldn't find that message. It may have been deleted.".into());
+                Some("RatFast couldn't find that message. It may have been deleted.".into());
         }
         vec![]
     }

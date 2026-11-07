@@ -70,7 +70,7 @@ impl Filming {
         let source = webrtc_sys::video_track::ffi::last_video_track_source();
         anyhow::ensure!(!source.is_null(), "Could not start your camera's video.");
         let track =
-            LocalVideoTrack::create_video_track("Yapfast camera", RtcVideoSource::Native(video));
+            LocalVideoTrack::create_video_track("RatFast camera", RtcVideoSource::Native(video));
         Ok(Self {
             feed: Feed::new(),
             source,

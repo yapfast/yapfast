@@ -64,7 +64,7 @@ pub async fn run() -> Result<()> {
     println!("PASS: three persistent, cross-signed local devices.");
 
     let mut request = create_room::v3::Request::new();
-    request.name = Some("Yapfast encrypted audio experiment".into());
+    request.name = Some("RatFast encrypted audio experiment".into());
     request.invite = sessions[1..]
         .iter()
         .map(|session| session.client.user_id().unwrap().to_owned())
@@ -78,7 +78,7 @@ pub async fn run() -> Result<()> {
     sessions[0].synchronize().await?;
     let event = room
         .send(RoomMessageEventContent::text_plain(
-            "Yapfast local persistence check",
+            "RatFast local persistence check",
         ))
         .await?;
     let room_id = room.room_id().to_owned();
@@ -176,7 +176,7 @@ pub async fn resume(root: PathBuf) -> Result<()> {
         .client
         .rooms()
         .into_iter()
-        .find(|room| room.name().as_deref() == Some("Yapfast encrypted audio experiment"))
+        .find(|room| room.name().as_deref() == Some("RatFast encrypted audio experiment"))
         .context("no saved experiment room")?
         .room_id()
         .to_owned();

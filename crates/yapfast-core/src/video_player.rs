@@ -464,7 +464,7 @@ fn decode(download: Download, sound: bool, shared: &Shared) {
     let Some(mut video) = Video::open(download, sound) else {
         let mut state = shared.lock();
         if !state.stop {
-            state.failed = Some("Yapfast can't play this video.".into());
+            state.failed = Some("RatFast can't play this video.".into());
         }
         return;
     };

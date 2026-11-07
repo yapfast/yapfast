@@ -29,7 +29,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, AccentPreset, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, PluginsSettings, PluginRow } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, AccentPreset, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, PluginsSettings, PluginRow, PrivacySettings } from "settings.slint";
 import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1081,6 +1081,15 @@ export component YapfastWindow inherits Window {
     in-out property <string> plugin-filter-keywords;
     callback plugin-toggled(string, bool);
     callback plugin-filter-changed(int, string);
+    /// What RatFast keeps on this device, as sentences for the Privacy page.
+    in property <string> privacy-usage;
+    /// What the last clear freed, if one has run.
+    in property <string> privacy-cleared;
+    in property <bool> privacy-measuring;
+    /// Asks for the sizes again; the Privacy page sends this when it opens.
+    callback privacy-measure;
+    /// Deletes the pictures and previews that can be fetched again.
+    callback privacy-clear;
     /// Yapfast's sounds: their set, their volume as a percentage, and each one's
     /// own, which each-sound-changed reports. play-sound plays one to try it.
     in-out property <int> sound-set;
@@ -1153,7 +1162,11 @@ export component YapfastWindow inherits Window {
     in property <string> theme-json-note;
     callback theme-exported();
     callback theme-imported();
-    changed settings-section => { if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); } }
+    changed settings-section => {
+        if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); }
+        // The sizes are read from disk, so they are measured as the page opens.
+        if root.settings-section == 10 { root.privacy-measure(); }
+    }
     out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : 16px;
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
@@ -3599,6 +3612,11 @@ export component YapfastWindow inherits Window {
             filter-mode <=> root.plugin-filter-mode; filter-keywords <=> root.plugin-filter-keywords;
             plugin-toggled(id, on) => { root.plugin-toggled(id, on); }
             filter-changed(mode, keywords) => { root.plugin-filter-changed(mode, keywords); }
+        }
+        if root.settings-section == 10: PrivacySettings {
+            usage: root.privacy-usage; cleared: root.privacy-cleared; measuring: root.privacy-measuring;
+            measure => { root.privacy-measure(); }
+            clear => { root.privacy-clear(); }
         }
         if root.settings-section == 5: SoundSettings {
             sound-set <=> root.sound-set; volume <=> root.sound-volume;

@@ -23,7 +23,7 @@ use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection};
 use crate::custom_emoji;
 
 /// The family name Yapfast gives the bitmap emoji font it registers.
-const REGISTERED: &str = "Yapfast Color Emoji";
+const REGISTERED: &str = "RatFast Color Emoji";
 
 /// The emoji font family to request. Call after selecting the Slint backend.
 pub fn family() -> &'static str {
