@@ -979,11 +979,10 @@ fn reacts(server: &MarkedServer, channel: &yapfast_discord::ready::Channel, me: 
     }
 }
 
-/// A thread as it lists under `parent`, its channel's room.
-#[cfg(feature = "discord")]
 /// What a server channel's icon shows besides, as Discord's client marks
 /// it: the rules channel above all, then its kind, and whether @everyone is
 /// kept out of it or it's age-restricted.
+#[cfg(feature = "discord")]
 fn mark(server: &MarkedServer, channel: &yapfast_discord::ready::Channel) -> chat::ChannelMark {
     use chat::MarkKind;
     chat::ChannelMark {
@@ -1003,6 +1002,8 @@ fn mark(server: &MarkedServer, channel: &yapfast_discord::ready::Channel) -> cha
     }
 }
 
+/// A thread as it lists under `parent`, its channel's room.
+#[cfg(feature = "discord")]
 fn thread_room(
     server: &MarkedServer,
     thread: MarkedChannel,
