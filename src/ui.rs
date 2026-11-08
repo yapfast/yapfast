@@ -1163,9 +1163,9 @@ struct Layout {
     strip_tracking: Option<bool>,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
-    /// A message's author wears their Discord name style; on unless turned
-    /// off, which shows role colours and the style while the pointer is on
-    /// the message.
+    /// Discord name styles show on messages, DM rows, member lists and
+    /// profiles; on unless turned off. Off removes the style model rather
+    /// than revealing it again on hover.
     name_styles: Option<bool>,
     /// Long messages fold to a few lines, with Show more; off unless turned
     /// on.

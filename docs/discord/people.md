@@ -572,13 +572,13 @@ one's, until they read, and against #333 for toon on either. Each style's two
 palettes are cached by style, name and accessibility colour preferences, and the
 rows wearing them share them; a row without a style holds an empty list.
 
-Discord's client draws a message's style always. Display Name Styles, under
+Discord's client draws a name's style always. Display Name Styles, under
 Accessibility in Settings, keeps that on unless turned off. Off,
-`Layout::restyle` removes the style model, so neither the classic nor compact
-row can bring it back on hover: the ordinary font and the author's role colour
-show instead. The setting is kept in `layout.json` as `name_styles`, and covers
-messages alone: a member list's rows and a profile card's name still wear the
-style.
+`Cosmetics::style` removes it from DM rows, member lists and profile cards,
+and `Layout::restyle` removes the message-row model, so neither the classic
+nor compact row can bring it back on hover. Names use the ordinary font and
+their row, role or theme colour instead. The setting is kept in
+`layout.json` as `name_styles`.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, Medieval 7, 8Bit 8, Vampyre 10, Tempo 12, Monkey Bars 13,

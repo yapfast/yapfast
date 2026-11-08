@@ -2103,10 +2103,10 @@ pub enum Action {
     },
     /// The profile editor's wishlist tab opened.
     OpenWishlist,
-    /// Which cosmetics show, from Settings → Appearance → Profiles. What's
-    /// shown loses what's turned off at once; what's turned on shows as its
-    /// pictures arrive, and a profile's effect once the profile is fetched
-    /// again.
+    /// Which cosmetics show, from Settings → Appearance → Profiles and
+    /// Display Name Styles under Accessibility. What's shown loses what's
+    /// turned off at once; what's turned on shows as its pictures arrive,
+    /// and a profile's effect once the profile is fetched again.
     SetCosmetics(Cosmetics),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
