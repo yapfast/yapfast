@@ -1,12 +1,25 @@
-// Guilding a watched stream's frames on the graphics card: the machine's own
-// H.264, HEVC or AV1 decoder, which leaves every picture in a D3D11 texture,
-// and a video processor pass that does the colour matrix, the range and the
-// scale to the tile in one go, so only the tile ordered back to the
-// processor. See `decode.rs` for how a stream falls back to the software
-// decoders when any of this isn't there.
+// Guilding a watched stream's frames on the graphics card: a decoder that
+// leaves every picture in a D3D11 texture, and a video processor pass that
+// does the colour matrix, the range and the scale to the tile in one go, so
+// only the tile is ordered back to the processor. See `decode.rs` for how a
+// stream falls back to the software decoders when any of this isn't there.
+//
+// Two decoders leave pictures here, chosen by the `backend` decode.rs opens
+// with: FFmpeg's own Direct3D 11 decoder (native/hwdec.c), which handles H264,
+// HEVC, AV1 and VP9 on any vendor's card, and Media Foundation's MFTs, kept
+// beside it until a measured comparison says which is the winner. Both decode
+// into a texture on the same device, and everything below the decode — the
+// device, the video processor, the tile slots and their readback — is theirs
+// in common.
 //
 // C++, because Media Foundation's interfaces are handed over through COM's
 // C++ vtables here while the rest of native/ is C.
+
+// This file is compiled only for Windows, where the SDK headers below
+// exist; built anywhere else it is an empty unit rather than a file no
+// compiler outside Windows can parse. build.rs defines the macro on the
+// one target it builds for.
+#if defined(YAPFAST_WINDOWS)
 #include <windows.h>
 #include <initguid.h>
 #include <d3d11.h>
@@ -19,6 +32,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+
+// FFmpeg's d3d11va decoder, behind plain C values: hwdec.h carries no language
+// guard of its own, so the one C++ file that includes it says which it is.
+extern "C" {
+#include "hwdec.h"
+}
 
 // The video processor's content and colour-space descriptions, and the
 // decoder's output type, are made for one picture and one tile; a stream that
@@ -34,6 +53,10 @@ constexpr int kH264 = 0;
 constexpr int kHevc = 1;
 constexpr int kAv1 = 2;
 
+// The decoders this file can open a stream with, as decode.rs numbers them:
+// Media Foundation is 0, which is what any backend that isn't FFmpeg's is.
+constexpr int kFfmpeg = 1;
+
 // A decoder opened at the size it's likely to be: the tile showing the stream,
 // never smaller than a stream is encoded at. Only the first frames are made at
 // this size — the stream's own sequence header replaces it before anything is
@@ -43,8 +66,11 @@ constexpr UINT32 kMinHintHeight = 180;
 
 struct Decoder {
     int codec = kH264;
-    // This decoder initialized COM on the thread that calls it.
+    // This decoder initialized COM on the thread that calls it, and started
+    // Media Foundation, whose half of this file is the only part that wants
+    // either.
     bool com = false;
+    bool media_foundation = false;
 
     ID3D11Device *device = nullptr;
     ID3D11DeviceContext *context = nullptr;
@@ -52,6 +78,11 @@ struct Decoder {
     ID3D11VideoContext *video_context = nullptr;
     ID3D11VideoContext1 *video_context1 = nullptr;
     IMFDXGIDeviceManager *manager = nullptr;
+
+    // FFmpeg's own Direct3D 11 decoder, where this build has one: it decodes
+    // into a texture on `device`, and the pass below turns a slice of it into
+    // the tile exactly as it turns Media Foundation's picture.
+    struct yapfast_ffdec *ffdec = nullptr;
 
     IMFTransform *decoder = nullptr;
     IMFMediaType *output_type = nullptr;
@@ -261,8 +292,9 @@ thread_local char g_error[256] = {0};
 // that gets the null back.
 Decoder *abandon(Decoder *decoder) {
     std::snprintf(g_error, sizeof g_error, "%s", decoder->error);
+    if (decoder->ffdec) yapfast_ffdec_free(decoder->ffdec);
     release_all(decoder);
-    MFShutdown();
+    if (decoder->media_foundation) MFShutdown();
     if (decoder->com) CoUninitialize();
     delete decoder;
     return nullptr;
@@ -274,10 +306,13 @@ extern "C" {
 
 typedef Decoder yf_hwdec;
 
-// The machine's decoder for `codec` (0 H.264, 1 HEVC, 2 AV1), on the graphics
-// card, opening no larger than `hint_width` by `hint_height`; null when the
-// machine has none for this codec, or no adapter to make one on.
-yf_hwdec *yapfast_hwdec_new(int codec, int hint_width, int hint_height);
+// The machine's decoder for `codec` (0 H.264, 1 HEVC, 2 AV1, 3 VP9), on the
+// graphics card, from `backend` (0 Media Foundation, 1 FFmpeg's d3d11va), on
+// `device` where the caller brought one — an ID3D11Device it keeps alive, the
+// encoder's and the window's, so nothing is copied between them — and on a
+// device made here where it didn't. Null when that decoder isn't on this
+// machine, and the reason is yapfast_hwdec_error(null).
+yf_hwdec *yapfast_hwdec_new(int backend, int codec, int hint_width, int hint_height, void *device);
 // Feeds one whole frame. 1 says a picture is ready, 0 that the decoder kept
 // the frame for the pictures after it, -1 that it failed and must be dropped.
 int yapfast_hwdec_decode(yf_hwdec *decoder, const unsigned char *data, size_t size, int keyframe);
@@ -495,9 +530,101 @@ bool drain(Decoder *decoder, bool *produced) {
 
 }  // namespace
 
-extern "C" yf_hwdec *yapfast_hwdec_new(int codec, int hint_width, int hint_height) {
+namespace {
+
+// The card the pictures are decoded and shown on: the caller's device where it
+// brought one — the encoder's and the window's, so a decoded picture is never
+// copied between devices — and one made here where it didn't, with the video
+// features the decoder and the processor both need.
+bool take_device(Decoder *decoder, void *given) {
+    HRESULT result;
+    if (given) {
+        // Borrowed for this decoder's life, which the caller keeps it for; the
+        // reference taken here is the one release_all gives back.
+        decoder->device = static_cast<ID3D11Device *>(given);
+        decoder->device->AddRef();
+    } else {
+        const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
+        result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
+                                   D3D11_SDK_VERSION, &decoder->device, nullptr, &decoder->context);
+        if (FAILED(result)) {
+            fail(decoder, "the graphics card was refused", result);
+            return false;
+        }
+    }
+    if (!decoder->context) decoder->device->GetImmediateContext(&decoder->context);
+    decoder->device->QueryInterface(IID_PPV_ARGS(&decoder->video_device));
+    decoder->context->QueryInterface(IID_PPV_ARGS(&decoder->video_context));
+    decoder->context->QueryInterface(IID_PPV_ARGS(&decoder->video_context1));
+    if (!decoder->video_device || !decoder->video_context) {
+        fail_text(decoder, "the graphics card has no video processor");
+        return false;
+    }
+    return true;
+}
+
+// FFmpeg's decoder's newest picture, adopted as this file's: the texture is one
+// slice of the array texture FFmpeg's surfaces live in, and the tile pass reads
+// it as it reads Media Foundation's, the same picture lying in the same way.
+int adopt_ffmpeg(Decoder *decoder, const unsigned char *data, size_t size, int keyframe) {
+    decoder->error[0] = 0;
+    const int decoded = yapfast_ffdec_decode(decoder->ffdec, data, size, keyframe);
+    if (decoded < 0) {
+        std::snprintf(decoder->error, sizeof decoder->error, "%s", yapfast_ffdec_error(decoder->ffdec));
+        return -1;
+    }
+    if (decoded == 0) return 0;
+    yapfast_ffpicture picture = {};
+    if (yapfast_ffdec_picture(decoder->ffdec, &picture) != 0) {
+        fail_text(decoder, "the card gave a picture with no texture");
+        return -1;
+    }
+    auto *texture = static_cast<ID3D11Texture2D *>(picture.texture);
+    // The frame is unref'd on the decoder's next call, so this keeps its own
+    // reference to the array texture the picture lies in.
+    texture->AddRef();
+    if (decoder->picture) decoder->picture->Release();
+    decoder->picture = texture;
+    decoder->picture_slice = picture.index;
+    D3D11_TEXTURE2D_DESC description = {};
+    texture->GetDesc(&description);
+    decoder->width = static_cast<int>(description.Width);
+    decoder->height = static_cast<int>(description.Height);
+    // The stream's own size, not the padded surface the decoder made it in:
+    // this is the size its tile is fitted to.
+    decoder->visible = {0, 0, picture.width, picture.height};
+    decoder->full_range = picture.full_range != 0;
+    decoder->bt709 = picture.bt709 != 0;
+    decoder->bt2020 = picture.bt2020 != 0;
+    decoder->pq = picture.pq != 0;
+    return 1;
+}
+
+}  // namespace
+
+extern "C" yf_hwdec *yapfast_hwdec_new(int backend, int codec, int hint_width, int hint_height, void *device) {
     auto *decoder = new Decoder();
     decoder->codec = codec;
+    if (backend == kFfmpeg) {
+#ifdef YAPFAST_FFDEC
+        if (!take_device(decoder, device)) return abandon(decoder);
+        decoder->ffdec = yapfast_ffdec_new(codec, hint_width, hint_height, decoder->device);
+        if (!decoder->ffdec) {
+            fail_text(decoder, yapfast_ffdec_error(nullptr));
+            return abandon(decoder);
+        }
+        return decoder;
+#else
+        fail_text(decoder, "this build has no FFmpeg hardware decoder");
+        return abandon(decoder);
+#endif
+    }
+    // Media Foundation has H264, HEVC and AV1 and no VP9; the card's decoder
+    // for a played file is FFmpeg's.
+    if (codec == 3) {
+        fail_text(decoder, "Media Foundation has no VP9 decoder");
+        return abandon(decoder);
+    }
     HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (result == RPC_E_CHANGED_MODE) {
         fail_text(decoder, "this thread's COM apartment isn't the one Media Foundation needs");
@@ -508,20 +635,8 @@ extern "C" yf_hwdec *yapfast_hwdec_new(int codec, int hint_width, int hint_heigh
         fail_text(decoder, "Media Foundation wouldn't start");
         return abandon(decoder);
     }
-    const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
-    result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0, D3D11_SDK_VERSION,
-                               &decoder->device, nullptr, &decoder->context);
-    if (FAILED(result)) {
-        fail(decoder, "the graphics card was refused", result);
-        return abandon(decoder);
-    }
-    decoder->device->QueryInterface(IID_PPV_ARGS(&decoder->video_device));
-    decoder->context->QueryInterface(IID_PPV_ARGS(&decoder->video_context));
-    decoder->context->QueryInterface(IID_PPV_ARGS(&decoder->video_context1));
-    if (!decoder->video_device || !decoder->video_context) {
-        fail_text(decoder, "the graphics card has no video processor");
-        return abandon(decoder);
-    }
+    decoder->media_foundation = true;
+    if (!take_device(decoder, device)) return abandon(decoder);
     UINT token = 0;
     result = MFCreateDXGIDeviceManager(&token, &decoder->manager);
     if (SUCCEEDED(result)) result = decoder->manager->ResetDevice(decoder->device, token);
@@ -580,7 +695,9 @@ extern "C" yf_hwdec *yapfast_hwdec_new(int codec, int hint_width, int hint_heigh
 }
 
 extern "C" int yapfast_hwdec_decode(yf_hwdec *decoder, const unsigned char *data, size_t size, int keyframe) {
-    if (!decoder || !decoder->decoder) return -1;
+    if (!decoder) return -1;
+    if (decoder->ffdec) return adopt_ffmpeg(decoder, data, size, keyframe);
+    if (!decoder->decoder) return -1;
     decoder->error[0] = 0;
     IMFSample *sample = nullptr;
     IMFMediaBuffer *buffer = nullptr;
@@ -780,8 +897,11 @@ extern "C" const char *yapfast_hwdec_error(const yf_hwdec *decoder) {
 extern "C" void yapfast_hwdec_free(yf_hwdec *decoder) {
     if (!decoder) return;
     if (decoder->decoder) decoder->decoder->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+    if (decoder->ffdec) yapfast_ffdec_free(decoder->ffdec);
     release_all(decoder);
-    MFShutdown();
+    if (decoder->media_foundation) MFShutdown();
     if (decoder->com) CoUninitialize();
     delete decoder;
 }
+
+#endif  // YAPFAST_WINDOWS

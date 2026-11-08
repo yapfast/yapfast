@@ -3,14 +3,23 @@
 //! dav1d, through native/av1.c; and H265 with the HEVC decoder of
 //! vendor/ffmpeg-src's FFmpeg, through native/hevc.c, where it's built.
 //!
-//! A watched stream first asks the machine's own decoder, which leaves every
-//! picture in a graphics card texture and scales it to the tile on the card
-//! through native/d3d11dec.cc; the software decoders above are what reads a
-//! stream the machine's can't, so the picture a viewer sees is made either
-//! way.
+//! A watched stream first asks the card's decoder, which leaves every picture
+//! in a graphics card texture and scales it to the tile on the card through
+//! native/d3d11dec.cc. Two decoders can be that one, and [`BACKENDS`] is the
+//! order [`Hardware::new`] tries them in: FFmpeg's own Direct3D 11 decoder
+//! (native/hwdec.c), which handles H264, HEVC, AV1 and VP9 on any vendor's
+//! card, and Media Foundation's MFTs, kept beside it until a measured
+//! comparison says which wins. The software decoders above are what reads a
+//! stream the card's can't, so the picture a viewer sees is made either way.
+//!
+//! Which decoder a stream gets is this module's to say, not the native
+//! shim's: [`Hardware::new`] opens the first backend that takes the codec,
+//! [`Live`] falls back to the software decoder when none does, and the
+//! keyframe wait and the software fallback after a card's failure are the same
+//! whichever backend ran.
 
 use std::{
-    ffi::{c_int, c_uchar, c_uint},
+    ffi::{c_int, c_uchar, c_uint, c_void},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -350,7 +359,19 @@ impl Drop for Decoder {
     }
 }
 
-/// The machine's own decoder for a watched stream, which leaves every picture
+/// The card's decoders, in the order [`Hardware::new`] tries them: FFmpeg's
+/// own Direct3D 11 decoder first, then Media Foundation's MFTs.
+///
+/// FFmpeg's comes first because it is the one path that decodes all four of
+/// H264, HEVC, AV1 and VP9 on any vendor's card, and because AV1 hardware
+/// decode through it needs no Microsoft AV1 Video Extension, which Media
+/// Foundation does and Windows 10 often lacks. Media Foundation stays beside
+/// it until a measured comparison at 1080p and 4K, a time to first picture
+/// and a driver reset say which is the winner; flipping the two is this line.
+#[cfg(d3d11dec)]
+const BACKENDS: [c_int; 2] = [1, 0];
+
+/// The card's decoder for a watched stream, which leaves every picture
 /// in a texture on the graphics card and scales it to the tile there, through
 /// native/d3d11dec.cc.
 #[cfg(d3d11dec)]
@@ -361,10 +382,19 @@ pub struct Hardware {
 
 #[cfg(d3d11dec)]
 unsafe extern "C" {
-    /// The machine's decoder for `codec` on the graphics card, which opens
-    /// around the size given and settles the stream's own on its first frame;
-    /// null when the machine has no decoder for that codec.
-    fn yapfast_hwdec_new(codec: c_int, hint_width: c_int, hint_height: c_int) -> *mut Raw;
+    /// A decoder from `backend` — 0 Media Foundation, 1 FFmpeg's d3d11va — for
+    /// `codec` (0 H264, 1 HEVC, 2 AV1, 3 VP9), which opens around the size
+    /// given and settles the stream's own on its first frame; null when this
+    /// build or this machine has no such decoder. `device` is the
+    /// `ID3D11Device` the pictures should live on, which the caller keeps
+    /// alive, or null for one made here.
+    fn yapfast_hwdec_new(
+        backend: c_int,
+        codec: c_int,
+        hint_width: c_int,
+        hint_height: c_int,
+        device: *mut c_void,
+    ) -> *mut Raw;
     fn yapfast_hwdec_decode(
         decoder: *mut Raw,
         data: *const c_uchar,
@@ -396,25 +426,52 @@ unsafe extern "C" {
 
 #[cfg(d3d11dec)]
 impl Hardware {
-    /// The machine's decoder for a stream of `codec`, if it has one that
-    /// takes it. VP8 never has: Windows' own decoders are H264, HEVC and AV1,
-    /// and the software decoder is what reads the rest.
+    /// The card's decoder for a stream of `codec`: the first backend in
+    /// [`BACKENDS`] that opens one, on any vendor's card. VP8 never has one —
+    /// no hardware decoder takes it — and the software decoder reads the rest.
     pub fn new(codec: Codec) -> Result<Self> {
-        let which = match codec {
-            Codec::H264 => 0,
-            Codec::H265 => 1,
-            Codec::Av1 => 2,
+        Self::new_on(std::ptr::null_mut(), codec)
+    }
+
+    /// The card's decoder for a stream of `codec`, on `device` when the caller
+    /// holds the `ID3D11Device` the encoder and the window already share, so a
+    /// decoded picture is never copied between devices. Null asks for a device
+    /// of the decoder's own.
+    pub fn new_on(device: *mut c_void, codec: Codec) -> Result<Self> {
+        let (which, what) = match codec {
+            Codec::H264 => (0, "H264"),
+            Codec::H265 => (1, "H265"),
+            Codec::Av1 => (2, "AV1"),
             Codec::Vp8 => bail!("the graphics card has no VP8 decoder"),
         };
-        // SAFETY: plain values; null means no decoder for the codec or this
-        // machine, and the reason is the shim's last error.
-        let raw = unsafe { yapfast_hwdec_new(which, 0, 0) };
-        if raw.is_null() {
+        Self::open(device, which, what)
+    }
+
+    /// The card's decoder for VP9, which the played-video path shows: FFmpeg's
+    /// d3d11va decodes it on any vendor's card, and Media Foundation never
+    /// does. `device` is as [`Self::new_on`] has it.
+    pub fn vp9_on(device: *mut c_void) -> Result<Self> {
+        Self::open(device, 3, "VP9")
+    }
+
+    /// The first backend that opens a decoder for `which` (0 H264, 1 HEVC,
+    /// 2 AV1, 3 VP9), all of them decoding into textures on `device`. `what`
+    /// names the codec in the error.
+    fn open(device: *mut c_void, which: c_int, what: &str) -> Result<Self> {
+        let mut last = None;
+        for backend in BACKENDS {
+            // SAFETY: plain values; null means this backend or this machine
+            // has no decoder for the codec, and the reason is the shim's last
+            // error.
+            let raw = unsafe { yapfast_hwdec_new(backend, which, 0, 0, device) };
+            if !raw.is_null() {
+                return Ok(Self { raw, size: (0, 0) });
+            }
             // SAFETY: the null decoder is what `error` reads the reason off.
-            let reason = unsafe { message(yapfast_hwdec_error(std::ptr::null())) };
-            bail!("no hardware decoder: {reason}");
+            last = Some(unsafe { message(yapfast_hwdec_error(std::ptr::null())) });
         }
-        Ok(Self { raw, size: (0, 0) })
+        let reason = last.unwrap_or_else(|| "the machine gave no reason".into());
+        bail!("no {what} hardware decoder: {reason}")
     }
 
     /// The size of the newest picture, as the decoder made it.
@@ -592,8 +649,20 @@ impl Live {
     /// machine has one that takes the codec and this build's fallback where it
     /// hasn't.
     pub fn new(codec: Codec) -> Result<Self> {
+        Self::new_on(std::ptr::null_mut(), codec)
+    }
+
+    /// A decoder for a newly watched stream, on `device` when the caller holds
+    /// the `ID3D11Device` the encoder and the window already share: the same
+    /// pictures the watch shows, decoded where they are shown. The first
+    /// backend in [`BACKENDS`] that takes the codec is the one that reads the
+    /// stream, and the software decoder is the fallback when none does.
+    pub fn new_on(device: *mut c_void, codec: Codec) -> Result<Self> {
+        // Only the card's path reads the device; without one this is the
+        // software decoder alone.
+        let _ = device;
         #[cfg(d3d11dec)]
-        match Hardware::new(codec) {
+        match Hardware::new_on(device, codec) {
             Ok(hardware) => {
                 return Ok(Self {
                     codec,
