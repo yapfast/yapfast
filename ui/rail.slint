@@ -2,7 +2,7 @@ import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
-import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
+import { Avatar, Nameplate, PictureStore, Picture, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
 
@@ -196,8 +196,15 @@ export component RailItem inherits Rectangle {
         background: root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
         animate border-radius, background { duration: 160ms; easing: ease-out; }
         clip: true;
-        if root.shown-picture.width > 0: Image {
-            source: root.shown-picture; width: root.tile-size; height: root.tile-size; image-fit: cover;
+        // An animated server icon plays while pointed at, as in Discord.
+        if root.shown-picture.width > 0: Picture {
+            property <string> moving: pointer.has-hover && root.picture-url != "" ? PictureStore.animated(root.picture-url) : "";
+            property <bool> moves: self.moving != "" && self.moving != root.picture-url;
+            changed moving => { if self.moves { PictureStore.request(self.moving); } }
+            still: root.shown-picture;
+            frames: self.moves ? PictureStore.frames(self.moving, PictureStore.revision) : [];
+            delays: self.moves ? PictureStore.delays(self.moving, PictureStore.revision) : [];
+            width: root.tile-size; height: root.tile-size; image-fit: cover;
         }
         if root.icon.width > 0: Image {
             source: root.icon; width: root.icon-size; height: root.icon-size;
