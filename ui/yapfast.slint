@@ -1252,6 +1252,9 @@ export component YapfastWindow inherits Window {
     callback open-chat(string);
     /// Show the selected voice channel's chat, or with `false` its call.
     callback show-voice-chat(bool);
+    /// Show the call this account is in, from the voice panel's channel
+    /// line: its channel or DM, unless that's showing already.
+    callback open-call;
     /// Show a Discord thread beside the conversation, as its link in a
     /// message does, asking for one that isn't listed.
     callback open-aside(string);
@@ -2424,7 +2427,7 @@ export component YapfastWindow inherits Window {
                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
-                    open-call => { root.open-conversation(root.voice-channel); }
+                    open-call => { root.open-call(); }
                 }
                 // Inset the account card while preserving the inherited controls.
                 VerticalLayout {

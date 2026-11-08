@@ -493,6 +493,25 @@ impl Application {
         }
     }
 
+    /// Goes to the call this account is in, as the channel line of Discord's
+    /// voice panel does, unless it's what shows already: a voice channel's
+    /// chat counts, as it's beside the same call in Discord.
+    pub(super) fn go_to_call(&mut self) -> Vec<Effect> {
+        let state = &self.state;
+        let Some(id) = state.voice.room.clone().filter(|_| state.voice.active()) else {
+            return vec![];
+        };
+        let showing = state
+            .selected_room()
+            .is_some_and(|room| room.id == id && state.in_scope(room))
+            && state.dm_screen.is_none()
+            && state.browse.is_none();
+        if showing {
+            return vec![];
+        }
+        self.open(id, false)
+    }
+
     /// Switches the selected voice channel between its chat and its call.
     pub(super) fn show_voice_chat(&mut self, chat: bool) -> Vec<Effect> {
         match self.state.selected.clone() {
