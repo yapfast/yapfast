@@ -2879,6 +2879,8 @@ pub struct Press<'a> {
     pub custom_id: &'a str,
     /// This gateway session, through which the app's answer comes.
     pub session: &'a str,
+    /// The option picked, for a select menu; none for a button.
+    pub pick: Option<&'a str>,
 }
 
 impl Press<'_> {
@@ -2897,6 +2899,14 @@ impl Press<'_> {
         if let Some(guild) = self.guild {
             body["guild_id"] = guild.into();
         }
+        if let Some(pick) = self.pick {
+            body["data"] = serde_json::json!({
+                "component_type": 3,
+                "type": 3,
+                "custom_id": self.custom_id,
+                "values": [pick],
+            });
+        }
         body
     }
 }
@@ -2914,6 +2924,7 @@ mod press_tests {
             application: "4",
             custom_id: "enter/giveaway",
             session: "s",
+            pick: None,
         };
         let body = press.body("99");
         assert_eq!(body["type"], 3);
@@ -2927,5 +2938,10 @@ mod press_tests {
         assert_eq!(body["data"]["custom_id"], "enter/giveaway");
         let dm = Press { guild: None, ..press };
         assert!(dm.body("1").get("guild_id").is_none());
+        let pick = Press { pick: Some("red"), ..press };
+        let data = &pick.body("1")["data"];
+        assert_eq!(data["component_type"], 3);
+        assert_eq!(data["custom_id"], "enter/giveaway");
+        assert_eq!(data["values"][0], "red");
     }
 }

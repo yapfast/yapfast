@@ -738,9 +738,29 @@ pub(super) fn chat_card(
                     large: *large,
                 },
                 Row::Buttons(buttons) => CardRow::Buttons(buttons.iter().map(button).collect()),
-                Row::Select { text, disabled } => CardRow::Select {
+                Row::Select {
+                    text,
+                    disabled,
+                    custom_id,
+                    options,
+                } => CardRow::Select {
                     text: text.clone(),
                     disabled: *disabled,
+                    choices: match (press, custom_id) {
+                        (Some(press), Some(id)) if !*disabled => options
+                            .iter()
+                            .map(|option| crate::chat::SelectChoice {
+                                label: option.label.clone(),
+                                description: option.description.clone(),
+                                link: format!(
+                                    "{}{press}{}/{id}",
+                                    crate::chat::PICK_LINK,
+                                    option.value.replace('%', "%25").replace('/', "%2F"),
+                                ),
+                            })
+                            .collect(),
+                        _ => Vec::new(),
+                    },
                 },
                 Row::Unknown => CardRow::Unknown,
             })

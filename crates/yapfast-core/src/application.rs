@@ -2948,7 +2948,10 @@ impl Application {
             Action::React { item, key } => self.react(item, key),
             Action::RequestDelete(item) => self.request_delete(item),
             Action::DeleteNow(item) => self.delete_now(item),
-            Action::Press(link) if link.starts_with(chat::PRESS_LINK) && !self.state.preview => {
+            Action::Press(link)
+                if (link.starts_with(chat::PRESS_LINK) || link.starts_with(chat::PICK_LINK))
+                    && !self.state.preview =>
+            {
                 vec![Effect::Backend(Command::Discord(DiscordCommand::Press { link }))]
             }
             Action::Press(_) => vec![],

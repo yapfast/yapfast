@@ -906,9 +906,23 @@ fn card_row<'a>(
             )),
             ..Default::default()
         },
-        Row::Select { text, .. } => CardRow {
+        Row::Select { text, choices, .. } => CardRow {
             kind: CardRowKind::Select,
             select: text.as_str().into(),
+            choices: if choices.is_empty() {
+                ModelRc::default()
+            } else {
+                ModelRc::new(VecModel::from(
+                    choices
+                        .iter()
+                        .map(|choice| SelectChoice {
+                            label: custom_emoji::text(&choice.label, &message.emoji).into(),
+                            description: choice.description.as_str().into(),
+                            link: choice.link.as_str().into(),
+                        })
+                        .collect::<Vec<_>>(),
+                ))
+            },
             ..Default::default()
         },
         Row::Unknown => CardRow {

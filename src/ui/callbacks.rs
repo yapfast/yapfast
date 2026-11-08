@@ -1519,7 +1519,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_open_link(move |link| {
         // An app's button under a message presses it on Discord.
-        if link.starts_with(yapfast_core::chat::PRESS_LINK) {
+        if link.starts_with(yapfast_core::chat::PRESS_LINK)
+            || link.starts_with(yapfast_core::chat::PICK_LINK)
+        {
             let Some(window) = weak.upgrade() else { return };
             state
                 .borrow_mut()

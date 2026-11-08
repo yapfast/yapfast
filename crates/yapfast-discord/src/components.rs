@@ -83,6 +83,12 @@ pub enum Row {
     Select {
         text: String,
         disabled: bool,
+        /// What the app named the menu, and its options; none for a menu of
+        /// people, roles or channels, which Yapfast can't open.
+        #[serde(default)]
+        custom_id: Option<String>,
+        #[serde(default)]
+        options: Vec<SelectOption>,
     },
     /// Components of a kind Yapfast can't show, one or more.
     Unknown,
@@ -311,8 +317,32 @@ fn button(component: &Value) -> Option<Button> {
     })
 }
 
+/// One of a select menu's options.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SelectOption {
+    pub label: String,
+    pub value: String,
+    pub description: String,
+}
+
 /// A select menu, by the options it picks by default or its placeholder.
 fn select(component: &Value) -> Row {
+    let options: Vec<SelectOption> = if component["type"].as_u64() == Some(STRING_SELECT) {
+        component["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|option| {
+                Some(SelectOption {
+                    label: option["label"].as_str()?.to_owned(),
+                    value: option["value"].as_str()?.to_owned(),
+                    description: option["description"].as_str().unwrap_or_default().to_owned(),
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let picked: Vec<&str> = component["options"]
         .as_array()
         .into_iter()
@@ -331,6 +361,11 @@ fn select(component: &Value) -> Row {
     Row::Select {
         text,
         disabled: component["disabled"].as_bool().unwrap_or(false),
+        custom_id: component["custom_id"]
+            .as_str()
+            .filter(|_| !options.is_empty())
+            .map(str::to_owned),
+        options,
     }
 }
 
@@ -460,7 +495,13 @@ mod tests {
                 Row::Unknown,
                 Row::Select {
                     text: "Pick one".into(),
-                    disabled: false
+                    disabled: false,
+                    custom_id: Some("pick".into()),
+                    options: vec![SelectOption {
+                        label: "A".into(),
+                        value: "a".into(),
+                        description: String::new(),
+                    }],
                 }
             ]
         );

@@ -751,4 +751,7 @@ button opens its page. Pressing any other one sends Discord an interaction,
 and message, the app (the bot's user id), this gateway session and the
 button's `custom_id`. The app answers through the gateway, usually by
 editing its message or with a message only this account sees. A disabled
-button can't be pressed. Menus under a message still show as disabled.
+button can't be pressed. A menu of options opens a list under it, and
+picking one sends the same interaction with `component_type` 3 and the
+option's value in `values`. A menu of people, roles or channels still shows
+as disabled.

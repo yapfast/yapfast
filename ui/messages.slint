@@ -424,6 +424,8 @@ export struct EmbedCard {
 /// the app, which Yapfast can't yet.
 export enum CardButtonStyle { primary, secondary, success, danger, link }
 export struct CardButton { label: string, style: CardButtonStyle, url: string, enabled: bool }
+/// An option of an app's menu under a message.
+export struct SelectChoice { label: string, description: string, link: string }
 export enum CardRowKind { text, media, separator, buttons, select, unknown }
 /// A row of a Discord app's card, of one `kind`, with the fields it uses:
 /// text and what a section shows beside it; pictures in a gallery and file
@@ -439,6 +441,9 @@ export struct CardRow {
     divider: bool, large: bool,
     buttons: [CardButton],
     select: string,
+    /// A menu's options, each with the link that picks it; empty when it
+    /// can't be opened.
+    choices: [SelectChoice],
 }
 /// A container of a Discord message's components, framed with a bar of its
 /// colour, or the components outside one.
@@ -1561,11 +1566,43 @@ export component CardView inherits HorizontalLayout {
                     for button in row.buttons: CardButtonView { button: button; open-link(link) => { root.open-link(link); } }
                 }
                 if row.kind == CardRowKind.select: HorizontalLayout {
-                    // It doesn't open, so it shows as disabled.
-                    Rectangle {
-                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: 0.5;
-                        background: Theme.field; border-width: 1px; border-color: Theme.edge;
-                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: false;
+                    // A menu of people, roles or channels doesn't open, so it
+                    // shows as disabled.
+                    menu := Rectangle {
+                        property <bool> opens: row.choices.length > 0;
+                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px;
+                        opacity: self.opens ? 1 : 0.5;
+                        background: menu-touch.has-hover && self.opens ? Theme.hover : Theme.field;
+                        border-width: 1px; border-color: Theme.edge;
+                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: self.opens;
+                        accessible-action-default => { if self.opens { choices-popup.show(); } }
+                        menu-touch := TouchArea {
+                            enabled: menu.opens; mouse-cursor: menu.opens ? MouseCursor.pointer : MouseCursor.default;
+                            clicked => { choices-popup.show(); }
+                        }
+                        choices-popup := PopupWindow {
+                            x: 0px; y: menu.height + 4px; width: menu.width;
+                            Rectangle {
+                                background: Theme.tooltip; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+                                drop-shadow-blur: 16px; drop-shadow-color: #00000060; drop-shadow-offset-y: 6px;
+                                VerticalLayout {
+                                    padding: 4px; spacing: 2px;
+                                    for choice in row.choices: Rectangle {
+                                        height: choice-text.preferred-height + 16px; border-radius: 6px;
+                                        background: choice-touch.has-hover ? Theme.hover : transparent;
+                                        choice-touch := TouchArea {
+                                            mouse-cursor: MouseCursor.pointer;
+                                            clicked => { root.open-link(choice.link); }
+                                        }
+                                        choice-text := VerticalLayout {
+                                            padding-left: 10px; padding-right: 10px; spacing: 1px; alignment: center;
+                                            Text { text: choice.label; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
+                                            if choice.description != "": Text { text: choice.description; color: Theme.muted; font-size: 12px; overflow: elide; }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         HorizontalLayout {
                             padding-left: 12px; padding-right: 12px; spacing: 8px;
                             Text { text: row.select; color: Theme.secondary; font-weight: 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }

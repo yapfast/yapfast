@@ -1980,7 +1980,18 @@ impl Discord {
     /// and app, each with a `/` after it, then the button's custom id. The
     /// app answers through the gateway, as with Discord's client.
     pub async fn press(&self, link: &str) -> Result<()> {
-        let rest = link.split_once(':').map_or(link, |(_, rest)| rest);
+        let (scheme, rest) = link.split_once(':').unwrap_or(("", link));
+        // A menu's pick carries its value, escaped, before the custom id.
+        let (pick, rest) = if scheme == "yapfast-pick" {
+            let mut parts = rest.splitn(5, '/');
+            let head: Vec<&str> = parts.by_ref().take(4).collect();
+            let tail = parts.next().unwrap_or_default();
+            let (value, custom_id) = tail.split_once('/').unwrap_or((tail, ""));
+            let value = value.replace("%2F", "/").replace("%25", "%");
+            (Some(value), format!("{}/{custom_id}", head.join("/")))
+        } else {
+            (None, rest.to_owned())
+        };
         let mut parts = rest.splitn(5, '/');
         let (Some(guild), Some(channel), Some(message), Some(application), Some(custom_id)) = (
             parts.next(),
@@ -2008,6 +2019,7 @@ impl Discord {
                 application,
                 custom_id,
                 session: &session,
+                pick: pick.as_deref(),
             })
             .await
     }

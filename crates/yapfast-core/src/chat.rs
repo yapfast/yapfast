@@ -23,6 +23,20 @@ pub const PREVIEW_HEIGHT: u32 = 400;
 /// after it, then the button's custom id, which may itself hold `/`.
 pub const PRESS_LINK: &str = "yapfast-press:";
 
+/// What the link of an option of an app's menu under a Discord message
+/// starts with: as [`PRESS_LINK`], with the option's value, its `%` and `/`
+/// escaped, before the menu's custom id.
+pub const PICK_LINK: &str = "yapfast-pick:";
+
+/// An option of an app's menu under a Discord message, and the link that
+/// picks it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectChoice {
+    pub label: String,
+    pub description: String,
+    pub link: String,
+}
+
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
@@ -1747,6 +1761,8 @@ pub enum CardRow {
     Select {
         text: String,
         disabled: bool,
+        /// Empty when it can't be opened.
+        choices: Vec<SelectChoice>,
     },
     /// Components of a kind Yapfast can't show.
     Unknown,
