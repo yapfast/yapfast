@@ -1145,7 +1145,7 @@ export component YapfastWindow inherits Window {
     in-out property <int> colour-saturation: 100;
     in-out property <bool> saturate-custom-colours: true;
     in-out property <bool> high-contrast: false;
-    in-out property <bool> contrast-indicators: true;
+    in-out property <bool> contrast-indicators: false;
     in-out property <bool> underline-links: true;
     in-out property <bool> link-previews: true;
     in-out property <bool> boost-gems: true;
@@ -1153,8 +1153,8 @@ export component YapfastWindow inherits Window {
     in-out property <bool> strip-tracking: true;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
-    /// Whether a message's author wears their Discord name style at rest;
-    /// off, role colours show and the style waits for the pointer.
+    /// Whether a message's author wears their Discord name style. Off,
+    /// the style model is removed and the ordinary font and role colour show.
     in-out property <bool> show-name-styles <=> Looks.name-styles;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;

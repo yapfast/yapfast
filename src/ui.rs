@@ -1506,7 +1506,7 @@ impl Layout {
         window.set_colour_saturation(self.colour_saturation.unwrap_or(100).clamp(0, 100));
         window.set_saturate_custom_colours(self.saturate_custom_colours.unwrap_or(true));
         window.set_high_contrast(self.high_contrast.unwrap_or(false));
-        window.set_contrast_indicators(self.contrast_indicators.unwrap_or(true));
+        window.set_contrast_indicators(self.contrast_indicators.unwrap_or(false));
         window
             .global::<yapfast_ui::Theme>()
             .set_contrast_indicators(window.get_contrast_indicators());

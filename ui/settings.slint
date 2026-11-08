@@ -1028,12 +1028,6 @@ export component AppearanceSettings inherits VerticalLayout {
             toggled => { root.preferences-changed(); }
         }
         SettingsSwitch {
-            text: "Show name styles";
-            description: "The fonts and colours people give their display names.";
-            checked <=> Looks.name-styles;
-            toggled => { root.preferences-changed(); }
-        }
-        SettingsSwitch {
             text: "Show server tags";
             description: "The tag and its badge beside people's names.";
             checked <=> Looks.server-tags;

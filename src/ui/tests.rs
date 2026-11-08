@@ -2815,6 +2815,17 @@ fn the_name_styles_setting_is_remembered() {
     assert_eq!(saved.name_styles, Some(false));
     saved.apply(&window);
     assert!(!window.get_show_name_styles());
+    assert!(!window.global::<Looks>().get_name_styles());
+    // #106: off means no custom font, palette or effect, including on hover.
+    let message = ChatMessage::default();
+    let mut row = message_row_plain(&message);
+    row.name_style = name_style::row(
+        Some(&yapfast_core::chat::NameStyle::new(3, 2, &[0x66ccff])),
+        "Alice",
+    );
+    assert!(row.name_style.row_count() > 0);
+    let plain = saved.restyle(&message, row);
+    assert_eq!(plain.name_style.row_count(), 0);
 }
 
 #[test]
@@ -8980,6 +8991,8 @@ fn accessibility_colour_controls_change_the_live_theme() {
     let (_, chosen) = theme::chosen(Some("bonfire"), &[]);
     chosen.apply(&window);
     let tokens = window.global::<yapfast_ui::Theme>();
+    assert!(!window.get_contrast_indicators(), "indicators are opt-in");
+    assert!(!tokens.get_contrast_indicators());
     let original = tokens.get_accent();
     window.set_colour_saturation(0);
     theme::reapply(&window);
@@ -9005,6 +9018,14 @@ fn accessibility_colour_controls_change_the_live_theme() {
     assert!(!window.get_saturate_custom_colours());
     assert!(window.get_high_contrast());
     assert!(!window.get_contrast_indicators());
+    Layout {
+        contrast_indicators: Some(true),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert!(window.get_contrast_indicators());
+    assert!(tokens.get_contrast_indicators());
 }
 
 #[test]
