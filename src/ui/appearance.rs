@@ -6,6 +6,7 @@ impl Adapter {
     /// Shows the window in a theme, built in or the person's own, and keeps
     /// it chosen. False for an id Yapfast doesn't know, which changes nothing.
     pub(super) fn choose_theme(&mut self, window: &YapfastWindow, id: &str) -> bool {
+        window.set_theme_note(SharedString::default());
         let Some((id, chosen)) =
             theme::lookup(id, &self.layout.custom_themes).map(|(id, theme)| (id.to_owned(), theme))
         else {
@@ -40,6 +41,7 @@ impl Adapter {
     /// Opens the editor on a copy of the theme shown, which the person can
     /// swap for any other.
     pub(super) fn new_theme(&mut self, window: &YapfastWindow) {
+        window.set_theme_note(SharedString::default());
         let current = window.get_theme_id();
         let starts: Vec<_> = theme::starts(&self.layout.custom_themes).collect();
         let index = starts
@@ -56,6 +58,7 @@ impl Adapter {
 
     /// Opens the editor on one of the person's own themes.
     pub(super) fn edit_theme(&mut self, window: &YapfastWindow, id: &str) {
+        window.set_theme_note(SharedString::default());
         let Some(custom) = self
             .layout
             .custom_themes
@@ -133,10 +136,7 @@ impl Adapter {
         let Some(editor) = self.theme_editor.take_if(|editor| editor.valid()) else {
             return;
         };
-        let name = match window.get_theme_name().trim() {
-            "" => "My theme".to_owned(),
-            name => name.to_owned(),
-        };
+        let name = theme_name(window);
         let custom = &mut self.layout.custom_themes;
         let saved = editor
             .editing
@@ -164,10 +164,86 @@ impl Adapter {
         self.choose_theme(window, &id);
     }
 
+    /// The theme in the editor as a file to share, and the name to suggest
+    /// for it: nothing while a colour's field holds no colour, or the editor
+    /// is closed.
+    pub(super) fn theme_file(&self, window: &YapfastWindow) -> Option<(String, String)> {
+        let editor = self.theme_editor.as_ref().filter(|editor| editor.valid())?;
+        let name = theme_name(window);
+        let text = theme::export(&name, editor.base, &editor.theme);
+        Some((theme::file_name(&name), text))
+    }
+
+    /// Says how writing the theme file went.
+    pub(super) fn theme_exported(
+        &mut self,
+        window: &YapfastWindow,
+        name: &str,
+        result: std::io::Result<()>,
+    ) {
+        match result {
+            Ok(()) => note_theme(window, format!("Exported to {name}."), false),
+            Err(error) => {
+                tracing::warn!(%error, "could not write a theme file");
+                note_theme(window, format!("Couldn't save the theme file: {error}"), true);
+            }
+        }
+    }
+
+    /// Keeps the theme in a file among the person's own, and chooses it, or
+    /// says why it can't. Nothing changes while the editor is open: the
+    /// colours the window shows are the edit's.
+    pub(super) fn import_theme(&mut self, window: &YapfastWindow, path: &std::path::Path) {
+        use std::io::Read;
+        if self.theme_editor.is_some() {
+            note_theme(window, "Save or cancel the theme being edited first.".into(), true);
+            return;
+        }
+        let mut bytes = Vec::new();
+        let read = std::fs::File::open(path)
+            .and_then(|file| file.take(theme::FILE_LIMIT + 1).read_to_end(&mut bytes));
+        let imported = match read {
+            Ok(_) => theme::import(&bytes),
+            Err(error) => {
+                tracing::warn!(%error, "could not read a theme file");
+                note_theme(window, format!("Couldn't read the file: {error}"), true);
+                return;
+            }
+        };
+        let imported = match imported {
+            Ok(imported) => imported,
+            Err(error) => {
+                note_theme(window, error.to_string(), true);
+                return;
+            }
+        };
+        let custom = &mut self.layout.custom_themes;
+        let id = theme::new_id(custom);
+        custom.push(theme::Custom {
+            id: id.clone(),
+            name: imported.name.clone(),
+            base: imported.base,
+            theme: imported.theme,
+        });
+        window.set_themes(theme::cards(&self.layout.custom_themes));
+        self.choose_theme(window, &id);
+        let mut note = format!("Imported {}.", imported.name);
+        if imported.skipped > 0 {
+            let colours = if imported.skipped == 1 {
+                "1 colour in the file isn't a colour".to_owned()
+            } else {
+                format!("{} colours in the file aren't colours", imported.skipped)
+            };
+            note.push_str(&format!(" {colours}, so it uses the base theme's."));
+        }
+        note_theme(window, note, false);
+    }
+
     /// Closes the editor and shows the theme from before it opened.
     pub(super) fn cancel_theme(&mut self, window: &YapfastWindow) {
         if self.theme_editor.take().is_some() {
             close_theme_editor(window);
+            window.set_theme_note(SharedString::default());
             let (_, before) =
                 theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes);
             self.set_theme(window, &before);
@@ -201,4 +277,19 @@ fn close_theme_editor(window: &YapfastWindow) {
     window.set_theme_editor(false);
     window.set_theme_colours(ModelRc::default());
     window.set_theme_starts(ModelRc::default());
+}
+
+/// The name in the editor's field, or "My theme" if it holds none.
+fn theme_name(window: &YapfastWindow) -> String {
+    match window.get_theme_name().trim() {
+        "" => "My theme".to_owned(),
+        name => name.to_owned(),
+    }
+}
+
+/// Tells the person how importing or exporting went, under Appearance's
+/// title, `wrong` when it didn't.
+fn note_theme(window: &YapfastWindow, note: String, wrong: bool) {
+    window.set_theme_note_wrong(wrong);
+    window.set_theme_note(note.into());
 }

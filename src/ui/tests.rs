@@ -7107,6 +7107,200 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
 }
 
 #[test]
+fn a_theme_file_round_trips_every_colour_and_never_carries_an_id() {
+    let nord = theme::find("nord").unwrap().theme;
+    let mut midnight = nord;
+    midnight.dark = false;
+    midnight.chat = theme::parse("#11223344").unwrap();
+    let text = theme::export("Midnight", "nord", &midnight);
+    assert!(text.contains("\"format\": \"yapfast-theme\""));
+    assert!(!text.contains("\"id\""), "ids are the reader's to give");
+    let imported = theme::import(text.as_bytes()).unwrap();
+    assert_eq!(imported.name, "Midnight");
+    assert_eq!(imported.base, "nord");
+    assert_eq!(imported.theme, midnight);
+    assert_eq!(imported.skipped, 0);
+
+    // Every built-in theme survives it, so a custom theme made from any does.
+    for built_in in &theme::BUILT_IN {
+        let text = theme::export(built_in.name, built_in.id, &built_in.theme);
+        assert_eq!(
+            theme::import(text.as_bytes()).unwrap().theme,
+            built_in.theme,
+            "{}",
+            built_in.id
+        );
+    }
+}
+
+#[test]
+fn a_theme_file_made_by_hand_or_another_version_still_loads() {
+    // Colours it lacks take the base's; names and values it can't use are
+    // dropped, and the unusable values counted.
+    let file = br##"{
+        "format": "yapfast-theme", "version": 1, "name": "Plum", "base": "dracula",
+        "colours": { "chat": "#2a1a3a", "from-the-future": "#ffffff", "rail": "purple" }
+    }"##;
+    let imported = theme::import(file).unwrap();
+    let dracula = theme::find("dracula").unwrap().theme;
+    assert_eq!(imported.base, "dracula");
+    assert_eq!(imported.skipped, 1);
+    assert_eq!(
+        imported.theme,
+        theme::Theme {
+            chat: theme::parse("#2a1a3a").unwrap(),
+            ..dracula
+        }
+    );
+
+    // An unknown or missing base is Yap, and a missing name gets one.
+    let file = br##"{"format": "yapfast-theme", "version": 1, "base": "gone", "colours": {"chat": "#102030"}}"##;
+    let imported = theme::import(file).unwrap();
+    assert_eq!((imported.base, imported.name.as_str()), ("yap", "Imported theme"));
+
+    // A name loses control characters and stops at a card's width.
+    let long = "x".repeat(200);
+    let file = format!(
+        r##"{{"format": "yapfast-theme", "version": 1, "name": "A\u0000\nB{long}", "colours": {{"chat": "#102030"}}}}"##
+    );
+    let name = theme::import(file.as_bytes()).unwrap().name;
+    assert!(name.starts_with("AB"));
+    assert_eq!(name.chars().count(), 48);
+}
+
+#[test]
+fn a_file_that_is_not_a_theme_is_turned_away_with_a_reason() {
+    use theme::ImportError::*;
+    let import = |text: &str| theme::import(text.as_bytes()).unwrap_err();
+    assert_eq!(import("not json"), NotATheme);
+    assert_eq!(import("[]"), NotATheme);
+    assert_eq!(import(r#"{"name": "x", "colours": {"chat": "#102030"}}"#), NotATheme);
+    assert_eq!(import(r#"{"format": "other", "version": 1}"#), NotATheme);
+    // A custom theme as layout.json keeps it is not a file to share.
+    assert_eq!(
+        import(r#"{"id": "custom:1", "name": "x", "base": "yap", "colours": {"chat": "#102030"}}"#),
+        NotATheme
+    );
+    assert_eq!(
+        import(r#"{"format": "yapfast-theme", "version": 2, "colours": {"chat": "#102030"}}"#),
+        Newer
+    );
+    assert_eq!(
+        import(r#"{"format": "yapfast-theme", "version": 1, "colours": {"nope": "#102030"}}"#),
+        Empty
+    );
+    assert_eq!(import(r#"{"format": "yapfast-theme", "version": 1}"#), Empty);
+    let big = vec![b' '; theme::FILE_LIMIT as usize + 1];
+    assert_eq!(theme::import(&big).unwrap_err(), TooLarge);
+}
+
+#[test]
+fn a_theme_file_is_named_after_the_theme_without_what_file_names_forbid() {
+    assert_eq!(theme::file_name("Plum"), "Plum.yapfast-theme.json");
+    assert_eq!(
+        theme::file_name("a/b\\c:d*?"),
+        "a-b-c-d.yapfast-theme.json"
+    );
+    assert_eq!(theme::file_name("../.."), "theme.yapfast-theme.json");
+    assert_eq!(theme::file_name("Rosé Pine"), "Rosé Pine.yapfast-theme.json");
+}
+
+#[test]
+fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() {
+    i_slint_backend_testing::init_no_event_loop();
+    let new_adapter = |directory: &std::path::Path| {
+        let window = classic_window();
+        let adapter = Adapter::new(
+            Arc::new(BackgroundRuntime::new().unwrap()),
+            directory.into(),
+            &window,
+        )
+        .unwrap();
+        bind_callbacks(&window, &adapter);
+        (window, adapter)
+    };
+    let (window, adapter) = new_adapter(tempfile::tempdir().unwrap().path());
+    let files = tempfile::tempdir().unwrap();
+
+    // Nothing to export outside the editor, or while a field holds no colour.
+    assert!(adapter.borrow().theme_file(&window).is_none());
+    window.invoke_choose_theme("tokyo-night".into());
+    window.invoke_new_theme();
+    window.set_theme_name("Night / Shift".into());
+    let chat = theme::Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .unwrap();
+    window.invoke_theme_colour_edited(chat as i32, "#102030".into());
+    window.invoke_theme_dark_toggled(false);
+    let made = theme::Theme::shown(&window);
+    window.invoke_theme_colour_edited(chat as i32, "#10".into());
+    assert!(adapter.borrow().theme_file(&window).is_none());
+    window.invoke_theme_colour_edited(chat as i32, "#102030".into());
+
+    // The unsaved edit exports as it stands.
+    let (file_name, text) = adapter.borrow().theme_file(&window).unwrap();
+    assert_eq!(file_name, "Night - Shift.yapfast-theme.json");
+    let path = files.path().join(&file_name);
+    std::fs::write(&path, text).unwrap();
+    adapter.borrow_mut().theme_exported(&window, &file_name, Ok(()));
+    assert_eq!(window.get_theme_note(), "Exported to Night - Shift.yapfast-theme.json.");
+    assert!(!window.get_theme_note_wrong());
+    adapter.borrow_mut().theme_exported(
+        &window,
+        &file_name,
+        Err(std::io::Error::other("disk full")),
+    );
+    assert!(window.get_theme_note_wrong());
+    window.invoke_cancel_theme();
+
+    // Another install loads it as a theme of its own, chosen, and keeps it.
+    let other_root = tempfile::tempdir().unwrap();
+    let (other, other_adapter) = new_adapter(other_root.path());
+    other_adapter.borrow_mut().import_theme(&other, &path);
+    assert_eq!(other.get_theme_id(), "custom:1");
+    assert_eq!(theme::Theme::shown(&other), made);
+    assert_eq!(other.get_themes().row_count(), theme::BUILT_IN.len() + 1);
+    assert_eq!(
+        other.get_themes().row_data(theme::BUILT_IN.len()).unwrap().name,
+        "Night / Shift"
+    );
+    assert_eq!(other.get_theme_note(), "Imported Night / Shift.");
+    assert!(!other.get_theme_note_wrong());
+    let layout = Layout::read(other_root.path());
+    assert_eq!(layout.theme.as_deref(), Some("custom:1"));
+    assert_eq!(layout.custom_themes.len(), 1);
+    assert_eq!(layout.custom_themes[0].base, "tokyo-night");
+    assert_eq!(layout.custom_themes[0].theme, made);
+
+    // Importing it again adds another with its own id.
+    other_adapter.borrow_mut().import_theme(&other, &path);
+    assert_eq!(other.get_theme_id(), "custom:2");
+    assert_eq!(other.get_themes().row_count(), theme::BUILT_IN.len() + 2);
+
+    // A file that isn't a theme, or can't be read, changes nothing but the note.
+    let junk = files.path().join("junk.json");
+    std::fs::write(&junk, "{}").unwrap();
+    other_adapter.borrow_mut().import_theme(&other, &junk);
+    assert_eq!(other.get_theme_note(), "That file is not a Yapfast theme.");
+    assert!(other.get_theme_note_wrong());
+    other_adapter
+        .borrow_mut()
+        .import_theme(&other, &files.path().join("missing.json"));
+    assert!(other.get_theme_note_wrong());
+    assert_eq!(other.get_theme_id(), "custom:2");
+    assert_eq!(other.get_themes().row_count(), theme::BUILT_IN.len() + 2);
+
+    // The editor owns the window's colours while it is open.
+    other.invoke_new_theme();
+    other_adapter.borrow_mut().import_theme(&other, &path);
+    assert!(other.get_theme_note_wrong());
+    assert_eq!(other.get_themes().row_count(), theme::BUILT_IN.len() + 2);
+    other.invoke_cancel_theme();
+    assert_eq!(other.get_theme_note(), "");
+}
+
+#[test]
 fn a_window_made_again_while_editing_drops_the_edit() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

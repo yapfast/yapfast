@@ -1645,6 +1645,48 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let state = adapter.clone();
+    window.on_import_theme(move || {
+        let weak = Rc::downgrade(&state);
+        state.borrow_mut().dialog(async move {
+            let file = rfd::AsyncFileDialog::new()
+                .set_title("Import theme")
+                .add_filter("Yapfast theme", &["json"])
+                .pick_file()
+                .await;
+            if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
+                let window = adapter.borrow().window.upgrade();
+                if let Some(window) = window {
+                    adapter.borrow_mut().import_theme(&window, file.path());
+                }
+            }
+        });
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_export_theme(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let Some((file_name, text)) = state.borrow().theme_file(&window) else {
+            return;
+        };
+        let weak = Rc::downgrade(&state);
+        state.borrow_mut().dialog(async move {
+            let file = rfd::AsyncFileDialog::new()
+                .set_title("Export theme")
+                .set_file_name(file_name)
+                .add_filter("Yapfast theme", &["json"])
+                .save_file()
+                .await;
+            if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
+                let window = adapter.borrow().window.upgrade();
+                if let Some(window) = window {
+                    let result = std::fs::write(file.path(), text);
+                    let name = file.file_name();
+                    adapter.borrow_mut().theme_exported(&window, &name, result);
+                }
+            }
+        });
+    });
+    let state = adapter.clone();
     let weak = window.as_weak();
     window.on_new_theme(move || {
         if let Some(window) = weak.upgrade() {

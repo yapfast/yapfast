@@ -1245,6 +1245,11 @@ export component YapfastWindow inherits Window {
     in property <[string]> theme-starts;
     in property <int> theme-start;
     in property <bool> theme-can-save;
+    /// How the last theme import or export went; see AppearanceSettings.
+    in property <string> theme-note;
+    in property <bool> theme-note-wrong;
+    callback import-theme();
+    callback export-theme();
     callback new-theme();
     callback edit-theme(string);
     callback theme-start-chosen(int);
@@ -3878,11 +3883,14 @@ export component YapfastWindow inherits Window {
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
             editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;
             can-save: root.theme-can-save;
+            note: root.theme-note; note-wrong: root.theme-note-wrong;
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
             show-nameplates <=> root.show-nameplates;
             preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
+            import-theme => { root.import-theme(); }
+            export-theme => { root.export-theme(); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }
             start-chosen(index) => { root.theme-start-chosen(index); }
