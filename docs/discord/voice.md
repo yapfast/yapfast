@@ -187,6 +187,16 @@ five silent frames Discord's clients send as they stop, and a speaking
 message saying they stopped, change nothing, and only after 100 ms with no
 packets do they drop out of the mix until they speak again.
 
+A packet that DAVE drops, such as an unencrypted frame in an encrypted call
+outside a transition, plays as nothing rather than as a lost frame to
+conceal. NetEq plays by timestamp, so Discord's clients never conceal those
+frames. Some senders' streams carry such packets between their sealed frames,
+one for every frame or bursts of 50 at once, and counting each one as lost
+played those speakers at half speed or cut them out. The log line "dropping a
+speaker's audio" gives the first such packet's size and Opus TOC byte. After
+an upgrade from transport-only encryption, unencrypted frames pass for 10 s,
+libdave's transition expiry, and all along a pending downgrade.
+
 The 40 ms that waits once playing has started is the cushion against late
 packets. When more than that waited for a whole second, as a sender whose
 clock runs fast makes it, one frame quieter than -50 dBFS is skipped, and

@@ -774,6 +774,9 @@ impl Application {
             .into_iter()
             .filter(|url| self.requested_pictures.insert(url.clone()))
             .collect();
+        for url in &wanted {
+            self.let_go_emoji.remove(url);
+        }
         if wanted.is_empty() || self.state.preview {
             vec![]
         } else {
@@ -781,6 +784,25 @@ impl Application {
                 wanted,
             )))]
         }
+    }
+
+    /// Asks for `urls` that aren't in memory, those already asked for too, so
+    /// the download of each moves ahead of what was asked for since.
+    pub(super) fn load_pictures_first(&mut self, urls: Vec<String>) -> Vec<Effect> {
+        let wanted: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.is_empty() && !self.state.pictures.contains_key(url))
+            .collect();
+        if wanted.is_empty() || self.state.preview {
+            return vec![];
+        }
+        for url in &wanted {
+            self.let_go_emoji.remove(url);
+        }
+        self.requested_pictures.extend(wanted.iter().cloned());
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+            wanted,
+        )))]
     }
 
     /// Steps back or forward through the conversations visited, to the next
