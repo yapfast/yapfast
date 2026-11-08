@@ -7135,7 +7135,7 @@ fn a_window_made_again_while_editing_drops_the_edit() {
     );
     assert!(!again.get_theme_editor());
     assert_eq!(theme::Theme::shown(&again), theme::YAP);
-    assert_eq!(theme::mention_color(), 0x7cc4ff);
+    assert_eq!(theme::mention_color(), 0x64adf6);
     assert!(Layout::read(directory.path()).custom_themes.is_empty());
 }
 

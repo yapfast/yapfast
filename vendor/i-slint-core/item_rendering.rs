@@ -658,6 +658,11 @@ pub trait RenderText: RenderString {
     fn selection(self: Pin<&Self>) -> Option<TextSelection> {
         None
     }
+    /// Yapfast: where the link under the pointer ends, the paragraphs counted as if joined by
+    /// newlines, so its text is underlined.
+    fn hovered_link(self: Pin<&Self>) -> Option<usize> {
+        None
+    }
 }
 
 /// A stretch of a text item's text drawn as selected.

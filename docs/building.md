@@ -85,7 +85,9 @@ The core of it is `yapfast_selection.rs`. The other changes are marked `Yapfast:
 - `textlayout/sharedparley.rs` again, where a `StyledText` lets its text 4px past
   its box, and a `TextInput` up and down, as an emoji is taller than its line
 - `textlayout/sharedparley/draw.rs`, which draws mention pills under their
-  text and opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`
+  text, opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`,
+  and the underline of the link under the pointer, which `items/text.rs` keeps;
+  shaping gives links no underline of their own
 - `graphics/image.rs`, where no image equals no image; upstream they differ,
   so every list row without a picture counted as changed on each refresh
 

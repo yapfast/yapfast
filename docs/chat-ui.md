@@ -147,9 +147,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   message text and 48px in the large text a message of emoji alone shows, and
   the composer shows one as a picture too, since each glyph also answers to
   the emoji's own code point. A `:shortcode:` sent without taking its
-  completion draws as its emoji. An emoji is a link, but one whose text is the
-  picture alone draws without the underline a link gets, which would show
-  across the bottom of it. Clicking one opens its card, 288px wide and opening
+  completion draws as its emoji. A link is underlined only while the pointer is
+  on it, as in Discord's client. An emoji is a link, but one whose text is the
+  picture alone is never underlined: the line would show across the bottom of
+  it. Clicking one opens its card, 288px wide and opening
   below it: its name such as `:sob:`, a line saying what it is, and, for a
   server's emoji, the server it is from, with how many of its members are
   online and whether Discover lists it, whose icon and name open that server.
