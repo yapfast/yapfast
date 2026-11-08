@@ -62,7 +62,9 @@ conversation. It lists the account's friends from READY's relationships by
 name, each with their status dot and custom status or activity, under two tabs
 in the header: Online, for those online, idle or on do not disturb, and All. A
 search field filters it by name, and "Add Friend" in the header opens the
-add-friend dialog. Discord sends presence for friends in READY_SUPPLEMENTAL's
+add-friend dialog. An "Active Now" column beside the list shows each friend who is
+around with an activity or status; clicking one opens the DM, and its × folds the
+column to an edge strip, kept in the screen and not saved. Discord sends presence for friends in READY_SUPPLEMENTAL's
 `merged_presences` and in PRESENCE_UPDATE, so the list keeps up with them.
 Clicking a friend, or the message button on their row, opens the DM with them,
 or starts one as the pen does and opens it once Discord lists it. A friend in a

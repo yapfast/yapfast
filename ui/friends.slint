@@ -246,6 +246,10 @@ export component FriendsScreen inherits Rectangle {
     callback add-friend;
     /// A friend's menu was asked for: their id, and where in the window.
     callback open-friend-menu(string, length, length);
+    /// Whether the Active Now column is folded to its edge.
+    property <bool> active-collapsed: false;
+    /// Friends around with an activity or status to show.
+    property <[FriendRow]> active-rows: root.rows;
     if root.total == 0: VerticalLayout {
         padding: 32px; spacing: 10px; alignment: center;
         HorizontalLayout {
@@ -262,8 +266,10 @@ export component FriendsScreen inherits Rectangle {
             ActionButton { text: "Add a friend"; primary: true; clicked => { root.add-friend(); } }
         }
     }
-    if root.total > 0: VerticalLayout {
-        padding: 16px; padding-bottom: 0px; spacing: 8px;
+    if root.total > 0: HorizontalLayout {
+        VerticalLayout {
+            horizontal-stretch: 1;
+            padding: 16px; padding-bottom: 0px; spacing: 8px;
         TextField {
             min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.sunken; ring: false;
             placeholder: "Search"; label: "Search friends"; text <=> root.filter;
@@ -286,6 +292,55 @@ export component FriendsScreen inherits Rectangle {
                     open-voice => { root.open-voice(friend.voice-room); }
                     context-menu(x, y) => { root.open-friend-menu(friend.id, x, y); }
                 }
+            }
+        }
+        }
+        if !root.active-collapsed: Rectangle {
+            width: 280px;
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.line;
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+                HorizontalLayout {
+                    Text { text: "ACTIVE NOW"; font-size: 12px; font-weight: 700; color: Theme.muted; horizontal-stretch: 1; }
+                    TouchArea {
+                        width: 20px;
+                        clicked => { root.active-collapsed = true; }
+                        Text { text: "×"; font-size: 16px; color: Theme.muted; horizontal-alignment: center; }
+                    }
+                }
+                ListView {
+                    for friend in root.rows: Rectangle {
+                        visible: friend.activity != "" && friend.presence != "offline";
+                        height: self.visible ? 56px : 0px;
+                        TouchArea { clicked => { root.message(friend.id); } }
+                        HorizontalLayout {
+                            padding: 8px;
+                            spacing: 8px;
+                            Rectangle {
+                                width: 36px; height: 36px; border-radius: 18px; background: friend.tint; clip: true;
+                                Image { source: friend.picture; width: 36px; height: 36px; }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Text { text: friend.name; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                                Text { text: friend.activity; color: Theme.secondary; font-size: 12px; overflow: elide; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if root.active-collapsed: Rectangle {
+            width: 24px;
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.line;
+            TouchArea {
+                clicked => { root.active-collapsed = false; }
+                Text { text: "‹"; font-size: 18px; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
     }
