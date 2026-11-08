@@ -714,6 +714,8 @@ impl Live {
     /// A machine decoder that fails stops being used, and the error it leaves
     /// says so: the caller waits for a keyframe, and the software decoder takes
     /// the stream from there.
+    // `keyframe` is what a machine decoder is told; software doesn't need it.
+    #[cfg_attr(not(d3d11dec), allow(unused_variables))]
     pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<Option<Frame<'_>>> {
         #[cfg(d3d11dec)]
         if let Some(mut hardware) = self.hardware.take() {

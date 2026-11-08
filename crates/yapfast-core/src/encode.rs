@@ -731,7 +731,7 @@ impl Encoder {
             self.kbps,
             self.effort,
         );
-        if let Some(opened) = open_hardware(
+        if let Ok(opened) = open_hardware(
             codec,
             width,
             height,
@@ -740,9 +740,7 @@ impl Encoder {
             Tuning::default(),
             self.capture,
             &self.tried,
-        )
-        .ok()
-        {
+        ) {
             tracing::warn!(
                 engine = opened.name.as_str(),
                 fallback = true,

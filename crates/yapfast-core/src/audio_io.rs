@@ -301,8 +301,8 @@ impl<S: Sample> Output<S> {
         let played = ended(self.stream.write(bytes(samples)));
         // Frames handed over, which come back as heard once the device has
         // played them: see `position`.
-        if self.frame_bytes > 0 {
-            self.written += (samples.len() * size_of::<S>() / self.frame_bytes) as u64;
+        if let Some(frames) = size_of_val(samples).checked_div(self.frame_bytes) {
+            self.written += frames as u64;
         }
         played
     }

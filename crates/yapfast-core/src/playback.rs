@@ -26,7 +26,9 @@ pub struct Playback {
     _file: tempfile::TempPath,
 }
 
-/// What woke a playing video.
+/// What woke a playing video. A wake is read once, so the report it may carry
+/// being much bigger than a count of bytes costs nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Wake {
     Report(Option<Report>),
     Downloaded(Option<u64>),

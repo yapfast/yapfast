@@ -57,7 +57,7 @@ use crate::{
     av_timing,
     decode::{Frame, Live},
     encode::{self, Effort, Encoder},
-    frames::{Drawn, Frames, Writer},
+    frames::{Frames, Writer},
     picture::{self, I420, Tone},
     pressure, stream_audio,
     voice::{Presentation, Resolution, StreamQuality, StreamStats},
@@ -381,6 +381,9 @@ fn as_it_comes() -> f32 {
     1.0
 }
 
+// A report is one line of the worker's output, read once and matched once, so
+// its biggest variant being much bigger than the rest costs nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Report {
@@ -1265,19 +1268,6 @@ impl Sink {
         self.preview_shown || self.preview_due.is_some_and(|due| due <= Instant::now())
     }
 
-    /// Whether Discord's still of the stream is due, which is made from the
-    /// tile's pixels: the one reason a frame is read back into memory while the
-    /// window shows the card's own picture.
-    fn still_wanted(&self) -> bool {
-        self.preview_due.is_some_and(|due| due <= Instant::now())
-    }
-
-    /// Whether a machine short of memory has this share giving back what it can
-    /// spare: a smaller preview, and buffers it will never use again.
-    fn constrained(&self) -> bool {
-        self.diagnosis.memory.constrained().is_some()
-    }
-
     /// Whether the stream needs a picture now, whatever the screen is doing: a
     /// connection that hasn't opened yet, an encoder the card took away or a
     /// codec Discord chose since the last frame, or a viewer whose decoder lost
@@ -1887,6 +1877,8 @@ fn watch(
             // converted or written for a window that shows no picture.
             Worth::Unseen => continue,
         }
+        // Only the Windows decode path below sets it.
+        #[cfg_attr(not(d3d11dec), allow(unused_mut))]
         let mut abandoned = false;
         // The picture's own time on the stream, which the frames file carries to
         // the window: the sender's 90 kHz RTP clock in milliseconds, so a
@@ -2246,25 +2238,6 @@ pub fn sharing_fps(width: u32, height: u32, asked: u32) -> u32 {
     } else {
         asked
     }
-}
-
-/// Converts an I420 picture into RGBA pixels of its size.
-fn to_rgba(picture: &I420Buffer, pixels: &mut [u8]) {
-    let (y, u, v) = picture.data();
-    let (y_stride, u_stride, v_stride) = picture.strides();
-    let (width, height) = (picture.width(), picture.height());
-    yuv_helper::i420_to_abgr(
-        y,
-        y_stride,
-        u,
-        u_stride,
-        v,
-        v_stride,
-        pixels,
-        width * 4,
-        width as i32,
-        height as i32,
-    );
 }
 
 // libwebrtc asks the screen sharing portal over D-Bus through GIO, but
@@ -3711,14 +3684,6 @@ fn previewed(scratch: &[u8], width: u32, height: u32) -> I420<'_> {
     }
 }
 
-/// A captured frame as an I420 picture of its size.
-fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame, tone: &Tone) -> I420Buffer {
-    let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
-    let mut picture = I420Buffer::new(width, height);
-    convert(&mut picture, frame.data(), frame.stride(), tone);
-    picture
-}
-
 /// How long [`glance`] waits for a picture of a screen that isn't black,
 /// before showing the last it took, or none.
 #[cfg(not(target_os = "linux"))]
@@ -3896,7 +3861,9 @@ fn deliver(reports: &mpsc::Sender<Report>, report: Report) -> Delivery {
     }
 }
 
-/// What [`deliver`] left for the caller to do.
+/// What [`deliver`] left for the caller to do. As with [`Report`], the big
+/// variant is one message handed over once.
+#[allow(clippy::large_enum_variant)]
 enum Delivery {
     /// The UI has it, or a later report says the same.
     Taken,

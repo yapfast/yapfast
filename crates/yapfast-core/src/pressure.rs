@@ -412,28 +412,28 @@ mod tests {
     fn one_signal_that_is_unknown_is_not_a_shortage_and_not_a_floor() {
         // A platform that never answers about the adapter: its budget is
         // unknown, and the system's memory is what decides.
-        let system_only = Some(Reading {
+        let system_only = Reading {
             system_free: Some(GIB / 2),
             system_total: Some(GIB),
             ..Default::default()
-        });
+        };
         let mut policy = Policy::default();
         assert_eq!(
-            policy.update(system_only.unwrap(), at(0)),
+            policy.update(system_only, at(0)),
             Change::Same,
             "half the machine free and no budget to ask for"
         );
         let short = Reading {
             system_free: Some(GIB / 20),
-            ..system_only.unwrap()
+            ..system_only
         };
         assert_eq!(
             policy.update(short, at(1)),
             Change::Enter(Reason::SystemMemory)
         );
         // And leaving it only needs the signal that is there to be roomy.
-        assert_eq!(policy.update(system_only.unwrap(), at(2)), Change::Same);
-        assert_eq!(policy.update(system_only.unwrap(), at(12)), Change::Leave);
+        assert_eq!(policy.update(system_only, at(2)), Change::Same);
+        assert_eq!(policy.update(system_only, at(12)), Change::Leave);
     }
 
     #[test]
