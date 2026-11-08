@@ -8950,3 +8950,148 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     window.invoke_preferences_changed();
     assert!(adapter.borrow().layout.collapse_long);
 }
+
+fn font_path(name: &str) -> String {
+    format!("{}/ui/fonts/{name}", env!("CARGO_MANIFEST_DIR"))
+}
+
+fn font_window(directory: &std::path::Path) -> (YapfastWindow, Rc<RefCell<Adapter>>) {
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    (window, adapter)
+}
+
+#[test]
+fn the_layout_without_font_files_loads_and_font_files_are_kept() {
+    let old = r#"{"sidebar_width":280.0}"#;
+    let read: Layout = serde_json::from_str(old).unwrap();
+    assert!(read.ui_font_files.is_empty());
+    // Nothing chosen writes nothing, so a layout is as it was.
+    assert!(
+        serde_json::to_value(&read)
+            .unwrap()
+            .get("ui_font_files")
+            .is_none()
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let layout = Layout {
+        ui_font_files: vec!["/fonts/a.ttf".into(), "/fonts/b.woff".into()],
+        ..Default::default()
+    };
+    layout.write(directory.path());
+    assert_eq!(
+        Layout::read(directory.path()).ui_font_files,
+        ["/fonts/a.ttf", "/fonts/b.woff"]
+    );
+}
+
+#[test]
+fn font_files_chosen_draw_the_window_until_reset() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let (window, adapter) = font_window(directory.path());
+    let style = window.global::<ClientStyle>();
+    assert_eq!(style.get_font_family(), "DM Sans");
+    assert_eq!(window.get_font_files().row_count(), 0);
+
+    let regular = font_path("AtkinsonHyperlegibleNext-Regular.ttf");
+    let bold = font_path("AtkinsonHyperlegibleNext-Bold.ttf");
+    let junk = directory.path().join("notes.txt");
+    std::fs::write(&junk, "not a font, but long enough to be read").unwrap();
+    let junk = junk.to_str().unwrap().to_owned();
+
+    adapter
+        .borrow_mut()
+        .add_fonts(&window, &[regular.clone(), junk]);
+    let first = style.get_font_family().to_string();
+    assert!(first.starts_with("Yapfast Custom Font"), "{first}");
+    // The file that isn't a font is told of, and isn't kept.
+    assert_eq!(window.get_font_files().row_count(), 1);
+    assert!(window.get_font_note().contains("notes.txt"));
+    assert_eq!(
+        Layout::read(directory.path()).ui_font_files,
+        [regular.as_str()]
+    );
+
+    // Choosing adds, and the family is new, so the texts are measured again.
+    adapter
+        .borrow_mut()
+        .add_fonts(&window, std::slice::from_ref(&bold));
+    let second = style.get_font_family().to_string();
+    assert_ne!(first, second);
+    assert_eq!(window.get_font_files().row_count(), 2);
+    let detail = |index| window.get_font_files().row_data(index).unwrap().detail;
+    assert_eq!(detail(0), "Regular");
+    assert_eq!(detail(1), "Bold");
+    assert_eq!(window.get_font_note(), "");
+
+    // Removing the first leaves the other.
+    window.invoke_remove_font_file(0);
+    assert_eq!(window.get_font_files().row_count(), 1);
+    assert_eq!(
+        Layout::read(directory.path()).ui_font_files,
+        [bold.as_str()]
+    );
+
+    // They are there at the next start, before the first frame.
+    let (again, _adapter) = font_window(directory.path());
+    assert!(
+        again
+            .global::<ClientStyle>()
+            .get_font_family()
+            .starts_with("Yapfast Custom Font")
+    );
+
+    window.invoke_reset_font();
+    assert_eq!(style.get_font_family(), "DM Sans");
+    assert_eq!(window.get_font_files().row_count(), 0);
+    assert!(Layout::read(directory.path()).ui_font_files.is_empty());
+}
+
+#[test]
+fn a_saved_font_file_that_is_missing_is_skipped_and_noted() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let regular = font_path("AtkinsonHyperlegibleNext-Regular.ttf");
+    let gone = directory
+        .path()
+        .join("gone.ttf")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    Layout {
+        ui_font_files: vec![gone.clone(), regular],
+        ..Default::default()
+    }
+    .write(directory.path());
+    let (window, _adapter) = font_window(directory.path());
+    assert!(
+        window
+            .global::<ClientStyle>()
+            .get_font_family()
+            .starts_with("Yapfast Custom Font")
+    );
+    assert_eq!(window.get_font_files().row_count(), 2);
+    assert!(window.get_font_files().row_data(0).unwrap().problem);
+    assert!(window.get_font_note().contains("didn't load"));
+    // The missing file stays saved, in case its drive comes back.
+    assert!(Layout::read(directory.path()).ui_font_files.contains(&gone));
+
+    // With none loadable, the bundled font stays.
+    let only = tempfile::tempdir().unwrap();
+    Layout {
+        ui_font_files: vec![gone],
+        ..Default::default()
+    }
+    .write(only.path());
+    let (window, _adapter) = font_window(only.path());
+    assert_eq!(window.global::<ClientStyle>().get_font_family(), "DM Sans");
+    assert!(window.get_font_note().contains("Yapfast uses its own font"));
+}

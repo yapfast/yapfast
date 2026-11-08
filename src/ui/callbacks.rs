@@ -1652,6 +1652,41 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let state = adapter.clone();
+    window.on_choose_font_files(move || {
+        let weak = Rc::downgrade(&state);
+        state.borrow_mut().dialog(async move {
+            let files = rfd::AsyncFileDialog::new()
+                .set_title("Choose font files")
+                .add_filter("Fonts", &["ttf", "otf", "ttc", "woff"])
+                .pick_files()
+                .await;
+            if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
+                let window = adapter.borrow().window.upgrade();
+                if let Some(window) = window {
+                    let paths: Vec<String> = files
+                        .iter()
+                        .filter_map(|file| file.path().to_str().map(str::to_owned))
+                        .collect();
+                    adapter.borrow_mut().add_fonts(&window, &paths);
+                }
+            }
+        });
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_remove_font_file(move |index| {
+        if let (Ok(index), Some(window)) = (usize::try_from(index), weak.upgrade()) {
+            state.borrow_mut().remove_font(&window, index);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_reset_font(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().reset_font(&window);
+        }
+    });
+    let state = adapter.clone();
     let weak = window.as_weak();
     window.on_edit_theme(move |id| {
         if let Some(window) = weak.upgrade() {

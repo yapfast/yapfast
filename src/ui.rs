@@ -1188,6 +1188,10 @@ struct Layout {
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
+    /// The font files the person loaded to draw the interface in, by absolute
+    /// path, in the order they were added. See [`crate::custom_font`].
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ui_font_files: Vec<String>,
     /// Where the window was when Yapfast last ran, and how big.
     window: Option<placement::Placement>,
 }
@@ -1881,6 +1885,11 @@ struct Adapter {
     restyle: bool,
     /// Appearance's theme editor, while it's open.
     theme_editor: Option<theme::Editor>,
+    /// The font files loaded for the interface, and what they gave.
+    ui_font: crate::custom_font::Loaded,
+    /// What Appearance says of the font files chosen just now that weren't
+    /// usable, or of the saved ones that didn't load.
+    font_note: String,
     /// Where the `@` of the word being mentioned is in the composer text.
     mention_at: Option<usize>,
     /// What the composer's mentions were last coloured for.
@@ -2088,7 +2097,12 @@ impl Adapter {
         let models = Models::default();
         models.attach(window);
         let layout = Layout::read(&root);
+        // Before the first frame, so no text is measured in the bundled font
+        // first.
+        let ui_font = crate::custom_font::Loaded::load(Default::default(), &layout.ui_font_files);
+        let font_note = appearance::font_note(&ui_font);
         layout.apply(window);
+        appearance::show_font(window, &ui_font, &font_note);
         let mut app = Application::default();
         app.remember_reaction_uses(layout.reactions.clone());
         app.dispatch(Action::ShowHiddenChannels(layout.show_hidden_channels));
@@ -2155,6 +2169,8 @@ impl Adapter {
                 clock_minute: 0,
                 restyle: false,
                 theme_editor: None,
+                ui_font,
+                font_note,
                 aside_messages: Arc::new(Vec::new()),
                 aside_fit: 0,
                 aside_rows: Vec::new(),
@@ -2252,6 +2268,7 @@ impl Adapter {
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
+        appearance::show_font(window, &self.ui_font, &self.font_note);
         self.watch_talk_key(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows

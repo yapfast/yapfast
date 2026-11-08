@@ -47,7 +47,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, FontFile, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1246,6 +1246,12 @@ export component YapfastWindow inherits Window {
     in property <int> theme-start;
     in property <bool> theme-can-save;
     callback new-theme();
+    /// Appearance's font files; see AppearanceSettings.
+    in property <[FontFile]> font-files;
+    in property <string> font-note;
+    callback choose-font-files();
+    callback remove-font-file(int);
+    callback reset-font();
     callback edit-theme(string);
     callback theme-start-chosen(int);
     callback theme-colour-edited(int, string);
@@ -3880,6 +3886,10 @@ export component YapfastWindow inherits Window {
             can-save: root.theme-can-save;
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
+            font-files: root.font-files; font-note: root.font-note;
+            choose-font-files => { root.choose-font-files(); }
+            remove-font-file(index) => { root.remove-font-file(index); }
+            reset-font => { root.reset-font(); }
             show-nameplates <=> root.show-nameplates;
             preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
