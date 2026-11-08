@@ -947,13 +947,12 @@ fn server_rooms(
     (rooms, server)
 }
 
-/// A thread as it lists under `parent`, its channel's room.
-#[cfg(feature = "discord")]
 /// What reacting `me` may do in a server's channel or thread, as Discord's
 /// client decides apart from sending: nothing while timed out, unless the
 /// owner or an administrator, or in an archived thread that's locked or
 /// that `me` couldn't open again by sending in it; any reaction with Add
 /// Reactions; and else only adding to those already there.
+#[cfg(feature = "discord")]
 fn reacts(server: &MarkedServer, channel: &yapfast_discord::ready::Channel, me: &str) -> Reacts {
     use yapfast_discord::ready::permission::{
         ADD_REACTIONS, ALL, SEND_MESSAGES, SEND_MESSAGES_IN_THREADS,
@@ -977,6 +976,8 @@ fn reacts(server: &MarkedServer, channel: &yapfast_discord::ready::Channel, me: 
     }
 }
 
+/// A thread as it lists under `parent`, its channel's room.
+#[cfg(feature = "discord")]
 fn thread_room(
     server: &MarkedServer,
     thread: MarkedChannel,
