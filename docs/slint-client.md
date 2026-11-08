@@ -23,7 +23,7 @@ application model are in `yapfast-core`.
   UI](chat-ui.md#layout-and-look)), Lucide SVG icons, custom text fields, and
   window sizing from 1120×760 down to 800×560. Settings cover the window in
   sections: account, appearance (the [themes](themes.md)), accessibility
-  (chat text size, density, compact messages, colour and contrast), voice and video,
+  (chat text size, link underlining, density, compact messages, colour and contrast), voice and video,
   messages (clock, link previews, Nitro name styles and folding
   long messages), notifications, sounds, Discord
   and advanced (the renderer, closing to the tray), closed by its close button

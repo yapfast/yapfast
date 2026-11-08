@@ -1589,6 +1589,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.saturate_custom_colours = Some(window.get_saturate_custom_colours());
         layout.high_contrast = Some(window.get_high_contrast());
         layout.contrast_indicators = Some(window.get_contrast_indicators());
+        let underline_links = window.get_underline_links();
+        layout.underline_links = Some(underline_links);
+        let _ = i_slint_core::with_existing_context(|context| {
+            context.set_links_underlined(underline_links);
+        });
         let style = window.global::<ClientStyle>();
         style.set_density(window.get_ui_density());
         style.set_compact_messages(window.get_chat_display() == 1);

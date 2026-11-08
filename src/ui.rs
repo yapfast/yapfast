@@ -1105,6 +1105,7 @@ struct Layout {
     saturate_custom_colours: Option<bool>,
     high_contrast: Option<bool>,
     contrast_indicators: Option<bool>,
+    underline_links: Option<bool>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
@@ -1382,6 +1383,11 @@ impl Layout {
         window.set_saturate_custom_colours(self.saturate_custom_colours.unwrap_or(true));
         window.set_high_contrast(self.high_contrast.unwrap_or(false));
         window.set_contrast_indicators(self.contrast_indicators.unwrap_or(true));
+        let underline_links = self.underline_links.unwrap_or(true);
+        window.set_underline_links(underline_links);
+        let _ = i_slint_core::with_existing_context(|context| {
+            context.set_links_underlined(underline_links);
+        });
         self.apply_appearance(window);
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);

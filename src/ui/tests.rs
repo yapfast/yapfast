@@ -8563,6 +8563,29 @@ fn yapfast_server_rail_keeps_home_pinned_without_a_duplicate_separator() {
 }
 
 #[test]
+fn accessibility_link_underlining_reaches_slint_and_survives_reopening() {
+    i_slint_backend_testing::init_no_event_loop();
+    let files = tempfile::tempdir().unwrap();
+    let window = yapfast::window().unwrap();
+    Layout {
+        underline_links: Some(false),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert!(!window.get_underline_links());
+    let underlined =
+        i_slint_core::with_existing_context(|context| context.links_underlined()).unwrap();
+    assert!(!underlined);
+    Layout {
+        underline_links: Some(true),
+        ..Default::default()
+    }
+    .apply(&window);
+    assert!(i_slint_core::with_existing_context(|context| context.links_underlined()).unwrap());
+}
+
+#[test]
 fn accessibility_colour_controls_change_the_live_theme() {
     let source = (0.8, 0.2, 0.1, 0.5);
     let grey = theme::accessible_colour(source, 0, false, true, false);

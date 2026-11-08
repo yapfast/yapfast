@@ -55,6 +55,9 @@ pub(crate) struct PlatformContext {
     /// Process-wide reduced-motion setting, as reported by the backend.
     #[pin]
     motion_preference: Property<MotionPreference>,
+    /// Whether styled links are underlined, as chosen by the application.
+    #[pin]
+    links_underlined: Property<bool>,
     modifiers: Cell<InternalKeyboardModifierState>,
     #[cfg(all(unix, not(target_os = "macos")))]
     xdg_app_id: RefCell<Option<crate::SharedString>>,
@@ -83,6 +86,7 @@ impl PlatformContext {
                 MotionPreference::default(),
                 "PlatformContext::motion_preference",
             ),
+            links_underlined: Property::new_named(true, "PlatformContext::links_underlined"),
             modifiers: Cell::new(Default::default()),
             #[cfg(all(unix, not(target_os = "macos")))]
             xdg_app_id: Default::default(),
@@ -100,7 +104,10 @@ impl PlatformContext {
         let count = self.keepalive_count.get() - 1;
         self.keepalive_count.set(count);
         if count <= 0 {
-            let _ = self.platform.new_event_loop_proxy().and_then(|p| p.quit_event_loop().ok());
+            let _ = self
+                .platform
+                .new_event_loop_proxy()
+                .and_then(|p| p.quit_event_loop().ok());
         }
     }
 
@@ -132,7 +139,9 @@ impl PlatformContext {
     fn for_each_context(&self, mut f: impl FnMut(&SlintContext)) {
         let mut index = 0;
         loop {
-            let Some(weak) = self.contexts.borrow().get(index).cloned() else { break };
+            let Some(weak) = self.contexts.borrow().get(index).cloned() else {
+                break;
+            };
             if let Some(ctx) = weak.upgrade() {
                 f(&ctx);
             }
@@ -197,14 +206,17 @@ impl SlintContext {
     pub fn new(platform: Box<dyn Platform + 'static>) -> Self {
         // Timers started before this thread had a context registered in the pending list;
         // take it over so those timers keep working.
-        let this =
-            Self::on_platform(PlatformContext::new(platform), crate::timers::take_pending_timers());
+        let this = Self::on_platform(
+            PlatformContext::new(platform),
+            crate::timers::take_pending_timers(),
+        );
         // Claim this thread's context slot if it is still free, so that the ambient APIs
         // resolve here rather than to a list nothing drives.
         GLOBAL_CONTEXT.with(|slot| {
             let _ = slot.set(this.clone());
         });
-        this.platform().bind_context(this.downgrade(), crate::InternalToken);
+        this.platform()
+            .bind_context(this.downgrade(), crate::InternalToken);
         this
     }
 
@@ -269,7 +281,10 @@ impl SlintContext {
     ///
     /// Setting a platform creates the context, and creating a component needs a platform.
     pub fn current() -> Option<Self> {
-        GLOBAL_CONTEXT.try_with(|slot| slot.get().cloned()).ok().flatten()
+        GLOBAL_CONTEXT
+            .try_with(|slot| slot.get().cloned())
+            .ok()
+            .flatten()
     }
 
     /// Return a reference to the platform abstraction
@@ -414,7 +429,10 @@ impl SlintContext {
     /// Backend-side write path for the process-wide color scheme. Called by each
     /// platform's system-theme observer; `Property::set` short-circuits no-op writes.
     pub fn set_color_scheme(&self, scheme: ColorScheme) {
-        self.platform_context().project_ref().color_scheme.set(scheme);
+        self.platform_context()
+            .project_ref()
+            .color_scheme
+            .set(scheme);
     }
 
     /// Returns the process-wide system accent color. Reads register a property dependency,
@@ -426,28 +444,56 @@ impl SlintContext {
     /// Backend-side write path for the process-wide accent color. Called by each
     /// platform's system-theme observer; `Property::set` short-circuits no-op writes.
     pub fn set_accent_color(&self, color: Color) {
-        self.platform_context().project_ref().accent_color.set(color);
+        self.platform_context()
+            .project_ref()
+            .accent_color
+            .set(color);
     }
 
     /// Returns the platform-reported default font size, or `None` if the backend doesn't
     /// report one. Reads register a property dependency, so bindings re-evaluate when the
     /// platform reports a change (e.g. the user adjusts the system text size).
     pub fn platform_default_font_size(&self) -> Option<LogicalLength> {
-        self.platform_context().project_ref().platform_default_font_size.get()
+        self.platform_context()
+            .project_ref()
+            .platform_default_font_size
+            .get()
     }
 
     /// Backend-side write path for the platform-reported default font size. Called by
     /// backends that track the system setting; `Property::set` short-circuits no-op writes.
     pub fn set_platform_default_font_size(&self, size: Option<LogicalLength>) {
-        self.platform_context().project_ref().platform_default_font_size.set(size);
+        self.platform_context()
+            .project_ref()
+            .platform_default_font_size
+            .set(size);
     }
 
     pub fn motion_preference(&self) -> MotionPreference {
-        self.platform_context().project_ref().motion_preference.get()
+        self.platform_context()
+            .project_ref()
+            .motion_preference
+            .get()
     }
 
     pub fn set_motion_preference(&self, preference: MotionPreference) {
-        self.platform_context().project_ref().motion_preference.set(preference);
+        self.platform_context()
+            .project_ref()
+            .motion_preference
+            .set(preference);
+    }
+
+    /// Whether styled links are underlined. The default is true.
+    pub fn links_underlined(&self) -> bool {
+        self.platform_context().project_ref().links_underlined.get()
+    }
+
+    /// Changes link underlining and re-evaluates styled text that tracks it.
+    pub fn set_links_underlined(&self, value: bool) {
+        self.platform_context()
+            .project_ref()
+            .links_underlined
+            .set(value);
     }
 
     #[doc(hidden)]
@@ -533,7 +579,11 @@ impl SlintContext {
     #[cfg(feature = "tr")]
     pub fn set_external_translator(&self, translator: Option<Box<dyn tr::Translator>>) {
         *self.0.external_translator.borrow_mut() = translator;
-        self.0.as_ref().project_ref().translations_dirty.mark_dirty();
+        self.0
+            .as_ref()
+            .project_ref()
+            .translations_dirty
+            .mark_dirty();
     }
 
     #[cfg(feature = "tr")]
@@ -596,9 +646,9 @@ pub fn with_global_context<R>(
 pub fn with_existing_context<R>(f: impl FnOnce(&SlintContext) -> R) -> Result<R, PlatformError> {
     GLOBAL_CONTEXT.with(|p| match p.get() {
         Some(ctx) => Ok(f(ctx)),
-        None if crate::platform::with_event_loop_proxy(|proxy| proxy.is_some()) => {
-            Err(PlatformError::SetPlatformError(crate::platform::SetPlatformError::AlreadySet))
-        }
+        None if crate::platform::with_event_loop_proxy(|proxy| proxy.is_some()) => Err(
+            PlatformError::SetPlatformError(crate::platform::SetPlatformError::AlreadySet),
+        ),
         None => Err(PlatformError::NoPlatform),
     })
 }
@@ -606,7 +656,10 @@ pub fn with_existing_context<R>(f: impl FnOnce(&SlintContext) -> R) -> Result<R,
 #[test]
 #[cfg(feature = "std")]
 fn with_existing_context_never_creates_a_platform() {
-    assert!(matches!(with_existing_context(|_| ()), Err(PlatformError::NoPlatform)));
+    assert!(matches!(
+        with_existing_context(|_| ()),
+        Err(PlatformError::NoPlatform)
+    ));
 
     let _ctx = SlintContext::new(Box::new(crate::testing::NoWindowPlatform));
     assert_eq!(with_existing_context(|_| 42).unwrap(), 42);
@@ -617,7 +670,11 @@ fn with_existing_context_never_creates_a_platform() {
 pub fn set_window_shown_hook(
     hook: Option<Box<dyn FnMut(&Rc<dyn crate::platform::WindowAdapter>)>>,
 ) -> Result<Option<Box<dyn FnMut(&Rc<dyn crate::platform::WindowAdapter>)>>, PlatformError> {
-    replace_hook(hook, |platform_context| &platform_context.window_shown_hook, "shown")
+    replace_hook(
+        hook,
+        |platform_context| &platform_context.window_shown_hook,
+        "shown",
+    )
 }
 
 /// Internal function to set a hook that's invoked after a window event was dispatched.
@@ -625,7 +682,11 @@ pub fn set_window_shown_hook(
 pub fn set_window_event_hook(
     hook: Option<WindowEventHook>,
 ) -> Result<Option<WindowEventHook>, PlatformError> {
-    replace_hook(hook, |platform_context| &platform_context.window_event_hook, "event")
+    replace_hook(
+        hook,
+        |platform_context| &platform_context.window_event_hook,
+        "event",
+    )
 }
 
 fn replace_hook<T>(
@@ -721,7 +782,9 @@ mod platform_sharing_tests {
             fired_while_nested_.set(b_fired_.get());
         });
         let b_fired_ = b_fired.clone();
-        b.single_shot(Duration::from_millis(10), move || b_fired_.set(b_fired_.get() + 1));
+        b.single_shot(Duration::from_millis(10), move || {
+            b_fired_.set(b_fired_.get() + 1)
+        });
 
         probe.time.set(Duration::from_millis(20));
         a.update_timers_and_animations();
@@ -738,10 +801,14 @@ mod platform_sharing_tests {
 
         let a_fired = Rc::new(Cell::new(0));
         let a_fired_ = a_fired.clone();
-        a.single_shot(Duration::from_millis(10), move || a_fired_.set(a_fired_.get() + 1));
+        a.single_shot(Duration::from_millis(10), move || {
+            a_fired_.set(a_fired_.get() + 1)
+        });
         let c_fired = Rc::new(Cell::new(0));
         let c_fired_ = c_fired.clone();
-        c.single_shot(Duration::from_millis(10), move || c_fired_.set(c_fired_.get() + 1));
+        c.single_shot(Duration::from_millis(10), move || {
+            c_fired_.set(c_fired_.get() + 1)
+        });
 
         probe.time.set(Duration::from_millis(20));
         a.update_timers_and_animations();
@@ -754,8 +821,14 @@ mod platform_sharing_tests {
         a.single_shot(Duration::from_millis(50), || {});
         b.single_shot(Duration::from_millis(10), || {});
 
-        assert_eq!(a.duration_until_next_timer_update(), Some(Duration::from_millis(10)));
-        assert_eq!(b.duration_until_next_timer_update(), Some(Duration::from_millis(10)));
+        assert_eq!(
+            a.duration_until_next_timer_update(),
+            Some(Duration::from_millis(10))
+        );
+        assert_eq!(
+            b.duration_until_next_timer_update(),
+            Some(Duration::from_millis(10))
+        );
     }
 
     #[test]
@@ -793,8 +866,11 @@ mod platform_sharing_tests {
         let font_size = Property::new(None);
         let b_ = b.clone();
         font_size.set_binding(move || b_.platform_default_font_size());
-        let (scheme, accent, font_size) =
-            (core::pin::pin!(scheme), core::pin::pin!(accent), core::pin::pin!(font_size));
+        let (scheme, accent, font_size) = (
+            core::pin::pin!(scheme),
+            core::pin::pin!(accent),
+            core::pin::pin!(font_size),
+        );
         assert_eq!(scheme.as_ref().get(), ColorScheme::Unknown);
         assert_eq!(accent.as_ref().get(), Color::default());
         assert_eq!(font_size.as_ref().get(), None);
@@ -820,7 +896,10 @@ mod platform_sharing_tests {
         assert_eq!(a.locale_decimal_separator(), ',');
         assert!(b.0.translations_bundle.borrow().is_none());
         assert_eq!(b.0.as_ref().project_ref().translations_dirty.get(), 0);
-        assert_eq!(b.locale_decimal_separator(), i_slint_common::DEFAULT_DECIMAL_SEPARATOR);
+        assert_eq!(
+            b.locale_decimal_separator(),
+            i_slint_common::DEFAULT_DECIMAL_SEPARATOR
+        );
 
         b.set_locale("fr");
         assert_eq!(a.locale_decimal_separator(), ',');

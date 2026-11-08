@@ -1126,6 +1126,7 @@ export component YapfastWindow inherits Window {
     in-out property <bool> saturate-custom-colours: true;
     in-out property <bool> high-contrast: false;
     in-out property <bool> contrast-indicators: true;
+    in-out property <bool> underline-links: true;
     in-out property <bool> link-previews: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
@@ -3846,6 +3847,7 @@ export component YapfastWindow inherits Window {
             colour-saturation <=> root.colour-saturation;
             saturate-custom-colours <=> root.saturate-custom-colours;
             high-contrast <=> root.high-contrast; contrast-indicators <=> root.contrast-indicators;
+            underline-links <=> root.underline-links;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 1: VoiceSettings {

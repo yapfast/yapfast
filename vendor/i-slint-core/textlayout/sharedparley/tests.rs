@@ -25,7 +25,9 @@ pub(super) fn test_font_context() -> FontContext {
         source_cache: Default::default(),
     };
     let data = include_bytes!("../../../common/sharedfontique/Inter-VariableFont.ttf");
-    let families = font_ctx.collection.register_fonts(fontique::Blob::new(Arc::new(data)), None);
+    let families = font_ctx
+        .collection
+        .register_fonts(fontique::Blob::new(Arc::new(data)), None);
     font_ctx.collection.set_generic_families(
         fontique::GenericFamily::SansSerif,
         families.iter().map(|(id, _)| *id),
@@ -44,9 +46,17 @@ fn layout_text_with_builder(
         &mut font_ctx,
         PlainOrStyledText::Plain(text.into()),
         Color::default(),
+        true,
         None,
     );
-    layout(&builder, &mut font_ctx, paragraphs, ScaleFactor::new(1.0), options, None)
+    layout(
+        &builder,
+        &mut font_ctx,
+        paragraphs,
+        ScaleFactor::new(1.0),
+        options,
+        None,
+    )
 }
 
 fn layout_text(text: &str) -> Layout {
@@ -54,7 +64,11 @@ fn layout_text(text: &str) -> Layout {
 }
 
 fn visual_line_count(text: &str) -> usize {
-    layout_text(text).paragraphs.iter().map(|p| p.layout.lines().len()).sum()
+    layout_text(text)
+        .paragraphs
+        .iter()
+        .map(|p| p.layout.lines().len())
+        .sum()
 }
 
 #[test]
@@ -71,6 +85,8 @@ fn styled_text_across_a_line_break_shapes() {
         &mut test_font_context(),
         PlainOrStyledText::Styled(text),
         Color::default(),
+        true,
+        None,
     );
     assert_eq!(paragraphs.len(), 2);
 }
@@ -109,14 +125,19 @@ fn bidi_selection_spans_are_ascending_in_x() {
         }
     }
     // Otherwise the ranges above stopped producing a split line and this proves nothing.
-    assert!(saw_line_with_several_spans, "expected a bidi selection to split into spans");
+    assert!(
+        saw_line_with_several_spans,
+        "expected a bidi selection to split into spans"
+    );
 }
 
 #[test]
 fn test_text_line_height_matches_shaped_single_line() {
     for (pixel_size, line_height_factor) in [(12.0, None), (25.5, None), (12.0, Some(1.5))] {
-        let font_request =
-            FontRequest { pixel_size: Some(LogicalLength::new(pixel_size)), ..Default::default() };
+        let font_request = FontRequest {
+            pixel_size: Some(LogicalLength::new(pixel_size)),
+            ..Default::default()
+        };
         let builder = super::shaping::LayoutWithoutLineBreaksBuilder::new(
             Some(font_request.clone()),
             line_height_factor,
@@ -138,7 +159,10 @@ fn test_text_line_height_matches_shaped_single_line() {
 
 #[test]
 fn test_crlf_line_count() {
-    assert_eq!(visual_line_count("hello\r\nworld"), visual_line_count("hello\nworld"));
+    assert_eq!(
+        visual_line_count("hello\r\nworld"),
+        visual_line_count("hello\nworld")
+    );
     assert_eq!(visual_line_count("hello\r\nworld"), 2);
 }
 
@@ -168,11 +192,20 @@ fn test_cursor_affinity_at_soft_line_break() {
     let layout = layout_text_with_builder(
         text,
         super::shaping::wrap_builder_for_tests(),
-        LayoutOptions { max_width: Some(LogicalLength::new(200.)), ..Default::default() },
+        LayoutOptions {
+            max_width: Some(LogicalLength::new(200.)),
+            ..Default::default()
+        },
     );
     let break_offset = text.find("wrapping").unwrap();
     let line_of = |y: f32| {
-        (y / layout.paragraphs[0].layout.lines().next().unwrap().metrics().line_height) as i32
+        (y / layout.paragraphs[0]
+            .layout
+            .lines()
+            .next()
+            .unwrap()
+            .metrics()
+            .line_height) as i32
     };
 
     // Hit-testing past the end of line 1 reports the break offset, upstream.
@@ -219,7 +252,10 @@ fn test_paragraph_ranges_crlf() {
 fn layout_with_max_lines(text: &str, max_lines: usize) -> Layout {
     layout_text_with_options(
         text,
-        LayoutOptions { max_lines: Some(max_lines), ..LayoutOptions::default() },
+        LayoutOptions {
+            max_lines: Some(max_lines),
+            ..LayoutOptions::default()
+        },
     )
 }
 
@@ -307,7 +343,13 @@ fn test_max_lines_caps_height() {
     assert!(limited.height > PhysicalLength::zero());
     // The capped height matches the bottom of the last kept line.
     let first_line_bottom = PhysicalLength::new(
-        limited.paragraphs[0].layout.lines().next().unwrap().metrics().block_max_coord,
+        limited.paragraphs[0]
+            .layout
+            .lines()
+            .next()
+            .unwrap()
+            .metrics()
+            .block_max_coord,
     );
     assert_eq!(limited.height, first_line_bottom);
 }
@@ -338,7 +380,9 @@ fn elided_line(text: &str, width: f32, force_elision: bool) -> Vec<(Vec<XRange>,
         .map(|(index, run)| match &elision {
             Some(elision) => (
                 elision.glyphs(&run).map(x_range).collect(),
-                elision.ellipsis_for_run(index).map(|(glyph, ..)| x_range(glyph)),
+                elision
+                    .ellipsis_for_run(index)
+                    .map(|(glyph, ..)| x_range(glyph)),
             ),
             None => (run.positioned_glyphs().map(x_range).collect(), None),
         })
@@ -370,7 +414,11 @@ fn test_elide_left_to_right_line() {
     let (ellipsis_start, ellipsis_end) = ellipsis.expect("the line overflows");
     assert!(ellipsis_end <= 100.);
     assert!(!glyphs.is_empty());
-    assert!(glyphs.iter().all(|&(start, end)| start >= 0. && end <= ellipsis_start));
+    assert!(
+        glyphs
+            .iter()
+            .all(|&(start, end)| start >= 0. && end <= ellipsis_start)
+    );
 }
 
 #[test]
@@ -379,32 +427,48 @@ fn test_elide_right_to_left_line() {
     // The right-to-left mark makes a paragraph of Latin text right-to-left, like a file name that
     // starts with Arabic and ends in ".docx". The test font has no Hebrew, so those glyphs are
     // missing-glyph boxes, which still have an advance.
-    for text in
-        ["\u{5d0}\u{5d1}\u{5d2} ".repeat(20), alloc::format!("\u{200f}{}", "abc ".repeat(20))]
-    {
+    for text in [
+        "\u{5d0}\u{5d1}\u{5d2} ".repeat(20),
+        alloc::format!("\u{200f}{}", "abc ".repeat(20)),
+    ] {
         let runs = elided_line(&text, 100., false);
         let ellipses: Vec<_> = runs.iter().filter_map(|(_, ellipsis)| *ellipsis).collect();
-        assert_eq!(ellipses.len(), 1, "expected one ellipsis on the line of {text:?}");
+        assert_eq!(
+            ellipses.len(),
+            1,
+            "expected one ellipsis on the line of {text:?}"
+        );
         let (ellipsis_start, ellipsis_end) = ellipses[0];
         assert!(ellipsis_start >= 0.);
         let glyphs: Vec<_> = runs.iter().flat_map(|(glyphs, _)| glyphs).collect();
         assert!(!glyphs.is_empty());
         assert!(
-            glyphs.iter().all(|&&(start, end)| start >= ellipsis_end - 0.01 && end <= 100.01),
+            glyphs
+                .iter()
+                .all(|&&(start, end)| start >= ellipsis_end - 0.01 && end <= 100.01),
             "glyphs outside the box or under the ellipsis: {glyphs:?}"
         );
-        let left = glyphs.iter().map(|&&(start, _)| start).fold(f32::MAX, f32::min);
+        let left = glyphs
+            .iter()
+            .map(|&&(start, _)| start)
+            .fold(f32::MAX, f32::min);
         assert!(
             left - ellipsis_end < 0.01,
             "the ellipsis ends at {ellipsis_end}, not at the first kept glyph at {left}"
         );
-        let max_advance = glyphs.iter().map(|&&(start, end)| end - start).fold(0., f32::max);
+        let max_advance = glyphs
+            .iter()
+            .map(|&&(start, end)| end - start)
+            .fold(0., f32::max);
         assert!(
             ellipsis_start < max_advance + 0.01,
             "more than one glyph was cut before the ellipsis at {ellipsis_start}"
         );
         let right = glyphs.iter().map(|&&(_, end)| end).fold(f32::MIN, f32::max);
-        assert!(right > 99., "the kept text of {text:?} ends at {right}, not at the right edge");
+        assert!(
+            right > 99.,
+            "the kept text of {text:?} ends at {right}, not at the right edge"
+        );
     }
 }
 
@@ -413,7 +477,10 @@ fn test_elide_right_to_left_line_that_fits() {
     // parley hangs the trailing space past the left edge, which isn't an overflow.
     let runs = elided_line("\u{5d0}\u{5d1}\u{5d2} ", 100., false);
     assert!(runs.iter().all(|(_, ellipsis)| ellipsis.is_none()));
-    assert_eq!(runs.iter().map(|(glyphs, _)| glyphs.len()).sum::<usize>(), 4);
+    assert_eq!(
+        runs.iter().map(|(glyphs, _)| glyphs.len()).sum::<usize>(),
+        4
+    );
 }
 
 #[test]
@@ -427,7 +494,10 @@ fn test_elide_line_of_several_runs() {
         "\u{200f}ALPHA\u{200f} BETA\u{200f} gamma delta\u{200f} EPSILON\u{200f} ZETA",
         "alpha beta \u{2067}GAMMA\u{200f} DELTA\u{2069} epsilon zeta",
     ] {
-        assert!(elided_line(text, 1000., false).len() > 1, "{text:?} lays out as one run");
+        assert!(
+            elided_line(text, 1000., false).len() > 1,
+            "{text:?} lays out as one run"
+        );
         for width in 30..120 {
             let width = width as f32;
             assert_one_ellipsis_in_box(
@@ -451,13 +521,26 @@ fn test_elide_vertically_truncated_line_of_several_runs() {
         assert_one_ellipsis_in_box(&runs, 200., &alloc::format!("{text:?}"));
         let (ellipsis_start, ellipsis_end) =
             runs.iter().find_map(|(_, ellipsis)| *ellipsis).unwrap();
-        let glyphs: Vec<_> = runs.iter().flat_map(|(glyphs, _)| glyphs).copied().collect();
+        let glyphs: Vec<_> = runs
+            .iter()
+            .flat_map(|(glyphs, _)| glyphs)
+            .copied()
+            .collect();
         if is_rtl {
-            let left = glyphs.iter().map(|&(start, _)| start).fold(f32::MAX, f32::min);
-            assert!((left - ellipsis_end).abs() < 0.01, "ellipsis not next to the text");
+            let left = glyphs
+                .iter()
+                .map(|&(start, _)| start)
+                .fold(f32::MAX, f32::min);
+            assert!(
+                (left - ellipsis_end).abs() < 0.01,
+                "ellipsis not next to the text"
+            );
         } else {
             let right = glyphs.iter().map(|&(_, end)| end).fold(f32::MIN, f32::max);
-            assert!((right - ellipsis_start).abs() < 0.01, "ellipsis not next to the text");
+            assert!(
+                (right - ellipsis_start).abs() < 0.01,
+                "ellipsis not next to the text"
+            );
         }
     }
 }

@@ -1056,6 +1056,7 @@ export component AccessibilitySettings inherits VerticalLayout {
     in-out property <bool> saturate-custom-colours;
     in-out property <bool> high-contrast;
     in-out property <bool> contrast-indicators;
+    in-out property <bool> underline-links;
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Accessibility"; }
@@ -1098,6 +1099,11 @@ export component AccessibilitySettings inherits VerticalLayout {
             committed => { root.preferences-changed(); }
         }
         Label { text: "Adjust the size of the chat font, from 12px to 24px."; }
+        SettingsSwitch {
+            text: "Always underline links";
+            description: "Underline links in messages and other rich text.";
+            checked <=> root.underline-links; toggled => { root.preferences-changed(); }
+        }
     }
     VerticalLayout {
         spacing: 8px;

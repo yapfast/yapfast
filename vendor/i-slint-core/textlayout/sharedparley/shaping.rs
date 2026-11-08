@@ -178,6 +178,7 @@ impl LayoutWithoutLineBreaksBuilder {
         text: &str,
         formatting: impl IntoIterator<Item = i_slint_common::styled_text::FormattedSpan>,
         link_color: Option<Color>,
+        underline_links: bool,
     ) -> parley::Layout<Brush> {
         use i_slint_common::styled_text::Style;
 
@@ -185,8 +186,10 @@ impl LayoutWithoutLineBreaksBuilder {
             let mut builder = self.ranged_builder(layout_ctx, font_context, text);
 
             // filter empty ranges otherwise parley will panic on assert
-            let formatting: alloc::vec::Vec<_> =
-                formatting.into_iter().filter(|s| !s.range.is_empty()).collect();
+            let formatting: alloc::vec::Vec<_> = formatting
+                .into_iter()
+                .filter(|s| !s.range.is_empty())
+                .collect();
             let pills = mention_ranges(&formatting);
             for span in formatting {
                 match span.style {
@@ -230,7 +233,10 @@ impl LayoutWithoutLineBreaksBuilder {
                     // Yapfast: a link in a colour is a mention, drawn in its colour on a pill of
                     // it (see `TextParagraph::mentions`), without the underline.
                     Style::Link if pills.iter().any(|(range, _)| range == &span.range) => {
-                        let color = pills.iter().find(|(range, _)| range == &span.range).map(|(_, c)| *c);
+                        let color = pills
+                            .iter()
+                            .find(|(range, _)| range == &span.range)
+                            .map(|(_, c)| *c);
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
                                 override_fill_color: color,
@@ -244,11 +250,9 @@ impl LayoutWithoutLineBreaksBuilder {
                         // Yapfast: an emoji's link is its picture, and a picture
                         // has nothing to underline: the line would show across
                         // the bottom of it.
-                        if !is_pictures(&text[span.range.clone()]) {
-                            builder.push(
-                                parley::StyleProperty::Underline(true),
-                                span.range.clone(),
-                            );
+                        if underline_links && !is_pictures(&text[span.range.clone()]) {
+                            builder
+                                .push(parley::StyleProperty::Underline(true), span.range.clone());
                         }
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
@@ -260,7 +264,10 @@ impl LayoutWithoutLineBreaksBuilder {
                         );
                     }
                     // Its link sets the colour of a mention.
-                    Style::Color(_) if pills.iter().any(|(range, _)| span.range.start <= range.start && range.end <= span.range.end) => {}
+                    Style::Color(_)
+                        if pills.iter().any(|(range, _)| {
+                            span.range.start <= range.start && range.end <= span.range.end
+                        }) => {}
                     Style::Color(color) => {
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
@@ -285,7 +292,9 @@ pub(super) fn line_height_ratio(
     font_request: &FontRequest,
     line_height_factor: Option<f32>,
 ) -> Option<f32> {
-    let natural_ratio = font_ctx.query_font(font_request)?.natural_line_height_ratio?;
+    let natural_ratio = font_ctx
+        .query_font(font_request)?
+        .natural_line_height_ratio?;
     Some(natural_ratio * line_height_factor.unwrap_or(1.0))
 }
 
@@ -296,7 +305,11 @@ pub(super) fn paragraph_ranges(text: &str) -> impl Iterator<Item = Range<usize>>
     let mut start = 0;
     text.split('\n').map(move |paragraph| {
         let end = start + paragraph.len();
-        let range = if paragraph.ends_with('\r') { start..end - 1 } else { start..end };
+        let range = if paragraph.ends_with('\r') {
+            start..end - 1
+        } else {
+            start..end
+        };
         start = end + 1;
         range
     })
@@ -307,6 +320,7 @@ pub(super) fn create_text_paragraphs(
     font_context: &mut FontContext,
     text: PlainOrStyledText,
     link_color: Color,
+    underline_links: bool,
     marks: Option<crate::yapfast_marks::Marks>,
 ) -> Vec<TextParagraph> {
     let paragraph_from_text =
@@ -326,18 +340,27 @@ pub(super) fn create_text_paragraphs(
             // alone.
             let mut mentions = mention_ranges(&formatting);
             mentions.retain(|(range, _)| {
-                links.iter().find(|(link, _)| link == range).is_none_or(|(_, url)| {
-                    url.starts_with("yapfast:user/")
-                        || url.starts_with("yapfast:role/")
-                        || url == "yapfast:everyone"
-                })
+                links
+                    .iter()
+                    .find(|(link, _)| link == range)
+                    .is_none_or(|(_, url)| {
+                        url.starts_with("yapfast:user/")
+                            || url.starts_with("yapfast:role/")
+                            || url == "yapfast:everyone"
+                    })
             });
             let control_characters = text
                 .char_indices()
                 .filter_map(|(index, c)| c.is_control().then_some(index))
                 .collect();
 
-            let layout = layout_builder.build(font_context, text, formatting, Some(link_color));
+            let layout = layout_builder.build(
+                font_context,
+                text,
+                formatting,
+                Some(link_color),
+                underline_links,
+            );
 
             // Yapfast: the glyphs an animation may stand in for, found while the
             // text is at hand rather than in every draw.
@@ -374,9 +397,11 @@ pub(super) fn create_text_paragraphs(
                             i_slint_common::styled_text::Style::Color(color.as_argb_encoded()),
                             i_slint_common::styled_text::Style::Link,
                         ]
-                        .map(|style| i_slint_common::styled_text::FormattedSpan {
-                            range: mark.clone(),
-                            style,
+                        .map(|style| {
+                            i_slint_common::styled_text::FormattedSpan {
+                                range: mark.clone(),
+                                style,
+                            }
                         })
                     })
                     .collect();
@@ -478,11 +503,13 @@ pub(super) fn shape_paragraphs(
     let plain_or_styled_text = text.text();
     let link_color = text.link_color();
     let marks = text.marks();
+    let underline_links = item_rc.map_or(true, |item| item.slint_context().links_underlined());
     create_text_paragraphs(
         &builder,
         &mut font_context.borrow_mut(),
         plain_or_styled_text,
         link_color,
+        underline_links,
         marks,
     )
 }

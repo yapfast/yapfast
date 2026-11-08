@@ -122,7 +122,9 @@ pub(super) fn layout(
     line_breaking: Option<RetainedLineBreaking>,
 ) -> Layout {
     let max_physical_width = options.max_width.map(|max_width| max_width * scale_factor);
-    let max_physical_height = options.max_height.map(|max_height| max_height * scale_factor);
+    let max_physical_height = options
+        .max_height
+        .map(|max_height| max_height * scale_factor);
 
     let inputs = LineBreakingInputs::new(&options, max_physical_width);
     if let Some(line_breaking) =
@@ -147,7 +149,7 @@ pub(super) fn layout(
 
     // Returned None if failed to get the ellipsis glyph for some rare reason.
     let get_ellipsis_glyph = |font_context: &mut FontContext| {
-        let mut layout = layout_builder.build(font_context, "…", None, None);
+        let mut layout = layout_builder.build(font_context, "…", None, None, true);
         layout.break_all_lines(None);
         let line = layout.lines().next()?;
         let item = line.items().next()?;
@@ -163,7 +165,11 @@ pub(super) fn layout(
         (options.text_overflow, max_physical_width)
     {
         get_ellipsis_glyph(font_context).map(|(ellipsis_glyph, font_for_ellipsis_glyph)| {
-            ElisionInfo { ellipsis_glyph, font_for_ellipsis_glyph, max_physical_width }
+            ElisionInfo {
+                ellipsis_glyph,
+                font_for_ellipsis_glyph,
+                max_physical_width,
+            }
         })
     } else {
         None
@@ -171,15 +177,18 @@ pub(super) fn layout(
 
     let mut para_y = 0.0;
     for para in paragraphs.iter_mut() {
-        para.layout.break_all_lines(max_physical_width.map(|width| width.get()));
-        para.layout.align(inputs.alignment, parley::AlignmentOptions::default());
+        para.layout
+            .break_all_lines(max_physical_width.map(|width| width.get()));
+        para.layout
+            .align(inputs.alignment, parley::AlignmentOptions::default());
 
         para.y = PhysicalLength::new(para_y);
         para_y += para.layout.height();
     }
 
-    let line_limit_cut =
-        options.max_lines.and_then(|max_lines| line_limit_cut(&paragraphs, max_lines));
+    let line_limit_cut = options
+        .max_lines
+        .and_then(|max_lines| line_limit_cut(&paragraphs, max_lines));
     let visible_paragraph_count =
         line_limit_cut.map_or(paragraphs.len(), |(last_paragraph, _)| last_paragraph + 1);
 
@@ -221,9 +230,9 @@ pub(super) fn layout(
                 .expect("line_limit_cut returns an existing line index");
             para.y + PhysicalLength::new(line.metrics().block_max_coord)
         }
-        None => paragraphs
-            .last()
-            .map_or(PhysicalLength::zero(), |p| p.y + PhysicalLength::new(p.layout.height())),
+        None => paragraphs.last().map_or(PhysicalLength::zero(), |p| {
+            p.y + PhysicalLength::new(p.layout.height())
+        }),
     };
 
     let y_offset = vertical_offset(max_physical_height, options.vertical_align, height);
@@ -350,13 +359,15 @@ impl Layout {
     /// whichever cuts earlier wins. Unlike the elision cut, the line limit also applies with
     /// `overflow: clip` -- just without the ellipsis.
     pub(super) fn visible_extent(&self) -> Option<ElisionCut> {
-        let line_limit_cut = self.line_limit_cut.map(|(last_paragraph, last_line)| ElisionCut {
-            last_paragraph,
-            last_line,
-            // The cut only exists when lines were dropped below it, so when eliding, the last
-            // kept line always signals the truncation.
-            needs_ellipsis: self.elision_info.is_some(),
-        });
+        let line_limit_cut = self
+            .line_limit_cut
+            .map(|(last_paragraph, last_line)| ElisionCut {
+                last_paragraph,
+                last_line,
+                // The cut only exists when lines were dropped below it, so when eliding, the last
+                // kept line always signals the truncation.
+                needs_ellipsis: self.elision_info.is_some(),
+            });
         match (self.elision_extent(), line_limit_cut) {
             (Some(elision), Some(line_limit)) => {
                 Some(core::cmp::min_by_key(elision, line_limit, |cut| {
@@ -375,9 +386,12 @@ impl Layout {
         let Some(max_physical_height) = self.max_physical_height else {
             return false;
         };
-        self.paragraphs.first().and_then(|paragraph| paragraph.layout.lines().next()).is_some_and(
-            |line| !line_fits_height(line.metrics().block_max_coord, max_physical_height),
-        )
+        self.paragraphs
+            .first()
+            .and_then(|paragraph| paragraph.layout.lines().next())
+            .is_some_and(|line| {
+                !line_fits_height(line.metrics().block_max_coord, max_physical_height)
+            })
     }
 
     /// Whether a line of `paragraph` (with the metrics block range `block_min`..`block_max` in the
@@ -415,17 +429,22 @@ impl Layout {
         // The deepest line still within the box, scanning paragraphs and their lines from the
         // bottom up. Bottom/center alignment clips lines off the top, so the visible block can
         // start partway down, but its last line is always the lowest one that fits.
-        let last_within_box = self.paragraphs.iter().enumerate().rev().find_map(|(pi, para)| {
-            para.layout
-                .lines()
-                .enumerate()
-                .rev()
-                .find(|(_, line)| {
-                    let m = line.metrics();
-                    self.paragraph_line_within_box(para, m.block_min_coord, m.block_max_coord)
-                })
-                .map(|(li, _)| (pi, li))
-        });
+        let last_within_box = self
+            .paragraphs
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(pi, para)| {
+                para.layout
+                    .lines()
+                    .enumerate()
+                    .rev()
+                    .find(|(_, line)| {
+                        let m = line.metrics();
+                        self.paragraph_line_within_box(para, m.block_min_coord, m.block_max_coord)
+                    })
+                    .map(|(li, _)| (pi, li))
+            });
 
         // The very last line in document order, used to tell whether anything was dropped below
         // the kept line (and so whether an ellipsis is needed).
@@ -439,14 +458,21 @@ impl Layout {
         let (last_paragraph, last_line) = last_within_box.unwrap_or((0, 0));
         let needs_ellipsis =
             final_line.is_some_and(|final_line| final_line != (last_paragraph, last_line));
-        Some(ElisionCut { last_paragraph, last_line, needs_ellipsis })
+        Some(ElisionCut {
+            last_paragraph,
+            last_line,
+            needs_ellipsis,
+        })
     }
 
     /// Returns the last paragraph starting at or before the given byte offset. An offset in the
     /// gap between two paragraph ranges (between a '\r' and its '\n') thus maps to the preceding
     /// paragraph; callers have to clamp their local offset to the paragraph's range.
     fn paragraph_by_byte_offset(&self, byte_offset: usize) -> Option<&TextParagraph> {
-        self.visible_paragraphs().iter().take_while(|p| p.range.start <= byte_offset).last()
+        self.visible_paragraphs()
+            .iter()
+            .take_while(|p| p.range.start <= byte_offset)
+            .last()
     }
 
     pub(super) fn paragraph_by_y(&self, y: PhysicalLength) -> Option<&TextParagraph> {
@@ -491,14 +517,20 @@ impl Layout {
                 let line = paragraph.layout.lines().nth(last_line)?;
                 Some(paragraph.range.start + line.text_range().end.min(paragraph.range.len()))
             });
-            return (end.unwrap_or(0), crate::items::TextCursorAffinity::PreviousCharacter);
+            return (
+                end.unwrap_or(0),
+                crate::items::TextCursorAffinity::PreviousCharacter,
+            );
         };
         let cursor = parley::editing::Cursor::from_point(
             &paragraph.layout,
             pos.x,
             (pos.y_length() - self.y_offset - paragraph.y).get(),
         );
-        (paragraph.range.start + cursor.index(), cursor.affinity().into())
+        (
+            paragraph.range.start + cursor.index(),
+            cursor.affinity().into(),
+        )
     }
 
     pub(super) fn cursor_rect_for_byte_offset(
@@ -550,9 +582,15 @@ impl Layout {
         let metrics = line.metrics();
         let line_left = metrics.inline_min_coord + metrics.offset;
         let (content_left, content_right) = if is_rtl {
-            (line_left + metrics.hanging_advance, line_left + metrics.advance)
+            (
+                line_left + metrics.hanging_advance,
+                line_left + metrics.advance,
+            )
         } else {
-            (line_left, line_left + metrics.advance - metrics.hanging_advance)
+            (
+                line_left,
+                line_left + metrics.advance - metrics.hanging_advance,
+            )
         };
         let overflows = if is_rtl {
             content_left.ceil() < 0.
@@ -563,7 +601,11 @@ impl Layout {
             return None;
         }
 
-        let cut = GlyphCut { is_rtl, ellipsis_advance, max_width };
+        let cut = GlyphCut {
+            is_rtl,
+            ellipsis_advance,
+            max_width,
+        };
         let runs = || {
             line.items().filter_map(|item| match item {
                 parley::PositionedLayoutItem::GlyphRun(run) => Some(run),
@@ -580,13 +622,18 @@ impl Layout {
                 .map_or(content_right, |glyph| glyph.x)
                 .max(content_left);
             let run = runs().position(|run| run.offset() + run.advance() > ellipsis_end);
-            (ellipsis_end - ellipsis_advance, run.unwrap_or(runs().count().saturating_sub(1)))
+            (
+                ellipsis_end - ellipsis_advance,
+                run.unwrap_or(runs().count().saturating_sub(1)),
+            )
         } else {
             let ellipsis_start = runs()
                 .find_map(|run| run.positioned_glyphs().find(|glyph| !cut.keeps(glyph)))
                 .map_or(content_right, |glyph| glyph.x)
                 .min(content_right);
-            let run = runs().take_while(|run| run.offset() < ellipsis_start).count();
+            let run = runs()
+                .take_while(|run| run.offset() < ellipsis_start)
+                .count();
             (ellipsis_start, run.saturating_sub(1))
         };
         let run = runs().nth(ellipsis_run)?;
@@ -600,7 +647,11 @@ impl Layout {
         Some(LineElision {
             cut,
             ellipsis_run,
-            ellipsis: (ellipsis_glyph, info.font_for_ellipsis_glyph.clone(), font_size),
+            ellipsis: (
+                ellipsis_glyph,
+                info.font_for_ellipsis_glyph.clone(),
+                font_size,
+            ),
         })
     }
 }
