@@ -3,6 +3,7 @@ import { ListView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
+import { Composer } from "composer-field.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
 /// emoji is Discord's `name:id`. A custom emoji shows its `picture` once it has
@@ -857,7 +858,7 @@ export component EmojiPicker inherits Rectangle {
     in-out property <EmojiCell> emoji-hover;
     in property <string> emoji-font;
     /// What the emoji is for: a message's item, "yapfast:status" for the custom
-    /// status, or "yapfast:composer" for the message being written.
+    /// status, "yapfast:composer" for the message being written, or "yapfast:edit" for the one being edited.
     in property <string> react-item;
     callback emoji-search(string);
     callback pick(EmojiCell);
@@ -953,7 +954,7 @@ export component EmojiPicker inherits Rectangle {
                                     // Its own `name:id`, which its animation is registered under; a
                                     // Unicode emoji's shortcode has none, and keeps its still.
                                     animation-key: cell.key;
-                                    verb: root.react-item == "yapfast:status" ? "Choose" : root.react-item == "yapfast:composer" ? "Insert" : "React with";
+                                    verb: root.react-item == "yapfast:status" ? "Choose" : root.react-item == "yapfast:composer" || root.react-item == "yapfast:edit" ? "Insert" : "React with";
                                     hovered => { root.emoji-hover = cell; }
                                     clicked => { root.pick(cell); }
                                     locked => { root.unlock-nitro(); }
@@ -978,7 +979,7 @@ export component EmojiPicker inherits Rectangle {
                     Text {
                         text: root.emoji-hover.glyph != "" ? root.emoji-hover.name
                             : root.react-item == "yapfast:status" ? "Pick an emoji for your status."
-                            : root.react-item == "yapfast:composer" ? "Pick an emoji for your message." : "Pick an emoji to react with.";
+                            : root.react-item == "yapfast:composer" || root.react-item == "yapfast:edit" ? "Pick an emoji for your message." : "Pick an emoji to react with.";
                         color: root.emoji-hover.glyph != "" ? Theme.text : Theme.muted; font-size: 15px;
                         font-weight: root.emoji-hover.glyph != "" ? 700 : 400;
                         vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
@@ -2020,6 +2021,110 @@ export component VideoViewer inherits Rectangle {
     }
 }
 
+/// The message being edited in its own row, as Discord's client edits one: the
+/// application sets what's edited and its text, and the row's field reports
+/// what's typed. A global, as the field sits inside any row of either timeline.
+export global InlineEdit {
+    /// The message edited; empty when none is.
+    in property <string> item;
+    /// Whether it's in the thread beside the channel, not the channel itself.
+    in property <bool> aside;
+    in-out property <string> text;
+    /// Counts up whenever the field should take the keys, with its cursor at
+    /// `end`, the text's length in bytes: as editing starts.
+    in property <int> focus-tick;
+    in property <int> end;
+    /// Counts up to give the field the keys again, with its cursor where it was:
+    /// as the emoji picker closes.
+    in-out property <int> refocus;
+    /// Mention or emoji suggestions show for this field.
+    in property <bool> suggesting;
+    /// Where the field is in the window, for the suggestions above it.
+    in-out property <length> field-x;
+    in-out property <length> field-y;
+    in-out property <length> field-width;
+    callback edited(string);
+    callback caret(string, int);
+    callback save;
+    callback cancel;
+    callback suggestion-moved(int);
+    callback suggestion-chosen;
+    callback suggestion-dismissed;
+    /// The emoji button was clicked, from this place in the window.
+    callback emoji(length, length, length, length);
+}
+
+// Discord's edit of a message: the field, as the composer's, in the row, and
+// under it what Escape and Enter do, which are also clicked.
+component InlineEditor inherits VerticalLayout {
+    in property <length> message-font-size;
+    // Discord's hint is 12 pixels, in the text colour, 8 below the field's edge
+    // to its letters and 8 more to the row's end.
+    spacing: 5px; padding-bottom: 4px;
+    field-box := Rectangle {
+        min-height: ClientStyle.composer-height; max-height: 100000px;
+        background: Theme.composer;
+        border-width: 1px; border-radius: 8px;
+        border-color: Theme.outline-field;
+        // Where the field is, for the suggestions above it.
+        property <length> at-x: self.absolute-position.x;
+        property <length> at-y: self.absolute-position.y;
+        property <length> at-width: self.width;
+        changed at-x => { InlineEdit.field-x = self.at-x; }
+        changed at-y => { InlineEdit.field-y = self.at-y; }
+        changed at-width => { InlineEdit.field-width = self.at-width; }
+        init => {
+            InlineEdit.field-x = self.at-x; InlineEdit.field-y = self.at-y; InlineEdit.field-width = self.at-width;
+            field.focus-input();
+            field.place-caret(InlineEdit.end);
+        }
+        HorizontalLayout {
+            padding-left: 10px; padding-right: 12px; spacing: 6px;
+            field := Composer {
+                pad: ClientStyle.composer-padding; min-height: ClientStyle.composer-height;
+                text <=> InlineEdit.text; label: "Edit your message";
+                edited(text) => { InlineEdit.edited(text); }
+                accepted => { InlineEdit.save(); }
+                suggesting: InlineEdit.suggesting;
+                caret(text, offset) => { InlineEdit.caret(text, offset); }
+                suggestion-moved(step) => { InlineEdit.suggestion-moved(step); }
+                suggestion-chosen => { InlineEdit.suggestion-chosen(); }
+                suggestion-dismissed => { InlineEdit.suggestion-dismissed(); }
+                escaped => { InlineEdit.cancel(); return true; }
+                paste => { self.paste-text(); }
+                changed focus-tick => { self.focus-input(); self.place-caret(InlineEdit.end); }
+                property <int> focus-tick: InlineEdit.focus-tick;
+                changed refocus => { self.focus-input(); }
+                property <int> refocus: InlineEdit.refocus;
+            }
+            VerticalLayout {
+                alignment: end; padding-bottom: ClientStyle.composer-button-inset;
+                emoji-button := IconButton {
+                    icon: @image-url("icons/smile.svg"); label: "Add an emoji"; glyph: 18px;
+                    clicked => { InlineEdit.emoji(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 3px; alignment: start;
+        Text { text: "escape to"; color: Theme.text; font-size: 12px; font-weight: 500; }
+        Text {
+            text: "cancel"; color: Theme.link; font-size: 12px; font-weight: 500;
+            accessible-role: button; accessible-label: "Cancel editing";
+            accessible-action-default => { InlineEdit.cancel(); }
+            TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { InlineEdit.cancel(); } }
+        }
+        Text { text: "\u{2022} enter to"; color: Theme.text; font-size: 12px; font-weight: 500; }
+        Text {
+            text: "save"; color: Theme.link; font-size: 12px; font-weight: 500;
+            accessible-role: button; accessible-label: "Save the edit";
+            accessible-action-default => { InlineEdit.save(); }
+            TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { InlineEdit.save(); } }
+        }
+    }
+}
+
 // A message's avatar or time, its reply, author line, text, attachments,
 // thread and reactions: a timeline row without what scrolls and hovers it,
 // for the conversation's timeline and a thread's beside it.
@@ -2028,6 +2133,9 @@ export component MessageContent inherits VerticalLayout {
     /// The message the pointer or keyboard is on, whose time shows.
     in property <string> active-item;
     in property <bool> preview;
+    /// Whether this is the thread beside the channel, where a message edited
+    /// in the thread shows its field.
+    in property <bool> aside;
     /// Adding to the message's reactions, or taking one's own back.
     in property <bool> reactions-enabled;
     in property <string> emoji-font;
@@ -2058,8 +2166,11 @@ export component MessageContent inherits VerticalLayout {
     // than that, so Show more never uncovers only a line or two. A line of
     // message text is 1.3 times its size, as the font lays it out.
     property <length> line-height: root.message-font-size * 1.3;
+    /// This message is the one being edited, in this timeline.
+    property <bool> editing: root.message.item != "" && InlineEdit.item == root.message.item && InlineEdit.aside == root.aside;
     HorizontalLayout {
-        padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
+        // The field ends 22 pixels from the row's edge as Discord's does, not where the actions' room ends it.
+        padding-left: root.start-padding; padding-right: root.editing ? 21px : root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
         Rectangle {
             width: 40px;
             min-height: message.first && message.notice == "" ? (message.has-reply ? 64px : 40px) : 0px;
@@ -2187,7 +2298,8 @@ export component MessageContent inherits VerticalLayout {
             }
             // The body, cut off at its folded height while it folds, with
             // Show more under it. The view keeps the message's top.
-            if message.body != "": body-fold := VerticalLayout {
+            if root.editing: InlineEditor { message-font-size: root.message-font-size; }
+            if message.body != "" && !root.editing: body-fold := VerticalLayout {
                 property <bool> long: root.collapse-long && body.preferred-height > root.line-height * 15;
                 property <bool> folded: self.long && !message.expanded;
                 Rectangle {
@@ -2238,7 +2350,7 @@ export component MessageContent inherits VerticalLayout {
                     }
                 }
             }
-            if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
+            if message.edited && !message.deleted && !root.editing: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
             if message.images.length > 0: MessageGallery {
                 images: message.images; gallery-width: message.gallery-width; gallery-height: message.gallery-height;

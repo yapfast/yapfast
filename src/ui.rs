@@ -1892,9 +1892,13 @@ struct Adapter {
     emoji_word: Option<(usize, String)>,
     /// Like `mention_dismissed`, for the `:` here.
     emoji_dismissed: Option<usize>,
-    /// The suggestions are for the composer of the thread beside the channel,
-    /// typed in last, rather than the channel's.
-    suggesting_aside: bool,
+    /// The composer typed in last, which the suggestions are for.
+    suggesting: Field,
+    /// The cursor's byte offset in the text of the message being edited.
+    edit_caret: Option<usize>,
+    /// The message whose field was last given the keys, so a new edit's
+    /// starts with its cursor after the text.
+    edit_focused: Option<(String, String)>,
     /// The room whose composer last reported its cursor, and the cursor's byte
     /// offset, where the picker's emoji go.
     caret: Option<(String, usize)>,
@@ -1963,24 +1967,33 @@ struct Adapter {
     pending_link: Option<String>,
 }
 
+/// A place text is typed in: the channel's composer, the thread's beside it,
+/// or the field of the message being edited, in its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Field {
+    Channel,
+    Aside,
+    Edit,
+}
+
 impl Adapter {
-    /// What the channel's composer holds, or the thread's beside it with `aside`.
-    fn composer_text(&self, aside: bool) -> String {
+    /// What `field` holds.
+    fn composer_text(&self, field: Field) -> String {
         let state = &self.app.state;
-        if aside {
-            state.aside_draft()
-        } else {
-            state.draft()
+        match field {
+            Field::Channel => state.draft(),
+            Field::Aside => state.aside_draft(),
+            Field::Edit => state.edit().map_or("", |edit| edit.text.as_str()),
         }
         .to_owned()
     }
 
-    /// Puts `text` in the channel's composer, or the thread's beside it.
-    fn set_composer_text(&mut self, window: &YapfastWindow, aside: bool, text: String) {
-        let action = if aside {
-            Action::SetAsideDraft(text)
-        } else {
-            Action::SetDraft(text)
+    /// Puts `text` in `field`.
+    fn set_composer_text(&mut self, window: &YapfastWindow, field: Field, text: String) {
+        let action = match field {
+            Field::Channel => Action::SetDraft(text),
+            Field::Aside => Action::SetAsideDraft(text),
+            Field::Edit => Action::SetEditText(text),
         };
         self.action(window, action);
     }
@@ -2160,11 +2173,13 @@ impl Adapter {
                 aside_rows: Vec::new(),
                 aside_restyle: false,
                 mention_at: None,
-                mentions_marked: [None, None],
+                mentions_marked: [None, None, None],
                 mention_dismissed: None,
                 emoji_word: None,
                 emoji_dismissed: None,
-                suggesting_aside: false,
+                suggesting: Field::Channel,
+                edit_caret: None,
+                edit_focused: None,
                 caret: None,
                 notifier,
                 viewer_image: None,
@@ -2679,7 +2694,10 @@ impl Adapter {
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
         // stays as it is.
-        let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        let composing = matches!(
+            action,
+            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
+        );
         let profiling = matches!(action, Action::WriteProfile { .. });
         // Typing on Roles changes only the settings, too.
         let setting = matches!(

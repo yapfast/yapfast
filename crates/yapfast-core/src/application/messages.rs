@@ -188,13 +188,18 @@ impl Application {
             .state
             .compose
             .get(&room)
-            .is_some_and(|compose| match compose {
-                Compose::Reply { item: target, .. } | Compose::Edit { item: target, .. } => {
-                    target == &item
-                }
-            })
+            .is_some_and(|Compose::Reply { item: target, .. }| target == &item)
         {
             self.finish_compose(&room);
+        }
+        // A deleted message can't be edited.
+        if self
+            .state
+            .edit
+            .as_ref()
+            .is_some_and(|edit| edit.item == item)
+        {
+            self.state.edit = None;
         }
         if self.state.preview {
             self.update_sample(&room, &item, |message| {
