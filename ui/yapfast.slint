@@ -4683,6 +4683,17 @@ export component YapfastWindow inherits Window {
     if ServerTip.name != "": ServerVoiceCard {
         x: ServerTip.x + 10px;
         y: max(8px, min(root.height - self.height - 8px, ServerTip.y - 28px));
+        join(room) => {
+            ServerTip.name = ""; ServerTip.held = false; ServerTip.pointed = false;
+            root.open-conversation(room);
+        }
+    }
+    // The voice card goes a moment after the pointer leaves both the icon
+    // and the card, so it can cross the gap between them.
+    Timer {
+        interval: 200ms;
+        running: ServerTip.name != "" && !ServerTip.pointed && !ServerTip.held;
+        triggered => { ServerTip.name = ""; }
     }
     if BadgeTip.title != "": BadgeTipCard {
         x: max(8px, min(root.width - self.width - 8px, BadgeTip.x - self.width / 2));

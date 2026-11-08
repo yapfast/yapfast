@@ -4715,6 +4715,7 @@ pub(super) fn voice_tip(
                 .collect();
             let more = present().count().saturating_sub(people.len());
             VoiceTipRoom {
+                id: room.id.as_str().into(),
                 name: room.name.as_str().into(),
                 people: ModelRc::new(VecModel::from(people)),
                 more: i32::try_from(more).unwrap_or(i32::MAX),

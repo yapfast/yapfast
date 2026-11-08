@@ -244,7 +244,8 @@ and name, then each voice channel with people in it and how many, and who is
 there, with their avatar, LIVE tag and camera, muted and deafened marks, red
 when the server muted or deafened them. It lists five channels and eight
 people in each, and counts the rest ("+3 more"). This account on another
-client is left out. The card comes from the voice states Discord already
+client is left out. The card stays while the pointer moves onto it, and
+clicking a channel in it, which says Join while pointed at, joins it. The card comes from the voice states Discord already
 sends, so it asks Discord for nothing, and a server with nobody in voice keeps
 no rows for it.
 

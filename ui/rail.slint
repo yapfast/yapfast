@@ -19,7 +19,7 @@ export struct VoiceTipPerson {
 
 /// A voice channel with people in it, for that card; `more` counts those
 /// the card leaves out.
-export struct VoiceTipRoom { name: string, people: [VoiceTipPerson], more: int }
+export struct VoiceTipRoom { id: string, name: string, people: [VoiceTipPerson], more: int }
 
 /// The card beside a server's rail icon while the pointer is on it and
 /// someone is in one of its voice channels; an empty `name` hides it. `x`
@@ -31,6 +31,10 @@ export global ServerTip {
     in-out property <[VoiceTipRoom]> rooms;
     in-out property <length> x;
     in-out property <length> y;
+    /// The pointer is on the icon, or on the card: it stays while either is,
+    /// so a channel in it can be clicked.
+    in-out property <bool> pointed;
+    in-out property <bool> held;
 }
 
 export struct ServerRow {
@@ -267,13 +271,15 @@ export component RailItem inherits Rectangle {
                     ServerTip.x = root.absolute-position.x + root.width;
                     ServerTip.y = root.absolute-position.y + root.height / 2;
                     ServerTip.name = root.tip;
+                    ServerTip.pointed = true;
                 } else if self.has-hover {
+                    ServerTip.name = "";
                     Tip.text = root.tip;
                     Tip.side = 1;
                     Tip.x = root.absolute-position.x + root.width;
                     Tip.y = root.absolute-position.y + root.height / 2;
                 } else {
-                    if ServerTip.name == root.tip { ServerTip.name = ""; }
+                    if ServerTip.name == root.tip { ServerTip.pointed = false; }
                     if Tip.text == root.tip { Tip.text = ""; }
                 }
             }
@@ -1445,6 +1451,8 @@ component VoiceTipMark inherits Image {
 /// people in voice: the server, then each voice channel with its count and
 /// who is in it, with their marks.
 export component ServerVoiceCard inherits Rectangle {
+    /// A voice channel in it was clicked, to join it: its room id.
+    callback join(string);
     // It slides in from the icon, as the plain tooltip pops.
     property <bool> shown: false;
     opacity: root.shown ? 1 : 0;
@@ -1470,6 +1478,8 @@ export component ServerVoiceCard inherits Rectangle {
         commands: "M 8 0 L 0 8 L 8 16 Z";
         fill: Theme.tooltip;
     }
+    hold := TouchArea {
+    changed has-hover => { ServerTip.held = self.has-hover; }
     card := VerticalLayout {
         padding: 12px; spacing: 10px;
         HorizontalLayout {
@@ -1488,8 +1498,14 @@ export component ServerVoiceCard inherits Rectangle {
         Rectangle { height: 1px; background: Theme.line; }
         for room in ServerTip.rooms: VerticalLayout {
             spacing: 2px;
-            HorizontalLayout {
-                spacing: 6px; height: 20px;
+            Rectangle {
+                height: 26px; border-radius: 4px;
+                background: room-touch.has-hover ? Theme.hover : transparent;
+                accessible-role: button; accessible-label: "Join " + room.name;
+                accessible-action-default => { root.join(room.id); }
+                room-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.join(room.id); } }
+                HorizontalLayout {
+                padding-left: 4px; padding-right: 4px; spacing: 6px;
                 Middle { Image { source: @image-url("icons/volume-2.svg"); width: 16px; height: 16px; colorize: Theme.muted; } }
                 Text {
                     text: room.name; color: Theme.secondary; font-size: 13px; font-weight: 700;
@@ -1497,10 +1513,15 @@ export component ServerVoiceCard inherits Rectangle {
                 }
                 Middle {
                     Rectangle {
-                        width: count.preferred-width + 10px; height: 16px; border-radius: 8px; background: Theme.raised;
-                        count := Text { text: room.people.length + room.more; color: Theme.muted; font-size: 11px; font-weight: 700; }
+                        width: count.preferred-width + 10px; height: 16px; border-radius: 8px;
+                        background: room-touch.has-hover ? Theme.live : Theme.raised;
+                        count := Text {
+                            text: room-touch.has-hover ? "Join" : "" + (room.people.length + room.more);
+                            color: room-touch.has-hover ? #ffffff : Theme.muted; font-size: 11px; font-weight: 700;
+                        }
                     }
                 }
+            }
             }
             for person in room.people: HorizontalLayout {
                 padding-left: 22px; spacing: 8px; height: 26px;
@@ -1523,5 +1544,6 @@ export component ServerVoiceCard inherits Rectangle {
                 Text { text: "+" + room.more + " more"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
             }
         }
+    }
     }
 }
