@@ -110,7 +110,7 @@ path = "testing/record_host.rs"
 required-features = ["desktop"]
 
 [dev-dependencies]
-i-slint-backend-testing = "=1.19.0"
+i-slint-backend-testing = { version = "=1.19.0", features = ["renderer-software"] }
 yapfast-core = { path = "crates/yapfast-core", default-features = false, features = ["test-fixtures"] }
 # Builds a Discord server's snapshot for the menus' tests.
 yapfast-discord = { path = "crates/yapfast-discord" }

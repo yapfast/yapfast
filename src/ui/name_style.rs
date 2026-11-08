@@ -188,7 +188,7 @@ const ROWS_KEPT: usize = 128;
 thread_local! {
     /// Each style's palettes, with the name for a gummy one, whose letters
     /// are the name's.
-    static ROWS: RefCell<HashMap<(NameStyle, String), ModelRc<NameStyleRow>>> = RefCell::default();
+    static ROWS: RefCell<HashMap<(NameStyle, String, (i32, bool, bool, bool)), ModelRc<NameStyleRow>>> = RefCell::default();
 }
 
 /// A display name style as the window draws it: its palette on a dark theme and
@@ -199,7 +199,7 @@ pub(super) fn row(style: Option<&NameStyle>, name: &str) -> ModelRc<NameStyleRow
         return ModelRc::default();
     };
     let named = if style.effect == 8 { name } else { "" };
-    let key = (*style, named.to_owned());
+    let key = (*style, named.to_owned(), theme::custom_colour_key());
     ROWS.with_borrow_mut(|rows| {
         if let Some(row) = rows.get(&key) {
             return row.clone();
@@ -354,6 +354,28 @@ mod tests {
             palettes.row_data(0).unwrap().main,
             palettes.row_data(1).unwrap().main
         );
+    }
+
+    #[test]
+    fn palettes_follow_live_accessibility_colour_changes() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = crate::ui::yapfast::window().unwrap();
+        window.set_saturate_custom_colours(true);
+        window.set_colour_saturation(100);
+        window.set_high_contrast(false);
+        theme::YAP.apply(&window);
+        let solid = style(1, &[0xff0000]);
+        let full = row(Some(&solid), "Bob").row_data(0).unwrap().main;
+        window.set_colour_saturation(0);
+        theme::YAP.apply(&window);
+        let grey = row(Some(&solid), "Bob").row_data(0).unwrap().main;
+        assert_ne!(full, grey, "saturation invalidates the cached palette");
+        assert_eq!(grey.red(), grey.green());
+        assert_eq!(grey.green(), grey.blue());
+        window.set_high_contrast(true);
+        theme::YAP.apply(&window);
+        let contrast = row(Some(&solid), "Bob").row_data(0).unwrap().main;
+        assert_ne!(grey, contrast, "contrast invalidates it too");
     }
 
     #[test]

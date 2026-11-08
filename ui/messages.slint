@@ -1824,6 +1824,7 @@ export component ImageViewer inherits Rectangle {
     in property <int> viewer-width;
     in property <int> viewer-height;
     in property <string> viewer-name;
+    in property <string> viewer-description;
     /// Such as "2 / 3"; empty for a message's only image.
     in property <string> viewer-position;
     /// While the full image loads, or why it can't show.
@@ -1864,7 +1865,7 @@ export component ImageViewer inherits Rectangle {
             width: viewer-keys.natural-width * viewer-keys.scale; height: viewer-keys.natural-height * viewer-keys.scale;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             still: root.viewer-image; frames: root.viewer-frames; delays: root.viewer-delays; image-fit: contain;
-            accessible-role: image; accessible-label: root.viewer-name;
+            accessible-role: image; accessible-label: ImageAccessibility.descriptions && root.viewer-description != "" ? root.viewer-description : root.viewer-name;
             TouchArea {
                 pointer-event(event) => {
                     if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
@@ -2247,7 +2248,7 @@ export component MessageContent inherits VerticalLayout {
                 Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                 Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
-            if root.compact && message.body == "" && message.first: CompactMessageHeading {
+            if root.compact && message.body == "": CompactMessageHeading {
                 message: message; message-font-size: root.message-font-size;
                 show-styles: root.show-styles; hovered: root.hovered;
                 author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }

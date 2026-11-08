@@ -4232,6 +4232,7 @@ impl Adapter {
         window.set_viewer_frames(frames);
         window.set_viewer_delays(delays);
         window.set_viewer_name(attachment.name.clone().into());
+        window.set_viewer_description(attachment.description.clone().unwrap_or_default().into());
         window.set_viewer_item(viewer.item.clone().into());
         window.set_viewer_index(viewer.index as i32);
         let images: Vec<usize> = message

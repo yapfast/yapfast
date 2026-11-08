@@ -855,6 +855,17 @@ pub fn custom_colour(colour: Color) -> Color {
     ))
 }
 
+/// The preferences that change a custom colour, for palette cache keys.
+pub fn custom_colour_key() -> (i32, bool, bool, bool) {
+    let settings = ACCESSIBILITY.get();
+    (
+        settings.saturation,
+        settings.custom_colours,
+        settings.high_contrast,
+        settings.dark,
+    )
+}
+
 thread_local! {
     /// The colour of a mention without one of its own, as `0xrrggbb`: the
     /// theme's link colour. Rows build their markup with it, outside the

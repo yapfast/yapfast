@@ -2641,6 +2641,70 @@ fn the_nameplates_setting_is_remembered() {
 }
 
 #[test]
+fn compact_attachment_followups_render_their_timestamp() {
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            mock_time: true,
+            threading: false,
+            renderer_name: Some("software".into()),
+        },
+    )))
+    .unwrap();
+    let message = ChatMessage {
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "notes.txt".into(),
+            description: None,
+            size: Some(3),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: yapfast_core::chat::Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: Some("https://example.test/notes.txt".into()),
+        }],
+        ..Default::default()
+    };
+    let window = classic_window();
+    window.set_workspace(true);
+    window.set_room_selected(true);
+    window.set_room_ready(true);
+    window.set_composer_enabled(true);
+    window.set_trusted(true);
+    window.set_messages(ModelRc::new(VecModel::from(vec![message_row_plain(
+        &message,
+    )])));
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    window.global::<ClientStyle>().set_enabled(true);
+    window.set_chat_display(1);
+    window.set_reduced_motion(true);
+    let messages = window.get_messages();
+    let model = messages
+        .as_any()
+        .downcast_ref::<VecModel<MessageRow>>()
+        .unwrap();
+    let mut row = model.row_data(0).unwrap();
+    row.first = false;
+    row.short_time = "12:34".into();
+    model.set_row_data(0, row.clone());
+    settle(&window);
+    let with_time = window.window().take_snapshot().unwrap();
+    row.short_time = "".into();
+    model.set_row_data(0, row);
+    settle(&window);
+    let without_time = window.window().take_snapshot().unwrap();
+    assert!(
+        with_time.as_bytes() != without_time.as_bytes(),
+        "an image/file-only grouped follow-up still draws its compact timestamp"
+    );
+}
+
+#[test]
 fn the_name_styles_setting_is_remembered() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -4574,7 +4638,7 @@ fn closing_the_viewer_lets_go_of_its_picture() {
         item: "i0".into(),
         attachments: vec![yapfast_core::chat::Attachment {
             name: "a.png".into(),
-            description: None,
+            description: Some("A cat beside a laptop".into()),
             size: None,
             image: true,
             dimensions: Some((40, 30)),
@@ -4600,6 +4664,8 @@ fn closing_the_viewer_lets_go_of_its_picture() {
     });
     adapter.refresh(&window);
     assert_eq!(window.get_viewer_image().size().width, 40);
+    assert_eq!(window.get_viewer_name(), "a.png");
+    assert_eq!(window.get_viewer_description(), "A cat beside a laptop");
     adapter.app.state.viewer = None;
     adapter.refresh(&window);
     assert!(!window.get_viewer_open());
@@ -8772,6 +8838,7 @@ fn yapfast_server_rail_scroll_snapshot_benchmark() {
         i_slint_backend_testing::TestingBackendOptions {
             mock_time: true,
             threading: false,
+            renderer_name: Some("software".into()),
         },
     )))
     .unwrap();

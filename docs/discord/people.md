@@ -487,11 +487,11 @@ one-to-one DM's row and the profile card's name (`StyledName` in
 `ui/controls.slint`). `src/ui/name_style.rs` makes the colours, as the client's
 `lZ` does: lighter against a dark theme's background and darker against a light
 one's, until they read, and against #333 for toon on either. Each style's two
-palettes are made once, and the rows wearing it share them; a row without a
-style holds an empty list.
+palettes are cached by style, name and accessibility colour preferences, and the
+rows wearing them share them; a row without a style holds an empty list.
 
-Discord's client draws a message's style always. Show Nitro name styles, under
-Messages in Settings, keeps that on unless turned off: off, a message's author
+Discord's client draws a message's style always. Display Name Styles, under
+Accessibility in Settings, keeps that on unless turned off: off, a message's author
 keeps the colour of their highest role, as the server means it, and the style
 shows while the pointer is on the message. The setting is kept in
 `layout.json` as `name_styles`, and covers messages alone: a member list's

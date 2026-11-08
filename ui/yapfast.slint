@@ -725,6 +725,7 @@ export component YapfastWindow inherits Window {
     in property <int> viewer-width;
     in property <int> viewer-height;
     in property <string> viewer-name;
+    in property <string> viewer-description;
     /// Such as "2 / 3"; empty for a message's only image.
     in property <string> viewer-position;
     /// While the full image loads, or why it can't show.
@@ -4215,6 +4216,7 @@ export component YapfastWindow inherits Window {
         y: root.title-height; height: root.height - root.title-height;
         viewer-image: root.viewer-image; viewer-frames: root.viewer-frames; viewer-delays: root.viewer-delays;
         viewer-width: root.viewer-width; viewer-height: root.viewer-height; viewer-name: root.viewer-name;
+        viewer-description: root.viewer-description;
         viewer-position: root.viewer-position; viewer-note: root.viewer-note;
         viewer-item: root.viewer-item; viewer-index: root.viewer-index; preview: root.preview;
         close-image => { root.close-image(); }

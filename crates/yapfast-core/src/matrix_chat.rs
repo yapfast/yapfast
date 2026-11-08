@@ -1942,6 +1942,7 @@ async fn publish_timeline(
                         });
                         message.attachments = vec![Attachment {
                             name: content.filename().into(),
+                            description: None,
                             size,
                             image: true,
                             dimensions,
@@ -1958,6 +1959,7 @@ async fn publish_timeline(
                         message.body = content.caption().unwrap_or_default().into();
                         message.attachments = vec![Attachment {
                             name: content.filename().into(),
+                            description: None,
                             size: content
                                 .info
                                 .as_ref()
@@ -1978,6 +1980,7 @@ async fn publish_timeline(
                         message.body = content.caption().unwrap_or_default().into();
                         message.attachments = vec![Attachment {
                             name: content.filename().into(),
+                            description: None,
                             size: content
                                 .info
                                 .as_ref()
@@ -1998,6 +2001,7 @@ async fn publish_timeline(
                         message.body = content.caption().unwrap_or_default().into();
                         message.attachments = vec![Attachment {
                             name: content.filename().into(),
+                            description: None,
                             size: content
                                 .info
                                 .as_ref()
