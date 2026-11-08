@@ -538,19 +538,32 @@ impl Application {
         }
     }
 
+    /// A click on a conversation in the list. Clicking a voice channel joins
+    /// it, or asks before leaving another call, and leaves what's on screen
+    /// as it is, as Discord's client does: the call shows in the voice dock
+    /// until the channel is clicked again, or the dock's channel name. A
+    /// voice channel whose chat mentions you opens on its chat as it joins,
+    /// as Discord's does, and one that can't be joined shows. Restoring a
+    /// selection, for example on navigation, never joins.
     pub(super) fn select_room(&mut self, id: String) -> Vec<Effect> {
-        let mut effects = self.select(id.clone());
-        // Clicking a voice channel joins it, or asks before leaving another
-        // call. Restoring a selection, for example on navigation, never joins.
-        let voice = self.state.selected.as_ref() == Some(&id)
-            && self
-                .state
-                .rooms
-                .iter()
-                .any(|room| room.id == id && room.voice);
-        if voice {
-            effects.extend(self.dispatch(Action::RequestJoinVoice(id)));
-        }
+        let voice = &self.state.voice;
+        let in_call = voice.active() && voice.room.as_ref() == Some(&id);
+        let joins = self
+            .state
+            .rooms
+            .iter()
+            .find(|room| room.id == id && room.voice && self.state.in_scope(room))
+            .filter(|_| !in_call && self.state.can_join_voice(&id))
+            .map(|room| room.mentions > 0 && room.voice_chat());
+        let Some(chat) = joins else {
+            return self.select(id);
+        };
+        let mut effects = if chat {
+            self.select_showing(id.clone(), true)
+        } else {
+            vec![]
+        };
+        effects.extend(self.dispatch(Action::RequestJoinVoice(id)));
         effects
     }
 
