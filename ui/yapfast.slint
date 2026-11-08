@@ -45,7 +45,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, AccessibilitySettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1115,8 +1115,8 @@ export component YapfastWindow inherits Window {
     in-out property <bool> twelve-hour-clock;
     in-out property <bool> clock-seconds;
     in-out property <int> date-format: -1;
-    /// Message text: 0 small, 1 default, 2 large.
-    in-out property <int> text-size: 1;
+    /// Message text in pixels from 12 to 24; zero follows the interface style.
+    in-out property <int> text-size: 0;
     in-out property <bool> link-previews: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
@@ -1215,7 +1215,7 @@ export component YapfastWindow inherits Window {
     callback cancel-theme();
     callback delete-theme();
     changed settings-section => { if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); } }
-    out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
+    out property <length> message-font-size: root.text-size == 0 ? ClientStyle.text-size : max(12px, min(24px, root.text-size * 1px));
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
     out property <length> sidebar-shown: max(180px, min(380px, root.sidebar-width));
@@ -3829,6 +3829,10 @@ export component YapfastWindow inherits Window {
             cancel-theme => { root.cancel-theme(); }
             delete-theme => { root.delete-theme(); }
         }
+        if root.settings-section == 9: AccessibilitySettings {
+            message-font-size: root.message-font-size; text-size <=> root.text-size;
+            preferences-changed => { root.preferences-changed(); }
+        }
         if root.settings-section == 1: VoiceSettings {
             microphones: root.microphones; microphone-index <=> root.microphone-index;
             speakers: root.speakers; speaker-index <=> root.speaker-index;
@@ -3856,8 +3860,7 @@ export component YapfastWindow inherits Window {
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 2: MessageSettings {
-            message-font-size: root.message-font-size;
-            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
+            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format;
             link-previews <=> root.link-previews; share-typing <=> root.share-typing;
             show-name-styles <=> root.show-name-styles;
             animate <=> root.animate;

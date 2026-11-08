@@ -354,7 +354,7 @@ export component SettingsCard inherits Rectangle {
 export component SettingsScreen inherits Rectangle {
     /// The section showing: 0 account, 1 voice and video, 2 messages,
     /// 3 notifications, 4 Discord, 5 sounds, 6 advanced, 7 appearance,
-    /// 8 game activity.
+    /// 8 game activity, 9 accessibility.
     in-out property <int> settings-section;
     in property <bool> discord-build;
     in property <bool> preview;
@@ -372,6 +372,7 @@ export component SettingsScreen inherits Rectangle {
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
         { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
+        { text: "Accessibility", icon: @image-url("icons/eye.svg"), id: 9 },
         { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
@@ -384,6 +385,7 @@ export component SettingsScreen inherits Rectangle {
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
         { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
+        { text: "Accessibility", icon: @image-url("icons/eye.svg"), id: 9 },
         { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
@@ -399,7 +401,8 @@ export component SettingsScreen inherits Rectangle {
             page-title: root.settings-section == 0 ? "My Account" : root.settings-section == 1 ? "Voice & Video"
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
-                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance" : "Game Activity";
+                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
+                : root.settings-section == 8 ? "Game Activity" : "Accessibility";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -1041,15 +1044,59 @@ export component AppearanceSettings inherits VerticalLayout {
     }
 }
 
+// Settings: readable text, spacing, colour and motion, with a live message preview.
+export component AccessibilitySettings inherits VerticalLayout {
+    in property <length> message-font-size;
+    in-out property <int> text-size;
+    callback preferences-changed;
+    spacing: 16px;
+    SettingsTitle { text: "Accessibility"; }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "PREVIEW"; }
+        Rectangle {
+            border-radius: 8px; border-width: 1px; border-color: Theme.line; background: Theme.chat;
+            accessible-role: groupbox; accessible-label: "Accessibility preview";
+            VerticalLayout {
+                padding: 16px; spacing: 16px;
+                for text in ["what happened to all the beans", "here's a link <https://discord.com/accessibility>"]: HorizontalLayout {
+                    spacing: 16px;
+                    VerticalLayout { alignment: start; Avatar { initial: "E"; tint: #c0679a; } }
+                    VerticalLayout {
+                        spacing: 3px; horizontal-stretch: 1;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Experiences"; color: Theme.text; font-size: root.message-font-size; font-weight: 500; }
+                            Text { text: "02:44"; color: Theme.muted; font-size: max(10px, root.message-font-size - 4px); vertical-alignment: center; }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        StyledText {
+                            text: @markdown("\{text}"); link-color: Theme.link; default-color: Theme.text;
+                            default-font-size: root.message-font-size;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "TEXT READABILITY"; }
+        VolumeSlider {
+            label: "Text size in chat"; minimum: 12; maximum: 24; step: 1; full-mark: false;
+            value <=> root.text-size; shown: self.value + "px";
+            committed => { root.preferences-changed(); }
+        }
+        Label { text: "Adjust the size of the chat font, from 12px to 24px."; }
+    }
+}
+
 // Settings: how messages look, and what they share.
 export component MessageSettings inherits VerticalLayout {
-    in property <length> message-font-size;
     in-out property <bool> twelve-hour-clock;
     in-out property <bool> clock-seconds;
     /// The date format: 0 day first, 1 month first, 2 year first; -1 follows the clock.
     in-out property <int> date-format: -1;
-    /// Message text: 0 small, 1 default, 2 large.
-    in-out property <int> text-size;
     in-out property <bool> link-previews;
     /// Whether a name wears its Discord name style at rest; off, the style
     /// shows while the pointer is on the message.
@@ -1066,34 +1113,6 @@ export component MessageSettings inherits VerticalLayout {
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Messages"; }
-    // A message as the chosen text size and clock show it.
-    Rectangle {
-        border-radius: 8px; border-width: 1px; border-color: Theme.line;
-        accessible-role: groupbox; accessible-label: "Preview";
-        HorizontalLayout {
-            padding: 16px; spacing: 16px;
-            VerticalLayout { alignment: start; Avatar { initial: "S"; tint: #c0679a; } }
-            VerticalLayout {
-                spacing: 3px; horizontal-stretch: 1;
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: "Sam"; color: Theme.text; font-size: root.message-font-size; font-weight: 700; }
-                    Text { text: (root.twelve-hour-clock ? "9:41" : "21:41") + (root.clock-seconds ? ":05" : "") + (root.twelve-hour-clock ? " PM" : ""); color: Theme.muted; font-size: root.message-font-size - 3px; vertical-alignment: center; }
-                    Rectangle { horizontal-stretch: 1; }
-                }
-                Text { text: "Thinking co-op after nine, if people are up for it."; color: Theme.text; font-size: root.message-font-size; wrap: word-wrap; }
-            }
-        }
-    }
-    VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "TEXT SIZE"; }
-        Choices {
-            label: "Text size"; options: ["Small", "Default", "Large"];
-            current <=> root.text-size;
-            chosen => { root.preferences-changed(); }
-        }
-    }
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "CLOCK"; }

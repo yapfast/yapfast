@@ -8528,17 +8528,41 @@ fn yapfast_typography_is_compact_and_preserves_explicit_text_sizes() {
     let window = yapfast::window().unwrap();
     assert_eq!(window.global::<ClientStyle>().get_font_family(), "DM Sans");
     assert_eq!(window.get_message_font_size(), 15.);
+    for size in [12, 14, 15, 16, 18, 20, 24] {
+        window.set_text_size(size);
+        assert_eq!(window.get_message_font_size(), size as f32);
+    }
     window.set_text_size(0);
-    assert_eq!(window.get_message_font_size(), 14.);
-    window.set_text_size(2);
-    assert_eq!(window.get_message_font_size(), 18.);
-    window.set_text_size(1);
+    assert_eq!(
+        window.get_message_font_size(),
+        15.,
+        "zero follows the style"
+    );
     window.global::<ClientStyle>().set_enabled(false);
     assert_eq!(window.get_message_font_size(), 16.);
     assert_eq!(
         window.global::<ClientStyle>().get_font_family(),
         "Atkinson Hyperlegible Next"
     );
+    for (stored, expected) in [
+        (None, 16),
+        (Some(0), 14),
+        (Some(1), 16),
+        (Some(2), 18),
+        (Some(20), 20),
+        (Some(99), 24),
+    ] {
+        Layout {
+            text_size: stored,
+            ..Default::default()
+        }
+        .apply(&window);
+        assert_eq!(
+            window.get_message_font_size(),
+            expected as f32,
+            "stored size {stored:?}"
+        );
+    }
 }
 
 /// CPU-side snapshot throughput, not the display's presented frame rate.

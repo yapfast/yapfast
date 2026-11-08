@@ -1092,7 +1092,8 @@ struct Layout {
     /// The order of day, month and year, as an index into
     /// [`yapfast_core::clock::DateFormat::ALL`]; follows the clock unless chosen.
     date_format: Option<i32>,
-    /// Message text: 0 small, 1 default, 2 large.
+    /// Message text in pixels from 12 to 24. Files written by older versions
+    /// hold 0 small, 1 default or 2 large.
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
@@ -1380,7 +1381,19 @@ impl Layout {
         window.set_clock_seconds(self.clock_seconds);
         window.set_date_format(self.date_format.unwrap_or(-1));
         self.apply_date_format();
-        window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
+        let text_size = match self.text_size {
+            Some(0) => 14,
+            Some(2) => 18,
+            Some(size @ 3..) => size.clamp(12, 24),
+            _ => {
+                if window.global::<ClientStyle>().get_enabled() {
+                    15
+                } else {
+                    16
+                }
+            }
+        };
+        window.set_text_size(text_size);
         window.set_link_previews(self.link_previews.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
