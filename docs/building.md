@@ -304,8 +304,8 @@ files named here are in `crates/yapfast-core/native/`.
   through libwebrtc's capture module.
 - `vendor/ffmpeg-src` holds the GPU encoders, which `hwenc.c` drives; the
   H264, HEVC, AV1 and VP9 decoders and parsers; and on Windows Direct3D 11's
-  decode of all four, in `hwdec.c`, beside the HEVC decoder for software H265
-  in `hevc.c`.
+  hwaccel, which `hwdec.c` drives for the three codecs a watched stream uses —
+  H264, HEVC and AV1 — beside the HEVC decoder for software H265 in `hevc.c`.
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
 

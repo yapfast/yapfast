@@ -69,7 +69,6 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
     println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
-    println!("cargo::rustc-check-cfg=cfg(ffhwdec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
     println!("cargo::rustc-check-cfg=cfg(dup)");
     // Windows' own capture path can hand NVENC its frames as D3D11 textures,
@@ -167,19 +166,21 @@ fn main() {
     // Media Foundation is what decodes it: native/d3d11dec.cc needs the
     // mfplat and mfuuid libraries beside the d3d11 ones above.
     if target_os == "windows" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
-        // FFmpeg's own Direct3D 11 decoder, where ffmpeg-src was built with it:
+        // FFmpeg's own Direct3D 11 decoder, where ffmpeg-src was built for this
+        // target at all — which is what its `encoders` metadata says, since a
+        // target it configured nothing for has no sources to build: its
         // native/hwdec.c decodes into a texture on the device the pass below
         // reads, and d3d11dec.cc calls it as one of its two decoders. A build
-        // without FFmpeg's hwaccels still compiles d3d11dec.cc, with Media
+        // without ffmpeg-src's sources still compiles d3d11dec.cc, with Media
         // Foundation's decoder alone.
-        let ffmpeg_decoder = std::env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1");
+        let ffmpeg_built = std::env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1");
         let mut d3d11dec = cc::Build::new();
         d3d11dec
             .cpp(true)
             .file("native/d3d11dec.cc")
             .std("c++17")
             .warnings(true);
-        if ffmpeg_decoder {
+        if ffmpeg_built {
             d3d11dec.define("YAPFAST_FFDEC", "1");
         }
         // Windows-only sources carry their own guard, so a build elsewhere sees
@@ -187,7 +188,7 @@ fn main() {
         d3d11dec.define("YAPFAST_WINDOWS", "1");
         use_clang_cl(&mut d3d11dec);
         d3d11dec.compile("yapfast_d3d11dec");
-        if ffmpeg_decoder {
+        if ffmpeg_built {
             let mut hwdec = cc::Build::new();
             hwdec.file("native/hwdec.c").warnings(true);
             hwdec.define("YAPFAST_WINDOWS", "1");
@@ -202,7 +203,6 @@ fn main() {
                 hwdec.flag("-std=c17").flag("-include").flag(&rename);
             }
             hwdec.compile("yapfast_hwdec");
-            println!("cargo::rustc-cfg=ffhwdec");
         }
         // Media Foundation's platform and its interface ids, and ole32 for the
         // apartment and the strings the interface list hands back.

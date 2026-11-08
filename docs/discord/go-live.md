@@ -359,11 +359,14 @@ before any device buffer, and the *presentation* skew compares the sound the
 device says it has played against the picture last handed to the window. A
 sender report names no SSRC, so a stream that changed SSRC or restarted is
 caught by its timestamps no longer carrying the held clock on, which drops both
-mappings rather than measuring across the break. The decoder is paced by the
-sound (`av_timing::Scheduler`): a picture more than 80 ms behind the audible
-sound is dropped, one ahead of it waits at most 80 ms, and only one picture
-ever waits, so a stream running early costs the decode loop a bounded wait
-rather than a queue. The picture's time is its submission to the frames file;
+mappings rather than measuring across the break. The decode loop is bounded by
+the sound (`av_timing::decide`): a picture more than 80 ms behind the audible
+sound is dropped rather than shown late, and one the sound hasn't reached is
+shown when it arrives. Holding an early picture back would mean keeping it, and
+a decoded picture is the decoder's own only until its next frame, so a deferral
+would cost a copy of the picture and the memory for it to save a wait of at most
+80 ms — the drop is the bound, and it neither blocks nor sleeps. The picture's
+time is its submission to the frames file;
 the renderer's own fence is the window's to observe, so a record carries
 `estimated` rather than a worker claiming a presentation it did not see. The
 player's five-second line still reads `skew_ms` and `map_age_ms` — both `None`,

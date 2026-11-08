@@ -13,14 +13,12 @@
 
 #include <stddef.h>
 
-/* The codecs this shim decodes, numbered as decode.rs numbers them. H264,
- * HEVC and AV1 are Discord's; VP9 is a played file's, which Media Foundation
- * doesn't decode and this build does. */
+/* The codecs this shim decodes, numbered as decode.rs numbers them: the three
+ * Discord's streams are. */
 enum {
   YAPFAST_FF_H264 = 0,
   YAPFAST_FF_HEVC = 1,
   YAPFAST_FF_AV1 = 2,
-  YAPFAST_FF_VP9 = 3,
 };
 
 struct yapfast_ffdec;
@@ -50,9 +48,9 @@ struct yapfast_ffpicture {
  * yapfast_ffdec_error(NULL). */
 struct yapfast_ffdec *yapfast_ffdec_new(int codec, int hint_width, int hint_height, void *device);
 /* Feeds one whole frame. 1 says a picture is ready, 0 that the decoder kept
- * the frame for the pictures after it, -2 that the picture is one the tile
- * pass can't show (deeper than 8 bits), and any other negative number that
- * the frame wasn't decoded. */
+ * the frame for the pictures after it, -2 that the stream's pictures are ones
+ * the tile pass can't show (anything but 8-bit 4:2:0), and any other negative
+ * number that the frame wasn't decoded. */
 int yapfast_ffdec_decode(struct yapfast_ffdec *decoder, const unsigned char *data, size_t size,
                          int keyframe);
 /* The newest picture, as yapfast_ffdec_decode left it. 0 when there is one. */

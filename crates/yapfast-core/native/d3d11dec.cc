@@ -306,7 +306,7 @@ extern "C" {
 
 typedef Decoder yf_hwdec;
 
-// The machine's decoder for `codec` (0 H.264, 1 HEVC, 2 AV1, 3 VP9), on the
+// The machine's decoder for `codec` (0 H.264, 1 HEVC, 2 AV1), on the
 // graphics card, from `backend` (0 Media Foundation, 1 FFmpeg's d3d11va), on
 // `device` where the caller brought one — an ID3D11Device it keeps alive, the
 // encoder's and the window's, so nothing is copied between them — and on a
@@ -314,7 +314,9 @@ typedef Decoder yf_hwdec;
 // machine, and the reason is yapfast_hwdec_error(null).
 yf_hwdec *yapfast_hwdec_new(int backend, int codec, int hint_width, int hint_height, void *device);
 // Feeds one whole frame. 1 says a picture is ready, 0 that the decoder kept
-// the frame for the pictures after it, -1 that it failed and must be dropped.
+// the frame for the pictures after it, -2 that the stream's pictures are ones
+// the tile pass can't show rather than a failure of the decoder, and -1 that it
+// failed and must be dropped.
 int yapfast_hwdec_decode(yf_hwdec *decoder, const unsigned char *data, size_t size, int keyframe);
 // The picture's size, as the decoder made it.
 int yapfast_hwdec_size(const yf_hwdec *decoder, int *width, int *height);
@@ -571,7 +573,7 @@ int adopt_ffmpeg(Decoder *decoder, const unsigned char *data, size_t size, int k
     const int decoded = yapfast_ffdec_decode(decoder->ffdec, data, size, keyframe);
     if (decoded < 0) {
         std::snprintf(decoder->error, sizeof decoder->error, "%s", yapfast_ffdec_error(decoder->ffdec));
-        return -1;
+        return decoded;
     }
     if (decoded == 0) return 0;
     yapfast_ffpicture picture = {};
@@ -580,8 +582,14 @@ int adopt_ffmpeg(Decoder *decoder, const unsigned char *data, size_t size, int k
         return -1;
     }
     auto *texture = static_cast<ID3D11Texture2D *>(picture.texture);
-    // The frame is unref'd on the decoder's next call, so this keeps its own
-    // reference to the array texture the picture lies in.
+    // This keeps the array texture alive past the frames context that made it,
+    // which a stream that changes size and format frees. The slice is no
+    // reference to hold: the frame's second plane is only its index, and
+    // av_frame_unref gives it back to the pool for the next decode to write.
+    // What keeps the tile pass's read of it honest is the immediate context:
+    // FFmpeg's decoder writes the slice and this file's video processor reads
+    // it on the same one, so the blit is ordered before the next decode's
+    // writes.
     texture->AddRef();
     if (decoder->picture) decoder->picture->Release();
     decoder->picture = texture;
@@ -619,12 +627,7 @@ extern "C" yf_hwdec *yapfast_hwdec_new(int backend, int codec, int hint_width, i
         return abandon(decoder);
 #endif
     }
-    // Media Foundation has H264, HEVC and AV1 and no VP9; the card's decoder
-    // for a played file is FFmpeg's.
-    if (codec == 3) {
-        fail_text(decoder, "Media Foundation has no VP9 decoder");
-        return abandon(decoder);
-    }
+    // Media Foundation has H264, HEVC and AV1.
     HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (result == RPC_E_CHANGED_MODE) {
         fail_text(decoder, "this thread's COM apartment isn't the one Media Foundation needs");

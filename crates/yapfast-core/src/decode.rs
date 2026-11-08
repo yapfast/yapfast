@@ -7,10 +7,10 @@
 //! in a graphics card texture and scales it to the tile on the card through
 //! native/d3d11dec.cc. Two decoders can be that one, and [`BACKENDS`] is the
 //! order [`Hardware::new`] tries them in: FFmpeg's own Direct3D 11 decoder
-//! (native/hwdec.c), which handles H264, HEVC, AV1 and VP9 on any vendor's
-//! card, and Media Foundation's MFTs, kept beside it until a measured
-//! comparison says which wins. The software decoders above are what reads a
-//! stream the card's can't, so the picture a viewer sees is made either way.
+//! (native/hwdec.c), which handles H264, HEVC and AV1 on any vendor's card, and
+//! Media Foundation's MFTs, kept beside it until a measured comparison says
+//! which wins. The software decoders above are what reads a stream the card's
+//! can't, so the picture a viewer sees is made either way.
 //!
 //! Which decoder a stream gets is this module's to say, not the native
 //! shim's: [`Hardware::new`] opens the first backend that takes the codec,
@@ -362,8 +362,8 @@ impl Drop for Decoder {
 /// The card's decoders, in the order [`Hardware::new`] tries them: FFmpeg's
 /// own Direct3D 11 decoder first, then Media Foundation's MFTs.
 ///
-/// FFmpeg's comes first because it is the one path that decodes all four of
-/// H264, HEVC, AV1 and VP9 on any vendor's card, and because AV1 hardware
+/// FFmpeg's comes first because it is the one path that decodes H264, HEVC and
+/// AV1 on any vendor's card, and because AV1 hardware
 /// decode through it needs no Microsoft AV1 Video Extension, which Media
 /// Foundation does and Windows 10 often lacks. Media Foundation stays beside
 /// it until a measured comparison at 1080p and 4K, a time to first picture
@@ -383,7 +383,7 @@ pub struct Hardware {
 #[cfg(d3d11dec)]
 unsafe extern "C" {
     /// A decoder from `backend` — 0 Media Foundation, 1 FFmpeg's d3d11va — for
-    /// `codec` (0 H264, 1 HEVC, 2 AV1, 3 VP9), which opens around the size
+    /// `codec` (0 H264, 1 HEVC, 2 AV1), which opens around the size
     /// given and settles the stream's own on its first frame; null when this
     /// build or this machine has no such decoder. `device` is the
     /// `ID3D11Device` the pictures should live on, which the caller keeps
@@ -447,18 +447,14 @@ impl Hardware {
         Self::open(device, which, what)
     }
 
-    /// The card's decoder for VP9, which the played-video path shows: FFmpeg's
-    /// d3d11va decodes it on any vendor's card, and Media Foundation never
-    /// does. `device` is as [`Self::new_on`] has it.
-    pub fn vp9_on(device: *mut c_void) -> Result<Self> {
-        Self::open(device, 3, "VP9")
-    }
-
     /// The first backend that opens a decoder for `which` (0 H264, 1 HEVC,
-    /// 2 AV1, 3 VP9), all of them decoding into textures on `device`. `what`
-    /// names the codec in the error.
+    /// 2 AV1), all of them decoding into textures on `device`. `what` names the
+    /// codec in the error, whose reason is every backend's: the first says
+    /// what its decode would have needed — 10-bit pictures, a codec the build
+    /// has no decoder for — and Media Foundation's, after it, usually only
+    /// that the machine has no such MFT.
     fn open(device: *mut c_void, which: c_int, what: &str) -> Result<Self> {
-        let mut last = None;
+        let mut reasons: Vec<String> = Vec::new();
         for backend in BACKENDS {
             // SAFETY: plain values; null means this backend or this machine
             // has no decoder for the codec, and the reason is the shim's last
@@ -468,10 +464,22 @@ impl Hardware {
                 return Ok(Self { raw, size: (0, 0) });
             }
             // SAFETY: the null decoder is what `error` reads the reason off.
-            last = Some(unsafe { message(yapfast_hwdec_error(std::ptr::null())) });
+            let reason = unsafe { message(yapfast_hwdec_error(std::ptr::null())) };
+            // A backend that failed before it could say why is no reason to
+            // quote an empty one.
+            let reason = if reason.is_empty() {
+                "the machine gave no reason".to_owned()
+            } else {
+                reason
+            };
+            if !reasons.contains(&reason) {
+                reasons.push(reason);
+            }
         }
-        let reason = last.unwrap_or_else(|| "the machine gave no reason".into());
-        bail!("no {what} hardware decoder: {reason}")
+        if reasons.is_empty() {
+            bail!("no {what} hardware decoder: the machine gave no reason")
+        }
+        bail!("no {what} hardware decoder: {}", reasons.join("; "))
     }
 
     /// The size of the newest picture, as the decoder made it.
@@ -595,8 +603,11 @@ impl Drop for Hardware {
     }
 }
 
-// SAFETY: no library keeps thread-local state; one thread uses the decoder at a
-// time.
+// SAFETY: the shim keeps one thread-local string — the reason a decoder that
+// couldn't be made wasn't, which `Hardware::open` reads and the shim writes on
+// the thread that calls it — and a decoder's own state is one thread's at a
+// time, since `Frame::Hardware` holds it mutably. Moving a decoder between
+// threads is sound; using one from two at once is not.
 #[cfg(d3d11dec)]
 unsafe impl Send for Hardware {}
 
