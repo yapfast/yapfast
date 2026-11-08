@@ -536,6 +536,7 @@ pub(super) fn message_row_within(
                     ImageCell {
                         index: index as i32,
                         name: attachment.name.clone().into(),
+                        description: attachment.description.clone().unwrap_or_default().into(),
                         width: STICKER_SIZE,
                         height: STICKER_SIZE,
                         loading: true,
@@ -549,6 +550,7 @@ pub(super) fn message_row_within(
                 ImageCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
+                    description: attachment.description.clone().unwrap_or_default().into(),
                     width: preview.width as i32,
                     height: preview.height as i32,
                     frames,

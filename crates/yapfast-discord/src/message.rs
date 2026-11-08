@@ -312,6 +312,8 @@ impl Reply {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Attachment {
     pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub size: Option<u64>,
     pub url: Arc<str>,
     pub image: bool,
@@ -637,6 +639,7 @@ pub fn parse(value: &Value) -> Option<Message> {
             let name = attachment["filename"].as_str()?;
             Some(Attachment {
                 name: name.into(),
+                description: attachment["description"].as_str().map(str::to_owned),
                 size: attachment["size"].as_u64(),
                 image,
                 dimensions: (image || video)
@@ -709,6 +712,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         let url = ready::sticker(id, format);
         attachments.push(Attachment {
             name: name.into(),
+            description: None,
             size: None,
             url: url.as_str().into(),
             image: true,
@@ -2215,7 +2219,8 @@ mod tests {
             "edited_timestamp": "2026-10-06T10:00:00.000000+00:00",
             "referenced_message": {"id": "9", "author": {"id": "2", "username": "ann"}, "content": "hello"},
             "attachments": [{"filename": "cat.png", "size": 10, "url": "https://cdn/cat.png", "content_type": "image/png",
-                "proxy_url": "https://media/cat.png?ex=1", "width": 1440, "height": 540},
+                "proxy_url": "https://media/cat.png?ex=1", "width": 1440, "height": 540,
+                "description": "A cat sitting beside a laptop"},
                 {"filename": "clip.mp4", "size": 99, "url": "https://cdn/clip.mp4", "content_type": "video/mp4",
                 "proxy_url": "https://media/clip.mp4", "width": 1920, "height": 1080}],
             "reactions": [
@@ -2236,6 +2241,10 @@ mod tests {
             })
         );
         assert!(message.attachments[0].image);
+        assert_eq!(
+            message.attachments[0].description.as_deref(),
+            Some("A cat sitting beside a laptop")
+        );
         assert_eq!(
             message.attachments[0].preview_url.as_deref(),
             Some("https://media/cat.png?ex=1&animated=true&format=webp&width=550&height=206")

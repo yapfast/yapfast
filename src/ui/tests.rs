@@ -1311,6 +1311,7 @@ fn a_selection_runs_across_messages_with_their_names_and_times() {
 fn pictures_on_their_way_hold_their_place_as_skeletons() {
     let attachment = |name: &str, preview_failed| yapfast_core::chat::Attachment {
         name: name.into(),
+        description: None,
         size: Some(1000),
         image: true,
         dimensions: Some((1600, 900)),
@@ -1341,6 +1342,48 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
 }
 
 #[test]
+fn image_descriptions_reach_rows_and_follow_their_preference() {
+    i_slint_backend_testing::init_no_event_loop();
+    let row = message_row_plain(&ChatMessage {
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "cat.png".into(),
+            description: Some("A cat sitting beside a laptop".into()),
+            size: Some(1000),
+            image: true,
+            dimensions: Some((800, 600)),
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        }],
+        ..Default::default()
+    });
+    assert_eq!(
+        row.images.row_data(0).unwrap().description,
+        "A cat sitting beside a laptop"
+    );
+    let files = tempfile::tempdir().unwrap();
+    Layout {
+        show_image_descriptions: Some(false),
+        ..Default::default()
+    }
+    .write(files.path());
+    let window = yapfast::window().unwrap();
+    Layout::read(files.path()).apply(&window);
+    assert!(!window.get_show_image_descriptions());
+    assert!(!window.global::<ImageAccessibility>().get_descriptions());
+    Layout {
+        show_image_descriptions: Some(true),
+        ..Default::default()
+    }
+    .apply(&window);
+    assert!(window.global::<ImageAccessibility>().get_descriptions());
+}
+
+#[test]
 fn a_selection_copies_the_pictures_it_runs_through() {
     let picture = Arc::new(Picture {
         width: 40,
@@ -1354,6 +1397,7 @@ fn a_selection_copies_the_pictures_it_runs_through() {
             body: "Look at this.".into(),
             attachments: vec![yapfast_core::chat::Attachment {
                 name: "cat.png".into(),
+                description: None,
                 size: None,
                 image: true,
                 dimensions: Some((400, 300)),
@@ -4530,6 +4574,7 @@ fn closing_the_viewer_lets_go_of_its_picture() {
         item: "i0".into(),
         attachments: vec![yapfast_core::chat::Attachment {
             name: "a.png".into(),
+            description: None,
             size: None,
             image: true,
             dimensions: Some((40, 30)),
@@ -4575,6 +4620,7 @@ fn a_pictures_menu_links_to_it_when_it_has_an_address() {
     bind_callbacks(&window, &adapter);
     let file = |url: Option<&str>| yapfast_core::chat::Attachment {
         name: "a.png".into(),
+        description: None,
         size: None,
         image: true,
         dimensions: None,
@@ -7399,6 +7445,7 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
         item: "d:1".into(),
         attachments: vec![Attachment {
             name: "notes.txt".into(),
+            description: None,
             size: Some(10),
             image: false,
             dimensions: None,

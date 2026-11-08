@@ -1576,6 +1576,7 @@ impl OpenChannel {
                     .iter()
                     .map(|file| Attachment {
                         name: file.name.clone(),
+                        description: None,
                         size: Some(file.size),
                         image: false,
                         dimensions: None,
@@ -1654,6 +1655,7 @@ impl OpenChannel {
                 }
                 Attachment {
                     name: attachment.name.clone(),
+                    description: attachment.description.clone(),
                     size: attachment.size,
                     image: attachment.image && attachment.preview_url.is_some(),
                     dimensions: attachment.dimensions,

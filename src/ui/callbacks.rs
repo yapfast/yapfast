@@ -1613,6 +1613,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
         layout.reduced_motion = Some(window.get_reduced_motion());
+        layout.show_image_descriptions = Some(window.get_show_image_descriptions());
+        window
+            .global::<yapfast_ui::ImageAccessibility>()
+            .set_descriptions(window.get_show_image_descriptions());
         ANIMATE.set(layout.animate);
         show_motion(&window);
         layout.unmute_on_join = Some(window.get_unmute_on_join());

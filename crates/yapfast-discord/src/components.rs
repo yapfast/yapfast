@@ -337,6 +337,7 @@ fn media(item: &Value, slot: usize, size: (u64, u64), spoiler: bool) -> Option<A
     let side = |name: &str| u32::try_from(item[name].as_u64()?).ok();
     Some(Attachment {
         name: crate::embed::file_name(url).unwrap_or("image").to_owned(),
+        description: None,
         size: None,
         url: url.into(),
         image: !video,
@@ -364,6 +365,7 @@ fn file(component: &Value, slot: usize, spoiler: bool) -> Option<Attachment> {
         .unwrap_or("file");
     Some(Attachment {
         name: name.to_owned(),
+        description: None,
         size: component["size"].as_u64(),
         url: url.into(),
         image: false,

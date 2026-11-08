@@ -673,6 +673,7 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
             return ImageCell {
                 index: index as i32,
                 name: attachment.name.clone().into(),
+                description: attachment.description.clone().unwrap_or_default().into(),
                 loading: loading(attachment),
                 video: attachment.video,
                 ..Default::default()
@@ -683,6 +684,7 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
             return ImageCell {
                 index: index as i32,
                 name: attachment.name.clone().into(),
+                description: attachment.description.clone().unwrap_or_default().into(),
                 spoiler,
                 video: attachment.video,
                 ..Default::default()
@@ -692,6 +694,7 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
         ImageCell {
             index: index as i32,
             name: attachment.name.clone().into(),
+            description: attachment.description.clone().unwrap_or_default().into(),
             frames,
             delays,
             video: attachment.video,
@@ -760,6 +763,7 @@ mod tests {
                     ..Default::default()
                 })),
                 preview_failed: false,
+                description: None,
                 placement: Placement::Message,
                 gif: None,
                 spoiler: false,
@@ -819,6 +823,7 @@ mod tests {
                 dimensions: Some((360, 240)),
                 preview: preview.cloned(),
                 preview_failed: false,
+                description: None,
                 placement: Placement::Message,
                 gif: None,
                 spoiler: false,
@@ -875,6 +880,7 @@ mod tests {
             dimensions: Some((400, 300)),
             preview: Some(picture.clone()),
             preview_failed: false,
+            description: None,
             placement,
             gif: None,
             spoiler: false,

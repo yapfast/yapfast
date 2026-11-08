@@ -119,6 +119,7 @@ pub(super) fn found(
             .filter(|attachment| attachment.shown == Shown::Message)
             .map(|attachment| Attachment {
                 name: attachment.name.clone(),
+                description: attachment.description.clone(),
                 size: attachment.size,
                 image: attachment.image,
                 dimensions: attachment.dimensions,

@@ -1490,6 +1490,8 @@ impl Picture {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Attachment {
     pub name: String,
+    /// The sender's alternative text for a screen reader.
+    pub description: Option<String>,
     pub size: Option<u64>,
     pub image: bool,
     /// The full image's width and height, when the sender said.

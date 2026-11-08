@@ -71,6 +71,7 @@ fn picture(value: &Value, shown: Shown, thumbnail: bool) -> Option<Attachment> {
     let name = file_name(value["url"].as_str().unwrap_or(proxy)).unwrap_or("image");
     Some(Attachment {
         name: name.to_owned(),
+        description: None,
         size: None,
         url: proxy.into(),
         image: !matches!(shown, Shown::Poster(_)),

@@ -1130,6 +1130,8 @@ struct Layout {
     collapse_long: bool,
     /// When animations play.
     animate: Animate,
+    /// Show a sender's alternative text for images to a screen reader.
+    show_image_descriptions: Option<bool>,
     reduced_motion: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
@@ -1471,6 +1473,10 @@ impl Layout {
         window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
         window.set_reduced_motion(self.reduced_motion.unwrap_or(false));
+        window.set_show_image_descriptions(self.show_image_descriptions.unwrap_or(false));
+        window
+            .global::<yapfast_ui::ImageAccessibility>()
+            .set_descriptions(window.get_show_image_descriptions());
         ANIMATE.set(self.animate);
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));

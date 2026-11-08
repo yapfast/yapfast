@@ -1061,6 +1061,7 @@ export component AccessibilitySettings inherits VerticalLayout {
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> reduced-motion;
+    in-out property <bool> show-image-descriptions;
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Accessibility"; }
@@ -1172,6 +1173,16 @@ export component AccessibilitySettings inherits VerticalLayout {
             current <=> root.animate; chosen => { root.preferences-changed(); }
         }
         Label { text: "Choose when animated pictures play. Always overrides Reduced Motion."; }
+    }
+    Rectangle { height: 1px; background: Theme.line; }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "AUDIO & SCREEN READER"; }
+        SettingsSwitch {
+            text: "Show image descriptions";
+            description: "Read the sender's description of an image instead of its file name when one is available.";
+            checked <=> root.show-image-descriptions; toggled => { root.preferences-changed(); }
+        }
     }
 }
 

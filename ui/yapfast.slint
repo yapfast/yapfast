@@ -70,7 +70,7 @@ export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, ImageAccessibility, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
@@ -1138,6 +1138,7 @@ export component YapfastWindow inherits Window {
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> reduced-motion: false;
+    in-out property <bool> show-image-descriptions: false;
     in-out property <bool> unmute-on-join;
     in-out property <bool> deafen-on-join;
     in-out property <bool> level-voice: true;
@@ -3852,6 +3853,7 @@ export component YapfastWindow inherits Window {
             underline-links <=> root.underline-links;
             show-name-styles <=> root.show-name-styles; animate <=> root.animate;
             reduced-motion <=> root.reduced-motion;
+            show-image-descriptions <=> root.show-image-descriptions;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 1: VoiceSettings {

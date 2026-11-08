@@ -1169,6 +1169,7 @@ type File = {
   id: string;
   channel: string;
   filename: string;
+  description?: string;
   contentType: string;
   data: Uint8Array;
   width?: number;
@@ -1189,6 +1190,7 @@ function wireAttachment(file: File, origin: string) {
   return {
     id: file.id,
     filename: file.filename,
+    description: file.description,
     size: file.data.length,
     url: `${origin}/${path}`,
     proxy_url: `${origin}/media/${path}`,
@@ -1520,6 +1522,7 @@ const sunsetFile = addFile({
   id: snowflake(HISTORY_START + 60_000, 1),
   channel: GENERAL,
   filename: "sunset.png",
+  description: "An orange sunset over the water",
   contentType: "image/png",
   data: sunset(800, 500),
   width: 800,

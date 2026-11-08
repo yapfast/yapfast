@@ -237,6 +237,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             url: "".into(),
             image: true,
             dimensions: None,
+            description: None,
             preview_url: Some(format!("preview/{id}")),
             view_url: None,
             still_url: None,
@@ -286,6 +287,7 @@ fn changes_render_again_only_the_messages_they_change() {
             url: "".into(),
             image: true,
             dimensions: None,
+            description: None,
             preview_url: Some("preview/9".into()),
             view_url: None,
             still_url: None,
@@ -1547,6 +1549,7 @@ fn changing_the_view_drops_old_previews_and_ignores_late_downloads() {
                     url: "image".into(),
                     image: true,
                     dimensions: Some((1, 1)),
+                    description: None,
                     preview_url: Some("preview".into()),
                     view_url: None,
                     still_url: None,
@@ -1612,6 +1615,7 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
             url: "".into(),
             image: true,
             dimensions: Some((720, 540)),
+            description: None,
             preview_url: Some(format!(
                 "{}/external/viewport-{id}/720x540.png",
                 yapfast_discord::client::test_server().unwrap()
