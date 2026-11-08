@@ -717,7 +717,7 @@ pub(super) fn tag_badge(tag: &Option<yapfast_core::chat::ServerTag>) -> slint::S
 
 /// A Discord role's RGB colour for Slint.
 pub(super) fn role_color(rgb: Option<u32>) -> slint::Color {
-    rgb.map_or_else(slint::Color::default, |rgb| {
+    theme::custom_colour(rgb.map_or_else(slint::Color::default, |rgb| {
         slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
-    })
+    }))
 }

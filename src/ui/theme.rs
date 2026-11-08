@@ -1,7 +1,10 @@
 //! The window's colours: a full set of what `Theme` in `ui/theme.slint` holds,
 //! which Yapfast sets on the window to change them all at once.
 
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use slint::{Color, ComponentHandle, Model, ModelRc, VecModel};
 use yapfast_ui::YapfastWindow;
@@ -785,6 +788,73 @@ pub fn starts(custom: &[Custom]) -> impl Iterator<Item = Start<'_>> {
         }))
 }
 
+#[derive(Clone, Copy)]
+struct Accessibility {
+    saturation: i32,
+    custom_colours: bool,
+    high_contrast: bool,
+    dark: bool,
+}
+
+/// Recolours one RGBA colour for the accessibility preferences. Custom colours
+/// use `foreground` so high contrast moves them away from the chat background.
+pub(super) fn accessible_colour(
+    (red, green, blue, alpha): (f32, f32, f32, f32),
+    saturation: i32,
+    high_contrast: bool,
+    dark: bool,
+    foreground: bool,
+) -> (f32, f32, f32, f32) {
+    let amount = saturation.clamp(0, 100) as f32 / 100.;
+    let luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    let desaturate = |channel: f32| (luma + (channel - luma) * amount).clamp(0., 1.);
+    let (mut red, mut green, mut blue) = (desaturate(red), desaturate(green), desaturate(blue));
+    if high_contrast {
+        let lightness = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+        let lighten = if foreground { dark } else { lightness >= 0.45 };
+        let contrast = |channel: f32| {
+            if lighten {
+                0.55 + 0.45 * channel
+            } else {
+                0.45 * channel
+            }
+        };
+        red = contrast(red);
+        green = contrast(green);
+        blue = contrast(blue);
+    }
+    (red, green, blue, if high_contrast { 1. } else { alpha })
+}
+
+fn float_colour((red, green, blue, alpha): (f32, f32, f32, f32)) -> Color {
+    Color::from_argb_f32(alpha, red, green, blue)
+}
+
+/// Applies the shared accessibility treatment to a role, embed or name-style colour.
+pub fn custom_colour(colour: Color) -> Color {
+    if colour.alpha() == 0 {
+        return colour;
+    }
+    let settings = ACCESSIBILITY.get();
+    let saturation = if settings.custom_colours {
+        settings.saturation
+    } else {
+        100
+    };
+    float_colour(accessible_colour(
+        (
+            colour.red() as f32 / 255.,
+            colour.green() as f32 / 255.,
+            colour.blue() as f32 / 255.,
+            colour.alpha() as f32 / 255.,
+        ),
+        saturation,
+        settings.high_contrast,
+        settings.dark,
+        true,
+    ))
+}
+
 thread_local! {
     /// The colour of a mention without one of its own, as `0xrrggbb`: the
     /// theme's link colour. Rows build their markup with it, outside the
@@ -794,6 +864,15 @@ thread_local! {
     /// name, links and time.
     static TEXT: Cell<u32> = const { Cell::new(0xf2f3f5) };
     static MUTED: Cell<u32> = const { Cell::new(0x949ba4) };
+    static CURRENT: RefCell<Theme> = const { RefCell::new(YAP) };
+    static ACCESSIBILITY: Cell<Accessibility> = const {
+        Cell::new(Accessibility {
+            saturation: 100,
+            custom_colours: true,
+            high_contrast: false,
+            dark: true,
+        })
+    };
 }
 
 pub fn mention_color() -> u32 {
@@ -812,20 +891,54 @@ impl Theme {
     /// Shows the window in these colours. Returns whether colours that rows
     /// carry in their markup change, as rows built before have the old ones.
     pub fn apply(&self, window: &YapfastWindow) -> bool {
-        self.set(&window.global::<yapfast_ui::Theme>());
-        let rgb = |colour: Color| colour.as_argb_encoded() & 0xff_ffff;
+        let saturation = window.get_colour_saturation();
+        let high_contrast = window.get_high_contrast();
+        ACCESSIBILITY.set(Accessibility {
+            saturation,
+            custom_colours: window.get_saturate_custom_colours(),
+            high_contrast,
+            dark: self.dark,
+        });
+        CURRENT.replace(*self);
+        let adjust = |colour: Color| {
+            float_colour(accessible_colour(
+                (
+                    colour.red() as f32 / 255.,
+                    colour.green() as f32 / 255.,
+                    colour.blue() as f32 / 255.,
+                    colour.alpha() as f32 / 255.,
+                ),
+                saturation,
+                high_contrast,
+                self.dark,
+                false,
+            ))
+        };
+        let mut shown = *self;
+        for index in 0..Theme::NAMES.len() {
+            *shown.colour_mut(index).expect("theme colour") =
+                adjust(self.colour(index).expect("theme colour"));
+        }
+        shown.set(&window.global::<yapfast_ui::Theme>());
+        let encoded = |colour: Color| colour.as_argb_encoded() & 0xff_ffff;
         // Bonfire draws a mention's text as Discord's dark theme does, a light
         // blurple; the other themes use their link colour.
-        let mention_colour = if self.dark && rgb(self.link) == rgb(BONFIRE.link) {
-            0xc9cdfb
+        let mention_colour = if self.dark && encoded(self.link) == encoded(BONFIRE.link) {
+            encoded(adjust(rgb(0xc9cdfb)))
         } else {
-            rgb(self.link)
+            encoded(shown.link)
         };
         let mention = MENTION.replace(mention_colour) != mention_colour;
-        let text = TEXT.replace(rgb(self.text)) != rgb(self.text);
-        let muted = MUTED.replace(rgb(self.muted)) != rgb(self.muted);
+        let text = TEXT.replace(encoded(shown.text)) != encoded(shown.text);
+        let muted = MUTED.replace(encoded(shown.muted)) != encoded(shown.muted);
         mention || text || muted
     }
+}
+
+/// Reapplies the raw theme after an accessibility colour preference changes.
+pub fn reapply(window: &YapfastWindow) -> bool {
+    let current = CURRENT.with(|current| *current.borrow());
+    current.apply(window)
 }
 
 /// Appearance's cards: each theme's name and the colours its preview draws

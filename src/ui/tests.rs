@@ -8563,6 +8563,50 @@ fn yapfast_server_rail_keeps_home_pinned_without_a_duplicate_separator() {
 }
 
 #[test]
+fn accessibility_colour_controls_change_the_live_theme() {
+    let source = (0.8, 0.2, 0.1, 0.5);
+    let grey = theme::accessible_colour(source, 0, false, true, false);
+    assert!((grey.0 - grey.1).abs() < 0.0001 && (grey.1 - grey.2).abs() < 0.0001);
+    assert_eq!(grey.3, 0.5);
+    let dark_text = theme::accessible_colour(source, 100, true, true, true);
+    assert!(dark_text.0 >= 0.55 && dark_text.1 >= 0.55 && dark_text.2 >= 0.55);
+    assert_eq!(dark_text.3, 1.);
+    let light_text = theme::accessible_colour(source, 100, true, false, true);
+    assert!(light_text.0 <= 0.45 && light_text.1 <= 0.45 && light_text.2 <= 0.45);
+
+    i_slint_backend_testing::init_no_event_loop();
+    let window = yapfast::window().unwrap();
+    let (_, chosen) = theme::chosen(Some("bonfire"), &[]);
+    chosen.apply(&window);
+    let tokens = window.global::<yapfast_ui::Theme>();
+    let original = tokens.get_accent();
+    window.set_colour_saturation(0);
+    theme::reapply(&window);
+    let grey = tokens.get_accent();
+    assert_eq!(grey.red(), grey.green());
+    assert_eq!(grey.green(), grey.blue());
+    window.set_colour_saturation(100);
+    window.set_high_contrast(true);
+    theme::reapply(&window);
+    assert_ne!(tokens.get_accent(), original);
+
+    let files = tempfile::tempdir().unwrap();
+    Layout {
+        colour_saturation: Some(35),
+        saturate_custom_colours: Some(false),
+        high_contrast: Some(true),
+        contrast_indicators: Some(false),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert_eq!(window.get_colour_saturation(), 35);
+    assert!(!window.get_saturate_custom_colours());
+    assert!(window.get_high_contrast());
+    assert!(!window.get_contrast_indicators());
+}
+
+#[test]
 fn yapfast_typography_is_compact_and_preserves_explicit_text_sizes() {
     i_slint_backend_testing::init_no_event_loop();
     let window = yapfast::window().unwrap();

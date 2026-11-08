@@ -146,7 +146,11 @@ fn shades(main: u32) -> Shades {
 }
 
 fn color(rgb: u32) -> Color {
-    Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+    theme::custom_colour(Color::from_rgb_u8(
+        (rgb >> 16) as u8,
+        (rgb >> 8) as u8,
+        rgb as u8,
+    ))
 }
 
 /// The font family Discord's client draws a style's `font_id` in; the usual

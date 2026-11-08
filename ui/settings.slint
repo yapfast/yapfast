@@ -26,6 +26,7 @@ export component SettingsSwitch inherits Rectangle {
     in property <string> description;
     in-out property <bool> checked;
     in property <bool> enabled: true;
+    in property <bool> contrast-indicators: Theme.contrast-indicators;
     /// Why it can't change, shown while the pointer is on the switch.
     in property <string> locked-tip;
     /// Its owner sets `checked`, from what a flip asks for: the switch only
@@ -48,7 +49,7 @@ export component SettingsSwitch inherits Rectangle {
         row := HorizontalLayout {
             spacing: 12px;
             if !ClientStyle.enabled: Middle {
-                SettingsToggle { checked: root.checked; enabled: root.enabled; hovered: pointer.has-hover; focused: focus.has-focus; }
+                SettingsToggle { checked: root.checked; enabled: root.enabled; hovered: pointer.has-hover; focused: focus.has-focus; contrast-indicators: root.contrast-indicators; }
             }
             HorizontalLayout {
                 spacing: 6px; alignment: start; horizontal-stretch: 1;
@@ -77,7 +78,7 @@ export component SettingsSwitch inherits Rectangle {
                 }
             }
             if ClientStyle.enabled: Middle {
-                SettingsToggle { checked: root.checked; enabled: root.enabled; hovered: pointer.has-hover; focused: focus.has-focus; }
+                SettingsToggle { checked: root.checked; enabled: root.enabled; hovered: pointer.has-hover; focused: focus.has-focus; contrast-indicators: root.contrast-indicators; }
             }
         }
         if root.description != "": Label { text: root.description; }
@@ -1051,6 +1052,10 @@ export component AccessibilitySettings inherits VerticalLayout {
     in-out property <int> ui-density;
     in-out property <int> chat-display;
     in-out property <int> message-group-gap;
+    in-out property <int> colour-saturation;
+    in-out property <bool> saturate-custom-colours;
+    in-out property <bool> high-contrast;
+    in-out property <bool> contrast-indicators;
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Accessibility"; }
@@ -1112,6 +1117,31 @@ export component AccessibilitySettings inherits VerticalLayout {
             committed => { root.preferences-changed(); }
         }
         Label { text: "Set how much space sits between groups of messages, from 0px to 24px."; }
+    }
+    VerticalLayout {
+        spacing: 12px;
+        SettingsHeading { text: "COLOUR & CONTRAST"; }
+        VolumeSlider {
+            label: "Saturation"; minimum: 0; maximum: 100; step: 5; full-mark: false;
+            value <=> root.colour-saturation; shown: self.value + "%";
+            committed => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Apply to custom colours";
+            description: "Apply saturation to role colours, embeds and name styles.";
+            checked <=> root.saturate-custom-colours; enabled: root.colour-saturation < 100;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "High contrast mode";
+            description: "Increase the contrast of text, surfaces and custom colours.";
+            checked <=> root.high-contrast; toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show on/off indicators";
+            description: "Show I and O inside settings switches.";
+            checked <=> root.contrast-indicators; toggled => { root.preferences-changed(); }
+        }
     }
 }
 

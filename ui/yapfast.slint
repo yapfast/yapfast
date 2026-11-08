@@ -1122,6 +1122,10 @@ export component YapfastWindow inherits Window {
     /// Message layout: 0 cozy, 1 compact.
     in-out property <int> chat-display: 0;
     in-out property <int> message-group-gap: 16;
+    in-out property <int> colour-saturation: 100;
+    in-out property <bool> saturate-custom-colours: true;
+    in-out property <bool> high-contrast: false;
+    in-out property <bool> contrast-indicators: true;
     in-out property <bool> link-previews: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
@@ -1220,6 +1224,7 @@ export component YapfastWindow inherits Window {
     callback cancel-theme();
     callback delete-theme();
     changed settings-section => { if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); } }
+    changed contrast-indicators => { Theme.contrast-indicators = root.contrast-indicators; }
     out property <length> message-font-size: root.text-size == 0 ? ClientStyle.text-size : max(12px, min(24px, root.text-size * 1px));
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
@@ -3838,6 +3843,9 @@ export component YapfastWindow inherits Window {
             message-font-size: root.message-font-size; text-size <=> root.text-size;
             ui-density <=> root.ui-density; chat-display <=> root.chat-display;
             message-group-gap <=> root.message-group-gap;
+            colour-saturation <=> root.colour-saturation;
+            saturate-custom-colours <=> root.saturate-custom-colours;
+            high-contrast <=> root.high-contrast; contrast-indicators <=> root.contrast-indicators;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 1: VoiceSettings {

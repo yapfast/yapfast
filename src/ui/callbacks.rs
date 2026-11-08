@@ -1580,6 +1580,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.clock_seconds = window.get_clock_seconds();
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
         layout.apply_date_format();
+        let colours_changed = layout.colour_saturation.unwrap_or(100)
+            != window.get_colour_saturation()
+            || layout.saturate_custom_colours.unwrap_or(true)
+                != window.get_saturate_custom_colours()
+            || layout.high_contrast.unwrap_or(false) != window.get_high_contrast();
+        layout.colour_saturation = Some(window.get_colour_saturation());
+        layout.saturate_custom_colours = Some(window.get_saturate_custom_colours());
+        layout.high_contrast = Some(window.get_high_contrast());
+        layout.contrast_indicators = Some(window.get_contrast_indicators());
         let style = window.global::<ClientStyle>();
         style.set_density(window.get_ui_density());
         style.set_compact_messages(window.get_chat_display() == 1);
@@ -1631,6 +1640,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.multiple_windows = window.get_multiple_windows();
         layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
+        if colours_changed {
+            theme::reapply(&window);
+            adapter.restyle_mentions();
+            adapter.refresh(&window);
+        }
         adapter.watch_talk_key(&window);
         let start = window.get_start_on_sign_in();
         if AUTOSTART.get() && start != autostart::enabled() {

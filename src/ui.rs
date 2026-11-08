@@ -1101,6 +1101,10 @@ struct Layout {
     chat_display: Option<i32>,
     /// Pixels between groups of messages, from 0 to 24.
     message_group_gap: Option<i32>,
+    colour_saturation: Option<i32>,
+    saturate_custom_colours: Option<bool>,
+    high_contrast: Option<bool>,
+    contrast_indicators: Option<bool>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
@@ -1374,6 +1378,10 @@ impl Layout {
         window.set_skip_call_prompt(self.skip_call_prompt);
         window.set_activity_cards_hidden(self.activity_cards_hidden);
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+        window.set_colour_saturation(self.colour_saturation.unwrap_or(100).clamp(0, 100));
+        window.set_saturate_custom_colours(self.saturate_custom_colours.unwrap_or(true));
+        window.set_high_contrast(self.high_contrast.unwrap_or(false));
+        window.set_contrast_indicators(self.contrast_indicators.unwrap_or(true));
         self.apply_appearance(window);
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
