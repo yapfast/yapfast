@@ -3,6 +3,7 @@ import { Theme, Middle, Label, Popup } from "theme.slint";
 import { ActionButton, IconButton, Avatar, TextField, StatusText, VoiceSpot, PictureStore } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { RoomRow, StatusDot, ChannelRow } from "rail.slint";
+import { BlockedRow } from "settings.slint";
 
 export struct RequestRow {
     /// Their Discord user id, or a group's room id.
@@ -560,6 +561,46 @@ export component AddFriendDialog inherits Rectangle {
                 if root.add-friend-note != "": Text {
                     text: root.add-friend-note; font-size: 14px; wrap: word-wrap;
                     color: root.add-friend-sent ? Theme.live : root.add-friend-sending ? Theme.muted : Theme.danger;
+                }
+            }
+        }
+    }
+}
+
+/// The people this account blocked, on the friends page beside Online and
+/// All, each with a button to unblock them.
+export component BlockedScreen inherits Rectangle {
+    in property <[BlockedRow]> rows;
+    /// Unblock someone, by user id.
+    callback unblock(string);
+    if root.rows.length == 0: VerticalLayout {
+        padding: 32px; alignment: center;
+        Text {
+            text: "You have not blocked anyone.";
+            color: Theme.muted; font-size: 15px; horizontal-alignment: center;
+        }
+    }
+    if root.rows.length > 0: VerticalLayout {
+        padding: 16px; padding-bottom: 0px; spacing: 8px;
+        RequestsHeading { text: "BLOCKED — " + root.rows.length; }
+        ListView {
+            vertical-stretch: 1;
+            for person in root.rows: Rectangle {
+                height: 62px; border-radius: 8px;
+                background: hover.has-hover ? Theme.hover : transparent;
+                hover := TouchArea {
+                    HorizontalLayout {
+                        padding-left: 10px; padding-right: 10px; spacing: 12px;
+                        Middle { Avatar { size: 32px; initial: person.initial; tint: Theme.raised; picture-url: person.avatar-url; } }
+                        VerticalLayout {
+                            alignment: center; horizontal-stretch: 1;
+                            Text { text: person.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+                            if person.username != "": Text { text: person.username; color: Theme.muted; font-size: 13px; overflow: elide; }
+                        }
+                        Middle {
+                            ActionButton { text: "Unblock"; small: true; clicked => { root.unblock(person.id); } }
+                        }
+                    }
                 }
             }
         }

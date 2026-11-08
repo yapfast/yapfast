@@ -49,7 +49,7 @@ import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggest
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
-import { RequestRow, FriendRow, ActiveNowRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
+import { RequestRow, FriendRow, ActiveNowRow, FriendsScreen, BlockedScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
@@ -903,6 +903,8 @@ export component YapfastWindow inherits Window {
     in-out property <string> friend-filter;
     /// The list shows all friends rather than those around.
     in-out property <bool> friends-all;
+    /// The friends page shows those blocked, not friends.
+    in-out property <bool> friends-blocked;
     callback friend-filter-edited;
     callback open-friends;
     /// Open the DM with a friend, by user id.
@@ -2695,10 +2697,13 @@ export component YapfastWindow inherits Window {
                         }
                         if root.friends-open: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
                         if root.friends-open: Middle {
-                            HeaderTab { text: "Online"; selected: !root.friends-all; clicked => { root.friends-all = false; } }
+                            HeaderTab { text: "Online"; selected: !root.friends-all && !root.friends-blocked; clicked => { root.friends-all = false; root.friends-blocked = false; } }
                         }
                         if root.friends-open: Middle {
-                            HeaderTab { text: "All"; selected: root.friends-all; clicked => { root.friends-all = true; } }
+                            HeaderTab { text: "All"; selected: root.friends-all && !root.friends-blocked; clicked => { root.friends-all = true; root.friends-blocked = false; } }
+                        }
+                        if root.friends-open: Middle {
+                            HeaderTab { text: "Blocked"; selected: root.friends-blocked; clicked => { root.friends-blocked = true; } }
                         }
                         if root.friends-open: Middle {
                             ActionButton { text: "Add Friend"; small: true; primary: true; clicked => { root.open-add-friend(); } }
@@ -3327,7 +3332,12 @@ export component YapfastWindow inherits Window {
                                 remove(id) => { root.remove-friend-request(id); }
                                 open(id) => { root.select-room(id); }
                             }
-                            if root.friends-open: FriendsScreen {
+                            if root.friends-open && root.friends-blocked: BlockedScreen {
+                                width: parent.width; height: parent.height;
+                                rows: root.blocked-people;
+                                unblock(id) => { root.unblock(id); }
+                            }
+                            if root.friends-open && !root.friends-blocked: FriendsScreen {
                                 width: parent.width; height: parent.height;
                                 rows: root.friends-all ? root.friends : root.friends-online;
                                 active: root.active-now;

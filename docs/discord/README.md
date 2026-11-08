@@ -201,7 +201,6 @@ In rough order. The browser covers these until then.
 - A server's soundboard sounds in its settings.
 - Activities, and the rest of a server's settings.
 - [Mirroring into Matrix](#mirroring-into-matrix).
-- The blocked on the friends page, beside Online and All.
 - Blocking and unblocking from a profile.
 - Animated custom emoji, which show their first frame.
 - Copying custom emoji: copied text has their private code points, not
