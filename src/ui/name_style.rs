@@ -150,14 +150,17 @@ fn color(rgb: u32) -> Color {
 }
 
 /// The font family Discord's client draws a style's `font_id` in; the usual
-/// font, the empty string, for 11, the retired ids and Medieval (7), whose
-/// licence isn't confirmed (ui/fonts/README.md).
+/// font, the empty string, for 11 and the retired ids. Medieval and Vampyre
+/// keep their designers' family names, Néo-castel and Sinistre
+/// (ui/fonts/README.md).
 pub(super) fn family(font: u8) -> &'static str {
     match font {
         3 => "Sakura",
         4 => "Jellybean",
         6 => "Modern",
+        7 => "Néo-castel",
         8 => "8Bit",
+        10 => "Sinistre",
         12 => "Tempo",
         13 => "Monkey Bars",
         14 => "Mainframe",
@@ -172,6 +175,7 @@ pub(super) fn family(font: u8) -> &'static str {
 fn weight(font: u8) -> i32 {
     match font {
         6 | 8 => 500,
+        10 => 548,
         12 => 600,
         13 | 14 | 16 => 700,
         _ => 400,
@@ -433,6 +437,7 @@ mod tests {
         );
         assert_eq!(family(14), "Mainframe");
         assert_eq!(family(11), "");
-        assert_eq!(family(7), "", "Medieval isn't bundled");
+        assert_eq!(family(7), "Néo-castel");
+        assert_eq!((family(10), weight(10)), ("Sinistre", 548));
     }
 }
