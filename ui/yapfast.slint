@@ -3585,7 +3585,7 @@ export component YapfastWindow inherits Window {
                                             }
                                         }
                                         if root.can-pick-stickers: VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             sticker-button := IconButton {
                                                 icon: @image-url("icons/sticker.svg"); label: "Open sticker picker";
                                                 glyph: 22px; enabled: root.composer-enabled;
