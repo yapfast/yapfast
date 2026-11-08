@@ -58,19 +58,15 @@ pub struct ResolvedFont {
 
 impl ResolvedFont {
     fn new(font: fontique::QueryFont) -> Self {
-        let natural_line_height_ratio = skrifa::FontRef::from_index(font.blob.data(), font.index)
-            .ok()
-            .and_then(|face| {
+        let natural_line_height_ratio =
+            skrifa::FontRef::from_index(font.blob.data(), font.index).ok().and_then(|face| {
                 let location = face.axes().location(font.synthesis.variation_settings());
                 let metrics = face.metrics(skrifa::instance::Size::unscaled(), &location);
                 let units_per_em = metrics.units_per_em as f32;
                 (units_per_em > 0.0)
                     .then(|| (metrics.ascent - metrics.descent + metrics.leading) / units_per_em)
             });
-        Self {
-            font,
-            natural_line_height_ratio,
-        }
+        Self { font, natural_line_height_ratio }
     }
 }
 
@@ -288,11 +284,7 @@ pub fn draw_text(
                 // Yapfast: an emoji in a `StyledText` is taller than its line, as Discord's
                 // are, so the first and last lines' are let past the box rather than cut.
                 let clip = LogicalRect::new(LogicalPoint::default(), size);
-                let clip = if text.is_markdown() {
-                    clip.inflate(4., 4.)
-                } else {
-                    clip
-                };
+                let clip = if text.is_markdown() { clip.inflate(4., 4.) } else { clip };
                 item_renderer.combine_clip(clip, LogicalBorderRadius::zero())
             } else {
                 true
@@ -301,14 +293,13 @@ pub fn draw_text(
             if render {
                 // Yapfast: a selected `StyledText` fills its selection's background and keeps its
                 // glyphs' own colours, so links and code still read as such.
-                if let Some((range, background)) = text
-                    .yapfast_selection()
-                    .filter(|(range, _)| !range.is_empty())
+                if let Some((range, background)) =
+                    text.yapfast_selection().filter(|(range, _)| !range.is_empty())
                 {
                     let spans =
                         layout.selection_geometry(range, &draw::visible_band(item_renderer), |x| {
-                            item_renderer.snap_selection_x(x)
-                        });
+                        item_renderer.snap_selection_x(x)
+                    });
                     for span in spans.backgrounds() {
                         item_renderer.fill_rectangle_with_color(span, background);
                     }
@@ -380,15 +371,9 @@ pub fn link_under_cursor(
     window: &crate::api::Window,
     cache: Option<&TextLayoutCache>,
 ) -> Option<std::string::String> {
-    with_render_text_layout(
-        scale_factor,
-        text,
-        Some(item_rc),
-        size,
-        window,
-        cache,
-        |layout| link_in_layout(layout, cursor),
-    )
+    with_render_text_layout(scale_factor, text, Some(item_rc), size, window, cache, |layout| {
+        link_in_layout(layout, cursor)
+    })
     .flatten()
     .map(|(link, _)| link)
 }
@@ -415,41 +400,33 @@ pub fn text_range_at(
     window: &crate::api::Window,
     cache: Option<&TextLayoutCache>,
 ) -> Option<core::ops::Range<usize>> {
-    with_render_text_layout(
-        scale_factor,
-        text,
-        Some(item_rc),
-        size,
-        window,
-        cache,
-        |layout| {
-            let paragraphs = layout.visible_paragraphs();
-            let (first, last) = (paragraphs.first()?, paragraphs.last()?);
-            let y = position.y_length();
-            if y < layout.y_offset + first.y {
-                return Some(first.range.start..first.range.start);
+    with_render_text_layout(scale_factor, text, Some(item_rc), size, window, cache, |layout| {
+        let paragraphs = layout.visible_paragraphs();
+        let (first, last) = (paragraphs.first()?, paragraphs.last()?);
+        let y = position.y_length();
+        if y < layout.y_offset + first.y {
+            return Some(first.range.start..first.range.start);
+        }
+        if y >= layout.y_offset + last.y + PhysicalLength::new(last.layout.height()) {
+            return Some(last.range.end..last.range.end);
+        }
+        let paragraph = layout.paragraph_by_y(y)?;
+        let local_y = (y - layout.y_offset - paragraph.y).get();
+        let local = match unit {
+            TextUnit::Character => {
+                let index =
+                    parley::editing::Cursor::from_point(&paragraph.layout, position.x, local_y)
+                        .index();
+                index..index
             }
-            if y >= layout.y_offset + last.y + PhysicalLength::new(last.layout.height()) {
-                return Some(last.range.end..last.range.end);
+            TextUnit::Word => {
+                parley::Selection::word_from_point(&paragraph.layout, position.x, local_y)
+                    .text_range()
             }
-            let paragraph = layout.paragraph_by_y(y)?;
-            let local_y = (y - layout.y_offset - paragraph.y).get();
-            let local = match unit {
-                TextUnit::Character => {
-                    let index =
-                        parley::editing::Cursor::from_point(&paragraph.layout, position.x, local_y)
-                            .index();
-                    index..index
-                }
-                TextUnit::Word => {
-                    parley::Selection::word_from_point(&paragraph.layout, position.x, local_y)
-                        .text_range()
-                }
-                TextUnit::Paragraph => 0..paragraph.range.len(),
-            };
-            Some(paragraph.range.start + local.start..paragraph.range.start + local.end)
-        },
-    )
+            TextUnit::Paragraph => 0..paragraph.range.len(),
+        };
+        Some(paragraph.range.start + local.start..paragraph.range.start + local.end)
+    })
     .flatten()
 }
 
@@ -466,15 +443,9 @@ pub fn byte_offset_under_cursor(
     window: &crate::api::Window,
     cache: Option<&TextLayoutCache>,
 ) -> Option<usize> {
-    with_render_text_layout(
-        scale_factor,
-        text,
-        Some(item_rc),
-        size,
-        window,
-        cache,
-        |layout| layout.byte_offset_from_point(cursor).0,
-    )
+    with_render_text_layout(scale_factor, text, Some(item_rc), size, window, cache, |layout| {
+        layout.byte_offset_from_point(cursor).0
+    })
 }
 
 /// Fills the highlight behind `range` and returns what recolors its glyphs.
@@ -523,15 +494,9 @@ pub fn link_box_under_cursor(
     window: &crate::api::Window,
     cache: Option<&TextLayoutCache>,
 ) -> Option<(std::string::String, PhysicalRect)> {
-    with_render_text_layout(
-        scale_factor,
-        text,
-        Some(item_rc),
-        size,
-        window,
-        cache,
-        |layout| link_in_layout(layout, cursor),
-    )
+    with_render_text_layout(scale_factor, text, Some(item_rc), size, window, cache, |layout| {
+        link_in_layout(layout, cursor)
+    })
     .flatten()
 }
 
@@ -539,53 +504,51 @@ fn link_in_layout(
     layout: &Layout,
     cursor: PhysicalPoint,
 ) -> Option<(std::string::String, PhysicalRect)> {
-    layout
-        .paragraph_by_y(cursor.y_length())
-        .and_then(|paragraph| {
-            // Where the paragraph is drawn: `y_offset` carries the vertical alignment.
-            let paragraph_y: f64 = (layout.y_offset + paragraph.y).cast::<f64>().get();
-            let mut found = PhysicalRect::default();
+    layout.paragraph_by_y(cursor.y_length()).and_then(|paragraph| {
+        // Where the paragraph is drawn: `y_offset` carries the vertical alignment.
+        let paragraph_y: f64 = (layout.y_offset + paragraph.y).cast::<f64>().get();
+        let mut found = PhysicalRect::default();
 
-            paragraph
-                .links
-                .iter()
-                .find(|(range, _)| {
-                    let start = parley::editing::Cursor::from_byte_index(
-                        &paragraph.layout,
-                        range.start,
-                        Default::default(),
-                    );
-                    let end = parley::editing::Cursor::from_byte_index(
-                        &paragraph.layout,
-                        range.end,
-                        Default::default(),
-                    );
-                    let mut clicked = false;
-                    let link_range = parley::Selection::new(start, end);
-                    link_range.geometry_with(&paragraph.layout, |mut bounding_box, _line| {
-                        bounding_box.y0 += paragraph_y;
-                        bounding_box.y1 += paragraph_y;
-                        let here = bounding_box.union(parley::BoundingBox::new(
-                            cursor.x.into(),
-                            cursor.y.into(),
-                            cursor.x.into(),
-                            cursor.y.into(),
-                        )) == bounding_box;
-                        if here && !clicked {
-                            found = PhysicalRect::new(
-                                PhysicalPoint::new(bounding_box.x0 as f32, bounding_box.y0 as f32),
-                                PhysicalSize::new(
-                                    (bounding_box.x1 - bounding_box.x0) as f32,
-                                    (bounding_box.y1 - bounding_box.y0) as f32,
-                                ),
-                            );
-                        }
-                        clicked |= here;
-                    });
-                    clicked
-                })
-                .map(|(_, link)| (link.clone(), found))
-        })
+        paragraph
+            .links
+            .iter()
+            .find(|(range, _)| {
+                let start = parley::editing::Cursor::from_byte_index(
+                    &paragraph.layout,
+                    range.start,
+                    Default::default(),
+                );
+                let end = parley::editing::Cursor::from_byte_index(
+                    &paragraph.layout,
+                    range.end,
+                    Default::default(),
+                );
+                let mut clicked = false;
+                let link_range = parley::Selection::new(start, end);
+                link_range.geometry_with(&paragraph.layout, |mut bounding_box, _line| {
+                    bounding_box.y0 += paragraph_y;
+                    bounding_box.y1 += paragraph_y;
+                    let here = bounding_box.union(parley::BoundingBox::new(
+                        cursor.x.into(),
+                        cursor.y.into(),
+                        cursor.x.into(),
+                        cursor.y.into(),
+                    )) == bounding_box;
+                    if here && !clicked {
+                        found = PhysicalRect::new(
+                            PhysicalPoint::new(bounding_box.x0 as f32, bounding_box.y0 as f32),
+                            PhysicalSize::new(
+                                (bounding_box.x1 - bounding_box.x0) as f32,
+                                (bounding_box.y1 - bounding_box.y0) as f32,
+                            ),
+                        );
+                    }
+                    clicked |= here;
+                });
+                clicked
+            })
+            .map(|(_, link)| (link.clone(), found))
+    })
 }
 
 pub fn draw_text_input(
@@ -851,10 +814,7 @@ pub fn char_size(
     let natural_line_height = font_metrics.ascent - font_metrics.descent;
     let line_height = natural_line_height * line_height_factor.unwrap_or(1.0);
 
-    Some(LogicalSize::from_lengths(
-        advance_width,
-        LogicalLength::new(line_height),
-    ))
+    Some(LogicalSize::from_lengths(advance_width, LogicalLength::new(line_height)))
 }
 
 /// The height of one line of text: what a shaped single-line layout reports.
@@ -948,10 +908,7 @@ fn text_input_byte_offset_for_position_impl(
         |layout| layout.byte_offset_from_point(pos),
     )
     .unwrap_or(no_hit);
-    (
-        visual_representation.map_byte_offset_from_visual_text_to_actual_text(byte_offset),
-        affinity,
-    )
+    (visual_representation.map_byte_offset_from_visual_text_to_actual_text(byte_offset), affinity)
 }
 
 pub fn text_input_cursor_rect_for_byte_offset(
@@ -1035,15 +992,12 @@ impl<'a> TextInputLayout<'a> {
     /// neither, since Slint splits the text at `\n` before shaping.
     pub(crate) fn paragraphs(&self) -> impl Iterator<Item = TextInputParagraph<'a>> {
         let (text, y_offset) = (self.text, self.layout.y_offset);
-        self.layout
-            .paragraphs
-            .iter()
-            .map(move |para| TextInputParagraph {
-                range: para.range.clone(),
-                text: &text[para.range.clone()],
-                layout: &para.layout,
-                y: y_offset + para.y,
-            })
+        self.layout.paragraphs.iter().map(move |para| TextInputParagraph {
+            range: para.range.clone(),
+            text: &text[para.range.clone()],
+            layout: &para.layout,
+            y: y_offset + para.y,
+        })
     }
 }
 
@@ -1122,12 +1076,7 @@ fn with_text_input_layout_impl<R>(
         &layout_builder,
         LayoutOptions::new_from_textinput(text_input, Some(width), Some(height)),
         window_adapter.window(),
-        |layout| {
-            f(TextInputLayout {
-                layout,
-                text: &text,
-            })
-        },
+        |layout| f(TextInputLayout { layout, text: &text }),
     )
 }
 
