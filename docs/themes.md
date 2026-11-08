@@ -95,3 +95,49 @@ no Discord name or logo.
 
 Discord role colours stay as servers set them, and some read faintly on a
 light theme; Yapfast doesn't adjust them yet.
+
+## Fonts
+
+Settings → Appearance has a FONT section for drawing all of Yapfast in the
+person's own font.
+Choose font files opens a file dialog that takes several files at once; the
+list shows each file by name with the faces it gave ("Regular, Bold Italic")
+and a Remove button. Choosing again adds to the files already loaded, and
+Reset to default removes them all and goes back to the bundled font. The
+monospace code font and the emoji font are not changed.
+
+Every file is registered in one family of Yapfast's own naming, not the names
+the files carry, because the weights of one typeface often have a family name
+each. The text engine then picks the face for a bold or italic request from
+the weight and italic each file declares in its own tables, so a family given
+as one file per weight and an overlapping variable font both work. A style the
+files don't have is synthesised from the nearest, as it is for any font.
+
+The formats are TrueType and OpenType (TTF, OTF), collections (TTC, which
+register all of their faces) and WOFF. WOFF2 isn't supported, and says so in
+the list. A file is told by its first four bytes, not its extension. A file
+that isn't a font, or gives no face, is refused with a short reason and isn't
+kept. TTF, OTF and TTC files are memory-mapped, not read, so loading costs no
+heap and the operating system pages in the glyphs that draw. A WOFF file's
+tables are compressed, so it is unwrapped into a TrueType or OpenType font in
+memory (`src/woff.rs`) and the compressed file is released; that is the only
+copy a font makes. At most 64 files load.
+
+`layout.json` keeps the files in `ui_font_files`, as absolute paths in the
+order they were added, omitted while there are none. They are registered at
+startup, before the window's first frame. A path that is missing or isn't a
+usable font is skipped with a note under the list, the rest are used, and
+when none loads the bundled font stays. A missing file stays saved, in case
+its drive comes back; a file refused when chosen is not saved.
+
+Changing the files unregisters the faces of the earlier set and registers the
+new one under a new family name (`Yapfast Custom Font` and a number). The
+window's font family therefore changes with every load, which is what makes
+every text on screen be measured again; the text engine caches a measured
+size until a property it read changes, and a new face in a family of the same
+name would not have changed one. The unregistered files' mappings are released
+once the text engine drops the fonts it holds, which can be a moment later.
+
+Known limitation: the custom emoji font's vertical metrics are tuned to
+Atkinson Hyperlegible Next, so emoji can sit a little high or low against the
+text of a font with other proportions.
