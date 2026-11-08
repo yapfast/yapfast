@@ -51,8 +51,16 @@ const MOST: usize = 20;
 /// A speaker missing this many packets in a row has stopped: 100 ms.
 const GONE: u8 = 5;
 /// A decoded frame quieter than this, in mean square of full scale, can be
-/// skipped unheard: -40 dBFS.
-const QUIET: f32 = 1e-4;
+/// skipped unheard: -50 dBFS. The end of a word, such as an "s" or a
+/// vowel dying away, is often quieter than -40 dBFS, and skipping it cut
+/// the word short.
+const QUIET: f32 = 1e-5;
+/// A frame skipped fades into the next over this many samples per channel,
+/// 5 ms, so the skip doesn't click.
+const SPLICE: usize = FRAME / 4;
+/// At most this many datagrams waiting in the socket are read before a
+/// tick plays.
+const CATCH_UP: usize = 64;
 /// A speaker heard from no more in this long gives up their decoder.
 const FORGET: Duration = Duration::from_secs(10);
 /// A tick this late means the call stalled rather than woke late: its
@@ -103,6 +111,7 @@ pub(crate) fn start(
     std::thread::Builder::new()
         .name("yapfast-discord-call".into())
         .spawn(move || {
+            listener.on_call_thread();
             let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -391,6 +400,18 @@ impl Media {
                             ticks.reset();
                         }
                         self.send(connection, sending).await?;
+                        // After a stall the ticks missed come at once, and
+                        // the select may run them before the packets that
+                        // came meanwhile are read: the speakers would then
+                        // conceal audio that's sitting in the socket, and
+                        // play it late afterwards.
+                        for _ in 0..CATCH_UP {
+                            match connection.udp.try_recv(&mut datagram) {
+                                Ok(length) => self.receive(connection, &datagram[..length]).await?,
+                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                                Err(error) => return Err(error.into()),
+                            }
+                        }
                         self.hear(listener);
                         self.watching.repair(connection).await?;
                     }
@@ -715,6 +736,18 @@ struct Speaker {
 /// The most samples per channel an Opus packet decodes to: 120 ms.
 const LONGEST: usize = FRAME * 6;
 
+/// Interleaved channels of received audio.
+const CHANNELS: usize = crate::voice::CHANNELS as usize;
+
+/// Fades the start of a skipped frame, which carries on from what played
+/// before it, into the start of the frame that plays instead.
+fn splice(skipped: &[i16], into: &mut [i16]) {
+    for (at, (sample, old)) in into.iter_mut().zip(skipped).enumerate() {
+        let weight = (at / CHANNELS) as f32 / SPLICE as f32;
+        *sample = (f32::from(*old) * (1.0 - weight) + f32::from(*sample) * weight).round() as i16;
+    }
+}
+
 /// Whether sequence number `a` comes before `b`, across wrapping.
 fn before(a: u16, b: u16) -> bool {
     a != b && b.wrapping_sub(a) < 0x8000
@@ -728,7 +761,7 @@ impl Speaker {
             waiting: VecDeque::with_capacity(MOST + 1),
             next: None,
             missing: 0,
-            surplus: Surplus::default(),
+            surplus: Surplus::with_cushion(START - 1),
             pcm: vec![0; LONGEST * usize::from(crate::voice::CHANNELS)],
             left: 0..0,
             heard: std::time::Instant::now(),
@@ -824,7 +857,12 @@ impl Speaker {
                 if let Ok(samples) = decoded
                     && self.skips(samples)
                 {
+                    let mut skipped = [0i16; SPLICE * CHANNELS];
+                    skipped.copy_from_slice(&self.pcm[..SPLICE * CHANNELS]);
                     decoded = self.decode(next.wrapping_add(1));
+                    if decoded.is_ok() {
+                        splice(&skipped, &mut self.pcm);
+                    }
                 }
                 decoded
             }
@@ -834,7 +872,7 @@ impl Speaker {
                     // Stopped talking: wait for them to start again.
                     self.next = None;
                     self.missing = 0;
-                    self.surplus = Surplus::default();
+                    self.surplus = Surplus::with_cushion(START - 1);
                     return None;
                 }
                 match waiting {
@@ -884,7 +922,8 @@ impl Speaker {
         decoded
     }
 
-    /// Counts what waits after a packet was taken, and says whether to skip
+    /// Counts what waits after a packet was taken, beyond the 40 ms that
+    /// waits once playing starts, and says whether to skip
     /// the frame it decoded to, `samples` long, for the one after.
     fn skips(&mut self, samples: usize) -> bool {
         self.surplus.note(self.queued());
@@ -952,6 +991,75 @@ mod tests {
         let played = std::iter::from_fn(|| speaker.next().map(|_| ())).count();
         assert_eq!(played, usize::from(GONE) - 1);
         assert!(speaker.next.is_none());
+    }
+
+    #[test]
+    fn the_end_of_speech_plays_to_the_last_frame() {
+        // 1.5 s of speech, a word dying away at -45 dBFS, then the five
+        // silent frames Discord's clients send as they stop, one packet a
+        // tick. None is skipped: the 40 ms waiting is the cushion, not a
+        // surplus, and the dying word isn't quiet enough to go unheard.
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        let mut packets: Vec<Vec<u8>> = (0..75).map(|frame| tone(&mut encoder, frame)).collect();
+        for frame in 75..78 {
+            let pcm: Vec<f32> = (0..FRAME)
+                .map(|at| ((frame * FRAME + at) as f32 * 0.04).sin() * 0.008)
+                .collect();
+            let mut packet = vec![0; 1500];
+            let length = encoder.encode_float(&pcm, &mut packet).unwrap();
+            packet.truncate(length);
+            packets.push(packet);
+        }
+        packets.extend(std::iter::repeat_n(
+            SILENCE.to_vec(),
+            usize::from(SILENT_FRAMES),
+        ));
+        let mut played = 0;
+        for tick in 0..packets.len() + 20 {
+            if let Some(packet) = packets.get(tick) {
+                speaker.push(tick as u16, packet.clone());
+            }
+            played += usize::from(speaker.next().is_some());
+        }
+        // Then concealed briefly before the speaker stops.
+        assert_eq!(played, packets.len() + usize::from(GONE) - 1);
+    }
+
+    #[test]
+    fn a_late_packet_is_concealed_then_played() {
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        let packets: Vec<Vec<u8>> = (0..5).map(|frame| tone(&mut encoder, frame)).collect();
+        for sequence in 0..3 {
+            speaker.push(sequence, packets[usize::from(sequence)].clone());
+        }
+        for _ in 0..3 {
+            assert!(speaker.next().is_some());
+        }
+        // Packet 3 is late: its 20 ms is concealed rather than silent.
+        let concealed = speaker.next().expect("a concealed frame");
+        assert!(concealed.iter().any(|sample| *sample != 0));
+        // It comes, and plays next, with packet 4 waiting behind it.
+        speaker.push(3, packets[3].clone());
+        speaker.push(4, packets[4].clone());
+        assert!(speaker.next().is_some());
+        assert_eq!(speaker.next, Some(4));
+        assert_eq!(speaker.waiting.len(), 1);
+    }
+
+    #[test]
+    fn a_skipped_frame_fades_into_the_next() {
+        let skipped = [1000i16; SPLICE * CHANNELS];
+        let mut next = vec![-1000i16; FRAME * CHANNELS];
+        splice(&skipped, &mut next);
+        assert_eq!(&next[..2], &[1000, 1000]);
+        assert!(next.windows(2).all(|pair| pair[1] <= pair[0]), "no jump");
+        assert!(
+            next[SPLICE * CHANNELS..]
+                .iter()
+                .all(|sample| *sample == -1000)
+        );
     }
 
     #[test]

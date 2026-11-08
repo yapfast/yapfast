@@ -6,7 +6,10 @@
 //! WebRTC's Windows device module names each device by its endpoint id, as
 //! `IMMDevice::GetId` gives it, so a device id opens the endpoint directly.
 
-use std::time::{Duration, Instant};
+use std::{
+    cell::RefCell,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context as _, Result, anyhow, ensure};
 use windows::{
@@ -31,14 +34,45 @@ use windows::{
             Com::{
                 CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
             },
-            Threading::{CreateEventW, WaitForSingleObject},
+            Threading::{
+                AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, CreateEventW,
+                WaitForSingleObject,
+            },
         },
     },
-    core::HSTRING,
+    core::{HSTRING, w},
 };
 
 use super::Format;
 use crate::voice::NAMED;
+
+/// A thread's place in MMCSS's "Pro Audio" task, given back as it ends.
+struct ProAudio(HANDLE);
+
+impl Drop for ProAudio {
+    fn drop(&mut self) {
+        // SAFETY: the handle AvSetMmThreadCharacteristicsW gave this thread.
+        let _ = unsafe { AvRevertMmThreadCharacteristics(self.0) };
+    }
+}
+
+thread_local! {
+    static PRO_AUDIO: RefCell<Option<ProAudio>> = const { RefCell::new(None) };
+}
+
+pub fn raise_priority() {
+    PRO_AUDIO.with_borrow_mut(|held| {
+        if held.is_some() {
+            return;
+        }
+        let mut task = 0;
+        // SAFETY: registers the calling thread; the name is a constant.
+        match unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task) } {
+            Ok(handle) => *held = Some(ProAudio(handle)),
+            Err(error) => tracing::warn!(%error, "an audio thread stays at normal priority"),
+        }
+    });
+}
 
 /// What a stream without a queue of its own keeps queued.
 const DEFAULT_QUEUE: Duration = Duration::from_millis(200);
