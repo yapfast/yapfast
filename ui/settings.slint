@@ -4,7 +4,7 @@ import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
-import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook } from "controls.slint";
+import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook, Looks } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
@@ -17,6 +17,44 @@ export component SettingsTitle inherits Text {
 
 export component SettingsHeading inherits Text {
     color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+}
+
+// A heading that opens and closes the settings under it, its chevron
+// pointing down while they show, as a category in the channel list. A
+// click, or Space or Enter with the keyboard, opens or closes it.
+export component SettingsGroup inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> open;
+    height: 28px;
+    accessible-role: button;
+    accessible-label: root.text + (root.open ? ", expanded" : ", collapsed");
+    accessible-action-default => { root.open = !root.open; }
+    forward-focus: focus;
+    property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
+    HorizontalLayout {
+        spacing: 4px; alignment: start;
+        Image {
+            source: root.open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
+            width: 14px; image-fit: contain; colorize: root.ink;
+        }
+        SettingsHeading { text: root.text; color: root.ink; vertical-alignment: center; }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " {
+                root.open = !root.open; return accept;
+            }
+            return reject;
+        }
+        touch := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.open = !root.open; }
+        }
+    }
+    Rectangle {
+        x: -4px; width: parent.width + 8px;
+        border-radius: 4px; border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+    }
 }
 
 // A marigold switch, with its label beside it and what it does below. A click on
@@ -937,6 +975,8 @@ export component AppearanceSettings inherits VerticalLayout {
     in-out property <bool> system-title-bar;
     in property <bool> title-bar-choice;
     callback title-bar-toggled();
+    /// The side panels' settings show under their heading.
+    property <bool> side-panels-open;
     spacing: 16px;
     SettingsTitle { text: "Appearance"; }
     if !root.editor: VerticalLayout {
@@ -977,6 +1017,89 @@ export component AppearanceSettings inherits VerticalLayout {
         description: "The pictures Discord members equip behind their rows in the member list and on your account card.";
         checked <=> root.show-nameplates;
         toggled => { root.preferences-changed(); }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 12px;
+        SettingsGroup { text: "SIDE PANELS"; open <=> root.side-panels-open; }
+        if root.side-panels-open: VerticalLayout {
+            spacing: 12px;
+            SettingsSwitch {
+                text: "Fold the channel list";
+                description: "It stays narrow and opens over the chat while the pointer is on it.";
+                checked <=> Looks.fold-channels;
+                toggled => { root.preferences-changed(); }
+            }
+            SettingsSwitch {
+                text: "Fold the member list";
+                description: "It shows only pictures, and opens over the chat while the pointer is on it.";
+                checked <=> Looks.fold-members;
+                toggled => { root.preferences-changed(); }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                VolumeSlider {
+                    label: "Open delay"; value <=> Looks.unroll-delay; maximum: 1000; step: 50; snap: true; full-mark: false;
+                    shown: self.value + " ms";
+                    committed => { root.preferences-changed(); }
+                }
+                Label { text: "How long the pointer rests on a folded panel before it opens."; }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                VolumeSlider {
+                    label: "Close delay"; value <=> Looks.fold-delay; maximum: 1500; step: 50; snap: true; full-mark: false;
+                    shown: self.value + " ms";
+                    committed => { root.preferences-changed(); }
+                }
+                Label { text: "How long an open panel waits after the pointer leaves before it folds."; }
+            }
+            SettingsSwitch {
+                text: "Shadow while open";
+                description: "A soft shadow where an opened panel lies over the chat.";
+                checked <=> Looks.unrolled-shadow;
+                toggled => { root.preferences-changed(); }
+            }
+            SettingsSwitch {
+                text: "Show unread and mentions on folded icons";
+                description: "Unread channels light up, and mentions show their count on the icon.";
+                checked <=> Looks.folded-unread;
+                toggled => { root.preferences-changed(); }
+            }
+            SettingsSwitch {
+                text: "Show who's in voice channels when folded";
+                description: "Up to three pictures under a voice channel's icon, then how many more.";
+                checked <=> Looks.folded-voice;
+                toggled => { root.preferences-changed(); }
+            }
+            SettingsSwitch {
+                text: "Show the server's icon when folded";
+                description: "At the top of the folded channel list, where its name was.";
+                checked <=> Looks.folded-server;
+                toggled => { root.preferences-changed(); }
+            }
+            SettingsSwitch {
+                text: "Account panel as a pill when folded";
+                description: "Settings, your devices and your picture stand in the server rail. Off, the panel folds with the list.";
+                checked <=> Looks.folded-dock;
+                toggled => { root.preferences-changed(); }
+            }
+            SettingsSwitch {
+                text: "Keep-open pin";
+                description: "A pin at the top of each folding panel keeps it open until you unpin it. Ctrl+Shift+B pins the channel list either way.";
+                checked <=> Looks.pin-button;
+                toggled => { root.preferences-changed(); }
+            }
+        }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 12px;
+        SettingsHeading { text: "MOTION"; }
+        SettingsSwitch {
+            text: "Extra animations";
+            description: "Side panels slide as they open and fold, and the account pill's menu arrows slide out. Off, they snap.";
+            checked <=> Looks.animations;
+            toggled => { root.preferences-changed(); }
+        }
     }
     if root.editor: form := VerticalLayout {
         property <bool> confirming;
