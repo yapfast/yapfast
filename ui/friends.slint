@@ -1,6 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Popup } from "theme.slint";
-import { ActionButton, IconButton, Avatar, TextField, StatusText, VoiceSpot } from "controls.slint";
+import { ActionButton, IconButton, Avatar, TextField, StatusText, VoiceSpot, PictureStore } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { RoomRow, StatusDot, ChannelRow } from "rail.slint";
 
@@ -161,6 +161,22 @@ export struct FriendRow {
     voice-room: string, voice-channel: string, voice-server: string,
 }
 
+/// A friend with something going on, for the Active Now column.
+export struct ActiveNowRow {
+    id: string, name: string, initial: string, tint: color, picture: image, picture-url: string,
+    presence: string,
+    /// "Playing", "Streaming", "Listening to Spotify" and the like.
+    heading: string,
+    /// The game or app, its details line, and how long it has run.
+    title: string, details: string, since: string,
+    /// The address of the activity's picture.
+    thumb-url: string,
+    /// A stream's address, empty for any other activity.
+    stream-url: string,
+    /// The server voice channel they are in, with its server and its room.
+    voice-channel: string, voice-server: string, voice-room: string,
+}
+
 // A friend in the friends list. Clicking it opens your DM with them.
 export component FriendItem inherits Rectangle {
     in property <FriendRow> friend;
@@ -232,6 +248,22 @@ export component FriendItem inherits Rectangle {
     }
 }
 
+/// An activity picture in the Active Now column.
+component ActiveNowPicture inherits Rectangle {
+    in property <string> url;
+    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    function request() {
+        if root.url != "" && root.picture.width == 0 {
+            PictureStore.request(root.url);
+        }
+    }
+    init => { root.request(); }
+    changed url => { root.request(); }
+    changed picture => { root.request(); }
+    width: 44px; height: 44px; border-radius: 6px; clip: true; background: Theme.sunken;
+    Image { source: root.picture; width: parent.width; height: parent.height; image-fit: cover; }
+}
+
 /// The Discord friends list, in place of a conversation: those around, or all.
 export component FriendsScreen inherits Rectangle {
     in property <[FriendRow]> rows;
@@ -246,6 +278,10 @@ export component FriendsScreen inherits Rectangle {
     callback add-friend;
     /// A friend's menu was asked for: their id, and where in the window.
     callback open-friend-menu(string, length, length);
+    /// Friends with something going on, for the Active Now column.
+    in property <[ActiveNowRow]> active;
+    /// A stream address was clicked, to watch it.
+    callback open-stream(string);
     /// Whether the Active Now column is folded to its edge.
     property <bool> active-collapsed: false;
     /// Friends around with an activity or status to show.
@@ -295,8 +331,8 @@ export component FriendsScreen inherits Rectangle {
             }
         }
         }
-        if !root.active-collapsed: Rectangle {
-            width: 280px;
+        if !root.active-collapsed && root.active.length > 0: Rectangle {
+            width: 300px;
             background: Theme.panel;
             border-width: 1px;
             border-color: Theme.line;
@@ -304,41 +340,65 @@ export component FriendsScreen inherits Rectangle {
                 padding: 12px;
                 spacing: 8px;
                 HorizontalLayout {
-                    Text { text: "ACTIVE NOW"; font-size: 12px; font-weight: 700; color: Theme.muted; horizontal-stretch: 1; }
-                    TouchArea {
-                        width: 20px;
+                    Text { text: "Active Now"; font-size: 16px; font-weight: 700; color: Theme.text; horizontal-stretch: 1; }
+                    IconButton {
+                        icon: @image-url("icons/x.svg"); label: "Hide Active Now"; size: 24px; glyph: 14px; radius: 12px;
                         clicked => { root.active-collapsed = true; }
-                        Text { text: "×"; font-size: 16px; color: Theme.muted; horizontal-alignment: center; }
                     }
                 }
                 ListView {
-                    for friend in root.rows: Rectangle {
-                        visible: friend.activity != "" && friend.presence != "offline";
-                        height: self.visible ? 56px : 0px;
-                        TouchArea { clicked => { root.message(friend.id); } }
-                        HorizontalLayout {
-                            padding: 8px;
-                            spacing: 8px;
-                            Rectangle {
-                                width: 36px; height: 36px; border-radius: 18px; background: friend.tint; clip: true;
-                                Image { source: friend.picture; width: 36px; height: 36px; }
+                    for card in root.active: Rectangle {
+                        height: 104px;
+                        background: Theme.raised; border-radius: 8px;
+                        TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.message(card.id); }
+                        }
+                        VerticalLayout {
+                            padding: 10px; spacing: 6px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle {
+                                    width: 32px; height: 32px;
+                                    Avatar { size: 32px; initial: card.initial; tint: card.tint; picture: card.picture; picture-url: card.picture-url; }
+                                    StatusDot { x: 20px; y: 20px; presence: card.presence; ring: Theme.raised; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Text { text: card.name; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
+                                    Text { text: card.heading; color: card.stream-url != "" ? Theme.accent : Theme.muted; font-size: 12px; overflow: elide; }
+                                }
                             }
-                            VerticalLayout {
-                                alignment: center;
-                                Text { text: friend.name; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
-                                Text { text: friend.activity; color: Theme.secondary; font-size: 12px; overflow: elide; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                if card.thumb-url != "": ActiveNowPicture { url: card.thumb-url; }
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    Text { text: card.title; color: Theme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                                    if card.details != "": Text { text: card.details; color: Theme.secondary; font-size: 12px; overflow: elide; }
+                                    Text {
+                                        text: card.voice-channel != "" ? card.voice-channel + " · " + card.voice-server : card.since;
+                                        color: Theme.muted; font-size: 12px; overflow: elide;
+                                    }
+                                }
+                                if card.stream-url != "": ActionButton {
+                                    text: "Watch"; primary: true;
+                                    clicked => { root.open-stream(card.stream-url); }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        if root.active-collapsed: Rectangle {
-            width: 24px;
+        if root.active-collapsed && root.active.length > 0: Rectangle {
+            width: 28px;
             background: Theme.panel;
             border-width: 1px;
             border-color: Theme.line;
             TouchArea {
+                mouse-cursor: MouseCursor.pointer;
                 clicked => { root.active-collapsed = false; }
                 Text { text: "‹"; font-size: 18px; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
             }

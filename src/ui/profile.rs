@@ -863,3 +863,111 @@ pub(super) fn role_color(rgb: Option<u32>) -> slint::Color {
         slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
     })
 }
+
+/// The most friends the Active Now column lists.
+const ACTIVE_NOW_MOST: usize = 30;
+
+/// Friends who are around and playing, streaming, listening or in a voice
+/// channel, streams first, for the friends page's Active Now column.
+#[cfg(feature = "discord")]
+pub(super) fn active_now_rows(
+    state: &yapfast_core::application::AppState,
+    in_voice: &std::collections::HashMap<&str, super::refresh::VoicePlace<'_>>,
+    now_ms: u64,
+) -> Vec<ActiveNowRow> {
+    use yapfast_core::chat::{ActivityKind, Presence};
+    let mut rows: Vec<(bool, ActiveNowRow)> = Vec::new();
+    for friend in &state.friends {
+        let presence = friend.presence.unwrap_or(Presence::Offline);
+        if presence == Presence::Offline {
+            continue;
+        }
+        let voice = in_voice.get(friend.id.as_str());
+        let activity = friend
+            .activities
+            .iter()
+            .find(|activity| activity.kind != ActivityKind::Hang);
+        if activity.is_none() && voice.is_none() {
+            continue;
+        }
+        fn text(text: &Option<Box<str>>) -> &str {
+            text.as_deref().unwrap_or_default()
+        }
+        let (heading, title, details, since, thumb, stream) = match activity {
+            Some(activity) => {
+                let spotify = activity.spotify();
+                let title = if spotify {
+                    text(&activity.details)
+                } else if activity.kind == ActivityKind::Streaming {
+                    activity.details.as_deref().unwrap_or(&activity.name)
+                } else {
+                    &activity.name
+                };
+                let details = if spotify {
+                    text(&activity.state)
+                } else {
+                    text(&activity.state).trim()
+                };
+                (
+                    activity.heading(),
+                    title.to_owned(),
+                    details.to_owned(),
+                    activity
+                        .start
+                        .map(|start| running_for(start, now_ms))
+                        .unwrap_or_default(),
+                    yapfast_core::yapfast_discord::activity::small_picture(text(
+                        &activity.large_image,
+                    ))
+                    .into_owned(),
+                    if activity.kind == ActivityKind::Streaming {
+                        text(&activity.url).to_owned()
+                    } else {
+                        String::new()
+                    },
+                )
+            }
+            None => (
+                "In a voice channel".to_owned(),
+                voice.map_or(String::new(), |place| place.channel.to_owned()),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ),
+        };
+        rows.push((
+            !stream.is_empty(),
+            ActiveNowRow {
+                id: friend.id.as_str().into(),
+                name: friend.name.as_str().into(),
+                initial: initial(&friend.name),
+                tint: tint(&friend.id),
+                picture: slint::Image::default(),
+                picture_url: friend.avatar.as_deref().unwrap_or_default().into(),
+                presence: presence_name(Some(presence)).into(),
+                heading: heading.into(),
+                title: title.into(),
+                details: details.into(),
+                since: since.into(),
+                thumb_url: thumb.into(),
+                stream_url: stream.into(),
+                voice_channel: voice.map_or("", |place| place.channel).into(),
+                voice_server: voice.map_or("", |place| place.server).into(),
+                voice_room: voice.map_or("", |place| place.room).into(),
+            },
+        ));
+    }
+    rows.sort_by_key(|(streaming, _)| !streaming);
+    rows.truncate(ACTIVE_NOW_MOST);
+    rows.into_iter().map(|(_, row)| row).collect()
+}
+
+#[cfg(not(feature = "discord"))]
+pub(super) fn active_now_rows(
+    _state: &yapfast_core::application::AppState,
+    _in_voice: &std::collections::HashMap<&str, super::refresh::VoicePlace<'_>>,
+    _now_ms: u64,
+) -> Vec<ActiveNowRow> {
+    Vec::new()
+}

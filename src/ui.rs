@@ -1625,6 +1625,8 @@ struct Models {
     /// Discord friends: all of them, and those around.
     friends: Rc<VecModel<FriendRow>>,
     friends_online: Rc<VecModel<FriendRow>>,
+    /// Friends with something going on, for the friends page.
+    active_now: Rc<VecModel<ActiveNowRow>>,
     /// Those the Discord account blocked, for Settings.
     blocked: Rc<VecModel<BlockedRow>>,
     /// Browse Channels' rows, after its search.
@@ -1683,6 +1685,7 @@ impl Models {
         window.set_entrance_servers(ModelRc::from(self.entrance_servers.clone()));
         window.set_friends(ModelRc::from(self.friends.clone()));
         window.set_friends_online(ModelRc::from(self.friends_online.clone()));
+        window.set_active_now(ModelRc::from(self.active_now.clone()));
         window.set_blocked_people(ModelRc::from(self.blocked.clone()));
         window.set_browse_rows(ModelRc::from(self.browse_rows.clone()));
         window.set_microphones(ModelRc::from(self.microphones.clone()));

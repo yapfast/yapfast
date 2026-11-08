@@ -18,6 +18,8 @@ export struct ServerRow {
     /// This account is in a call in one of its voice channels; on a closed
     /// folder, in one of its servers'.
     call: bool,
+    /// Who is in the server's voice channels, one line each, for its tooltip.
+    voice-tip: string,
     picture-url: string,
     /// A folder of servers rather than a server: `id` is the folder's, `name`
     /// its tooltip, and `selected`, `unread` and `badge` sum up its servers.
@@ -917,7 +919,8 @@ export component ServerRail inherits Rectangle {
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
                         + (server.call ? ", in a call" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
-                    tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
+                    tip: (server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name)
+                        + (server.voice-tip != "" ? "\n" + server.voice-tip : "");
                     selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
                     call: server.call;
                     opacity: server.unavailable ? 0.5 : 1;

@@ -1509,6 +1509,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter.restyle = true;
         adapter.refresh(&window);
     });
+    // A friend's stream opens in the browser, as its link does.
+    window.on_open_stream(|url| {
+        if url.starts_with("https://") {
+            super::browser::open(&url);
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_open_link(move |link| {

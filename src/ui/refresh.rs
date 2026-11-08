@@ -767,6 +767,10 @@ impl Adapter {
             .cloned()
             .collect();
         update_model(&self.models.friends_online, around);
+        update_model(
+            &self.models.active_now,
+            active_now_rows(state, &in_voice, yapfast_core::clock::now_ms()),
+        );
         update_model(&self.models.friends, friend_rows);
         window.set_friend_count(i32::try_from(state.friends.len()).unwrap_or(i32::MAX));
         // Those blocked, for Settings.
@@ -4568,6 +4572,7 @@ pub(super) fn rail_rows(
             let (unread, mentions) = marks(server);
             rows.push(ServerRow {
                 call: in_call(server),
+                voice_tip: voice_tip(server, &rooms_by_id),
                 ..server_row(server, selected(server), unread, mentions)
             });
             continue;
@@ -4630,6 +4635,7 @@ pub(super) fn rail_rows(
                     last: index == last,
                     tint,
                     call: in_call(server),
+                    voice_tip: voice_tip(server, &rooms_by_id),
                     ..server_row(server, selected(server), unread, mentions)
                 });
             }
@@ -4671,6 +4677,43 @@ pub(super) fn voice_places<'a>(
         }
     }
     places
+}
+
+/// Who is in a server's voice channels, a line per channel, for the tooltip
+/// of its icon in the rail; empty when nobody is.
+pub(super) fn voice_tip(
+    server: &yapfast_core::chat::ChatServer,
+    rooms_by_id: &HashMap<&str, &yapfast_core::chat::ChatRoom>,
+) -> SharedString {
+    use std::fmt::Write;
+    let mut tip = String::new();
+    for room in server
+        .channels
+        .iter()
+        .filter_map(|channel| rooms_by_id.get(channel.as_str()))
+        .filter(|room| room.voice && !room.people.is_empty())
+    {
+        if !tip.is_empty() {
+            tip.push('\n');
+        }
+        let _ = write!(tip, "{}:", room.name);
+        for person in room.people.iter().filter(|person| !person.elsewhere).take(6) {
+            let state = if person.streaming {
+                " (live)"
+            } else if person.deafened {
+                " (deafened)"
+            } else if person.muted {
+                " (muted)"
+            } else if person.video {
+                " (camera)"
+            } else {
+                ""
+            };
+            let _ = write!(tip, " {}{state},", person.name);
+        }
+        tip.pop();
+    }
+    tip.into()
 }
 
 fn call_room(state: &AppState) -> Option<&str> {
