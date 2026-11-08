@@ -895,6 +895,10 @@ pub(super) fn active_now_rows(
         fn text(text: &Option<Box<str>>) -> &str {
             text.as_deref().unwrap_or_default()
         }
+        let line = match activity {
+            Some(activity) => activity.line().unwrap_or_else(|| activity.name.to_string()),
+            None => "In voice".to_owned(),
+        };
         let (heading, title, details, since, thumb, stream) = match activity {
             Some(activity) => {
                 let spotify = activity.spotify();
@@ -930,8 +934,8 @@ pub(super) fn active_now_rows(
                 )
             }
             None => (
-                "In a voice channel".to_owned(),
-                voice.map_or(String::new(), |place| place.channel.to_owned()),
+                "In voice".to_owned(),
+                String::new(),
                 String::new(),
                 String::new(),
                 String::new(),
@@ -949,6 +953,7 @@ pub(super) fn active_now_rows(
                 picture_url: friend.avatar.as_deref().unwrap_or_default().into(),
                 presence: presence_name(Some(presence)).into(),
                 heading: heading.into(),
+                line: line.into(),
                 title: title.into(),
                 details: details.into(),
                 since: since.into(),

@@ -4,6 +4,7 @@ import { ActionButton, IconButton, Avatar, TextField, StatusText, VoiceSpot, Pic
 import { DiscordBadge } from "discord.slint";
 import { RoomRow, StatusDot, ChannelRow } from "rail.slint";
 import { BlockedRow } from "settings.slint";
+import { LivePill } from "voice.slint";
 
 export struct RequestRow {
     /// Their Discord user id, or a group's room id.
@@ -168,6 +169,9 @@ export struct ActiveNowRow {
     presence: string,
     /// "Playing", "Streaming", "Listening to Spotify" and the like.
     heading: string,
+    /// The line under their name, as Discord words it: "Playing Factorio",
+    /// "Listening to Spotify", or "In voice".
+    line: string,
     /// The game or app, its details line, and how long it has run.
     title: string, details: string, since: string,
     /// The address of the activity's picture.
@@ -261,8 +265,90 @@ component ActiveNowPicture inherits Rectangle {
     init => { root.request(); }
     changed url => { root.request(); }
     changed picture => { root.request(); }
-    width: 44px; height: 44px; border-radius: 6px; clip: true; background: Theme.sunken;
+    in property <length> size: 44px;
+    width: root.size; height: root.size; border-radius: root.size / 6; clip: true; background: Theme.raised;
     Image { source: root.picture; width: parent.width; height: parent.height; image-fit: cover; }
+}
+
+/// A friend's card in Active Now, as Discord's: who, and what they're doing
+/// in a box under them, with the stream to watch or the voice channel to
+/// join.
+export component ActiveNowCard inherits Rectangle {
+    in property <ActiveNowRow> card;
+    /// The card was clicked: open the DM with them.
+    callback open;
+    callback watch(string);
+    /// Join their voice channel, by its room id.
+    callback join(string);
+    property <bool> has-activity: root.card.title != "";
+    property <brush> ground: touch.has-hover ? Theme.hover : Theme.raised;
+    border-radius: 8px;
+    background: root.ground;
+    animate background { duration: 120ms; }
+    border-width: 1px; border-color: Theme.line;
+    height: body.preferred-height;
+    accessible-role: button;
+    accessible-label: root.card.name + ", " + root.card.line;
+    accessible-action-default => { root.open(); }
+    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open(); } }
+    body := VerticalLayout {
+        padding: 12px; spacing: 10px;
+        HorizontalLayout {
+            spacing: 10px;
+            Rectangle {
+                width: 36px; height: 36px;
+                Avatar { size: 36px; initial: root.card.initial; tint: root.card.tint; picture: root.card.picture; picture-url: root.card.picture-url; }
+                StatusDot { x: 24px; y: 24px; presence: root.card.presence; ring: root.ground; }
+            }
+            VerticalLayout {
+                alignment: center; spacing: 2px; horizontal-stretch: 1;
+                Text { text: root.card.name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                Text {
+                    text: root.card.line;
+                    color: root.card.stream-url != "" ? Theme.danger : Theme.secondary;
+                    font-size: 13px; overflow: elide;
+                }
+            }
+        }
+        if root.has-activity: Rectangle {
+            border-radius: 8px; background: Theme.sunken;
+            height: activity.preferred-height;
+            activity := HorizontalLayout {
+                padding: 10px; spacing: 12px;
+                if root.card.thumb-url != "": Middle { ActiveNowPicture { url: root.card.thumb-url; size: 56px; } }
+                VerticalLayout {
+                    alignment: center; spacing: 2px; horizontal-stretch: 1;
+                    Text { text: root.card.title; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
+                    if root.card.details != "": Text { text: root.card.details; color: Theme.secondary; font-size: 12px; overflow: elide; }
+                    if root.card.since != "": Text { text: root.card.since; color: Theme.muted; font-size: 12px; overflow: elide; }
+                }
+            }
+        }
+        if root.card.stream-url != "": HorizontalLayout {
+            spacing: 8px;
+            Middle { LivePill {} }
+            ActionButton {
+                text: "Watch Stream"; primary: true; small: true; horizontal-stretch: 1;
+                clicked => { root.watch(root.card.stream-url); }
+            }
+        }
+        if root.card.voice-room != "": Rectangle {
+            border-radius: 8px; background: Theme.sunken;
+            height: voice.preferred-height;
+            voice := HorizontalLayout {
+                padding: 10px; spacing: 10px;
+                Middle { Image { source: @image-url("icons/volume-2.svg"); width: 18px; height: 18px; colorize: Theme.live; } }
+                VerticalLayout {
+                    alignment: center; spacing: 1px; horizontal-stretch: 1;
+                    Text { text: root.card.voice-channel; color: Theme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                    Text { text: root.card.voice-server; color: Theme.muted; font-size: 12px; overflow: elide; }
+                }
+                Middle {
+                    ActionButton { text: "Join"; success: true; small: true; clicked => { root.join(root.card.voice-room); } }
+                }
+            }
+        }
+    }
 }
 
 /// The Discord friends list, in place of a conversation: those around, or all.
@@ -332,76 +418,54 @@ export component FriendsScreen inherits Rectangle {
             }
         }
         }
-        if !root.active-collapsed && root.active.length > 0: Rectangle {
-            width: 300px;
-            background: Theme.panel;
-            border-width: 1px;
-            border-color: Theme.line;
+        if !root.active-collapsed: Rectangle {
+            width: 340px;
+            background: Theme.chat;
+            Rectangle { x: 0px; width: 1px; background: Theme.line; }
             VerticalLayout {
-                padding: 12px;
-                spacing: 8px;
+                padding: 16px; padding-left: 17px; spacing: 16px;
                 HorizontalLayout {
-                    Text { text: "Active Now"; font-size: 16px; font-weight: 700; color: Theme.text; horizontal-stretch: 1; }
+                    Text { text: "Active Now"; color: Theme.text; font-size: 20px; font-weight: 800; vertical-alignment: center; horizontal-stretch: 1; }
                     IconButton {
-                        icon: @image-url("icons/x.svg"); label: "Hide Active Now"; size: 24px; glyph: 14px; radius: 12px;
+                        icon: @image-url("icons/x.svg"); label: "Hide Active Now"; size: 28px; glyph: 16px; radius: 14px;
                         clicked => { root.active-collapsed = true; }
                     }
                 }
-                ListView {
-                    for card in root.active: Rectangle {
-                        height: 104px;
-                        background: Theme.raised; border-radius: 8px;
-                        TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => { root.message(card.id); }
-                        }
-                        VerticalLayout {
-                            padding: 10px; spacing: 6px;
-                            HorizontalLayout {
-                                spacing: 8px;
-                                Rectangle {
-                                    width: 32px; height: 32px;
-                                    Avatar { size: 32px; initial: card.initial; tint: card.tint; picture: card.picture; picture-url: card.picture-url; }
-                                    StatusDot { x: 20px; y: 20px; presence: card.presence; ring: Theme.raised; }
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    Text { text: card.name; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
-                                    Text { text: card.heading; color: card.stream-url != "" ? Theme.accent : Theme.muted; font-size: 12px; overflow: elide; }
-                                }
-                            }
-                            HorizontalLayout {
-                                spacing: 8px;
-                                if card.thumb-url != "": ActiveNowPicture { url: card.thumb-url; }
-                                VerticalLayout {
-                                    alignment: center;
-                                    horizontal-stretch: 1;
-                                    Text { text: card.title; color: Theme.text; font-size: 13px; font-weight: 600; overflow: elide; }
-                                    if card.details != "": Text { text: card.details; color: Theme.secondary; font-size: 12px; overflow: elide; }
-                                    Text {
-                                        text: card.voice-channel != "" ? card.voice-channel + " · " + card.voice-server : card.since;
-                                        color: Theme.muted; font-size: 12px; overflow: elide;
-                                    }
-                                }
-                                if card.stream-url != "": ActionButton {
-                                    text: "Watch"; primary: true;
-                                    clicked => { root.open-stream(card.stream-url); }
-                                }
-                            }
+                if root.active.length == 0: VerticalLayout {
+                    padding-top: 24px; spacing: 6px; alignment: start;
+                    Text { text: "It's quiet for now..."; color: Theme.text; font-size: 16px; font-weight: 700; horizontal-alignment: center; }
+                    Text {
+                        text: "When a friend starts an activity, like playing a game or hanging out in voice, it shows here.";
+                        color: Theme.secondary; font-size: 13px; wrap: word-wrap; horizontal-alignment: center;
+                    }
+                }
+                if root.active.length > 0: ListView {
+                    vertical-stretch: 1;
+                    for card in root.active: VerticalLayout {
+                        padding-bottom: 8px;
+                        ActiveNowCard {
+                            card: card;
+                            open => { root.message(card.id); }
+                            watch(url) => { root.open-stream(url); }
+                            join(room) => { root.open-voice(room); }
                         }
                     }
                 }
             }
         }
-        if root.active-collapsed && root.active.length > 0: Rectangle {
-            width: 28px;
-            background: Theme.panel;
-            border-width: 1px;
-            border-color: Theme.line;
-            TouchArea {
-                mouse-cursor: MouseCursor.pointer;
-                clicked => { root.active-collapsed = false; }
-                Text { text: "‹"; font-size: 18px; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+        if root.active-collapsed: Rectangle {
+            width: 52px;
+            background: Theme.chat;
+            Rectangle { x: 0px; width: 1px; background: Theme.line; }
+            VerticalLayout {
+                padding-top: 16px; alignment: start;
+                HorizontalLayout {
+                    alignment: center;
+                    IconButton {
+                        icon: @image-url("icons/users.svg"); label: "Show Active Now"; size: 32px; glyph: 18px; radius: 16px;
+                        clicked => { root.active-collapsed = false; }
+                    }
+                }
             }
         }
     }
