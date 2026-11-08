@@ -316,6 +316,29 @@ Yapfast is back, rather than showing an error.
   squared, so its middle sounds about half as loud. Turning it to nothing
   mutes, and unmuting brings back the level it had. The next video plays as
   loud, until Yapfast closes.
+- A voice message, a message flagged `IS_VOICE_MESSAGE` (`1 << 13`) whose
+  only attachment is its Ogg Opus recording, shows as a pill instead of a file
+  card, mixing Discord's phone and desktop players: a round button that plays
+  or pauses it, its waveform as 32 round bars, and how long it plays. The
+  bars come from the attachment's `waveform`, base64 of up to 256 loudness
+  bytes, each bar the loudest of its stretch; the length from its
+  `duration_secs`. Playing, the bars fill up to where it has played and the
+  time shows as "0:02 / 0:05", in the recording's time at any speed. While
+  the pointer or the keyboard is on the pill, or its volume is open, a speed
+  button and a volume button slide out after the time; with animations off
+  in the settings they always show. The speed button goes from 1x to 1.5x to
+  2x and back; the volume button opens an upright slider in a popup over it,
+  as Discord's desktop player has, or under it without room above, from 0 to
+  100%, squared as a video's is. Up and Down move it 5%, Page Up and Page
+  Down 20%; a click elsewhere or Escape closes it. Both apply to the one playing at once and
+  to the next, until Yapfast closes. The recording downloads whole, up to 16
+  MiB, and is kept in memory while it's the last one played; it decodes a
+  packet at a time on a thread of its own (`voice_message.rs`), is sped up
+  at the same pitch by WSOLA, as FFmpeg's `atempo` does (Yapfast's FFmpeg
+  has no filters), and plays on the call's speakers through `audio_io.rs`,
+  on Linux and Windows. One plays at a time: playing another stops it, as
+  does closing its channel, or its thread beside the channel. Paused, it
+  plays on from there; at its end it goes back to its start.
 - Markdown shows as Discord's client shows it. Bold, italics, strikethrough,
   inline code, lists and links are Slint's Markdown. Headings (`#` to `###`),
   subtext (`-# `), quotes (`> ` lines, or `>>> ` and the rest) and code fenced

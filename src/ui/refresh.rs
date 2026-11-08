@@ -30,7 +30,7 @@ pub(super) struct Reach {
     voice: bool,
     /// Pictures arrived, which can show anywhere.
     pictures: bool,
-    /// The video playing changed.
+    /// The video or voice message playing changed.
     video: bool,
     pub(super) everything: bool,
 }
@@ -61,7 +61,7 @@ impl Reach {
                 pictures: true,
                 ..Self::default()
             },
-            Event::Video(_) => Self {
+            Event::Video(_) | Event::VoiceMessage(_) => Self {
                 video: true,
                 ..Self::default()
             },
@@ -350,6 +350,7 @@ impl Adapter {
         }
         if reach.video {
             self.show_video(window);
+            self.show_voice_message(window);
         }
     }
 
@@ -412,6 +413,7 @@ impl Adapter {
         self.show_aside(window);
         self.show_voice(window);
         self.show_video(window);
+        self.show_voice_message(window);
         let state = &self.app.state;
         if changes.selection {
             self.focus_when_ready = state.shows_text() && !state.room_ready;
@@ -4397,6 +4399,42 @@ impl Adapter {
             };
             player.set_time(video_time(at, video.duration_ms).into());
         }
+    }
+
+    /// The voice message playing, or paused, which its card shows through
+    /// [`VoicePlayer`].
+    fn show_voice_message(&self, window: &YapfastWindow) {
+        let player = window.global::<VoicePlayer>();
+        let state = &self.app.state;
+        player.set_speed(format!("{}x", state.voice_tuning.speed).into());
+        player.set_volume(state.voice_tuning.volume);
+        let Some(playback) = &state.voice_message else {
+            player.set_item(SharedString::default());
+            player.set_playing(false);
+            player.set_progress(0.0);
+            player.set_time(SharedString::default());
+            return;
+        };
+        let duration = state
+            .message(&playback.item)
+            .and_then(|message| message.voice.as_ref())
+            .map_or(0, |voice| voice.duration_ms);
+        player.set_item(playback.item.as_str().into());
+        player.set_loading(playback.loading);
+        player.set_playing(playback.playing);
+        player.set_error(playback.error.clone().unwrap_or_default().into());
+        player.set_progress(if duration > 0 {
+            (playback.position_ms as f64 / duration as f64).min(1.0) as f32
+        } else {
+            0.0
+        });
+        // At its start it shows only how long it is.
+        let started = playback.playing || playback.position_ms > 0;
+        player.set_time(if started {
+            video_time(playback.position_ms, Some(duration)).into()
+        } else {
+            SharedString::default()
+        });
     }
 
     fn show_viewer(&mut self, window: &YapfastWindow) {
