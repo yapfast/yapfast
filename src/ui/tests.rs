@@ -682,6 +682,46 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
 }
 
 #[test]
+fn accessibility_density_applies_to_every_list_and_survives_reopening() {
+    i_slint_backend_testing::init_no_event_loop();
+    let files = tempfile::tempdir().unwrap();
+    let window = yapfast::window().unwrap();
+    for (density, channel, dm, member) in
+        [(0, 28., 38., 38.), (1, 32., 42., 42.), (2, 36., 46., 46.)]
+    {
+        Layout {
+            ui_density: Some(density),
+            chat_display: Some(1),
+            message_group_gap: Some(8),
+            ..Default::default()
+        }
+        .apply(&window);
+        let style = window.global::<ClientStyle>();
+        assert_eq!(window.get_ui_density(), density);
+        assert_eq!(style.get_channel_row_height(), channel);
+        assert_eq!(style.get_dm_row_height(), dm);
+        assert_eq!(style.get_member_row_height(), member);
+        assert_eq!(window.get_chat_display(), 1);
+        assert!(style.get_compact_messages());
+        assert_eq!(style.get_message_group_gap(), 8.);
+    }
+    Layout {
+        ui_density: Some(2),
+        chat_display: Some(1),
+        message_group_gap: Some(8),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::default().apply(&window);
+    assert_eq!(window.get_ui_density(), 1);
+    assert_eq!(window.get_chat_display(), 0);
+    Layout::read(files.path()).apply(&window);
+    assert_eq!(window.get_ui_density(), 2);
+    assert_eq!(window.get_chat_display(), 1);
+    assert_eq!(window.global::<ClientStyle>().get_message_group_gap(), 8.);
+}
+
+#[test]
 fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     i_slint_backend_testing::init_no_event_loop();
     let message = ChatMessage {

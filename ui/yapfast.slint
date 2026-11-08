@@ -1117,6 +1117,11 @@ export component YapfastWindow inherits Window {
     in-out property <int> date-format: -1;
     /// Message text in pixels from 12 to 24; zero follows the interface style.
     in-out property <int> text-size: 0;
+    /// List density: 0 compact, 1 default, 2 spacious.
+    in-out property <int> ui-density: 1;
+    /// Message layout: 0 cozy, 1 compact.
+    in-out property <int> chat-display: 0;
+    in-out property <int> message-group-gap: 16;
     in-out property <bool> link-previews: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
@@ -3108,7 +3113,7 @@ export component YapfastWindow inherits Window {
                                                     }
                                                     MessageContent {
                                                         message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled;
-                                                        emoji-font: root.emoji-font; message-font-size: root.message-font-size;
+                                                        emoji-font: root.emoji-font; message-font-size: root.message-font-size; compact: root.chat-display == 1;
                                                         show-styles: root.show-name-styles; hovered: row-pointer.has-hover;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
@@ -3543,7 +3548,7 @@ export component YapfastWindow inherits Window {
                         unstage(index) => { root.aside-unstage(index); }
                         toggle-spoiler(index) => { root.aside-toggle-spoiler(index); }
                         paste => { root.aside-paste(); }
-                        emoji-font: root.emoji-font; message-font-size: root.message-font-size; bar-reactions: root.bar-reactions;
+                        emoji-font: root.emoji-font; message-font-size: root.message-font-size; compact-messages: root.chat-display == 1; bar-reactions: root.bar-reactions;
                         active-item <=> root.active-item; react-item: root.react-item; menu-item: root.menu-item; confirm-delete: root.confirm-delete;
                         shift-held: root.shift-held;
                         forward-allowed: root.forward-allowed;
@@ -3831,6 +3836,8 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 9: AccessibilitySettings {
             message-font-size: root.message-font-size; text-size <=> root.text-size;
+            ui-density <=> root.ui-density; chat-display <=> root.chat-display;
+            message-group-gap <=> root.message-group-gap;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 1: VoiceSettings {

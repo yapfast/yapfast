@@ -1095,6 +1095,12 @@ struct Layout {
     /// Message text in pixels from 12 to 24. Files written by older versions
     /// hold 0 small, 1 default or 2 large.
     text_size: Option<i32>,
+    /// List density: 0 compact, 1 default, 2 spacious.
+    ui_density: Option<i32>,
+    /// Message layout: 0 cozy, 1 compact.
+    chat_display: Option<i32>,
+    /// Pixels between groups of messages, from 0 to 24.
+    message_group_gap: Option<i32>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
@@ -1381,6 +1387,16 @@ impl Layout {
         window.set_clock_seconds(self.clock_seconds);
         window.set_date_format(self.date_format.unwrap_or(-1));
         self.apply_date_format();
+        let density = self.ui_density.unwrap_or(1).clamp(0, 2);
+        let chat_display = self.chat_display.unwrap_or(0).clamp(0, 1);
+        let group_gap = self.message_group_gap.unwrap_or(16).clamp(0, 24);
+        let style = window.global::<ClientStyle>();
+        style.set_density(density);
+        style.set_compact_messages(chat_display == 1);
+        style.set_message_group_spacing(group_gap);
+        window.set_ui_density(density);
+        window.set_chat_display(chat_display);
+        window.set_message_group_gap(group_gap);
         let text_size = match self.text_size {
             Some(0) => 14,
             Some(2) => 18,

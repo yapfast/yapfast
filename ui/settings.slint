@@ -1048,6 +1048,9 @@ export component AppearanceSettings inherits VerticalLayout {
 export component AccessibilitySettings inherits VerticalLayout {
     in property <length> message-font-size;
     in-out property <int> text-size;
+    in-out property <int> ui-density;
+    in-out property <int> chat-display;
+    in-out property <int> message-group-gap;
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Accessibility"; }
@@ -1061,10 +1064,12 @@ export component AccessibilitySettings inherits VerticalLayout {
                 padding: 16px; spacing: 16px;
                 for text in ["what happened to all the beans", "here's a link <https://discord.com/accessibility>"]: HorizontalLayout {
                     spacing: 16px;
-                    VerticalLayout { alignment: start; Avatar { initial: "E"; tint: #c0679a; } }
+                    if root.chat-display == 0: VerticalLayout { alignment: start; Avatar { initial: "E"; tint: #c0679a; } }
+                    if root.chat-display == 1: Text { text: "02:44"; color: Theme.muted; font-size: max(10px, root.message-font-size - 4px); vertical-alignment: center; }
+                    if root.chat-display == 1: Text { text: "Experiences"; color: Theme.text; font-size: root.message-font-size; font-weight: 500; vertical-alignment: center; }
                     VerticalLayout {
                         spacing: 3px; horizontal-stretch: 1;
-                        HorizontalLayout {
+                        if root.chat-display == 0: HorizontalLayout {
                             spacing: 8px;
                             Text { text: "Experiences"; color: Theme.text; font-size: root.message-font-size; font-weight: 500; }
                             Text { text: "02:44"; color: Theme.muted; font-size: max(10px, root.message-font-size - 4px); vertical-alignment: center; }
@@ -1088,6 +1093,25 @@ export component AccessibilitySettings inherits VerticalLayout {
             committed => { root.preferences-changed(); }
         }
         Label { text: "Adjust the size of the chat font, from 12px to 24px."; }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "VISUAL DENSITY"; }
+        Choices {
+            label: "UI density"; options: ["Compact", "Default", "Spacious"];
+            current <=> root.ui-density; chosen => { root.preferences-changed(); }
+        }
+        Choices {
+            label: "Chat message display"; options: ["Default", "Compact"];
+            current <=> root.chat-display; chosen => { root.preferences-changed(); }
+        }
+        Label { text: "Compact puts the timestamp and author beside each message."; }
+        VolumeSlider {
+            label: "Space between message groups"; minimum: 0; maximum: 24; step: 4; full-mark: false;
+            value <=> root.message-group-gap; shown: self.value + "px";
+            committed => { root.preferences-changed(); }
+        }
+        Label { text: "Set how much space sits between groups of messages, from 0px to 24px."; }
     }
 }
 

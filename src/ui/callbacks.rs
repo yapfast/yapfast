@@ -1580,6 +1580,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.clock_seconds = window.get_clock_seconds();
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
         layout.apply_date_format();
+        let style = window.global::<ClientStyle>();
+        style.set_density(window.get_ui_density());
+        style.set_compact_messages(window.get_chat_display() == 1);
+        style.set_message_group_spacing(window.get_message_group_gap());
+        layout.ui_density = Some(window.get_ui_density());
+        layout.chat_display = Some(window.get_chat_display());
+        layout.message_group_gap = Some(window.get_message_group_gap());
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());
