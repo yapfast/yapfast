@@ -376,8 +376,9 @@ in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 the server's name, "Direct messages" or "Yapfast" in the middle and
 minimize, maximize or restore, and close at the right. Signed in, it also has
 back and forward arrows at the left, which walk the conversations visited as
-Alt+Left and Alt+Right do, up to 50 of them and past any that are gone, and
-Inbox and Help before the window's buttons. Help opens Discord's support site.
+Alt+Left and Alt+Right and a mouse's back and forward buttons do, up to 50 of
+them and past any that are gone, and Inbox and Help before the window's
+buttons. Help opens Discord's support site.
 Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
 conversations with unread messages, muted ones only for a mention, and
 Mentions, those that mention this account, each with its count; Discord's own

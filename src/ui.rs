@@ -296,6 +296,31 @@ const EVENT_BATCH: usize = 256;
 /// How long the zoom level shows after it changes.
 const ZOOM_NOTE: Duration = Duration::from_millis(1200);
 
+/// What the mouse's back and forward buttons do, as Alt+Left and Alt+Right
+/// do.
+fn side_button_action(button: slint::winit_030::winit::event::MouseButton) -> Option<Action> {
+    use slint::winit_030::winit::event::MouseButton;
+    match button {
+        MouseButton::Back => Some(Action::NavigateBack),
+        MouseButton::Forward => Some(Action::NavigateForward),
+        _ => None,
+    }
+}
+
+/// Carries out `action` once the event that asked for it is done.
+fn navigate(
+    adapter: &std::rc::Weak<RefCell<Adapter>>,
+    window: &slint::Weak<YapfastWindow>,
+    action: Action,
+) {
+    let (adapter, window) = (adapter.clone(), window.clone());
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        if let (Some(adapter), Some(window)) = (adapter.upgrade(), window.upgrade()) {
+            adapter.borrow_mut().action(&window, action);
+        }
+    });
+}
+
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
 /// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
@@ -608,19 +633,28 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     && !window.get_settings_open()
                 {
                     if !key.repeat {
-                        let action = if named == NamedKey::ArrowLeft {
-                            Action::NavigateBack
-                        } else {
-                            Action::NavigateForward
-                        };
-                        let (adapter, weak) = (adapter.clone(), weak.clone());
-                        slint::Timer::single_shot(Duration::ZERO, move || {
-                            if let (Some(adapter), Some(window)) =
-                                (adapter.upgrade(), weak.upgrade())
-                            {
-                                adapter.borrow_mut().action(&window, action);
-                            }
-                        });
+                        navigate(
+                            &adapter,
+                            &weak,
+                            if named == NamedKey::ArrowLeft {
+                                Action::NavigateBack
+                            } else {
+                                Action::NavigateForward
+                            },
+                        );
+                    }
+                    return EventResult::PreventDefault;
+                }
+                // So do the mouse's back and forward buttons. The release is
+                // kept from the window too, so that it isn't taken for a click.
+                if let WindowEvent::MouseInput { state, button, .. } = event
+                    && let Some(action) = side_button_action(*button)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                {
+                    if *state == ElementState::Pressed {
+                        navigate(&adapter, &weak, action);
                     }
                     return EventResult::PreventDefault;
                 }

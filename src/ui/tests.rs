@@ -8950,3 +8950,24 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     window.invoke_preferences_changed();
     assert!(adapter.borrow().layout.collapse_long);
 }
+
+#[test]
+fn the_mouse_side_buttons_go_back_and_forward() {
+    use slint::winit_030::winit::event::MouseButton;
+    assert!(matches!(
+        side_button_action(MouseButton::Back),
+        Some(Action::NavigateBack)
+    ));
+    assert!(matches!(
+        side_button_action(MouseButton::Forward),
+        Some(Action::NavigateForward)
+    ));
+    for other in [
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Other(7),
+    ] {
+        assert!(side_button_action(other).is_none(), "{other:?}");
+    }
+}
