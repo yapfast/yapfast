@@ -8,7 +8,8 @@ export global ClientStyle {
     // empty while there are none; it replaces both bundled faces.
     in-out property <string> custom-font;
     out property <string> font-family: self.custom-font != "" ? self.custom-font : self.enabled ? self.native-font : "Atkinson Hyperlegible Next";
-    out property <length> text-size: self.enabled ? 15px : 16px;
+    // 15px suits the bundled DM Sans; a loaded font is drawn at the 16px Discord uses.
+    out property <length> text-size: self.custom-font != "" ? 16px : self.enabled ? 15px : 16px;
     out property <length> sidebar-width: self.enabled ? 304px : 240px;
     // Discord's header rows: 48px between its outline and the line under them, 50px with both.
     out property <length> header-height: self.enabled ? 50px : 48px;
