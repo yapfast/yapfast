@@ -3014,6 +3014,20 @@ impl Adapter {
     /// messages that changed, and its composer.
     pub(super) fn show_aside(&mut self, window: &YapfastWindow) {
         self.mark_mentions();
+        // The room in split view shows again on the next start, unless
+        // that's turned off.
+        let split = self
+            .app
+            .state
+            .aside
+            .as_ref()
+            .filter(|aside| aside.split && self.layout.split_restore.unwrap_or(true))
+            .map(|aside| aside.room.clone());
+        if self.split_shown != split {
+            self.split_shown = split.clone();
+            self.layout.split_room = split;
+            self.layout.write(&self.root);
+        }
         let state = &self.app.state;
         let Some(aside) = &state.aside else {
             if window.get_aside_open() {
@@ -3041,6 +3055,15 @@ impl Adapter {
             window.set_aside_room(room.as_str().into());
         }
         window.set_aside_name(name.into());
+        // A thread in split view shows as a thread beside its channel does.
+        let thread = state
+            .aside_room()
+            .is_some_and(|listed| listed.parent.is_some());
+        window.set_aside_split(aside.split && !thread);
+        window.set_aside_dm(state.aside_room().is_some_and(|listed| listed.direct));
+        window.set_aside_can_swap(state.can_swap_split() && !thread);
+        let newest = aside.messages.iter().rev().find(|message| !message.own);
+        window.set_aside_newest(newest.map_or("", |message| message.item.as_str()).into());
         window.set_aside_ready(aside.ready);
         window.set_aside_loading(aside.loading_history);
         window.set_aside_start(aside.history_start);

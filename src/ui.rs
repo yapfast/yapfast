@@ -308,6 +308,15 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
         },
     };
+    /// The W key, as [`is_k`] finds K.
+    fn is_w(key: &KeyEvent) -> bool {
+        match &key.logical_key {
+            Key::Character(text) if text.chars().all(|letter| letter.is_ascii_alphabetic()) => {
+                text.eq_ignore_ascii_case("w")
+            }
+            _ => key.physical_key == PhysicalKey::Code(KeyCode::KeyW),
+        }
+    }
     /// The K key: the letter K in the keyboard's layout, or in a layout
     /// without Latin letters, the key in its place.
     fn is_k(key: &KeyEvent) -> bool {
@@ -351,7 +360,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         zoom::apply(window.window(), base.get(), level.get());
         let note = Rc::new(slint::Timer::default());
         let mut keys = zoom::Keys::default();
-        let mut cursor = None;
+        let mut cursor: Option<slint::winit_030::winit::dpi::PhysicalPosition<f64>> = None;
         // The winit window exists by the first event it sends.
         #[cfg(target_os = "linux")]
         let mut watching = false;
@@ -564,6 +573,90 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     return EventResult::PreventDefault;
                 }
                 let outcome = keys.event(event);
+                CONTROL.set(keys.control_only());
+                // A conversation dragged out of the list for split view: the
+                // row stops hearing the pointer once it leaves the row, so
+                // the window follows it from here, and drops it where the
+                // button comes up.
+                if let Some(window) = weak.upgrade()
+                    && window.get_split_dragging()
+                {
+                    match event {
+                        WindowEvent::CursorMoved { position, .. } => {
+                            let position =
+                                position.to_logical::<f32>(f64::from(slint_window.scale_factor()));
+                            window.set_split_drag_x(position.x);
+                            window.set_split_drag_y(position.y);
+                        }
+                        // Let go: it opens there if that's the drop zone.
+                        WindowEvent::MouseInput {
+                            state: ElementState::Released,
+                            ..
+                        } => {
+                            window.invoke_cancel_split_drag();
+                            let (room, x, y) = (
+                                window.get_split_drag_room(),
+                                window.get_split_drag_x(),
+                                window.get_split_drag_y(),
+                            );
+                            let weak = weak.clone();
+                            slint::Timer::single_shot(Duration::ZERO, move || {
+                                if let Some(window) = weak.upgrade() {
+                                    window.invoke_split_drop(room, x, y);
+                                }
+                            });
+                        }
+                        // Escape, or the window losing the pointer, cancels it.
+                        WindowEvent::KeyboardInput { event: key, .. }
+                            if key.state == ElementState::Pressed
+                                && key.logical_key == Key::Named(NamedKey::Escape) =>
+                        {
+                            window.invoke_cancel_split_drag();
+                            return EventResult::PreventDefault;
+                        }
+                        WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. } => {
+                            window.invoke_cancel_split_drag();
+                        }
+                        _ => {}
+                    }
+                }
+                // In split view, pressing on the side typing doesn't go to,
+                // even on a message's text, moves typing there. Winit sees
+                // every press, which Slint may give to text that takes it;
+                // this goes once Slint has, so the keyboard stays moved.
+                if let WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    ..
+                } = event
+                    && let Some(position) = cursor
+                {
+                    let position =
+                        position.to_logical::<f32>(f64::from(slint_window.scale_factor()));
+                    let weak = weak.clone();
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let Some(window) = weak.upgrade() {
+                            window.invoke_pane_pressed(position.x, position.y);
+                        }
+                    });
+                }
+                // Ctrl+Tab moves typing to split view's other side, and
+                // Ctrl+W closes split view, while it's open.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.control_only()
+                    && let Some(window) = weak.upgrade()
+                {
+                    let taken = match &key.logical_key {
+                        Key::Named(NamedKey::Tab) => {
+                            key.repeat || window.invoke_switch_split_side()
+                        }
+                        _ if is_w(key) => key.repeat || window.invoke_close_split(),
+                        _ => false,
+                    };
+                    if taken {
+                        return EventResult::PreventDefault;
+                    }
+                }
                 // Shift turns a message's hover bar into its quick actions,
                 // as in Discord's client, wherever the focus is.
                 match event {
@@ -706,19 +799,36 @@ thread_local! {
     static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
+    /// Ctrl is held alone in Yapfast's window, as its key events say.
+    static CONTROL: Cell<bool> = const { Cell::new(false) };
     /// Opens a conversation from a clicked notification, in the current window.
     static OPEN: RefCell<Option<OpenRoom>> = const { RefCell::new(None) };
 }
 
-type OpenRoom = Box<dyn Fn(String)>;
+type OpenRoom = Box<dyn Fn(String, bool)>;
 type TakeDrag = Box<dyn Fn(Drag)>;
 
-fn open_from_notification(room: String) {
+fn open_from_notification(room: String, split: bool) {
     OPEN.with(|open| {
         if let Some(open) = open.borrow().as_ref() {
-            open(room);
+            open(room, split);
         }
     });
+}
+
+/// What opening a room from a ping or a link does: with Ctrl held, and a
+/// room split view can show, it opens there; otherwise `otherwise`.
+fn split_or(
+    app: &Application,
+    room: String,
+    split: bool,
+    otherwise: fn(String) -> Action,
+) -> Action {
+    if split && app.state.can_split(&room) {
+        Action::OpenSplit(room)
+    } else {
+        otherwise(room)
+    }
 }
 
 /// Sends keys nothing took, such as after a menu closes, to the composer, as Discord does.
@@ -1043,6 +1153,22 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// Split view, a Yapfast addition: a channel or DM can open beside the
+    /// open room.
+    split_view: bool,
+    /// The width of the room in split view; half the conversation's room
+    /// unless dragged.
+    split_width: Option<f32>,
+    /// The room split view shows, kept so it shows again on the next start.
+    split_room: Option<String>,
+    /// Split view's parts, each on unless turned off: dragging rows to open
+    /// it, Ctrl+click and middle click, the notification button, reopening
+    /// it on start, and the unread dot.
+    split_drag: Option<bool>,
+    split_click: Option<bool>,
+    split_notify: Option<bool>,
+    split_restore: Option<bool>,
+    split_dot: Option<bool>,
     /// The expression picker's width, the GIFs and the emoji alike, as its
     /// left edge last dragged it wider. `gif_picker_width` named it while only
     /// the GIFs took it.
@@ -1356,6 +1482,23 @@ impl Layout {
         }
     }
 
+    /// How desktop notifications show: with their text, and with an "Open
+    /// in split view" button while split view and its button are on.
+    fn notification_style(&self) -> crate::notify::Style {
+        crate::notify::Style {
+            text: self.notification_text.unwrap_or(true),
+            split: self.split_view && self.split_notify.unwrap_or(true),
+        }
+    }
+
+    /// The room to show in split view on start, as it was when Yapfast last
+    /// closed, while split view and reopening it are on.
+    fn split_on_start(&self) -> Option<String> {
+        self.split_room
+            .clone()
+            .filter(|_| self.split_view && self.split_restore.unwrap_or(true))
+    }
+
     fn apply(&self, window: &YapfastWindow) {
         self.apply_custom_games(window);
         window.set_show_idle(self.show_idle.unwrap_or(true));
@@ -1367,6 +1510,13 @@ impl Layout {
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
+        window.set_split_view(self.split_view);
+        window.set_split_drag(self.split_drag.unwrap_or(true));
+        window.set_split_click(self.split_click.unwrap_or(true));
+        window.set_split_notify(self.split_notify.unwrap_or(true));
+        window.set_split_restore(self.split_restore.unwrap_or(true));
+        window.set_split_dot(self.split_dot.unwrap_or(true));
+        window.set_split_width(self.split_width.unwrap_or(0.0));
         if let Some(width) = self.picker_width {
             window.set_picker_width(width);
         }
@@ -1731,6 +1881,8 @@ struct Adapter {
     aside_rows: Vec<MessageRow>,
     /// The width the thread beside the channel last fitted its rows to.
     aside_fit: i32,
+    /// The room split view showed when the layout last stored it.
+    split_shown: Option<String>,
     /// The thread's rows are built again at its next showing, as the
     /// timeline's were.
     aside_restyle: bool,
@@ -1992,6 +2144,10 @@ impl Adapter {
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
         app.dispatch(Action::SkipCallPrompt(layout.skip_call_prompt));
         app.dispatch(Action::ActivityCardsHidden(layout.activity_cards_hidden));
+        app.dispatch(Action::SplitView(layout.split_view));
+        if let Some(room) = layout.split_on_start() {
+            app.dispatch(Action::RestoreSplit(room));
+        }
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
@@ -2047,6 +2203,7 @@ impl Adapter {
                 theme_editor: None,
                 aside_messages: Arc::new(Vec::new()),
                 aside_fit: 0,
+                split_shown: None,
                 aside_rows: Vec::new(),
                 aside_restyle: false,
                 mention_at: None,
@@ -2444,10 +2601,7 @@ impl Adapter {
                         attention(&window, true);
                     }
                     if self.layout.notifications.unwrap_or(true) && !FOCUSED.get() {
-                        let style = crate::notify::Style {
-                            text: self.layout.notification_text.unwrap_or(true),
-                        };
-                        self.notifier.show(alert, style);
+                        self.notifier.show(alert, self.layout.notification_style());
                     }
                 }
                 Effect::Sound(sound) => self.sound(sound),

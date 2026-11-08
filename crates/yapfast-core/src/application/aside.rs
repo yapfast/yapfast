@@ -2,6 +2,10 @@
 //! list, as Discord opens a thread from a message: its timeline, history and
 //! composer, beside the selected room's. Expanding it shows it in place of
 //! the channel.
+//!
+//! Split view, a Yapfast addition behind its switch, shows any Discord
+//! channel or DM there the same way, and keeps it while the main view goes
+//! to other rooms.
 
 use super::*;
 
@@ -21,6 +25,9 @@ pub struct Aside {
     /// selected room's: the last read when it showed, or the newest its
     /// first messages had.
     pub seen: Option<String>,
+    /// It's a channel or DM in split view, which stays while other rooms
+    /// show, rather than a thread of the open channel.
+    pub split: bool,
 }
 
 impl AppState {
@@ -75,6 +82,40 @@ impl AppState {
     pub fn aside_can_mark_spoilers(&self) -> bool {
         self.aside_room()
             .is_some_and(|room| room.capabilities.spoilers)
+    }
+
+    /// Whether split view can show a listed room beside the open one: a
+    /// Discord channel, thread or DM with messages to show, other than the
+    /// open one or the one split view shows already.
+    pub fn can_split(&self, id: &str) -> bool {
+        self.selected.as_deref() != Some(id)
+            && self.aside.as_ref().is_none_or(|aside| aside.room != id)
+            && self.splittable(id)
+    }
+
+    /// Whether the room in split view and the open one can change places:
+    /// the open one is one split view can show.
+    pub fn can_swap_split(&self) -> bool {
+        self.aside.as_ref().is_some_and(|aside| aside.split)
+            && self
+                .selected
+                .as_deref()
+                .is_some_and(|selected| self.splittable(selected))
+    }
+
+    /// A listed Discord channel, thread or DM with messages to show, with
+    /// split view on.
+    pub(super) fn splittable(&self, id: &str) -> bool {
+        self.split_view
+            && !self.preview
+            && self.rooms.iter().any(|room| {
+                room.id == id
+                    && room.network == Network::Discord
+                    && !room.voice
+                    && !room.forum
+                    && !room.locked
+                    && !room.request
+            })
     }
 
     /// The room whose timeline shows an item: the thread beside the open
@@ -167,6 +208,126 @@ impl Application {
         });
         self.aside_visible.clear();
         vec![Effect::Backend(Command::Aside(Some(room)))]
+    }
+
+    /// Shows a Discord channel, thread or DM beside the open room, in split
+    /// view, in place of a thread there. One split view can't show opens as
+    /// [`Action::SelectRoom`] does, so a Ctrl-click still goes somewhere.
+    pub(super) fn open_split(&mut self, room: String) -> Vec<Effect> {
+        if self.state.selected.as_deref() == Some(&room) && self.state.splittable(&room) {
+            return self.split_open_room(room);
+        }
+        if !self.state.can_split(&room) {
+            if self
+                .state
+                .aside
+                .as_ref()
+                .is_some_and(|aside| aside.split && aside.room == room)
+            {
+                return vec![];
+            }
+            return self.select_room(room);
+        }
+        let effects = self.show_aside(room);
+        if let Some(aside) = &mut self.state.aside {
+            aside.split = true;
+        }
+        effects
+    }
+
+    /// Shows the room in split view in the main view and the main view's in
+    /// split view. The Discord channels stay open as they change places, so
+    /// neither loads again.
+    pub(super) fn swap_split(&mut self) -> Vec<Effect> {
+        if !self.state.can_swap_split() {
+            return vec![];
+        }
+        let (Some(side), Some(main)) = (
+            self.state.aside.as_ref().map(|aside| aside.room.clone()),
+            self.state.selected.clone(),
+        ) else {
+            return vec![];
+        };
+        let mut effects = self.close_aside();
+        effects.extend(self.open(side, false));
+        effects.extend(self.open_split(main));
+        effects
+    }
+
+    /// Shows the room split view showed when Yapfast last closed, once it's
+    /// listed and a room is open; one split view can't show then, such as
+    /// the open one, is forgotten.
+    pub(super) fn restore_split(&mut self) -> Vec<Effect> {
+        let Some(room) = self.pending_split.clone() else {
+            return vec![];
+        };
+        let listed = self.state.rooms.iter().any(|listed| listed.id == room);
+        if self.state.selected.is_none() || !listed {
+            return vec![];
+        }
+        self.pending_split = None;
+        if !self.state.can_split(&room) {
+            return vec![];
+        }
+        self.open_split(room)
+    }
+
+    /// Moves the room on screen to split view, and the conversation to the
+    /// room shown before it; without one, to the first text channel of its
+    /// server, or for a DM, to the friends list. So the same room never
+    /// shows on both sides.
+    fn split_open_room(&mut self, room: String) -> Vec<Effect> {
+        let listed = |id: &str| self.state.rooms.iter().any(|listed| listed.id == id);
+        let previous = self
+            .previous_room
+            .clone()
+            .filter(|previous| *previous != room && listed(previous));
+        let server = self
+            .state
+            .servers
+            .iter()
+            .find(|server| server.channels.contains(&room));
+        let channel = server.and_then(|server| {
+            server.channels.iter().find(|id| {
+                **id != room
+                    && self.state.rooms.iter().any(|listed| {
+                        listed.id == **id
+                            && !listed.voice
+                            && !listed.forum
+                            && !listed.locked
+                            && listed.parent.is_none()
+                    })
+            })
+        });
+        let channel = channel.cloned();
+        let direct = self
+            .state
+            .rooms
+            .iter()
+            .any(|listed| listed.id == room && listed.direct);
+        let mut effects = self.close_aside();
+        match (previous, channel) {
+            (Some(other), _) | (None, Some(other)) => effects.extend(self.open(other, false)),
+            (None, None) if direct => {
+                effects.extend(self.navigate(Navigation::DirectMessages));
+                effects.extend(self.open_dm_screen(DmScreen::Friends));
+            }
+            (None, None) => return effects,
+        }
+        if self.state.selected.as_deref() == Some(&room) {
+            return effects;
+        }
+        effects.extend(self.open_split(room));
+        effects
+    }
+
+    /// Turns split view on or off; off closes a room it shows.
+    pub(super) fn set_split_view(&mut self, on: bool) -> Vec<Effect> {
+        self.state.split_view = on;
+        if !on && self.state.aside.as_ref().is_some_and(|aside| aside.split) {
+            return self.close_aside();
+        }
+        vec![]
     }
 
     pub(super) fn close_aside(&mut self) -> Vec<Effect> {

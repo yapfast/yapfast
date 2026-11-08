@@ -563,6 +563,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         Action::ToggleReplyPing { aside: true }
     );
     bind!(on_aside_close, Action::CloseAside);
+    bind!(on_aside_swap, Action::SwapSplit);
     bind!(on_aside_expand, Action::ExpandAside);
     bind!(on_aside_earlier, Action::AsideEarlier);
     bind!(on_aside_send, Action::SendAside);
@@ -1290,13 +1291,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_aside_resized(move |width| {
+        let Some(window) = weak.upgrade() else { return };
         let mut adapter = state.borrow_mut();
-        adapter.layout.aside_width = Some(width);
+        // Split view keeps its own width; 0 is half the room.
+        if window.get_aside_split() {
+            adapter.layout.split_width =
+                Some(window.get_split_width()).filter(|&width| width > 0.0);
+        } else {
+            adapter.layout.aside_width = Some(width);
+        }
         adapter.layout.write(&adapter.root);
         // Its pictures and link previews fit the new width.
-        if let Some(window) = weak.upgrade()
-            && adapter.app.state.aside.is_some()
-        {
+        if adapter.app.state.aside.is_some() {
             adapter.show_aside(&window);
         }
     });
@@ -1449,7 +1455,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 }
                 mention::Target::Role(role) => Action::ShowRole(role),
                 // Opens its chat; a voice channel's doesn't join the call.
-                mention::Target::Channel(room) => Action::Open(room),
+                // With Ctrl held, it opens in split view when it can.
+                mention::Target::Channel(room) => {
+                    let adapter = state.borrow();
+                    let split = CONTROL.get() && adapter.layout.split_click.unwrap_or(true);
+                    super::split_or(&adapter.app, room, split, Action::Open)
+                }
                 // As in Discord's client, @everyone and @here open nothing.
                 mention::Target::Everyone => return,
             };
@@ -1586,6 +1597,16 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.nameplates = Some(window.get_show_nameplates());
         layout.collapse_long = window.get_collapse_long();
+        layout.split_view = window.get_split_view();
+        layout.split_drag = Some(window.get_split_drag());
+        layout.split_click = Some(window.get_split_click());
+        layout.split_notify = Some(window.get_split_notify());
+        layout.split_restore = Some(window.get_split_restore());
+        layout.split_dot = Some(window.get_split_dot());
+        // Not reopening it on start forgets what it showed.
+        if !window.get_split_restore() {
+            layout.split_room = None;
+        }
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
@@ -1651,6 +1672,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         adapter
             .app
             .dispatch(Action::HideNameplates(!window.get_show_nameplates()));
+        let split_view = window.get_split_view();
+        let effects = adapter.app.dispatch(Action::SplitView(split_view));
+        adapter.execute(effects);
         adapter.restyle = true;
         adapter.refresh(&window);
     });
@@ -1979,6 +2003,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_open_split(move |id| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::OpenSplit(id.into()));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_open_conversation(move |id| {
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().action(&window, Action::Open(id.into()));
@@ -1990,6 +2023,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().action(&window, Action::GoToCall);
         }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_open_ping(move |id| {
+        let Some(window) = weak.upgrade() else { return };
+        let action = {
+            let adapter = state.borrow();
+            let split = CONTROL.get() && adapter.layout.split_click.unwrap_or(true);
+            super::split_or(&adapter.app, id.into(), split, Action::Open)
+        };
+        state.borrow_mut().action(&window, action);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
