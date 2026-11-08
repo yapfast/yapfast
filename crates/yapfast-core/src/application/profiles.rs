@@ -274,9 +274,6 @@ impl Application {
     fn keep_own_profile(&mut self, user: &str, profile: &Profile) {
         if self.state.discord_user.as_deref() == Some(user) && profile.joined.is_none() {
             self.state.account_profile = Some(Arc::new(profile.clone()));
-            if let Some(editor) = self.state.profile_editor.as_mut() {
-                editor.fill_look(profile);
-            }
         }
     }
 
@@ -315,20 +312,14 @@ impl Application {
                 },
             )));
         }
-        if view.board_open && !profile.board_asked {
-            let named = profile
-                .widgets
-                .iter()
-                .any(|widget| !widget.games.is_empty() || widget.application.is_some());
-            if named {
-                profile.board_asked = true;
-                effects.push(Effect::Backend(Command::Discord(
-                    DiscordCommand::ProfileBoard {
-                        user: profile.id.clone(),
-                        widgets: profile.widgets.clone(),
-                    },
-                )));
-            }
+        if view.board_open && !profile.board_asked && names_games(&profile.widgets) {
+            profile.board_asked = true;
+            effects.push(Effect::Backend(Command::Discord(
+                DiscordCommand::ProfileBoard {
+                    user: profile.id.clone(),
+                    widgets: profile.widgets.clone(),
+                },
+            )));
         }
         if view.wishlist_open && matches!(profile.wishlist, Wishlist::Unasked | Wishlist::Failed) {
             match &profile.wishlist_place {
@@ -373,14 +364,20 @@ impl Application {
     }
 
     pub(super) fn profile_board_named(&mut self, user: &str, widgets: Vec<ProfileWidget>) {
-        if let Some(view) = self
+        let editor = self
             .state
-            .profile
+            .profile_editor
             .as_mut()
-            .filter(|view| view.profile.id == user)
+            .and_then(|editor| editor.profile.as_mut())
+            .map(|profile| &mut profile.fallback);
+        let view = self.state.profile.as_mut().map(|view| &mut view.profile);
+        for profile in [view, editor]
+            .into_iter()
+            .flatten()
+            .filter(|profile| profile.id == user && profile.board_asked)
         {
-            view.profile.widgets = widgets;
-            view.profile.board_named = true;
+            profile.widgets.clone_from(&widgets);
+            profile.board_named = true;
         }
     }
 
@@ -425,22 +422,20 @@ impl Application {
     }
 }
 
+/// Whether a board has games or applications to name.
+pub(super) fn names_games(widgets: &[ProfileWidget]) -> bool {
+    widgets
+        .iter()
+        .any(|widget| !widget.games.is_empty() || widget.application.is_some())
+}
+
 /// Puts `profile` on screen in `view`. Presence and activities come from the
 /// member list; the profile doesn't carry them.
 fn fill_profile(view: &mut ProfileView, profile: &Profile) {
     let note = std::mem::take(&mut view.profile.note);
     // What a tab already asked for stays, as long as it's the same list.
     let same_place = view.profile.wishlist_place == profile.wishlist_place;
-    let game_ids = |widgets: &[ProfileWidget]| -> Vec<String> {
-        widgets
-            .iter()
-            .flat_map(|widget| &widget.games)
-            .map(|game| game.id.clone())
-            .collect()
-    };
-    let same_board = view.profile.board_asked
-        && view.profile.widgets.len() == profile.widgets.len()
-        && game_ids(&view.profile.widgets) == game_ids(&profile.widgets);
+    let same_board = same_board(&view.profile, profile);
     let mut filled = Profile {
         note: if profile.note.is_empty() {
             note
@@ -458,11 +453,30 @@ fn fill_profile(view: &mut ProfileView, profile: &Profile) {
         filled.wishlist = std::mem::take(&mut view.profile.wishlist);
     }
     if same_board {
-        filled.widgets = std::mem::take(&mut view.profile.widgets);
-        filled.board_asked = view.profile.board_asked;
-        filled.board_named = view.profile.board_named;
+        keep_board(&mut filled, &mut view.profile);
     }
     view.profile = filled;
+}
+
+/// Whether `new` has the board `old` already asked Discord to name.
+pub(super) fn same_board(old: &Profile, new: &Profile) -> bool {
+    let game_ids = |widgets: &[ProfileWidget]| -> Vec<String> {
+        widgets
+            .iter()
+            .flat_map(|widget| &widget.games)
+            .map(|game| game.id.clone())
+            .collect()
+    };
+    old.board_asked
+        && old.widgets.len() == new.widgets.len()
+        && game_ids(&old.widgets) == game_ids(&new.widgets)
+}
+
+/// Moves the board `old` asked to name, and its names, to `new`.
+pub(super) fn keep_board(new: &mut Profile, old: &mut Profile) {
+    new.widgets = std::mem::take(&mut old.widgets);
+    new.board_asked = old.board_asked;
+    new.board_named = old.board_named;
 }
 
 /// What a one-to-one DM knows of its other person's profile.

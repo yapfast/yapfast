@@ -374,21 +374,10 @@ impl Application {
             premium: self.premium_type(),
             ..Default::default()
         });
-        if let (Some(editor), Some(own)) = (
-            self.state.profile_editor.as_mut(),
-            self.state.account_profile.as_ref(),
-        ) {
-            editor.fill_look(own);
-        }
-        // The theme and name style come with the account's profile, which
-        // the card it opens from may not have asked for.
-        let mut effects = vec![Effect::Backend(Command::Discord(
+        // The theme and name style come with the profile it reads.
+        vec![Effect::Backend(Command::Discord(
             DiscordCommand::OwnProfile { server: None },
-        ))];
-        if self.state.account_profile.is_none() {
-            effects.extend(self.load_own_profile());
-        }
-        effects
+        ))]
     }
 
     /// Opens the editor of this account's profile in a Discord server, by
@@ -512,15 +501,44 @@ impl Application {
                 if unchanged(&editor.colour, kept.map(|sent| sent.colour.as_str())) {
                     editor.colour = colour_text(profile.accent);
                 }
+                // The theme and name style are the main profile's, which is
+                // the fallback in a server.
+                editor.fill_look(&profile.fallback);
+                let mut profile = profile;
+                // Read back after a save, its board keeps the names it has.
+                if let Some(old) = editor
+                    .profile
+                    .as_mut()
+                    .map(|old| &mut old.fallback)
+                    .filter(|old| same_board(old, &profile.fallback))
+                {
+                    keep_board(&mut profile.fallback, old);
+                }
                 editor.profile = Some(profile);
             }
             Err(error) => editor.error = Some(error),
         }
+        let mut effects = vec![];
+        // The board's games are named once, as the full profile's are.
+        if let Some(fallback) = editor
+            .profile
+            .as_mut()
+            .map(|profile| &mut profile.fallback)
+            .filter(|fallback| !fallback.board_asked && names_games(&fallback.widgets))
+        {
+            fallback.board_asked = true;
+            effects.push(Effect::Backend(Command::Discord(
+                DiscordCommand::ProfileBoard {
+                    user: fallback.id.clone(),
+                    widgets: fallback.widgets.clone(),
+                },
+            )));
+        }
         // The tab opened before the profile came, so its asking is due.
         if !refreshed && editor.wishlist == Wishlist::Loading {
-            return editor.ask_wishlist();
+            effects.extend(editor.ask_wishlist());
         }
-        vec![]
+        effects
     }
 
     /// Sets the name style its window chose; Discord's usual font with its
@@ -754,15 +772,11 @@ impl Application {
             // change.
             Err(error) => editor.error = Some(error),
         }
-        let mut effects = vec![Effect::Backend(Command::Discord(
-            DiscordCommand::OwnProfile {
-                server: server.clone(),
-            },
-        ))];
-        if server.is_none() {
-            effects.extend(self.load_own_profile());
-        }
-        effects
+        // The account's card asks again as it next opens: the save dropped
+        // the profile the service kept.
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::OwnProfile { server },
+        ))]
     }
 
     /// Opens Discord's Nitro page, from the editor's offer.

@@ -8504,11 +8504,20 @@ fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
         "the saved tag is no longer a change"
     );
     assert!(
-        effects.iter().any(|effect| matches!(
+        matches!(
+            effects.as_slice(),
+            [Effect::Backend(Command::Discord(
+                DiscordCommand::OwnProfile { server: None }
+            ))]
+        ),
+        "the profile is read back once"
+    );
+    assert!(
+        app.dispatch(Action::LoadOwnProfile).iter().any(|effect| matches!(
             effect,
             Effect::Backend(Command::Discord(DiscordCommand::Profile { user, .. })) if user == "1"
         )),
-        "what the popout shows comes fresh"
+        "what the popout shows comes fresh as it opens"
     );
 
     // An empty id takes the tag off; a refusal stays on screen.
@@ -8524,17 +8533,13 @@ fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
         result: Err("no".into()),
     });
     // Requests before the one refused went through, so what Discord has is
-    // asked for again, for the editor and the popout.
-    assert!(effects.iter().any(|effect| matches!(
-        effect,
-        Effect::Backend(Command::Discord(DiscordCommand::OwnProfile {
-            server: None
-        }))
-    )));
-    assert!(effects.iter().any(|effect| matches!(
-        effect,
-        Effect::Backend(Command::Discord(DiscordCommand::Profile { .. }))
-    )));
+    // asked for again, once; the popout asks as it next opens.
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::OwnProfile { server: None }
+        ))]
+    ));
     let editor = app.state.profile_editor.as_ref().unwrap();
     assert_eq!(editor.error.as_deref(), Some("no"));
     assert!(!editor.saving);
@@ -11093,6 +11098,104 @@ fn a_wishlist_opened_early_waits_for_the_profile() {
     assert_eq!(wishlist(&app), chat::Wishlist::Failed);
 }
 
+/// The editor names its board's games once, from the profile it reads, as
+/// the full profile does; the look comes with that profile too.
+#[cfg(feature = "discord")]
+#[test]
+fn the_profile_editor_names_its_boards_games_once() {
+    use chat::OwnProfile;
+    let mut app = discord_server();
+    app.state.discord_user = Some("1".into());
+    let opened = app.dispatch(Action::EditProfile);
+    assert!(
+        matches!(
+            opened.as_slice(),
+            [Effect::Backend(Command::Discord(
+                DiscordCommand::OwnProfile { server: None }
+            ))]
+        ),
+        "the profile is asked for once"
+    );
+    let widgets = vec![chat::ProfileWidget {
+        title: "Want to Play".into(),
+        lists_games: true,
+        games: vec![chat::ProfileGame {
+            id: "7".into(),
+            name: "Unknown game".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let profile = OwnProfile {
+        fallback: Profile {
+            id: "1".into(),
+            theme: Some([0x11_22_33, 0x44_55_66]),
+            widgets: widgets.clone(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let effects = app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile.clone()),
+    });
+    let asked = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Discord(DiscordCommand::ProfileBoard { user, .. }))
+                        if user == "1"
+                )
+            })
+            .count()
+    };
+    assert_eq!(asked(&effects), 1);
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert_eq!(editor.theme(), Ok(Some([0x11_22_33, 0x44_55_66])));
+
+    let mut named = widgets;
+    named[0].games[0].name = "Celeste".into();
+    app.apply(Event::ProfileBoard {
+        user: "1".into(),
+        widgets: named.clone(),
+    });
+    let fallback = &app
+        .state
+        .profile_editor
+        .as_ref()
+        .unwrap()
+        .profile
+        .as_ref()
+        .unwrap()
+        .fallback;
+    assert_eq!(fallback.widgets, named);
+    assert!(fallback.board_named);
+    // Read back after a save, it keeps its names and isn't asked for again.
+    app.dispatch(Action::ChooseServerTag("9".into()));
+    app.dispatch(Action::SaveProfile);
+    app.apply(Event::ProfileSaved {
+        server: None,
+        result: Ok(()),
+    });
+    let effects = app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile),
+    });
+    assert_eq!(asked(&effects), 0);
+    let fallback = &app
+        .state
+        .profile_editor
+        .as_ref()
+        .unwrap()
+        .profile
+        .as_ref()
+        .unwrap()
+        .fallback;
+    assert_eq!(fallback.widgets, named);
+}
+
 #[cfg(feature = "discord")]
 /// A full profile on screen with a public wishlist at 90, and a game on its board.
 fn full_profile_with_tabs(large: bool) -> Application {
@@ -11240,6 +11343,7 @@ fn recent_activity_is_asked_for_once_when_the_activity_tab_opens() {
     );
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn a_profile_without_a_wishlist_has_an_empty_one() {
     let mut app = discord_server();

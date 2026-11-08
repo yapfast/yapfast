@@ -187,9 +187,11 @@ export component UnsavedBar inherits Rectangle {
         animate x { duration: 50ms; }
         width: root.width;
         padding: 12px; padding-left: root.pad; spacing: 8px;
+        // It goes onto two lines where the bar is narrow, as in the
+        // profile editor's middle column.
         Middle {
             Text {
-                text: "Careful — you have unsaved changes!"; font-size: 14px; font-weight: 600; overflow: elide;
+                text: "Careful — you have unsaved changes!"; font-size: 14px; font-weight: 600; wrap: word-wrap;
                 color: root.red ? Theme.on-danger : Theme.text;
             }
         }

@@ -103,7 +103,7 @@ pub use threads::{
 use calls::call_sounds;
 use compose::has_markdown;
 use preview::{preview_members, sample_actions};
-use profiles::dm_profile;
+use profiles::{dm_profile, keep_board, names_games, same_board};
 
 /// How many people the composer suggests for an `@` word, and how many roles
 /// and groups after them.

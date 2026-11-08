@@ -1321,7 +1321,7 @@ component NameStyleWindow inherits Rectangle {
                         Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
                         if root.presence != "": StatusDot { x: 56px; y: 56px; width: 26px; height: 26px; presence: root.presence; ring: root.card-top; }
                     }
-                    StyledName { x: 18px; y: 145px; text: root.name; styles: root.style; font-size: 21px; font-weight: 700; }
+                    StyledName { x: 18px; y: 145px; height: self.preferred-height; text: root.name; styles: root.style; font-size: 21px; font-weight: 700; }
                     HorizontalLayout {
                         x: 18px; y: 176px; width: parent.width - 36px; height: 26px; spacing: 6px; alignment: start;
                         Text { text: root.handle; color: #ffffff; font-size: 13px; vertical-alignment: center; overflow: elide; }
@@ -1350,7 +1350,7 @@ component NameStyleWindow inherits Rectangle {
                     animate background { duration: 180ms; }
                     drop-shadow-blur: 14px; drop-shadow-color: #00000055; drop-shadow-offset-y: 4px;
                     Avatar { x: 10px; y: 9px; size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; }
-                    StyledName { x: 52px; y: 14px; text: root.name; styles: root.style; font-size: 17px; font-weight: 600; }
+                    StyledName { x: 52px; y: 14px; height: self.preferred-height; text: root.name; styles: root.style; font-size: 17px; font-weight: 600; }
                 }
                 // Light or dark, for the message and member row.
                 Rectangle {

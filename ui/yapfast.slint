@@ -3823,7 +3823,7 @@ export component YapfastWindow inherits Window {
             discord-linked: root.discord-linked; has-custom-status: root.has-custom-status;
             retry-sync => { root.retry-sync(); }
             set-custom-status => { root.settings-open = false; root.open-status(); }
-            edit-profile => { root.settings-open = false; root.account-opened(); root.edit-profile(); }
+            edit-profile => { root.settings-open = false; root.edit-profile(); }
             sign-out => { root.settings-open = false; root.logout(); }
         }
         if root.settings-section == 7: AppearanceSettings {

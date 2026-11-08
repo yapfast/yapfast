@@ -161,6 +161,25 @@ fn card_pictures(state: &AppState, profile: &yapfast_core::chat::Profile) -> usi
         .count()
 }
 
+/// What the profile editor's preview takes from the account's own profile:
+/// what the editor doesn't change.
+fn own_profile_parts(own: Option<&yapfast_core::chat::Profile>) -> yapfast_core::chat::Profile {
+    let Some(own) = own else {
+        return Default::default();
+    };
+    yapfast_core::chat::Profile {
+        decoration: own.decoration.clone(),
+        effect: own.effect.clone(),
+        tag: own.tag.clone(),
+        badges: own.badges.clone(),
+        connections: own.connections.clone(),
+        presence: own.presence,
+        activity: own.activity.clone(),
+        activities: own.activities.clone(),
+        ..Default::default()
+    }
+}
+
 /// What the sidebar was built from, kept to tell whether it changed. The
 /// rooms and servers go by their count of changes and the other lists by a
 /// hash: copies of them took megabytes on a large account.
@@ -2579,17 +2598,14 @@ impl Adapter {
                 widgets: fallback
                     .map(|fallback| fallback.widgets.clone())
                     .unwrap_or_default(),
+                board_asked: fallback.is_some_and(|fallback| fallback.board_asked),
+                board_named: fallback.is_some_and(|fallback| fallback.board_named),
                 wishlist_place: fallback.and_then(|fallback| fallback.wishlist_place.clone()),
                 wishlist: editor.wishlist.clone(),
-                // What the editor doesn't change comes from the account's
-                // profile: its decoration, tag, badges and activities.
-                ..self
-                    .app
-                    .state
-                    .account_profile
-                    .as_deref()
-                    .cloned()
-                    .unwrap_or_default()
+                // What the editor doesn't change comes from the profile it
+                // read: its decoration, effect, tag, badges, connections and
+                // activities.
+                ..own_profile_parts(fallback)
             },
             large: false,
             loading: false,
@@ -2602,9 +2618,11 @@ impl Adapter {
         preview.friend = 0;
         // The tabs' lists stay as they are unless they changed, so a card
         // doesn't lose its place or its pictures as this is shown again.
-        let shown = window.get_profile_editor_prompt().preview;
+        let shown_prompt = window.get_profile_editor_prompt();
+        let shown = &shown_prompt.preview;
         preview.widgets = same_widget_rows(&shown.widgets, preview.widgets);
         preview.wishlist = same_list(&shown.wishlist, preview.wishlist);
+        let cosmetics = self.app.state.cosmetics;
         if editor.loading() {
             preview.board_note = "Loading the board...".into();
         } else if editor.profile.is_none() {
@@ -2647,15 +2665,10 @@ impl Adapter {
                 "Tell this server a bit about yourself",
             )
         };
-        let own = self.app.state.account_profile.as_ref();
+        let own = fallback;
         // What it would wear: the choice, else what the profile has.
         let shown_tag = match &editor.chosen_tag {
-            None => self
-                .app
-                .state
-                .account_profile
-                .as_ref()
-                .and_then(|own| own.tag.clone()),
+            None => own.and_then(|own| own.tag.clone()),
             Some(None) => None,
             Some(Some(chosen)) => self
                 .app
@@ -2687,23 +2700,31 @@ impl Adapter {
             upgrade: editor.upgrade(),
             banner_shown: !main || editor.nitro(),
             colour_shown: editor.may_write(ProfileText::Colour),
-            server_tags: ModelRc::new(VecModel::from(
-                self.app
-                    .state
-                    .servers
-                    .iter()
-                    .filter_map(|server| {
-                        let tag = server.tag.as_ref()?;
-                        Some(ServerTagRow {
-                            id: discord_server_id(&server.id).into(),
-                            name: server.name.as_str().into(),
-                            icon: server.icon.as_deref().unwrap_or_default().into(),
-                            tag: (&*tag.text).into(),
-                            badge: tag.badge.as_deref().unwrap_or_default().into(),
+            // The rows stay as they are unless they changed, so the picker
+            // doesn't build them all again with every event.
+            server_tags: same_list(
+                &shown_prompt.server_tags,
+                ModelRc::new(VecModel::from(
+                    self.app
+                        .state
+                        .servers
+                        .iter()
+                        .filter_map(|server| {
+                            let tag = server.tag.as_ref()?;
+                            Some(ServerTagRow {
+                                id: discord_server_id(&server.id).into(),
+                                name: server.name.as_str().into(),
+                                icon: server.icon.as_deref().unwrap_or_default().into(),
+                                tag: (&*tag.text).into(),
+                                badge: cosmetics
+                                    .tag(tag.badge.as_ref())
+                                    .map_or("", |badge| &**badge)
+                                    .into(),
+                            })
                         })
-                    })
-                    .collect::<Vec<_>>(),
-            )),
+                        .collect::<Vec<_>>(),
+                )),
+            ),
             tag_chosen_id: editor
                 .chosen_tag
                 .as_ref()
@@ -2711,10 +2732,9 @@ impl Adapter {
                 .unwrap_or_default()
                 .into(),
             tag_text: shown_tag.as_ref().map_or("", |tag| &*tag.text).into(),
-            tag_icon: shown_tag
-                .as_ref()
-                .and_then(|tag| tag.badge.as_deref())
-                .unwrap_or_default()
+            tag_icon: cosmetics
+                .tag(shown_tag.as_ref().and_then(|tag| tag.badge.as_ref()))
+                .map_or("", |badge| &**badge)
                 .into(),
             look_enabled: editor.may_write(ProfileText::ThemeTop),
             // What the account wears, though the profile switches may keep

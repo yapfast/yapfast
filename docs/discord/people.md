@@ -724,9 +724,9 @@ to remove it. The client never sends the bio, pronouns or banner to
 `/users/@me`, though Discord's docs list them there.
 
 Saving keeps the editor open, as Discord's does. Afterwards Yapfast asks for
-the profile again, for the editor and for the account's card, which draws
-the tag, name style and theme from it, and drops the profiles it kept of this
-account. What was written or chosen while the save and that answer were on
+the profile again, once, for the editor, and drops the profiles it kept of
+this account, so the account's card, which draws the tag, name style and
+theme from it, asks again as it next opens. What was written or chosen while the save and that answer were on
 their way stays, as a change still to save; the rest takes what Discord now
 has. A save that fails part way, its first request through and a later one
 refused, shows Discord's refusal, asks for the profile in the same way and
