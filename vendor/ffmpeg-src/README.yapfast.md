@@ -2,12 +2,14 @@
 
 Go Live's hardware encoders: FFmpeg 9.0.2's NVENC encoders for NVIDIA, on
 Linux and Windows, on Windows its AMF ones for AMD, and on Linux its VA-API
-ones for AMD and Intel, for H264, HEVC and AV1; and its HEVC decoder, for
-watching H265 streams, which libwebrtc's FFmpeg can't decode, with its
-x86-64 assembly. Nothing else of FFmpeg is built: no other decoders,
-formats or filters.
-`crates/yapfast-core/native/hwenc.c` drives the encoders and
-`native/hevc.c` the decoder.
+ones for AMD and Intel, for H264, HEVC and AV1; and the H264, HEVC, AV1 and
+VP9 decoders and parsers a watched stream comes from, on both targets, with
+their x86-64 assembly. On Windows it also carries Direct3D 11's hwaccel for
+all four (`--enable-d3d11va`, `--enable-hwaccel=…`), so a picture is decoded
+into a texture on the device the window and the encoder hold. Nothing else of
+FFmpeg is built: no formats or filters.
+`crates/yapfast-core/native/hwenc.c` drives the encoders, `native/hevc.c` the
+software HEVC decoder, and `native/hwdec.c` Direct3D 11's decode of all four.
 
 `update.sh` makes everything here except `src/` and `patches/`. It downloads
 FFmpeg's release, nv-codec-headers 12.0.16.1 and AMD's AMF headers 1.5.2
@@ -62,6 +64,10 @@ folder only when an AMF encoder opens.
   bitrate only when it opens the encoder. AMF takes the target, peak and
   buffer size as it runs; the patch sets them before the next frame when
   the bitrate changes, the peak first when it rises.
+- `h264-qpel-prefixed.patch`: `gen/rename.h` gives every global a `yf_`
+  prefix, but H264's qpel code defines macros named like two of the assembly
+  functions they call, which shadow the prefix; this makes the wrappers call
+  the prefixed names.
 
 ## Updating
 

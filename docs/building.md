@@ -256,17 +256,25 @@ its configure and Makefile. Go Live and the camera encode H264 with it; NASM
 assembles its x86-64 code, so every shell, package and native build needs
 `nasm`.
 
-`vendor/ffmpeg-src` is FFmpeg's source trimmed to its hardware encoders
-(NVENC, AMF on Windows, VA-API on Linux) and its HEVC decoder, with
-nv-codec-headers', AMF's and libva's headers and configure's output for
-Linux and Windows, all made by its `update.sh`, which configures Windows
-with clang-cl against the MSVC runtime and SDK cargo-xwin downloads; three
-patches let NVENC, AMF and VA-API change their bitrate without a keyframe.
-Its build script compiles it, and NASM assembles its x86-64 assembly, with
-every symbol prefixed, apart from the FFmpeg in libwebrtc, and it loads
-libva, NVIDIA's driver and AMD's AMF runtime only when an encoder opens.
-Its `README.yapfast.md` explains the rest. Targets without a `gen/` folder build without hardware
-encoding or H265 decoding.
+`vendor/ffmpeg-src` is FFmpeg's source trimmed to what a stream needs: its
+hardware encoders (NVENC, AMF on Windows, VA-API on Linux); its H264, HEVC,
+AV1 and VP9 decoders and parsers, on both targets; and on Windows Direct3D
+11's hwaccel for all four (`--enable-d3d11va`, `--enable-hwaccel=…`), which
+leaves a picture in a texture on the device the window and the encoder already
+hold. It carries nv-codec-headers', AMF's and libva's headers and configure's
+output for Linux and Windows, all made by its `update.sh`, which configures
+Windows with clang-cl against the MSVC runtime and SDK cargo-xwin downloads,
+and retries a download a server resets. Three patches let NVENC, AMF and
+VA-API change their bitrate without a keyframe, and `h264-qpel-prefixed.patch`
+makes the qpel macros call the `yf_` names `rename.h` gave the assembly
+functions they wrap. Its build script compiles the C with clang, and NASM
+assembles its x86-64 assembly, with every symbol prefixed apart from the
+FFmpeg in libwebrtc. The Windows SDK's GUIDs keep their names, since
+Direct3D 11's decode names them, and configure's `config_components.asm` is
+kept for the H264 assembly that includes it. It loads libva, NVIDIA's driver
+and AMD's AMF runtime only when an encoder opens. Its `README.yapfast.md`
+explains the rest, clang included. Targets without a `gen/` folder build without
+hardware encoding or H265 decoding.
 
 Each has a `README.yapfast.md` with its changes, except the two Slint crates, which
 this section describes. The Slint crates keep their `.rs` files at the crate
@@ -294,8 +302,10 @@ files named here are in `crates/yapfast-core/native/`.
   and Ogg sounds, which have no pictures. `vp8.c` and `clip.c` encode VP8 and VP9
   with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
   through libwebrtc's capture module.
-- `vendor/ffmpeg-src` holds only the GPU encoders, which `hwenc.c` drives,
-  and the HEVC decoder for watched H265 streams, in `hevc.c`.
+- `vendor/ffmpeg-src` holds the GPU encoders, which `hwenc.c` drives; the
+  H264, HEVC, AV1 and VP9 decoders and parsers; and on Windows Direct3D 11's
+  decode of all four, in `hwdec.c`, beside the HEVC decoder for software H265
+  in `hevc.c`.
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
 

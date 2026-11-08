@@ -352,8 +352,22 @@ player with each frame's RTP sequence number, timestamp, SSRC and arrival time
 give up on what no longer matters. The streamer's sender reports are kept beside it
 (`stream_connection::StreamClock`): each SSRC's RTP timestamp against the middle
 32 bits of its NTP time, plus the newest picture timestamp that arrived. The
-player's five-second line reads `skew_ms` and `map_age_ms` — both `None`, said
-once, when a report never came or named another SSRC — and neither the device
+worker reports two skews from them (`av_timing::Timeline`), both `None` while
+a mapping is missing or older than five seconds: the *arrival* skew carries each
+clock to now from its own report and so compares what arrived of each stream,
+before any device buffer, and the *presentation* skew compares the sound the
+device says it has played against the picture last handed to the window. A
+sender report names no SSRC, so a stream that changed SSRC or restarted is
+caught by its timestamps no longer carrying the held clock on, which drops both
+mappings rather than measuring across the break. The decoder is paced by the
+sound (`av_timing::Scheduler`): a picture more than 80 ms behind the audible
+sound is dropped, one ahead of it waits at most 80 ms, and only one picture
+ever waits, so a stream running early costs the decode loop a bounded wait
+rather than a queue. The picture's time is its submission to the frames file;
+the renderer's own fence is the window's to observe, so a record carries
+`estimated` rather than a worker claiming a presentation it did not see. The
+player's five-second line still reads `skew_ms` and `map_age_ms` — both `None`,
+said once, when a report never came — and neither the device
 buffer nor the decoder's delay is in them, so they compare the sound the player
 holds against the newest picture received. The player plays 20 ms a turn: frames wait
 in sequence order, and the sound they hold is capped at 200 ms by their
@@ -409,7 +423,8 @@ It's on by default because it takes almost no processor time and looks better
 than x264 at low bitrates. Intel graphics encode with x264 on Windows so far.
 The setting lives in `layout.json` and reaches the worker with each
 `Job::Share`; the camera stays on x264. When the GPU's H264 encoder fails
-during a stream, x264 takes over from that frame with a keyframe. The worker
+during a stream, x264 takes over from that frame with a keyframe, and the log
+says which encoder runs now and what the GPU's refusal was. The worker
 logs which encoder each stream got ("encoding the stream", `engine` and
 `codec`), and for each codec none opened for, why each GPU encoder failed
 ("no GPU encoder opened"). The call's Stream tab shows the encoder and the
@@ -447,7 +462,11 @@ settings"), and the stream goes on without it, so it never claims a setting it
 hasn't got. A backend that was passed over says so too, and why — a codec this
 FFmpeg wasn't built with, a driver that wouldn't open, an interface the platform
 doesn't have — so a card whose encoder wasn't used never looks like nothing at
-all. The colour the stream declares is the colour its frames are: capture
+all. NVENC is the one backend checked before it is opened: it has no device of
+its own to ask, so a machine with no NVIDIA card is told that rather than left
+with FFmpeg's driver error, while AMF and VA-API reach their own runtime and
+render node and say what those answered. The colour the stream declares is the
+colour its frames are: capture
 converts to limited-range I420, and the declaration says that. A screen showing HDR hands its frames over as codes of its own scale,
 so capture tonemaps them to SDR's brightness on the way — one pass, in the same
 buffer — while a screen showing SDR is converted exactly as it was. The format it writes is the one the encoder reports it took, NV12
@@ -455,10 +474,12 @@ or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs
 on one clock; a packet the encoder returns for a frame it has already finished
-is dropped and counted rather than sent under a later frame's timestamp. The
-frame carries that timestamp on to the packetizer, and one function derives it,
-so a frame can't go out under another's time. The format, colour claim, time
-base and rate it settled on are reported at open.
+is dropped and counted rather than sent under a later frame's timestamp, and
+the frame after it is a keyframe, since the viewer never got the picture that
+frame builds on and would otherwise decode garbage until the interval's IDR.
+The frame carries that timestamp on to the packetizer, and one function derives
+it, so a frame can't go out under another's time. The format, colour claim,
+time base and rate it settled on are reported at open.
 NVENC's tuning lives in one table in `native/hwenc.c` — preset, tune, rate
 control, zerolatency, frame delay and forced-IDR in a row — so choosing a
 different one is adding a row rather than editing the open path, and what a
@@ -519,13 +540,20 @@ packets resent, the frames a full queue skipped, and the shared sound waiting
 or dropped. Beside those it says how the pictures reach the window — the
 worker's own texture, or a copy of every frame — and the adapter the window
 draws on, the wait a frame had between the capture having it and the encoder
-being given it, what the encoder's output buffers hold now and at their most,
-and, when there is one, why the share isn't on the path it asked for. A value
-nothing answered reads "unknown" rather than zero.
+being given it, which only the card's own capture times (the processor's
+capturer hands frames over on its own thread, so that row reads "unknown"),
+what the encoder's output buffers hold now and at their most, and, when there
+is one, why the share isn't on the path it asked for. A value nothing answered
+reads "unknown" rather than zero. The buffer figures are the encoder's output
+pool: the receive side keeps no byte count for its reorder queues or its
+resend history, so a watched stream shows no buffer row.
 
 *Copy diagnostics* copies the same report as JSON, for a bug report, and
 nothing else: no token, no server, no window title, and no media. What the
-encoded frame's bytes were is never part of it; how many there were is.
+encoded frame's bytes were is never part of it; how many there were is. It
+deliberately carries no count of the receive side's memory: nothing measures the
+reorder queues or the resend history, so the encoder's pool is the only one in
+it.
 
 A worker samples the machine once a second — the physical memory the system
 could still give a process, and the budget the active adapter's driver says it
