@@ -9,6 +9,30 @@ import { PersonRow, LivePill } from "voice.slint";
 /// A server in a closed folder's tile: its icon, or its initial.
 export struct FolderServer { initial: string, picture-url: string }
 
+/// Someone in a server's voice channel, as the card over its rail icon
+/// shows them, with their mute, deafen, camera and stream marks.
+export struct VoiceTipPerson {
+    name: string, initial: string, tint: color, picture-url: string,
+    muted: bool, deafened: bool, server-muted: bool, server-deafened: bool,
+    live: bool, video: bool,
+}
+
+/// A voice channel with people in it, for that card; `more` counts those
+/// the card leaves out.
+export struct VoiceTipRoom { name: string, people: [VoiceTipPerson], more: int }
+
+/// The card beside a server's rail icon while the pointer is on it and
+/// someone is in one of its voice channels; an empty `name` hides it. `x`
+/// and `y` are the icon's right edge and middle.
+export global ServerTip {
+    in-out property <string> name;
+    in-out property <string> initial;
+    in-out property <string> picture-url;
+    in-out property <[VoiceTipRoom]> rooms;
+    in-out property <length> x;
+    in-out property <length> y;
+}
+
 export struct ServerRow {
     id: string, name: string, initial: string, picture: image, selected: bool, unread: bool, discord: bool,
     /// A Discord server out of reach in an outage, shown as last known.
@@ -18,8 +42,8 @@ export struct ServerRow {
     /// This account is in a call in one of its voice channels; on a closed
     /// folder, in one of its servers'.
     call: bool,
-    /// Who is in the server's voice channels, one line each, for its tooltip.
-    voice-tip: string,
+    /// Who is in the server's voice channels, for the card on hover.
+    voice: [VoiceTipRoom],
     picture-url: string,
     /// A folder of servers rather than a server: `id` is the folder's, `name`
     /// its tooltip, and `selected`, `unread` and `badge` sum up its servers.
@@ -142,6 +166,8 @@ export component RailItem inherits Rectangle {
     in property <string> badge;
     /// In a call here, shown at the top right.
     in property <bool> call;
+    /// Who is in the server's voice channels: hovering shows them in a card.
+    in property <[VoiceTipRoom]> voice;
     /// Marks a Discord server.
     in property <bool> discord;
     callback clicked;
@@ -219,20 +245,29 @@ export component RailItem inherits Rectangle {
         }
         pointer := TouchArea {
             mouse-cursor: MouseCursor.pointer;
-            clicked => { root.clicked(); }
+            clicked => { ServerTip.name = ""; root.clicked(); }
             pointer-event(event) => {
                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    ServerTip.name = "";
                     root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                 }
             }
             changed has-hover => {
-                if self.has-hover {
+                if self.has-hover && root.voice.length > 0 {
+                    ServerTip.initial = root.initial;
+                    ServerTip.picture-url = root.picture-url;
+                    ServerTip.rooms = root.voice;
+                    ServerTip.x = root.absolute-position.x + root.width;
+                    ServerTip.y = root.absolute-position.y + root.height / 2;
+                    ServerTip.name = root.tip;
+                } else if self.has-hover {
                     Tip.text = root.tip;
                     Tip.side = 1;
                     Tip.x = root.absolute-position.x + root.width;
                     Tip.y = root.absolute-position.y + root.height / 2;
-                } else if Tip.text == root.tip {
-                    Tip.text = "";
+                } else {
+                    if ServerTip.name == root.tip { ServerTip.name = ""; }
+                    if Tip.text == root.tip { Tip.text = ""; }
                 }
             }
         }
@@ -919,8 +954,8 @@ export component ServerRail inherits Rectangle {
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
                         + (server.call ? ", in a call" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
-                    tip: (server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name)
-                        + (server.voice-tip != "" ? "\n" + server.voice-tip : "");
+                    tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
+                    voice: server.voice;
                     selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
                     call: server.call;
                     opacity: server.unavailable ? 0.5 : 1;
@@ -1388,6 +1423,97 @@ export component RoomList inherits Rectangle {
             Text {
                 text: root.dragged-row.name; color: Theme.text; font-size: 16px; font-weight: 500;
                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            }
+        }
+    }
+}
+
+// A mark beside someone in the voice card: a muted, deafened or camera icon.
+component VoiceTipMark inherits Image {
+    width: 14px; height: 14px; image-fit: contain;
+    colorize: Theme.muted;
+}
+
+/// The card ServerTip describes, as Discord shows it over a server with
+/// people in voice: the server, then each voice channel with its count and
+/// who is in it, with their marks.
+export component ServerVoiceCard inherits Rectangle {
+    // It slides in from the icon, as the plain tooltip pops.
+    property <bool> shown: false;
+    opacity: root.shown ? 1 : 0;
+    animate opacity { duration: 120ms; easing: ease-out; }
+    transform-scale: root.shown ? 1 : 0.96;
+    transform-origin: { x: 0px, y: self.height / 2 };
+    animate transform-scale { duration: 120ms; easing: ease-out; }
+    Timer {
+        interval: 16ms;
+        running: true;
+        triggered => { self.running = false; root.shown = true; }
+    }
+    width: 256px;
+    height: card.preferred-height;
+    background: Theme.tooltip;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: #97979f1f;
+    drop-shadow-blur: 24px; drop-shadow-color: #0000003d; drop-shadow-offset-y: 8px;
+    // The caret on its left, pointing at the icon.
+    Path {
+        x: -7px; y: min(parent.height - 24px, max(8px, ServerTip.y - parent.y - 8px)); width: 8px; height: 16px;
+        commands: "M 8 0 L 0 8 L 8 16 Z";
+        fill: Theme.tooltip;
+    }
+    card := VerticalLayout {
+        padding: 12px; spacing: 10px;
+        HorizontalLayout {
+            spacing: 10px;
+            Middle { Avatar { size: 32px; initial: ServerTip.initial; picture-url: ServerTip.picture-url; } }
+            VerticalLayout {
+                alignment: center; horizontal-stretch: 1;
+                Text { text: ServerTip.name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                HorizontalLayout {
+                    spacing: 4px; alignment: start;
+                    Middle { Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.live; } }
+                    Text { text: "In voice"; color: Theme.live; font-size: 12px; font-weight: 600; }
+                }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        for room in ServerTip.rooms: VerticalLayout {
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 6px; height: 20px;
+                Middle { Image { source: @image-url("icons/volume-2.svg"); width: 16px; height: 16px; colorize: Theme.muted; } }
+                Text {
+                    text: room.name; color: Theme.secondary; font-size: 13px; font-weight: 700;
+                    vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                }
+                Middle {
+                    Rectangle {
+                        width: count.preferred-width + 10px; height: 16px; border-radius: 8px; background: Theme.raised;
+                        count := Text { text: room.people.length + room.more; color: Theme.muted; font-size: 11px; font-weight: 700; }
+                    }
+                }
+            }
+            for person in room.people: HorizontalLayout {
+                padding-left: 22px; spacing: 8px; height: 26px;
+                Middle { Avatar { size: 20px; initial: person.initial; tint: person.tint; picture-url: person.picture-url; } }
+                Text {
+                    text: person.name; color: Theme.text; font-size: 13px; font-weight: 500;
+                    vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                }
+                if person.video: Middle { VoiceTipMark { source: @image-url("icons/video.svg"); } }
+                if person.live: Middle { LivePill {} }
+                if person.muted && !person.deafened: Middle {
+                    VoiceTipMark { source: @image-url("icons/mic-off.svg"); colorize: person.server-muted ? Theme.danger : Theme.muted; }
+                }
+                if person.deafened: Middle {
+                    VoiceTipMark { source: @image-url("icons/headphone-off.svg"); colorize: person.server-deafened ? Theme.danger : Theme.muted; }
+                }
+            }
+            if room.more > 0: HorizontalLayout {
+                padding-left: 22px; height: 20px;
+                Text { text: "+" + room.more + " more"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
             }
         }
     }

@@ -4572,7 +4572,7 @@ pub(super) fn rail_rows(
             let (unread, mentions) = marks(server);
             rows.push(ServerRow {
                 call: in_call(server),
-                voice_tip: voice_tip(server, &rooms_by_id),
+                voice: voice_tip(server, &rooms_by_id),
                 ..server_row(server, selected(server), unread, mentions)
             });
             continue;
@@ -4635,7 +4635,7 @@ pub(super) fn rail_rows(
                     last: index == last,
                     tint,
                     call: in_call(server),
-                    voice_tip: voice_tip(server, &rooms_by_id),
+                    voice: voice_tip(server, &rooms_by_id),
                     ..server_row(server, selected(server), unread, mentions)
                 });
             }
@@ -4679,41 +4679,53 @@ pub(super) fn voice_places<'a>(
     places
 }
 
-/// Who is in a server's voice channels, a line per channel, for the tooltip
-/// of its icon in the rail; empty when nobody is.
+/// The most voice channels, and people in each, the card over a server's
+/// rail icon lists; it counts the rest.
+const VOICE_TIP_ROOMS: usize = 5;
+const VOICE_TIP_PEOPLE: usize = 8;
+
+/// Who is in a server's voice channels, for the card over its rail icon;
+/// empty when nobody is, so most servers cost nothing.
 pub(super) fn voice_tip(
     server: &yapfast_core::chat::ChatServer,
     rooms_by_id: &HashMap<&str, &yapfast_core::chat::ChatRoom>,
-) -> SharedString {
-    use std::fmt::Write;
-    let mut tip = String::new();
-    for room in server
+) -> ModelRc<VoiceTipRoom> {
+    let rooms: Vec<VoiceTipRoom> = server
         .channels
         .iter()
         .filter_map(|channel| rooms_by_id.get(channel.as_str()))
-        .filter(|room| room.voice && !room.people.is_empty())
-    {
-        if !tip.is_empty() {
-            tip.push('\n');
-        }
-        let _ = write!(tip, "{}:", room.name);
-        for person in room.people.iter().filter(|person| !person.elsewhere).take(6) {
-            let state = if person.streaming {
-                " (live)"
-            } else if person.deafened {
-                " (deafened)"
-            } else if person.muted {
-                " (muted)"
-            } else if person.video {
-                " (camera)"
-            } else {
-                ""
-            };
-            let _ = write!(tip, " {}{state},", person.name);
-        }
-        tip.pop();
+        .filter(|room| room.voice && room.people.iter().any(|person| !person.elsewhere))
+        .take(VOICE_TIP_ROOMS)
+        .map(|room| {
+            let present = || room.people.iter().filter(|person| !person.elsewhere);
+            let people: Vec<VoiceTipPerson> = present()
+                .take(VOICE_TIP_PEOPLE)
+                .map(|person| VoiceTipPerson {
+                    name: person.name.as_str().into(),
+                    initial: initial(&person.name),
+                    tint: tint(&person.id),
+                    picture_url: person.avatar.as_deref().unwrap_or_default().into(),
+                    muted: person.muted,
+                    deafened: person.deafened,
+                    server_muted: person.server_muted,
+                    server_deafened: person.server_deafened,
+                    live: person.streaming,
+                    video: person.video,
+                })
+                .collect();
+            let more = present().count().saturating_sub(people.len());
+            VoiceTipRoom {
+                name: room.name.as_str().into(),
+                people: ModelRc::new(VecModel::from(people)),
+                more: i32::try_from(more).unwrap_or(i32::MAX),
+            }
+        })
+        .collect();
+    if rooms.is_empty() {
+        ModelRc::default()
+    } else {
+        ModelRc::new(VecModel::from(rooms))
     }
-    tip.into()
 }
 
 fn call_room(state: &AppState) -> Option<&str> {

@@ -236,6 +236,18 @@ the browser.
 Yapfast doesn't keep a server's events or follow their gateway events; the
 dialog shows them as they were when it opened.
 
+## Who is in voice, from the rail
+
+Hovering a server in the rail while someone is in one of its voice channels
+shows a card beside its icon in place of the plain tooltip: the server's icon
+and name, then each voice channel with people in it and how many, and who is
+there, with their avatar, LIVE tag and camera, muted and deafened marks, red
+when the server muted or deafened them. It lists five channels and eight
+people in each, and counts the rest ("+3 more"). This account on another
+client is left out. The card comes from the voice states Discord already
+sends, so it asks Discord for nothing, and a server with nobody in voice keeps
+no rows for it.
+
 ## Channels and categories
 
 Where the account may manage channels (`MANAGE_CHANNELS`, on the server for one

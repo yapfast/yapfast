@@ -8950,3 +8950,96 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     window.invoke_preferences_changed();
     assert!(adapter.borrow().layout.collapse_long);
 }
+
+#[test]
+fn a_servers_voice_card_lists_who_is_in_each_channel() {
+    use yapfast_core::chat::{ChatRoom, ChatServer, Reacts, VoicePerson};
+    let person = |id: &str| VoicePerson {
+        id: id.into(),
+        name: id.into(),
+        ..Default::default()
+    };
+    let room = |id: &str, voice: bool, direct: bool, people: Vec<VoicePerson>| ChatRoom {
+        id: id.into(),
+        network: Network::Discord,
+        capabilities: Network::Discord.capabilities(),
+        name: id.into(),
+        direct,
+        voice,
+        encrypted: false,
+        members: 0,
+        unread: 0,
+        mentions: 0,
+        muted: false,
+        last_read: None,
+        locked: false,
+        join_locked: false,
+        read_only: false,
+        reacts: Reacts::Any,
+        slowed: false,
+        timed_out_until: None,
+        category: String::new(),
+        category_id: None,
+        request: false,
+        person: None,
+        people,
+        ringing: Vec::new(),
+        incoming: false,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
+        upload_limit: 0,
+        presence: None,
+        activity: None,
+        activities: Default::default(),
+        parent: None,
+        forum: false,
+        mark: Default::default(),
+        unlisted: false,
+        tag: None,
+        official: false,
+        empty: false,
+        preview: None,
+    };
+    let muted = VoicePerson {
+        muted: true,
+        server_muted: true,
+        ..person("cat")
+    };
+    let elsewhere = VoicePerson {
+        elsewhere: true,
+        ..person("me")
+    };
+    let crowd: Vec<_> = (0..10).map(|n| person(&format!("p{n}"))).collect();
+    let rooms = [
+        room("lounge", true, false, vec![person("ann"), muted, elsewhere.clone()]),
+        room("stage", true, false, crowd),
+        // Only this account, on another client: nobody to show.
+        room("quiet", true, false, vec![elsewhere]),
+        room("general", false, false, Vec::new()),
+    ];
+    let rooms_by_id = rooms.iter().map(|room| (room.id.as_str(), room)).collect();
+    let server = ChatServer {
+        id: "Alpha".into(),
+        name: "Alpha".into(),
+        channels: ["lounge", "stage", "quiet", "general"].map(Into::into).into(),
+        ..Default::default()
+    };
+    let card = refresh::voice_tip(&server, &rooms_by_id);
+    let names: Vec<_> = card.iter().map(|room| room.name.to_string()).collect();
+    assert_eq!(names, ["lounge", "stage"]);
+    let lounge = card.row_data(0).unwrap();
+    let people: Vec<_> = lounge.people.iter().map(|p| (p.name.to_string(), p.server_muted)).collect();
+    assert_eq!(people, [("ann".into(), false), ("cat".into(), true)]);
+    assert_eq!(lounge.more, 0);
+    let stage = card.row_data(1).unwrap();
+    assert_eq!(stage.people.row_count(), 8);
+    assert_eq!(stage.more, 2);
+    // A server with nobody in voice has no card.
+    let empty = ChatServer {
+        channels: vec!["general".into()],
+        ..server
+    };
+    assert_eq!(refresh::voice_tip(&empty, &rooms_by_id).row_count(), 0);
+}

@@ -44,7 +44,7 @@ import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
-import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
+import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, ServerTip, ServerVoiceCard, VoiceTipRoom, VoiceTipPerson } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
@@ -69,7 +69,7 @@ export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
-export { ServerRow, RoomRow, FolderServer } from "rail.slint";
+export { ServerRow, RoomRow, FolderServer, VoiceTipRoom, VoiceTipPerson } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
 export { ServerTagRow } from "server.slint";
 export { StagedFile, MentionRow } from "composer.slint";
@@ -4679,6 +4679,10 @@ export component YapfastWindow inherits Window {
         border-radius: 6px; background: Theme.tooltip;
         drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
         tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 700; }
+    }
+    if ServerTip.name != "": ServerVoiceCard {
+        x: ServerTip.x + 10px;
+        y: max(8px, min(root.height - self.height - 8px, ServerTip.y - 28px));
     }
     if BadgeTip.title != "": BadgeTipCard {
         x: max(8px, min(root.width - self.width - 8px, BadgeTip.x - self.width / 2));
