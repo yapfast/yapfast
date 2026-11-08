@@ -12,11 +12,13 @@ import "fonts/AtkinsonHyperlegibleNext-Medium.ttf";
 import "fonts/AtkinsonHyperlegibleNext-Bold.ttf";
 import "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf";
 import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
-// The fonts of display name styles, nine of Discord's eleven; see fonts/README.md.
+// The fonts of Discord's eleven display name styles; see fonts/README.md.
 import "fonts/DisplayName-Sakura.ttf";
 import "fonts/DisplayName-Jellybean.ttf";
 import "fonts/DisplayName-Modern.ttf";
+import "fonts/DisplayName-Medieval.otf";
 import "fonts/DisplayName-8Bit.ttf";
+import "fonts/DisplayName-Vampyre.ttf";
 import "fonts/DisplayName-Tempo.ttf";
 import "fonts/DisplayName-MonkeyBars.ttf";
 import "fonts/DisplayName-Mainframe.ttf";
@@ -64,14 +66,15 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
 export { InboxRow } from "yapfast/inbox.slint";
-export { Theme, Badges, Popup } from "theme.slint";
+export { Theme, Badges, Popup, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
+export { ServerTagRow } from "server.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
-export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
+export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
@@ -236,7 +239,20 @@ export component YapfastWindow inherits Window {
     in-out property <string> profile-editor-colour;
     /// Opens the editor of the main Discord profile, as Edit Profile does.
     callback edit-profile;
+    /// The account's card opened, which asks for its own profile.
+    callback account-opened;
+    /// The account's own profile, which its card draws its banner, theme,
+    /// name and badges from; empty until it's come.
+    in property <ProfileData> account-profile;
+    callback open-profile-wishlist;
     callback write-profile(int, string);
+    callback choose-name-style(int, int, string);
+    callback edit-own-note;
+    callback choose-server-tag(string);
+    pure callback parse-hex(string) -> color;
+    pure callback format-hex(color) -> string;
+    pure callback key-part(string, int) -> string;
+    pure callback key-colour(string, int) -> color;
     callback pick-profile-picture(int);
     callback reset-profile-picture(int);
     callback unlock-nitro;
@@ -1189,6 +1205,8 @@ export component YapfastWindow inherits Window {
     in property <bool> discord-links-available;
     callback restart();
     callback preferences-changed();
+    /// A tab of the full profile opened, by ProfileModal's page.
+    callback profile-tab-opened(int);
     /// The built-in themes, and the one shown by its id; choose-theme shows
     /// and keeps another.
     in property <[ThemeCard]> themes;
@@ -1253,6 +1271,9 @@ export component YapfastWindow inherits Window {
     callback open-chat(string);
     /// Show the selected voice channel's chat, or with `false` its call.
     callback show-voice-chat(bool);
+    /// Show the call this account is in, from the voice panel's channel
+    /// line: its channel or DM, unless that's showing already.
+    callback open-call;
     /// Show a Discord thread beside the conversation, as its link in a
     /// message does, asking for one that isn't listed.
     callback open-aside(string);
@@ -1948,7 +1969,9 @@ export component YapfastWindow inherits Window {
             if ClientStyle.enabled: AccountPopover {
                 available-height: max(120px, root.menu-y - 12px);
                 name: root.account-name; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture;
-                user-id: root.account-user-id;
+                user-id: root.account-user-id; profile: root.account-profile;
+                opened => { root.account-opened(); }
+                open-link(link) => { root.open-link(link); status-menu.close(); }
                 status: root.discord-status; has-custom-status: root.has-custom-status;
                 custom-text: root.account-status; custom-emoji: root.account-status-emoji;
                 game-name: root.game-activity-name; game-duration: root.game-activity-duration;
@@ -2425,7 +2448,7 @@ export component YapfastWindow inherits Window {
                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
-                    open-call => { root.open-conversation(root.voice-channel); }
+                    open-call => { root.open-call(); }
                 }
                 // Inset the account card while preserving the inherited controls.
                 VerticalLayout {
@@ -3617,6 +3640,7 @@ export component YapfastWindow inherits Window {
                             befriend => { root.befriend(root.panel-profile.id); }
                             more(x, y) => { root.open-context-menu(root.panel-profile.id, true, x, y); }
                             send-message(text) => { root.message-from-profile(root.panel-profile.id, text); }
+                            edit-profile => { root.edit-profile(); }
                             open-link(link) => { root.open-link(link); }
                             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
                             open-friend(id, x, y, width, height) => {
@@ -4099,6 +4123,7 @@ export component YapfastWindow inherits Window {
             more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
         }
     }
     // A full profile over the window, as the viewer shows images.
@@ -4130,6 +4155,8 @@ export component YapfastWindow inherits Window {
             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
             // In the full profile, a friend's opens full too.
             open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
+            tab-opened(page) => { root.profile-tab-opened(page); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
         }
     }
     // A mutual server's card, over the profile that lists it. Clicking
@@ -4266,11 +4293,24 @@ export component YapfastWindow inherits Window {
     }
     profile-editor-motion := PopupMotion { open: root.profile-editor-open; }
     if profile-editor-motion.shown: ProfileEditorDialog {
+        open-link(url) => { root.open-link(url); }
         motion: profile-editor-motion.amount;
         prompt: root.profile-editor-prompt;
         name <=> root.profile-editor-name; pronouns <=> root.profile-editor-pronouns;
         bio <=> root.profile-editor-bio; colour <=> root.profile-editor-colour;
         write(field, text) => { root.write-profile(field, text); }
+        choose-name-style(font, effect, colours) => { root.choose-name-style(font, effect, colours); }
+        copy-id => { root.copy-text(root.account-user-id); }
+        open-wishlist => { root.open-profile-wishlist(); }
+        edit-note => { root.edit-own-note(); }
+        choose-tag(server) => { root.choose-server-tag(server); }
+        edit-status => { root.open-status(); }
+        has-status: root.has-custom-status; status-text: root.account-status; status-emoji: root.account-status-emoji;
+        parse-hex(text) => { return root.parse-hex(text); }
+        format-hex(colour) => { return root.format-hex(colour); }
+        key-part(key, index) => { return root.key-part(key, index); }
+        key-colour(key, index) => { return root.key-colour(key, index); }
+        presence: root.account-presence;
         pick(kind) => { root.pick-profile-picture(kind); }
         reset(kind) => { root.reset-profile-picture(kind); }
         unlock-nitro => { root.unlock-nitro(); }

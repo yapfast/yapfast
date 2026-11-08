@@ -1534,14 +1534,19 @@ impl Discord {
         member: &Value,
         profile: &Value,
     ) -> Result<()> {
-        if some(member) {
-            self.api.modify_member_me(guild, member).await?;
+        // As for the main profile, what went through is kept no longer.
+        let saved = async {
+            if some(member) {
+                self.api.modify_member_me(guild, member).await?;
+            }
+            if some(profile) {
+                self.api.modify_guild_profile(guild, profile).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_guild_profile(guild, profile).await?;
-        }
+        .await;
         self.forget_own_profile(Some(guild));
-        Ok(())
+        saved
     }
 
     /// A server's profile, for its settings' Server Profile page.
@@ -1856,18 +1861,33 @@ impl Discord {
     }
 
     /// Changes this account's main profile as Discord's client does:
-    /// `user`'s fields, its display name and avatar, go to the user, then
-    /// `profile`'s, its bio, pronouns, banner and banner colour, to its
-    /// profile, each only when it has any. USER_UPDATE follows both.
-    pub async fn save_main_profile(&self, user: &Value, profile: &Value) -> Result<()> {
-        if some(user) {
-            self.api.modify_me(user).await?;
+    /// `user`'s fields, its display name, avatar and name style, go to the
+    /// user, then `profile`'s, its bio, pronouns, banner, colour and theme,
+    /// to its profile, each only when it has any, then the server whose tag
+    /// it wears, when that changed, to its own endpoint. USER_UPDATE follows.
+    /// The kept profiles go even when a request fails, as those before it
+    /// changed what Discord has.
+    pub async fn save_main_profile(
+        &self,
+        user: &Value,
+        profile: &Value,
+        server_tag: Option<Option<&str>>,
+    ) -> Result<()> {
+        let saved = async {
+            if some(user) {
+                self.api.modify_me(user).await?;
+            }
+            if some(profile) {
+                self.api.modify_profile_me(profile).await?;
+            }
+            if let Some(server) = server_tag {
+                self.api.set_server_tag(server).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_profile_me(profile).await?;
-        }
+        .await;
         self.forget_own_profile(None);
-        Ok(())
+        saved
     }
 
     /// Drops this account's kept profiles, so they're fetched afresh: in
@@ -2147,6 +2167,50 @@ impl Discord {
     /// Sets the nickname this account gives a friend; empty clears it.
     pub async fn set_friend_nickname(&self, user: &str, nickname: &str) -> Result<()> {
         self.api.set_friend_nickname(user, nickname).await
+    }
+
+    /// What someone did lately, for their full profile's Activity tab.
+    pub async fn recent_activity(&self, user: &str) -> Result<Vec<profile::RecentEntry>> {
+        Ok(profile::recent_entries(&self.api.outbox(user).await?))
+    }
+
+    /// Names a board's games and applications. What Discord doesn't say
+    /// stays as it is, and the board shows without it.
+    pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
+        let mut games: Vec<&str> = widgets
+            .iter()
+            .flat_map(|widget| &widget.games)
+            .map(|game| game.id.as_str())
+            .collect();
+        games.sort_unstable();
+        games.dedup();
+        let mut known = Vec::new();
+        for ids in games.chunks(crate::widgets::GAMES_AT_ONCE) {
+            match self.api.games(ids).await {
+                Ok(answer) => known.extend(crate::widgets::parse_games(&answer)),
+                Err(error) => tracing::debug!(%error, "could not get a board's games"),
+            }
+        }
+        crate::widgets::name_games(widgets, &known);
+        let applications: Vec<String> = widgets
+            .iter()
+            .filter_map(|widget| widget.application.clone())
+            .collect();
+        if applications.is_empty() {
+            return;
+        }
+        let ids: Vec<&str> = applications.iter().map(String::as_str).collect();
+        match self.api.public_applications(&ids).await {
+            Ok(answer) => crate::widgets::name_applications(widgets, &answer),
+            Err(error) => tracing::debug!(%error, "could not get a board's applications"),
+        }
+    }
+
+    /// The items on a wishlist, by the id a profile gave, as Discord's client
+    /// fetches them for either its own account or someone else.
+    pub async fn wishlist(&self, id: &str) -> Result<Vec<crate::wishlist::Item>> {
+        crate::wishlist::parse(&self.api.wishlist(id).await?)
+            .ok_or_else(|| anyhow!("could not understand Discord's answer"))
     }
 
     /// This account's note on someone; empty when it has none. Discord is
