@@ -46,6 +46,18 @@ pub enum BrowsedKind {
     Voice,
 }
 
+impl AppState {
+    /// Whether a server's channel list opens Browse Channels: a Community
+    /// server's, while Discord is connected.
+    pub(super) fn offers_browse(&self, server: &str) -> bool {
+        self.discord_online
+            && self
+                .servers
+                .iter()
+                .any(|known| known.id == server && known.community)
+    }
+}
+
 impl Application {
     /// Opens Browse Channels for the server navigated to, a Community
     /// server, in place of its conversation.
@@ -53,25 +65,21 @@ impl Application {
         let Navigation::Server(server) = self.state.navigation.clone() else {
             return vec![];
         };
-        if self.state.browse.is_some() || !self.offers_browse(&server) {
+        if self.state.browse.is_some() || !self.state.offers_browse(&server) {
             return vec![];
         }
+        let previous = self.state.place();
         let effects = self.deselect();
         self.state.browse = self
             .browse_rows(&server)
             .map(|rows| BrowseChannels { server, rows });
+        if let Some(browse) = &self.state.browse
+            && !self.state.nav_walking
+        {
+            self.state
+                .record_visit(previous, &HistoryPlace::Browse(browse.server.clone()));
+        }
         effects
-    }
-
-    /// Whether a server's channel list opens Browse Channels: a Community
-    /// server's, while Discord is connected.
-    fn offers_browse(&self, server: &str) -> bool {
-        self.state.discord_online
-            && self
-                .state
-                .servers
-                .iter()
-                .any(|known| known.id == server && known.community)
     }
 
     /// Shows Discord's latest word on Browse Channels, or closes it when
@@ -87,6 +95,7 @@ impl Application {
             return;
         };
         let rows = self
+            .state
             .offers_browse(&server)
             .then(|| self.browse_rows(&server))
             .flatten();

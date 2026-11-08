@@ -391,6 +391,19 @@ pub enum DmScreen {
     Requests,
 }
 
+/// Somewhere the main area shows, which the title bar's back and forward
+/// arrows return to. Settings are not one: they open over the window, as in
+/// Discord's client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HistoryPlace {
+    /// A conversation, by its room id.
+    Room(String),
+    /// A screen of the DM list.
+    Dm(DmScreen),
+    /// Browse Channels, for the server with this id.
+    Browse(String),
+}
+
 /// A role someone clicked in a message: its name and the members known to have it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RoleView {
@@ -536,10 +549,10 @@ pub struct AppState {
     pub pending_watch: Option<(String, String)>,
     /// A video call's room: the camera goes on once its call connects.
     pub pending_camera: Option<String>,
-    /// The conversations visited before this one, newest last, and those
-    /// stepped back from, for the title bar's back and forward arrows.
-    pub nav_back: Vec<String>,
-    pub nav_forward: Vec<String>,
+    /// The places visited before this one, newest last, and those stepped
+    /// back from, for the title bar's back and forward arrows.
+    pub nav_back: Vec<HistoryPlace>,
+    pub nav_forward: Vec<HistoryPlace>,
     /// A step through that history is under way: it records no visit.
     pub nav_walking: bool,
     pub account: Option<String>,
@@ -878,21 +891,38 @@ impl AppState {
             || self.viewer.is_some()
     }
 
-    /// The most conversations the back arrow remembers.
+    /// The most places the back arrow remembers.
     const HISTORY: usize = 50;
 
-    /// Notes that the conversation on screen gives way to `next`, which
-    /// forgets what going back would have gone forward to.
-    pub(crate) fn record_visit(&mut self, next: &str) {
-        let Some(previous) = self
-            .selected
-            .as_deref()
-            .filter(|previous| *previous != next)
-        else {
+    /// What the main area shows: a screen of the DM list or Browse Channels
+    /// in place of a conversation, or the conversation selected.
+    pub fn place(&self) -> Option<HistoryPlace> {
+        if let Some(screen) = self.dm_screen {
+            Some(HistoryPlace::Dm(screen))
+        } else if let Some(browse) = &self.browse {
+            Some(HistoryPlace::Browse(browse.server.clone()))
+        } else {
+            self.selected.clone().map(HistoryPlace::Room)
+        }
+    }
+
+    /// Whether a place can be shown again: its conversation is still there,
+    /// and its server still offers Browse Channels.
+    pub fn place_exists(&self, place: &HistoryPlace) -> bool {
+        match place {
+            HistoryPlace::Room(id) => self.rooms.iter().any(|room| &room.id == id),
+            HistoryPlace::Dm(_) => true,
+            HistoryPlace::Browse(server) => self.offers_browse(server),
+        }
+    }
+
+    /// Notes that the place on screen, `previous`, gives way to `next`,
+    /// which forgets what going back would have gone forward to.
+    pub(crate) fn record_visit(&mut self, previous: Option<HistoryPlace>, next: &HistoryPlace) {
+        let Some(previous) = previous.filter(|previous| previous != next) else {
             return;
         };
-        if self.nav_back.last().map(String::as_str) != Some(previous) {
-            let previous = previous.to_owned();
+        if self.nav_back.last() != Some(&previous) {
             self.nav_back.push(previous);
             if self.nav_back.len() > Self::HISTORY {
                 self.nav_back.remove(0);
@@ -903,16 +933,19 @@ impl AppState {
 
     /// Whether the title bar's back arrow has somewhere to go.
     pub fn can_go_back(&self) -> bool {
-        self.nav_back
-            .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+        self.can_go(&self.nav_back)
     }
 
     /// Whether the title bar's forward arrow has somewhere to go.
     pub fn can_go_forward(&self) -> bool {
-        self.nav_forward
+        self.can_go(&self.nav_forward)
+    }
+
+    fn can_go(&self, places: &[HistoryPlace]) -> bool {
+        let current = self.place();
+        places
             .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+            .any(|place| Some(place) != current.as_ref() && self.place_exists(place))
     }
 
     pub fn in_scope(&self, room: &ChatRoom) -> bool {

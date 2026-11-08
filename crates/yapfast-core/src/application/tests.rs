@@ -10953,6 +10953,139 @@ fn back_and_forward_walk_the_conversations_visited_without_recording_the_walk() 
     assert_eq!(app.state.selected.as_deref(), Some("general"));
 }
 
+#[test]
+fn back_and_forward_return_to_the_screens_of_the_dm_list() {
+    let mut app = connected();
+    app.state.nav_back.clear();
+    let screen = |app: &Application| app.state.dm_screen;
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    // Opening the screen already open records nothing.
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::OpenDmScreen(DmScreen::Requests));
+    assert_eq!(
+        app.state.nav_back,
+        [
+            HistoryPlace::Room("dm".into()),
+            HistoryPlace::Dm(DmScreen::Friends)
+        ]
+    );
+    assert!(app.state.can_go_back() && !app.state.can_go_forward());
+
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(screen(&app), Some(DmScreen::Friends));
+    assert_eq!(app.state.selected, None);
+    assert!(app.state.can_go_back() && app.state.can_go_forward());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(screen(&app), None);
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+    assert!(!app.state.can_go_back() && app.state.can_go_forward());
+
+    // Forward goes through the screens again, and the walk records nothing.
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(screen(&app), Some(DmScreen::Friends));
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(screen(&app), Some(DmScreen::Requests));
+    assert!(!app.state.can_go_forward());
+    assert!(app.state.nav_forward.is_empty());
+    assert_eq!(app.state.nav_back.len(), 2);
+
+    // A new visit drops what was forward.
+    app.dispatch(Action::NavigateBack);
+    app.dispatch(Action::SelectRoom("dm".into()));
+    assert!(!app.state.can_go_forward());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(screen(&app), Some(DmScreen::Friends));
+}
+
+#[test]
+fn back_from_a_server_returns_to_the_friends_list_among_the_direct_messages() {
+    let mut app = connected();
+    app.state.nav_back.clear();
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
+    assert_eq!(app.state.dm_screen, None);
+    assert!(app.state.selected.is_some());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert_eq!(app.state.selected, None);
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(app.state.navigation, Navigation::Server("friends".into()));
+    assert_eq!(app.state.dm_screen, None);
+}
+
+#[test]
+fn a_place_that_is_gone_is_skipped_and_the_history_keeps_fifty() {
+    let mut app = connected();
+    app.state.nav_back.clear();
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::SelectRoom("dm".into()));
+    app.dispatch(Action::Open("games".into()));
+    // Behind "games" are "dm", the friends list and "dm" again; with "dm"
+    // gone the arrow still has the screen to go to.
+    app.state.rooms.retain(|room| room.id != "dm");
+    assert!(app.state.can_go_back());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert!(!app.state.can_go_back());
+
+    let mut app = connected();
+    app.state.nav_back.clear();
+    for turn in 0..80 {
+        let screen = if turn % 2 == 0 {
+            DmScreen::Friends
+        } else {
+            DmScreen::Requests
+        };
+        app.dispatch(Action::OpenDmScreen(screen));
+        app.dispatch(Action::SelectRoom("dm".into()));
+    }
+    assert_eq!(app.state.nav_back.len(), 50);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn back_and_forward_return_to_browse_channels() {
+    let mut app = discord_server();
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    change_server(&mut app, |server| server.community = true);
+    app.dispatch(Action::SelectRoom("discord:10:11".into()));
+    app.state.nav_back.clear();
+    app.dispatch(Action::BrowseChannels);
+    assert!(app.state.browse.is_some());
+    app.dispatch(Action::SelectRoom("discord:10:13".into()));
+    assert!(app.state.browse.is_none());
+    assert_eq!(
+        app.state.nav_back,
+        [
+            HistoryPlace::Room("discord:10:11".into()),
+            HistoryPlace::Browse("discord:10".into())
+        ]
+    );
+
+    app.dispatch(Action::NavigateBack);
+    let browse = app.state.browse.as_ref().expect("Browse Channels");
+    assert_eq!(browse.server, "discord:10");
+    assert_eq!(app.state.selected, None);
+    assert!(app.state.can_go_back() && app.state.can_go_forward());
+    app.dispatch(Action::NavigateBack);
+    assert!(app.state.browse.is_none());
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:11"));
+    assert!(!app.state.can_go_back() && app.state.can_go_forward());
+    app.dispatch(Action::NavigateForward);
+    assert!(app.state.browse.is_some());
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:13"));
+    assert!(!app.state.can_go_forward());
+
+    // A server that stops offering it takes it out of the arrows' reach.
+    change_server(&mut app, |server| server.community = false);
+    assert!(app.state.can_go_back(), "the first channel is still there");
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:11"));
+    assert!(!app.state.can_go_back());
+}
+
 /// A profile whose wishlist is at `id`.
 #[cfg(feature = "discord")]
 fn profile_with_wishlist(id: Option<&str>) -> chat::OwnProfile {
