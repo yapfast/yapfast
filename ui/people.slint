@@ -409,8 +409,11 @@ export struct ProfileData {
     note-editable: bool,
     /// Whether messaging them is offered.
     can-message: bool,
-    /// "5 mutual friends" and "2 mutual servers".
+    /// "5 mutual friends" and "2 mutual servers"; on this account's own
+    /// profile, which shares them with nobody, "5 friends" and "2 servers".
     mutual-friends-text: string, mutual-servers-text: string,
+    /// Whether the lists are this account's own friends and servers.
+    own: bool,
 }
 
 /// A section's title on a card, as Discord writes it: small, bold, sentence
@@ -963,7 +966,7 @@ export component ProfileCard inherits Rectangle {
                         if !root.large && (root.data.friends.length > 0 || root.data.servers.length > 0): Rectangle {
                             height: 20px;
                             accessible-role: button;
-                            accessible-label: "Show mutual friends and servers in the full profile";
+                            accessible-label: root.data.own ? "Show friends and servers in the full profile" : "Show mutual friends and servers in the full profile";
                             accessible-action-default => { root.enlarge(); }
                             HorizontalLayout {
                                 spacing: 4px; alignment: start;
@@ -1301,7 +1304,7 @@ export component ProfileModal inherits Rectangle {
                             clicked => { root.open-friend(friend.id, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         }
                         if root.data.friends.length == 0: Text {
-                            text: "No friends in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                            text: root.data.own ? "No friends." : "No friends in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
                         }
                     }
                     if root.page == 2: VerticalLayout {
@@ -1313,7 +1316,7 @@ export component ProfileModal inherits Rectangle {
                             clicked => { root.open-server(server, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         }
                         if root.data.servers.length == 0: Text {
-                            text: "No servers in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                            text: root.data.own ? "No servers." : "No servers in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
                         }
                     }
                 }

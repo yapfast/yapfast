@@ -170,10 +170,16 @@ pub(super) fn activity_panel(
     Vec::new()
 }
 
-/// "1 mutual friend" or "5 mutual servers".
-fn mutual_count(count: usize, what: &str) -> String {
+/// "1 mutual friend" or "5 mutual servers"; this account's own profile shares
+/// its friends and servers with nobody, so there it says "1 friend" or
+/// "5 servers".
+fn mutual_count(count: usize, what: &str, shared: bool) -> String {
     let plural = if count == 1 { "" } else { "s" };
-    format!("{count} mutual {what}{plural}")
+    if shared {
+        format!("{count} mutual {what}{plural}")
+    } else {
+        format!("{count} {what}{plural}")
+    }
 }
 
 /// Only mentions get a number; plain unread activity is a dot, because sync
@@ -400,6 +406,9 @@ pub(super) fn profile_data(
     view: &ProfileView,
 ) -> ProfileData {
     let profile = &view.profile;
+    // This account's own profile lists all its friends and servers, not the
+    // ones it shares with anyone, so its card names them without "mutual".
+    let own = state.relation(&profile.id) == Relation::Me;
     // Emoji in the bio whose pictures are here become glyphs now, so the
     // bio below can show them.
     crate::custom_emoji::add(profile.bio_emoji.iter().filter_map(|emoji| {
@@ -578,10 +587,11 @@ pub(super) fn profile_data(
                 })
                 .collect::<Vec<_>>(),
         )),
-        mutual_friends_text: mutual_count(profile.friends.len(), "friend").into(),
-        mutual_servers_text: mutual_count(profile.servers.len(), "server").into(),
+        mutual_friends_text: mutual_count(profile.friends.len(), "friend", !own).into(),
+        mutual_servers_text: mutual_count(profile.servers.len(), "server", !own).into(),
+        own,
         note_text: profile.note.as_str().into(),
-        note_editable: !profile.id.starts_with('@') && state.relation(&profile.id) != Relation::Me,
+        note_editable: !profile.id.starts_with('@') && !own,
         can_message: state
             .person_choices(&profile.id)
             .contains(&MenuChoice::Message),

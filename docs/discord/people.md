@@ -253,7 +253,11 @@ from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
 and the servers and friends the account shares with them. Profiles are kept for
-five minutes, at most 32 of them. Presence and activity come from the member
+five minutes, at most 32 of them. On this account's own profile the lists are
+its own friends and servers, which it shares with nobody, so the card and its
+tabs say "5 friends" and "2 servers" rather than "5 mutual friends" and
+"2 mutual servers", and an empty tab says "No friends." rather than "No friends
+in common." Presence and activity come from the member
 list, since the profile doesn't carry them. When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
