@@ -521,7 +521,7 @@ export component ProfileHeading inherits Text {
 
 // A badge on a profile: its picture, with its name on hover, opening its
 // page when Discord gives it one.
-component ProfileBadge inherits Rectangle {
+export component ProfileBadge inherits Rectangle {
     in property <ProfileBadgeRow> badge;
     callback open-link(string);
     property <image> picture: root.badge.icon != "" ? PictureStore.picture(root.badge.icon, PictureStore.revision) : @image-url("");

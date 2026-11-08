@@ -128,6 +128,34 @@ impl Adapter {
     }
 }
 
+/// The account's own profile its card was built from, with how many of the
+/// card's pictures had come then, and the count of picture changes they were
+/// counted at.
+pub(super) struct AccountCardShown {
+    profile: Arc<yapfast_core::chat::Profile>,
+    changes: u64,
+    pictures: usize,
+}
+
+/// How many of the pictures a profile's card draws have come.
+fn card_pictures(state: &AppState, profile: &yapfast_core::chat::Profile) -> usize {
+    let servers = profile
+        .servers
+        .iter()
+        .flat_map(|server| [server.icon.as_deref(), server.banner.as_deref()]);
+    let friends = profile
+        .friends
+        .iter()
+        .map(|friend| friend.avatar.as_deref());
+    [profile.avatar.as_deref(), profile.banner.as_deref()]
+        .into_iter()
+        .chain(servers)
+        .chain(friends)
+        .flatten()
+        .filter(|url| state.pictures.contains_key(*url))
+        .count()
+}
+
 /// What the sidebar was built from, kept to tell whether it changed. The
 /// rooms and servers go by their count of changes and the other lists by a
 /// hash: copies of them took megabytes on a large account.
@@ -1037,6 +1065,41 @@ impl Adapter {
             state,
             state.account_avatar.as_deref(),
         ));
+        // The account's card, from its own profile once that's come. Its
+        // pictures are counted again only once some picture has come.
+        let shown = self.account_profile_shown.take();
+        let own = state.account_profile.as_ref().map(|profile| {
+            let kept = shown
+                .as_ref()
+                .filter(|shown| Arc::ptr_eq(&shown.profile, profile));
+            let pictures = match kept {
+                Some(kept) if kept.changes == state.picture_changes => kept.pictures,
+                _ => card_pictures(state, profile),
+            };
+            AccountCardShown {
+                profile: profile.clone(),
+                changes: state.picture_changes,
+                pictures,
+            }
+        });
+        let same = match (&own, &shown) {
+            (Some(own), Some(shown)) => {
+                Arc::ptr_eq(&own.profile, &shown.profile) && own.pictures == shown.pictures
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            let data = own.as_ref().map_or_else(ProfileData::default, |own| {
+                let view = ProfileView {
+                    profile: yapfast_core::chat::Profile::clone(&own.profile),
+                    ..Default::default()
+                };
+                profile_data(&mut self.pictures, state, &view)
+            });
+            window.set_account_profile(data);
+        }
+        self.account_profile_shown = own;
         let look = window.global::<AccountLook>();
         let cosmetics = state.cosmetics;
         look.set_decoration_url(
