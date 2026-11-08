@@ -7177,11 +7177,16 @@ fn a_file_that_is_not_a_theme_is_turned_away_with_a_reason() {
     let import = |text: &str| theme::import(text.as_bytes()).unwrap_err();
     assert_eq!(import("not json"), NotATheme);
     assert_eq!(import("[]"), NotATheme);
-    assert_eq!(import(r##"{"name": "x", "colours": {"chat": "#102030"}}"##), NotATheme);
+    assert_eq!(
+        import(r##"{"name": "x", "colours": {"chat": "#102030"}}"##),
+        NotATheme
+    );
     assert_eq!(import(r##"{"format": "other", "version": 1}"##), NotATheme);
     // A custom theme as layout.json keeps it is not a file to share.
     assert_eq!(
-        import(r##"{"id": "custom:1", "name": "x", "base": "yap", "colours": {"chat": "#102030"}}"##),
+        import(
+            r##"{"id": "custom:1", "name": "x", "base": "yap", "colours": {"chat": "#102030"}}"##
+        ),
         NotATheme
     );
     assert_eq!(
