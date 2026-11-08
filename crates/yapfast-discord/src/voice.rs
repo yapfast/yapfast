@@ -122,10 +122,10 @@ impl Call {
         let stats = Arc::new(CallStats::default());
         let (orders, connected) =
             call_connection::start(identity, listener, sending.clone(), frames, stats.clone())?;
+        // Errors say the step that failed; the caller says it was joining.
         connected
             .await
-            .context("the call stopped while connecting")?
-            .context("could not connect to Discord voice")?;
+            .context("the call stopped while connecting")??;
         Ok(Self {
             orders,
             sending,

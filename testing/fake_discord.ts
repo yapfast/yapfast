@@ -50,7 +50,9 @@
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
 // seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
-// resume with op 7. Each call connection gets an RTCP receiver report about
+// resume with op 7. POST /_control/voice-discovery?off makes the voice
+// server ignore UDP address discovery, so that joining fails as a blocked
+// network makes it, and without ?off answer again. Each call connection gets an RTCP receiver report about
 // its audio every 50 packets, as Discord's voice server sends; POST
 // /_control/voice-link?ping=300&loss=7 holds each heartbeat ACK (op 6) back
 // 300 ms and reports 7% of the audio lost, and with no parameters sets both
@@ -3432,6 +3434,9 @@ const voiceSockets = new Set<Socket>();
 /** The token Alice's voice session holds now: a connection identifying
  *  with the one before is no longer valid, as on Discord. */
 let voiceToken = VOICE_TOKEN;
+/** Whether POST /_control/voice-discovery?off has the voice server ignore
+ *  address discovery. */
+let discoveryOff = false;
 const voiceEndpoint = (ws: Socket) => `${ws.data.origin.replace(/^http/, "ws")}/voice`;
 let ssrcs = 100;
 
@@ -4500,6 +4505,7 @@ const udp = await Bun.udpSocket({
   socket: {
     data(socket, data, port, address) {
       // IP discovery: type 1, length 70, SSRC, then the answer fills in the address.
+      if (discoveryOff && data.length === 74 && data.readUInt16BE(0) === 1) return;
       if (data.length !== 74 || data.readUInt16BE(0) !== 1) {
         if (data.length > 12 && (data[0]! & 0xc0) === 0x80 && !(data[1]! >= 192 && data[1]! <= 223)) {
           const ssrc = data.readUInt32BE(8);
@@ -8181,6 +8187,10 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/discovery-drop") {
       return Response.json({ dropped: discovery.dropped, answered: discovery.answered });
+    }
+    if (req.method === "POST" && path === "/_control/voice-discovery") {
+      discoveryOff = url.searchParams.has("off");
+      return new Response(`address discovery ${discoveryOff ? "ignored" : "answered"}\n`);
     }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
