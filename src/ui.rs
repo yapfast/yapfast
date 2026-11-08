@@ -937,6 +937,46 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
                             _ => Ok(()),
                         }
                     }
+                    // Seeded visual checks open a settings page or a room without
+                    // sending input to the private desktop.
+                    command if command.starts_with("settings ") => {
+                        match command["settings ".len()..].parse::<i32>() {
+                            Ok(section) => {
+                                if let Some(window) = window {
+                                    window.set_settings_section(section);
+                                    window.set_settings_open(true);
+                                }
+                                Ok(())
+                            }
+                            Err(error) => Err(error.to_string().into()),
+                        }
+                    }
+                    command if command.starts_with("room ") => {
+                        if let Some(window) = window {
+                            window.set_settings_open(false);
+                            adapter
+                                .borrow_mut()
+                                .action(&window, Action::Open(command["room ".len()..].to_owned()));
+                        }
+                        Ok(())
+                    }
+                    "state" => {
+                        if let Some(window) = window {
+                            tracing::info!(
+                                settings_open = window.get_settings_open(),
+                                settings_section = window.get_settings_section(),
+                                text_size = window.get_text_size(),
+                                density = window.get_ui_density(),
+                                chat_display = window.get_chat_display(),
+                                group_gap = window.get_message_group_gap(),
+                                saturation = window.get_colour_saturation(),
+                                high_contrast = window.get_high_contrast(),
+                                reduced_motion = window.get_reduced_motion(),
+                                "test window state"
+                            );
+                        }
+                        Ok(())
+                    }
                     "quit" => slint::quit_event_loop().map_err(|error| error.to_string().into()),
                     // `pick avatar PATH` or `pick banner PATH` chooses a
                     // picture in the server profile editor, `pick icon PATH`
