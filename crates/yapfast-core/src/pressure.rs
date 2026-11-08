@@ -167,6 +167,10 @@ impl Policy {
     pub fn update(&mut self, reading: Reading, now: Instant) -> Change {
         let headrooms: Vec<(Signal, u32)> = reading.headrooms().collect();
         if headrooms.is_empty() {
+            // A signal that goes away while the wait to leave is running ends
+            // it: the time the platform said nothing is not time it said the
+            // machine had room, so the wait after it starts over.
+            self.clearing = None;
             return Change::Same;
         }
         let short: Vec<Signal> = headrooms
@@ -445,6 +449,24 @@ mod tests {
         assert_eq!(policy.update(Reading::default(), at(2)), Change::Same);
         assert_eq!(policy.update(Reading::default(), at(30)), Change::Same);
         assert_eq!(policy.constrained(), Some(Reason::Both));
+
+        // The wait to leave counts samples that saw room, and a signal that goes
+        // away ends it: the silence between them is not room the machine had, so
+        // a roomy sample after a long silence starts the ten seconds again
+        // rather than leaving at once.
+        assert_eq!(policy.update(both(60, 60), at(31)), Change::Same);
+        assert_eq!(policy.update(Reading::default(), at(32)), Change::Same);
+        assert_eq!(
+            policy.update(both(60, 60), at(40)),
+            Change::Same,
+            "the wait started again at forty"
+        );
+        assert_eq!(policy.update(both(60, 60), at(49)), Change::Same);
+        assert_eq!(
+            policy.update(both(60, 60), at(50)),
+            Change::Leave,
+            "ten seconds of room after the silence"
+        );
     }
 
     #[test]
