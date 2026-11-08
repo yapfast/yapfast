@@ -1072,6 +1072,16 @@ impl Api {
         self.empty(self.request(method, &path)).await
     }
 
+    /// Presses an app's button, as Discord's client does: an interaction of
+    /// type 3 naming the message, the app and this gateway session.
+    pub async fn press(&self, press: &Press<'_>) -> Result<()> {
+        self.empty(with_json(
+            self.request(Method::POST, "/interactions"),
+            &press.body(&crate::message::nonce()),
+        ))
+        .await
+    }
+
     /// Shows others that this account is typing in `channel`.
     pub async fn typing(&self, channel: &str) -> Result<()> {
         let path = format!("/channels/{channel}/typing");
@@ -2856,5 +2866,66 @@ mod tests {
         assert!(!Refused(StatusCode::FORBIDDEN).rate_limited());
         assert!(Refused(StatusCode::NOT_FOUND).gone());
         assert!(!Refused(StatusCode::TOO_MANY_REQUESTS).gone());
+    }
+}
+
+/// An app's button pressed under a message.
+pub struct Press<'a> {
+    /// None in a DM.
+    pub guild: Option<&'a str>,
+    pub channel: &'a str,
+    pub message: &'a str,
+    pub application: &'a str,
+    pub custom_id: &'a str,
+    /// This gateway session, through which the app's answer comes.
+    pub session: &'a str,
+}
+
+impl Press<'_> {
+    /// The interaction Discord's client sends for a button.
+    pub fn body(&self, nonce: &str) -> serde_json::Value {
+        let mut body = serde_json::json!({
+            "type": 3,
+            "nonce": nonce,
+            "channel_id": self.channel,
+            "message_flags": 0,
+            "message_id": self.message,
+            "application_id": self.application,
+            "session_id": self.session,
+            "data": { "component_type": 2, "custom_id": self.custom_id },
+        });
+        if let Some(guild) = self.guild {
+            body["guild_id"] = guild.into();
+        }
+        body
+    }
+}
+
+#[cfg(test)]
+mod press_tests {
+    use super::Press;
+
+    #[test]
+    fn a_pressed_button_names_its_message_app_and_session() {
+        let press = Press {
+            guild: Some("1"),
+            channel: "2",
+            message: "3",
+            application: "4",
+            custom_id: "enter/giveaway",
+            session: "s",
+        };
+        let body = press.body("99");
+        assert_eq!(body["type"], 3);
+        assert_eq!(body["guild_id"], "1");
+        assert_eq!(body["channel_id"], "2");
+        assert_eq!(body["message_id"], "3");
+        assert_eq!(body["application_id"], "4");
+        assert_eq!(body["session_id"], "s");
+        assert_eq!(body["nonce"], "99");
+        assert_eq!(body["data"]["component_type"], 2);
+        assert_eq!(body["data"]["custom_id"], "enter/giveaway");
+        let dm = Press { guild: None, ..press };
+        assert!(dm.body("1").get("guild_id").is_none());
     }
 }

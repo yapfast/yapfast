@@ -1975,6 +1975,43 @@ impl Discord {
         self.api.react(channel, id, emoji, add).await
     }
 
+    /// Presses an app's button under a message: `link` is what follows
+    /// Yapfast's press prefix, the server (empty in a DM), channel, message
+    /// and app, each with a `/` after it, then the button's custom id. The
+    /// app answers through the gateway, as with Discord's client.
+    pub async fn press(&self, link: &str) -> Result<()> {
+        let rest = link.split_once(':').map_or(link, |(_, rest)| rest);
+        let mut parts = rest.splitn(5, '/');
+        let (Some(guild), Some(channel), Some(message), Some(application), Some(custom_id)) = (
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+        ) else {
+            anyhow::bail!("This button can't be pressed.");
+        };
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        self.api
+            .press(&api::Press {
+                guild: (!guild.is_empty()).then_some(guild),
+                channel,
+                message,
+                application,
+                custom_id,
+                session: &session,
+            })
+            .await
+    }
+
     /// Shows others that this account is typing in `channel`, for about ten seconds.
     pub async fn typing(&self, channel: &str) -> Result<()> {
         self.api.typing(channel).await

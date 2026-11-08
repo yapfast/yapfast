@@ -17,6 +17,12 @@ pub const MAX_MESSAGE_BYTES: usize = 16_000;
 pub(crate) const MAX_PREVIEW_DOWNLOAD_BYTES: usize = 20 * 1024 * 1024;
 pub const PREVIEW_WIDTH: u32 = 550;
 pub const PREVIEW_HEIGHT: u32 = 400;
+/// What the link of an app's button under a Discord message starts with:
+/// pressing it sends Discord the interaction instead of opening a page. The
+/// server (empty in a DM), channel, message and app follow, each with a `/`
+/// after it, then the button's custom id, which may itself hold `/`.
+pub const PRESS_LINK: &str = "yapfast-press:";
+
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
@@ -2427,6 +2433,8 @@ pub struct OAuthPreview {
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Presses an app's button under a message, as [`PRESS_LINK`] names it.
+    Press { link: String },
     /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
     /// and [`Event::ActivityFeedDue`] when it's time to ask again.
     ActivityFeed,

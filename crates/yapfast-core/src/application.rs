@@ -1483,6 +1483,9 @@ pub enum Action {
     /// Delete a message without asking first, as Shift and a click on its
     /// Delete do in Discord's client.
     DeleteNow(String),
+    /// Press an app's button under a Discord message, by its
+    /// [`chat::PRESS_LINK`] link.
+    Press(String),
     /// Vote for these answers of a Discord message's poll, by item, in
     /// place of this account's vote; none takes it back.
     Vote {
@@ -2945,6 +2948,10 @@ impl Application {
             Action::React { item, key } => self.react(item, key),
             Action::RequestDelete(item) => self.request_delete(item),
             Action::DeleteNow(item) => self.delete_now(item),
+            Action::Press(link) if link.starts_with(chat::PRESS_LINK) && !self.state.preview => {
+                vec![Effect::Backend(Command::Discord(DiscordCommand::Press { link }))]
+            }
+            Action::Press(_) => vec![],
             Action::Vote { item, answers } => self.vote(item, answers),
             Action::OpenPollDraft => self.open_poll_draft(),
             Action::EditPoll(edit) => self.edit_poll(edit),

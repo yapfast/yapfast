@@ -695,6 +695,7 @@ pub(super) fn chat_card(
     discord: &Discord,
     server: Option<&yapfast_discord::ready::Server>,
     card: &yapfast_discord::components::Card,
+    press: Option<&str>,
 ) -> Card {
     use yapfast_discord::components::{Beside as DiscordBeside, Row, Style};
     let button = |button: &yapfast_discord::components::Button| CardButton {
@@ -711,7 +712,10 @@ pub(super) fn chat_card(
             Style::Danger => ButtonStyle::Danger,
             Style::Link => ButtonStyle::Link,
         },
-        url: button.url.clone(),
+        url: button.url.clone().or_else(|| {
+            let (press, id) = (press?, button.custom_id.as_deref()?);
+            Some(format!("{}{press}{id}", crate::chat::PRESS_LINK))
+        }),
         disabled: button.disabled,
     };
     Card {

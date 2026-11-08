@@ -105,6 +105,10 @@ pub struct Button {
     /// Where a link button leads.
     pub url: Option<String>,
     pub disabled: bool,
+    /// What the app named the button, which pressing it sends back; none
+    /// for a link button.
+    #[serde(default)]
+    pub custom_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -300,6 +304,10 @@ fn button(component: &Value) -> Option<Button> {
             .filter(|_| style == Style::Link)
             .map(str::to_owned),
         disabled: component["disabled"].as_bool().unwrap_or(false),
+        custom_id: component["custom_id"]
+            .as_str()
+            .filter(|_| style != Style::Link)
+            .map(str::to_owned),
     })
 }
 

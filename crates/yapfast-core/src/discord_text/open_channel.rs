@@ -1683,10 +1683,21 @@ impl OpenChannel {
             .iter()
             .map(|embed| chat_embed(discord, server, embed))
             .collect();
+        // An app's buttons press as the bot that sent them, whose user id
+        // is its app's.
+        let press = (!message.id.is_empty()).then(|| {
+            format!(
+                "{}/{}/{}/{}/",
+                server.map_or("", |server| server.id.as_str()),
+                self.channel,
+                message.id,
+                message.author_id,
+            )
+        });
         let cards = message
             .components
             .iter()
-            .map(|card| chat_card(discord, server, card))
+            .map(|card| chat_card(discord, server, card, press.as_deref()))
             .collect();
         let reply = message.reply.as_ref().map(|reply| match reply {
             DiscordReply::Message {

@@ -742,3 +742,13 @@ A day divider reads 12px semibold. With a 12-hour clock dates are month-first
 as in en-US ("November 4, 2026"); with a 24-hour clock they are day-first,
 unless Settings chooses a date format. The chat header
 puts a 4px round dot between the channel name and its topic.
+
+## Apps' buttons
+
+Bots put buttons under their messages, such as a giveaway's Enter. A link
+button opens its page. Pressing any other one sends Discord an interaction,
+`POST /interactions` of type 3, as Discord's client does: the server, channel
+and message, the app (the bot's user id), this gateway session and the
+button's `custom_id`. The app answers through the gateway, usually by
+editing its message or with a message only this account sees. A disabled
+button can't be pressed. Menus under a message still show as disabled.

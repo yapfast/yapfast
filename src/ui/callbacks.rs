@@ -1518,6 +1518,14 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_open_link(move |link| {
+        // An app's button under a message presses it on Discord.
+        if link.starts_with(yapfast_core::chat::PRESS_LINK) {
+            let Some(window) = weak.upgrade() else { return };
+            state
+                .borrow_mut()
+                .action(&window, Action::Press(link.to_string()));
+            return;
+        }
         // A blocked message shows when asked for.
         if let Some(item) = link.strip_prefix(BLOCKED_LINK) {
             let Some(window) = weak.upgrade() else { return };

@@ -1275,7 +1275,8 @@ pub(super) fn command(
         | DiscordCommand::FollowChannel { .. }
         | DiscordCommand::ShowAllChannels { .. }
         | DiscordCommand::JoinThread { .. }
-        | DiscordCommand::Member { .. }),
+        | DiscordCommand::Member { .. }
+        | DiscordCommand::Press { .. }),
     ) = command
     {
         change_person(command, discord, events);
@@ -1761,6 +1762,7 @@ fn change_person(
                     },
                 )
             }
+            DiscordCommand::Press { link } => (discord.press(&link).await, "press the button"),
             _ => return,
         };
         if let Err(error) = result {
