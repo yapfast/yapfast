@@ -1712,6 +1712,37 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window.on_record_talk_key(move |on| {
         if let Some(window) = weak.upgrade() {
             window.set_talk_recording(on);
+            if on {
+                window.set_keybind_recording(-1);
+            }
+            crate::keybinds::set_recording(
+                window.get_talk_recording() || window.get_keybind_recording() >= 0,
+            );
+        }
+    });
+    let weak = window.as_weak();
+    window.on_record_keybind(move |index| {
+        if let Some(window) = weak.upgrade() {
+            window.set_keybind_recording(index);
+            if index >= 0 {
+                window.set_talk_recording(false);
+            }
+            crate::keybinds::set_recording(
+                window.get_talk_recording() || window.get_keybind_recording() >= 0,
+            );
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_clear_keybind(move |index| {
+        let action = usize::try_from(index)
+            .ok()
+            .and_then(|index| crate::keybinds::Action::ALL.get(index))
+            .copied();
+        if let (Some(window), Some(action)) = (weak.upgrade(), action) {
+            window.set_keybind_recording(-1);
+            crate::keybinds::set_recording(false);
+            state.borrow_mut().clear_keybind(&window, action);
         }
     });
     let state = adapter.clone();

@@ -1,0 +1,153 @@
+import { ActionButton } from "controls.slint";
+import { Theme, Middle, Label } from "theme.slint";
+import { SettingsTitle, SettingsHeading } from "settings.slint";
+
+// A key as a keycap: the key's name once it's set, "Not set" before, and
+// while recording, a pulsing outline that asks for the next key.
+component Keycap inherits Rectangle {
+    in property <string> text;
+    in property <bool> recording;
+    property <bool> glow;
+    height: 38px;
+    preferred-width: max(108px, label.preferred-width + 28px);
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Key";
+    accessible-value: root.recording ? "Press a key" : root.text != "" ? root.text : "Not set";
+    Timer { interval: 550ms; running: root.recording; triggered => { root.glow = !root.glow; } }
+    // The lip under the key's face, which gives it depth.
+    Rectangle {
+        y: 3px; height: parent.height - 3px; border-radius: 8px;
+        background: root.recording ? Theme.accent.with-alpha(0.5) : Theme.edge;
+        animate background { duration: Theme.quick; }
+    }
+    Rectangle {
+        height: parent.height - 3px; border-radius: 8px;
+        background: root.recording ? Theme.sunken : Theme.field;
+        border-width: 1px;
+        border-color: root.recording ? (root.glow ? Theme.accent : Theme.accent.with-alpha(0.4)) : Theme.line;
+        animate border-color { duration: 500ms; easing: ease-in-out; }
+        HorizontalLayout {
+            padding-left: 14px; padding-right: 14px;
+            label := Text {
+                text: root.recording ? "Press a key..." : root.text != "" ? root.text : "Not set";
+                color: root.recording ? Theme.accent : root.text != "" ? Theme.text : Theme.muted;
+                font-size: 14px; font-weight: root.recording || root.text == "" ? 500 : 700;
+                horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+            }
+        }
+    }
+}
+
+// What a key does, with the key, and what changes or takes it away.
+component KeybindRow inherits Rectangle {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> description;
+    in property <string> key;
+    in property <bool> recording;
+    /// Another keybind is being recorded, so this one steps back.
+    in property <bool> other-recording;
+    callback record(bool);
+    callback clear;
+    height: content.preferred-height;
+    background: root.recording ? Theme.accent-soft : hover.has-hover ? Theme.row-hover : transparent;
+    animate background { duration: Theme.quick; }
+    opacity: root.other-recording ? 0.5 : 1.0;
+    animate opacity { duration: Theme.quick; }
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: root.title;
+    accessible-description: root.description;
+    hover := TouchArea { }
+    content := HorizontalLayout {
+        padding: 16px; spacing: 14px;
+        Middle {
+            Rectangle {
+                width: 40px; height: 40px; border-radius: 10px;
+                background: root.recording ? Theme.accent-soft : Theme.raised;
+                animate background { duration: Theme.quick; }
+                Image {
+                    x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                    width: 20px; height: 20px; source: root.icon; image-fit: contain;
+                    colorize: root.recording ? Theme.accent : root.key != "" ? Theme.text : Theme.secondary;
+                    animate colorize { duration: Theme.quick; }
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center; spacing: 2px; horizontal-stretch: 1; min-width: 0; preferred-width: 0;
+            Text { text: root.title; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+            Text { text: root.description; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+        }
+        Middle { Keycap { text: root.key; recording: root.recording; } }
+        Middle {
+            ActionButton {
+                text: root.recording ? "Cancel" : root.key == "" ? "Record" : "Change";
+                small: true; danger: root.recording; enabled: !root.other-recording;
+                clicked => { root.record(!root.recording); }
+            }
+        }
+        // Takes its room while there's nothing to clear, so the rows line up.
+        Middle {
+            width: 28px;
+            if root.key != "" && !root.recording: ActionButton {
+                icon: @image-url("icons/x.svg"); label: "Clear " + root.title + " keybind";
+                ghost: true; small: true; enabled: !root.other-recording;
+                clicked => { root.clear(); }
+            }
+        }
+    }
+}
+
+// Settings: the keys that mute, deafen or do both from any app, as Discord's
+// keybinds do. Push to talk's key is with the input mode, in Voice & video.
+export component KeybindSettings inherits VerticalLayout {
+    /// The keys' names, in the order of the rows; empty for one without a key.
+    in property <[string]> key-names;
+    /// The row whose key is being recorded, or -1.
+    in property <int> recording: -1;
+    /// Where the keys work: in every app, or only in Yapfast and why.
+    in property <string> note;
+    /// Starts recording a row's key, or stops with -1.
+    callback record(int);
+    callback clear(int);
+    spacing: 16px;
+    SettingsTitle { text: "Keybinds"; }
+    Label { text: "Mute yourself without leaving the game. These keys work in every app, even with Yapfast in the tray. Out of a call, they set how your next one starts."; }
+    SettingsHeading { text: "CALL CONTROLS"; }
+    Rectangle {
+        background: Theme.sidebar; border-radius: 10px; clip: true;
+        VerticalLayout {
+            KeybindRow {
+                icon: @image-url("icons/mic-off.svg"); title: "Mute microphone";
+                description: "Turns your microphone off, or back on.";
+                key: root.key-names[0];
+                recording: root.recording == 0; other-recording: root.recording >= 0 && root.recording != 0;
+                record(on) => { root.record(on ? 0 : -1); }
+                clear => { root.clear(0); }
+            }
+            Rectangle { height: 1px; background: Theme.line; }
+            KeybindRow {
+                icon: @image-url("icons/headphone-off.svg"); title: "Mute sound";
+                description: "Deafens you, so you hear no one. As in Discord, your microphone goes off with it, and stays off when you hear again.";
+                key: root.key-names[1];
+                recording: root.recording == 1; other-recording: root.recording >= 0 && root.recording != 1;
+                record(on) => { root.record(on ? 1 : -1); }
+                clear => { root.clear(1); }
+            }
+            Rectangle { height: 1px; background: Theme.line; }
+            KeybindRow {
+                icon: @image-url("icons/volume-x.svg"); title: "Mute everything";
+                description: "Mutes your microphone and your sound together. Press again to bring both back.";
+                key: root.key-names[2];
+                recording: root.recording == 2; other-recording: root.recording >= 0 && root.recording != 2;
+                record(on) => { root.record(on ? 2 : -1); }
+                clear => { root.clear(2); }
+            }
+        }
+    }
+    Label {
+        text: root.recording >= 0 ? "Press the key you want. Escape stops without changing it."
+            : "A key does one thing, so choosing one that's already in use takes it from the other. Push to talk has its own key in Voice & video.";
+    }
+    if root.note != "": Label { text: root.note; }
+}

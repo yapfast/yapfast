@@ -187,6 +187,7 @@ pub fn run(
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
+    adapter.borrow_mut().watch_keybinds(&window);
     adapter.borrow().show_protocol(&window);
     if !preview {
         adapter.borrow_mut().pending_link = open_link;
@@ -497,6 +498,60 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         }
                     });
                 }
+                #[cfg(windows)]
+                if let Some(window) = weak.upgrade()
+                    && window.get_settings_open()
+                    && window.get_keybind_recording() >= 0
+                    && let Some(recorded) = crate::keybinds::recorded_mouse(event)
+                {
+                    let action = usize::try_from(window.get_keybind_recording())
+                        .ok()
+                        .and_then(|index| crate::keybinds::Action::ALL.get(index))
+                        .copied();
+                    window.set_keybind_recording(-1);
+                    crate::keybinds::set_recording(false);
+                    if let Some(action) = action {
+                        let (adapter, weak) = (adapter.clone(), weak.clone());
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let (Some(adapter), Some(window)) =
+                                (adapter.upgrade(), weak.upgrade())
+                            {
+                                adapter.borrow_mut().set_keybind(&window, action, recorded);
+                            }
+                        });
+                    }
+                    return EventResult::PreventDefault;
+                }
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && let Some(window) = weak.upgrade()
+                    && window.get_settings_open()
+                    && window.get_keybind_recording() >= 0
+                {
+                    if !key.repeat {
+                        let action = usize::try_from(window.get_keybind_recording())
+                            .ok()
+                            .and_then(|index| crate::keybinds::Action::ALL.get(index))
+                            .copied();
+                        let recorded = (key.logical_key != Key::Named(NamedKey::Escape))
+                            .then(|| crate::keybinds::recorded(key))
+                            .flatten();
+                        window.set_keybind_recording(-1);
+                        crate::keybinds::set_recording(false);
+                        if let (Some(action), Some(recorded)) = (action, recorded) {
+                            let (adapter, weak) = (adapter.clone(), weak.clone());
+                            slint::Timer::single_shot(Duration::ZERO, move || {
+                                if let (Some(adapter), Some(window)) =
+                                    (adapter.upgrade(), weak.upgrade())
+                                {
+                                    adapter.borrow_mut().set_keybind(&window, action, recorded);
+                                }
+                            });
+                        }
+                    }
+                    return EventResult::PreventDefault;
+                }
+                let keybind_taken = crate::keybinds::window_event(event);
                 crate::push_to_talk::window_event(event);
                 // Windows' two side buttons are recordable shortcuts too.
                 #[cfg(windows)]
@@ -505,6 +560,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     && let Some(recorded) = crate::push_to_talk::Keybind::recorded_mouse(event)
                 {
                     window.set_talk_recording(false);
+                    crate::keybinds::set_recording(false);
                     let (adapter, weak) = (adapter.clone(), weak.clone());
                     slint::Timer::single_shot(Duration::ZERO, move || {
                         if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
@@ -522,6 +578,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 {
                     if !key.repeat {
                         window.set_talk_recording(false);
+                        crate::keybinds::set_recording(false);
                         let recorded = (key.logical_key != Key::Named(NamedKey::Escape))
                             .then(|| crate::push_to_talk::Keybind::recorded(key))
                             .flatten();
@@ -625,7 +682,13 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     return EventResult::PreventDefault;
                 }
                 let step = match outcome {
-                    zoom::Outcome::Pass => return EventResult::Propagate,
+                    zoom::Outcome::Pass => {
+                        return if keybind_taken {
+                            EventResult::PreventDefault
+                        } else {
+                            EventResult::Propagate
+                        };
+                    }
                     zoom::Outcome::Taken => return EventResult::PreventDefault,
                     zoom::Outcome::Step(step) => step,
                 };
@@ -735,7 +798,10 @@ fn type_anywhere(window: &YapfastWindow) {
         if window.get_browsing() && !text.chars().all(|c| c.is_ascii_alphanumeric()) {
             return false;
         }
-        // Holding the key to talk shouldn't also write it.
+        // Holding the key to talk, or pressing a keybind, shouldn't also write it.
+        if crate::keybinds::pressed_key() {
+            return false;
+        }
         if window.get_voice_active()
             && !window.get_muted()
             && crate::push_to_talk::pressed_talk_key()
@@ -1135,6 +1201,9 @@ struct Layout {
     input_mode: InputMode,
     push_to_talk_key: Option<crate::push_to_talk::Keybind>,
     push_to_talk_release_delay: Option<u32>,
+    /// Keys that mute or deafen from any app; see [`crate::keybinds`].
+    #[serde(default)]
+    keybinds: std::collections::BTreeMap<crate::keybinds::Action, crate::keybinds::Keybind>,
     /// How loud every call sends the microphone and plays, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
     microphone_volume: Option<u8>,
@@ -1303,6 +1372,21 @@ impl Layout {
             .min(yapfast_core::push_to_talk::MOST_RELEASE_DELAY)
     }
 
+    /// The keybinds' names in the order `KeybindSettings` lists them.
+    fn keybind_names(&self) -> ModelRc<SharedString> {
+        ModelRc::new(VecModel::from(
+            crate::keybinds::Action::ALL
+                .iter()
+                .map(|action| {
+                    self.keybinds
+                        .get(action)
+                        .map(|key| SharedString::from(key.name.as_str()))
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>(),
+        ))
+    }
+
     fn read(root: &std::path::Path) -> Self {
         let mut layout: Self = std::fs::read(root.join(LAYOUT))
             .ok()
@@ -1455,6 +1539,7 @@ impl Layout {
         );
         window.set_talk_delay(self.release_delay() as i32);
         yapfast_core::push_to_talk::set_release_delay(self.release_delay());
+        window.set_keybind_names(self.keybind_names());
         window.set_microphone_volume(self.microphone_volume.unwrap_or(100).into());
         window.set_speaker_volume(self.speaker_volume.unwrap_or(100).into());
         play_call_volumes(window);
@@ -1936,6 +2021,8 @@ struct Adapter {
     /// Watches the push-to-talk key while push to talk is on and it's set,
     /// with or without the window.
     talk_key: Option<crate::push_to_talk::Watcher>,
+    /// Watches the toggle keybinds while any are set, with or without the window.
+    keybinds_watcher: Option<crate::keybinds::Watcher>,
     /// Previews of the pictures waiting in the composer, by file; `None` while
     /// one is read, or when it can't be.
     thumbnails: HashMap<PathBuf, Option<pictures::Thumbnail>>,
@@ -2184,6 +2271,7 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 gate_meter: None,
                 talk_key: None,
+                keybinds_watcher: None,
                 thumbnails: HashMap::new(),
                 pasted: None,
                 drag_over: false,
@@ -2235,9 +2323,123 @@ impl Adapter {
     fn set_talk_key(&mut self, window: &YapfastWindow, key: crate::push_to_talk::Keybind) {
         tracing::info!(key = key.name, "push-to-talk key recorded");
         window.set_talk_key(key.name.as_str().into());
+        let scancode = key.scancode;
         self.layout.push_to_talk_key = Some(key);
+        if !self.layout.keybinds.is_empty() {
+            self.layout
+                .keybinds
+                .retain(|_, bound| bound.scancode != scancode);
+            window.set_keybind_names(self.layout.keybind_names());
+            self.watch_keybinds(window);
+        }
         self.layout.write(&self.root);
         self.watch_talk_key(window);
+    }
+
+    /// Starts, changes or stops watching the toggle keybinds as settings say,
+    /// and shows where they work.
+    fn watch_keybinds(&mut self, window: &YapfastWindow) {
+        let wanted: Vec<(crate::keybinds::Action, crate::keybinds::Keybind)> = self
+            .layout
+            .keybinds
+            .iter()
+            .map(|(action, key)| (*action, key.clone()))
+            .collect();
+        if self
+            .keybinds_watcher
+            .as_ref()
+            .map(crate::keybinds::Watcher::keys)
+            != (!wanted.is_empty()).then_some(wanted.as_slice())
+        {
+            self.keybinds_watcher = None;
+            self.keybinds_watcher = (!wanted.is_empty()).then(|| {
+                let weak = window.as_weak();
+                crate::keybinds::Watcher::start(
+                    wanted,
+                    &self.runtime,
+                    move |reach| {
+                        let _ = weak.upgrade_in_event_loop(move |window| {
+                            window.set_keybinds_note(crate::keybinds::note(&reach).into());
+                        });
+                    },
+                    |action| {
+                        let _ = slint::invoke_from_event_loop(move || shell::keybind(action));
+                    },
+                )
+            });
+        }
+        let note = self
+            .keybinds_watcher
+            .as_ref()
+            .map(|watcher| crate::keybinds::note(&watcher.reach()));
+        window.set_keybinds_note(note.unwrap_or_default().into());
+    }
+
+    /// Makes a recorded key what a keybind does.
+    fn set_keybind(
+        &mut self,
+        window: &YapfastWindow,
+        action: crate::keybinds::Action,
+        key: crate::keybinds::Keybind,
+    ) {
+        tracing::info!(key = key.name, ?action, "keybind recorded");
+        self.layout
+            .keybinds
+            .retain(|other, bound| *other == action || bound.scancode != key.scancode);
+        if self
+            .layout
+            .push_to_talk_key
+            .as_ref()
+            .is_some_and(|talk| talk.scancode == key.scancode)
+        {
+            self.layout.push_to_talk_key = None;
+            window.set_talk_key(SharedString::default());
+            self.watch_talk_key(window);
+        }
+        self.layout.keybinds.insert(action, key);
+        self.keybinds_changed(window);
+    }
+
+    /// Takes the key off a keybind.
+    fn clear_keybind(&mut self, window: &YapfastWindow, action: crate::keybinds::Action) {
+        if self.layout.keybinds.remove(&action).is_some() {
+            tracing::info!(?action, "keybind cleared");
+            self.keybinds_changed(window);
+        }
+    }
+
+    /// Saves the keybinds, shows them, and watches the keys as they are now.
+    fn keybinds_changed(&mut self, window: &YapfastWindow) {
+        self.layout.write(&self.root);
+        window.set_keybind_names(self.layout.keybind_names());
+        self.watch_keybinds(window);
+    }
+
+    /// Out of a call, mutes or deafens the next one from a keybind (which may
+    /// happen while the window is closed to the tray).
+    fn toggle_on_join_keybind(&mut self, window: Option<&YapfastWindow>, deafen: bool) {
+        let layout = &mut self.layout;
+        let sound = if deafen {
+            layout.deafen_on_join = !layout.deafen_on_join;
+            if layout.deafen_on_join {
+                Sound::Deafen
+            } else {
+                Sound::Undeafen
+            }
+        } else if layout.deafen_on_join {
+            (layout.deafen_on_join, layout.unmute_on_join) = (false, Some(true));
+            Sound::Undeafen
+        } else {
+            let unmute = !layout.unmute_on_join.unwrap_or(true);
+            layout.unmute_on_join = Some(unmute);
+            if unmute { Sound::Unmute } else { Sound::Mute }
+        };
+        if let Some(window) = window {
+            window.set_unmute_on_join(layout.unmute_on_join.unwrap_or(true));
+            window.set_deafen_on_join(layout.deafen_on_join);
+        }
+        layout.write(&self.root);
+        self.play(sound);
     }
 
     /// Shows whether Discord protocol links open here, as the desktop
@@ -2253,6 +2455,7 @@ impl Adapter {
         self.models.attach(window);
         self.layout.apply(window);
         self.watch_talk_key(window);
+        self.watch_keybinds(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds

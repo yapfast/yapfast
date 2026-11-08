@@ -48,6 +48,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } fro
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { KeybindSettings } from "keybinds.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1128,6 +1129,12 @@ export component YapfastWindow inherits Window {
         if !self.settings-open && self.link-phase != 0 { self.cancel-discord-link(); }
         if !self.settings-open { self.camera-testing = false; }
         if !self.settings-open && self.theme-editor { self.cancel-theme(); }
+        if !self.settings-open {
+            self.keybind-recording = -1;
+            self.talk-recording = false;
+            self.record-keybind(-1);
+            self.record-talk-key(false);
+        }
     }
     in-out property <int> settings-section;
     /// Preferences people set in the settings; preferences-changed reports any change.
@@ -1184,6 +1191,12 @@ export component YapfastWindow inherits Window {
     in-out property <int> talk-delay: 20;
     in-out property <string> talk-note;
     callback record-talk-key(bool);
+    /// Keybinds, which mute and deafen from any app: see KeybindSettings.
+    in-out property <[string]> keybind-names: ["", "", ""];
+    in-out property <int> keybind-recording: -1;
+    in-out property <string> keybinds-note;
+    callback record-keybind(int);
+    callback clear-keybind(int);
     /// Calls' microphone and speakers volume: see VoiceSettings.
     in-out property <int> microphone-volume: 100;
     in-out property <int> speaker-volume: 100;
@@ -1253,7 +1266,13 @@ export component YapfastWindow inherits Window {
     callback save-theme();
     callback cancel-theme();
     callback delete-theme();
-    changed settings-section => { if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); } }
+    changed settings-section => {
+        if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); }
+        root.keybind-recording = -1;
+        root.talk-recording = false;
+        root.record-keybind(-1);
+        root.record-talk-key(false);
+    }
     out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
@@ -3917,6 +3936,11 @@ export component YapfastWindow inherits Window {
             select-camera(index) => { root.select-camera(index); }
             refresh-devices => { root.refresh-devices(); }
             preferences-changed => { root.preferences-changed(); }
+        }
+        if root.settings-section == 9: KeybindSettings {
+            key-names: root.keybind-names; recording: root.keybind-recording; note: root.keybinds-note;
+            record(index) => { root.record-keybind(index); }
+            clear(index) => { root.clear-keybind(index); }
         }
         if root.settings-section == 2: MessageSettings {
             message-font-size: root.message-font-size;
