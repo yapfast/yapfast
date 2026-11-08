@@ -74,6 +74,21 @@ its tooltip. Clicking it goes to the channel without joining it. It comes from
 the voice states the channel list already keeps, so it shows only servers both
 share and channels this account sees. DM calls stay out, as in Discord.
 
+When the window is at least 1000px wide, Active Now sits in a 360px column at
+the right of the friends list, as on Discord's friends page, and the list
+keeps to the left of it. Each card is friends doing one thing: those together
+in one server's voice channel share a card, headed by their names ("Ann, Bob,
+and 1 other") and what most of them play, or "In a Voice Channel", with a row
+for the server and channel and who is in it, which opens the channel; the
+others share a card per game or activity, a game first, then a stream, a
+contest, a show or music, never a custom status or a Hang alone. A card shows
+how long they've been at it from the activities' start times, ticking once a
+second only while the friends page shows a timer, and a row with Rich
+Presence's details and state where an activity has them. Clicking a card's
+head opens its first friend's menu. It all comes from the presence and voice
+states the list already keeps (`src/ui/active_now.rs`, `ui/active_now.slint`);
+nothing more is asked of Discord.
+
 The person beside the pen, in the same header, adds a friend by username: `POST
 /users/@me/relationships` with `{"username": ..., "discriminator": null}` and
 `{"location":"Add Friend"}` as the context. Discord's codes 80004 (nobody by

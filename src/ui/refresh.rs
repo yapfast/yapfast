@@ -768,6 +768,12 @@ impl Adapter {
             .collect();
         update_model(&self.models.friends_online, around);
         update_model(&self.models.friends, friend_rows);
+        let cards = self.active_now_cards(&rooms_by_id);
+        let timed = cards
+            .iter()
+            .any(|card| card.start > 0 || card.rows.iter().any(|row| row.start > 0));
+        update_model(&self.models.active_now, cards);
+        self.tick_active_now(window, timed && state.dm_screen == Some(DmScreen::Friends));
         window.set_friend_count(i32::try_from(state.friends.len()).unwrap_or(i32::MAX));
         // Those blocked, for Settings.
         update_model(

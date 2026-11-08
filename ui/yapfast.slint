@@ -60,6 +60,7 @@ import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateR
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
+import { ActiveNowColumn, ActiveNowCard } from "active_now.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
@@ -72,6 +73,7 @@ export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
 export { ServerTagRow } from "server.slint";
+export { ActiveFace, ActiveRowKind, ActiveNowRow, ActiveNowCard } from "active_now.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
@@ -896,6 +898,8 @@ export component YapfastWindow inherits Window {
     in property <bool> friends-open;
     in property <[FriendRow]> friends;
     in property <[FriendRow]> friends-online;
+    /// Active Now beside the friends list, when the window is wide enough.
+    in property <[ActiveNowCard]> active-now;
     in property <int> friend-count;
     in-out property <string> friend-filter;
     /// The list shows all friends rather than those around.
@@ -3325,7 +3329,9 @@ export component YapfastWindow inherits Window {
                                 open(id) => { root.select-room(id); }
                             }
                             if root.friends-open: FriendsScreen {
-                                width: parent.width; height: parent.height;
+                                // At the left, with Active Now at the right.
+                                x: 0px; y: 0px;
+                                width: parent.width - (parent.width >= 1000px ? 360px : 0px); height: parent.height;
                                 rows: root.friends-all ? root.friends : root.friends-online;
                                 all: root.friends-all; total: root.friend-count;
                                 filter <=> root.friend-filter;
@@ -3334,6 +3340,12 @@ export component YapfastWindow inherits Window {
                                 open-voice(id) => { root.open-conversation(id); }
                                 add-friend => { root.open-add-friend(); }
                                 open-friend-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                            }
+                            if root.friends-open && parent.width >= 1000px: ActiveNowColumn {
+                                x: parent.width - self.width; y: 0px; width: 360px; height: parent.height;
+                                cards: root.active-now;
+                                open-room(room) => { root.open-conversation(room); }
+                                open-person(id, x, y) => { root.open-context-menu(id, true, x, y); }
                             }
                             // The conversation's opening, or what to do when none is chosen.
                             if root.browse-open: BrowseScreen {
