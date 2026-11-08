@@ -286,6 +286,9 @@ struct Mapping {
     /// worker its slots.
     #[cfg(test)]
     fail_remap: u32,
+    /// Whether a refused mapping has been logged already, so a file that stays
+    /// unmappable doesn't fill the log at frame rate.
+    complained: bool,
 }
 
 impl Mapping {
@@ -299,6 +302,7 @@ impl Mapping {
             capacity: 0,
             #[cfg(test)]
             fail_remap: 0,
+            complained: false,
         };
         ensure!(mapping.header().magic == MAGIC, "not a video frames file");
         let capacity = mapping.capacity_now();
@@ -396,10 +400,15 @@ impl Mapping {
         match self.remap_any(file) {
             Ok(()) => true,
             Err(error) => {
-                tracing::warn!(
-                    error = format!("{error:#}"),
-                    "could not map the video frames again"
-                );
+                // Once per mapping, not once per frame: this is asked at frame
+                // rate, and a file that can't be mapped would fill the log.
+                if !self.complained {
+                    self.complained = true;
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not map the video frames again"
+                    );
+                }
                 false
             }
         }
