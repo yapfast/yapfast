@@ -10716,6 +10716,7 @@ fn back_and_forward_walk_the_conversations_visited_without_recording_the_walk() 
     assert_eq!(app.state.selected.as_deref(), Some("general"));
 }
 
+#[cfg(feature = "discord")]
 fn wishlist_asked(effects: &[Effect]) -> Option<&str> {
     match effects {
         [Effect::Backend(Command::Discord(DiscordCommand::Wishlist { id }))] => Some(id),
@@ -10723,6 +10724,7 @@ fn wishlist_asked(effects: &[Effect]) -> Option<&str> {
     }
 }
 
+#[cfg(feature = "discord")]
 /// A full profile on screen with a public wishlist at 90, and a game on its board.
 fn full_profile_with_tabs(large: bool) -> Application {
     let mut app = Application::default();
@@ -10751,6 +10753,7 @@ fn full_profile_with_tabs(large: bool) -> Application {
     app
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn someone_elses_lists_are_asked_for_only_when_a_full_profiles_tab_opens() {
     // A card asks for nothing.
@@ -10809,6 +10812,7 @@ fn someone_elses_lists_are_asked_for_only_when_a_full_profiles_tab_opens() {
     assert_eq!(profile.widgets[0].games[0].name, "Made-up Racers");
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn a_profile_coming_after_a_tab_opened_keeps_what_it_asked_and_asks_what_it_didnt() {
     let mut app = full_profile_with_tabs(true);
@@ -10837,6 +10841,7 @@ fn a_profile_coming_after_a_tab_opened_keeps_what_it_asked_and_asks_what_it_didn
     assert_eq!(wishlist_asked(&asked), Some("90"));
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn recent_activity_is_asked_for_once_when_the_activity_tab_opens() {
     let mut app = full_profile_with_tabs(true);
