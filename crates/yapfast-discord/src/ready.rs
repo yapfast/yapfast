@@ -64,10 +64,14 @@ pub mod permission {
     pub const MANAGE_WEBHOOKS: u64 = 1 << 29;
     /// Changing and deleting any of a server's emoji, stickers and sounds.
     pub const MANAGE_GUILD_EXPRESSIONS: u64 = 1 << 30;
+    /// Using another server's emoji, for those with Nitro.
+    pub const USE_EXTERNAL_EMOJIS: u64 = 1 << 18;
     /// Seeing every private thread, and sending in locked ones.
     pub const MANAGE_THREADS: u64 = 1 << 34;
     pub const CREATE_PUBLIC_THREADS: u64 = 1 << 35;
     pub const CREATE_PRIVATE_THREADS: u64 = 1 << 36;
+    /// Sending another server's stickers, for those with Nitro.
+    pub const USE_EXTERNAL_STICKERS: u64 = 1 << 37;
     pub const SEND_MESSAGES_IN_THREADS: u64 = 1 << 38;
     /// Timing members out.
     pub const MODERATE_MEMBERS: u64 = 1 << 40;

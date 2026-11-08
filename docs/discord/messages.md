@@ -630,9 +630,10 @@ the width is the same for all three tabs and comes back at the next start
   stickers too; another server's, and every server's in a DM, need Nitro and
   show greyed with a lock until then, as Discord's client has them
   (`SENDABLE`, `SENDABLE_WITH_PREMIUM`). A favourite or frequent sticker from
-  a server this account left is no one's. Discord's client also locks
-  another server's stickers where the channel denies USE_EXTERNAL_STICKERS;
-  Yapfast doesn't read that permission yet.
+  a server this account left is no one's. In a server's channel that denies
+  Use External Stickers, another server's are locked even with Nitro, as
+  Discord's client locks them; until the server's roles are known they
+  aren't.
 - A sticker sent closes the picker as closing it does, and the renderer's
   caches go a second later.
 

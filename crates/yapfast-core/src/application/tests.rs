@@ -10229,6 +10229,7 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
     assert!(usable(&app, false, "Frequently Used"));
     // Another server's stickers need Nitro: in a DM, none is the open one's.
     app.state.stickers.server_for = None;
+    app.state.stickers.external = true;
     assert!(
         !usable(&app, false, "Test"),
         "another server's stickers need Nitro"
@@ -11453,6 +11454,109 @@ fn discord_emoji_favourites_and_uses_rank_and_last_through_partial_updates() {
     assert_eq!(lists.favorites, ["heart"]);
     assert_eq!(lists.frequent, ["joy", "thumbsup"]);
     assert_eq!(lists.reactions, ["fire"]);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn another_servers_emoji_and_stickers_need_the_channels_leave() {
+    use yapfast_discord::{
+        marked::MarkedServer,
+        ready::{
+            Channel, Emoji, Overwrite, Server,
+            permission::{SEND_MESSAGES, USE_EXTERNAL_EMOJIS, USE_EXTERNAL_STICKERS, VIEW_CHANNEL},
+        },
+        service::{Account, Snapshot, Status},
+        stickers::Sticker,
+    };
+    let mut app = connected();
+    let everyone = VIEW_CHANNEL | SEND_MESSAGES | USE_EXTERNAL_EMOJIS | USE_EXTERNAL_STICKERS;
+    let channel = |id: &str, deny| Channel {
+        id: id.into(),
+        name: id.into(),
+        overwrites: std::sync::Arc::new(vec![Overwrite {
+            id: "10".into(),
+            member: false,
+            allow: 0,
+            deny,
+        }]),
+        ..Default::default()
+    };
+    // Nitro, in "Test", whose #22 denies using other servers' emoji and
+    // stickers; "Other" has its own of each.
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        user_id: Some("1".into()),
+        account: Some(Account {
+            username: String::new(),
+            name: "Alice".into(),
+            avatar: String::new(),
+            decoration: None,
+            nameplate: None,
+            premium_type: 2,
+            mfa_enabled: false,
+            has_email: true,
+        }),
+        servers: vec![
+            MarkedServer::from(Server {
+                id: "10".into(),
+                name: "Test".into(),
+                roles: std::collections::HashMap::from([("10".to_owned(), everyone)]).into(),
+                text_channels: vec![
+                    channel("21", 0),
+                    channel("22", USE_EXTERNAL_EMOJIS | USE_EXTERNAL_STICKERS),
+                ],
+                ..Default::default()
+            }),
+            MarkedServer::from(Server {
+                id: "30".into(),
+                name: "Other".into(),
+                emojis: vec![Emoji {
+                    id: "5".into(),
+                    name: "wave".into(),
+                    animated: false,
+                    available: true,
+                }]
+                .into(),
+                stickers: std::sync::Arc::new(vec![Sticker {
+                    id: "7".into(),
+                    name: "Hi".into(),
+                    format: 1,
+                    unavailable: false,
+                }]),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    }));
+    let other_usable = |app: &mut Application, room: &str| {
+        app.dispatch(Action::SelectRoom(room.into()));
+        app.dispatch(Action::OpenStickers);
+        let emoji = app
+            .emoji_sets()
+            .into_iter()
+            .find(|set| set.id == "30")
+            .map(|set| set.emoji[0].usable);
+        let sticker = app
+            .state
+            .stickers
+            .collections(true)
+            .into_iter()
+            .find(|collection| collection.id == "30")
+            .map(|collection| collection.stickers[0].usable);
+        app.dispatch(Action::CloseStickers);
+        (emoji, sticker)
+    };
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    assert_eq!(
+        other_usable(&mut app, "discord:10:21"),
+        (Some(true), Some(true)),
+        "with Nitro, where the channel leaves it"
+    );
+    assert_eq!(
+        other_usable(&mut app, "discord:10:22"),
+        (Some(false), Some(false)),
+        "not where it denies Use External Emojis and Stickers, Nitro or not"
+    );
 }
 
 #[test]

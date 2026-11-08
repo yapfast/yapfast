@@ -271,7 +271,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   in a row of its own, tighter than a row of emoji and at the grid's top as the
   rail's buttons are, and the ones
   this account may not use where it
-  is looking — another server's, or an animated one without Nitro — are
+  is looking — another server's without Nitro, or in a channel that denies
+  Use External Emojis even with it, or an animated one without Nitro — are
   greyed with a lock in their corner, and pressing one opens Discord's Nitro
   page. A cell's star, in both pickers, adds the emoji to the Discord
   account's favourites or takes it out, as Discord's client's does: they are
@@ -289,8 +290,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   — Frequently Used with a clock's own icon, the open server's, whose icon
   leads its name, then Discord's default packs — and their stickers as 96px
   tiles in the picker's columns under the collection's name, as the emoji's
-  own are. A click sends the sticker as a message of its own. Without Nitro only
-  the server's stickers show, as Discord's client offers them. Its pictures are
+  own are. A click sends the sticker as a message of its own. Discord's packs
+  and the open server's stickers are anyone's; another server's need Nitro,
+  as Discord's client has them. Its pictures are
   kept on disk and fetched ahead, so the tab shows them at once. The left edge
   drags it wider as it does for the GIFs and the emoji, and the grid takes
   another 96px column for every 104px. Its tiles are those in sight and a

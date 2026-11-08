@@ -15,7 +15,7 @@
 use super::*;
 #[cfg(feature = "discord")]
 use crate::chat::Sticker;
-use crate::chat::StickerCollection;
+use crate::chat::{Permission, StickerCollection};
 
 /// A picture the picker shows, by its address.
 #[derive(Clone, Debug)]
@@ -49,6 +49,9 @@ pub struct StickerPicker {
     /// The open room's server: its stickers are usable without Nitro and list
     /// first. A DM has none.
     pub server_for: Option<String>,
+    /// The open room lets this account send another server's stickers, with
+    /// Nitro: a DM does, and a server's channel with Use External Stickers.
+    pub external: bool,
     /// Every server's own stickers that came, as the snapshot or Discord gave
     /// them.
     pub servers: Vec<ServerStickers>,
@@ -151,7 +154,7 @@ impl StickerPicker {
         }
         let usable = |sticker: &Sticker| match from.get(sticker.id.as_str()) {
             Some(None) => true,
-            Some(Some(server)) => nitro || here == Some(*server),
+            Some(Some(server)) => here == Some(*server) || (nitro && self.external),
             None => false,
         };
         let mut listed = vec![];
@@ -177,7 +180,8 @@ impl StickerPicker {
         servers
             .sort_by_key(|server| (here != Some(server.id.as_str()), server.name.to_lowercase()));
         for server in servers {
-            let where_it_is = |_sticker: &Sticker| nitro || here == Some(server.id.as_str());
+            let where_it_is =
+                |_sticker: &Sticker| here == Some(server.id.as_str()) || (nitro && self.external);
             if let Some(collection) = ListedCollection::of(
                 &server.id,
                 &server.name,
@@ -262,6 +266,7 @@ impl Application {
     /// every server, while the picker is open.
     pub(super) fn follow_sticker_server(&mut self) {
         self.state.stickers.server_for = self.state.selected.as_deref().and_then(room_server);
+        self.state.stickers.external = self.may_use_external(Permission::UseExternalStickers);
         if !self.state.stickers.open {
             return;
         }

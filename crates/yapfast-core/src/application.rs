@@ -4466,6 +4466,9 @@ impl Application {
                 .account
                 .as_ref()
                 .is_some_and(|account| account.premium_type > 0);
+            // Another server's emoji need Nitro, and in a server's channel
+            // Use External Emojis too, as Discord's client has them.
+            let external = nitro && self.may_use_external(chat::Permission::UseExternalEmojis);
             let mut servers: Vec<_> = snapshot.servers.iter().collect();
             servers.sort_by_key(|server| Some(server.id.as_str()) != here);
             return servers
@@ -4484,7 +4487,11 @@ impl Application {
                                 text: format!(":{}:", emoji.name),
                                 id: emoji.id.clone(),
                                 animated: emoji.animated,
-                                usable: nitro || (ours && !emoji.animated),
+                                usable: if ours {
+                                    nitro || !emoji.animated
+                                } else {
+                                    external
+                                },
                                 picture: yapfast_discord::ready::custom_emoji(
                                     &emoji.id,
                                     emoji.animated,

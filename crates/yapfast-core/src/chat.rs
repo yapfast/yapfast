@@ -600,6 +600,10 @@ pub enum Permission {
     /// them and change one's own.
     ManageExpressions,
     CreateExpressions,
+    /// Using another server's emoji here, in a message or a reaction.
+    UseExternalEmojis,
+    /// Sending another server's stickers here.
+    UseExternalStickers,
 }
 
 /// Which messages notify, in a Discord server or channel.
