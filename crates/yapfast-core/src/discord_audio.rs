@@ -148,6 +148,12 @@ impl Listener for Hearing {
     fn disconnected(&self, reason: &str) {
         let _ = self.ended.send(reason.to_owned());
     }
+
+    /// The call's thread decodes and mixes everyone each 20 ms; held up,
+    /// the speakers run dry.
+    fn on_call_thread(&self) {
+        crate::audio_io::raise_thread_priority();
+    }
 }
 
 /// Samples in one 20 ms frame of the call, interleaved stereo.
@@ -496,6 +502,7 @@ pub fn speakers(
     thread::Builder::new()
         .name("yapfast-discord-out".into())
         .spawn(move || {
+            crate::audio_io::raise_thread_priority();
             // Speakers that go away, such as Bluetooth headphones, open
             // again when they come back.
             let stream = LastingOutput::<i16>::open(

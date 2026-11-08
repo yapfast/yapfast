@@ -65,7 +65,7 @@ const FORWARDABLE_FLAGS: u64 = 1 << 0
 /// Missing sticker formats default to PNG.
 const STICKER_PNG: u64 = 1;
 /// The size Discord shows stickers at.
-const STICKER_SIZE: u32 = 160;
+use crate::stickers::MESSAGE_SIZE as STICKER_SIZE;
 
 /// The attachment flag that marks a spoiler.
 pub(crate) const IS_SPOILER: u64 = 1 << 3;
@@ -419,7 +419,10 @@ impl Message {
         self.id.parse().unwrap_or_default()
     }
 
-    /// Adds or removes this account's or someone else's reaction.
+    /// Adds or removes this account's or someone else's reaction. This
+    /// account's reaction counts once: adding it again, or removing it when
+    /// it isn't there, changes nothing, as clicks faster than the gateway
+    /// can bring such events.
     pub fn react(&mut self, key: &str, emoji: &str, me: bool, added: bool) {
         match self
             .reactions
@@ -428,6 +431,9 @@ impl Message {
         {
             Some(index) => {
                 let reaction = &mut self.reactions[index];
+                if me && reaction.me == added {
+                    return;
+                }
                 if added {
                     reaction.count += 1;
                     reaction.me |= me;
@@ -1270,6 +1276,9 @@ pub struct Names {
     /// When members' timeouts end, in Unix milliseconds, by server and user
     /// id: only those timed out, while Yapfast runs.
     timeouts: HashMap<(Id, Id), u64>,
+    /// Since when members have boosted their server, in Unix milliseconds,
+    /// by server and user id: only those boosting it, while Yapfast runs.
+    boosts: HashMap<(Id, Id), u64>,
     /// Changes whenever a name, avatar or role of someone known changes, so
     /// what was shown with them can tell it's out of date. Someone new
     /// changes nothing shown, which was rendered after learning them.
@@ -1454,6 +1463,7 @@ impl Names {
             .retain(|(_, user), _| seen.contains_key(user));
         self.roles.retain(|(_, user), _| seen.contains_key(user));
         self.timeouts.retain(|(_, user), _| seen.contains_key(user));
+        self.boosts.retain(|(_, user), _| seen.contains_key(user));
     }
 
     /// Changes whenever what [`Names::name`], [`Names::avatar`],
@@ -1576,6 +1586,11 @@ impl Names {
             let until = until.as_str().and_then(iso_ms);
             changed(&mut self.timeouts, key, until);
         }
+        // Present when known, null when they don't boost it.
+        if let Some(since) = member.get("premium_since") {
+            let since = since.as_str().and_then(iso_ms);
+            changed(&mut self.boosts, key, since);
+        }
         self.members.insert(key);
         self.version += u64::from(known && learned);
     }
@@ -1593,6 +1608,7 @@ impl Names {
             | self.member_nameplates.remove(&key).is_some()
             | self.member_styles.remove(&key).is_some();
         self.timeouts.remove(&key);
+        self.boosts.remove(&key);
         self.members.remove(&key);
         self.version += u64::from(learned);
     }
@@ -1601,6 +1617,12 @@ impl Names {
     /// out as far as Yapfast knows; it may have ended already.
     pub fn timed_out_until(&self, guild: &str, user: &str) -> Option<u64> {
         self.timeouts.get(&member_key(guild, user)?).copied()
+    }
+
+    /// Since when a member has boosted their server, in Unix milliseconds,
+    /// if they do as far as Yapfast knows.
+    pub fn boosting_since(&self, guild: &str, user: &str) -> Option<u64> {
+        self.boosts.get(&member_key(guild, user)?).copied()
     }
 
     /// The members known to hold `role` in a server, by user id.
@@ -2268,6 +2290,24 @@ mod tests {
         message.react("pog", "pog:5", false, false);
         message.react(":pog:", "pog:5", false, false);
         assert_eq!(message.reactions.len(), 1);
+
+        // This account's reaction counts once, however often the gateway
+        // says it was added or removed.
+        message.react("👍", "👍", true, true);
+        message.react("👍", "👍", true, true);
+        assert_eq!(
+            (message.reactions[0].count, message.reactions[0].me),
+            (2, true)
+        );
+        message.react("👍", "👍", true, false);
+        message.react("👍", "👍", true, false);
+        assert_eq!(
+            (message.reactions[0].count, message.reactions[0].me),
+            (1, false)
+        );
+        // Others' still count each time.
+        message.react("👍", "👍", false, true);
+        assert_eq!(message.reactions[0].count, 2);
 
         assert!(parse(&json!({"id": "1", "type": 8, "author": {"id": "1"}})).is_none());
         let deleted = parse(

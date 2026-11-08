@@ -412,13 +412,18 @@ impl Dave {
             return;
         };
         let old = std::mem::replace(&mut self.version, version);
-        // Upgraded from transport-only encryption.
+        // Upgraded from transport-only encryption: unencrypted frames pass
+        // for libdave's transition expiry, 10 s, while senders switch. In
+        // davey, as in libdave's decryptor, turning passthrough on ignores
+        // the expiry and lasts until turned off; turning it off is what
+        // keeps it for the expiry.
         if transition_id > 0
             && old == 0
             && version != 0
             && let Some(session) = self.session.as_mut()
         {
-            session.set_passthrough_mode(true, Some(10));
+            session.set_passthrough_mode(true, None);
+            session.set_passthrough_mode(false, Some(10));
         }
     }
 }

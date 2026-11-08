@@ -38,17 +38,33 @@ names a deleted file once a rebuild or update replaces it. Frames reach the UI t
 file in the runtime directory. The file is unlinked once the worker opens it.
 Windows won't delete a mapped file, so there it's a temporary file that
 Windows deletes once both processes close it.
-On Linux, libwebrtc's capturer asks the screen sharing portal what to share.
-The portal answers over D-Bus through GLib, so the worker runs GLib's main
+The worker's standard error goes to Yapfast's log file. If its output ends
+without an `ended` report, as when it crashes, the popup says "Screen sharing
+stopped unexpectedly." and Yapfast logs a warning, "the stream worker ended
+without saying why", with how it exited (`exit="signal=11 (SIGSEGV)"` on Unix,
+the exit code on Windows), the job (`share`, `watch`, `play` or `glance`), the
+encoder's `engine` and `codec` from the last stats a share reported, and the
+picture `size` (or "up to" the job's bounds before one was reported).
+`a_worker_that_dies_says_how` runs a worker script that kills itself, through
+`YAPFAST_STREAM_WORKER`, which names the program to start instead of Yapfast.
+In a Wayland session, libwebrtc's capturer asks the screen sharing portal what
+to share. The portal answers over D-Bus through GLib, so the worker runs GLib's main
 context while it waits for the dialog and for frames. Yapfast tells Discord it's
 live only once frames flow, so a cancelled dialog shares nothing. Windows has
-no such dialog, so the share menu lists the screens and windows libwebrtc's
-capturers find (`stream_worker::shareable`), and the worker captures the one
-picked by its id; see the
-[Windows guide](../windows-beta.md#go-live-on-windows).
+no such dialog, and libwebrtc uses the portal only on Wayland, so elsewhere,
+as on Windows and in an X11 session such as XFCE's, the share menu lists the
+screens and windows libwebrtc's capturers find (`stream_worker::shareable`),
+and the worker captures the one picked by its id; see the
+[Windows guide](../windows-beta.md#go-live-on-windows). On X11 the capturers
+read the X server, and Yapfast's own windows are listed too.
+`stream_worker::portal_picks` makes the choice as libwebrtc does:
+`XDG_SESSION_TYPE` starting with `wayland` and `WAYLAND_DISPLAY` set. The
+ignored `glances_at_the_listed_screens` and `shares_a_listed_screen_and_window`
+list, picture, share and switch between a screen and a window, under Xvfb on
+Linux; the latter's comment says what the window there needs.
 While live, the voice dock's share button switches what's shared without
-ending the stream: the worker starts a second capturer (on Linux, through the
-dialog again) and keeps sending the first one's frames. When the second one
+ending the stream: the worker starts a second capturer (on Wayland, through
+the dialog again) and keeps sending the first one's frames. When the second one
 gives a frame, it replaces the first. If the dialog is cancelled, the first
 one goes on. The encoder takes the new size on the same connection.
 `YAPFAST_STREAM_TEST_PATTERN=1` shares moving colour bars instead of a screen.
@@ -56,7 +72,7 @@ one goes on. The encoder takes the new size on the same connection.
 A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
 Linux, its DirectShow filter on Windows). The share menu lists the cameras
 [the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
-screens and windows; on Linux, where the portal picks a screen or window, a
+screens and windows; on Wayland, where the portal picks a screen or window, a
 "Screen or window" choice comes first, and switching with no camera listed
 goes straight to the dialog. The worker films the camera through the same
 capture module (`camera::Camera::open_at`), asking for the stream's

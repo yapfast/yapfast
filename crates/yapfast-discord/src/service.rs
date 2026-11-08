@@ -1373,7 +1373,24 @@ impl Discord {
             kept(earlier);
         }
         let value = self.api.profile(user, server(guild)).await?;
-        self.write_names().learn_user(&value["user"]);
+        let learned = {
+            let mut names = self.write_names();
+            let before = names.version();
+            names.learn_user(&value["user"]);
+            // The profile carries the member's roles, which messages colour
+            // names by: messages fetched over HTTP left them unknown.
+            if let Some(guild) = server(guild)
+                && let Value::Object(member) = &value["guild_member"]
+            {
+                let mut member = member.clone();
+                member.insert("user_id".into(), user.into());
+                names.learn_member(guild, &Value::Object(member));
+            }
+            names.version() != before
+        };
+        if learned {
+            let _ = self.live.send(Live::Names);
+        }
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
         {
@@ -1534,14 +1551,19 @@ impl Discord {
         member: &Value,
         profile: &Value,
     ) -> Result<()> {
-        if some(member) {
-            self.api.modify_member_me(guild, member).await?;
+        // As for the main profile, what went through is kept no longer.
+        let saved = async {
+            if some(member) {
+                self.api.modify_member_me(guild, member).await?;
+            }
+            if some(profile) {
+                self.api.modify_guild_profile(guild, profile).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_guild_profile(guild, profile).await?;
-        }
+        .await;
         self.forget_own_profile(Some(guild));
-        Ok(())
+        saved
     }
 
     /// A server's profile, for its settings' Server Profile page.
@@ -1856,18 +1878,33 @@ impl Discord {
     }
 
     /// Changes this account's main profile as Discord's client does:
-    /// `user`'s fields, its display name and avatar, go to the user, then
-    /// `profile`'s, its bio, pronouns, banner and banner colour, to its
-    /// profile, each only when it has any. USER_UPDATE follows both.
-    pub async fn save_main_profile(&self, user: &Value, profile: &Value) -> Result<()> {
-        if some(user) {
-            self.api.modify_me(user).await?;
+    /// `user`'s fields, its display name, avatar and name style, go to the
+    /// user, then `profile`'s, its bio, pronouns, banner, colour and theme,
+    /// to its profile, each only when it has any, then the server whose tag
+    /// it wears, when that changed, to its own endpoint. USER_UPDATE follows.
+    /// The kept profiles go even when a request fails, as those before it
+    /// changed what Discord has.
+    pub async fn save_main_profile(
+        &self,
+        user: &Value,
+        profile: &Value,
+        server_tag: Option<Option<&str>>,
+    ) -> Result<()> {
+        let saved = async {
+            if some(user) {
+                self.api.modify_me(user).await?;
+            }
+            if some(profile) {
+                self.api.modify_profile_me(profile).await?;
+            }
+            if let Some(server) = server_tag {
+                self.api.set_server_tag(server).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_profile_me(profile).await?;
-        }
+        .await;
         self.forget_own_profile(None);
-        Ok(())
+        saved
     }
 
     /// Drops this account's kept profiles, so they're fetched afresh: in
@@ -2059,6 +2096,34 @@ impl Discord {
         self.api.gif_select(id, query).await
     }
 
+    /// Discord's default sticker packs as Yapfast last saw them, to show
+    /// until [`Self::sticker_packs`] answers.
+    pub async fn kept_sticker_packs(&self) -> Option<cache::KeptStickerPacks> {
+        tokio::task::spawn_blocking(cache::sticker_packs)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Discord's default sticker packs, kept on disk too, for the picker's
+    /// pictures to be fetched ahead of it opening.
+    pub async fn sticker_packs(&self) -> Result<Vec<crate::stickers::Collection>> {
+        let answer = self.api.sticker_packs().await?;
+        let packs = crate::stickers::packs(&answer);
+        let kept = packs.clone();
+        let _ = tokio::task::spawn_blocking(move || cache::keep_sticker_packs(kept)).await;
+        Ok(packs)
+    }
+
+    /// Posts sticker `id` in `channel`, as Discord's client does when one is
+    /// clicked in the picker. The gateway shows the message.
+    pub async fn send_sticker(&self, guild: &str, channel: &str, id: &str) -> Result<()> {
+        let nonce = crate::message::nonce();
+        let sent = self.api.send_sticker(channel, id, &nonce).await?;
+        self.write_names().learn_message(server(guild), &sent);
+        Ok(())
+    }
+
     /// The account's favourite GIFs as Yapfast last saw them, to show until
     /// [`Self::favorite_gifs`] answers.
     pub async fn kept_favorite_gifs(&self) -> Option<Vec<crate::gifs::Favorite>> {
@@ -2101,6 +2166,15 @@ impl Discord {
             .await?;
         keep_favorite_gifs(favorites.to_vec()).await;
         Ok(())
+    }
+
+    /// Puts the account's favourite emoji in Discord's settings, as its
+    /// client's star in the picker does: each a custom emoji's id or a
+    /// Unicode emoji's Discord name, in the order they were starred.
+    pub async fn set_favorite_emojis(&self, favorites: &[String]) -> Result<()> {
+        self.api
+            .set_frecency_settings(&crate::frecency::write_favorite_emojis(favorites))
+            .await
     }
 
     /// Sends someone a friend request from their profile, or accepts theirs.
@@ -2147,6 +2221,50 @@ impl Discord {
     /// Sets the nickname this account gives a friend; empty clears it.
     pub async fn set_friend_nickname(&self, user: &str, nickname: &str) -> Result<()> {
         self.api.set_friend_nickname(user, nickname).await
+    }
+
+    /// What someone did lately, for their full profile's Activity tab.
+    pub async fn recent_activity(&self, user: &str) -> Result<Vec<profile::RecentEntry>> {
+        Ok(profile::recent_entries(&self.api.outbox(user).await?))
+    }
+
+    /// Names a board's games and applications. What Discord doesn't say
+    /// stays as it is, and the board shows without it.
+    pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
+        let mut games: Vec<&str> = widgets
+            .iter()
+            .flat_map(|widget| &widget.games)
+            .map(|game| game.id.as_str())
+            .collect();
+        games.sort_unstable();
+        games.dedup();
+        let mut known = Vec::new();
+        for ids in games.chunks(crate::widgets::GAMES_AT_ONCE) {
+            match self.api.games(ids).await {
+                Ok(answer) => known.extend(crate::widgets::parse_games(&answer)),
+                Err(error) => tracing::debug!(%error, "could not get a board's games"),
+            }
+        }
+        crate::widgets::name_games(widgets, &known);
+        let applications: Vec<String> = widgets
+            .iter()
+            .filter_map(|widget| widget.application.clone())
+            .collect();
+        if applications.is_empty() {
+            return;
+        }
+        let ids: Vec<&str> = applications.iter().map(String::as_str).collect();
+        match self.api.public_applications(&ids).await {
+            Ok(answer) => crate::widgets::name_applications(widgets, &answer),
+            Err(error) => tracing::debug!(%error, "could not get a board's applications"),
+        }
+    }
+
+    /// The items on a wishlist, by the id a profile gave, as Discord's client
+    /// fetches them for either its own account or someone else.
+    pub async fn wishlist(&self, id: &str) -> Result<Vec<crate::wishlist::Item>> {
+        crate::wishlist::parse(&self.api.wishlist(id).await?)
+            .ok_or_else(|| anyhow!("could not understand Discord's answer"))
     }
 
     /// This account's note on someone; empty when it has none. Discord is
@@ -3044,8 +3162,10 @@ impl Discord {
             None => url,
         };
         if let Some(kept) = cache::picture(url).await.filter(|kept| kept.len() <= limit) {
+            tracing::trace!(%url, bytes = kept.len(), "read a Discord picture from cache");
             return Ok(kept);
         }
+        tracing::trace!(%url, queued, "fetching a Discord picture from network");
         let data = if queued {
             self.api.download(url, limit).await?
         } else {

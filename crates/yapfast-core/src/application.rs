@@ -24,6 +24,7 @@ mod browse;
 mod calls;
 mod channel_settings;
 mod compose;
+mod cosmetics;
 mod discord_account;
 mod forum;
 mod gifs;
@@ -47,6 +48,7 @@ mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
+mod stickers;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
@@ -55,6 +57,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
@@ -93,6 +96,7 @@ pub use server_settings::{
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
+pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
     default_thread_name,
@@ -101,7 +105,7 @@ pub use threads::{
 use calls::call_sounds;
 use compose::has_markdown;
 use preview::{preview_members, sample_actions};
-use profiles::dm_profile;
+use profiles::{dm_profile, keep_board, names_games, same_board};
 
 /// How many people the composer suggests for an `@` word, and how many roles
 /// and groups after them.
@@ -365,6 +369,19 @@ pub struct ProfileView {
     pub kept: bool,
     /// Why Discord didn't give the rest.
     pub note: Option<String>,
+    /// The full profile's Board, Activity or Wishlist tab has been opened,
+    /// so a profile that comes later is asked after in turn.
+    pub board_open: bool,
+    pub activity_open: bool,
+    pub wishlist_open: bool,
+}
+
+/// A tab on the full profile that asks Discord for more when it first opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileTab {
+    Board,
+    Activity,
+    Wishlist,
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
@@ -512,6 +529,8 @@ pub struct AppState {
     pub activity_people: Option<(String, Arc<[crate::chat::FeedPerson]>)>,
     /// The panel shows its header alone.
     pub activity_cards_hidden: bool,
+    /// Which of the cosmetics people wear show, and are fetched.
+    pub cosmetics: Cosmetics,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -540,6 +559,9 @@ pub struct AppState {
     /// shown name.
     pub profile_effects: Vec<Arc<crate::chat::ProfileEffect>>,
     pub account_nameplate: Option<crate::chat::Nameplate>,
+    /// The account's own Discord profile, for its card's banner, theme, name
+    /// and badges, once its card asked for it.
+    pub account_profile: Option<Arc<Profile>>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -667,6 +689,8 @@ pub struct AppState {
     pub gifs: GifPicker,
     pub favorite_gifs: Option<Vec<chat::FavoriteGif>>,
     pub favorite_gifs_changed: u32,
+    /// The sticker picker, and Discord's default packs once they came.
+    pub stickers: StickerPicker,
     pub add_people: Option<AddPeople>,
     /// The selected Discord channel's topic, once the backend has said it.
     pub topic: Option<Arc<chat::Topic>>,
@@ -1019,6 +1043,7 @@ impl AppState {
                 tag: None,
                 group_icon: None,
                 role_icon: None,
+                boosting_since: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -1050,6 +1075,7 @@ impl AppState {
                 tag: None,
                 group_icon: None,
                 role_icon: None,
+                boosting_since: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -1081,6 +1107,7 @@ impl AppState {
             tag: None,
             group_icon: None,
             role_icon: None,
+            boosting_since: None,
         })
     }
 
@@ -1414,6 +1441,9 @@ pub enum Action {
     OpenChat(String),
     /// Show the selected voice channel's chat, or with `false` its call.
     ShowVoiceChat(bool),
+    /// Go to the call this account is in, from the voice panel's link to it:
+    /// its server and channel, or its DM; nothing while it already shows.
+    GoToCall,
     /// Show a Discord thread beside the open channel, as its link in a
     /// message does; anything else opens as [`Action::Open`] does.
     OpenAside(String),
@@ -1575,10 +1605,20 @@ pub enum Action {
     /// Download pictures that show outside the state, such as the emoji
     /// picker's; see [`DiscordCommand::Pictures`].
     LoadPictures(Vec<String>),
-    /// Lets go of the custom emoji pictures in memory, which the disk cache
-    /// holds: the picker's cells keep their own while it shows, and a later look
-    /// reads them again.
+    /// Download pictures the emoji picker shows or is about to, nearest
+    /// first, ahead of those it asked for before: one already on its way moves
+    /// up rather than going twice. Nothing on screen changes until they come.
+    LoadPicturesFirst(Vec<String>),
+    /// The emoji picker closed: lets go of the custom emoji pictures in memory
+    /// but those the messages on screen show, since the disk cache holds them
+    /// and the next look reads them again.
     UnloadEmojiPictures,
+    /// The emoji picker scrolled on: lets go of the custom emoji pictures
+    /// but these, which are near what it shows, and those shown elsewhere.
+    KeepEmojiPictures(Vec<String>),
+    /// The emoji picker opened: every custom emoji's picture not yet in the
+    /// disk cache is fetched to it, once a session, after whatever shows.
+    CacheEmojiPictures,
     Login {
         homeserver: String,
         username: String,
@@ -1598,8 +1638,8 @@ pub enum Action {
     NavigateBack,
     /// Go forward again after going back.
     NavigateForward,
-    /// Answer a Discord DM call ringing this account: open the conversation
-    /// and join, leaving any other call, or decline it.
+    /// Answer a Discord DM call ringing this account: join it, leaving any
+    /// other call, without opening the conversation; or decline it.
     AcceptCall(String),
     DeclineCall(String),
     /// Send a Discord user a friend request, or accept theirs.
@@ -1672,6 +1712,24 @@ pub enum Action {
     /// Load the favourite GIFs, if they haven't, as a star is about to be
     /// used.
     LoadFavoriteGifs,
+    /// Open the sticker picker, or close it.
+    OpenStickers,
+    CloseStickers,
+    /// The pictures of the picker's tiles in sight, by their addresses.
+    StickersShown(Vec<String>),
+    /// The sticker picker's search field: the stickers whose names hold it.
+    SearchStickers(String),
+    /// Send a sticker, by its id, as a message of its own.
+    PickSticker(String),
+    /// Star an emoji among the Discord account's favourites, or let it go, by
+    /// the name Discord's settings keep it by: a custom emoji's id, or a
+    /// Unicode emoji's Discord name.
+    FavoriteEmoji(String),
+    /// Pictures the picker draws that are not on screen, by address, which it
+    /// shows once they come.
+    WantedPictures(Vec<String>),
+    /// Keep a sticker among the favorites, or let it go, by its id.
+    FavoriteSticker(String),
     /// Open a message's Reactions window, by item, on the reaction `key`,
     /// or the one most reacted with.
     ShowReactions {
@@ -2063,6 +2121,25 @@ pub enum Action {
     WindowFocused(bool),
     /// Hides or shows the cards in the member list's Activity panel.
     ActivityCardsHidden(bool),
+    /// A tab of the full profile opened.
+    OpenProfileTab(ProfileTab),
+    /// The account's card opened: ask for its own profile, which it draws from.
+    LoadOwnProfile,
+    /// Pick the server whose tag to wear in the profile editor; empty for none.
+    ChooseServerTag(String),
+    /// Set the name style from its window; colours are hex, joined by commas.
+    ChooseNameStyle {
+        font: u8,
+        effect: u8,
+        colours: String,
+    },
+    /// The profile editor's wishlist tab opened.
+    OpenWishlist,
+    /// Which cosmetics show, from Settings → Appearance → Profiles. What's
+    /// shown loses what's turned off at once; what's turned on shows as its
+    /// pictures arrive, and a profile's effect once the profile is fetched
+    /// again.
+    SetCosmetics(Cosmetics),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -2152,6 +2229,10 @@ pub struct Application {
     reaction_uses: HashMap<String, u32>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
+    /// Custom emoji pictures the picker asked for and let go of before they
+    /// came: their downloads were called off, and one that comes all the same
+    /// isn't kept.
+    let_go_emoji: HashSet<String>,
     /// The profile effects' pictures in `AppState::pictures`.
     effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
@@ -2170,10 +2251,17 @@ pub struct Application {
     pictures_kept: usize,
     /// How many of the pictures kept are custom emoji, which stay.
     emoji_pictures: usize,
-    /// The custom emoji pictures were fetched on this start, for a cache that
-    /// held no picture at all; see [`Application::prefetch_emoji`].
+    /// Custom emoji pictures queued for the disk cache this session. Shared by
+    /// startup and the picker, so neither repeats the other's work, and emoji
+    /// added by a later snapshot are fetched too.
     #[cfg(feature = "discord")]
-    emoji_prefetched: bool,
+    emoji_prefetched: HashSet<String>,
+    /// The current emoji list was checked: searches and reflows need not
+    /// rebuild every server's emoji just to discover there is nothing new.
+    #[cfg(feature = "discord")]
+    emoji_cache_current: bool,
+    /// The server icons fetched ahead, so each is fetched once.
+    server_icons_prefetched: HashSet<String>,
     /// Names searched for in the selected room, lowercased.
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
@@ -2251,10 +2339,6 @@ const LISTED_PICTURES: usize = 150;
 /// decoded, and the window keeps a copy of each it shows. The rail, the DMs
 /// listed, a member list and a timeline show a few hundred at most.
 const KEPT_PICTURES: usize = 400;
-/// Custom emoji pictures kept in memory at most: more than a wide picker shows,
-/// and far short of what a large account has, which the disk cache holds. See
-/// [`Application::unload_emoji_pictures`]. One is 16 KB decoded.
-const KEPT_EMOJI: usize = 600;
 /// Timeline rows either side of those on screen whose avatars stay when
 /// pictures go.
 const PICTURED_AROUND: usize = 30;
@@ -2281,13 +2365,20 @@ fn pictures_on_screen<'a>(
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
 ) -> impl Iterator<Item = &'a str> {
+    let cosmetics = state.cosmetics;
     state
         .servers
         .iter()
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
-        .chain(state.account_decoration.as_deref())
+        .chain(cosmetics.decoration(state.account_decoration.as_deref()))
+        .chain(
+            state
+                .account_profile
+                .iter()
+                .filter_map(|profile| profile.banner.as_deref()),
+        )
         .chain(
             state
                 .account_nameplate
@@ -2299,11 +2390,11 @@ fn pictures_on_screen<'a>(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .flat_map(|room| {
+                .flat_map(move |room| {
                     [
                         room.avatar.as_deref(),
-                        room.decoration.as_deref(),
-                        tag_badge(&room.tag),
+                        cosmetics.decoration(room.decoration.as_deref()),
+                        tag_badge(cosmetics, &room.tag),
                     ]
                 })
                 .flatten()
@@ -2464,7 +2555,7 @@ fn pictures_on_screen<'a>(
                 .chain(&state.panel_profile)
                 .flat_map(move |view| {
                     let profile = &view.profile;
-                    let effect = profile.effect.as_deref().and_then(|sku| {
+                    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
                         state
                             .profile_effects
                             .iter()
@@ -2480,8 +2571,8 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
-                        .chain(profile.decoration.as_deref())
-                        .chain(tag_badge(&profile.tag))
+                        .chain(cosmetics.decoration(profile.decoration.as_deref()))
+                        .chain(tag_badge(cosmetics, &profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         // Its layers are asked for when it first plays.
                         .chain(effect.into_iter().flat_map(move |effect| {
@@ -2516,7 +2607,7 @@ fn pictures_on_screen<'a>(
             timeline
                 .iter()
                 .filter(move |_| list_avatars)
-                .flat_map(|message| {
+                .flat_map(move |message| {
                     let reply = message
                         .reply
                         .as_ref()
@@ -2525,9 +2616,9 @@ fn pictures_on_screen<'a>(
                         .avatar
                         .as_deref()
                         .into_iter()
-                        .chain(message.decoration.as_deref())
+                        .chain(cosmetics.decoration(message.decoration.as_deref()))
                         .chain(reply)
-                        .chain(tag_badge(&message.tag))
+                        .chain(tag_badge(cosmetics, &message.tag))
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2550,10 +2641,10 @@ fn pictures_on_screen<'a>(
                         .filter(move |_| list_avatars)
                         .flat_map(|role| role.members.iter().flatten()),
                 )
-                .flat_map(|member| {
+                .flat_map(move |member| {
                     [
                         member.avatar.as_deref(),
-                        member.decoration.as_deref(),
+                        cosmetics.decoration(member.decoration.as_deref()),
                         member
                             .nameplate
                             .as_ref()
@@ -2561,7 +2652,7 @@ fn pictures_on_screen<'a>(
                             .map(|plate| &*plate.picture),
                         member.group_icon.as_deref(),
                         member.role_icon.as_deref(),
-                        tag_badge(&member.tag),
+                        tag_badge(cosmetics, &member.tag),
                     ]
                     .into_iter()
                     .flatten()
@@ -2577,8 +2668,8 @@ fn pictures_on_screen<'a>(
 }
 
 /// The address of the picture of a server tag's badge.
-fn tag_badge(tag: &Option<chat::ServerTag>) -> Option<&str> {
-    tag.as_ref()?.badge.as_deref()
+fn tag_badge(cosmetics: Cosmetics, tag: &Option<chat::ServerTag>) -> Option<&str> {
+    cosmetics.tag(tag.as_ref())?.badge.as_deref()
 }
 
 /// Discord's CDN keeps custom emoji under /emojis/.
@@ -2695,6 +2786,7 @@ impl Application {
         for url in pictures_on_screen(state, timeline, false) {
             if !self.requested_pictures.contains(url) {
                 self.requested_pictures.insert(url.to_owned());
+                self.let_go_emoji.remove(url);
                 wanted.push(url.to_owned());
             }
         }
@@ -2706,6 +2798,7 @@ impl Application {
             for url in pictures_on_screen(state, &aside.messages, false) {
                 if !self.requested_pictures.contains(url) {
                     self.requested_pictures.insert(url.to_owned());
+                    self.let_go_emoji.remove(url);
                     wanted.push(url.to_owned());
                 }
             }
@@ -2716,21 +2809,129 @@ impl Application {
         ))))
     }
 
-    /// Lets go of the custom emoji pictures in memory once there are more than
-    /// [`KEPT_EMOJI`], which is more than a wide picker shows: the disk cache
-    /// keeps them all, the grid's cells keep the ones it shows, and a later look
-    /// reads the rest from the disk. So a large account's emoji cost memory only
-    /// while they are looked at. The pictures asked for are forgotten with them,
-    /// so a look asks again rather than showing nothing.
+    /// Lets go of the custom emoji pictures in memory, but those the messages
+    /// on screen and a short scroll away show, the thread beside and the
+    /// topic: the picker that asked for the rest closed, the disk cache keeps
+    /// them all, and its next look reads them from there. So an account's
+    /// emoji cost memory only while they are looked at. The pictures asked for
+    /// are forgotten with them, so a look asks again rather than showing
+    /// nothing. One is 16 KB decoded.
     fn unload_emoji_pictures(&mut self) -> Vec<Effect> {
-        if self.emoji_pictures <= KEPT_EMOJI {
+        let (went, called_off) = self.unload_emoji_pictures_but(&HashSet::new());
+        if went {
+            self.state.picture_changes += 1;
+        }
+        Self::call_off_pictures(called_off)
+    }
+
+    /// The custom emoji pictures the open picker holds that aren't among
+    /// `keep`, the ones near what it shows, nor shown elsewhere, let go of
+    /// as it scrolls: an account's emoji cost memory only as far as the picker
+    /// asks for ahead, however far it scrolled. Nothing on screen changes, so
+    /// nothing is laid out again.
+    fn keep_emoji_pictures(&mut self, keep: Vec<String>) -> Vec<Effect> {
+        let keep: HashSet<String> = keep.into_iter().collect();
+        let (_, called_off) = self.unload_emoji_pictures_but(&keep);
+        Self::call_off_pictures(called_off)
+    }
+
+    /// Fetches custom emoji pictures to disk once per URL this session, at
+    /// startup and when the picker opens. Existing cache entries are read by
+    /// the fetcher without a network request; a partially populated cache must
+    /// not prevent the rest of the account's emoji from being fetched.
+    fn cache_emoji_pictures(&mut self) -> Vec<Effect> {
+        #[cfg(feature = "discord")]
+        {
+            if self.emoji_cache_current {
+                return Vec::new();
+            }
+            self.emoji_cache_current = true;
+            let urls: Vec<String> = self
+                .emoji_sets()
+                .into_iter()
+                .flat_map(|set| set.emoji)
+                .map(|emoji| emoji.picture)
+                .filter(|url| !url.is_empty() && self.emoji_prefetched.insert(url.clone()))
+                .collect();
+            if !urls.is_empty() {
+                tracing::info!(pictures = urls.len(), "prefetching custom emoji pictures");
+                return vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::PrefetchPictures(urls),
+                ))];
+            }
+        }
+        Vec::new()
+    }
+
+    /// Lets go of the custom emoji pictures but `keep` and those shown
+    /// elsewhere; see [`Application::unload_emoji_pictures`]. Says whether
+    /// any went, and gives the ones asked for that hadn't come.
+    fn unload_emoji_pictures_but(&mut self, keep: &HashSet<String>) -> (bool, Vec<String>) {
+        let messages = &self.state.messages;
+        let timeline =
+            visible_range(messages, &self.visible_messages).map_or(&messages[..], |range| {
+                let start = range.start().saturating_sub(PICTURED_AROUND);
+                &messages[start..(range.end() + 1 + PICTURED_AROUND).min(messages.len())]
+            });
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .map_or(&[][..], |aside| aside.messages.as_slice());
+        // The reactions a message's hover bar and menu offer, which draw
+        // their pictures too.
+        let frequent = self.frequent_reactions(4);
+        let frequent: Vec<String> = self
+            .emoji_by_id(
+                &frequent
+                    .iter()
+                    .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
+                    .collect(),
+            )
+            .into_iter()
+            .map(|emoji| emoji.picture)
+            .collect();
+        let shown: HashSet<&str> = timeline
+            .iter()
+            .chain(aside)
+            .flat_map(|message| &message.emoji)
+            .chain(self.state.topic.iter().flat_map(|topic| &topic.emoji))
+            .map(|emoji| emoji.picture.as_str())
+            .chain(frequent.iter().map(String::as_str))
+            .collect();
+        let kept = |url: &String| {
+            !is_custom_emoji(url) || shown.contains(url.as_str()) || keep.contains(url)
+        };
+        let before = self.state.pictures.len();
+        self.state.pictures.retain(|url, _| kept(url));
+        // Those asked for and not come are called off, and not kept if they
+        // come all the same: nothing will show them.
+        let pictures = &self.state.pictures;
+        let called_off: Vec<String> = self
+            .requested_pictures
+            .iter()
+            .filter(|url| !kept(url) && !pictures.contains_key(*url))
+            .cloned()
+            .collect();
+        self.requested_pictures.retain(|url| kept(url));
+        self.let_go_emoji.extend(called_off.iter().cloned());
+        self.emoji_pictures = self
+            .state
+            .pictures
+            .keys()
+            .filter(|url| is_custom_emoji(url))
+            .count();
+        (self.state.pictures.len() != before, called_off)
+    }
+
+    /// Calls off the downloads of `urls`, which nothing will show.
+    fn call_off_pictures(urls: Vec<String>) -> Vec<Effect> {
+        if urls.is_empty() {
             return Vec::new();
         }
-        self.state.pictures.retain(|url, _| !is_custom_emoji(url));
-        self.requested_pictures.retain(|url| !is_custom_emoji(url));
-        self.emoji_pictures = 0;
-        self.state.picture_changes += 1;
-        Vec::new()
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::CancelPictures(urls),
+        ))]
     }
 
     /// Keeps a picture that arrived, and once more than [`KEPT_PICTURES`]
@@ -2741,6 +2942,10 @@ impl Application {
     /// small. They don't count towards when the others go, or the emoji of a
     /// few servers would let thousands of avatars pile up.
     fn keep_picture(&mut self, url: String, picture: Arc<Picture>) {
+        // A custom emoji the picker let go of before it came shows nowhere.
+        if self.let_go_emoji.remove(&url) {
+            return;
+        }
         let emoji = is_custom_emoji(&url);
         if url.ends_with(chat::EFFECT_PICTURE) {
             self.effect_pictures.push(url.clone());
@@ -2834,6 +3039,7 @@ impl Application {
             Action::Open(id) => self.open(id, false),
             Action::OpenChat(id) => self.open(id, true),
             Action::ShowVoiceChat(chat) => self.show_voice_chat(chat),
+            Action::GoToCall => self.go_to_call(),
             Action::OpenAside(id) => self.open_aside(id),
             Action::CloseAside => self.close_aside(),
             Action::ExpandAside => self.expand_aside(),
@@ -2982,7 +3188,10 @@ impl Application {
             Action::Later => self.later(),
             Action::JumpToPresent => self.jump_to_present(),
             Action::LoadPictures(urls) => self.load_pictures(urls),
+            Action::LoadPicturesFirst(urls) => self.load_pictures_first(urls),
             Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
+            Action::KeepEmojiPictures(keep) => self.keep_emoji_pictures(keep),
+            Action::CacheEmojiPictures => self.cache_emoji_pictures(),
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -3048,6 +3257,14 @@ impl Application {
             Action::ShowPins(shown) => self.show_pins(shown),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
+            Action::OpenStickers => self.open_stickers(),
+            Action::CloseStickers => self.close_stickers(),
+            Action::StickersShown(shown) => self.stickers_shown(shown),
+            Action::SearchStickers(query) => self.search_stickers(query),
+            Action::PickSticker(id) => self.pick_sticker(id),
+            Action::FavoriteSticker(id) => self.favorite_sticker(id),
+            Action::FavoriteEmoji(key) => self.favorite_emoji(key),
+            Action::WantedPictures(urls) => self.wanted_pictures(urls),
             Action::CloseGifs => self.close_gifs(),
             Action::SearchGifs(query) => self.search_gifs(query),
             Action::ShowGifs(view) => self.show_gifs(view),
@@ -3483,6 +3700,25 @@ impl Application {
                 self.state.hide_nameplates = hide;
                 vec![]
             }
+            Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::LoadOwnProfile => self.load_own_profile(),
+            Action::OpenWishlist => self.open_wishlist(),
+            Action::ChooseServerTag(server) => {
+                self.choose_server_tag(server);
+                vec![]
+            }
+            Action::ChooseNameStyle {
+                font,
+                effect,
+                colours,
+            } => {
+                self.choose_name_style(font, effect, &colours);
+                vec![]
+            }
+            Action::SetCosmetics(cosmetics) => {
+                self.state.cosmetics = cosmetics;
+                vec![]
+            }
             Action::WindowFocused(focused) => self.window_focused(focused),
             Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
             Action::SkipCallPrompt(skip) => {
@@ -3719,11 +3955,14 @@ impl Application {
                     self.state.notice = Some(message);
                 }
             }
-            Event::Profile { user, result } => self.show_fetched_profile(user, result),
+            Event::Profile { user, result } => return self.show_fetched_profile(user, result),
             Event::ActivityFeed(entries) => return self.show_activity_feed(entries),
             Event::ActivityFeedDue => return self.activity_feed_due(),
             Event::ActivityPeople { room, people } => self.show_activity_people(room, people),
-            Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
+            Event::KeptProfile { user, profile } => return self.show_kept_profile(user, profile),
+            Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
+            Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
+            Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
@@ -3783,6 +4022,10 @@ impl Application {
                 }
             }
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
+            Event::StickerPacks(result) => return self.sticker_packs_came(result),
+            Event::KeptStickerPacks(packs) => return self.kept_sticker_packs_came(packs),
+            Event::StickerPicture { url, picture } => self.sticker_picture_came(url, picture),
+            Event::StickerSent { room, result } => self.sticker_sent(room, result),
             Event::Reactors {
                 item,
                 key,
@@ -3848,11 +4091,11 @@ impl Application {
             Event::ServerDeleted { server, result } => self.server_deleted(server, result),
             Event::ServerTransferred { server, result } => self.server_transferred(server, result),
             Event::ServerPincodeSent { server, result } => self.server_pincode_sent(server, result),
-            Event::OwnProfile { server, result } => self.own_profile_loaded(server, result),
+            Event::OwnProfile { server, result } => return self.own_profile_loaded(server, result),
             Event::ProfilePicture { kind, path, result } => {
                 self.profile_picture_read(kind, path, result);
             }
-            Event::ProfileSaved { server, result } => self.profile_saved(server, result),
+            Event::ProfileSaved { server, result } => return self.profile_saved(server, result),
             Event::MfaRequired { id, methods } => return self.mfa_required(id, methods),
             Event::MfaFinished { id, result } => return self.mfa_finished(id, result),
             Event::MfaTexted { id, result } => self.mfa_texted(id, result),
@@ -4223,6 +4466,9 @@ impl Application {
                 .account
                 .as_ref()
                 .is_some_and(|account| account.premium_type > 0);
+            // Another server's emoji need Nitro, and in a server's channel
+            // Use External Emojis too, as Discord's client has them.
+            let external = nitro && self.may_use_external(chat::Permission::UseExternalEmojis);
             let mut servers: Vec<_> = snapshot.servers.iter().collect();
             servers.sort_by_key(|server| Some(server.id.as_str()) != here);
             return servers
@@ -4241,7 +4487,11 @@ impl Application {
                                 text: format!(":{}:", emoji.name),
                                 id: emoji.id.clone(),
                                 animated: emoji.animated,
-                                usable: nitro || (ours && !emoji.animated),
+                                usable: if ours {
+                                    nitro || !emoji.animated
+                                } else {
+                                    external
+                                },
                                 picture: yapfast_discord::ready::custom_emoji(
                                     &emoji.id,
                                     emoji.animated,
@@ -4255,6 +4505,76 @@ impl Application {
                 .collect();
         }
         vec![]
+    }
+
+    /// Emoji in the timeline and thread rows reported by the UI's viewports.
+    /// Those reports already include their short scroll margins. Animation
+    /// pins must not cover the entire loaded history: picker downloads could
+    /// otherwise make off-screen message animations unevictable.
+    pub fn visible_message_emoji(&self) -> impl Iterator<Item = &chat::CustomEmoji> {
+        fn shown<'a>(messages: &'a [Arc<ChatMessage>], ids: &[String]) -> &'a [Arc<ChatMessage>] {
+            visible_range(messages, ids).map_or(&[], |range| &messages[range])
+        }
+        let timeline = shown(&self.state.messages, &self.visible_messages);
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .map_or(&[][..], |aside| shown(&aside.messages, &self.aside_visible));
+        timeline
+            .iter()
+            .chain(aside)
+            .flat_map(|message| &message.emoji)
+    }
+
+    /// The custom emoji among `ids`, as [`Application::emoji_sets`] has them,
+    /// each saying whether this account may use it in the selected room, made
+    /// for those alone: the picker asks for the ones near what it shows each
+    /// time a row scrolls in, and making every server's emoji for that cost
+    /// more than the scroll did.
+    pub fn emoji_by_id(&self, ids: &HashSet<&str>) -> Vec<chat::CustomEmoji> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            if ids.is_empty() {
+                return Vec::new();
+            }
+            let here = self
+                .state
+                .selected
+                .as_deref()
+                .and_then(discord::parse_room)
+                .map(|(guild, _)| guild);
+            let nitro = snapshot
+                .account
+                .as_ref()
+                .is_some_and(|account| account.premium_type > 0);
+            return snapshot
+                .servers
+                .iter()
+                .flat_map(|server| {
+                    let ours = Some(server.id.as_str()) == here;
+                    server
+                        .emojis
+                        .iter()
+                        .filter(|emoji| emoji.available && ids.contains(emoji.id.as_str()))
+                        .map(move |emoji| (emoji, nitro || (ours && !emoji.animated)))
+                })
+                .map(|(emoji, usable)| chat::CustomEmoji {
+                    text: format!(":{}:", emoji.name),
+                    id: emoji.id.clone(),
+                    animated: emoji.animated,
+                    usable,
+                    picture: yapfast_discord::ready::custom_emoji(
+                        &emoji.id,
+                        emoji.animated,
+                        chat::EMOJI_PICTURE_SIZE,
+                    ),
+                })
+                .collect();
+        }
+        #[cfg(not(feature = "discord"))]
+        let _ = ids;
+        Vec::new()
     }
 
     /// The custom emoji this account may use in the selected room, by server, the
@@ -4289,6 +4609,56 @@ impl Application {
             }
         }
         frequent
+    }
+
+    /// Asks for the pictures a picker draws that are not on screen.
+    fn wanted_pictures(&mut self, urls: Vec<String>) -> Vec<Effect> {
+        // What the window has needs no asking; one that failed is asked for
+        // again the next time a picker lays its rail out, rather than staying
+        // missing for the session.
+        let urls: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.is_empty() && !self.state.pictures.contains_key(url))
+            .collect();
+        if urls.is_empty() {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+            urls,
+        )))]
+    }
+
+    /// An emoji's star: puts it among the Discord account's favourites, last,
+    /// or takes it out, as Discord's client does, which keeps at most
+    /// [`yapfast_discord::frecency::MOST_FAVORITE_EMOJIS`]; every client of the
+    /// account shares them.
+    #[cfg(feature = "discord")]
+    pub(super) fn favorite_emoji(&mut self, name: String) -> Vec<Effect> {
+        if name.is_empty() || self.state.preview {
+            return vec![];
+        }
+        let favorites = &mut self.state.discord_emojis.favorites;
+        match favorites.iter().position(|known| *known == name) {
+            Some(index) => {
+                favorites.remove(index);
+            }
+            None if favorites.len() >= yapfast_discord::frecency::MOST_FAVORITE_EMOJIS => {
+                self.state.notice = Some(format!(
+                    "You can have up to {} favourite emoji.",
+                    yapfast_discord::frecency::MOST_FAVORITE_EMOJIS
+                ));
+                return vec![];
+            }
+            None => favorites.push(name),
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::SetFavoriteEmojis(favorites.clone()),
+        ))]
+    }
+
+    #[cfg(not(feature = "discord"))]
+    pub(super) fn favorite_emoji(&mut self, _name: String) -> Vec<Effect> {
+        vec![]
     }
 
     /// How often this device added each reaction, for an adapter to keep across runs.

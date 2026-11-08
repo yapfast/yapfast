@@ -12,11 +12,13 @@ import "fonts/AtkinsonHyperlegibleNext-Medium.ttf";
 import "fonts/AtkinsonHyperlegibleNext-Bold.ttf";
 import "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf";
 import "fonts/AtkinsonHyperlegibleNext-ExtraBold.ttf";
-// The fonts of display name styles, nine of Discord's eleven; see fonts/README.md.
+// The fonts of Discord's eleven display name styles; see fonts/README.md.
 import "fonts/DisplayName-Sakura.ttf";
 import "fonts/DisplayName-Jellybean.ttf";
 import "fonts/DisplayName-Modern.ttf";
+import "fonts/DisplayName-Medieval.otf";
 import "fonts/DisplayName-8Bit.ttf";
+import "fonts/DisplayName-Vampyre.ttf";
 import "fonts/DisplayName-Tempo.ttf";
 import "fonts/DisplayName-MonkeyBars.ttf";
 import "fonts/DisplayName-Mainframe.ttf";
@@ -36,16 +38,17 @@ import "fonts/DisplayName-Journal.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
+import { StickerPicker, StickerGridTile } from "stickers.slint";
+import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
+import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -64,14 +67,15 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
 export { InboxRow } from "yapfast/inbox.slint";
-export { Theme, Badges, Popup } from "theme.slint";
+export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
+export { ServerTagRow } from "server.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
-export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
+export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
@@ -236,7 +240,20 @@ export component YapfastWindow inherits Window {
     in-out property <string> profile-editor-colour;
     /// Opens the editor of the main Discord profile, as Edit Profile does.
     callback edit-profile;
+    /// The account's card opened, which asks for its own profile.
+    callback account-opened;
+    /// The account's own profile, which its card draws its banner, theme,
+    /// name and badges from; empty until it's come.
+    in property <ProfileData> account-profile;
+    callback open-profile-wishlist;
     callback write-profile(int, string);
+    callback choose-name-style(int, int, string);
+    callback edit-own-note;
+    callback choose-server-tag(string);
+    pure callback parse-hex(string) -> color;
+    pure callback format-hex(color) -> string;
+    pure callback key-part(string, int) -> string;
+    pure callback key-colour(string, int) -> color;
     callback pick-profile-picture(int);
     callback reset-profile-picture(int);
     callback unlock-nitro;
@@ -543,6 +560,34 @@ export component YapfastWindow inherits Window {
     callback insert-emoji(string);
     /// The GIF picker, in the picker above the composer; see GifPicker.
     in property <bool> can-pick-gifs;
+    /// The sticker picker beside it; see StickerPicker.
+    in property <bool> can-pick-stickers;
+    in property <[StickerGridTile]> sticker-tiles;
+    /// The collections down the picker's left, which its rail jumps to.
+    in property <[RailSection]> sticker-sections;
+    /// The collections down the emoji picker's left, which its rail jumps to.
+    in property <[RailSection]> emoji-rail-sections;
+    /// The sticker picker's search field.
+    in-out property <string> sticker-query;
+    /// The first sticker the search shows, which Enter picks.
+    in property <string> sticker-first-id;
+    callback sticker-search(string);
+    in property <length> sticker-grid-height;
+    in property <string> sticker-note;
+    /// The width the grid shows at: the picker's, less its rail and 12px
+    /// either side.
+    out property <length> sticker-grid-width: root.picker-shown - 72px;
+    // The grid's columns follow the width it shows at, as the GIFs' do, so a
+    // drag re-places its tiles.
+    changed sticker-grid-width => { root.sticker-reflow(); }
+    callback open-stickers;
+    callback close-stickers;
+    callback sticker-pick(string);
+    callback sticker-favorite(string);
+    /// An emoji's star was pressed: keep it among the favorites, or let it go.
+    callback emoji-favorite(string);
+    callback stickers-scrolled(length, length);
+    callback sticker-reflow;
     in property <int> gif-view;
     in-out property <string> gif-query;
     in property <[GifTile]> gif-tiles;
@@ -622,6 +667,11 @@ export component YapfastWindow inherits Window {
     in property <[EmojiCell]> menu-reactions;
     /// The emoji picker's grid for `emoji-query`, refreshed through emoji-search.
     in property <[EmojiRow]> emoji-rows;
+    /// What the grid draws of those rows: the emoji and headings of the rows
+    /// in sight and a row or two around them, and how tall they all are.
+    in property <[EmojiTile]> emoji-tiles;
+    in property <[EmojiRow]> emoji-headings;
+    in property <length> emoji-grid-height;
     /// The picker's sidebar: the grid's headings with no query.
     in property <[EmojiSection]> emoji-sections;
     /// The emoji a row of that grid was built for, which each of its cells then
@@ -712,6 +762,11 @@ export component YapfastWindow inherits Window {
     /// beside it until a click outside or Escape closes it.
     in-out property <bool> emoji-card-open;
     in property <EmojiCard> emoji-card;
+    /// A sticker's card, open over the window as an emoji's is.
+    in-out property <bool> sticker-card-open;
+    in property <MessageStickerCard> sticker-card;
+    /// A sticker in a message was clicked: its card opens.
+    callback open-sticker(string, int);
     /// Send someone a message in their DM from their card: who, and what.
     callback message-from-profile(string, string);
     /// Open the DM with this person, from the buttons of the full profile.
@@ -762,6 +817,9 @@ export component YapfastWindow inherits Window {
     in property <bool> voice-ready;
     in property <bool> voice-leaving;
     in property <bool> voice-here;
+    /// The call is Discord's, whose sound Yapfast suppresses noise in itself;
+    /// a Yapfast call uses WebRTC's own suppressor.
+    in property <bool> voice-discord;
     /// The voice channel this account is connected to, whose participants are listed under it.
     in property <string> voice-channel;
     /// 0 while joining or reconnecting, 1 when connected, 2 after a failure.
@@ -1118,6 +1176,7 @@ export component YapfastWindow inherits Window {
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size: 1;
     in-out property <bool> link-previews: true;
+    in-out property <bool> boost-gems: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
     /// Whether nameplates show, in member lists and on the account's card.
@@ -1129,6 +1188,26 @@ export component YapfastWindow inherits Window {
     in-out property <int> alone-timeout: 10;
     in-out property <bool> level-voice: true;
     in-out property <int> noise-suppression;
+    /// The suppression the call panel's toggle turns back on: the one last
+    /// used before Off, DeepFilterNet unless another was, however it was
+    /// chosen.
+    property <int> noise-last: 0;
+    changed noise-suppression => {
+        if self.noise-suppression != 2 {
+            self.noise-last = self.noise-suppression;
+        }
+    }
+    /// Turns noise suppression off, or back on to the kind last used, and
+    /// saves it, as the call panel's toggle does.
+    public function toggle-noise() {
+        if root.noise-suppression == 2 {
+            root.noise-suppression = root.noise-last;
+        } else {
+            root.noise-last = root.noise-suppression;
+            root.noise-suppression = 2;
+        }
+        root.preferences-changed();
+    }
     in-out property <int> noise-strength;
     in-out property <bool> dereverb;
     in-out property <int> sensitivity: -60;
@@ -1189,6 +1268,8 @@ export component YapfastWindow inherits Window {
     in property <bool> discord-links-available;
     callback restart();
     callback preferences-changed();
+    /// A tab of the full profile opened, by ProfileModal's page.
+    callback profile-tab-opened(int);
     /// The built-in themes, and the one shown by its id; choose-theme shows
     /// and keeps another.
     in property <[ThemeCard]> themes;
@@ -1253,6 +1334,9 @@ export component YapfastWindow inherits Window {
     callback open-chat(string);
     /// Show the selected voice channel's chat, or with `false` its call.
     callback show-voice-chat(bool);
+    /// Show the call this account is in, from the voice panel's channel
+    /// line: its channel or DM, unless that's showing already.
+    callback open-call;
     /// Show a Discord thread beside the conversation, as its link in a
     /// message does, asking for one that isn't listed.
     callback open-aside(string);
@@ -1695,13 +1779,27 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.menu-y - self.height - 6px);
         width: 280px;
         close-policy: PopupClosePolicy.close-on-click-outside;
-        DeviceMenu {
-            heading: "INPUT DEVICE"; devices: root.microphones; current: root.microphone-index;
+        QuickDeviceMenu {
+            kind: "Input"; devices: root.microphones; current: root.microphone-index;
             empty: "No microphones found. Connect one, then reopen this menu.";
+            volume <=> root.microphone-volume;
             select(index) => { root.select-microphone(index); }
             settings => { root.open-settings(); }
+            volume-changed => { root.call-volumes-changed(); }
+            volume-committed => { root.preferences-changed(); }
             Rectangle { height: 1px; background: Theme.line; }
             InputLevel { input-level: root.input-level; muted: root.muted; meter-note: root.meter-note; }
+            // The quick pick of noise suppression, as in Voice settings.
+            if root.discord-linked: Rectangle { height: 1px; background: Theme.line; }
+            if root.discord-linked: VerticalLayout {
+                padding-left: 8px; padding-right: 8px; padding-bottom: 4px; spacing: 6px;
+                Text { text: "NOISE SUPPRESSION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                Choices {
+                    label: "Noise suppression in Discord calls"; options: ["DeepFilterNet", "RNNoise", "Off"];
+                    current <=> root.noise-suppression;
+                    chosen => { root.preferences-changed(); }
+                }
+            }
         }
     }
     output-menu := PopupWindow {
@@ -1709,11 +1807,14 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.menu-y - self.height - 6px);
         width: 280px;
         close-policy: PopupClosePolicy.close-on-click-outside;
-        DeviceMenu {
-            heading: "OUTPUT DEVICE"; devices: root.speakers; current: root.speaker-index;
+        QuickDeviceMenu {
+            kind: "Output"; devices: root.speakers; current: root.speaker-index;
             empty: "No speakers found. Connect one, then reopen this menu.";
+            volume <=> root.speaker-volume;
             select(index) => { root.select-speaker(index); }
             settings => { root.open-settings(); }
+            volume-changed => { root.call-volumes-changed(); }
+            volume-committed => { root.preferences-changed(); }
         }
     }
     // The quality picked in the share menu, from the last choice each time it opens.
@@ -1948,7 +2049,9 @@ export component YapfastWindow inherits Window {
             if ClientStyle.enabled: AccountPopover {
                 available-height: max(120px, root.menu-y - 12px);
                 name: root.account-name; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture;
-                user-id: root.account-user-id;
+                user-id: root.account-user-id; profile: root.account-profile;
+                opened => { root.account-opened(); }
+                open-link(link) => { root.open-link(link); status-menu.close(); }
                 status: root.discord-status; has-custom-status: root.has-custom-status;
                 custom-text: root.account-status; custom-emoji: root.account-status-emoji;
                 game-name: root.game-activity-name; game-duration: root.game-activity-duration;
@@ -2016,8 +2119,8 @@ export component YapfastWindow inherits Window {
         emoji-picker.close();
         expressions.close();
     }
-    // The picker above the composer: GIFs, and the emoji. Its GIFs let go of
-    // their pictures when it closes or shows the emoji.
+    // The picker above the composer: the GIFs, the emoji and the stickers.
+    // Each lets go of its pictures when it closes or another shows.
     property <int> expression-tab;
     function open-expressions(tab: int) {
         root.react-item = "yapfast:composer";
@@ -2027,24 +2130,27 @@ export component YapfastWindow inherits Window {
         root.emoji-panel-width = root.picker-shown;
         root.emoji-search("");
         if tab == 0 { root.open-gifs(); }
+        if tab == 2 { root.open-stickers(); }
         expressions.show();
     }
     function show-expression-tab(tab: int) {
         if tab == root.expression-tab { return; }
         root.expression-tab = tab;
-        // The emoji's columns follow the width the picker was dragged to while
-        // the GIFs showed.
-        if tab == 0 { root.open-gifs(); } else {
-            root.close-gifs();
+        // Every grid's columns follow the width the picker was dragged to
+        // while another tab showed.
+        if tab == 0 { root.open-gifs(); } else { root.close-gifs(); }
+        if tab == 1 {
             root.emoji-panel-width = root.picker-shown;
             root.emoji-reflow();
         }
+        if tab == 2 { root.open-stickers(); } else { root.close-stickers(); }
     }
     property <bool> expressions-open: expressions.is-open;
     changed expressions-open => {
         if !root.expressions-open {
             root.close-gifs();
             if !root.picker-open { root.emoji-picker-closed(); }
+            root.close-stickers();
             root.focus-composer();
             root.react-item = "";
         }
@@ -2082,6 +2188,7 @@ export component YapfastWindow inherits Window {
                     padding-left: 16px; spacing: 8px; alignment: start;
                     PickerTab { text: "GIFs"; selected: root.expression-tab == 0; clicked => { root.show-expression-tab(0); } }
                     PickerTab { text: "Emoji"; selected: root.expression-tab == 1; clicked => { root.show-expression-tab(1); } }
+                    PickerTab { text: "Stickers"; selected: root.expression-tab == 2; clicked => { root.show-expression-tab(2); } }
                 }
                 if root.expression-tab == 0: GifPicker {
                     view: root.gif-view; query <=> root.gif-query; tiles: root.gif-tiles;
@@ -2096,11 +2203,26 @@ export component YapfastWindow inherits Window {
                     resized => { root.gif-picker-resized(); }
                     close => { expressions.close(); }
                 }
+                if root.expression-tab == 2: StickerPicker {
+                    bare: true;
+                    tiles: root.sticker-tiles; sections: root.sticker-sections; font: root.emoji-font;
+                    grid-height: root.sticker-grid-height; note: root.sticker-note;
+                    query <=> root.sticker-query; first-id: root.sticker-first-id;
+                    search(text) => { root.sticker-search(text); }
+                    pick(id) => { root.sticker-pick(id); expressions.close(); }
+                    favorite(id) => { root.sticker-favorite(id); }
+                    unlock-nitro => { root.unlock-nitro(); }
+                    scrolled-to(top, height) => { root.stickers-scrolled(top, height); }
+                    close => { expressions.close(); }
+                }
                 if root.expression-tab == 1: EmojiPicker {
                     bare: true;
-                    emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+                    emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; rail-sections: root.emoji-rail-sections;
+                    emoji-tiles: root.emoji-tiles; emoji-headings: root.emoji-headings; grid-height: root.emoji-grid-height;
+                    emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
                     emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
                     emoji-search(text) => { root.emoji-search(text); }
+                    favorite(key) => { root.emoji-favorite(key); }
                     pick(cell) => { root.pick(cell); }
                     unlock-nitro => { root.unlock-nitro(); }
                     close-picker => { expressions.close(); }
@@ -2146,9 +2268,12 @@ export component YapfastWindow inherits Window {
             ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         EmojiPicker {
-            emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+            emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; rail-sections: root.emoji-rail-sections;
+            emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+            emoji-tiles: root.emoji-tiles; emoji-headings: root.emoji-headings; grid-height: root.emoji-grid-height;
             emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
             emoji-search(text) => { root.emoji-search(text); }
+            favorite(key) => { root.emoji-favorite(key); }
             pick(cell) => { root.pick(cell); }
             unlock-nitro => { root.unlock-nitro(); }
             close-picker => { emoji-picker.close(); }
@@ -2232,7 +2357,12 @@ export component YapfastWindow inherits Window {
             start-forward(item) => { root.start-forward(item); message-menu.close(); }
             copy-text(text) => { root.copy-text(text); message-menu.close(); }
             pin-message(item) => { root.pin-message(item); message-menu.close(); }
-            request-delete(item) => { root.request-delete(item); message-menu.close(); }
+            // Shift and a click deletes at once, as Discord's menu does; a
+            // plain click asks first.
+            request-delete(item) => {
+                if root.shift-held { root.delete-now(item); } else { root.request-delete(item); }
+                message-menu.close();
+            }
             end-poll(item) => { Polls.ask-end(item); message-menu.close(); }
             media-index: root.menu-media; media-video: root.menu-video; link: root.menu-link;
             copy-image(item, index) => { root.copy-attachment(item, index); message-menu.close(); }
@@ -2418,6 +2548,8 @@ export component YapfastWindow inherits Window {
                     share-watchers: root.share-viewers.length;
                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                     can-soundboard: root.can-soundboard;
+                    noise-on: root.noise-suppression != 2; can-noise: root.voice-discord;
+                    toggle-noise => { root.toggle-noise(); }
                     leave-voice => { root.leave-voice(); }
                     dismiss-voice-error => { root.dismiss-voice-error(); }
                     toggle-camera => { root.toggle-camera(); }
@@ -2425,6 +2557,7 @@ export component YapfastWindow inherits Window {
                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                    open-call => { root.open-call(); }
                 }
                 // Inset the account card while preserving the inherited controls.
                 VerticalLayout {
@@ -3132,6 +3265,10 @@ export component YapfastWindow inherits Window {
                                                         cancel-send(item) => { root.cancel-send(item); }
                                                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                                         view-image(id, index) => { root.view-image(id, index); }
+                                                        open-sticker(item, index, x, y, width, height) => {
+                                                            root.anchor(x, y, width, height, false);
+                                                            root.open-sticker(item, index);
+                                                        }
                                                         save-attachment(id, index) => { root.save-attachment(id, index); }
                                                         // A right click on a picture opens the message's menu with it.
                                                         media-menu(id, index, video, x, y) => {
@@ -3213,7 +3350,8 @@ export component YapfastWindow inherits Window {
                                                         }
                                                         if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                                         if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
-                                                        if message-bar.quick && message.can-forward && root.forward-allowed: IconButton {
+                                                        // Beside Reply, as in Discord, whether or not Shift is held.
+                                                        if message.can-forward && root.forward-allowed: IconButton {
                                                             icon: @image-url("icons/forward.svg"); label: "Forward";
                                                             clicked => { root.start-forward(message.item); }
                                                         }
@@ -3438,7 +3576,8 @@ export component YapfastWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        // As Discord's: the GIFs, then the emoji, in one picker.
+                                        // As Discord's: the GIFs, the stickers, then the emoji,
+                                        // in one picker.
                                         if root.can-pick-gifs: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             gif-button := IconButton {
@@ -3448,6 +3587,18 @@ export component YapfastWindow inherits Window {
                                                 clicked => {
                                                     root.anchor(emoji-button.absolute-position.x, emoji-button.absolute-position.y, emoji-button.width, emoji-button.height, false);
                                                     root.open-expressions(0);
+                                                }
+                                            }
+                                        }
+                                        if root.can-pick-stickers: VerticalLayout {
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
+                                            sticker-button := IconButton {
+                                                icon: @image-url("icons/sticker.svg"); label: "Open sticker picker";
+                                                glyph: 22px; enabled: root.composer-enabled;
+                                                tint: root.expressions-open && root.expression-tab == 2 ? Theme.text : Theme.secondary;
+                                                clicked => {
+                                                    root.anchor(emoji-button.absolute-position.x, emoji-button.absolute-position.y, emoji-button.width, emoji-button.height, false);
+                                                    root.open-expressions(2);
                                                 }
                                             }
                                         }
@@ -3594,12 +3745,16 @@ export component YapfastWindow inherits Window {
                         cancel-send(item) => { root.cancel-send(item); }
                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                         view-image(id, index) => { root.view-image(id, index); }
+                        open-sticker(item, index, x, y, width, height) => {
+                            root.anchor(x, y, width, height, false);
+                            root.open-sticker(item, index);
+                        }
                         save-attachment(id, index) => { root.save-attachment(id, index); }
                         collapse-long: root.collapse-long;
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member;
+                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
@@ -3616,6 +3771,7 @@ export component YapfastWindow inherits Window {
                             befriend => { root.befriend(root.panel-profile.id); }
                             more(x, y) => { root.open-context-menu(root.panel-profile.id, true, x, y); }
                             send-message(text) => { root.message-from-profile(root.panel-profile.id, text); }
+                            edit-profile => { root.edit-profile(); }
                             open-link(link) => { root.open-link(link); }
                             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
                             open-friend(id, x, y, width, height) => {
@@ -3853,7 +4009,7 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 2: MessageSettings {
             message-font-size: root.message-font-size;
             twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
-            link-previews <=> root.link-previews; share-typing <=> root.share-typing;
+            link-previews <=> root.link-previews; boost-gems <=> root.boost-gems; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
             collapse-long <=> root.collapse-long;
@@ -4098,6 +4254,7 @@ export component YapfastWindow inherits Window {
             more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
         }
     }
     // A full profile over the window, as the viewer shows images.
@@ -4129,6 +4286,8 @@ export component YapfastWindow inherits Window {
             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
             // In the full profile, a friend's opens full too.
             open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
+            tab-opened(page) => { root.profile-tab-opened(page); }
+            edit-profile => { root.close-profile(); root.edit-profile(); }
         }
     }
     // A mutual server's card, over the profile that lists it. Clicking
@@ -4176,6 +4335,30 @@ export component YapfastWindow inherits Window {
             card: root.emoji-card;
             open-server(server) => {
                 root.emoji-card-open = false;
+                root.navigate-server(server);
+            }
+        }
+    }
+    // A sticker's card, under the sticker a message was clicked on, as an
+    // emoji's opens. A click outside or Escape closes it.
+    sticker-card-motion := PopupMotion { open: root.sticker-card-open; }
+    if sticker-card-motion.shown: Rectangle {
+        TouchArea { clicked => { root.sticker-card-open = false; } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.sticker-card-open = false; return accept; }
+                return reject;
+            }
+        }
+        MessageStickerCardView {
+            opacity: Popup.opacity(sticker-card-motion.amount); transform-scale: Popup.scale(sticker-card-motion.amount);
+            x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
+            y: root.anchor-y + root.anchor-height + 4px + self.height <= root.height - 8px
+                ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
+            card: root.sticker-card;
+            open-server(server) => {
+                root.sticker-card-open = false;
                 root.navigate-server(server);
             }
         }
@@ -4265,11 +4448,24 @@ export component YapfastWindow inherits Window {
     }
     profile-editor-motion := PopupMotion { open: root.profile-editor-open; }
     if profile-editor-motion.shown: ProfileEditorDialog {
+        open-link(url) => { root.open-link(url); }
         motion: profile-editor-motion.amount;
         prompt: root.profile-editor-prompt;
         name <=> root.profile-editor-name; pronouns <=> root.profile-editor-pronouns;
         bio <=> root.profile-editor-bio; colour <=> root.profile-editor-colour;
         write(field, text) => { root.write-profile(field, text); }
+        choose-name-style(font, effect, colours) => { root.choose-name-style(font, effect, colours); }
+        copy-id => { root.copy-text(root.account-user-id); }
+        open-wishlist => { root.open-profile-wishlist(); }
+        edit-note => { root.edit-own-note(); }
+        choose-tag(server) => { root.choose-server-tag(server); }
+        edit-status => { root.open-status(); }
+        has-status: root.has-custom-status; status-text: root.account-status; status-emoji: root.account-status-emoji;
+        parse-hex(text) => { return root.parse-hex(text); }
+        format-hex(colour) => { return root.format-hex(colour); }
+        key-part(key, index) => { return root.key-part(key, index); }
+        key-colour(key, index) => { return root.key-colour(key, index); }
+        presence: root.account-presence;
         pick(kind) => { root.pick-profile-picture(kind); }
         reset(kind) => { root.reset-profile-picture(kind); }
         unlock-nitro => { root.unlock-nitro(); }
@@ -4421,7 +4617,7 @@ export component YapfastWindow inherits Window {
         accessible-action-default => { root.view-reactions(ReactionHover.item, ReactionHover.key); }
         Text {
             x: 16px; y: (parent.height - 32px) / 2; width: 32px; height: 32px;
-            text: root.reaction-tip-emoji; font-family: root.emoji-font; font-size: 26px;
+            text: Twemoji.text(root.reaction-tip-emoji); font-family: root.emoji-font; font-size: 26px;
             horizontal-alignment: center; vertical-alignment: center;
         }
         reaction-words := Text {

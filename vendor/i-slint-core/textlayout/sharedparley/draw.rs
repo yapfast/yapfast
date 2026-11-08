@@ -141,8 +141,14 @@ impl TextParagraph {
         default_stroke_brush: &Option<<R as GlyphRenderer>::PlatformBrush>,
         default_text_color: Color,
         selection: Option<&SelectionRendering<'_, R>>,
+        hovered_link: Option<usize>,
     ) {
         let para_y = layout.y_offset + self.y;
+        // Yapfast: the link under the pointer, in this paragraph's own offsets.
+        let hovered_link = hovered_link
+            .and_then(|end| end.checked_sub(self.range.start))
+            .and_then(|end| self.links.iter().find(|(range, _)| range.end == end))
+            .map(|(range, _)| range.clone());
 
         let line_count = self.layout.lines().len();
 
@@ -252,6 +258,12 @@ impl TextParagraph {
                         // frame it is on over the glyph it would show, so the
                         // text keeps its wrapping, its selection and its caret.
                         let run_range = glyph_run.run().text_range();
+                        if let Some(link) = &hovered_link
+                            && link.start < run_range.end
+                            && run_range.start < link.end
+                        {
+                            Self::draw_link_underline(&glyph_run, item_renderer, para_y);
+                        }
                         let frame = self
                             .pictures
                             .iter()
@@ -523,6 +535,30 @@ impl TextParagraph {
                 );
             }
         }
+    }
+
+    /// Yapfast: underlines a run of the link under the pointer, in the link's colour.
+    fn draw_link_underline<R: GlyphRenderer>(
+        glyph_run: &parley::layout::GlyphRun<Brush>,
+        item_renderer: &mut R,
+        para_y: PhysicalLength,
+    ) {
+        let brush = &glyph_run.style().brush;
+        let Some(color) = brush.link_color.filter(|_| brush.underline_on_hover) else {
+            return;
+        };
+        let Some(link_brush) = item_renderer.platform_brush_for_color(&color) else {
+            return;
+        };
+        let metrics = glyph_run.run().font_metrics();
+        let rect = decoration_rect(
+            glyph_run,
+            item_renderer,
+            para_y,
+            metrics.underline_offset,
+            metrics.underline_size,
+        );
+        item_renderer.fill_rectangle(rect, link_brush, PhysicalLength::zero(), None);
     }
 
     /// Yapfast: draws an animated emoji's frame in the box its glyph fills: the
@@ -827,17 +863,8 @@ impl TextParagraph {
         // A decoration spans the whole run. Where a selection boundary cuts through it, the
         // renderer clip that cuts the glyphs cuts the rectangle too.
 
-        // A decoration line is snapped to the pixel grid and is at least one pixel thick, like in
-        // browsers: font metrics often make it thinner than a pixel, and a renderer that rounds
-        // the rectangle's edges then drops it on some lines.
         let decoration = |item_renderer: &R, offset: f32, size: f32| {
-            PhysicalRect::new(
-                PhysicalPoint::new(
-                    glyph_run.offset(),
-                    item_renderer.snap_y(para_y.get() + glyph_run.baseline() - offset),
-                ),
-                PhysicalSize::new(glyph_run.advance(), size.round().max(1.)),
-            )
+            decoration_rect(glyph_run, item_renderer, para_y, offset, size)
         };
 
         if glyph_run.style().underline.is_some() {
@@ -868,6 +895,8 @@ impl Layout {
         default_stroke_brush: Option<<R as GlyphRenderer>::PlatformBrush>,
         default_text_color: Color,
         selection: Option<&SelectionRendering<'_, R>>,
+        // Yapfast: where the link under the pointer ends, as `RenderText::hovered_link` gives it.
+        hovered_link: Option<usize>,
     ) {
         // Compute the cut once: explicit `\n` breaks produce one paragraph each, but they must
         // elide as a single block (drop lines below the box, ellipsis on the last visible one).
@@ -909,7 +938,27 @@ impl Layout {
                 &default_stroke_brush,
                 default_text_color,
                 selection,
+                hovered_link,
             );
         }
     }
+}
+
+/// A decoration line across `glyph_run`, `offset` above its baseline. It is snapped to the pixel
+/// grid and is at least one pixel thick, like in browsers: font metrics often make it thinner than
+/// a pixel, and a renderer that rounds the rectangle's edges then drops it on some lines.
+fn decoration_rect<R: GlyphRenderer>(
+    glyph_run: &parley::layout::GlyphRun<Brush>,
+    item_renderer: &R,
+    para_y: PhysicalLength,
+    offset: f32,
+    size: f32,
+) -> PhysicalRect {
+    PhysicalRect::new(
+        PhysicalPoint::new(
+            glyph_run.offset(),
+            item_renderer.snap_y(para_y.get() + glyph_run.baseline() - offset),
+        ),
+        PhysicalSize::new(glyph_run.advance(), size.round().max(1.)),
+    )
 }

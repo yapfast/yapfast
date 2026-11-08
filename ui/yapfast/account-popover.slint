@@ -1,11 +1,13 @@
 import { ScrollView } from "../scrollview.slint";
 import { Theme, Middle } from "../theme.slint";
-import { Avatar, MenuItem, StatusText } from "../controls.slint";
+import { Avatar, MenuItem, StatusText, StyledName, ServerTagChip, AccountLook } from "../controls.slint";
+import { ProfileData, ProfileBadge } from "../people.slint";
 import { StatusDot } from "../rail.slint";
 import { StatusOption } from "../dialogs.slint";
 
-// Uses the account summary already supplied by Yapfast. A neutral header
-// deliberately avoids inventing a banner, decorations, biography or badges.
+// Uses the account summary already supplied by Yapfast, and, once it has
+// come, the account's own profile: its banner or colour, theme, decoration,
+// styled name, server tag and badges, as Discord's own card shows them.
 export component AccountPopover inherits Rectangle {
     in property <string> name;
     in property <string> initial;
@@ -18,6 +20,13 @@ export component AccountPopover inherits Rectangle {
     in property <bool> has-custom-status;
     in property <string> game-name;
     in property <string> game-duration;
+    /// The account's own profile; its id is empty until it has come.
+    in property <ProfileData> profile;
+    property <bool> themed: root.profile.has-theme;
+    /// Opened, so the profile can be asked for.
+    callback opened;
+    callback open-link(string);
+    init => { root.opened(); }
     in-out property <bool> expanded;
     in property <length> available-height: 100000px;
     callback choose(string);
@@ -27,8 +36,11 @@ export component AccountPopover inherits Rectangle {
     callback copy-id;
     callback game-duration-due;
     property <string> presence-label: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
-    background: Theme.panel; border-radius: 8px;
-    border-width: 1px; border-color: Theme.line;
+    background: root.themed
+        ? @linear-gradient(180deg, root.profile.theme-primary.mix(#000000, 0.4) 0%, root.profile.theme-secondary.mix(#000000, 0.4) 100%)
+        : Theme.panel;
+    border-radius: 8px;
+    border-width: 1px; border-color: root.themed ? root.profile.theme-primary : Theme.line;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     accessible-role: groupbox; accessible-label: "Account";
     height: min(root.available-height, content.preferred-height);
@@ -36,17 +48,43 @@ export component AccountPopover inherits Rectangle {
         content-height: content.preferred-height;
         content := VerticalLayout {
             spacing: 0px;
-            Rectangle {
+            header := Rectangle {
                 height: 156px;
-                Rectangle { y: 0px; height: 80px; background: Theme.sunken; border-radius: 8px; }
-                Rectangle { y: 72px; height: 8px; background: Theme.sunken; }
+                property <color> banner-colour: root.profile.has-accent ? root.profile.accent : root.themed ? root.profile.theme-primary : Theme.sunken;
+                property <color> ring: root.themed ? root.profile.theme-primary.mix(#000000, 0.4) : Theme.panel;
+                Rectangle {
+                    y: 0px; height: 80px; background: header.banner-colour;
+                    border-top-left-radius: 8px; border-top-right-radius: 8px; clip: true;
+                    if root.profile.banner.width > 0: Image { width: parent.width; height: parent.height; source: root.profile.banner; image-fit: cover; }
+                }
                 Rectangle {
                     x: 12px; y: 36px; width: 88px; height: 88px;
-                    border-radius: 44px; background: Theme.panel;
-                    Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
-                    StatusDot { x: 66px; y: 65px; width: 20px; height: 20px; border-radius: 10px; presence: root.status == "invisible" ? "offline" : root.status; ring: Theme.panel; }
+                    border-radius: 44px; background: header.ring;
+                    Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; decoration-url: AccountLook.decoration-url; animate: true; }
+                    StatusDot { x: 66px; y: 65px; width: 20px; height: 20px; border-radius: 10px; presence: root.status == "invisible" ? "offline" : root.status; ring: header.ring; }
                 }
-                Text { x: 16px; y: 128px; width: parent.width - 32px; height: 24px; text: root.name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                HorizontalLayout {
+                    x: 16px; y: 128px; width: parent.width - 32px; height: 24px; spacing: 6px; alignment: start;
+                    if root.profile.name-style.length == 0: Text { text: root.name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                    if root.profile.name-style.length > 0: StyledName { text: root.name; styles: root.profile.name-style; ink: Theme.text; font-size: 20px; font-weight: 700; }
+                    if root.profile.tag != "": Middle { ServerTagChip { text: root.profile.tag; badge: root.profile.tag-badge; } }
+                }
+            }
+            // Its badges, in Discord's pill.
+            if root.profile.badges.length > 0: HorizontalLayout {
+                padding-left: 16px; alignment: start;
+                Rectangle {
+                    width: min(root.profile.badges.length, 8) * 22px + 6px; height: 24px;
+                    background: #97979f1f; border-radius: 8px; border-width: 1px; border-color: #97979f0a;
+                    Rectangle {
+                        x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
+                        for badge[index] in root.profile.badges: ProfileBadge {
+                            x: index * 22px; width: 20px; height: 20px; visible: index < 8;
+                            badge: badge;
+                            open-link(url) => { root.open-link(url); }
+                        }
+                    }
+                }
             }
             VerticalLayout {
                 padding: 16px; padding-top: 8px; spacing: 12px;

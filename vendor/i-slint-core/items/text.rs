@@ -260,6 +260,9 @@ pub struct StyledTextItem {
     /// change of `text` leaves them as they are.
     anchor_position_byte_offset: Property<i32>,
     cursor_position_byte_offset: Property<i32>,
+    /// Yapfast: where the link under the pointer ends, as `RenderText::hovered_link` gives it,
+    /// or 0 when the pointer isn't on one: a link is never empty.
+    hovered_link_end: Property<i32>,
     pub cached_rendering_data: CachedRenderingData,
     /// Yapfast: a press in this text is selecting.
     pressed: Cell<bool>,
@@ -396,6 +399,30 @@ impl Item for StyledTextItem {
         let scale_factor = crate::lengths::ScaleFactor::new(
             WindowInner::from_pub(window_adapter.window()).scale_factor(),
         );
+        // Yapfast: the link under the pointer is underlined, as in Discord's client, and shows
+        // the pointing hand.
+        #[cfg(feature = "shared-parley")]
+        let over_link = match event {
+            MouseEvent::Moved { position, .. }
+            | MouseEvent::Pressed { position, .. }
+            | MouseEvent::Released { position, .. } => {
+                let end = crate::textlayout::sharedparley::link_end_under_cursor(
+                    scale_factor,
+                    self,
+                    self_rc,
+                    LogicalSize::from_lengths(self.width(), self.height()),
+                    *position * scale_factor,
+                    window_adapter.window(),
+                    renderer.text_layout_cache(),
+                );
+                self.hovered_link_end.set(end.map_or(0, |end| end as i32));
+                end.is_some()
+            }
+            _ => {
+                self.hovered_link_end.set(0);
+                false
+            }
+        };
         #[cfg(feature = "shared-parley")]
         let find_link = |position: &LogicalPoint| {
             crate::textlayout::sharedparley::link_under_cursor(
@@ -425,7 +452,7 @@ impl Item for StyledTextItem {
             };
             if let Some(result) = self.selection_mouse_event(
                 event,
-                &find_link,
+                over_link,
                 &offset_at,
                 cursor,
                 window_adapter,
@@ -457,8 +484,8 @@ impl Item for StyledTextItem {
             self_rc.map_to_window(self_rc.geometry().origin + position.to_vector())
         };
         #[cfg(feature = "shared-parley")]
-        let mut point = |position: &LogicalPoint| {
-            *cursor = super::MouseCursorInner::BuiltIn(if find_link(position).is_some() {
+        let mut point = || {
+            *cursor = super::MouseCursorInner::BuiltIn(if over_link {
                 super::BuiltInMouseCursor::Pointer
             } else {
                 super::BuiltInMouseCursor::Text
@@ -475,7 +502,7 @@ impl Item for StyledTextItem {
                     *click_count,
                 );
                 self.pressed.set(pressed);
-                point(position);
+                point();
                 if pressed { InputEventResult::GrabMouse } else { InputEventResult::EventAccepted }
             }
             #[cfg(feature = "shared-parley")]
@@ -499,12 +526,12 @@ impl Item for StyledTextItem {
                     Self::FIELD_OFFSETS.link_clicked().apply_pin(self).call(&(link.into(),));
                     crate::yapfast_selection::set_clicked_link(None);
                 }
-                point(position);
+                point();
                 InputEventResult::EventAccepted
             }
             #[cfg(feature = "shared-parley")]
-            MouseEvent::Moved { position, .. } => {
-                point(position);
+            MouseEvent::Moved { .. } => {
+                point();
                 InputEventResult::EventAccepted
             }
             // Yapfast: other buttons go on to the items around the text, so a right click on a
@@ -512,12 +539,12 @@ impl Item for StyledTextItem {
             #[cfg(feature = "shared-parley")]
             MouseEvent::Pressed { position, .. } => {
                 crate::yapfast_selection::set_pressed_link(in_window(position), find_link(position));
-                point(position);
+                point();
                 InputEventResult::EventIgnored
             }
             #[cfg(feature = "shared-parley")]
-            MouseEvent::Released { position, .. } => {
-                point(position);
+            MouseEvent::Released { .. } => {
+                point();
                 InputEventResult::EventIgnored
             }
             MouseEvent::Exit => {
@@ -684,6 +711,10 @@ impl RenderText for StyledTextItem {
             foreground: self.selection_foreground_color(),
         })
     }
+
+    fn hovered_link(self: Pin<&Self>) -> Option<usize> {
+        usize::try_from(self.hovered_link_end()).ok().filter(|end| *end != 0)
+    }
 }
 
 impl StyledTextItem {
@@ -762,7 +793,7 @@ impl StyledTextItem {
     fn selection_mouse_event(
         self: Pin<&Self>,
         event: &MouseEvent,
-        find_link: &dyn Fn(&LogicalPoint) -> Option<std::string::String>,
+        over_link: bool,
         offset_at: &dyn Fn(&LogicalPoint) -> Option<usize>,
         cursor: &mut super::MouseCursorInner,
         window_adapter: &Rc<dyn WindowAdapter>,
@@ -781,7 +812,7 @@ impl StyledTextItem {
                 let offset = crate::styled_text::clamp_byte_offset(&styled, offset as i32);
                 let unit = SelectionUnit::for_click_count(*click_count);
                 self.mouse_selection.set(Some(unit).into());
-                *cursor = selectable_text_cursor(find_link(position).is_some());
+                *cursor = selectable_text_cursor(over_link);
                 // As in a `TextInput`, the press takes the focus, which clears the selection
                 // of the item that had it. A no-op when this item has it already.
                 WindowInner::from_pub(window_adapter.window()).set_focus_item(
@@ -803,7 +834,7 @@ impl StyledTextItem {
             }
             MouseEvent::Moved { position, .. } => {
                 let Some(unit) = self.mouse_selection.get().get() else {
-                    *cursor = selectable_text_cursor(find_link(position).is_some());
+                    *cursor = selectable_text_cursor(over_link);
                     return Some(InputEventResult::EventAccepted);
                 };
                 *cursor = selectable_text_cursor(false);
@@ -819,8 +850,8 @@ impl StyledTextItem {
                 }
                 Some(InputEventResult::GrabMouse)
             }
-            MouseEvent::Released { position, button: PointerEventButton::Left, .. } => {
-                *cursor = selectable_text_cursor(find_link(position).is_some());
+            MouseEvent::Released { button: PointerEventButton::Left, .. } => {
+                *cursor = selectable_text_cursor(over_link);
                 // A press released with nothing selected is a click, left to the link handling
                 // in `input_event`. (A Shift-click extends the selection without moving.)
                 let clicked = self.mouse_selection.take().get() == Some(SelectionUnit::Character)

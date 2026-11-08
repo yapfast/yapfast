@@ -12,11 +12,15 @@ Scope for the beta:
   RNNoise, rather than WebRTC's, as described under Microphone below.
 
 Clicking a voice channel joins through the same voice dock and one-call rule as
-Matrix voice. Calls start with the microphone on unless Settings turns that
-off, mute and deafen show in Discord, and a voice gate sends audio only during
-speech. Audio goes through `audio_io.rs`, PulseAudio on Linux and WASAPI on
-Windows, and libwebrtc's processing module; see the [Windows
-guide](../windows-beta.md#discord-voice-on-windows) for what's been checked there.
+Matrix voice, and, as Discord's client does, without showing the call: a second
+click on the channel, or its line in the dock, does that. Discord's client goes
+to the channel as it joins only when its chat has a mention, where it opens the
+chat, and from buttons that say so, such as Join Voice on a voice channel's
+popout, which Yapfast doesn't have. Calls start with the microphone on unless
+Settings turns that off, mute and deafen show in Discord, and a voice gate
+sends audio only during speech. Audio goes through `audio_io.rs`, PulseAudio
+on Linux and WASAPI on Windows, and libwebrtc's processing module; see the
+[Windows guide](../windows-beta.md#discord-voice-on-windows) for what's been checked there.
 davey's change for Go Live groups is described in
 `vendor/davey/README.yapfast.md`.
 
@@ -82,6 +86,17 @@ Opus comes from the libopus inside Yapfast's libwebrtc archive, called directly
 (`yapfast_discord::opus`), not from a crate such as `opus2` that builds a
 libopus of its own: two copies of the same symbols risk a clash when
 linking, particularly with MSVC on Windows.
+
+## The call's channel line
+
+As in Discord's voice panel, the dock's line under the status ("gen ·
+End-to-end encrypted") is a link to the call: a server's voice channel opens
+on its server showing its call, and a DM's or group DM's call opens its DM,
+the friends list included. While the call's channel or DM already shows, its
+chat beside the call included, it does nothing rather than reopening it.
+It's underlined with a pointer while hovered, and takes the keyboard's focus
+as the dock's buttons do, underlined while focused, Enter or Space following
+it. The status and the signal icon open the connection details instead.
 
 ## Connection details
 
@@ -155,13 +170,57 @@ WebRTC's jitter buffer (NetEq), which Discord's clients play others through,
 compares packets' arrival times with their timestamps, so with a timestamp
 that stopped during pauses, every packet after a pause looked as late as the
 pause was long, and the start of speech was held back by up to half the pause
-(`decision_logic.cc`, `packet_arrival_history.cc` in NetEq's source). Received
-audio waits in a jitter buffer per speaker: playing
-starts once 60 ms has arrived, a missing packet plays as Opus's loss
-concealment (or from the next packet's forward error correction), and a
-speaker who stays silent for 100 ms drops out of the mix until they speak
-again. When the voice gateway drops, the connection resumes with op 7, and
-connects again from scratch if resuming fails.
+(`decision_logic.cc`, `packet_arrival_history.cc` in NetEq's source). When the
+voice gateway drops, the connection resumes with op 7, and connects again
+from scratch if resuming fails.
+
+### Playing what others say
+
+Received audio waits in a jitter buffer per speaker (`Speaker` in
+`call_connection.rs`). Playing starts once 60 ms has arrived, and each 20 ms
+tick of the call's thread decodes one frame from everyone and mixes them
+(`Hearing` in `discord_audio.rs`). A packet that hasn't come yet plays as
+Opus's loss concealment, and the packet itself plays next when it comes, so
+nothing is cut; a packet lost while the next has come is rebuilt from the
+next one's forward error correction. A speaker's audio plays to its end: the
+five silent frames Discord's clients send as they stop, and a speaking
+message saying they stopped, change nothing, and only after 100 ms with no
+packets do they drop out of the mix until they speak again.
+
+A packet that DAVE drops, such as an unencrypted frame in an encrypted call
+outside a transition, plays as nothing rather than as a lost frame to
+conceal. NetEq plays by timestamp, so Discord's clients never conceal those
+frames. Some senders' streams carry such packets between their sealed frames,
+one for every frame or bursts of 50 at once, and counting each one as lost
+played those speakers at half speed or cut them out. The log line "dropping a
+speaker's audio" gives the first such packet's size and Opus TOC byte. After
+an upgrade from transport-only encryption, unencrypted frames pass for 10 s,
+libdave's transition expiry, and all along a pending downgrade.
+
+The 40 ms that waits once playing has started is the cushion against late
+packets. When more than that waited for a whole second, as a sender whose
+clock runs fast makes it, one frame quieter than -50 dBFS is skipped, and
+any frame once four more wait. The skipped frame fades into the next over
+5 ms so the skip doesn't click. Counting the cushion as surplus, or taking
+frames under -40 dBFS as quiet, cut the end of words: the first quiet frame
+after a second of speech is usually a word dying away.
+
+Before a tick plays, it reads every packet waiting in the socket. After a
+stall, the ticks missed run at once, and would otherwise run before those
+packets were read, concealing audio that had come.
+
+The mix goes through a queue of up to four frames to the speakers' thread,
+which keeps 60 ms queued at the device, and skips a frame quieter than
+-50 dBFS when frames have waited to spare for a second, as the speakers'
+clock and the call's drift apart. The call's thread and the speakers' thread
+raise their priority as they start (`audio_io::raise_thread_priority`): on
+Windows they join MMCSS's "Pro Audio" task, as Discord's and browsers' audio
+threads do, so a game using every core doesn't hold them up past the 40 ms
+the speakers have queued. On Linux they ask for `SCHED_FIFO` at priority 10,
+below PipeWire's, which works where the user's limits allow real-time
+priority, as PipeWire's set them for its group; otherwise they stay as they
+were. The microphone's thread, which runs the noise suppressor, stays at
+normal priority.
 
 Before it selects the protocol, a connection, a call's or a stream's, learns
 its public address and port with UDP address discovery: a 74-byte ask, which
@@ -242,8 +301,10 @@ DM's picture, Decline and Accept, and Yapfast rings: a rising arpeggio
 synthesized in `ring.rs` and played through `audio_io.rs` on the call's speakers
 until the call is answered, declined or stops ringing. While Yapfast isn't in
 front a desktop notification says who is calling. On Do Not Disturb the card
-shows without the ring or the notification. Accepting opens the DM and
-joins, leaving any other call without asking, since answering already chose.
+shows without the ring or the notification. Accepting joins, leaving any
+other call without asking, since answering already chose, and leaves what's
+on screen as it was, as Discord's client does for a voice call: the call shows
+in the dock, whose channel line opens the DM.
 Declining posts `POST /channels/{id}/call/stop-ringing` with this account,
 which leaves the call to the others. The DM's own call shows the same choice
 above its messages when it's open.
@@ -374,8 +435,14 @@ RNNoise, through `nnnoiseless` (BSD-3-Clause), lets keyboard clicks through,
 and they hold the gate open. Settings → Voice & video → "Noise suppression in
 Discord calls" still chooses it, to compare the two, as does Off, for a quiet
 room: RNNoise then only tells the gate which blocks are speech. Yapfast keeps
-the choice in `layout.json` as `noise_suppression`. A call going on switches
-at its next block, after DeepFilterNet's 0.2 s load if switching to it.
+the choice in `layout.json` as `noise_suppression`. The microphone's menu, from
+the caret beside mute, has the same three choices. During a Discord call, a
+button beside Leave in the call panel turns suppression off, shown red while
+it's off, and on again to the kind last used, wherever it was chosen:
+DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
+suppresses its noise. A
+call going on switches at its next block, after DeepFilterNet's 0.2 s load if
+switching to it.
 Muting closes the microphone, but the call's microphone thread,
 `yapfast-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it

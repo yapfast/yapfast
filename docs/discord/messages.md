@@ -26,10 +26,15 @@ send in are read-only. Reacting follows Add Reactions instead, as in Discord's
 client: a channel the account can't send in, such as an announcement channel,
 still takes reactions, and without Add Reactions it can add to a reaction
 already on a message or take its own back. A timeout, or an archived thread
-it couldn't open again, takes reacting away. Bots and webhooks have an APP tag after their name. An
+it couldn't open again, takes reacting away. A click on a reaction waits for
+the one before it on the same reaction to reach Discord, and the account's own
+reaction counts once however its events arrive, so clicking fast can't push a
+count past the real one. Bots and webhooks have an APP tag after their name. An
 author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
-authors' member profiles.
+authors' member profiles. A profile that's opened and a member list that
+arrives teach them too, and the open channel and the thread beside it
+re-render with the colours.
 
 Yapfast keeps the open channel's messages in memory, and those of the 40
 channels open before it, so going back to one shows it at once. A closed
@@ -350,8 +355,8 @@ Yapfast is back, rather than showing an error.
   carries and maps rather than copies, so an emoji is as cheap as a letter. An
   emoji of one character answers to its own code point as well as to the one
   the rewrite gives it, so text that keeps it as typed, as the composer's draft
-  does, draws Twemoji's picture too; a sequence, which this font can't join,
-  draws its picture once rewritten and the system font's until then. A
+  does, draws Twemoji's picture too, and a sequence, such as a flag or a skin
+  tone, is joined into its one picture by the font's ligatures. A
   `:shortcode:` sent without taking its completion draws as its emoji. A
   picture is 22px in the 16px text, and 48px in the large text a message of
   emoji alone shows. That is taller than the line, so a `StyledText` and the
@@ -381,10 +386,13 @@ Yapfast is back, rather than showing an error.
   paragraph is shaped again for a frame. Frames decode off the thread that
   draws, ahead of the draw: the ones a refresh shows first, one decode for
   each picture however many messages and cells show it, and a job for an
-  emoji that scrolled away before it started is dropped. The cache keeps 6 MB
-  of frames, letting go the least recently shown, never one on screen. An
-  emoji shows its still first frame until its frames arrive, and if they
-  never do.
+  emoji that scrolled away before it started is dropped. The cache keeps 6 MiB
+  of frames, letting go the least recently shown while preserving message
+  animations pinned by the current view, and never one on screen. Eviction
+  removes the renderer's registry entry as well as the cache entry, so both
+  release their shared pixels. Closing the picker drops its unpinned frames and
+  queued jobs; a late decoder result for those rows is discarded. An emoji
+  shows its still first frame until its frames arrive, and if they never do.
 - The emoji picker's Favorites and the start of its Frequently used are the
   account's own, as every Discord client of it shows them: `favorite_emojis`,
   `emoji_frecency` and, for a reaction's picker, `emoji_reaction_frecency` in
@@ -401,8 +409,10 @@ Yapfast is back, rather than showing an error.
   packages carry), holds those that differ from GitHub's shortcodes, which the
   `emojis` crate knows. A flag comes from its country's two letters. Yapfast
   doesn't change them yet.
-- Stickers show as pictures at 160px, PNG and APNG stickers from the CDN and
-  GIF ones from the media proxy. Lottie stickers render locally from the
+- Stickers show as pictures 160px square, as Discord draws them, whatever size
+  their picture came at: the 160px one the CDN gives, decoded at that size
+  rather than the timeline's preview. PNG and APNG stickers come from the CDN
+  and GIF ones from the media proxy. Lottie stickers render locally from the
   CDN's JSON with ThorVG, one frame at a time, and follow the same animation
   playback setting as GIF stickers. Only a Lottie sticker's address
   (`ready::lottie_sticker`) decodes as Lottie; other pictures never reach
@@ -573,6 +583,64 @@ its desktop client does:
 
   The picture downloads to disk as it comes, so a full-size GIF of tens of
   megabytes takes no memory, and the thumbnail plays from its file.
+
+## Stickers
+
+A Stickers tab in the same picker, beside GIFs and Emoji, and a sticker button
+of its own between the GIF's and the emoji's. A search field heads it, as
+Discord's client's does: what it holds keeps the stickers whose names hold it,
+and Enter sends the first of them. The collections run down its left —
+Frequently Used, the open server's, then Discord's default packs — and the
+grid shows the one the rail chose under the collection's name, in columns of
+96px tiles as Discord's client draws them, 4 of them at the 498px the picker
+opens at. A click sends one. The picker's left edge drags it wider as it does
+for the GIFs and the emoji, and the grid takes another 96px column as it goes;
+the width is the same for all three tabs and comes back at the next start
+(`picker_width`).
+
+- Frequently Used lists the 8 stickers this device sent most, by how often it
+  sent them, kept in `layout.json` as the frequent reactions are. Its rail
+  button and its heading carry a clock, Yapfast's own drawing, rather than a
+  system emoji.
+- A collection's rail button is its picture, 32px: a server's icon, or a
+  pack's first sticker. A server's heading carries the same icon at 16px
+  before its name, which is written as it is named, not in capitals.
+
+- A server's own stickers are the guild object's `stickers`, as READY and
+  GUILD_CREATE carry them and GUILD_STICKERS_UPDATE replaces them, which is
+  where Discord's client reads them: nothing asks for a server's list. One
+  with `available: false`, which the server's boosts no longer cover, isn't
+  listed, as Discord's client leaves it out. The picker makes its lists from
+  the snapshot as it opens, follows a change while it is open, and lets go of
+  them as it closes.
+- The default packs are `GET /sticker-packs`, with the sticker packs' ids,
+  names and stickers. Yapfast keeps them in `discord-sticker-packs.json`,
+  public and unsealed, which unlinking deletes, and shows them at once at a
+  start within a day of
+  Discord's answer; past that it asks again, which the snapshot asks at every
+  start and the picker asks as it opens.
+- The pictures of every sticker the picker offers — the collection buttons'
+  too — are fetched ahead into `discord-pictures/` through
+  `DiscordCommand::PrefetchPictures`, as a start and a changed list bring
+  them, which downloads and keeps without decoding or holding anything, so the tiles read them from the disk instead
+  of waiting on the CDN, and cost no memory until they show. A tile's picture
+  is decoded at 96px when it shows, a Lottie sticker's JSON with ThorVG as
+  stickers in messages are, and let go of when the picker closes or the tile
+  scrolls out of sight.
+- A click sends `POST /channels/{id}/messages` with `sticker_ids`, a message of
+  the sticker alone as Discord's client sends it; the gateway's MESSAGE_CREATE
+  shows it, as it shows a poll. A sticker that couldn't be sent says why in
+  the channel.
+- Discord's default packs are anyone's to send, and the open server's own
+  stickers too; another server's, and every server's in a DM, need Nitro and
+  show greyed with a lock until then, as Discord's client has them
+  (`SENDABLE`, `SENDABLE_WITH_PREMIUM`). A favourite or frequent sticker from
+  a server this account left is no one's. In a server's channel that denies
+  Use External Stickers, another server's are locked even with Nitro, as
+  Discord's client locks them; until the server's roles are known they
+  aren't.
+- A sticker sent closes the picker as closing it does, and the renderer's
+  caches go a second later.
 
 ## Jumping to a message
 

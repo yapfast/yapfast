@@ -51,6 +51,7 @@ mod people;
 mod render;
 mod roles;
 mod server_settings;
+mod stickers;
 
 pub use channels::Channels;
 pub use commands::{command, finished, live};
@@ -221,6 +222,10 @@ impl Chat {
         match command {
             Command::Discord(DiscordCommand::Pictures(urls)) => {
                 self.pictures.fetch(&self.discord, urls, events);
+                return;
+            }
+            Command::Discord(DiscordCommand::CancelPictures(urls)) => {
+                self.pictures.cancel(&urls);
                 return;
             }
             Command::Discord(DiscordCommand::PrefetchPictures(urls)) => {
