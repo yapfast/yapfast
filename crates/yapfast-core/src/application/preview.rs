@@ -196,6 +196,7 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         locked: false,
         join_locked: false,
         read_only: false,
+        reacts: Reacts::Any,
         slowed: false,
         timed_out_until: None,
         category: String::new(),

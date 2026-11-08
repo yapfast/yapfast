@@ -3479,6 +3479,49 @@ fn message_actions_reach_the_shared_application_in_the_preview() {
 }
 
 #[test]
+fn a_discord_channel_without_sending_still_takes_reactions() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let set = |reacts: Reacts| {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.discord_online = true;
+        let id = adapter.app.state.selected.clone().unwrap();
+        let room = adapter
+            .app
+            .state
+            .rooms
+            .iter_mut()
+            .map(Arc::make_mut)
+            .find(|room| room.id == id)
+            .unwrap();
+        room.network = yapfast_core::network::Network::Discord;
+        room.read_only = true;
+        room.reacts = reacts;
+        adapter.app.state.list_changes += 1;
+        adapter.refresh(&window);
+    };
+    // An announcement channel: no composer, but any reaction.
+    set(Reacts::Any);
+    assert!(!window.get_composer_enabled());
+    assert!(window.get_reactions_enabled() && window.get_new_reactions_enabled());
+    // Without Add Reactions, only those already there.
+    set(Reacts::Existing);
+    assert!(window.get_reactions_enabled() && !window.get_new_reactions_enabled());
+    // Timed out: none.
+    set(Reacts::None);
+    assert!(!window.get_reactions_enabled() && !window.get_new_reactions_enabled());
+}
+
+#[test]
 fn signed_in_controls_keep_trust_and_plaintext_sending_gates() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -4286,7 +4329,7 @@ fn a_profile_shows_activities_as_discord_cards() {
 
 #[test]
 fn friends_in_a_servers_voice_channel_show_where() {
-    use yapfast_core::chat::{ChatRoom, ChatServer, VoicePerson};
+    use yapfast_core::chat::{ChatRoom, ChatServer, Reacts, VoicePerson};
     let person = |id: &str| VoicePerson {
         id: id.into(),
         name: id.into(),
@@ -4308,6 +4351,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         locked: false,
         join_locked: false,
         read_only: false,
+        reacts: Reacts::Any,
         slowed: false,
         timed_out_until: None,
         category: String::new(),
@@ -6976,7 +7020,7 @@ fn the_thread_beside_keeps_its_rows_when_a_new_layout_builds_them_again() {
 #[cfg(feature = "discord")]
 #[test]
 fn requests_list_someone_once_with_their_message() {
-    use yapfast_core::chat::{ChatRoom, FriendRequest, RequestPreview};
+    use yapfast_core::chat::{ChatRoom, FriendRequest, Reacts, RequestPreview};
     use yapfast_core::network::Network;
     let request = |id: &str, name: &str, incoming, spam| FriendRequest {
         id: id.into(),
@@ -7001,6 +7045,7 @@ fn requests_list_someone_once_with_their_message() {
         locked: false,
         join_locked: false,
         read_only: true,
+        reacts: Reacts::None,
         slowed: false,
         timed_out_until: None,
         category: category.into(),

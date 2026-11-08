@@ -10,6 +10,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc as channel,
     },
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -25,6 +26,10 @@ use crate::{
     service::VoiceServer,
     voice_connection::{Identity, lock},
 };
+
+/// How long a call whose voice connection Discord ended waits for Discord
+/// to say where it moved the call, before the call ends.
+pub const MOVE_GRACE: Duration = Duration::from_secs(5);
 
 pub const SAMPLE_RATE: u32 = 48_000;
 /// Received audio is interleaved stereo.
@@ -122,10 +127,10 @@ impl Call {
         let stats = Arc::new(CallStats::default());
         let (orders, connected) =
             call_connection::start(identity, listener, sending.clone(), frames, stats.clone())?;
+        // Errors say the step that failed; the caller says it was joining.
         connected
             .await
-            .context("the call stopped while connecting")?
-            .context("could not connect to Discord voice")?;
+            .context("the call stopped while connecting")??;
         Ok(Self {
             orders,
             sending,

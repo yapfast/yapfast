@@ -477,7 +477,9 @@ picture decodes at no more than `EFFECT_SIZE`, and a layer's is asked for when
 it first plays. An effect's pictures are the size of the card, so they go as
 soon as its card closes (`let_go_of_effect_pictures`) rather than waiting for
 the trim. The backend keeps the last eight effects (`Event::ProfileEffect`);
-each card's profile points to one by SKU.
+each card's profile points to one by SKU. A layer plays as many times as its
+APNG's `acTL` says, then holds its last frame, as a browser does, and stops
+asking for frames; a file that says 0 plays for as long as its layer shows.
 
 ## Display name styles
 
