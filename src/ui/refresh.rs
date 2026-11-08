@@ -145,6 +145,8 @@ pub(super) struct SidebarShown {
     list_changes: u64,
     /// Whether Discord took changes, which the header's invite button needs.
     discord_online: bool,
+    /// What the profile switches let DM rows show.
+    cosmetics: yapfast_core::application::Cosmetics,
 }
 
 impl SidebarShown {
@@ -161,6 +163,7 @@ impl SidebarShown {
             category_changes: state.category_changes,
             list_changes: state.list_changes,
             discord_online: state.discord_online,
+            cosmetics: state.cosmetics,
         }
     }
 
@@ -569,6 +572,7 @@ impl Adapter {
         }
         self.sidebar = Some(SidebarShown::of(&self.app.state, window));
         let state = &self.app.state;
+        let cosmetics = state.cosmetics;
         let query = window.get_filter().to_lowercase();
         window.set_sidebar_title(match &state.navigation {
             Navigation::DirectMessages => "Direct messages".into(),
@@ -822,7 +826,10 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
-                    decoration_url: room.decoration.as_deref().unwrap_or_default().into(),
+                    decoration_url: cosmetics
+                        .decoration(room.decoration.as_deref())
+                        .unwrap_or_default()
+                        .into(),
                     nameplate_url: room
                         .nameplate
                         .as_ref()
@@ -840,12 +847,12 @@ impl Adapter {
                             .as_ref()
                             .and_then(|plate| Some(plate.colors?[1])),
                     ),
-                    name_style: name_style::row(room.style.as_deref(), &room.name),
+                    name_style: name_style::row(cosmetics.style(room.style.as_deref()), &room.name),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
-                    tag: tag_text(&room.tag),
-                    tag_badge: tag_badge(&room.tag),
+                    tag: tag_text(cosmetics.tag(room.tag.as_ref())),
+                    tag_badge: tag_badge(cosmetics.tag(room.tag.as_ref())),
                     official: room.official,
                     wave: if room.empty && !room.request {
                         room.person.as_deref().unwrap_or_default().into()
@@ -1031,10 +1038,10 @@ impl Adapter {
             state.account_avatar.as_deref(),
         ));
         let look = window.global::<AccountLook>();
+        let cosmetics = state.cosmetics;
         look.set_decoration_url(
-            state
-                .account_decoration
-                .as_deref()
+            cosmetics
+                .decoration(state.account_decoration.as_deref())
                 .unwrap_or_default()
                 .into(),
         );
@@ -1758,6 +1765,9 @@ impl Adapter {
     /// The member list, the reactions offered on messages, and a role's card.
     fn show_members(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
+        let cosmetics = state.cosmetics;
+        // In a server, names show their style's font alone.
+        let in_server = name_style::in_server(state.selected.as_deref());
         let now = yapfast_core::clock::now_ms();
         let members = match &state.members {
             Some(Ok(members)) => members.as_slice(),
@@ -1808,10 +1818,16 @@ impl Adapter {
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
                         group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
-                        tag: tag_text(&member.tag),
-                        tag_badge: tag_badge(&member.tag),
-                        decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
-                        name_style: name_style::row(member.style.as_deref(), &member.name),
+                        tag: tag_text(cosmetics.tag(member.tag.as_ref())),
+                        tag_badge: tag_badge(cosmetics.tag(member.tag.as_ref())),
+                        decoration_url: cosmetics
+                            .decoration(member.decoration.as_deref())
+                            .unwrap_or_default()
+                            .into(),
+                        name_style: name_style::font_only_in(
+                            in_server,
+                            name_style::row(cosmetics.style(member.style.as_deref()), &member.name),
+                        ),
                         nameplate_url: member
                             .nameplate
                             .as_ref()
@@ -3079,8 +3095,10 @@ impl Adapter {
             first_unread: None,
             revealed: &self.revealed,
             restyle: std::mem::take(&mut self.aside_restyle),
+            decorations: self.layout.cosmetics().decorations,
         };
         let layout = &self.layout;
+        let in_server = name_style::in_server(Some(room));
         show_timeline(
             &self.models.aside_messages,
             &mut self.aside_rows,
@@ -3088,10 +3106,13 @@ impl Adapter {
             &aside.messages,
             &marks,
             |message| {
-                layout.restyle(
+                let mut row = layout.restyle(
                     message,
                     message_row_within(message, marks.revealed, Some(fit)),
-                )
+                );
+                // In a server, an author's name shows its style's font alone.
+                row.name_style = name_style::font_only_in(in_server, row.name_style);
+                row
             },
         );
         self.aside_messages = aside.messages.clone();
@@ -3410,15 +3431,22 @@ impl Adapter {
                 first_unread: state.first_unread.as_deref(),
                 revealed: &self.revealed,
                 restyle,
+                decorations: self.layout.cosmetics().decorations,
             };
             let layout = &self.layout;
+            let in_server = name_style::in_server(state.selected.as_deref());
             show_timeline(
                 &self.models.messages,
                 &mut self.rows,
                 &self.messages,
                 &state.messages,
                 &marks,
-                |message| layout.restyle(message, message_row(message, marks.revealed)),
+                |message| {
+                    let mut row = layout.restyle(message, message_row(message, marks.revealed));
+                    // In a server, an author's name shows its style's font alone.
+                    row.name_style = name_style::font_only_in(in_server, row.name_style);
+                    row
+                },
             );
             if selection_changed || reset {
                 self.latest_due = false;

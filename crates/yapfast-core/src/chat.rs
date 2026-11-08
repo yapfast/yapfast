@@ -2732,10 +2732,13 @@ pub enum DiscordCommand {
         change: MemberChange,
     },
     /// Fetch a Discord user's profile, as a member of a room's server or as
-    /// the other person in a DM. It comes back as [`Event::Profile`].
+    /// the other person in a DM. It comes back as [`Event::Profile`], and
+    /// the effect it names as [`Event::ProfileEffect`] when `effect` asks
+    /// for it; without, the shop isn't asked what the effect is made of.
     Profile {
         room: String,
         user: String,
+        effect: bool,
     },
     /// Download server icons and avatars by address. Each that arrives comes
     /// back as [`Event::Picture`]; one that fails doesn't.
