@@ -574,6 +574,9 @@ pub struct AppState {
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
     pub server_previews: HashMap<String, chat::ServerPreview>,
+    /// What a server tag's card shows of the server it's from, by server id,
+    /// as Discord last answered: its profile, or why it didn't show it.
+    pub tag_servers: HashMap<String, Result<chat::TagServer, String>>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
     /// The `@` or `#` word being typed in the composer, if any: its sigil and
@@ -2122,6 +2125,10 @@ pub enum Action {
     /// opens: how many of its members are online, and whether Discover lists
     /// it. Nothing is asked twice for the same server.
     PreviewServer(String),
+    /// A server tag's card opened, by the id of the server the tag is from:
+    /// ask Discord for the server's profile, which it gives again from what
+    /// it fetched in the last few minutes.
+    OpenServerTag(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -3587,6 +3594,7 @@ impl Application {
             Action::ShowProfile { user, large } => self.show_profile(user, large),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::PreviewServer(server) => self.preview_server(server),
+            Action::OpenServerTag(server) => self.open_server_tag(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
                 if let Some(view) = &mut self.state.profile {
@@ -3980,6 +3988,7 @@ impl Application {
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
+            Event::TagServer { server, result } => self.show_tag_server(server, result),
             Event::EmojisChanged {
                 server,
                 upload,

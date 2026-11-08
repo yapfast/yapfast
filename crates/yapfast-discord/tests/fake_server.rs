@@ -2592,6 +2592,7 @@ async fn shows_profiles() {
     // Bob wears the server's tag; Carol has none.
     let tag = in_server.tag.as_ref().expect("Bob has a server tag");
     assert_eq!(&*tag.text, "BOB");
+    assert_eq!(&*tag.guild, guild.as_str(), "the server it's from");
     assert!(
         tag.badge
             .as_deref()
@@ -5265,6 +5266,14 @@ async fn changes_server_settings_as_discords_client_does() {
         ("Server", "")
     );
     assert!(profile.icon.is_some());
+    // The card of Bob's tag shows the same profile, with its counts; Discord
+    // shows nothing of a server it doesn't know.
+    let card = discord.tag_server(guild).await.unwrap();
+    assert_eq!(card.name, "Server");
+    assert!(card.members.is_some_and(|members| members > 1));
+    assert_eq!(card.online, Some(1));
+    let refused = discord.tag_server("1400000000000000999").await.unwrap_err();
+    assert_eq!(refused.to_string(), "Discord doesn't show this server");
 
     // Discord's own words for a field it refuses.
     let refused = discord
@@ -5293,6 +5302,8 @@ async fn changes_server_settings_as_discords_client_does() {
             .any(|known| known.id == guild && known.name == "Crew" && known.icon.is_none())
     })
     .await;
+    // The tag's card asked a moment ago, and shows what it was told then.
+    assert_eq!(discord.tag_server(guild).await.unwrap().name, "Server");
 
     // Once "Server" requires 2FA for moderation, a kick waits for her to
     // confirm, and goes again with the token; a wrong code leaves the

@@ -296,13 +296,28 @@ export global EmojiAnimations {
     pure callback frame(string, int) -> image;
 }
 
+// A server tag clicked, wherever it shows: the id of the server it's from, its
+// letters and badge, and where it sits in the window, which its card opens
+// beside. The window's adapter answers it.
+export global ServerTags {
+    callback open(string, string, string, length, length, length, length);
+}
+
 // The server tag someone wears by their name, as Discord's client draws it: a
 // small grey chip with their server's badge, when it has one, before up to four
-// letters.
+// letters. With its server known, a click opens the server's card.
 export component ServerTagChip inherits Rectangle {
     in property <string> text;
     /// The address of the badge's picture, or empty for a tag without one.
     in property <string> badge;
+    /// The id of the server it's from; empty leaves it a plain chip.
+    in property <string> server;
+    /// Tab reaches it, and Enter or Space opens its card, as its row's other
+    /// controls take the keyboard.
+    in property <bool> keyboard;
+    function open() {
+        ServerTags.open(root.server, root.text, root.badge, root.absolute-position.x, root.absolute-position.y, root.width, root.height);
+    }
     // Discord's chip: 12px text on a 16px line, 4px sides, 4px corners, a 14px
     // badge 2px before the text, a grey wash at 20%. Everything scales with the
     // text so the chip can be set smaller in messages.
@@ -330,7 +345,7 @@ export component ServerTagChip inherits Rectangle {
     width: tag-text.preferred-width + (root.badge != "" ? root.badge-size + root.gap : 0px) + root.pad * 2 + root.outline-width * 2;
     height: root.chip-height; border-radius: root.radius;
     background: root.fill;
-    border-width: root.outline-width; border-color: root.outline;
+    border-width: focus.has-focus ? 2px : root.outline-width; border-color: focus.has-focus ? Theme.accent : root.outline;
     accessible-role: AccessibleRole.text; accessible-label: "Server tag " + root.text;
     HorizontalLayout {
         padding-left: root.pad; padding-right: root.pad; spacing: root.gap; alignment: center;
@@ -341,6 +356,25 @@ export component ServerTagChip inherits Rectangle {
             text: root.text; color: Theme.text; font-size: root.font-size; font-weight: root.font-weight;
             vertical-alignment: center;
         }
+    }
+    focus := FocusScope {
+        enabled: root.server != "" && root.keyboard;
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " {
+                root.open(); return accept;
+            }
+            return reject;
+        }
+    }
+    TouchArea {
+        enabled: root.server != "";
+        mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.open(); }
+    }
+    // A screen reader's button for the card.
+    if root.server != "": Rectangle {
+        accessible-role: button; accessible-label: "Server tag " + root.text;
+        accessible-action-default => { root.open(); }
     }
 }
 

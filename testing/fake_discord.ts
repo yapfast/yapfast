@@ -2306,7 +2306,8 @@ function guildChannels(): GuildChannel[] {
 }
 
 // Server Settings. GET /guilds/{id}/profile gives "Server"'s profile as
-// Server Profile shows it, and PATCH changes its name, icon (a data URI,
+// Server Profile and the card of Bob's tag, "BOB", show it, with its tag and
+// badge, and answers 404 for any other server; PATCH changes its name, icon (a data URI,
 // served back from the CDN as it came, or null) and description, as
 // Manage Server allows, answering with the profile and GUILD_UPDATE. POST
 // /_control/guild-reset puts "Server" back as it started.
@@ -2454,11 +2455,21 @@ function guildProfile() {
     member_count: Object.keys(users).length,
     online_count: 1,
     brand_color_primary: null,
+    banner_hash: null,
+    game_application_ids: [],
+    game_activity: {},
+    // The tag Bob wears; see wireUser.
+    tag: "BOB",
+    badge: 0,
+    badge_color_primary: "#ff0000",
+    badge_color_secondary: "#800000",
+    badge_hash: "bobtag",
     traits: [],
     features: serverSettings.features,
     visibility: 1,
     premium_tier: serverSettings.premium_tier,
     premium_subscription_count: 0,
+    custom_banner_hash: null,
   };
 }
 

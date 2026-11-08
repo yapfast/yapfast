@@ -1502,6 +1502,7 @@ impl Layout {
         if !cosmetics.server_tags {
             row.tag = SharedString::default();
             row.tag_badge = SharedString::default();
+            row.tag_server = SharedString::default();
         }
         if message.timestamp != 0 {
             let (twelve_hour, with_seconds) = (self.twelve_hour_clock, self.clock_seconds);
@@ -1857,6 +1858,9 @@ struct Adapter {
     /// The emoji the open card shows, so the card is built again as what
     /// Discord says of its server arrives.
     emoji_card: Option<emoji_text::Target>,
+    /// The server tag the open card shows, so the card is built again as what
+    /// Discord says of its server arrives.
+    tag_card: Option<profile::ShownTag>,
     /// The animated emoji on screen: the frames they need and the clock they
     /// draw from, which stops while the window is unfocused, idle or minimised.
     animations: emoji_animation::Animations,
@@ -2146,6 +2150,7 @@ impl Adapter {
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
                 emoji_card: None,
+                tag_card: None,
                 animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
                 jumped: None,

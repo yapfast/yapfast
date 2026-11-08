@@ -701,6 +701,9 @@ pub struct ServerTag {
     pub text: Arc<str>,
     /// The address of the badge's picture; see [`DiscordCommand::Pictures`].
     pub badge: Option<Arc<str>>,
+    /// The Discord server it's from, by its guild id, whose card it opens;
+    /// empty when that isn't known.
+    pub guild: Arc<str>,
 }
 
 /// A nameplate someone equips from Discord's shop: a strip of picture behind
@@ -2318,6 +2321,21 @@ pub struct ServerPreview {
     pub discoverable: bool,
 }
 
+/// What a server tag's card shows of the server it's from, as `GET
+/// /guilds/{guild.id}/profile` answers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TagServer {
+    pub name: String,
+    /// The address of its icon, when it has one.
+    pub icon: Option<String>,
+    /// What it says of itself; empty without it.
+    pub description: String,
+    /// How many members it has, and how many are online, when Discord
+    /// counts them.
+    pub members: Option<u64>,
+    pub online: Option<u64>,
+}
+
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedServer {
@@ -2951,6 +2969,11 @@ pub enum DiscordCommand {
     /// its members are online, and whether Discover lists it.
     /// [`Event::ServerPreview`] follows.
     ServerPreview {
+        server: String,
+    },
+    /// The profile of the server a server tag is from, for the tag's card.
+    /// [`Event::TagServer`] follows.
+    TagServer {
         server: String,
     },
     /// What Stickers asks of Discord; [`Event::StickersChanged`] follows.
@@ -4009,6 +4032,12 @@ pub enum Event {
     ServerPreview {
         server: String,
         result: Result<ServerPreview, String>,
+    },
+    /// What a server tag's card shows of the server it's from, as
+    /// [`DiscordCommand::TagServer`] asked; or why Discord didn't show it.
+    TagServer {
+        server: String,
+        result: Result<TagServer, String>,
     },
     /// Whether what Emoji asked of Discord went, uploading or not, and the
     /// server's emoji after it, when Discord sent them.

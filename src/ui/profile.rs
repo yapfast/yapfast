@@ -570,6 +570,7 @@ pub(super) fn profile_data(
         pronouns: profile.pronouns.as_str().into(),
         tag: tag_text(cosmetics.tag(profile.tag.as_ref())),
         tag_badge: tag_badge(cosmetics.tag(profile.tag.as_ref())),
+        tag_server: tag_server(cosmetics.tag(profile.tag.as_ref())),
         banner: banner.clone(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
@@ -855,6 +856,85 @@ pub(super) fn tag_badge(tag: Option<&yapfast_core::chat::ServerTag>) -> slint::S
     tag.and_then(|tag| tag.badge.as_deref())
         .unwrap_or_default()
         .into()
+}
+
+/// The id of the Discord server a tag is from, whose card a click on the tag
+/// opens, for Slint; nothing when it isn't known.
+pub(super) fn tag_server(tag: Option<&yapfast_core::chat::ServerTag>) -> slint::SharedString {
+    tag.filter(|tag| !tag.guild.is_empty())
+        .map_or_else(Default::default, |tag| {
+            yapfast_core::discord::server_id(&tag.guild).into()
+        })
+}
+
+/// The server tag whose card is open: the id of its server, and the letters
+/// and badge it showed with.
+pub(super) struct ShownTag {
+    pub(super) server: String,
+    pub(super) text: slint::SharedString,
+    pub(super) badge: slint::SharedString,
+}
+
+/// What a server tag's card shows: the tag at once, the server's name and icon
+/// when this account is in it, and the rest as Discord's answer brings it, or
+/// a word on why there's none.
+pub(super) fn tag_card(tag: &ShownTag, state: &AppState) -> TagCard {
+    let joined = state
+        .servers
+        .iter()
+        .find(|server| server.id == tag.server && !server.unavailable);
+    let answer = state.tag_servers.get(&tag.server);
+    let profile = answer.and_then(|answer| answer.as_ref().ok());
+    let name = profile
+        .map(|profile| profile.name.as_str())
+        .or(joined.map(|server| server.name.as_str()))
+        .unwrap_or_default();
+    let icon = profile
+        .and_then(|profile| profile.icon.as_deref())
+        .or(joined.and_then(|server| server.icon.as_deref()))
+        .unwrap_or_default();
+    let count = |count: Option<u64>, one: &str, many: &str| {
+        count.map_or_else(Default::default, |count| {
+            format!("{} {}", grouped(count), if count == 1 { one } else { many }).into()
+        })
+    };
+    TagCard {
+        server: tag.server.as_str().into(),
+        name: name.into(),
+        initial: if name.is_empty() {
+            tag.text
+                .chars()
+                .next()
+                .map(String::from)
+                .unwrap_or_default()
+                .into()
+        } else {
+            initial(name)
+        },
+        picture_url: icon.into(),
+        tag: tag.text.clone(),
+        badge: tag.badge.clone(),
+        online: count(
+            profile.and_then(|profile| profile.online),
+            "Online",
+            "Online",
+        ),
+        members: count(
+            profile.and_then(|profile| profile.members),
+            "Member",
+            "Members",
+        ),
+        description: profile
+            .map_or("", |profile| profile.description.as_str())
+            .into(),
+        note: if profile.is_none() && answer.is_some() {
+            "Discord doesn't show this server to those outside it."
+        } else {
+            ""
+        }
+        .into(),
+        joined: joined.is_some(),
+    }
 }
 
 /// A Discord role's RGB colour for Slint.

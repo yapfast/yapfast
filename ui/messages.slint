@@ -615,8 +615,9 @@ export struct MessageRow {
     color: color, has-color: bool,
     /// The author is a Discord bot or webhook: tagged after their name.
     bot: bool,
-    /// The server tag the author wears by their name, and its badge's address.
-    tag: string, tag-badge: string,
+    /// The server tag the author wears by their name, its badge's address,
+    /// and the id of the server it's from, whose card a click opens.
+    tag: string, tag-badge: string, tag-server: string,
     /// Starts a group: shows the avatar and author. Later messages from the same person follow compactly.
     first: bool,
     /// A date divider above this message, when it starts a new day.
@@ -2174,7 +2175,7 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
-                if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; font-size: root.message-font-size * 0.72; } }
+                if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
                 StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }

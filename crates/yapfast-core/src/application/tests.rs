@@ -5598,6 +5598,7 @@ fn server_tag_badges_on_screen_stay_with_the_avatars() {
             tag: Some(chat::ServerTag {
                 text: "CODE".into(),
                 badge: Some(badge.into()),
+                guild: "10".into(),
             }),
             ..message("e:$ann", false)
         }]),
@@ -6380,6 +6381,70 @@ fn a_servers_card_asks_for_what_it_shows_once() {
     assert!(
         asked(&app.dispatch(Action::PreviewServer("friends".into()))).is_empty(),
         "only Discord's servers have one"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_server_tags_card_asks_for_its_servers_profile_and_keeps_the_answer() {
+    use yapfast_discord::service::{Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        ..Default::default()
+    }));
+    let asked = |effects: &[Effect]| -> Vec<String> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::TagServer { server })) => {
+                    Some(server.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    // The account needn't be in the server: the tag's card asks all the same.
+    assert_eq!(
+        asked(&app.dispatch(Action::OpenServerTag("discord:10".into()))),
+        ["discord:10"]
+    );
+    assert!(
+        app.state.tag_servers.is_empty(),
+        "the card shows the tag alone until Discord answers"
+    );
+    let shown = chat::TagServer {
+        name: "Aliens".into(),
+        description: "We come in peace".into(),
+        members: Some(4644),
+        online: Some(1200),
+        ..Default::default()
+    };
+    app.apply(Event::TagServer {
+        server: "discord:10".into(),
+        result: Ok(shown.clone()),
+    });
+    assert_eq!(app.state.tag_servers["discord:10"], Ok(shown.clone()));
+    // Opened again, it asks again, which Discord's service answers from what
+    // it fetched lately; a failure then leaves what the card showed.
+    assert_eq!(
+        asked(&app.dispatch(Action::OpenServerTag("discord:10".into()))),
+        ["discord:10"]
+    );
+    app.apply(Event::TagServer {
+        server: "discord:10".into(),
+        result: Err("Discord is out of reach".into()),
+    });
+    assert_eq!(app.state.tag_servers["discord:10"], Ok(shown));
+    // A server Discord keeps private says so on its card.
+    app.apply(Event::TagServer {
+        server: "discord:11".into(),
+        result: Err("Discord doesn't show this server".into()),
+    });
+    assert!(app.state.tag_servers["discord:11"].is_err());
+    assert!(
+        asked(&app.dispatch(Action::OpenServerTag("friends".into()))).is_empty(),
+        "only Discord's servers have tags"
     );
 }
 

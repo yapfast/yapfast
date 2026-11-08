@@ -205,6 +205,7 @@ pub fn server_tag(tag: Option<yapfast_discord::message::Tag>) -> Option<chat::Se
     Some(chat::ServerTag {
         text: tag.text,
         badge: tag.badge,
+        guild: tag.guild,
     })
 }
 
