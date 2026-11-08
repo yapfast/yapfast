@@ -6,11 +6,11 @@
 //! count and a 48 kHz one share no zero and no rate, so they can only be
 //! compared once the streamer's sender reports have placed each on wall-clock
 //! time, and the answer is only worth anything while those reports are fresh.
-//! The second is when a decoded picture goes to the window: the sound that is
-//! already audible is the master, so a picture the sound has passed by is
-//! dropped and one it hasn't reached yet waits, briefly, rather than jumping
-//! ahead. Both are pure functions of the instants they are given, so a test
-//! drives them without waiting.
+//! The second is whether a decoded picture is worth showing at all: the sound
+//! that is already audible is the master, so a picture it has passed by is
+//! dropped rather than shown late, and one it hasn't reached is shown when it
+//! arrives rather than held back — see [`decide`]. Both are pure functions of
+//! the instants they are given, so a test drives them without waiting.
 
 use std::time::{Duration, Instant};
 
@@ -30,10 +30,11 @@ pub const STALE: Duration = Duration::from_secs(5);
 /// A picture the audible sound has passed by more than this is dropped:
 /// showing it would be showing the past, and the sound is the master.
 pub const LATE: Duration = Duration::from_millis(80);
-/// A picture the audible sound hasn't reached yet waits at most this long
-/// before it is shown anyway: holding one longer would grow the delay rather
-/// than remove it.
-pub const EARLY: Duration = Duration::from_millis(80);
+/// The picture's clock turns over at this many milliseconds: a 90 kHz timestamp
+/// counts 2^32 ticks, which is 47,721 s, so a stream's picture time wraps every
+/// 13.2 hours. It is [`milliseconds`]'s 18-hour turn for the NTP time, at the
+/// rate the pictures are counted at.
+const PICTURE_TURN: f64 = (u32::MAX as f64 + 1.0) * 1_000.0 / PICTURE_RATE as f64;
 
 /// Which of a stream's two clocks a mapping is of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -210,7 +211,7 @@ impl Timeline {
     ) -> Option<i64> {
         let shown = shown_ms?;
         let audible = self.audible_ms(now, held)?;
-        Some(shown as i64 - audible as i64)
+        Some(ahead(shown, audible))
     }
 
     /// Where the sound a viewer hears now sits on the picture's own timeline,
@@ -232,7 +233,7 @@ impl Timeline {
         // That instant on the wall clock, then that wall clock on the
         // picture's timeline, counted in ticks from its own report: the same
         // unit a picture's RTP timestamp is in, then turned into the
-        // milliseconds a scheduler compares.
+        // milliseconds a picture's time is compared in.
         let wall = sound.wall_time(playing as u32, SOUND_RATE);
         let ticks = f64::from(picture.rtp)
             + (wall - f64::from(picture.ntp) / NTP_TURN) * f64::from(PICTURE_RATE);
@@ -295,87 +296,48 @@ fn milliseconds(seconds: f64) -> i64 {
 /// What to do with a decoded picture, against the sound that is audible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Show {
-    /// Now: it is due.
+    /// Show it: it is due, or the sound hasn't reached it yet.
     Now,
-    /// Wait this long and then show it: it came early and the sound is
-    /// catching up. Never more than [`EARLY`].
-    After(Duration),
     /// Never: the sound has passed it by more than [`LATE`].
     Drop,
 }
 
-/// One picture waiting for its turn, with the stream time it holds.
-#[derive(Clone, Copy, Debug)]
-struct Waiting {
-    time_ms: u64,
-    due: Instant,
-}
-
-/// Bounds when a decoded picture is handed to the window, against the sound
-/// that is audible: the sound is the master and the picture follows it.
+/// Decides what to do with the picture whose stream time is `picture_ms`
+/// against `audible_ms`, the sound a viewer hears now on that same timeline.
 ///
-/// At most one picture waits besides the one on screen: a second offer
-/// replaces the first, which is then dropped, so a stream that comes early
-/// never queues pictures behind a clock that is behind it.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Scheduler {
-    waiting: Option<Waiting>,
+/// The sound is the master and the picture follows it: one more than [`LATE`]
+/// behind the sound is dropped rather than shown late. One the sound hasn't
+/// reached is shown just the same, at the moment it arrives. Holding it back
+/// would mean keeping it, and a decoded picture is the decoder's own only until
+/// its next frame (`decode::Picture` borrows the decoder): a deferral would cost
+/// a copy of the picture, and the memory to hold it, for a wait of at most
+/// [`LATE`] — longer than a frame at any rate this is shown at. So this is a
+/// bound on what may be shown late and nothing more, and it neither blocks nor
+/// sleeps, which is what keeps it off the UI and network threads.
+pub fn decide(picture_ms: u64, audible_ms: u64) -> Show {
+    if ahead(picture_ms, audible_ms) < -(LATE.as_millis() as i64) {
+        Show::Drop
+    } else {
+        Show::Now
+    }
 }
 
-impl Scheduler {
-    pub fn new() -> Self {
-        Self::default()
+/// `picture_ms` against `audible_ms`, in milliseconds, read as a step across the
+/// picture clock's turn rather than around it. Both are the picture's own
+/// timeline in milliseconds, which a 90 kHz count turns over every 13.2 hours:
+/// the picture's timestamp wraps there while the sound's position is carried on
+/// from a report, so without this one turn is the difference between a picture
+/// that is 80 ms late and one 13 hours early. Half a turn is far more than any
+/// picture sits from the sound, so a wider difference is the turn — the same
+/// reasoning as [`milliseconds`]'s 18-hour turn for the NTP time.
+fn ahead(picture_ms: u64, audible_ms: u64) -> i64 {
+    let mut ahead = picture_ms as f64 - audible_ms as f64;
+    if ahead > PICTURE_TURN / 2.0 {
+        ahead -= PICTURE_TURN;
+    } else if ahead < -PICTURE_TURN / 2.0 {
+        ahead += PICTURE_TURN;
     }
-
-    /// Forgets the picture waiting: a stop, a seek, a deafen or a clock
-    /// discontinuity means the time it was due no longer means anything.
-    pub fn reset(&mut self) {
-        self.waiting = None;
-    }
-
-    /// The stream time of the picture waiting, once one is.
-    pub fn waiting(&self) -> Option<u64> {
-        self.waiting.map(|waiting| waiting.time_ms)
-    }
-
-    /// Decides the picture whose stream time is `picture_ms` against
-    /// `audible_ms`, the sound a viewer hears now on that same timeline, at
-    /// `now` on this machine's.
-    ///
-    /// A picture more than [`LATE`] behind the sound is dropped; one ahead of
-    /// it waits at most [`EARLY`]; anything else shows at once. Neither bound
-    /// is a lock or a sleep, so this never blocks the caller, which is what
-    /// keeps it off the UI and network threads.
-    pub fn offer(&mut self, picture_ms: u64, audible_ms: u64, now: Instant) -> Show {
-        let ahead = picture_ms as i64 - audible_ms as i64;
-        if ahead < -(LATE.as_millis() as i64) {
-            return Show::Drop;
-        }
-        let wait = Duration::from_millis(ahead.max(0) as u64).min(EARLY);
-        if wait.is_zero() {
-            self.waiting = None;
-            return Show::Now;
-        }
-        // At most one waits: the newer offer is the one a viewer is closer to,
-        // and the one it replaces is simply not shown.
-        self.waiting = Some(Waiting {
-            time_ms: picture_ms,
-            due: now + wait,
-        });
-        Show::After(wait)
-    }
-
-    /// Whether the picture held back is due at `now`, handing over its stream
-    /// time when it is.
-    pub fn ready(&mut self, now: Instant) -> Option<u64> {
-        match self.waiting {
-            Some(waiting) if now >= waiting.due => {
-                self.waiting = None;
-                Some(waiting.time_ms)
-            }
-            _ => None,
-        }
-    }
+    ahead.round() as i64
 }
 
 /// A picture that reached the window, and how its time is known.
@@ -665,76 +627,69 @@ mod tests {
 
     #[test]
     fn a_picture_the_sound_has_passed_is_dropped() {
-        let now = Instant::now();
-        let mut scheduler = Scheduler::new();
         // 81 ms behind the sound is past what a viewer can be shown.
-        assert_eq!(scheduler.offer(1_000, 1_081, now), Show::Drop);
+        assert_eq!(decide(1_000, 1_081), Show::Drop);
         // Exactly 80 ms behind is the bound, and shows.
-        assert_eq!(scheduler.offer(1_000, 1_080, now), Show::Now);
-        assert_eq!(scheduler.waiting(), None);
+        assert_eq!(decide(1_000, 1_080), Show::Now);
     }
 
+    /// A picture the sound hasn't reached is shown when it arrives rather than
+    /// held back: the answer is the same one the due picture gets, and nothing
+    /// is left over from it for the picture after.
     #[test]
-    fn an_early_picture_waits_at_most_eighty_ms() {
-        let now = Instant::now();
-        let mut scheduler = Scheduler::new();
-        // 30 ms ahead of the sound waits 30 ms.
-        assert_eq!(
-            scheduler.offer(1_030, 1_000, now),
-            Show::After(Duration::from_millis(30))
-        );
-        assert_eq!(scheduler.waiting(), Some(1_030));
-        // A second ahead still waits only the 80 ms bound.
-        assert_eq!(scheduler.offer(2_000, 1_000, now), Show::After(EARLY));
-        assert_eq!(scheduler.waiting(), Some(2_000), "the newer one waits");
-        // Due exactly 80 ms on.
-        assert_eq!(
-            scheduler.ready(now + EARLY - Duration::from_millis(1)),
-            None
-        );
-        assert_eq!(scheduler.ready(now + EARLY), Some(2_000));
-        assert_eq!(scheduler.waiting(), None, "handed over once");
-        assert_eq!(scheduler.ready(now + EARLY), None, "and not again");
+    fn an_early_picture_is_shown_when_it_arrives() {
+        assert_eq!(decide(1_030, 1_000), Show::Now, "30 ms ahead");
+        assert_eq!(decide(2_000, 1_000), Show::Now, "a second ahead");
     }
 
+    /// The picture's own clock is a 90 kHz count, so its milliseconds turn over
+    /// every 13.2 hours. A picture just past that turn against a sound just
+    /// before it is milliseconds apart, not thirteen hours, and neither is a
+    /// picture late that the sound has not reached.
     #[test]
-    fn only_one_picture_waits_and_a_newer_one_replaces_it() {
-        let now = Instant::now();
-        let mut scheduler = Scheduler::new();
+    fn a_picture_past_the_clock_turn_is_not_late() {
+        let turn = (u64::from(u32::MAX) + 1) * 1_000 / u64::from(PICTURE_RATE);
+        // The sound audible at the last 30 ms of the turn, a picture 40 ms of
+        // the clock past it: 70 ms ahead, so it shows. Plain subtraction says
+        // it is thirteen hours ahead, which shows too — but the other way is
+        // what would go wrong below.
+        assert_eq!(decide(turn + 10, turn - 30), Show::Now, "across the turn");
+        // A picture 100 ms before the turn against a sound 10 ms past it: 110
+        // ms behind, which is late, and is not thirteen hours early.
         assert_eq!(
-            scheduler.offer(1_040, 1_000, now),
-            Show::After(Duration::from_millis(40))
+            decide(turn - 100, 10),
+            Show::Drop,
+            "behind, across the turn"
         );
-        assert_eq!(scheduler.waiting(), Some(1_040));
-        // A newer picture offers while the first waits: it takes its place,
-        // and the one it replaced is never shown.
-        assert_eq!(
-            scheduler.offer(1_050, 1_000, now),
-            Show::After(Duration::from_millis(50))
-        );
-        assert_eq!(scheduler.waiting(), Some(1_050));
+        // And the sound past the turn against a picture just after it: 40 ms
+        // behind, so it shows.
+        assert_eq!(decide(50, turn + 10), Show::Now, "the sound past the turn");
     }
 
+    /// The presentation skew is the same difference, so it is read across the
+    /// turn too: a shown picture 40 ms past the sound's position at the end of a
+    /// 13.2-hour turn is 40 ms ahead, not thirteen hours behind.
     #[test]
-    fn a_picture_on_time_shows_at_once_and_clears_what_waited() {
+    fn the_presentation_skew_is_read_across_the_clock_turn() {
         let now = Instant::now();
-        let mut scheduler = Scheduler::new();
-        let _ = scheduler.offer(1_040, 1_000, now);
-        assert_eq!(scheduler.waiting(), Some(1_040));
-        // The sound caught up: the picture is due, and nothing is left
-        // waiting behind it.
-        assert_eq!(scheduler.offer(1_000, 1_000, now), Show::Now);
-        assert_eq!(scheduler.waiting(), None);
-    }
-
-    #[test]
-    fn a_reset_forgets_the_picture_that_waited() {
-        let now = Instant::now();
-        let mut scheduler = Scheduler::new();
-        let _ = scheduler.offer(1_040, 1_000, now);
-        scheduler.reset();
-        assert_eq!(scheduler.waiting(), None);
-        assert_eq!(scheduler.ready(now + EARLY), None, "it is gone");
+        let turn = (u64::from(u32::MAX) + 1) * 1_000 / u64::from(PICTURE_RATE);
+        let mut timeline = Timeline::new();
+        // Both clocks read zero at 100 s; the sound's report came a second ago,
+        // so the sound audible now is a second on the picture's timeline.
+        timeline.heard(Clock::Sound, mapping(now, Duration::from_secs(1), 100, 0));
+        timeline.heard(Clock::Picture, mapping(now, Duration::ZERO, 100, 0));
+        // A picture shown a turn plus 40 ms past that, as one that went round the
+        // clock does: still 40 ms ahead of the sound, not a turn behind it. The
+        // turn is 47,721,861.7 ms and the timeline counts whole milliseconds, so
+        // a millisecond either way says nothing.
+        let shown = turn + 1_040;
+        let ahead = timeline
+            .presentation_ms(now, Duration::ZERO, Some(shown))
+            .expect("a fresh mapping and a picture shown");
+        assert!(
+            (ahead - 40).abs() <= 1,
+            "{ahead} ms ahead, not a turn behind"
+        );
     }
 
     #[test]

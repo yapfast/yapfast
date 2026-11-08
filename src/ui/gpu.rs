@@ -1006,9 +1006,9 @@ mod tests {
             width: 4,
             height: 2,
         };
-        let slot = writer.claim().expect("an empty slot");
+        let _ = writer.claim().expect("an empty slot");
         assert!(
-            writer.publish_into(slot, &drawn),
+            writer.publish_into(&drawn),
             "the UI hasn't said what it can show"
         );
         let picture = frames
@@ -1023,9 +1023,9 @@ mod tests {
             shared(&frames, picture).is_none(),
             "a picture from another adapter can't be shown"
         );
-        let slot = writer.claim().expect("the slot the reader left");
+        let _ = writer.claim().expect("the slot the reader left");
         assert!(
-            !writer.publish_into(slot, &drawn),
+            !writer.publish_into(&drawn),
             "the stream is asked for pixels from its next frame"
         );
     }

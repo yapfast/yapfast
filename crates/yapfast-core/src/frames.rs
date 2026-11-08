@@ -37,7 +37,10 @@
 //! texture for a frame after the next one replaced it. So the reader says so
 //! itself, through [`Frames::retire`], when the rendering queue has passed the
 //! picture it took, and nothing else counts as the worker's leave to draw
-//! there.
+//! there. A window that stops saying it — one that was closed, or whose
+//! renderer lost the stream — is not waited on for the rest of the share: after
+//! a second, the worker stops asking for a slot and writes the frame's pixels,
+//! which touch no texture and never wait on the reader.
 
 use std::{
     fs::{File, OpenOptions, TryLockError},
@@ -68,6 +71,14 @@ const FRESH: u32 = 4;
 /// in ten seconds, and a window passing through a large size doesn't.
 const ROOM_SLACK: usize = 4;
 const ROOM_BACK_AFTER: Duration = Duration::from_secs(10);
+
+/// How long a slot the reader took and hasn't retired keeps the worker from
+/// drawing a picture: a frame or two of the window's own lag is ordinary, and
+/// a second of it is a window that stopped saying it is done with pictures —
+/// one that was closed, or whose renderer lost the stream. Nothing waits on
+/// that window: the worker gives the picture path up and writes pixels, which
+/// touch no texture and rotate the ring again.
+const HELD_FOR: Duration = Duration::from_secs(1);
 
 /// What the UI says about a stream's GPU pictures: nothing yet, that it can
 /// show them on the adapter in [`Header::ui_luid`], or that it can't, which
@@ -141,11 +152,14 @@ struct Shared {
     /// never held a picture — is the worker's from the start.
     retired: AtomicU64,
     /// The newest generation of this slot the reader has taken, which only
-    /// grows and is the reader's alone to write. A generation the reader never
-    /// took is a picture nobody showed and nothing can be sampling, so the
-    /// worker's slot there is already its own; one it did take is on the screen
-    /// until [`Self::retired`] reaches it, which a newer take of another slot
-    /// does not say.
+    /// grows and is the reader's alone to write.
+    ///
+    /// It answers one thing, whether the picture in the slot has been taken at
+    /// all. A generation newer than this is one nobody took: nothing shows it
+    /// and nothing can be sampling it, so the slot is the worker's whatever
+    /// [`Self::retired`] says. A generation this has reached is a picture on
+    /// the screen until `retired` reaches it too, and a newer take of another
+    /// slot says nothing about this one.
     took: AtomicU64,
 }
 
@@ -330,10 +344,7 @@ impl Mapping {
     /// file backs it, so a file that was shortened and not mapped again still
     /// gives the worker slots to write in rather than a panic.
     fn remap_any(&mut self, file: &File) -> Result<()> {
-        // SAFETY: as `open`.
-        let map = unsafe { MmapMut::map_mut(file) }.context("could not map the video frames")?;
-        ensure!(map.len() >= HEADER, "the video frames file is too short");
-        self.map = Some(map);
+        self.remap(file, HEADER)?;
         let held = (self.view().len() - HEADER) / SLOTS as usize;
         let said = self.capacity_now();
         self.capacity = said.min(held);
@@ -372,6 +383,26 @@ impl Mapping {
             .capacity
             .store(u32::try_from(capacity)?, Ordering::Release);
         Ok(())
+    }
+
+    /// Maps the file again when a shortening left no view, and says whether
+    /// there is one now: the paths that read the header ask this first, so a
+    /// mapping the file system refuses answers "no slot" rather than taking
+    /// the worker's thread down with it.
+    fn mapped(&mut self, file: &File) -> bool {
+        if self.map.is_some() {
+            return true;
+        }
+        match self.remap_any(file) {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not map the video frames again"
+                );
+                false
+            }
+        }
     }
 
     /// Makes the slots `capacity` bytes, and this view with them, when they
@@ -867,6 +898,16 @@ pub struct Writer {
     /// The largest frame written since the frames went small, and when the
     /// first of them was; see [`Self::give_room_back`].
     small: Option<(usize, Instant)>,
+    /// Since when the reader has held the writer's own slot, which is a
+    /// picture nothing is retiring; see [`Self::claim`] and [`HELD_FOR`].
+    held_since: Option<Instant>,
+    /// Whether the reader held that slot for so long that this share's window
+    /// writes pixels from now on: a share's pictures belong to one window and
+    /// one file, so a window that stopped retiring pictures doesn't come back.
+    stalled: bool,
+    /// How long a slot is given before it counts as one nothing will let go,
+    /// which a test sets so it doesn't wait; a stream leaves [`HELD_FOR`].
+    held_for: Duration,
 }
 
 impl Writer {
@@ -882,20 +923,31 @@ impl Writer {
             back: 0,
             published: 0,
             small: None,
+            held_since: None,
+            stalled: false,
+            held_for: HELD_FOR,
         })
     }
     /// The UI's process, which the worker duplicates its shared handles into
-    /// before [`Self::publish`] takes them: a handle's value means nothing
+    /// before [`Self::publish_into`] takes them: a handle's value means nothing
     /// outside the process that took it, so the ones the UI opens are the
-    /// ones duplicated there.
-    pub fn ui_process(&self) -> u32 {
+    /// ones duplicated there. Zero while the file can't be mapped, which reads
+    /// as no UI at all.
+    pub fn ui_process(&mut self) -> u32 {
+        if !self.mapping.mapped(&self.file) {
+            return 0;
+        }
         self.mapping.header().ui_pid.load(Ordering::Acquire)
     }
 
     /// The adapter the UI's window draws on, when it has said its pictures can
     /// be shown there: what a stream reports so a share that copies every frame
-    /// can say whether the two adapters are why.
-    pub fn presented_on(&self) -> Option<u64> {
+    /// can say whether the two adapters are why. `None` while it hasn't, and
+    /// while the file can't be mapped.
+    pub fn presented_on(&mut self) -> Option<u64> {
+        if !self.mapping.mapped(&self.file) {
+            return None;
+        }
         let header = self.mapping.header();
         (header.ui.load(Ordering::Acquire) == UI_USABLE)
             .then(|| header.ui_luid.load(Ordering::Acquire))
@@ -1069,7 +1121,17 @@ impl Writer {
     /// reader is reading or is about to be handed. The three stay apart because
     /// each side only ever swaps its own slot with the middle (see
     /// [`Self::publish_into`]), so the back is never the middle nor the front.
-    pub fn claim(&self) -> Option<u32> {
+    ///
+    /// A slot held longer than [`HELD_FOR`] is one nothing is retiring, and
+    /// answering `None` for it forever would stop the ring turning for the rest
+    /// of the share: this writer gives the picture path up instead, so the
+    /// frames that follow are pixels — which touch no texture and swap into the
+    /// middle as ever — and [`Self::given_up`] says so. A file the writer can't
+    /// map has no slot either, and is mapped again by the claim after it.
+    pub fn claim(&mut self) -> Option<u32> {
+        if self.stalled || !self.mapping.mapped(&self.file) {
+            return None;
+        }
         let header = self.mapping.header();
         debug_assert_ne!(
             self.back,
@@ -1078,18 +1140,40 @@ impl Writer {
         );
         let shared = &header.pictures[self.back as usize];
         let generation = shared.generation.load(Ordering::Acquire);
-        // A picture the reader never took is one nobody has shown and nothing
-        // can be sampling, so the slot is the writer's again; one it did take is
-        // the worker's only once the reader has finished with it.
+        // Two things free the slot: a picture nobody has taken — nothing shows
+        // it and nothing can be sampling it, whatever `retired` says — and a
+        // picture the reader took and has finished with, which `retired` says.
+        // A picture it took and hasn't finished with is on the screen, and a
+        // newer take of another slot says nothing about it.
         let took = shared.took.load(Ordering::Acquire);
         let retired = shared.retired.load(Ordering::Acquire);
-        (took < generation || retired >= generation).then_some(self.back)
+        if retired >= generation || took < generation {
+            self.held_since = None;
+            return Some(self.back);
+        }
+        let held = *self.held_since.get_or_insert_with(Instant::now);
+        if held.elapsed() < self.held_for {
+            return None;
+        }
+        self.stalled = true;
+        tracing::info!(
+            slot = self.back,
+            "the window hasn't finished with a picture slot for a second; this share writes pixels from now on"
+        );
+        None
     }
 
-    /// Publishes a picture drawn on the GPU into `slot`, which
-    /// [`Self::claim`] answered, and says whether it did: `false` means the UI
-    /// can't show such pictures — it looked and said so, or it draws on
-    /// another adapter — and the caller writes the frame's pixels instead.
+    /// Whether the reader held a picture slot so long that this writer gave the
+    /// picture path up: the frames this share shows are pixels from then on,
+    /// which is what a window that stopped retiring pictures leaves it.
+    pub fn given_up(&self) -> bool {
+        self.stalled
+    }
+
+    /// Publishes a picture drawn on the GPU into the slot [`Self::claim`]
+    /// answered, and says whether it did: `false` means the UI can't show such
+    /// pictures — it looked and said so, or it draws on another adapter — and
+    /// the caller writes the frame's pixels instead.
     ///
     /// The worker must, before calling this:
     /// * draw into a `DXGI_FORMAT_B8G8R8A8_UNORM` texture of the picture's
@@ -1115,7 +1199,19 @@ impl Writer {
     /// and nothing written: the number a set is known by only grows, and a
     /// reader that has opened the newer one would take a handle of the older for
     /// one of its own.
-    pub fn publish_into(&mut self, slot: u32, drawn: &Drawn) -> bool {
+    ///
+    /// It goes into the writer's own back slot, which is the one
+    /// [`Self::claim`] answered and no other: that slot is never the middle and
+    /// never the reader's front, whatever the reader did with the middle since.
+    /// The reader's swap of the middle may land between the claim and here,
+    /// which is why nothing is decided by the middle the claim was made
+    /// against — the swap below takes the middle as it is at that moment, and
+    /// `back` is the writer's alone until then.
+    pub fn publish_into(&mut self, drawn: &Drawn) -> bool {
+        if !self.mapping.mapped(&self.file) {
+            return false;
+        }
+        let slot = self.back;
         let header = self.mapping.header();
         // Nothing said yet is not an answer — the worker may publish before
         // the UI has had a picture to look at — but a refusal is, and so is
@@ -1125,14 +1221,6 @@ impl Writer {
             UI_USABLE if header.ui_luid.load(Ordering::Relaxed) == drawn.luid => {}
             _ => return false,
         }
-        // The slot is the writer's own back, which `claim` answers: it is
-        // never the middle and never the reader's front. The reader's swap of
-        // the middle may land between the claim and here, which is why nothing
-        // is decided by the middle this was claimed against — the swap below
-        // takes the middle as it is at that moment, and `back` is the writer's
-        // alone until then.
-        debug_assert_eq!(slot, self.back, "a picture goes into the writer's own slot");
-        let slot = self.back;
         let shared = &header.pictures[slot as usize];
         if drawn.texture.set < shared.set.load(Ordering::Acquire) {
             return false;
@@ -1309,10 +1397,10 @@ mod tests {
     /// Publishes a picture the way the worker does: into the slot the reader
     /// has moved on from, which is what [`Writer::claim`] answers.
     fn publish(writer: &mut Writer, drawn: &Drawn) -> bool {
-        let Some(slot) = writer.claim() else {
+        if writer.claim().is_none() {
             return false;
-        };
-        writer.publish_into(slot, drawn)
+        }
+        writer.publish_into(drawn)
     }
 
     /// The picture a slot describes, as a reader reads it, and nothing when
@@ -1442,7 +1530,8 @@ mod tests {
         // takes its own slot back each time, and the reader is handed the newest.
         for texture in 9..12 {
             let slot = writer.claim().expect("a slot that never held a picture");
-            assert!(writer.publish_into(slot, &drawn(texture, 4, 2)));
+            assert_eq!(slot, writer.back);
+            assert!(writer.publish_into(&drawn(texture, 4, 2)));
         }
         // The pictures the reader never took are ones it will never show, so the
         // worker's own slot is still its own. The picture the reader did take is
@@ -1451,7 +1540,7 @@ mod tests {
         assert_eq!((newest.slot, newest.generation), (0, 3));
         let slot = writer.claim().expect("a slot the reader never took");
         assert_ne!(slot, newest.slot, "not the picture on the screen");
-        assert!(writer.publish_into(slot, &drawn(12, 4, 2)));
+        assert!(writer.publish_into(&drawn(12, 4, 2)));
 
         // Finishing with a generation a slot doesn't hold says nothing about
         // the picture that is there, and a slot finished with twice frees
@@ -1465,8 +1554,8 @@ mod tests {
 
         // The worker draws its next picture somewhere of its own, and that is
         // the one the reader is handed.
-        let slot = writer.claim().expect("a slot the writer may draw in");
-        assert!(writer.publish_into(slot, &drawn(13, 4, 2)));
+        let _ = writer.claim().expect("a slot the writer may draw in");
+        assert!(writer.publish_into(&drawn(13, 4, 2)));
         let newest = picture(&frames).expect("the picture just published");
         assert!(newest.generation > 3);
         assert!(frames.retire(newest.slot, newest.generation));
@@ -1512,11 +1601,11 @@ mod tests {
         assert!(frames.retire(0, 1), "the first picture is off the screen");
         let slot = writer.claim().expect("a slot the reader has finished with");
         assert!(
-            !writer.publish_into(slot, &drawn_in(6, 13, 4, 2)),
+            !writer.publish_into(&drawn_in(6, 13, 4, 2)),
             "an older set was published"
         );
         assert_eq!(writer.claim(), Some(slot), "nothing was written there");
-        assert!(writer.publish_into(slot, &drawn_in(9, 13, 4, 2)));
+        assert!(writer.publish_into(&drawn_in(9, 13, 4, 2)));
         assert_eq!(
             picture(&frames).map(|picture| (picture.set, picture.texture)),
             Some((9, 13)),
@@ -1548,7 +1637,7 @@ mod tests {
             .claim()
             .expect("the slot the reader never took is free");
         assert_ne!(slot, newest.slot);
-        assert!(writer.publish_into(slot, &drawn(11, 4, 2)));
+        assert!(writer.publish_into(&drawn(11, 4, 2)));
 
         // The reader finishing with what it showed frees that slot in turn.
         assert!(frames.retire(newest.slot, newest.generation));
@@ -1638,8 +1727,8 @@ mod tests {
         // More pictures than there are slots, and not a take among them: the
         // worker takes its own slot back each time.
         for texture in 9..13 {
-            let slot = writer.claim().expect("a slot the writer may draw in");
-            assert!(writer.publish_into(slot, &drawn(texture, 4, 2)));
+            writer.claim().expect("a slot the writer may draw in");
+            assert!(writer.publish_into(&drawn(texture, 4, 2)));
             assert_three(&writer, &frames, "after a picture before a take");
         }
 
@@ -1649,8 +1738,8 @@ mod tests {
         assert_three(&writer, &frames, "after the first take");
         // A picture for the middle, so the reader has one to take between the
         // claim and the publish.
-        let slot = writer.claim().expect("a slot the writer may draw in");
-        assert!(writer.publish_into(slot, &drawn(13, 4, 2)));
+        let _ = writer.claim().expect("a slot the writer may draw in");
+        assert!(writer.publish_into(&drawn(13, 4, 2)));
         let slot = writer
             .claim()
             .expect("the next slot the writer may draw in");
@@ -1658,7 +1747,7 @@ mod tests {
         let taken = picture(&frames).expect("the picture the middle held");
         assert_ne!(slot, taken.slot, "the middle moved away from the slot");
         assert_three(&writer, &frames, "after a take between claim and publish");
-        assert!(writer.publish_into(slot, &drawn(14, 4, 2)));
+        assert!(writer.publish_into(&drawn(14, 4, 2)));
         assert_three(&writer, &frames, "after the publish");
         // The picture just published is the one the reader is handed next, in
         // the slot the writer drew it in.
@@ -1773,6 +1862,97 @@ mod tests {
         writer.write(4, 2, |pixels| pixels.fill(3));
         assert!(writer.mapping.map.is_some(), "the frame after mapped it");
         assert!(frames.take(|_, _, pixels| pixels.len()).is_some());
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// The card path reads the header before a frame is written, so a file a
+    /// shortening left without a view is one it can't read: a claim and a
+    /// publish there answer rather than panic, and a file that can be mapped
+    /// again has a slot from the claim after it. A remap the file system refuses
+    /// costs pictures, never the stream's thread.
+    #[test]
+    fn a_card_picture_survives_a_file_that_cannot_be_mapped() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        writer.write(64, 48, |pixels| pixels.fill(1));
+        assert!(frames.take(|_, _, _| ()).is_some());
+
+        // Neither the shortened file nor the file put back can be mapped, so no
+        // view is left — and the card path is what runs before the pixel one.
+        writer.mapping.fail_remap = 2;
+        writer.give_room_back(4 * 2 * 4, Duration::ZERO);
+        assert!(writer.mapping.map.is_none(), "no view is left");
+
+        // The claim answers "no slot", which is what the worker skips a picture
+        // for, and the rest of the card path refuses the same way. Each step
+        // asks for a view of its own, so each is given a refusal of its own.
+        for _ in 0..2 {
+            writer.mapping.fail_remap = 1;
+            assert_eq!(writer.claim(), None, "no file to draw in");
+            assert!(!writer.given_up(), "a file, not a window, is the reason");
+        }
+        writer.mapping.fail_remap = 1;
+        assert!(!writer.publish_into(&drawn(9, 4, 2)), "nowhere to publish");
+        writer.mapping.fail_remap = 1;
+        assert_eq!(writer.presented_on(), None, "nothing to say about a slot");
+        writer.mapping.fail_remap = 1;
+        assert_eq!(writer.ui_process(), 0, "no file, no process to ask");
+
+        // The claim after it maps the file again, and the card path carries on.
+        assert!(writer.claim().is_some(), "mapped by the claim after it");
+        assert!(writer.publish_into(&drawn(9, 4, 2)));
+        assert_eq!(picture(&frames).map(|picture| picture.texture), Some(9));
+
+        // And the pixel path after a picture is read where it was written.
+        writer.write(4, 2, |pixels| pixels.fill(3));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((4, 2, vec![3; 32]))
+        );
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A slot the reader took and never retired is the window's, and a worker
+    /// that answered "no slot" for it forever would stop the ring turning: the
+    /// preview would freeze on the last picture it took. Past the bound the
+    /// writer gives the picture path up instead, and the frames after it are
+    /// pixels, which touch no texture and reach the window as ever.
+    #[test]
+    fn a_slot_nothing_lets_go_comes_back_as_pixels() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+        // Nothing held is given a moment in a test; a stream gives it a second.
+        writer.held_for = Duration::ZERO;
+
+        // Three pictures, each taken and never retired: the window shows them
+        // and never says it is done with them.
+        for texture in 9..12 {
+            publish(&mut writer, &drawn(texture, 4, 2));
+            assert!(picture(&frames).is_some(), "taken, {texture}");
+        }
+        // The slot the writer would draw in next is one of them: it says so
+        // until the bound is up, and then it stops asking.
+        assert_eq!(writer.claim(), None, "the picture is still the window's");
+        assert!(writer.given_up(), "and nothing is letting it go");
+        assert_eq!(writer.claim(), None, "the picture path is given up");
+
+        // The pixel path doesn't wait for the window: the ring turns and the
+        // frame is read, so a share whose window stopped talking goes on
+        // showing the screen.
+        writer.write(4, 2, |pixels| pixels.fill(7));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((4, 2, vec![7; 32]))
+        );
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");

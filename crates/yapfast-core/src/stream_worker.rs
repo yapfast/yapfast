@@ -1049,17 +1049,14 @@ impl Sink {
     ) -> Result<bool> {
         let (texture, fence_value) = shared.draw(slot, tile, texture)?;
         let (width, height) = shared.size();
-        Ok(self.writer.publish_into(
-            slot,
-            &Drawn {
-                luid: shared.luid(),
-                fence: shared.fence(),
-                texture,
-                fence_value,
-                width,
-                height,
-            },
-        ))
+        Ok(self.writer.publish_into(&Drawn {
+            luid: shared.luid(),
+            fence: shared.fence(),
+            texture,
+            fence_value,
+            width,
+            height,
+        }))
     }
 
     /// The preview, and Discord's thumbnail when one is due: the picture scaled
@@ -1708,30 +1705,27 @@ fn watch(
     // same once a second a share's report keeps, so a viewer's Stream tab has
     // something true to show too.
     let mut told = Instant::now() - SENDING_EVERY;
-    // The streamer's two clocks as its sender reports put them, and the bound
-    // on when a decoded picture goes to the window: the sound that is already
-    // audible is the master. Both reset on a stop, a deafen or a clock the
-    // streamer broke, since nothing measured across one means anything after.
+    // The streamer's two clocks as its sender reports put them, and where the
+    // sound audible now sits on the picture's timeline: the sound is the master
+    // the pictures are judged against. Both reset on a stop, a deafen or a
+    // clock the streamer broke, since nothing measured across one means anything
+    // after.
     let mut timeline = av_timing::Timeline::new();
-    let mut scheduler = av_timing::Scheduler::new();
     // The stream time of the picture last handed to the window and how its
     // time is known, which the presentation skew is read against.
     let mut presented: Option<av_timing::Presented> = None;
-    // The pictures the scheduler dropped or deferred, said once a second with
-    // the rest of how the watch is doing.
+    // The pictures the sound had passed by, said once a second with the rest of
+    // how the watch is doing.
     let mut dropped = 0u64;
-    let mut deferred = 0u64;
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
             match control {
                 Control::Hear(hearing) => {
                     sound.hearing.store(hearing, Ordering::Relaxed);
                     // Deafened: nothing of this stream is heard, so the sound
-                    // is no longer what the picture is timed against, and a
-                    // picture waiting for it is one nobody will see.
+                    // is no longer what the picture is timed against.
                     if !hearing {
                         timeline.reset();
-                        scheduler.reset();
                         presented = None;
                     }
                 }
@@ -1835,7 +1829,6 @@ fn watch(
                     presented.map(|presented| presented.time_ms)
                 ),
                 dropped,
-                deferred,
                 "watched stream A/V timing"
             );
             report(Report::Sending(StreamStats {
@@ -1885,11 +1878,13 @@ fn watch(
         // picture is told from the one before it and can be matched against the
         // sound when the two are put on one timeline.
         let time_ms = u64::from(frame.timestamp) * 1_000 / 90_000;
-        // The sound already audible is the master: a picture it has passed is
-        // dropped rather than shown late, and one it hasn't reached waits,
-        // briefly, rather than jumping ahead. Neither bound blocks this loop,
-        // which is the decode thread's own, and the UI and network never see
-        // it.
+        // The sound already audible is the master: a picture it has passed by
+        // more than 80 ms is dropped rather than shown late. One it hasn't
+        // reached is shown when it arrives: a decoded picture lives only until
+        // the decoder's next frame, so holding it back would mean copying it to
+        // keep it, which is a picture's worth of memory and a copy per frame
+        // for a wait of at most 80 ms. Nothing here blocks, so neither the UI
+        // nor the network thread waits on a picture's turn.
         let now = Instant::now();
         let held = player
             .as_ref()
@@ -1897,28 +1892,11 @@ fn watch(
             .map_or(Duration::ZERO, |(_, queued)| {
                 Duration::from_millis(u64::from(queued))
             });
-        if let Some(audible) = timeline.audible_ms(now, held) {
-            match scheduler.offer(time_ms, audible, now) {
-                av_timing::Show::Now => {}
-                av_timing::Show::Drop => {
-                    dropped += 1;
-                    continue;
-                }
-                // Held only until it is due, and the wait is spent taking the
-                // next frame rather than sleeping: this loop is the one that
-                // drains the frames channel, so sleeping here would pack it
-                // and stall the network thread behind it. What comes in the
-                // meantime waits in `ahead` for the next turn, as a look-ahead
-                // frame does.
-                av_timing::Show::After(wait) => {
-                    deferred += 1;
-                    if ahead.is_none()
-                        && let Some(frame) = receiver.next(wait)
-                    {
-                        ahead = Some(frame);
-                    }
-                }
-            }
+        if let Some(audible) = timeline.audible_ms(now, held)
+            && av_timing::decide(time_ms, audible) == av_timing::Show::Drop
+        {
+            dropped += 1;
+            continue;
         }
         let (width, height) = match picture {
             Frame::Software(picture) => write_picture(
@@ -3321,35 +3299,50 @@ fn capture_textures(
         // past what was there, so a picture a person is looking at is never
         // written over. A frame whose slot is still being shown keeps its
         // picture a frame longer — the stream itself is unaffected, since it
-        // encodes the capture's own texture.
+        // encodes the capture's own texture. A window that stops saying it is
+        // done with pictures is one the writer stops asking: the tile's pixels
+        // go out from the frame after that, which is a preview going on rather
+        // than a tile frozen on the last picture it took.
         let mut withdrawn = false;
         if let (Some(tile), Some(shared)) = (tile.as_mut(), shared.as_mut())
             && saw_picture
             && (arrival == Arrival::Frame || preview_pending)
-            && let Some(slot) = sink.writer.claim()
         {
-            let taken = sink.share_from_card(
-                slot,
-                tile,
-                shared,
-                // SAFETY: the capture's own surface, on the capture's device,
-                // alive for as long as the capture is: the copy into the shared
-                // picture is queued before this frame returns.
-                unsafe { d3d11::Texture::new(capture.texture()) },
-            );
-            match taken {
-                Ok(true) => previewed = true,
-                // The UI looked and can't show a picture from this card, or its
-                // window draws on another one: the tile's pixels are what it
-                // shows, and the share it never opened is let go of.
-                Ok(false) => withdrawn = true,
-                Err(error) => {
-                    tracing::warn!(
-                        error = format!("{error:#}"),
-                        "sharing without the picture drawn on the card"
+            match sink.writer.claim() {
+                Some(slot) => {
+                    let taken = sink.share_from_card(
+                        slot,
+                        tile,
+                        shared,
+                        // SAFETY: the capture's own surface, on the capture's
+                        // device, alive for as long as the capture is: the copy
+                        // into the shared picture is queued before this frame
+                        // returns.
+                        unsafe { d3d11::Texture::new(capture.texture()) },
                     );
-                    withdrawn = true;
+                    match taken {
+                        Ok(true) => previewed = true,
+                        // The UI looked and can't show a picture from this card,
+                        // or its window draws on another one: the tile's pixels
+                        // are what it shows, and the share it never opened is
+                        // let go of.
+                        Ok(false) => withdrawn = true,
+                        Err(error) => {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "sharing without the picture drawn on the card"
+                            );
+                            withdrawn = true;
+                        }
+                    }
                 }
+                // The slot the writer would draw in is one nothing has
+                // finished with for a second: the share stops drawing there
+                // and the tile's pixels go out instead.
+                None if sink.writer.given_up() => withdrawn = true,
+                // A slot the window is still showing, which the frame after
+                // this one asks for again.
+                None => {}
             }
         }
         if withdrawn {
