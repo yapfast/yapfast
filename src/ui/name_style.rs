@@ -185,10 +185,12 @@ fn weight(font: u8) -> i32 {
 /// How many styles' palettes are kept, for the rows built next.
 const ROWS_KEPT: usize = 128;
 
+type RowKey = (NameStyle, String, (i32, bool, bool, bool));
+
 thread_local! {
     /// Each style's palettes, with the name for a gummy one, whose letters
     /// are the name's.
-    static ROWS: RefCell<HashMap<(NameStyle, String, (i32, bool, bool, bool)), ModelRc<NameStyleRow>>> = RefCell::default();
+    static ROWS: RefCell<HashMap<RowKey, ModelRc<NameStyleRow>>> = RefCell::default();
 }
 
 /// A display name style as the window draws it: its palette on a dark theme and
