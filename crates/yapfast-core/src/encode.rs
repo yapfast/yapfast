@@ -7,7 +7,7 @@
 
 use std::{
     ffi::{c_char, c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -396,7 +396,19 @@ impl Encoder {
             open_hardware(codec, width, height, fps, kbps, Tuning::default(), capture, &[])
         }) {
             Some(Ok(opened)) => opened,
-            _ => open_software(codec, width, height, fps, kbps, effort)?,
+            refused => {
+                // The GPU was asked for and passed this codec over: the reason
+                // it gave says hardware was refused, rather than the stream
+                // being on the processor for no stated reason.
+                if let Some(Err(why)) = refused {
+                    tracing::warn!(
+                        why = why.as_str(),
+                        fallback = true,
+                        "the GPU's encoder was refused; encoding on the processor"
+                    );
+                }
+                open_software(codec, width, height, fps, kbps, effort)?
+            }
         };
         let pixels = (width * height) as usize;
         Ok(Self {
@@ -467,6 +479,10 @@ impl Encoder {
         self.configuration = opened.configuration;
         self.chosen = opened.candidate;
         self.tried.push(opened.name);
+        // The encoder that replaced it has dropped none of its own frames: a
+        // count left from the one that failed would read 0 until this one's
+        // drops overtook it.
+        self.late = 0;
     }
 
     pub fn codec(&self) -> Codec {
@@ -723,12 +739,14 @@ impl Encoder {
         // Nothing left on a GPU, so it is the processor's or nothing: H265 and
         // AV1 have no encoder there, and the error stays the GPU's.
         let opened = open_software(codec, width, height, fps, kbps, effort)?;
+        // Replaced first, so the encoder this names is the one that runs now
+        // rather than the one that just failed.
+        self.replace(opened);
         tracing::warn!(
             engine = self.engine(),
             fallback = true,
             "the GPU's encoder failed; encoding on the processor"
         );
-        self.replace(opened);
         Ok(())
     }
 
@@ -870,11 +888,6 @@ fn software_configuration(engine: &str, effort: Effort) -> Configuration {
         settings_dropped: String::new(),
     }
 }
-
-/// The codecs hardware encoding may offer at all, most wanted first: Discord's
-/// viewers stream the first one every one of them decodes, so AV1 comes before
-/// H265 before H264.
-pub const HARDWARE_CODECS: [Codec; 3] = [Codec::Av1, Codec::H265, Codec::H264];
 
 /// FFmpeg's name for `codec`'s encoder on `backend`, or `None` where that
 /// backend has none for it — VP8 is the processor's alone — so no candidate is
@@ -1118,11 +1131,6 @@ fn open_hardware(
     })
 }
 
-/// Lets go of an encoder that was opened only to see that it opens.
-fn close(opened: Opened) {
-    // SAFETY: raw came from a codec's constructor and is freed once.
-    unsafe { (opened.free)(opened.raw) };
-}
 /// The optional settings an encoder's shim says its driver didn't keep, by
 /// name and separated by commas, and empty when it kept them all. Taking the
 /// shim's function as an argument lets a test stand a fake shim in its place,
@@ -1161,156 +1169,6 @@ fn open_hardware(
     _: &[String],
 ) -> Result<Opened, String> {
     Err("this build has no hardware encoders".to_owned())
-}
-
-/// What hardware encoding offers for one codec at one picture size and rate:
-/// what opened, or why nothing did.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Capability {
-    pub codec: Codec,
-    /// What runs for it, when anything did: the encoder, the adapter it is on
-    /// and what reaching it costs.
-    pub open: Option<Candidate>,
-    /// Why nothing opened, in the encoders' and this machine's own words.
-    pub why: String,
-}
-
-/// What hardware encoding offers at one picture size and rate: each codec the
-/// GPU might encode, with the encoder that opened for it or why none did.
-///
-/// The only way to know is to open one — FFmpeg has no way to ask whether it
-/// will — so each candidate is opened and let go, once for the session rather
-/// than once per frame, and thrown away when the GPU's device is lost.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Capabilities {
-    /// The picture size and rate it was probed at: an answer about one size
-    /// says nothing about another.
-    shape: (u32, u32, u32),
-    codecs: Vec<Capability>,
-}
-
-impl Capabilities {
-    /// The shape this was probed at: `width`, `height` and frames a second.
-    pub fn shape(&self) -> (u32, u32, u32) {
-        self.shape
-    }
-
-    /// The codecs a GPU encodes here, most wanted first: what a stream offers
-    /// a viewer ahead of the encoder on the processor.
-    pub fn codecs(&self) -> impl Iterator<Item = Codec> + '_ {
-        self.codecs
-            .iter()
-            .filter(|one| one.open.is_some())
-            .map(|one| one.codec)
-    }
-
-    /// Whether hardware encoding opens `codec` at this shape. Only what opened
-    /// is advertised: an encoder that doesn't open here is one a viewer would
-    /// be promised and sent nothing for.
-    pub fn opens(&self, codec: Codec) -> bool {
-        self.selection(codec).is_some()
-    }
-
-    /// The encoder that opened for `codec`, and what reaching it costs; `None`
-    /// when none did.
-    pub fn selection(&self, codec: Codec) -> Option<Candidate> {
-        self.codecs
-            .iter()
-            .find(|one| one.codec == codec)
-            .and_then(|one| one.open)
-    }
-
-    /// Each codec that didn't open, with what was tried and why each encoder
-    /// was passed over: a machine told it has no hardware encoder is told which
-    /// one it hasn't got.
-    pub fn refused(&self) -> impl Iterator<Item = (Codec, &str)> + '_ {
-        self.codecs
-            .iter()
-            .filter(|one| one.open.is_none())
-            .map(|one| (one.codec, one.why.as_str()))
-    }
-
-    /// Everything the probe found, as one line for a log or a report: each
-    /// codec with the encoder that opened and where, or why nothing did.
-    pub fn report(&self) -> String {
-        let (width, height, fps) = self.shape;
-        let mut line = format!("{width}x{height} at {fps} fps:");
-        for one in &self.codecs {
-            match one.open {
-                Some(open) => line.push_str(&format!(
-                    " {} {}, {}",
-                    one.codec.name(),
-                    open.backend.name(),
-                    match open.reach {
-                        Reach::Uploaded => "frames uploaded",
-                        Reach::Crosses => "frames copied across adapters",
-                    }
-                )),
-                None => line.push_str(&format!(" no {} ({})", one.codec.name(), one.why)),
-            }
-        }
-        line
-    }
-}
-
-/// What hardware encoding offers at `width` by `height`, `fps` frames a second:
-/// probed once and kept, since a stream's negotiation asks for the same shape at
-/// every start and only opening an encoder answers it.
-///
-/// The bitrate is what the open is given and not part of what is kept: an
-/// encoder is refused for a size and a rate, not for the cap it was asked to
-/// aim at.
-pub fn capabilities(width: u32, height: u32, fps: u32, kbps: u32) -> Capabilities {
-    let mut kept = CAPABILITIES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(cached) = kept
-        .as_ref()
-        .filter(|cached| cached.shape == (width, height, fps))
-    {
-        return cached.clone();
-    }
-    let probed = probe(width, height, fps, kbps);
-    *kept = Some(probed.clone());
-    probed
-}
-
-/// Forgets what the last probe found, for a GPU's device that was lost or
-/// replaced: an encoder that opened on a device that is gone proves nothing
-/// about the one that replaced it, so the next stream opens each again.
-pub fn forget_capabilities() {
-    let mut kept = CAPABILITIES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *kept = None;
-}
-
-/// The probe's last answer, kept for the session.
-static CAPABILITIES: Mutex<Option<Capabilities>> = Mutex::new(None);
-
-/// Opens each hardware codec once, without a capture adapter: a stream's
-/// negotiation asks what the GPU has, not what one capture's frames would cost.
-fn probe(width: u32, height: u32, fps: u32, kbps: u32) -> Capabilities {
-    let mut codecs = Vec::with_capacity(HARDWARE_CODECS.len());
-    for codec in HARDWARE_CODECS {
-        let (open, why) =
-            match open_hardware(codec, width, height, fps, kbps, Tuning::default(), None, &[]) {
-                Ok(opened) => {
-                    let candidate = opened.candidate;
-                    // The probe is the open: a stream opens the encoder it offers
-                    // with, so this one goes now rather than being kept against
-                    // the shape it was opened for.
-                    close(opened);
-                    (candidate, String::new())
-                }
-                Err(why) => (None, why),
-            };
-        codecs.push(Capability { codec, open, why });
-    }
-    Capabilities {
-        shape: (width, height, fps),
-        codecs,
-    }
 }
 
 impl Drop for Encoder {
@@ -1737,6 +1595,20 @@ mod tests {
         fn send<T: Send>() {}
         send::<Encoded>();
         send::<Frame>();
+    }
+
+    /// A fallback starts the new encoder's drop count at none: the count a
+    /// stream warns about is the encoder's own, and one kept from the encoder
+    /// that failed would read 0 until the replacement dropped more frames than
+    /// its predecessor did.
+    #[test]
+    fn a_replaced_encoder_starts_its_drop_count_at_none() {
+        let mut encoder =
+            Encoder::new(Codec::H264, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        encoder.late = 7;
+        let opened = open_software(Codec::H264, 64, 36, 30, 500, Effort::Light).unwrap();
+        encoder.replace(opened);
+        assert_eq!(encoder.late, 0);
     }
 
     #[test]

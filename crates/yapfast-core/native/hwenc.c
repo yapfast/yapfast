@@ -49,6 +49,10 @@ struct yapfast_hwenc {
    * driver holding one back, whose time has gone by, so it is dropped
    * rather than sent under the next frame's time. */
   unsigned late;
+  /* Whether a picture was dropped that way: it is one the frames after it
+   * reference, and the viewer never got it, so the next frame is asked for
+   * as a keyframe rather than as a delta built on what wasn't decoded. */
+  int recover;
   /* The format, colour and time base the encoder took, and the rate asked
    * for, for Rust to log once: what the stream actually got. */
   char config[80];
@@ -275,6 +279,21 @@ static int open_vaapi(struct yapfast_hwenc *h, AVCodecContext *codec, struct va_
   return h->surface ? 0 : AVERROR(ENOMEM);
 }
 
+/* Whether this machine has the card NVENC encodes on, asked once: CUDA is
+ * NVIDIA's, and FFmpeg's NVENC reaches the card through it. d3d11enc.c asks
+ * the adapter it was handed for its VendorId, and this side is handed no
+ * adapter to ask. A build with no CUDA device type can't answer, so it says
+ * yes and lets the open report what the driver said. */
+static int nvidia_card(void) {
+  static int present = -1;
+  if (present >= 0) return present;
+  AVBufferRef *device = NULL;
+  int ret = av_hwdevice_ctx_create(&device, AV_HWDEVICE_TYPE_CUDA, NULL, NULL, 0);
+  av_buffer_unref(&device);
+  present = ret >= 0 || ret == AVERROR(ENOSYS);
+  return present;
+}
+
 static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va_device device,
                         const struct nvenc_tuning *nvenc, unsigned codec_id, unsigned width,
                         unsigned height, unsigned fps, unsigned kbps) {
@@ -384,6 +403,16 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     if (ret < 0) return ret;
     h->poll = 1;
   } else {
+    /* NVENC is NVIDIA's alone, and it is the one backend here with no device
+     * of its own to ask: AMF is given AMD's runtime and VA-API a render node,
+     * so each of those names its vendor's absence itself, while an NVENC name
+     * on another maker's card fails inside FFmpeg's driver with no card named.
+     * So a machine without one is told that before the driver is loaded. */
+    if (!nvidia_card()) {
+      snprintf(first_error, sizeof first_error,
+               "no NVIDIA card on this machine, which is the only kind NVENC encodes on");
+      return AVERROR(ENODEV);
+    }
     ret = set_nvenc(h, nvenc, codec_id);
     if (ret < 0) return ret;
     preset = nvenc->preset;
@@ -517,7 +546,9 @@ static void kernel_driver(int n, char *name, size_t size) {
 
 /* The vendor id of the GPU behind render node `n`, from sysfs: 0x10DE,
  * 0x1002 or 0x8086 for the three makers whose GPUs encode, and 0 when it can't
- * be read, which matches every preference below rather than none. */
+ * be read, which `preferred` below matches with no preference: a node whose
+ * vendor isn't known is tried after the ones the stream asked for, not first
+ * and not never. */
 static unsigned node_vendor(int n) {
   char path[64], text[16];
   snprintf(path, sizeof path, "/sys/class/drm/renderD%d/device/vendor", 128 + n);
@@ -751,7 +782,13 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
     frame = h->surface;
   }
   frame->pts = at;
-  frame->pict_type = keyframe ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+  /* A dropped picture is one the frames after it are built on, so the next
+   * frame starts a new sequence: asked for as a keyframe, a viewer has a
+   * picture to decode again instead of waiting out the keyframe interval on
+   * frames whose reference it never received. */
+  frame->pict_type =
+      keyframe || h->recover ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+  h->recover = 0;
   if (avcodec_send_frame(h->codec, frame) < 0) return -1;
   size_t size = 0;
   /* Whatever the last call left is this frame's to replace, copied out or
@@ -775,6 +812,7 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
      * now would pass it off as this frame's, and it's dropped instead. */
     if (h->packet->pts != AV_NOPTS_VALUE && h->packet->pts != at) {
       h->late++;
+      h->recover = 1;
       av_packet_unref(h->packet);
       continue;
     }
