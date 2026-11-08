@@ -280,11 +280,76 @@ const LATE_LIMIT: u32 = 10;
 #[cfg(windows)]
 const LEASES: usize = 2;
 
-/// How many textures one stream keeps open: its slots, and one more for a
-/// worker that swaps a texture out as the picture changes size. A worker
-/// cycling more than that isn't drawing into the triple buffer's slots.
-#[cfg(windows)]
-const KEPT: usize = 4;
+/// How many pictures one set of the worker's shares, which is how many textures
+/// one stream keeps open: `SHARED_PICTURES` in
+/// `crates/yapfast-core/native/d3d11enc.c`, one per slot of the frames file.
+///
+/// Nothing opened for a picture is ever evicted to make room. The handle was
+/// closed as the texture it named was opened, so a texture let go of here could
+/// not be opened again: the next picture naming that handle would be refused.
+/// A set that names more pictures than it shares is passed over instead, which
+/// is a worker to show as pixels rather than one to make room for.
+#[cfg(any(windows, test))]
+const PICTURES: usize = 3;
+
+/// What a stream's opened textures say about one more picture of the set they
+/// are all of: a picture to open, or why it can't be. A set shares `PICTURES`
+/// pictures and none of the ones open for it is ever let go of, since a handle
+/// was closed as the texture it named was opened and could not be opened again.
+/// A set naming one more is a picture to show as pixels, not one to make room
+/// for by dropping a texture a slot may still be drawn into.
+#[cfg(any(windows, test))]
+fn opening(open: usize) -> std::result::Result<(), String> {
+    if open < PICTURES {
+        return Ok(());
+    }
+    Err(format!(
+        "the worker named a {}th picture of a set that shares {PICTURES}",
+        open + 1
+    ))
+}
+
+/// The textures a stream keeps open are the pictures one set of the worker's
+/// shares, and the worker's own header is what says how many that is. The two
+/// numbers drifting apart is what let an eviction close a picture's handle, and
+/// the picture naming it again could not be opened.
+///
+/// A Linux build can't open a shared texture, so this reads the number the
+/// worker shares rather than holding one: the drift is the defect, and it is
+/// the same number whether a device is there or not.
+#[cfg(test)]
+mod bound {
+    use super::{PICTURES, opening};
+
+    /// `SHARED_PICTURES` in the worker's own source, as the number it is.
+    fn shared_pictures() -> usize {
+        include_str!("../../crates/yapfast-core/native/d3d11enc.c")
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("#define SHARED_PICTURES "))
+            .and_then(|count| count.trim().parse().ok())
+            .expect("SHARED_PICTURES in d3d11enc.c")
+    }
+
+    /// Every picture of a set is opened and kept, and one the set doesn't share
+    /// is passed over rather than bought by letting go of a texture a slot may
+    /// still be drawn into: the handle of one let go of here is already closed.
+    #[test]
+    fn a_set_is_held_whole_and_never_evicted_to_make_room() {
+        assert_eq!(
+            PICTURES,
+            shared_pictures(),
+            "a stream keeps open what the worker shares, and no fewer"
+        );
+        for open in 0..PICTURES {
+            assert!(opening(open).is_ok(), "picture {} of a set", open + 1);
+        }
+        let refused = opening(PICTURES).expect_err("one picture more than a set shares");
+        assert!(
+            refused.contains(&format!("{}", PICTURES + 1)),
+            "the refusal names the picture it is: {refused}"
+        );
+    }
+}
 
 /// The window's device, the adapter it runs on, and what was opened of each
 /// stream's pictures.
@@ -563,15 +628,13 @@ impl Stream {
         {
             return Ok(opened.texture.clone());
         }
+        opening(self.textures.len())?;
         let texture = unsafe { open(device, picture) }?;
         self.textures.push(Opened {
             set: picture.set,
             handle: picture.texture,
             texture: texture.clone(),
         });
-        if self.textures.len() > KEPT {
-            self.textures.remove(0);
-        }
         Ok(texture)
     }
 
@@ -795,12 +858,13 @@ fn shared_format(
     }
 }
 
+#[cfg(windows)]
 /// Opens the fence a stream's pictures are drawn behind, and closes the handle.
 ///
-/// Safety: the handle must be a shared fence the worker duplicated into this
-/// process, and one this process hasn't opened or closed before: it is closed
-/// here.
-#[cfg(windows)]
+/// # Safety
+///
+/// The handle must be a shared fence the worker duplicated into this process,
+/// and one this process hasn't opened or closed before: it is closed here.
 unsafe fn open_fence(
     device: &wgpu::Device,
     handle: u64,

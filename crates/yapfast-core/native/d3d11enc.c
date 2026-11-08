@@ -2495,6 +2495,10 @@ static int shared_texture(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_sh
   desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
   status = e->device->lpVtbl->CreateTexture2D(e->device, &desc, NULL, &s->pictures[at]);
   if (FAILED(status)) {
+    /* A failed call leaves the out-pointer as it was, and this one is the slot's
+     * own field: a reference it did answer with is let go of here rather than
+     * assumed not to exist, since the caller's cleanup only sees what is NULL. */
+    if (s->pictures[at]) s->pictures[at]->lpVtbl->Release(s->pictures[at]);
     s->pictures[at] = NULL;
     hr_failure(why, size, "CreateTexture2D for a shared picture", status);
     return -1;
@@ -2502,18 +2506,21 @@ static int shared_texture(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_sh
   status = s->pictures[at]->lpVtbl->QueryInterface(s->pictures[at], &IID_IDXGIResource1,
                                                    (void **)&resource);
   if (FAILED(status) || !resource) {
+    if (resource) resource->lpVtbl->Release(resource);
     hr_failure(why, size, "QueryInterface(IDXGIResource1) on a shared picture", status);
     return -1;
   }
   status = resource->lpVtbl->CreateSharedHandle(resource, NULL, GENERIC_ALL, NULL, &handle);
   resource->lpVtbl->Release(resource);
   if (FAILED(status) || !handle) {
+    if (handle) CloseHandle(handle);
     hr_failure(why, size, "IDXGIResource1::CreateSharedHandle for a shared picture", status);
     return -1;
   }
   status = s->pictures[at]->lpVtbl->QueryInterface(s->pictures[at], &IID_IDXGIKeyedMutex,
                                                    (void **)&mutex);
   if (FAILED(status) || !mutex) {
+    if (mutex) mutex->lpVtbl->Release(mutex);
     CloseHandle(handle);
     hr_failure(why, size, "QueryInterface(IDXGIKeyedMutex) on a shared picture", status);
     return -1;
@@ -2538,6 +2545,7 @@ static int shared_fence(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shar
   HRESULT status;
   status = e->device->lpVtbl->QueryInterface(e->device, &IID_ID3D11Device5, (void **)&device);
   if (FAILED(status) || !device) {
+    if (device) device->lpVtbl->Release(device);
     hr_failure(why, size, "QueryInterface(ID3D11Device5) for a shared picture's fence", status);
     return -1;
   }
@@ -2551,12 +2559,14 @@ static int shared_fence(struct yapfast_d3d11enc *e, struct yapfast_d3d11enc_shar
                                        (void **)&s->fence);
   device->lpVtbl->Release(device);
   if (FAILED(status) || !s->fence) {
+    if (s->fence) s->fence->lpVtbl->Release(s->fence);
     s->fence = NULL;
     hr_failure(why, size, "ID3D11Device5::CreateFence", status);
     return -1;
   }
   status = s->fence->lpVtbl->CreateSharedHandle(s->fence, NULL, GENERIC_ALL, NULL, &handle);
   if (FAILED(status) || !handle) {
+    if (handle) CloseHandle(handle);
     hr_failure(why, size, "ID3D11Fence::CreateSharedHandle", status);
     return -1;
   }
@@ -2609,6 +2619,7 @@ struct yapfast_d3d11enc_shared *yapfast_d3d11enc_shared_new(
   if (e->context->lpVtbl->QueryInterface(e->context, &IID_ID3D11DeviceContext4,
                                          (void **)&s->signals) != S_OK ||
       !s->signals) {
+    if (s->signals) s->signals->lpVtbl->Release(s->signals);
     s->signals = NULL;
     snprintf(said, sizeof said, "this context can't signal a fence (ID3D11DeviceContext4)");
     goto failed;
