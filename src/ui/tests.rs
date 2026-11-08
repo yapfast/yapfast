@@ -734,6 +734,36 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
 }
 
 #[test]
+fn the_call_panels_noise_toggle_turns_back_on_the_kind_last_used() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    // Each turn saves, as a pick in Voice settings does.
+    let saves = Rc::new(Cell::new(0));
+    let count = saves.clone();
+    window.on_preferences_changed(move || count.set(count.get() + 1));
+    // DeepFilterNet, as it comes, goes off and comes back.
+    assert_eq!(window.get_noise_suppression(), 0);
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 2, "off");
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 0);
+    // RNNoise, picked in settings or the input menu, is the one it brings back.
+    window.set_noise_suppression(1);
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 2);
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 1);
+    assert_eq!(saves.get(), 4);
+    // Off picked elsewhere after RNNoise brings RNNoise back too.
+    window.set_noise_suppression(1);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    window.set_noise_suppression(2);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 1);
+}
+
+#[test]
 fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     i_slint_backend_testing::init_no_event_loop();
     let message = ChatMessage {

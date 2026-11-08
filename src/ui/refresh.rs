@@ -3806,6 +3806,12 @@ impl Adapter {
         ));
         window.set_voice_leaving(voice.phase == Phase::Leaving);
         window.set_voice_here(voice_here);
+        window.set_voice_discord(
+            voice
+                .room
+                .as_deref()
+                .is_some_and(|room| Network::of(room) == Network::Discord),
+        );
         window.set_can_share(
             !state.preview
                 && voice.phase == Phase::Connected

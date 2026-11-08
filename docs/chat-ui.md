@@ -513,7 +513,8 @@ The window follows Discord's arrangement:
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
   theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
-  device menu; the input menu shows a local level meter. While you speak in
+  device menu (see [Persistent voice channels](voice.md)); the input menu
+  shows a local level meter. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in
   the call.
 - A conversation with a 48px header: the conversation's icon and name, and
