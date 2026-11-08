@@ -7,9 +7,11 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [lib]
-# No documentation examples run as tests: rustdoc would read the whole
-# crate on every `cargo test` for none.
-doctest = false
+# The one documentation example that runs is a `compile_fail` one: a texture's
+# lease used after the owner that gave it out has gone, in src/lease.rs. That
+# costs a read of the crate by rustdoc on every `cargo test`; the rule it holds
+# the compiler to is a soundness one, so it is paid. There are no other
+# documentation examples.
 
 [features]
 default = ["discord"]

@@ -57,6 +57,7 @@ use crate::{
     encode::{Configuration, Frame},
     frames::SharedTexture,
     gpu,
+    lease::{Lease, Loan, Loans},
 };
 
 /// An encoder NVENC owns, and a source of frames for the tests.
@@ -308,23 +309,46 @@ fn wide(text: &[u16]) -> String {
 /// on and comparing that pointer with its own: a texture from another device is
 /// memory it can't read, and two devices made on one adapter are still two.
 ///
-/// It is a borrowed raw pointer and a number, and it carries no lifetime: it is
-/// good only while the capture, source, scaler or share it came from is alive,
-/// and every call it is given to reads the object's vtable through the pointer.
-/// Nothing here can check that. The safe ways to hold one are the ones an owner
-/// answered with — [`Source::texture`], [`D3d11Encoder::scale`],
-/// [`Shared::picture`] — and forging one is `unsafe`.
-#[derive(Clone, Copy, Debug)]
-pub struct Texture {
+/// It is a lease of the owner that gave it out — the capture, the [`Source`], the
+/// encoder's scaler, the [`Shared`] set — and `'a` is that owner's borrow: see
+/// [`crate::lease`]. Every call it is given to reads the texture's vtable
+/// through the pointer, so a use of it after the owner has gone, or after the
+/// owner has replaced the picture it names, would be a read of freed memory; the
+/// borrow makes it a compile error instead. A lease takes nothing of the owner's
+/// and frees nothing when it goes, so a frame costs a pointer and a number.
+///
+/// The safe ways to hold one are the ones an owner answered with —
+/// [`Source::texture`], [`D3d11Encoder::scale`], [`Shared::picture`] — and forging
+/// one is `unsafe`.
+pub struct Texture<'a> {
     /// The `ID3D11Texture2D` itself.
     handle: *mut c_void,
     /// Which subresource of it, for a texture array; 0 for an ordinary one.
     subresource: u32,
+    /// The borrow of the owner that gave it out, which is the whole of why a
+    /// texture cannot be used past it. Nothing here reads it: the compiler is
+    /// what holds the owner to it.
+    #[allow(dead_code)]
+    owner: Lease<'a>,
+    /// For the one picture the encoder's scaler keeps: the claim on it, which
+    /// keeps a scale or readback to another size from freeing the texture this
+    /// names, and which lets go of it when this does. Held for that and for its
+    /// borrow; nothing here reads it either.
+    #[allow(dead_code)]
+    picture: Option<Loan<'a>>,
 }
 
-impl Texture {
+impl<'a> Texture<'a> {
     /// The whole of an ordinary texture that the caller itself holds: the
     /// surface a capture has just filled, or one a test drew into.
+    ///
+    /// The lifetime is `'static` because this cannot name the borrow of whatever
+    /// owns `handle` from a bare pointer, so the caller makes the claim instead:
+    /// a texture wrapped here may be used anywhere, which is exactly what the
+    /// leases in this file exist to stop safe code from doing. Every stream's
+    /// captured texture goes through here, because a capture hands out the raw
+    /// pointer of the surface its pool filled and nothing that says how long it
+    /// is good for.
     ///
     /// # Safety
     ///
@@ -335,23 +359,41 @@ impl Texture {
     /// first frame it reads and on every scale, readback and encode after that,
     /// so a null, freed or foreign texture is a fault there rather than an
     /// error here, and no call in this file can tell.
-    pub unsafe fn new(handle: *mut c_void) -> Self {
-        Self {
+    pub unsafe fn new(handle: *mut c_void) -> Texture<'static> {
+        Texture {
             handle,
             subresource: 0,
+            // The caller's promise is the whole of this lifetime, and `()` is
+            // borrowed by nothing.
+            owner: Lease::of(&()),
+            picture: None,
         }
     }
 
-    /// The whole of a texture the shim itself answered with: a source's own
-    /// surface, a scaler's picture, or a share's last picture. Its device is the
-    /// encoder that answered it and it lives as long as that does, which is why
-    /// this is not `unsafe` and not public: only the owners in this file can
-    /// name it.
-    fn kept(handle: *mut c_void) -> Self {
+    /// The whole of a texture `owner` gave out, and the borrow that says it is
+    /// good only while the owner is: what a source, a scaler and a share answer
+    /// with. Its device is the one the owner made and it lives as long as the
+    /// owner does, which is why this is not `unsafe` and not public: only the
+    /// owners in this file can name it.
+    fn of<O: ?Sized>(handle: *mut c_void, owner: &'a O) -> Self {
         Self {
             handle,
             subresource: 0,
+            owner: Lease::of(owner),
+            picture: None,
         }
+    }
+}
+
+impl std::fmt::Debug for Texture<'_> {
+    /// The handle and which subresource of it, which is what a log line about a
+    /// frame says; the borrow is not something a log can show.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Texture")
+            .field("handle", &self.handle)
+            .field("subresource", &self.subresource)
+            .finish_non_exhaustive()
     }
 }
 
@@ -422,6 +464,11 @@ pub struct D3d11Encoder {
     configuration: Configuration,
     /// The buffers encoded frames are written into, reused as frames are sent.
     out: Arc<Pool>,
+    /// The one picture the scaler keeps, and how many leases of it are out: a
+    /// scale to another size frees it, so it waits for them rather than freeing
+    /// a texture somebody holds. Its scaler state lives in the shim, where the
+    /// size the picture is at is read beside this.
+    scaled: Loans,
 }
 
 // SAFETY: no library keeps thread-local state past a call; one thread uses the
@@ -613,6 +660,7 @@ impl D3d11Encoder {
                 settings_dropped: String::new(),
             },
             out: Arc::new(Pool::new(pixels * 2 + 4096)),
+            scaled: Loans::new(),
         };
         (encoder, config)
     }
@@ -701,18 +749,33 @@ impl D3d11Encoder {
     /// encode it before scaling again. A scale to the source's own size is a
     /// copy, which is exact.
     ///
+    /// The picture answered with is a lease of this encoder, so it cannot be used
+    /// after the encoder has gone, and a scale to another size while one is out is
+    /// refused rather than freeing the texture that lease names: a scale to the
+    /// size that is already out writes over that picture, which is what a stream
+    /// does frame after frame.
+    ///
     /// `texture` must be one this encoder's device can read — a capture's
-    /// surface, a [`Source::texture`], or a picture a scale answered — and must
-    /// stay alive until this returns: the shim reads the object through the
-    /// pointer, so a texture whose owner has gone is a fault here rather than an
-    /// error.
+    /// surface, a [`Source::texture`], or a picture a scale answered — and its
+    /// lease says it is alive: the shim reads the object through the pointer, and
+    /// a texture whose owner has gone is a compile error before it is a fault
+    /// there.
     pub fn scale(
-        &mut self,
-        texture: Texture,
+        &self,
+        texture: Texture<'_>,
         width: u32,
         height: u32,
         resize: Resize,
-    ) -> Result<Texture> {
+    ) -> Result<Texture<'_>> {
+        // The picture the scaler keeps is freed by a scale to another size, and
+        // the leases that name it are borrows of it: a size that would free it
+        // waits for them, which is the one thing a borrow cannot say on its own.
+        if let Err((out_width, out_height)) = self.scaled.free_at((width, height)) {
+            bail!(
+                "the {out_width}x{out_height} picture the scaler made is still out: it is encoded \
+                 or read back before another size is scaled"
+            );
+        }
         // SAFETY: raw is an open encoder, and the texture is the caller's and
         // lives as long as the call; the picture answered with belongs to the
         // encoder and is only read.
@@ -733,7 +796,12 @@ impl D3d11Encoder {
                 self.error()
             );
         }
-        Ok(Texture::kept(scaled))
+        Ok(Texture {
+            handle: scaled,
+            subresource: 0,
+            owner: Lease::of(self),
+            picture: Some(self.scaled.lend((width, height))),
+        })
     }
     /// Reads `texture` back at `width` by `height` as BGRA — `blue`, `green`,
     /// `red`, `alpha`, one row after another with no padding — into `pixels`,
@@ -747,15 +815,27 @@ impl D3d11Encoder {
     /// [`Self::scale`]'s business, not a preview's — so a larger size is refused
     /// rather than answered.
     ///
+    /// A readback scales through the same one picture the scaler keeps, so a tile
+    /// of another size waits while a scale's picture is still out, exactly as
+    /// [`Self::scale`] does.
+    ///
     /// `texture` carries the same requirement as it does for [`Self::scale`]: on
-    /// this encoder's device, and alive until this returns.
+    /// this encoder's device, and its lease alive.
     pub fn readback(
-        &mut self,
-        texture: Texture,
+        &self,
+        texture: Texture<'_>,
         width: u32,
         height: u32,
         pixels: &mut [u8],
     ) -> Result<usize> {
+        // The tile is scaled into the picture the scaler keeps, at the tile's own
+        // size, so a size that would free a picture somebody holds waits for it.
+        if let Err((out_width, out_height)) = self.scaled.free_at((width, height)) {
+            bail!(
+                "the {out_width}x{out_height} picture the scaler made is still out: it is encoded \
+                 before a {width}x{height} tile is read back"
+            );
+        }
         // SAFETY: raw is an open encoder, the texture is the caller's and lives as
         // long as the call, and the buffer is as large as its length and stays put
         // during it.
@@ -810,10 +890,10 @@ impl D3d11Encoder {
     /// since the encoder has already encoded it and moved on.
     ///
     /// `texture` carries the same requirement as it does for [`Self::scale`]: on
-    /// this encoder's device, and alive until this returns.
+    /// this encoder's device, and its lease alive.
     pub fn encode_texture(
-        &mut self,
-        texture: Texture,
+        &self,
+        texture: Texture<'_>,
         pts: u64,
         keyframe: bool,
     ) -> Result<Option<Frame>> {
@@ -1013,13 +1093,13 @@ impl Shared {
     /// for it: the UI does, and so does the next draw into the same picture.
     ///
     /// `texture` carries the same requirement as it does for
-    /// [`D3d11Encoder::scale`]: one this tile's device can read, and alive until
-    /// this returns.
+    /// [`D3d11Encoder::scale`]: one this tile's device can read, and its lease
+    /// alive.
     pub fn draw(
         &mut self,
         at: u32,
         tile: &mut D3d11Encoder,
-        texture: Texture,
+        texture: Texture<'_>,
     ) -> Result<(SharedTexture, u64)> {
         let (mut handle, mut value) = (0, 0);
         // SAFETY: raw and the encoder are both open, the texture is the caller's
@@ -1057,11 +1137,12 @@ impl Shared {
     /// what a test reads back to see the tile the UI would show, and what the
     /// stream never needs, since it publishes the handle instead. It is this
     /// share's own texture, drawn into again by the next draw, so it is good
-    /// only while the share is.
-    pub fn picture(&self) -> Texture {
+    /// only while the share is — the lease is the borrow of this set, which also
+    /// keeps a draw from writing over a picture somebody is still reading.
+    pub fn picture(&self) -> Texture<'_> {
         // SAFETY: raw is an open share, and the texture it names lives as long as
         // it does.
-        Texture::kept(unsafe { yapfast_d3d11enc_shared_picture(self.raw) })
+        Texture::of(unsafe { yapfast_d3d11enc_shared_picture(self.raw) }, self)
     }
 }
 
@@ -1096,11 +1177,12 @@ impl Source {
 
     /// The texture to encode next, which the source keeps and refills: it is the
     /// source's own, good only while the source is, and its device is the one the
-    /// source was made on.
-    pub fn texture(&self) -> Texture {
+    /// source was made on. The lease is the borrow of this source, so a texture
+    /// held past it, or past the encoder it draws for, is a compile error.
+    pub fn texture(&self) -> Texture<'_> {
         // SAFETY: raw is a source that hasn't been freed, and its texture lives
         // as long as it does.
-        Texture::kept(unsafe { yapfast_d3d11enc_source_texture(self.raw) })
+        Texture::of(unsafe { yapfast_d3d11enc_source_texture(self.raw) }, self)
     }
     /// Draws four solid quadrants instead of the moving picture: one known colour
     /// in each corner of the texture, which is the picture a scaler is held to.
@@ -1300,8 +1382,7 @@ mod tests {
             let device = encoder.device();
             assert!(!device.is_null());
             let source = encoder.source(60).unwrap();
-            let texture = source.texture();
-            assert!(!texture.handle.is_null());
+            assert!(!source.texture().handle.is_null());
 
             // The frames' processor time alone: the driver waits on the GPU inside
             // this call, and a wall clock would charge that to the processor.
@@ -1318,7 +1399,7 @@ mod tests {
                     assert_eq!(encoder.bitrate(), kbps / 2);
                 }
                 let encoded = encoder
-                    .encode_texture(texture, pts, frame == 0)
+                    .encode_texture(source.texture(), pts, frame == 0)
                     .unwrap()
                     .unwrap_or_else(|| panic!("{codec:?} made no packet for frame {frame}"));
                 assert!(
@@ -1375,7 +1456,7 @@ mod tests {
             for frame in 30..30 + TIMED {
                 source.draw(frame);
                 let encoded = encoder
-                    .encode_texture(texture, u64::from(frame) * 1500, false)
+                    .encode_texture(source.texture(), u64::from(frame) * 1500, false)
                     .unwrap()
                     .unwrap_or_else(|| panic!("{codec:?} made no packet for frame {frame}"));
                 assert!(
@@ -1450,7 +1531,7 @@ mod tests {
     fn a_scaled_picture_keeps_its_four_quadrants() {
         let _gpu = one_gpu_test_at_a_time();
         let (width, height) = (480u32, 270u32);
-        let mut encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
+        let encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
             .expect("an NVENC encoder on this machine");
         let source = encoder.source(1).expect("a texture to draw on");
         source.quads().expect("the quadrants to draw");
@@ -1566,7 +1647,7 @@ mod tests {
     fn a_readback_returns_the_textures_own_pixels() {
         let _gpu = one_gpu_test_at_a_time();
         let (width, height) = (1920u32, 1080u32);
-        let mut encoder = D3d11Encoder::new(Codec::H264, width, height, 60, 8000)
+        let encoder = D3d11Encoder::new(Codec::H264, width, height, 60, 8000)
             .expect("an NVENC encoder on this machine");
         let source = encoder.source(1).expect("a texture to draw on");
         source.quads().expect("the quadrants to draw");
@@ -1599,7 +1680,7 @@ mod tests {
         let _gpu = one_gpu_test_at_a_time();
         let (width, height) = (1920u32, 1080u32);
         let (tile_width, tile_height) = (480u32, 270u32);
-        let mut encoder = D3d11Encoder::new(Codec::H264, width, height, 60, 8000)
+        let encoder = D3d11Encoder::new(Codec::H264, width, height, 60, 8000)
             .expect("an NVENC encoder on this machine");
         let source = encoder.source(1).expect("a texture to draw on");
         source.quads().expect("the quadrants to draw");
@@ -1629,14 +1710,13 @@ mod tests {
     fn a_hundred_readbacks_reuse_their_textures() {
         let _gpu = one_gpu_test_at_a_time();
         let (tile_width, tile_height) = (480u32, 270u32);
-        let mut encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
+        let encoder = D3d11Encoder::new(Codec::H264, 1920, 1080, 60, 8000)
             .expect("an NVENC encoder on this machine");
         let source = encoder.source(1).expect("a texture to draw on");
         source.quads().expect("the quadrants to draw");
-        let texture = source.texture();
         let mut tile = vec![0u8; (tile_width * tile_height * 4) as usize];
         encoder
-            .readback(texture, tile_width, tile_height, &mut tile)
+            .readback(source.texture(), tile_width, tile_height, &mut tile)
             .expect("the first tile");
         let first = tile.clone();
         assert_eq!(
@@ -1646,7 +1726,7 @@ mod tests {
         );
         for read in 1..100 {
             let written = encoder
-                .readback(texture, tile_width, tile_height, &mut tile)
+                .readback(source.texture(), tile_width, tile_height, &mut tile)
                 .unwrap_or_else(|why| panic!("tile {read}: {why:#}"));
             assert_eq!(written, tile.len());
             assert_eq!(tile, first, "tile {read} isn't the picture the first was");
@@ -1733,9 +1813,8 @@ mod tests {
         // must not move it: what an encoder on a device handed to it must not do is
         // make a second device.
         let devices_before = unsafe { yapfast_d3d11enc_devices_created() };
-        let mut encoder =
-            D3d11Encoder::open_on(device, codec, width, height, 60, 8000, Surfaces::Ring)
-                .unwrap_or_else(|why| panic!("no encoder on the capture's device: {why:#}"));
+        let encoder = D3d11Encoder::open_on(device, codec, width, height, 60, 8000, Surfaces::Ring)
+            .unwrap_or_else(|why| panic!("no encoder on the capture's device: {why:#}"));
         assert_eq!(
             unsafe { yapfast_d3d11enc_devices_created() },
             devices_before,

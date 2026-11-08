@@ -59,6 +59,10 @@ pub mod encode;
 pub mod experiment;
 pub mod frames;
 pub mod gpu;
+/// A handle borrowed from the owner that gave it out, which is what keeps a
+/// texture the card drew from outliving the capture, scaler or share it came
+/// from; see src/lease.rs.
+pub mod lease;
 pub mod leveling;
 pub mod links;
 pub mod logging;
