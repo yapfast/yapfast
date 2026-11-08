@@ -1137,6 +1137,7 @@ export component YapfastWindow inherits Window {
     in-out property <bool> show-name-styles: true;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
+    in-out property <bool> reduced-motion: false;
     in-out property <bool> unmute-on-join;
     in-out property <bool> deafen-on-join;
     in-out property <bool> level-voice: true;
@@ -1226,6 +1227,7 @@ export component YapfastWindow inherits Window {
     callback delete-theme();
     changed settings-section => { if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); } }
     changed contrast-indicators => { Theme.contrast-indicators = root.contrast-indicators; }
+    changed reduced-motion => { Theme.reduced-motion = root.reduced-motion; }
     out property <length> message-font-size: root.text-size == 0 ? ClientStyle.text-size : max(12px, min(24px, root.text-size * 1px));
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
@@ -3849,6 +3851,7 @@ export component YapfastWindow inherits Window {
             high-contrast <=> root.high-contrast; contrast-indicators <=> root.contrast-indicators;
             underline-links <=> root.underline-links;
             show-name-styles <=> root.show-name-styles; animate <=> root.animate;
+            reduced-motion <=> root.reduced-motion;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 1: VoiceSettings {

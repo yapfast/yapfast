@@ -706,6 +706,13 @@ thread_local! {
     static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
+    /// The OS motion preference kept while the app overrides it.
+    static MOTION_STATE: Cell<MotionState> = const {
+        Cell::new(MotionState {
+            system: i_slint_core::MotionPreference::NoPreference,
+            reduced: false,
+        })
+    };
     /// Opens a conversation from a clicked notification, in the current window.
     static OPEN: RefCell<Option<OpenRoom>> = const { RefCell::new(None) };
 }
@@ -1123,6 +1130,7 @@ struct Layout {
     collapse_long: bool,
     /// When animations play.
     animate: Animate,
+    reduced_motion: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1251,10 +1259,38 @@ fn attention(window: &YapfastWindow, wanted: bool) {
     });
 }
 
-/// Plays animations or holds them still, as the setting and the focus say.
+#[derive(Clone, Copy)]
+struct MotionState {
+    system: i_slint_core::MotionPreference,
+    reduced: bool,
+}
+
+/// Plays animations or holds them still, as the settings, OS and focus say.
 fn show_motion(window: &YapfastWindow) {
+    let reduced = window.get_reduced_motion();
+    window
+        .global::<yapfast_ui::Theme>()
+        .set_reduced_motion(reduced);
+    let previous = MOTION_STATE.get();
+    let reported = i_slint_core::with_existing_context(|context| context.motion_preference())
+        .unwrap_or_default();
+    let system = if previous.reduced {
+        previous.system
+    } else {
+        reported
+    };
+    MOTION_STATE.set(MotionState { system, reduced });
+    let preference = if reduced {
+        i_slint_core::MotionPreference::Reduced
+    } else {
+        system
+    };
+    let _ = i_slint_core::with_existing_context(|context| {
+        context.set_motion_preference(preference);
+    });
+    let automatic_motion = !reduced && system != i_slint_core::MotionPreference::Reduced;
     let playing = match ANIMATE.get() {
-        Animate::Focused => FOCUSED.get(),
+        Animate::Focused => FOCUSED.get() && automatic_motion,
         Animate::Always => true,
         Animate::Never => false,
     };
@@ -1383,6 +1419,9 @@ impl Layout {
         window.set_saturate_custom_colours(self.saturate_custom_colours.unwrap_or(true));
         window.set_high_contrast(self.high_contrast.unwrap_or(false));
         window.set_contrast_indicators(self.contrast_indicators.unwrap_or(true));
+        window
+            .global::<yapfast_ui::Theme>()
+            .set_contrast_indicators(window.get_contrast_indicators());
         let underline_links = self.underline_links.unwrap_or(true);
         window.set_underline_links(underline_links);
         let _ = i_slint_core::with_existing_context(|context| {
@@ -1431,6 +1470,7 @@ impl Layout {
         window.set_show_name_styles(self.name_styles.unwrap_or(true));
         window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
+        window.set_reduced_motion(self.reduced_motion.unwrap_or(false));
         ANIMATE.set(self.animate);
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));

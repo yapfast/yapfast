@@ -1060,6 +1060,7 @@ export component AccessibilitySettings inherits VerticalLayout {
     in-out property <bool> show-name-styles;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
+    in-out property <bool> reduced-motion;
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Accessibility"; }
@@ -1160,12 +1161,17 @@ export component AccessibilitySettings inherits VerticalLayout {
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "REDUCED MOTION"; }
+        SettingsSwitch {
+            text: "Enable Reduced Motion";
+            description: "Stop UI transitions and pause automatic media playback.";
+            checked <=> root.reduced-motion; toggled => { root.preferences-changed(); }
+        }
         Choices {
             label: "Play GIFs, emoji and stickers";
             options: ["While Yapfast is focused", "Always", "Never"];
             current <=> root.animate; chosen => { root.preferences-changed(); }
         }
-        Label { text: "Choose when animated pictures play."; }
+        Label { text: "Choose when animated pictures play. Always overrides Reduced Motion."; }
     }
 }
 

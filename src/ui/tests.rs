@@ -8563,6 +8563,47 @@ fn yapfast_server_rail_keeps_home_pinned_without_a_duplicate_separator() {
 }
 
 #[test]
+fn accessibility_reduced_motion_stops_transitions_and_automatic_media() {
+    i_slint_backend_testing::init_no_event_loop();
+    let files = tempfile::tempdir().unwrap();
+    let window = yapfast::window().unwrap();
+    FOCUSED.set(true);
+    Layout {
+        reduced_motion: Some(true),
+        animate: Animate::Focused,
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert!(window.get_reduced_motion());
+    assert_eq!(window.global::<yapfast_ui::Theme>().get_quick(), 0);
+    assert!(!window.global::<Motion>().get_playing());
+    assert_eq!(
+        i_slint_core::with_existing_context(|context| context.motion_preference()).unwrap(),
+        i_slint_core::MotionPreference::Reduced
+    );
+    window.set_animate(1);
+    ANIMATE.set(Animate::Always);
+    show_motion(&window);
+    assert!(
+        window.global::<Motion>().get_playing(),
+        "explicit playback still wins"
+    );
+    Layout {
+        reduced_motion: Some(false),
+        animate: Animate::Focused,
+        ..Default::default()
+    }
+    .apply(&window);
+    assert!(window.global::<yapfast_ui::Theme>().get_quick() > 0);
+    assert!(window.global::<Motion>().get_playing());
+    assert_eq!(
+        i_slint_core::with_existing_context(|context| context.motion_preference()).unwrap(),
+        i_slint_core::MotionPreference::NoPreference
+    );
+}
+
+#[test]
 fn accessibility_link_underlining_reaches_slint_and_survives_reopening() {
     i_slint_backend_testing::init_no_event_loop();
     let files = tempfile::tempdir().unwrap();

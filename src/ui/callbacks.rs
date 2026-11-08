@@ -1589,6 +1589,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.saturate_custom_colours = Some(window.get_saturate_custom_colours());
         layout.high_contrast = Some(window.get_high_contrast());
         layout.contrast_indicators = Some(window.get_contrast_indicators());
+        window
+            .global::<yapfast_ui::Theme>()
+            .set_contrast_indicators(window.get_contrast_indicators());
         let underline_links = window.get_underline_links();
         layout.underline_links = Some(underline_links);
         let _ = i_slint_core::with_existing_context(|context| {
@@ -1609,6 +1612,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.name_styles = Some(window.get_show_name_styles());
         layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
+        layout.reduced_motion = Some(window.get_reduced_motion());
         ANIMATE.set(layout.animate);
         show_motion(&window);
         layout.unmute_on_join = Some(window.get_unmute_on_join());
