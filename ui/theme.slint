@@ -53,7 +53,7 @@ export global Theme {
     in-out property <color> on-danger: #ffffff;
     in-out property <color> live: #3ecf7e;
     in-out property <color> loud: #ff8c42;
-    in-out property <color> link: #7cc4ff;
+    in-out property <color> link: #64adf6;
     /// The neutral ActionButton face.
     in-out property <color> button-default: #33343c;
     in-out property <color> button-default-hover: #3c3d46;
@@ -122,6 +122,17 @@ export component Label inherits Text {
 
 // Whether Discord's things carry its badge. A build without Matrix shows
 // nothing else, so it leaves them off.
+// The profile switches in Settings → Appearance. The Rust side keeps them in
+// layout.json and leaves out what's off before anything is fetched; see
+// Cosmetics in the core.
+export global Looks {
+    in-out property <bool> profile-effects: true;
+    in-out property <bool> decorations: true;
+    in-out property <bool> moving: true;
+    in-out property <bool> name-styles: true;
+    in-out property <bool> server-tags: true;
+}
+
 export global Badges {
     in property <bool> discord: true;
 }

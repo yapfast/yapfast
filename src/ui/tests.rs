@@ -121,6 +121,47 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
+fn this_accounts_own_profile_shares_its_friends_and_servers_with_nobody() {
+    let view = |id: &str| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: id.into(),
+            name: "Sam".into(),
+            servers: vec![yapfast_core::chat::ProfileServer {
+                id: "s".into(),
+                name: "Server".into(),
+                icon: None,
+                banner: None,
+                members: None,
+                channels: 2,
+                nick: None,
+            }],
+            friends: vec![yapfast_core::chat::ProfileFriend {
+                id: "7".into(),
+                name: "Bob".into(),
+                avatar: None,
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = yapfast_core::application::AppState::default();
+    state.discord_user = Some("42".into());
+    let mut pictures = HashMap::new();
+
+    // Anyone else's card names what the account shares with them.
+    let other = profile_data(&mut pictures, &state, &view("7"));
+    assert_eq!(other.mutual_friends_text, "1 mutual friend");
+    assert_eq!(other.mutual_servers_text, "1 mutual server");
+    assert!(!other.own);
+
+    // Its own profile shares them with nobody, so it names them plainly.
+    let own = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(own.mutual_friends_text, "1 friend");
+    assert_eq!(own.mutual_servers_text, "1 server");
+    assert!(own.own);
+}
+
+#[test]
 fn blank_lines_between_lines_show() {
     assert_eq!(keep_blank_lines("a\n\nb"), "a\n\u{a0}\nb");
     assert_eq!(keep_blank_lines("a\n\n\nb"), "a\n\u{a0}\n\u{a0}\nb");
@@ -604,10 +645,21 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
                 nameplate: None,
                 style: None,
                 bot: false,
+                boosting_since: Some(1_709_467_200_000),
             }]),
         });
         adapter.refresh(&window);
     }
+    // She boosts the server, which the gem by her name says on hover.
+    let carol = window
+        .get_roster()
+        .iter()
+        .find(|row| row.name == "Carol")
+        .unwrap();
+    assert!(
+        carol.boosting.starts_with("Server boosting since ")
+            && carol.boosting.ends_with("March 2024")
+    );
     // `@` in the thread's composer suggests the channel's people, and the one
     // chosen goes in that composer, not the channel's.
     window.invoke_aside_composer_caret("hey @ca".into(), 7);
@@ -682,6 +734,7 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
 }
 
 #[test]
+
 fn accessibility_density_applies_to_every_list_and_survives_reopening() {
     i_slint_backend_testing::init_no_event_loop();
     let files = tempfile::tempdir().unwrap();
@@ -722,6 +775,36 @@ fn accessibility_density_applies_to_every_list_and_survives_reopening() {
 }
 
 #[test]
+fn the_call_panels_noise_toggle_turns_back_on_the_kind_last_used() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    // Each turn saves, as a pick in Voice settings does.
+    let saves = Rc::new(Cell::new(0));
+    let count = saves.clone();
+    window.on_preferences_changed(move || count.set(count.get() + 1));
+    // DeepFilterNet, as it comes, goes off and comes back.
+    assert_eq!(window.get_noise_suppression(), 0);
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 2, "off");
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 0);
+    // RNNoise, picked in settings or the input menu, is the one it brings back.
+    window.set_noise_suppression(1);
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 2);
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 1);
+    assert_eq!(saves.get(), 4);
+    // Off picked elsewhere after RNNoise brings RNNoise back too.
+    window.set_noise_suppression(1);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    window.set_noise_suppression(2);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 1);
+}
+
+#[test]
 fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     i_slint_backend_testing::init_no_event_loop();
     let message = ChatMessage {
@@ -752,6 +835,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         twelve_hour_clock: true,
         text_size: Some(2),
         link_previews: Some(false),
+        boost_gems: Some(false),
         unmute_on_join: Some(true),
         noise_suppression: yapfast_core::noise::Suppressor::RNNoise,
         noise_strength: yapfast_core::noise::Strength::Light,
@@ -800,6 +884,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     let window = classic_window();
     layout.apply(&window);
     assert!(window.get_twelve_hour_clock() && !window.get_link_previews());
+    assert!(!window.get_boost_gems());
     // Discord calls suppress noise with the chosen network, as far as chosen.
     assert_eq!(window.get_noise_suppression(), 1);
     assert_eq!(window.get_noise_strength(), 2);
@@ -845,6 +930,9 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     window.set_voice_ready(true);
     slint::platform::update_timers_and_animations();
     assert!(deafened.get() && !unmuted.get());
+    // Boost gems show unless turned off.
+    assert!(YapfastWindow::new().unwrap().get_boost_gems());
+    assert!(Layout::default().boost_gems.unwrap_or(true));
 }
 
 #[test]
@@ -2427,6 +2515,7 @@ fn the_activity_panel_shows_discords_feed_in_its_order_for_those_the_channel_may
         role_icon: None,
         group_icon: None,
         timed_out_until: None,
+        boosting_since: None,
     };
     let room = room_id("1", "2");
     let mut state = AppState::default();
@@ -2538,6 +2627,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         avatar: None,
         decoration: None,
         nameplate: None,
+        boosting_since: None,
         style: None,
         tag: None,
         group: Some("Online — 2".into()),
@@ -3283,6 +3373,7 @@ fn older_messages_go_in_above_without_moving_those_shown() {
         first_unread: None,
         revealed: &revealed,
         restyle: false,
+        decorations: true,
     };
     let model = Rc::new(VecModel::default());
     let mut rows = Vec::new();
@@ -3892,6 +3983,79 @@ fn clicking_a_category_collapses_it() {
 }
 
 #[test]
+fn clicking_the_voice_panels_channel_line_opens_the_call() {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    use slint::platform::{PointerEventButton, WindowEvent};
+    use std::ops::ControlFlow;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let server = adapter.borrow().app.state.servers[0].id.clone();
+    window.invoke_navigate_server(server.clone().into());
+    let lounge = {
+        let state = &adapter.borrow().app.state;
+        let room = state
+            .rooms
+            .iter()
+            .find(|room| room.voice && state.in_scope(room));
+        room.expect("the preview server has a voice channel")
+            .id
+            .clone()
+    };
+    window.invoke_select_room(lounge.clone().into());
+    window.invoke_navigate_dms();
+    assert!(window.get_voice_active() && !window.get_voice_here());
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // The line under "Voice connected" names the call's channel.
+    let place = || {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let link = ItemRc::new_root(inner.component())
+            .visit_descendants(|item| {
+                let label = item.accessible_string_property(AccessibleStringProperty::Label);
+                if label.is_some_and(|label| label.ends_with(". Open the call")) {
+                    ControlFlow::Break(item.clone())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .expect("the voice panel's channel line");
+        link.map_to_window(link.geometry().center())
+    };
+    let click = |at: slint::LogicalPosition| {
+        let native = window.window();
+        let button = PointerEventButton::Left;
+        native.dispatch_event(WindowEvent::PointerMoved { position: at });
+        native.dispatch_event(WindowEvent::PointerPressed {
+            position: at,
+            button,
+        });
+        native.dispatch_event(WindowEvent::PointerReleased {
+            position: at,
+            button,
+        });
+    };
+    let at = place();
+    click(slint::LogicalPosition::new(at.x, at.y));
+    let state = || {
+        let app = &adapter.borrow().app;
+        (app.state.navigation.clone(), app.state.selected.clone())
+    };
+    assert_eq!(state(), (Navigation::Server(server), Some(lounge)));
+    assert!(window.get_voice_here());
+}
+
+#[test]
 fn opening_at_the_new_divider_puts_it_at_the_top_and_the_bar_jumps_back() {
     i_slint_backend_testing::init_no_event_loop();
     let window = classic_window();
@@ -4467,6 +4631,64 @@ fn a_profile_shows_activities_as_discord_cards() {
 }
 
 #[test]
+fn discord_channels_show_their_kinds_icons_marked_as_discord_marks_them() {
+    use yapfast_core::chat::{ChannelMark, ChatRoom, MarkKind};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let adapter = adapter.borrow();
+    let icons = &adapter.icons;
+    let base = adapter
+        .app
+        .state
+        .rooms
+        .iter()
+        .find(|room| !room.direct && !room.voice)
+        .map(|room| ChatRoom::clone(room))
+        .unwrap();
+    let channel = |kind, private, age_restricted, voice, forum| ChatRoom {
+        mark: ChannelMark {
+            kind,
+            private,
+            age_restricted,
+        },
+        voice,
+        forum,
+        ..base.clone()
+    };
+    let shown = |room: &ChatRoom| icons.channel(room);
+    assert!(shown(&channel(MarkKind::Plain, false, false, false, false)) == icons.text.plain);
+    assert!(
+        shown(&channel(MarkKind::Announcement, true, false, false, false))
+            == icons.announcement.private
+    );
+    assert!(
+        shown(&channel(MarkKind::Plain, true, true, false, true)) == icons.forum.age_restricted,
+        "the warning sign comes before the lock"
+    );
+    assert!(shown(&channel(MarkKind::Media, false, false, false, true)) == icons.media.plain);
+    assert!(shown(&channel(MarkKind::Stage, true, false, true, false)) == icons.stage.private);
+    assert!(shown(&channel(MarkKind::Plain, true, false, true, false)) == icons.voice.private);
+    assert!(
+        shown(&channel(MarkKind::Rules, true, true, false, false)) == icons.rules,
+        "the rules channel has its book whatever else"
+    );
+    let unreadable = ChatRoom {
+        locked: true,
+        ..channel(MarkKind::Announcement, false, false, false, false)
+    };
+    assert!(icons.room(&unreadable) == icons.lock && shown(&unreadable) != icons.lock);
+}
+
+#[test]
 fn friends_in_a_servers_voice_channel_show_where() {
     use yapfast_core::chat::{ChatRoom, ChatServer, Reacts, VoicePerson};
     let person = |id: &str| VoicePerson {
@@ -4510,6 +4732,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         tag: None,
         official: false,
@@ -7088,7 +7311,7 @@ fn a_window_made_again_while_editing_drops_the_edit() {
     );
     assert!(!again.get_theme_editor());
     assert_eq!(theme::Theme::shown(&again), theme::YAP);
-    assert_eq!(theme::mention_color(), 0x7cc4ff);
+    assert_eq!(theme::mention_color(), 0x64adf6);
     assert!(Layout::read(directory.path()).custom_themes.is_empty());
 }
 
@@ -7208,6 +7431,7 @@ fn requests_list_someone_once_with_their_message() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         tag: None,
         official: false,

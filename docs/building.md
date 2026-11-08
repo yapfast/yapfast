@@ -85,7 +85,9 @@ The core of it is `yapfast_selection.rs`. The other changes are marked `Yapfast:
 - `textlayout/sharedparley.rs` again, where a `StyledText` lets its text 4px past
   its box, and a `TextInput` up and down, as an emoji is taller than its line
 - `textlayout/sharedparley/draw.rs`, which draws mention pills under their
-  text and opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`
+  text, opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`,
+  and the underline of the link under the pointer, which `items/text.rs` keeps;
+  shaping gives links no underline of their own
 - `graphics/image.rs`, where no image equals no image; upstream they differ,
   so every list row without a picture counted as changed on each refresh
 
@@ -227,7 +229,9 @@ dependency in Cargo.toml:
 - `i-slint-core`: Slint's core at `ac7d423f` with selectable `StyledText`,
   mentions coloured in a `TextInput`, timelines that keep their place as
   older messages load, a wheel that speeds up when spun fast, and middle-click
-  autoscroll, above.
+  autoscroll, above. Its per-item caches also mark dirty whatever depended on
+  an entry they drop, so a size measured through the text layout cache before
+  the window has a surface, or before a zoom, follows its text afterwards.
 - `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
   mipmapped pictures, and Skia's own FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows

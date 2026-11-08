@@ -15,7 +15,7 @@ use slint::{
 use yapfast_core::{
     application::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
-        ClearAfter, Compose, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
+        ClearAfter, Compose, Cosmetics, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
         MenuChoice, Navigation, NewDm, PersonAsk, Place, ProfileText, ProfileView, Relation,
         RoleInput, Search, TIMEOUT_TIMES,
     },
@@ -68,7 +68,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{Reach, SidebarShown, SwitcherShown};
+use refresh::{AccountCardShown, Reach, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -1155,6 +1155,8 @@ struct Layout {
     underline_links: Option<bool>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
+    /// A gem by each server booster in the member list; on unless turned off.
+    boost_gems: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
@@ -1170,9 +1172,17 @@ struct Layout {
     collapse_long: bool,
     /// When animations play.
     animate: Animate,
+
     /// Show a sender's alternative text for images to a screen reader.
     show_image_descriptions: Option<bool>,
     reduced_motion: Option<bool>,
+
+    /// The profile switches, each as [`Cosmetics`] starts it unless changed.
+    profile_effects: Option<bool>,
+    decorations: Option<bool>,
+    moving_cosmetics: Option<bool>,
+    server_tags: Option<bool>,
+
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1403,6 +1413,42 @@ impl Layout {
         layout
     }
 
+    /// The profile switches, as saved.
+    fn cosmetics(&self) -> Cosmetics {
+        let default = Cosmetics::default();
+        Cosmetics {
+            effects: self.profile_effects.unwrap_or(default.effects),
+            decorations: self.decorations.unwrap_or(default.decorations),
+            moving: self.moving_cosmetics.unwrap_or(default.moving),
+            name_styles: self.name_styles.unwrap_or(default.name_styles),
+            server_tags: self.server_tags.unwrap_or(default.server_tags),
+        }
+    }
+
+    /// Sets Settings' profile switches as saved, and whether collectibles'
+    /// animated pictures may be asked for.
+    fn show_cosmetics(&self, window: &YapfastWindow) {
+        let cosmetics = self.cosmetics();
+        let looks = window.global::<Looks>();
+        looks.set_profile_effects(cosmetics.effects);
+        looks.set_decorations(cosmetics.decorations);
+        looks.set_moving(cosmetics.moving);
+        looks.set_name_styles(cosmetics.name_styles);
+        looks.set_server_tags(cosmetics.server_tags);
+        pictures::set_moving_collectibles(cosmetics.moving);
+    }
+
+    /// Reads Settings' profile switches.
+    fn read_cosmetics(&mut self, window: &YapfastWindow) {
+        let looks = window.global::<Looks>();
+        self.profile_effects = Some(looks.get_profile_effects());
+        self.decorations = Some(looks.get_decorations());
+        self.moving_cosmetics = Some(looks.get_moving());
+        self.name_styles = Some(looks.get_name_styles());
+        self.server_tags = Some(looks.get_server_tags());
+        pictures::set_moving_collectibles(self.cosmetics().moving);
+    }
+
     /// Shows the custom games, and has detection use them.
     fn apply_custom_games(&self, window: &YapfastWindow) {
         window.set_game_executables(ModelRc::new(VecModel::from(
@@ -1506,6 +1552,7 @@ impl Layout {
         };
         window.set_text_size(text_size);
         window.set_link_previews(self.link_previews.unwrap_or(true));
+        window.set_boost_gems(self.boost_gems.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
@@ -1518,6 +1565,7 @@ impl Layout {
             .global::<yapfast_ui::ImageAccessibility>()
             .set_descriptions(window.get_show_image_descriptions());
         ANIMATE.set(self.animate);
+        self.show_cosmetics(window);
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
@@ -1580,8 +1628,17 @@ impl Layout {
     }
 
     /// A message's row as these preferences show it: its time on the chosen clock, with its
-    /// date when it's from another day, and its link previews only when they're on.
+    /// date when it's from another day, its link previews only when they're on, and its
+    /// author's name style and server tag only as the profile switches let them show.
     fn restyle(&self, message: &ChatMessage, mut row: MessageRow) -> MessageRow {
+        let cosmetics = self.cosmetics();
+        if !cosmetics.name_styles {
+            row.name_style = ModelRc::default();
+        }
+        if !cosmetics.server_tags {
+            row.tag = SharedString::default();
+            row.tag_badge = SharedString::default();
+        }
         if message.timestamp != 0 {
             let (twelve_hour, with_seconds) = (self.twelve_hour_clock, self.clock_seconds);
             let now = yapfast_core::clock::now_ms() / 1000;
@@ -1772,15 +1829,39 @@ impl Models {
     }
 }
 
+/// A kind of Discord channel's icon, alone and with a lock or a warning
+/// sign at its top right, as Discord's client marks a channel @everyone is
+/// kept out of and an age-restricted one.
+struct ChannelIcon {
+    plain: slint::Image,
+    private: slint::Image,
+    age_restricted: slint::Image,
+}
+
+impl ChannelIcon {
+    fn load(plain: &[u8], private: &[u8], age_restricted: &[u8]) -> Result<Self> {
+        Ok(Self {
+            plain: slint::Image::load_from_svg_data(plain)?,
+            private: slint::Image::load_from_svg_data(private)?,
+            age_restricted: slint::Image::load_from_svg_data(age_restricted)?,
+        })
+    }
+}
+
 struct Icons {
     dm: slint::Image,
     chat: slint::Image,
-    text: slint::Image,
+    text: ChannelIcon,
     /// A boxed ID, for Copy ID.
     id: slint::Image,
     thread: slint::Image,
-    forum: slint::Image,
-    voice: slint::Image,
+    forum: ChannelIcon,
+    voice: ChannelIcon,
+    announcement: ChannelIcon,
+    media: ChannelIcon,
+    /// A stage channel's, which Discord doesn't mark age-restricted.
+    stage: ChannelIcon,
+    rules: slint::Image,
     lock: slint::Image,
     read: slint::Image,
     call: slint::Image,
@@ -1870,6 +1951,9 @@ struct Adapter {
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
+    /// The account's own profile its card showed last, so the card is built
+    /// again only once that or one of its pictures changes.
+    account_profile_shown: Option<AccountCardShown>,
     /// What the quick switcher listed last, while it's open.
     switcher: Option<SwitcherShown>,
     /// The room ids of the rows a Discord server's channel list drags and
@@ -2047,13 +2131,39 @@ impl Adapter {
             chat: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/message-square-text.svg"
             ))?,
-            text: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/hash.svg"))?,
+            text: ChannelIcon::load(
+                include_bytes!("../ui/icons/hash.svg"),
+                include_bytes!("../ui/icons/hash-lock.svg"),
+                include_bytes!("../ui/icons/hash-warning.svg"),
+            )?,
             id: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-filled.svg"))?,
             thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
-            forum: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/message-square-text.svg"
-            ))?,
-            voice: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/volume-2.svg"))?,
+            forum: ChannelIcon::load(
+                include_bytes!("../ui/icons/message-square-text.svg"),
+                include_bytes!("../ui/icons/message-square-text-lock.svg"),
+                include_bytes!("../ui/icons/message-square-text-warning.svg"),
+            )?,
+            voice: ChannelIcon::load(
+                include_bytes!("../ui/icons/volume-2.svg"),
+                include_bytes!("../ui/icons/volume-2-lock.svg"),
+                include_bytes!("../ui/icons/volume-2-warning.svg"),
+            )?,
+            announcement: ChannelIcon::load(
+                include_bytes!("../ui/icons/megaphone.svg"),
+                include_bytes!("../ui/icons/megaphone-lock.svg"),
+                include_bytes!("../ui/icons/megaphone-warning.svg"),
+            )?,
+            media: ChannelIcon::load(
+                include_bytes!("../ui/icons/image.svg"),
+                include_bytes!("../ui/icons/image-lock.svg"),
+                include_bytes!("../ui/icons/image-warning.svg"),
+            )?,
+            stage: ChannelIcon::load(
+                include_bytes!("../ui/icons/stage.svg"),
+                include_bytes!("../ui/icons/stage-lock.svg"),
+                include_bytes!("../ui/icons/stage.svg"),
+            )?,
+            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
             lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
             read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
             call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,
@@ -2126,6 +2236,7 @@ impl Adapter {
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
         app.dispatch(Action::SkipCallPrompt(layout.skip_call_prompt));
         app.dispatch(Action::ActivityCardsHidden(layout.activity_cards_hidden));
+        app.dispatch(Action::SetCosmetics(layout.cosmetics()));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
@@ -2154,6 +2265,7 @@ impl Adapter {
                 messages: Arc::new(Vec::new()),
                 rows: Vec::new(),
                 sidebar: None,
+                account_profile_shown: None,
                 switcher: None,
                 places: Vec::new(),
                 arranging: None,

@@ -14,7 +14,7 @@
 use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -128,6 +128,28 @@ pub enum Job {
         width: u32,
         height: u32,
     },
+}
+
+impl Job {
+    /// What the job is, for the log.
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Share { .. } => "share",
+            Self::Watch { .. } => "watch",
+            Self::Play { .. } => "play",
+            Self::Glance { .. } => "glance",
+        }
+    }
+
+    /// The size its pictures fit in.
+    fn bounds(&self) -> (u32, u32) {
+        match *self {
+            Self::Share { width, height, .. }
+            | Self::Watch { width, height, .. }
+            | Self::Play { width, height, .. }
+            | Self::Glance { width, height, .. } => (width, height),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1382,7 +1404,9 @@ pub fn set_hardware_encoding(on: bool) {
 
 /// Yapfast's handle on a running worker. Dropping it stops the worker.
 pub struct Worker {
-    child: Child,
+    /// Shared with the thread reading its reports, which waits on it when
+    /// it ends without saying so.
+    child: Arc<Mutex<Child>>,
     stdin: Option<ChildStdin>,
 }
 
@@ -1532,9 +1556,15 @@ impl Worker {
             Job::Play { .. } => "The video stopped unexpectedly.",
             _ => "Screen sharing stopped unexpectedly.",
         };
+        let child = Arc::new(Mutex::new(child));
+        let mut last = Last::new(job);
+        let waited = child.clone();
+        // The caller's, so a test's logger hears this thread too.
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
         std::thread::Builder::new()
             .name("yapfast-stream-reports".into())
             .spawn(move || {
+                let _logging = tracing::dispatcher::set_default(&dispatch);
                 let mut ended = false;
                 for line in stdout
                     .into_iter()
@@ -1543,6 +1573,7 @@ impl Worker {
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });
+                            last.saw(&report);
                             if reports.send(report).is_err() {
                                 return;
                             }
@@ -1551,6 +1582,7 @@ impl Worker {
                     }
                 }
                 if !ended {
+                    last.log(exited(&waited));
                     let _ = reports.send(Report::Ended {
                         error: Some(unexpected.into()),
                     });
@@ -1572,28 +1604,242 @@ fn running_yapfast() -> Result<PathBuf> {
     std::env::current_exe().context("could not find Yapfast to start streaming")
 }
 
+/// What a worker's reports last said about its job, to log if it ends
+/// without saying why.
+struct Last {
+    job: &'static str,
+    /// The encoder's engine and codec, once a share reports how it goes out.
+    encoder: Option<(String, String)>,
+    /// The size reported, or the size the job fits in until one is.
+    size: (u32, u32),
+    reported: bool,
+}
+
+impl Last {
+    fn new(job: &Job) -> Self {
+        Self {
+            job: job.kind(),
+            encoder: None,
+            size: job.bounds(),
+            reported: false,
+        }
+    }
+
+    fn saw(&mut self, report: &Report) {
+        match report {
+            Report::Sharing { width, height } | Report::Opened { width, height, .. } => {
+                (self.size, self.reported) = ((*width, *height), true);
+            }
+            Report::Sending(stats) => {
+                (self.size, self.reported) = ((stats.width, stats.height), true);
+                self.encoder = Some((stats.engine.clone(), stats.codec.clone()));
+            }
+            _ => {}
+        }
+    }
+
+    /// Warns that the worker ended without a [`Report::Ended`], and how.
+    /// What it wrote to standard error before that is already in the log,
+    /// through [`crate::logging::for_worker`].
+    fn log(&self, exit: String) {
+        let (width, height) = self.size;
+        let (engine, codec) = self
+            .encoder
+            .as_ref()
+            .map_or(("unknown", "unknown"), |(engine, codec)| {
+                (engine.as_str(), codec.as_str())
+            });
+        let size = if self.reported {
+            format!("{width}x{height}")
+        } else {
+            format!("up to {width}x{height}")
+        };
+        tracing::warn!(
+            job = self.job,
+            engine,
+            codec,
+            size,
+            exit,
+            "the stream worker ended without saying why"
+        );
+    }
+}
+
+/// How the worker ended, once its output closed: it has exited by then, or
+/// is about to.
+fn exited(child: &Mutex<Child>) -> String {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let waited = child.lock().map(|mut child| child.try_wait());
+        match waited {
+            Ok(Ok(Some(status))) => return how(status),
+            Ok(Ok(None)) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(Ok(None)) => return "still running".into(),
+            Ok(Err(error)) => return format!("unknown ({error})"),
+            Err(_) => return "unknown".into(),
+        }
+    }
+}
+
+/// An exit status for the log: the signal that killed it on Unix, such as
+/// `signal=11 (SIGSEGV)`, or its exit code.
+fn how(status: ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            let core = if status.core_dumped() {
+                ", core dumped"
+            } else {
+                ""
+            };
+            return match signal_name(signal) {
+                Some(name) => format!("signal={signal} ({name}{core})"),
+                None => format!("signal={signal}{core}"),
+            };
+        }
+    }
+    match status.code() {
+        // Windows reports a crash as an NTSTATUS code, such as 0xC0000005
+        // for an access violation.
+        #[cfg(windows)]
+        Some(code) if code < 0 => format!("code={code} ({:#010X})", code as u32),
+        Some(code) => format!("code={code}"),
+        None => status.to_string(),
+    }
+}
+
+/// The name of a signal that commonly ends a process.
+#[cfg(unix)]
+fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        5 => "SIGTRAP",
+        6 => "SIGABRT",
+        #[cfg(target_os = "linux")]
+        7 => "SIGBUS",
+        #[cfg(not(target_os = "linux"))]
+        10 => "SIGBUS",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        15 => "SIGTERM",
+        _ => return None,
+    })
+}
+
 impl Drop for Worker {
     fn drop(&mut self) {
         if let Some(mut stdin) = self.stdin.take() {
             let _ = writeln!(stdin, "stop");
         }
+        let Ok(mut child) = self.child.lock() else {
+            return;
+        };
         // The worker checks for the stop between frames.
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
-            if !matches!(self.child.try_wait(), Ok(None)) {
+            if !matches!(child.try_wait(), Ok(None)) {
                 return;
             }
             std::thread::sleep(Duration::from_millis(10));
         }
         tracing::warn!("the stream worker didn't stop; ending it");
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A worker that dies without a [`Report::Ended`] logs a warning with
+    /// how it ended and the job it had, and the UI still gets the popup's
+    /// error.
+    #[cfg(unix)]
+    #[test]
+    fn a_worker_that_dies_says_how() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let died = |script: &str| {
+            let worker = directory.path().join("worker");
+            std::fs::write(&worker, format!("#!/bin/sh\nread job\n{script}\n")).unwrap();
+            std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let logged = Arc::new(Mutex::new(Vec::new()));
+            let writer = logged.clone();
+            let logger = tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_writer(move || Logged(writer.clone()))
+                .finish();
+            let _logging = tracing::subscriber::set_default(logger);
+            // Only this test starts a worker.
+            unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
+            let (worker, mut reports) = Worker::start(&Job::Glance {
+                screens: vec![],
+                width: 320,
+                height: 180,
+            })
+            .unwrap();
+            assert_eq!(
+                reports.blocking_recv(),
+                Some(Report::Ended {
+                    error: Some("Screen sharing stopped unexpectedly.".into())
+                })
+            );
+            drop(worker);
+            String::from_utf8(logged.lock().unwrap().clone()).unwrap()
+        };
+
+        // No core file: the shell's would be in the way.
+        let log = died("ulimit -c 0; kill -SEGV $$");
+        assert!(log.contains("WARN"), "{log}");
+        assert!(
+            log.contains("the stream worker ended without saying why"),
+            "{log}"
+        );
+        assert!(log.contains("exit=\"signal=11 (SIGSEGV"), "{log}");
+        assert!(log.contains("job=\"glance\""), "{log}");
+        assert!(log.contains("size=\"up to 320x180\""), "{log}");
+        assert!(log.contains("engine=\"unknown\""), "{log}");
+
+        let log = died("exit 3");
+        assert!(log.contains("exit=\"code=3\""), "{log}");
+    }
+
+    /// Collects a test's log.
+    #[cfg(unix)]
+    struct Logged(Arc<Mutex<Vec<u8>>>);
+
+    #[cfg(unix)]
+    impl Write for Logged {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn says_which_signal_ended_it() {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(how(ExitStatus::from_raw(11)), "signal=11 (SIGSEGV)");
+        assert_eq!(
+            how(ExitStatus::from_raw(6 | 0x80)),
+            "signal=6 (SIGABRT, core dumped)"
+        );
+        assert_eq!(how(ExitStatus::from_raw(1 << 8)), "code=1");
+    }
 
     #[test]
     fn the_worker_is_the_running_yapfast() {

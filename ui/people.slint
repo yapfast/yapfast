@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
@@ -35,6 +35,10 @@ export struct MemberRow {
     /// The pictures of the role their group is and of their highest role that
     /// has one, which Discord draws by the group's heading and their name.
     group-icon: string, role-icon: string,
+    /// "Server boosting since 3 March 2024" for someone who boosts their
+    /// Discord server, which a gem by the name says on hover; empty for
+    /// anyone else.
+    boosting: string,
 }
 
 /// A role's picture, asked for as it shows.
@@ -104,6 +108,8 @@ export component MemberPanel inherits Rectangle {
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
+    /// A gem by each server booster's name; on unless turned off.
+    in property <bool> boost-gems: true;
     /// A member was clicked: their id, and where their row is in the window.
     callback open-profile(string, length);
     /// A member was right-clicked: their id, and where in the window.
@@ -300,6 +306,14 @@ export component MemberPanel inherits Rectangle {
                                     accessible-role: image; accessible-label: "Server Owner";
                                 }
                             }
+                            // Discord's boosting pink, the same in every theme, as in
+                            // Discord's client.
+                            if root.boost-gems && member.boosting != "": Middle {
+                                TipIcon {
+                                    source: @image-url("icons/gem.svg"); width: 14px; height: 14px;
+                                    colorize: #ff73fa; tip: member.boosting;
+                                }
+                            }
                             if member.timed-out: Image {
                                 source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
                                 colorize: Theme.danger;
@@ -365,6 +379,23 @@ export struct ProfileBadgeRow { icon: string, description: string, link: string,
 /// account was made ("" when unknown), and whether the service verified it.
 export struct ProfileConnectionRow { kind: string, name: string, url: string, since: string, verified: bool }
 
+/// A game on a widget, with the address of its picture.
+export struct ProfileGameRow { name: string, initial: string, icon: string, comment: string }
+
+/// A widget on someone's Discord board.
+export struct ProfileWidgetRow {
+    title: string,
+    games: [ProfileGameRow],
+    /// It holds something shown only in Discord.
+    elsewhere: bool,
+}
+
+/// An item on someone's Discord wishlist, with the address of its picture.
+export struct ProfileWishlistRow { name: string, initial: string, url: string }
+
+/// A past thing on someone's Activity tab.
+export struct ProfileRecentRow { title: string, subtitle: string, url: string, initial: string, music: bool, when: string }
+
 export struct ProfileData {
     id: string, name: string, initial: string, tint: color, picture: image,
     /// The address of the decoration around their avatar, and how their name
@@ -409,8 +440,87 @@ export struct ProfileData {
     note-editable: bool,
     /// Whether messaging them is offered.
     can-message: bool,
-    /// "5 mutual friends" and "2 mutual servers".
+    /// "5 mutual friends" and "2 mutual servers"; on this account's own
+    /// profile, which shares them with nobody, "5 friends" and "2 servers".
     mutual-friends-text: string, mutual-servers-text: string,
+    /// Their Discord board and wishlist, each with a line about it: why it
+    /// doesn't show, or that it's private.
+    widgets: [ProfileWidgetRow], board-note: string,
+    wishlist: [ProfileWishlistRow], wishlist-note: string,
+    /// What they did lately, once the Activity tab asked.
+    recent: [ProfileRecentRow],
+    /// Whether the full profile has a Board and a Wishlist tab, as Discord's
+    /// client decides.
+    board-tab: bool, wishlist-tab: bool,
+    /// It's this account's own profile.
+    own: bool,
+}
+
+// A picture on the Board or Wishlist tab, asked for as it shows. What has none,
+// as Nitro has none, shows its name's first letter.
+component ShowcasePicture inherits Rectangle {
+    in property <string> url;
+    in property <string> label;
+    in property <string> initial;
+    in property <length> initial-size: 16px;
+    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    function request() {
+        if root.url != "" && root.picture.width == 0 {
+            PictureStore.request(root.url);
+        }
+    }
+    init => { root.request(); }
+    changed url => { root.request(); }
+    changed picture => { root.request(); }
+    clip: true;
+    accessible-role: image;
+    accessible-label: root.label;
+    Image { source: root.picture; width: parent.width; height: parent.height; image-fit: contain; }
+    if root.url == "": Text {
+        text: root.initial; color: Theme.muted; font-size: root.initial-size; font-weight: 700;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
+
+// A widget on the Board tab: Discord's heading for it, then its games.
+export component BoardCard inherits Rectangle {
+    in property <ProfileWidgetRow> widget;
+    in property <color> tile: Theme.raised;
+    background: root.tile;
+    border-radius: 12px;
+    VerticalLayout {
+        padding: 14px; spacing: 10px;
+        Text { text: root.widget.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+        for game in root.widget.games: HorizontalLayout {
+            spacing: 10px;
+            ShowcasePicture {
+                width: 44px; height: 44px; border-radius: 8px; background: Theme.field;
+                url: game.icon; label: game.name; initial: game.initial;
+            }
+            VerticalLayout {
+                alignment: center; spacing: 2px;
+                Text { text: game.name; color: Theme.text; font-size: 13px; font-weight: 500; overflow: elide; }
+                if game.comment != "": Text { text: game.comment; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+            }
+        }
+        if root.widget.elsewhere: Text { text: "This one only shows in Discord for now."; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+    }
+}
+
+// An item on the Wishlist tab: its picture, and its name under that.
+export component WishlistCard inherits Rectangle {
+    in property <ProfileWishlistRow> item;
+    in property <color> tile: Theme.raised;
+    background: root.tile;
+    border-radius: 12px;
+    VerticalLayout {
+        padding: 10px; spacing: 8px;
+        ShowcasePicture {
+            vertical-stretch: 1; border-radius: 8px;
+            url: root.item.url; label: root.item.name; initial: root.item.initial; initial-size: 40px;
+        }
+        Text { text: root.item.name; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; overflow: elide; }
+    }
 }
 
 /// A section's title on a card, as Discord writes it: small, bold, sentence
@@ -425,7 +535,7 @@ export component ProfileHeading inherits Text {
 
 // A badge on a profile: its picture, with its name on hover, opening its
 // page when Discord gives it one.
-component ProfileBadge inherits Rectangle {
+export component ProfileBadge inherits Rectangle {
     in property <ProfileBadgeRow> badge;
     callback open-link(string);
     property <image> picture: root.badge.icon != "" ? PictureStore.picture(root.badge.icon, PictureStore.revision) : @image-url("");
@@ -793,6 +903,8 @@ export component ProfileCard inherits Rectangle {
     callback open-friend(string, length, length, length, length);
     /// Enter in the card's message box, with what it held.
     callback send-message(string);
+    /// Edit Profile, on one's own card.
+    callback edit-profile;
     property <length> banner-height: root.side ? 140px : root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
     property <length> pad: root.side ? 20px : root.large ? 24px : 16px;
@@ -806,6 +918,13 @@ export component ProfileCard inherits Rectangle {
     property <color> theme-end: root.data.theme-secondary.mix(#000000, 0.4);
     /// What lies behind the avatar's ring, where the banner ends.
     property <color> ground: root.themed ? root.theme-start : root.plain-ground;
+    /// Their custom status or what they're doing, which Discord puts in a
+    /// thought bubble beside the picture.
+    property <bool> has-thought: root.data.activity != "" || root.data.activity-emoji != "";
+    // The bubble is solid, so its dots and bump join it with no seam; on a
+    // themed card, the colours measured off Discord's.
+    property <color> bubble: root.themed ? #232427 : Theme.raised;
+    property <color> bubble-edge: root.themed ? #404044 : Theme.edge;
     height: min(body.preferred-height, root.limit);
     background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : root.plain-ground;
     border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
@@ -837,6 +956,62 @@ export component ProfileCard inherits Rectangle {
                             background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
                             if root.data.banner.width > 0: Image {
                                 width: parent.width; height: parent.height; source: root.data.banner; image-fit: cover;
+                            }
+                        }
+                        // What they're up to, a thought beside the picture: two
+                        // lines at most, and all of it while pointed at, as Discord's.
+                        // The full profile's.
+                        if root.has-thought && root.large: Rectangle {
+                            x: root.pad + root.avatar-size + 14px; y: root.banner-height - root.avatar-size / 2 + 30px; width: 10px; height: 10px; border-radius: 5px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                        }
+                        if root.has-thought && root.large: Rectangle {
+                            x: root.pad + root.avatar-size + 26px; y: root.banner-height - root.avatar-size / 2 + 37px; width: 18px; height: 18px; border-radius: 9px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                        }
+                        if root.has-thought && root.large: Rectangle {
+                            x: root.pad + root.avatar-size + 18px; y: root.banner-height - root.avatar-size / 2 + 45px;
+                            width: min(root.width - self.x - 12px, min(180px, large-thought.preferred-width + 26px));
+                            height: (large-bubble.has-hover ? large-thought.preferred-height : min(large-thought.preferred-height, 42px)) + 16px;
+                            animate height { duration: 180ms; easing: ease-out; }
+                            clip: true; z: large-bubble.has-hover ? 10 : 0;
+                            border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            // The bump joins the bubble with no line between them.
+                            Rectangle { x: 9px; y: 0px; width: 16px; height: 2px; background: root.bubble; }
+                            large-bubble := TouchArea { }
+                            Rectangle {
+                                x: 13px; y: 8px; width: parent.width - 26px; height: parent.height - 16px; clip: true;
+                                large-thought := StatusText {
+                                    width: parent.width; height: parent.height;
+                                    text: root.data.activity; emoji-url: root.data.activity-emoji;
+                                    color: Theme.text; font-size: 14px; wrap: word-wrap;
+                                }
+                            }
+                        }
+                        // The card's.
+                        if root.has-thought && !root.large: Rectangle {
+                            x: root.pad + root.avatar-size + 2px; y: root.banner-height - 16px; width: 7px; height: 7px; border-radius: 3.5px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                        }
+                        if root.has-thought && !root.large: Rectangle {
+                            x: root.pad + root.avatar-size + 11px; y: root.banner-height - 9px; width: 11px; height: 11px; border-radius: 5.5px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                        }
+                        if root.has-thought && !root.large: Rectangle {
+                            x: root.pad + root.avatar-size + 12px; y: root.banner-height + 4px;
+                            width: min(root.width - self.x - 12px, thought.preferred-width + 24px);
+                            height: (small-bubble.has-hover ? thought.preferred-height : min(thought.preferred-height, 38px)) + 14px;
+                            animate height { duration: 180ms; easing: ease-out; }
+                            clip: true; z: small-bubble.has-hover ? 10 : 0;
+                            border-radius: 14px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            small-bubble := TouchArea { }
+                            Rectangle {
+                                x: 12px; y: 7px; width: parent.width - 24px; height: parent.height - 14px; clip: true;
+                                thought := StatusText {
+                                    width: parent.width; height: parent.height;
+                                    text: root.data.activity; emoji-url: root.data.activity-emoji;
+                                    color: Theme.text; font-size: 13px; wrap: word-wrap;
+                                }
                             }
                         }
                         Rectangle {
@@ -879,14 +1054,15 @@ export component ProfileCard inherits Rectangle {
                                 }
                                 if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: #97979f1f; outline: #97979f0a; outline-width: 1px; } }
                             }
-                            if root.data.activity != "" || root.data.activity-emoji != "": StatusText {
-                                text: root.data.activity; emoji-url: root.data.activity-emoji;
-                                color: Theme.secondary; font-size: 14px; wrap: word-wrap; max-height: 40px;
-                            }
                         }
                         // The full profile's actions: the friend button, the message
                         // button and the menu, as Discord sets them under the name.
-                        if root.large && !root.preview && (root.data.friend > 0 || root.data.can-message || root.data.id != ""): HorizontalLayout {
+                        // One's own, as Discord's, has Edit Profile in their place.
+                        if root.large && !root.preview && root.data.own: HorizontalLayout {
+                            alignment: start; height: 32px;
+                            ActionButton { text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true; small: true; clicked => { root.edit-profile(); } }
+                        }
+                        if root.large && !root.preview && !root.data.own && (root.data.friend > 0 || root.data.can-message || root.data.id != ""): HorizontalLayout {
                             spacing: 8px; alignment: start; height: 32px;
                             if root.data.friend > 0: Rectangle {
                                 height: 32px; width: friend-row.preferred-width + 24px; border-radius: 4px;
@@ -963,7 +1139,7 @@ export component ProfileCard inherits Rectangle {
                         if !root.large && (root.data.friends.length > 0 || root.data.servers.length > 0): Rectangle {
                             height: 20px;
                             accessible-role: button;
-                            accessible-label: "Show mutual friends and servers in the full profile";
+                            accessible-label: root.data.own ? "Show friends and servers in the full profile" : "Show mutual friends and servers in the full profile";
                             accessible-action-default => { root.enlarge(); }
                             HorizontalLayout {
                                 spacing: 4px; alignment: start;
@@ -1127,6 +1303,10 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         if root.data.note != "": Text { text: root.data.note; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+                        if !root.large && !root.preview && root.data.own: ActionButton {
+                            text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true;
+                            clicked => { root.edit-profile(); }
+                        }
                         // Escape in the box closes the card, as it does elsewhere.
                         if !root.large && !root.preview && root.data.message-hint != "": FocusScope {
                             // It empties for someone else's profile.
@@ -1215,11 +1395,20 @@ export component ProfileModal inherits Rectangle {
     callback open-server(ProfileServerRow, length, length, length, length);
     /// A mutual friend's full profile was asked for.
     callback open-friend(string, length, length, length, length);
-    /// 0 activity, 1 mutual friends, 2 mutual servers.
+    /// A tab opened, by its page; Board, Activity and Wishlist ask Discord
+    /// for what they show the first time.
+    callback tab-opened(int);
+    /// Edit Profile, on one's own.
+    callback edit-profile;
+    /// 0 activity, 1 mutual friends, 2 mutual servers, 3 board, 4 wishlist.
     in-out property <int> page: 0;
     // The tab asked for when it is empty falls back to the first.
     property <string> person: root.data.id;
-    changed person => { root.page = 0; }
+    changed person => { root.page = 0; root.tab-opened(0); }
+    changed page => { root.tab-opened(root.page); }
+    init => { root.tab-opened(root.page); }
+    // What tiles take on the panel, which a theme tints.
+    property <color> tile: root.data.has-theme ? #ffffff14 : Theme.raised;
     // The whole panel takes the profile's theme, not only the card on its left.
     background: root.data.has-theme
         ? @linear-gradient(180deg, root.data.theme-primary.mix(#000000, 0.4) 0%, root.data.theme-secondary.mix(#000000, 0.4) 100%)
@@ -1241,30 +1430,34 @@ export component ProfileModal inherits Rectangle {
             save-note(user, note) => { root.save-note(user, note); }
             more(x, y) => { root.more(x, y); }
             open-link(link) => { root.open-link(link); }
+            edit-profile => { root.edit-profile(); }
         }
         VerticalLayout {
             padding-left: 12px; padding-right: 12px; padding-top: 4px; spacing: 12px;
             // The tabs, with the close button at the end.
             HorizontalLayout {
                 height: 40px; spacing: 20px;
-                for entry[index] in [
-                    { label: "Activity", count: -1 },
-                    { label: root.data.mutual-friends-text, count: -1 },
-                    { label: root.data.mutual-servers-text, count: -1 },
+                // Discord's order: Board, Activity, Wishlist, then what's mutual.
+                for entry in [
+                    { label: "Board", page: 3, shows: root.data.board-tab },
+                    { label: "Activity", page: 0, shows: true },
+                    { label: "Wishlist", page: 4, shows: root.data.wishlist-tab },
+                    { label: root.data.mutual-friends-text, page: 1, shows: true },
+                    { label: root.data.mutual-servers-text, page: 2, shows: true },
                 ]: Rectangle {
-                    width: tab-text.preferred-width; height: 40px;
+                    width: entry.shows ? tab-text.preferred-width : 0px; height: 40px; visible: entry.shows;
                     accessible-role: tab;
                     accessible-label: entry.label;
                     accessible-checkable: true;
-                    accessible-checked: root.page == index;
-                    accessible-action-default => { root.page = index; }
+                    accessible-checked: root.page == entry.page;
+                    accessible-action-default => { root.page = entry.page; }
                     tab-text := Text {
-                        text: entry.count >= 0 ? entry.label + " " + entry.count : entry.label;
-                        color: root.page == index || tab-touch.has-hover ? Theme.text : Theme.muted;
-                        font-size: 14px; font-weight: root.page == index ? 700 : 500; vertical-alignment: center;
+                        text: entry.label;
+                        color: root.page == entry.page || tab-touch.has-hover ? Theme.text : Theme.muted;
+                        font-size: 14px; font-weight: root.page == entry.page ? 700 : 500; vertical-alignment: center;
                     }
-                    Rectangle { y: parent.height - 2px; height: 2px; border-radius: 1px; background: Theme.text; visible: root.page == index; }
-                    tab-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.page = index; } }
+                    Rectangle { y: parent.height - 2px; height: 2px; border-radius: 1px; background: Theme.text; visible: root.page == entry.page; }
+                    tab-touch := TouchArea { enabled: entry.shows; mouse-cursor: MouseCursor.pointer; clicked => { root.page = entry.page; } }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Rectangle {
@@ -1288,8 +1481,55 @@ export component ProfileModal inherits Rectangle {
                             activity: activity;
                             open-link(url) => { root.open-link(url); }
                         }
-                        if root.data.activities.length == 0: Text {
+                        if root.data.activities.length == 0 && root.data.recent.length == 0: Text {
                             text: "Nothing to show here right now."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                        }
+                        // What they did lately, from Discord's outbox.
+                        if root.data.recent.length > 0: Text { text: "Recent activity"; color: Theme.secondary; font-size: 12px; font-weight: 500; }
+                        for entry in root.data.recent: Rectangle {
+                            border-radius: 10px; background: root.tile;
+                            height: 84px;
+                            HorizontalLayout {
+                                padding: 12px; spacing: 12px;
+                                ShowcasePicture {
+                                    width: 60px; height: 60px; border-radius: 8px; background: root.tile;
+                                    url: entry.url; label: entry.title; initial: entry.initial; initial-size: 22px;
+                                }
+                                VerticalLayout {
+                                    alignment: center; spacing: 2px; horizontal-stretch: 1;
+                                    Text { text: entry.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                                    if entry.subtitle != "": Text { text: entry.subtitle; color: Theme.secondary; font-size: 13px; overflow: elide; }
+                                    if entry.when != "": Text { text: (entry.music ? "\u{266b} " : "") + entry.when; color: Theme.muted; font-size: 12px; }
+                                }
+                            }
+                        }
+                    }
+                    if root.page == 3: VerticalLayout {
+                        spacing: 12px;
+                        if root.data.board-note != "": Text { text: root.data.board-note; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                        if root.data.board-note == "" && root.data.widgets.length == 0: Text { text: "Nothing on the board yet."; color: Theme.muted; font-size: 14px; wrap: word-wrap; }
+                        if root.data.board-note == "": VerticalLayout {
+                            spacing: 12px;
+                            for widget in root.data.widgets: BoardCard { widget: widget; tile: root.tile; }
+                        }
+                    }
+                    if root.page == 4: wishlist-grid := VerticalLayout {
+                        property <length> gap: 12px;
+                        property <length> card-width: min((self.width - 2 * self.gap) / 3, 168px);
+                        property <length> card-height: self.card-width + 26px;
+                        property <int> count: root.data.wishlist.length;
+                        spacing: 12px;
+                        if root.data.wishlist-note != "": Text { text: root.data.wishlist-note; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                        if root.data.wishlist-note == "" && wishlist-grid.count == 0: Text { text: root.data.own ? "Nothing on your wishlist yet." : "Nothing on their wishlist."; color: Theme.muted; font-size: 14px; wrap: word-wrap; }
+                        if wishlist-grid.count > 0: Rectangle {
+                            height: ceil(wishlist-grid.count / 3) * (wishlist-grid.card-height + wishlist-grid.gap) - wishlist-grid.gap;
+                            for item[index] in root.data.wishlist: WishlistCard {
+                                x: mod(index, 3) * (wishlist-grid.card-width + wishlist-grid.gap);
+                                y: floor(index / 3) * (wishlist-grid.card-height + wishlist-grid.gap);
+                                width: wishlist-grid.card-width;
+                                height: wishlist-grid.card-height;
+                                item: item; tile: root.tile;
+                            }
                         }
                     }
                     if root.page == 1: VerticalLayout {
@@ -1301,7 +1541,7 @@ export component ProfileModal inherits Rectangle {
                             clicked => { root.open-friend(friend.id, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         }
                         if root.data.friends.length == 0: Text {
-                            text: "No friends in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                            text: root.data.own ? "No friends." : "No friends in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
                         }
                     }
                     if root.page == 2: VerticalLayout {
@@ -1313,7 +1553,7 @@ export component ProfileModal inherits Rectangle {
                             clicked => { root.open-server(server, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         }
                         if root.data.servers.length == 0: Text {
-                            text: "No servers in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                            text: root.data.own ? "No servers." : "No servers in common."; color: Theme.muted; font-size: 14px; wrap: word-wrap;
                         }
                     }
                 }

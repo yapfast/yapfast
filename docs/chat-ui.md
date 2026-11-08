@@ -147,9 +147,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   message text and 48px in the large text a message of emoji alone shows, and
   the composer shows one as a picture too, since each glyph also answers to
   the emoji's own code point. A `:shortcode:` sent without taking its
-  completion draws as its emoji. An emoji is a link, but one whose text is the
-  picture alone draws without the underline a link gets, which would show
-  across the bottom of it. Clicking one opens its card, 288px wide and opening
+  completion draws as its emoji. A link is underlined only while the pointer is
+  on it, as in Discord's client. An emoji is a link, but one whose text is the
+  picture alone is never underlined: the line would show across the bottom of
+  it. Clicking one opens its card, 288px wide and opening
   below it: its name such as `:sob:`, a line saying what it is, and, for a
   server's emoji, the server it is from, with how many of its members are
   online and whether Discover lists it, whose icon and name open that server.
@@ -160,7 +161,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   avatars that rise in turn, and Yapfast tells the room while you type unless a
   setting turns it off.
 - Hover or click a message for its toolbar: your three most used reactions, Add
-  reaction, Edit on your own message or Reply on someone else's, and More.
+  reaction, Edit on your own message or Reply on someone else's, Forward on a
+  message that can be forwarded, and More.
   More, or a right click on the message, opens a menu with your four most used
   reactions, Add reaction, View Reactions, Edit, Reply, Forward, Create Thread
   or View Thread, Copy text, Copy selection, Pin or Unpin, and Delete, with
@@ -508,12 +510,14 @@ The window follows Discord's arrangement:
 - A dock across the rail and sidebar: the voice panel, whose signal icon
   and status show a Discord call's ping on hover and its connection details
   on a click (see [Connection details](discord/voice.md#connection-details)),
-  and whose channel line under them opens the call, as Discord's does; then
+  and whose channel line under them opens the call, as Discord's does (see
+  [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
   theme, accessibility (text, links, name styles, density, contrast, motion and image descriptions), audio devices, clock, link previews,
   folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
-  device menu; the input menu shows a local level meter. While you speak in
+  device menu (see [Persistent voice channels](voice.md)); the input menu
+  shows a local level meter. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in
   the call.
 - A conversation with a 48px header: the conversation's icon and name, and

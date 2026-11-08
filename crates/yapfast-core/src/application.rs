@@ -24,6 +24,7 @@ mod browse;
 mod calls;
 mod channel_settings;
 mod compose;
+mod cosmetics;
 mod discord_account;
 mod forum;
 mod gifs;
@@ -55,6 +56,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
@@ -101,7 +103,7 @@ pub use threads::{
 use calls::call_sounds;
 use compose::has_markdown;
 use preview::{preview_members, sample_actions};
-use profiles::dm_profile;
+use profiles::{dm_profile, keep_board, names_games, same_board};
 
 /// How many people the composer suggests for an `@` word, and how many roles
 /// and groups after them.
@@ -365,6 +367,19 @@ pub struct ProfileView {
     pub kept: bool,
     /// Why Discord didn't give the rest.
     pub note: Option<String>,
+    /// The full profile's Board, Activity or Wishlist tab has been opened,
+    /// so a profile that comes later is asked after in turn.
+    pub board_open: bool,
+    pub activity_open: bool,
+    pub wishlist_open: bool,
+}
+
+/// A tab on the full profile that asks Discord for more when it first opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileTab {
+    Board,
+    Activity,
+    Wishlist,
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
@@ -512,6 +527,8 @@ pub struct AppState {
     pub activity_people: Option<(String, Arc<[crate::chat::FeedPerson]>)>,
     /// The panel shows its header alone.
     pub activity_cards_hidden: bool,
+    /// Which of the cosmetics people wear show, and are fetched.
+    pub cosmetics: Cosmetics,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -540,6 +557,9 @@ pub struct AppState {
     /// shown name.
     pub profile_effects: Vec<Arc<crate::chat::ProfileEffect>>,
     pub account_nameplate: Option<crate::chat::Nameplate>,
+    /// The account's own Discord profile, for its card's banner, theme, name
+    /// and badges, once its card asked for it.
+    pub account_profile: Option<Arc<Profile>>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -1019,6 +1039,7 @@ impl AppState {
                 tag: None,
                 group_icon: None,
                 role_icon: None,
+                boosting_since: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -1050,6 +1071,7 @@ impl AppState {
                 tag: None,
                 group_icon: None,
                 role_icon: None,
+                boosting_since: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -1081,6 +1103,7 @@ impl AppState {
             tag: None,
             group_icon: None,
             role_icon: None,
+            boosting_since: None,
         })
     }
 
@@ -1414,6 +1437,9 @@ pub enum Action {
     OpenChat(String),
     /// Show the selected voice channel's chat, or with `false` its call.
     ShowVoiceChat(bool),
+    /// Go to the call this account is in, from the voice panel's link to it:
+    /// its server and channel, or its DM; nothing while it already shows.
+    GoToCall,
     /// Show a Discord thread beside the open channel, as its link in a
     /// message does; anything else opens as [`Action::Open`] does.
     OpenAside(String),
@@ -2063,6 +2089,25 @@ pub enum Action {
     WindowFocused(bool),
     /// Hides or shows the cards in the member list's Activity panel.
     ActivityCardsHidden(bool),
+    /// A tab of the full profile opened.
+    OpenProfileTab(ProfileTab),
+    /// The account's card opened: ask for its own profile, which it draws from.
+    LoadOwnProfile,
+    /// Pick the server whose tag to wear in the profile editor; empty for none.
+    ChooseServerTag(String),
+    /// Set the name style from its window; colours are hex, joined by commas.
+    ChooseNameStyle {
+        font: u8,
+        effect: u8,
+        colours: String,
+    },
+    /// The profile editor's wishlist tab opened.
+    OpenWishlist,
+    /// Which cosmetics show, from Settings → Appearance → Profiles. What's
+    /// shown loses what's turned off at once; what's turned on shows as its
+    /// pictures arrive, and a profile's effect once the profile is fetched
+    /// again.
+    SetCosmetics(Cosmetics),
     /// Mark Discord channels read on Discord when reading them in Yapfast.
     SyncDiscordReads(bool),
     /// Accept the selected Discord message request, or ignore it.
@@ -2281,13 +2326,20 @@ fn pictures_on_screen<'a>(
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
 ) -> impl Iterator<Item = &'a str> {
+    let cosmetics = state.cosmetics;
     state
         .servers
         .iter()
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
-        .chain(state.account_decoration.as_deref())
+        .chain(cosmetics.decoration(state.account_decoration.as_deref()))
+        .chain(
+            state
+                .account_profile
+                .iter()
+                .filter_map(|profile| profile.banner.as_deref()),
+        )
         .chain(
             state
                 .account_nameplate
@@ -2299,11 +2351,11 @@ fn pictures_on_screen<'a>(
             state
                 .scoped_rooms()
                 .filter(move |_| list_avatars)
-                .flat_map(|room| {
+                .flat_map(move |room| {
                     [
                         room.avatar.as_deref(),
-                        room.decoration.as_deref(),
-                        tag_badge(&room.tag),
+                        cosmetics.decoration(room.decoration.as_deref()),
+                        tag_badge(cosmetics, &room.tag),
                     ]
                 })
                 .flatten()
@@ -2464,7 +2516,7 @@ fn pictures_on_screen<'a>(
                 .chain(&state.panel_profile)
                 .flat_map(move |view| {
                     let profile = &view.profile;
-                    let effect = profile.effect.as_deref().and_then(|sku| {
+                    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
                         state
                             .profile_effects
                             .iter()
@@ -2480,8 +2532,8 @@ fn pictures_on_screen<'a>(
                         )
                         .chain(profile.friends.iter().map(|friend| &friend.avatar))
                         .filter_map(Option::as_deref)
-                        .chain(profile.decoration.as_deref())
-                        .chain(tag_badge(&profile.tag))
+                        .chain(cosmetics.decoration(profile.decoration.as_deref()))
+                        .chain(tag_badge(cosmetics, &profile.tag))
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         // Its layers are asked for when it first plays.
                         .chain(effect.into_iter().flat_map(move |effect| {
@@ -2516,7 +2568,7 @@ fn pictures_on_screen<'a>(
             timeline
                 .iter()
                 .filter(move |_| list_avatars)
-                .flat_map(|message| {
+                .flat_map(move |message| {
                     let reply = message
                         .reply
                         .as_ref()
@@ -2525,9 +2577,9 @@ fn pictures_on_screen<'a>(
                         .avatar
                         .as_deref()
                         .into_iter()
-                        .chain(message.decoration.as_deref())
+                        .chain(cosmetics.decoration(message.decoration.as_deref()))
                         .chain(reply)
-                        .chain(tag_badge(&message.tag))
+                        .chain(tag_badge(cosmetics, &message.tag))
                 })
                 .chain(
                     timeline.iter().flat_map(|message| {
@@ -2550,10 +2602,10 @@ fn pictures_on_screen<'a>(
                         .filter(move |_| list_avatars)
                         .flat_map(|role| role.members.iter().flatten()),
                 )
-                .flat_map(|member| {
+                .flat_map(move |member| {
                     [
                         member.avatar.as_deref(),
-                        member.decoration.as_deref(),
+                        cosmetics.decoration(member.decoration.as_deref()),
                         member
                             .nameplate
                             .as_ref()
@@ -2561,7 +2613,7 @@ fn pictures_on_screen<'a>(
                             .map(|plate| &*plate.picture),
                         member.group_icon.as_deref(),
                         member.role_icon.as_deref(),
-                        tag_badge(&member.tag),
+                        tag_badge(cosmetics, &member.tag),
                     ]
                     .into_iter()
                     .flatten()
@@ -2577,8 +2629,8 @@ fn pictures_on_screen<'a>(
 }
 
 /// The address of the picture of a server tag's badge.
-fn tag_badge(tag: &Option<chat::ServerTag>) -> Option<&str> {
-    tag.as_ref()?.badge.as_deref()
+fn tag_badge(cosmetics: Cosmetics, tag: &Option<chat::ServerTag>) -> Option<&str> {
+    cosmetics.tag(tag.as_ref())?.badge.as_deref()
 }
 
 /// Discord's CDN keeps custom emoji under /emojis/.
@@ -2834,6 +2886,7 @@ impl Application {
             Action::Open(id) => self.open(id, false),
             Action::OpenChat(id) => self.open(id, true),
             Action::ShowVoiceChat(chat) => self.show_voice_chat(chat),
+            Action::GoToCall => self.go_to_call(),
             Action::OpenAside(id) => self.open_aside(id),
             Action::CloseAside => self.close_aside(),
             Action::ExpandAside => self.expand_aside(),
@@ -3483,6 +3536,25 @@ impl Application {
                 self.state.hide_nameplates = hide;
                 vec![]
             }
+            Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::LoadOwnProfile => self.load_own_profile(),
+            Action::OpenWishlist => self.open_wishlist(),
+            Action::ChooseServerTag(server) => {
+                self.choose_server_tag(server);
+                vec![]
+            }
+            Action::ChooseNameStyle {
+                font,
+                effect,
+                colours,
+            } => {
+                self.choose_name_style(font, effect, &colours);
+                vec![]
+            }
+            Action::SetCosmetics(cosmetics) => {
+                self.state.cosmetics = cosmetics;
+                vec![]
+            }
             Action::WindowFocused(focused) => self.window_focused(focused),
             Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
             Action::SkipCallPrompt(skip) => {
@@ -3719,11 +3791,14 @@ impl Application {
                     self.state.notice = Some(message);
                 }
             }
-            Event::Profile { user, result } => self.show_fetched_profile(user, result),
+            Event::Profile { user, result } => return self.show_fetched_profile(user, result),
             Event::ActivityFeed(entries) => return self.show_activity_feed(entries),
             Event::ActivityFeedDue => return self.activity_feed_due(),
             Event::ActivityPeople { room, people } => self.show_activity_people(room, people),
-            Event::KeptProfile { user, profile } => self.show_kept_profile(user, profile),
+            Event::KeptProfile { user, profile } => return self.show_kept_profile(user, profile),
+            Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
+            Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
+            Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
@@ -3848,11 +3923,11 @@ impl Application {
             Event::ServerDeleted { server, result } => self.server_deleted(server, result),
             Event::ServerTransferred { server, result } => self.server_transferred(server, result),
             Event::ServerPincodeSent { server, result } => self.server_pincode_sent(server, result),
-            Event::OwnProfile { server, result } => self.own_profile_loaded(server, result),
+            Event::OwnProfile { server, result } => return self.own_profile_loaded(server, result),
             Event::ProfilePicture { kind, path, result } => {
                 self.profile_picture_read(kind, path, result);
             }
-            Event::ProfileSaved { server, result } => self.profile_saved(server, result),
+            Event::ProfileSaved { server, result } => return self.profile_saved(server, result),
             Event::MfaRequired { id, methods } => return self.mfa_required(id, methods),
             Event::MfaFinished { id, result } => return self.mfa_finished(id, result),
             Event::MfaTexted { id, result } => self.mfa_texted(id, result),

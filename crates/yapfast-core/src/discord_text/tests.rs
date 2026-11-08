@@ -26,6 +26,7 @@ fn answers_discord_commands_while_discord_is_away() {
         DiscordCommand::Profile {
             room: "discord:10:11".into(),
             user: "2".into(),
+            effect: false,
         },
     ] {
         without(Command::Discord(command), why, &events);

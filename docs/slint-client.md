@@ -23,9 +23,10 @@ application model are in `yapfast-core`.
   UI](chat-ui.md#layout-and-look)), Lucide SVG icons, custom text fields, and
   window sizing from 1120×760 down to 800×560. Settings cover the window in
   sections: account, appearance (the [themes](themes.md)), accessibility
-  (text, links, name styles, density, colour, contrast, motion and image descriptions), voice and video,
-  messages (clock, link previews and folding
-  long messages), notifications, sounds, Discord
+  (text, links, name styles, density, colour, contrast, motion and image
+  descriptions), voice and video,
+  messages (clock, link previews, folding long messages and boost gems),
+  notifications, sounds, Discord
   and advanced (the renderer, closing to the tray), closed by its close button
   or Escape. Desktop notifications for DMs and mentions show while Yapfast
   isn't in front; clicking one opens the conversation. Closing the window

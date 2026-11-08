@@ -138,7 +138,7 @@ pub const YAP: Theme = Theme {
     on_danger: rgb(0xffffff),
     live: rgb(0x3ecf7e),
     loud: rgb(0xff8c42),
-    link: rgb(0x7cc4ff),
+    link: rgb(0x64adf6),
     button_default: rgb(0x33343c),
     button_default_hover: rgb(0x3c3d46),
     overlay: rgb(0xffffff),
@@ -895,7 +895,7 @@ thread_local! {
     /// The colour of a mention without one of its own, as `0xrrggbb`: the
     /// theme's link colour. Rows build their markup with it, outside the
     /// window, on the window's thread.
-    static MENTION: Cell<u32> = const { Cell::new(0x7cc4ff) };
+    static MENTION: Cell<u32> = const { Cell::new(0x64adf6) };
     /// The theme's text and muted colours, the same way, for a notice's
     /// name, links and time.
     static TEXT: Cell<u32> = const { Cell::new(0xf2f3f5) };

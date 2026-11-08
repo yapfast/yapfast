@@ -355,6 +355,10 @@ export component VoiceDock inherits Rectangle {
     in property <bool> camera-starting;
     /// The call has Discord's soundboard.
     in property <bool> can-soundboard;
+    /// Noise suppression is on; it can be turned on and off from the call.
+    in property <bool> noise-on;
+    in property <bool> can-noise;
+    callback toggle-noise;
     callback leave-voice;
     callback dismiss-voice-error;
     callback toggle-camera;
@@ -399,20 +403,34 @@ export component VoiceDock inherits Rectangle {
                         Rectangle { horizontal-stretch: 1; }
                     }
                     // The channel's line opens the call, as Discord's link
-                    // under "Voice Connected" does; the status opens the
-                    // connection's details.
-                    if root.voice-active: Rectangle {
+                    // under "Voice Connected" does, underlined while pointed
+                    // at or focused; the status opens the connection's details.
+                    if root.voice-active: detail-line := Rectangle {
                         height: 18px;
-                        Text {
+                        property <bool> lit: detail-touch.has-hover || detail-focus.has-focus;
+                        detail-text := Text {
                             width: parent.width; height: parent.height;
                             text: root.voice-detail; font-size: 13px; overflow: elide; vertical-alignment: center;
-                            color: detail-touch.has-hover ? Theme.text : Theme.muted;
+                            color: detail-line.lit ? Theme.text : Theme.muted;
                         }
-                        detail-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
+                        if detail-line.lit: Rectangle {
+                            x: 0px; y: (parent.height + 13px) / 2 + 1px; height: 1px;
+                            width: min(parent.width, detail-text.preferred-width);
+                            background: Theme.text;
+                        }
+                        detail-focus := FocusScope {
                             accessible-role: button; accessible-label: root.voice-detail + ". Open the call";
                             accessible-action-default => { root.open-call(); }
-                            clicked => { root.open-call(); }
+                            key-pressed(event) => {
+                                if event.text == "\n" || event.text == " " {
+                                    root.open-call(); return accept;
+                                }
+                                return reject;
+                            }
+                            detail-touch := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => { root.open-call(); }
+                            }
                         }
                     }
                 }
@@ -420,6 +438,13 @@ export component VoiceDock inherits Rectangle {
                     y: status-text.y + status-row.y; height: status-row.height;
                     open(x, y, width, height) => { root.open-call-link(x, y, width, height); }
                 }
+            }
+            // Beside leaving, as in Vesktop. Off shows red, so it isn't forgotten.
+            if root.voice-active && root.can-noise: IconButton {
+                icon: root.noise-on ? @image-url("icons/noise-bars.svg") : @image-url("icons/noise-bars-off.svg");
+                label: root.noise-on ? "Turn off noise suppression" : "Turn on noise suppression";
+                alert: !root.noise-on;
+                clicked => { root.toggle-noise(); }
             }
             if root.voice-active: IconButton {
                 icon: @image-url("icons/phone-off.svg"); label: "Leave voice"; danger: true;

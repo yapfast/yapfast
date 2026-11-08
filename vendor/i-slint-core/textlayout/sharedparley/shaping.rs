@@ -27,6 +27,9 @@ pub(super) struct Brush {
     pub(super) override_fill_color: Option<Color>,
     pub(super) stroke: Option<TextStrokeStyle>,
     pub(super) link_color: Option<Color>,
+    /// Yapfast: a link's text, underlined only while the pointer is on the link, as in
+    /// Discord's client. Not a mention, whose pill marks it, nor an emoji's picture.
+    pub(super) underline_on_hover: bool,
 }
 
 pub(super) struct LayoutWithoutLineBreaksBuilder {
@@ -163,6 +166,7 @@ impl LayoutWithoutLineBreaksBuilder {
             override_fill_color: None,
             stroke: self.stroke,
             link_color: None,
+            underline_on_hover: false,
         }));
 
         builder
@@ -237,6 +241,7 @@ impl LayoutWithoutLineBreaksBuilder {
                                 override_fill_color: color,
                                 stroke: self.stroke,
                                 link_color: None,
+                                underline_on_hover: false,
                             }),
                             span.range,
                         );
@@ -245,17 +250,21 @@ impl LayoutWithoutLineBreaksBuilder {
                         // Yapfast: an emoji's link is its picture, and a picture
                         // has nothing to underline: the line would show across
                         // the bottom of it.
-                        if underline_links && !is_pictures(&text[span.range.clone()]) {
+
+                        let underline_on_hover = !is_pictures(&text[span.range.clone()]);
+                        if underline_links && underline_on_hover {
                             builder.push(
                                 parley::StyleProperty::Underline(true),
                                 span.range.clone(),
                             );
                         }
+
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
                                 override_fill_color: None,
                                 stroke: self.stroke,
                                 link_color,
+                                underline_on_hover,
                             }),
                             span.range,
                         );
@@ -268,6 +277,7 @@ impl LayoutWithoutLineBreaksBuilder {
                                 override_fill_color: Some(crate::Color::from_argb_encoded(color)),
                                 stroke: self.stroke,
                                 link_color: None,
+                                underline_on_hover: false,
                             }),
                             span.range,
                         );
