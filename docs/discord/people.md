@@ -260,7 +260,9 @@ tabs say "5 friends" and "2 servers" rather than "5 mutual friends" and
 in common." Presence and activity come from the member
 list, since the profile doesn't carry them. Their custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
-Discord's: two lines at most, and all of it while pointed at. When Discord refuses, the card
+Discord's: two lines at most, and all of it while pointed at. One's
+own card, small or full, has Edit Profile in place of the friend and
+message buttons, which opens the [editor](#editing-ones-main-profile). When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
 
