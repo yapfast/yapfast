@@ -6,7 +6,7 @@
 use super::*;
 use crate::chat::{
     DiscordCommand, NotificationChange, Notifications, Permission, ServerNotifications,
-    ServerPreview, ServerRole,
+    ServerPreview, ServerRole, TagServer,
 };
 
 #[cfg(feature = "discord")]
@@ -315,5 +315,38 @@ impl Application {
                 tracing::warn!(%error, "could not show what a server's card shows");
             }
         }
+    }
+
+    /// Asks Discord for the profile of the server a tag is from, for the
+    /// tag's card. Discord's service answers from what it fetched in the last
+    /// few minutes, so a card opened again soon asks Discord nothing.
+    pub(super) fn open_server_tag(&mut self, server: String) -> Vec<Effect> {
+        if self.state.preview
+            || !self.state.discord_online
+            || Network::of(&server) != Network::Discord
+        {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::TagServer { server },
+        ))]
+    }
+
+    /// Keeps what Discord said of a tag's server, for its card. A refusal
+    /// shows on a card that has nothing else, and a failure leaves what an
+    /// earlier answer said.
+    pub(super) fn show_tag_server(&mut self, server: String, result: Result<TagServer, String>) {
+        if let Err(error) = &result {
+            tracing::debug!(%error, "Discord didn't show a server tag's server");
+            if self
+                .state
+                .tag_servers
+                .get(&server)
+                .is_some_and(Result::is_ok)
+            {
+                return;
+            }
+        }
+        self.state.tag_servers.insert(server, result);
     }
 }

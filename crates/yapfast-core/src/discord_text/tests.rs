@@ -1874,3 +1874,40 @@ async fn a_servers_card_shows_how_many_of_its_members_are_online() {
     assert_eq!(preview.online, Some(3), "Dave is offline");
     assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_server_tags_card_shows_its_servers_profile() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let server = discord::server_id(FAKE_GUILD);
+    command(
+        Command::Discord(DiscordCommand::TagServer {
+            server: server.clone(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let answer = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::TagServer {
+                server: asked,
+                result,
+            } = received.recv().await.unwrap()
+                && asked == server
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    let shown = answer.expect("what the tag's card shows");
+    assert_eq!(shown.name, "Server");
+    assert!(shown.icon.is_some());
+    assert_eq!(shown.online, Some(1));
+}

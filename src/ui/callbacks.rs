@@ -231,6 +231,26 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     super::server_settings::bind(window, adapter);
     super::channel_settings::bind(window, adapter);
     super::title_bar::bind(window, adapter);
+    // A server tag opens its server's card beside it, showing what's known
+    // at once, and asks Discord for the rest.
+    window.global::<ServerTags>().on_open({
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        move |server, text, badge, x, y, width, height| {
+            let Some(window) = weak.upgrade() else { return };
+            window.invoke_anchor_link(x, y, width, height);
+            let tag = ShownTag {
+                server: server.to_string(),
+                text,
+                badge,
+            };
+            let mut adapter = state.borrow_mut();
+            window.set_tag_card(tag_card(&tag, &adapter.app.state));
+            window.set_tag_card_open(true);
+            adapter.tag_card = Some(tag);
+            adapter.action(&window, Action::OpenServerTag(server.into()));
+        }
+    });
     // UI bindings can request images while refresh borrows the adapter.
     // Deliver their requests in one batch after the current UI work.
     let pending = Rc::new(RefCell::new(HashSet::new()));

@@ -1588,6 +1588,119 @@ fn an_animated_emoji_draws_a_frame_only_while_playing() {
 }
 
 #[test]
+fn a_click_on_a_server_tag_opens_its_servers_card() {
+    use slint::platform::{Key, PointerEventButton, WindowEvent};
+    let window = showing(vec![ChatMessage {
+        author: "Bob".into(),
+        body: "hi".into(),
+        tag: Some(yapfast_core::chat::ServerTag {
+            text: "BOB".into(),
+            badge: None,
+            guild: "10".into(),
+        }),
+        ..Default::default()
+    }]);
+    // The card as the adapter builds it, for an account in the tag's server.
+    let mut state = yapfast_core::application::AppState::default();
+    state.servers.push(Arc::new(yapfast_core::chat::ChatServer {
+        id: "discord:10".into(),
+        name: "Crew".into(),
+        ..Default::default()
+    }));
+    let weak = window.as_weak();
+    window
+        .global::<ServerTags>()
+        .on_open(move |server, text, badge, x, y, width, height| {
+            let window = weak.unwrap();
+            window.invoke_anchor_link(x, y, width, height);
+            let tag = ShownTag {
+                server: server.to_string(),
+                text,
+                badge,
+            };
+            window.set_tag_card(tag_card(&tag, &state));
+            window.set_tag_card_open(true);
+        });
+    let button = PointerEventButton::Left;
+    // The tag follows the author's name, on the line above the message at
+    // the end of the list.
+    'sweep: for y in (560..700).step_by(3) {
+        for x in (360..520).step_by(3) {
+            let position = slint::LogicalPosition::new(x as f32, y as f32);
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerPressed { position, button });
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerReleased { position, button });
+            if window.get_tag_card_open() {
+                break 'sweep;
+            }
+        }
+    }
+    assert!(
+        window.get_tag_card_open(),
+        "a click on the tag opens its card"
+    );
+    let card = window.get_tag_card();
+    assert_eq!(card.name, "Crew");
+    assert_eq!(card.tag, "BOB");
+    assert!(card.joined, "Go to Server shows");
+    settle(&window);
+    tap(&window, Key::Escape.into());
+    assert!(!window.get_tag_card_open(), "Escape closes it");
+}
+
+#[test]
+fn a_server_tags_card_fills_in_as_discord_answers() {
+    let mut state = yapfast_core::application::AppState::default();
+    let tag = ShownTag {
+        server: "discord:10".into(),
+        text: "UFO".into(),
+        badge: "https://cdn.discordapp.com/clan-badges/10/abc.png?size=32".into(),
+    };
+    // Before Discord answers, the tag shows alone, its letter in the icon's place.
+    let asked = tag_card(&tag, &state);
+    assert_eq!((asked.name.as_str(), asked.initial.as_str()), ("", "U"));
+    assert_eq!(asked.tag, "UFO");
+    assert_eq!(asked.badge, tag.badge);
+    assert_eq!((asked.online.as_str(), asked.note.as_str()), ("", ""));
+    assert!(!asked.joined, "no way in to a server this account isn't in");
+    state.tag_servers.insert(
+        tag.server.clone(),
+        Ok(yapfast_core::chat::TagServer {
+            name: "Aliens".into(),
+            icon: Some("https://cdn.discordapp.com/icons/10/abc.png".into()),
+            description: "We come in peace".into(),
+            members: Some(4644),
+            online: Some(1),
+        }),
+    );
+    let answered = tag_card(&tag, &state);
+    assert_eq!(answered.name, "Aliens");
+    assert_eq!(answered.initial, "A");
+    assert_eq!(
+        answered.picture_url,
+        "https://cdn.discordapp.com/icons/10/abc.png"
+    );
+    assert_eq!(answered.online, "1 Online");
+    assert_eq!(
+        answered.members, "4,644 Members",
+        "grouped as Discord writes it"
+    );
+    assert_eq!(answered.description, "We come in peace");
+    assert!(!answered.joined);
+    // A server Discord keeps from those outside it says so, quietly.
+    state.tag_servers.insert(
+        tag.server.clone(),
+        Err("Discord doesn't show this server".into()),
+    );
+    let refused = tag_card(&tag, &state);
+    assert_eq!(refused.name, "");
+    assert!(!refused.note.is_empty());
+}
+
+#[test]
 fn an_emoji_card_says_how_many_of_its_servers_members_are_online() {
     let mut pictures = HashMap::new();
     let mut state = yapfast_core::application::AppState::default();

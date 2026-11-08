@@ -1626,6 +1626,7 @@ fn offered_tag(guild: &Value) -> Option<crate::message::Tag> {
             .as_str()
             .filter(|badge| !badge.is_empty())
             .map(|badge| guild_tag_badge(id, badge).into()),
+        guild: id.into(),
     })
 }
 

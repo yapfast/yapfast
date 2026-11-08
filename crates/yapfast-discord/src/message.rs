@@ -1001,6 +1001,10 @@ pub struct Tag {
     pub text: Arc<str>,
     /// The address of the picture of the server's tag badge, when it has one.
     pub badge: Option<Arc<str>>,
+    /// The server it's from, by its id, which its card opens; empty in a
+    /// profile saved before Yapfast kept it.
+    #[serde(default)]
+    pub guild: Arc<str>,
 }
 
 impl Tag {
@@ -1024,9 +1028,14 @@ impl Tag {
                 .as_str()
                 .filter(|hash| !hash.is_empty())
                 .map(|hash| ready::guild_tag_badge(guild, hash).into()),
+            guild: guild.into(),
         })
     }
 }
+
+/// A person's tag as saved: their user id, its server's id, text and badge
+/// address.
+type SavedTag = (String, Arc<str>, Arc<str>, Option<Arc<str>>);
 
 /// [`Names`] as saved to disk, where maps keyed by server and user become
 /// lists.
@@ -1042,9 +1051,10 @@ pub struct SavedNames {
     usernames: Vec<(String, String)>,
     #[serde(default)]
     bots: Vec<String>,
-    /// Each person's tag: user id, text and badge address.
+    /// Each person's tag. Tags saved before their server was kept, under
+    /// `tags`, are left to be learned again.
     #[serde(default)]
-    tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
+    server_tags: Vec<SavedTag>,
     /// Avatar decorations' SKUs by user id.
     #[serde(default)]
     decorations: Vec<(String, String)>,
@@ -1133,12 +1143,12 @@ impl serde::Serialize for SavingNames<'_> {
         )?;
         saved.serialize_field("bots", &List(|| names.bots.iter().copied().map(Text)))?;
         saved.serialize_field(
-            "tags",
+            "server_tags",
             &List(|| {
                 names
                     .tags
                     .iter()
-                    .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
+                    .map(|(user, tag)| (Text(*user), &tag.guild, &tag.text, &tag.badge))
             }),
         )?;
         saved.serialize_field(
@@ -1342,9 +1352,11 @@ impl Names {
             usernames: by_user(saved.usernames),
             bots: saved.bots.iter().filter_map(|user| id(user)).collect(),
             tags: saved
-                .tags
+                .server_tags
                 .into_iter()
-                .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
+                .filter_map(|(user, guild, text, badge)| {
+                    Some((id(&user)?, Tag { text, badge, guild }))
+                })
                 .collect(),
             decorations: saved
                 .decorations
@@ -2786,6 +2798,7 @@ mod tests {
         names.learn_user(&wears(true));
         let tag = names.server_tag("2").unwrap();
         assert_eq!(&*tag.text, "CODE");
+        assert_eq!(&*tag.guild, "10", "its card opens its server");
         assert!(
             tag.badge
                 .as_deref()
@@ -2802,6 +2815,13 @@ mod tests {
         let saved = serde_json::to_vec(&names.saving()).unwrap();
         let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
         assert_eq!(restored.server_tag("2"), names.server_tag("2"));
+        // Names saved before tags kept their server still read, without the
+        // tags, which come again with the next user objects.
+        let earlier = json!({
+            "users": [], "nicknames": [], "members": [], "avatars": [],
+            "member_avatars": [], "roles": [], "tags": [["2", "CODE", null]]});
+        let restored = Names::restore(serde_json::from_value(earlier).unwrap());
+        assert_eq!(restored.server_tag("2"), None);
 
         // Leaving it off, or taking it away, removes it, and redraws them.
         let version = names.version();

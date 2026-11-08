@@ -48,7 +48,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } fro
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
+import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard, TagCard, TagCardView } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
@@ -70,11 +70,11 @@ export { Theme, Badges, Popup, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
-export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
+export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ServerTags } from "controls.slint";
 export { ServerTagRow } from "server.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
-export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
+export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow, TagCard } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
@@ -728,6 +728,10 @@ export component YapfastWindow inherits Window {
     /// beside it until a click outside or Escape closes it.
     in-out property <bool> emoji-card-open;
     in property <EmojiCard> emoji-card;
+    /// The card of the server tag clicked last, beside the tag until a click
+    /// outside or Escape closes it.
+    in-out property <bool> tag-card-open;
+    in property <TagCard> tag-card;
     /// Send someone a message in their DM from their card: who, and what.
     callback message-from-profile(string, string);
     /// Open the DM with this person, from the buttons of the full profile.
@@ -1477,7 +1481,7 @@ export component YapfastWindow inherits Window {
     // own take the text first.
     property <bool> composer-covered: root.settings-open || root.server-settings-open
         || root.channel-settings-open || root.profile-editor-open || root.profile-open
-        || root.role-open || root.server-card-open || root.emoji-card-open || root.topic-open
+        || root.role-open || root.server-card-open || root.emoji-card-open || root.tag-card-open || root.topic-open
         || root.pins-open || root.threads-open || root.add-people-open || root.viewer-open
         || (VideoPlayer.expanded && VideoPlayer.item != "") || root.stage-full
         || root.switcher-open || root.mfa-open || root.add-friend-open || root.invite-open
@@ -4248,6 +4252,31 @@ export component YapfastWindow inherits Window {
             open-server(server) => {
                 root.emoji-card-open = false;
                 root.navigate-server(server);
+            }
+        }
+    }
+    // A server tag's card, beside the tag clicked, over the profile it may be
+    // on. A click outside or Escape closes it.
+    tag-card-motion := PopupMotion { open: root.tag-card-open; }
+    if tag-card-motion.shown: Rectangle {
+        TouchArea { clicked => { root.tag-card-open = false; } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.tag-card-open = false; return accept; }
+                return reject;
+            }
+        }
+        TagCardView {
+            opacity: Popup.opacity(tag-card-motion.amount); transform-scale: Popup.scale(tag-card-motion.amount);
+            x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
+            y: root.anchor-y + root.anchor-height + 4px + self.height <= root.height - 8px
+                ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
+            card: root.tag-card;
+            open => {
+                root.tag-card-open = false;
+                root.close-profile();
+                root.navigate-server(root.tag-card.server);
             }
         }
     }

@@ -406,6 +406,7 @@ impl Adapter {
         self.show_reactions(window);
         self.show_gifs(window);
         self.show_emoji_card(window);
+        self.show_tag_card(window);
         self.show_emoji_animations(window);
         self.show_composer(window);
         self.show_messages(window, &changes);
@@ -531,6 +532,18 @@ impl Adapter {
         let Adapter { app, pictures, .. } = self;
         let card = messages::emoji_card_for(app, target, pictures);
         window.set_emoji_card(card);
+    }
+
+    /// The open server tag's card, built again while it is open, so it shows
+    /// what Discord said of the tag's server once that arrives.
+    fn show_tag_card(&mut self, window: &YapfastWindow) {
+        let Some(tag) = self.tag_card.as_ref() else {
+            return;
+        };
+        if !window.get_tag_card_open() {
+            return;
+        }
+        window.set_tag_card(profile::tag_card(tag, &self.app.state));
     }
 
     /// Whether Yapfast is signed in or previewing, what the account is doing, and
@@ -1920,6 +1933,7 @@ impl Adapter {
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
                         tag: tag_text(cosmetics.tag(member.tag.as_ref())),
                         tag_badge: tag_badge(cosmetics.tag(member.tag.as_ref())),
+                        tag_server: tag_server(cosmetics.tag(member.tag.as_ref())),
                         decoration_url: cosmetics
                             .decoration(member.decoration.as_deref())
                             .unwrap_or_default()
