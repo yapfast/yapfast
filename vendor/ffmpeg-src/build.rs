@@ -49,6 +49,7 @@ fn main() {
 
     let mut build = cc::Build::new();
     use_clang_cl(&mut build);
+    use_configured_clang(&mut build);
     build
         .includes(&folders)
         .files(sources.lines().map(|file| root.join(file)))
@@ -119,6 +120,21 @@ fn use_clang_cl(build: &mut cc::Build) {
         )
     });
     build.compiler(clang_cl);
+}
+
+// Every gen/<os>-<arch> that isn't MSVC was configured with clang, so its C
+// compiles with the compiler configure tested it with. That is not only
+// faithfulness: GCC 14.3's expander gives up on me_cmp.c's VSAD at this opt
+// level, and the development shell's CC names GCC. A build that wants another
+// C compiler edits this.
+fn use_configured_clang(build: &mut cc::Build) {
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        return;
+    }
+    if build.get_compiler().is_like_clang() {
+        return;
+    }
+    build.compiler("clang");
 }
 
 fn has_explicit_compiler() -> bool {

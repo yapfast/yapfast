@@ -20,10 +20,21 @@ NVH_SHA256=bfb3306f22c169fedcfc5489b344f414089eec796ffd528412677b0c872bc6e2
 # The oldest FFmpeg takes: the driver's AMF runtime must be as new.
 AMF_VERSION=1.5.2
 AMF_SHA256=d3c12eb324edf05e214608b6a395a51dd95770ed9d45520185d6c3a206811c99
-# Hardware encoders, and the HEVC decoder for watching H265 streams, which
-# libwebrtc's FFmpeg lacks: the libraries hold nothing else.
+# Hardware encoders, and every codec Yapfast streams: the decoders and parsers
+# are what a watched stream's pictures come from, in software and, on Windows,
+# through Direct3D 11's own decode, on any vendor's card. libwebrtc's FFmpeg
+# carries none of them, so these are the only ones in the libraries.
 LINUX_ENCODERS=h264_nvenc,hevc_nvenc,av1_nvenc,h264_vaapi,hevc_vaapi,av1_vaapi
 WINDOWS_ENCODERS=h264_nvenc,hevc_nvenc,av1_nvenc,h264_amf,hevc_amf,av1_amf
+# H264, HEVC, AV1 and VP9 are what Discord negotiates, in a call and in a
+# stream, and the four decoders here are also the build's software path.
+DECODERS=h264,hevc,av1,vp9
+PARSERS=h264,hevc,av1,vp9
+# The hardware decode hands its surfaces to the device the window and the
+# encoder already hold, through AVD3D11VAFramesContext, whose pool decoder.rs
+# allocates up front. The *_d3d11va2 variants decode into textures the caller
+# owns; these give frames the caller can pre-allocate.
+WINDOWS_HWACCELS=h264_d3d11va,hevc_d3d11va,av1_d3d11va,vp9_d3d11va
 COMMON=(--disable-everything --disable-programs --disable-doc --disable-network
   --disable-autodetect --disable-avformat --disable-avdevice --disable-swscale
   --disable-swresample --disable-avfilter --disable-iconv
@@ -48,7 +59,8 @@ llvm=$(nix build --no-link --print-out-paths --inputs-from "path:$root/nix" \
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 fetch() {  # url file sha256
-  curl -sSfL -o "$work/$2" "$1"
+  # ffmpeg.org and the release pages reset a connection now and then.
+  curl -sSfL --retry 8 --retry-delay 3 --retry-all-errors -o "$work/$2" "$1"
   echo "$3  $work/$2" | sha256sum -c --quiet
 }
 fetch "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" ffmpeg.tar.xz "$FFMPEG_SHA256"
@@ -74,7 +86,10 @@ build() {  # target, nm, then configure's arguments
   make -s -C "$out" -j"$(nproc)" >/dev/null
   local gen=$work/gen/$target
   mkdir -p "$gen/libavutil" "$gen/libavcodec"
-  cp "$out/config.h" "$out/config_components.h" "$out/config.asm" "$gen/"
+  # config_components.asm holds the codecs' switches for the assembly that
+  # asks, which the h264 asm does.
+  cp "$out/config.h" "$out/config_components.h" "$out/config.asm" \
+    "$out/config_components.asm" "$gen/"
   cp "$out/libavutil/avconfig.h" "$out/libavutil/ffversion.h" "$gen/libavutil/"
   cp "$out"/libavcodec/{codec,parser,bsf}_list.c "$gen/libavcodec/"
   # Each object came from C or from NASM's assembly.
@@ -117,7 +132,7 @@ build() {  # target, nm, then configure's arguments
 }
 build linux-x86_64 nm --cc=clang \
   --enable-ffnvcodec --enable-nvenc --enable-vaapi --enable-encoder="$LINUX_ENCODERS" \
-  --enable-decoder=hevc
+  --enable-decoder="$DECODERS" --enable-parser="$PARSERS"
 # configure takes `lib` for Microsoft's when its usage says so, and finds
 # the MSVC runtime, the SDK and nv-codec-headers through INCLUDE and LIB,
 # which clang-cl and lld-link read, so no path of this machine lands in
@@ -138,7 +153,8 @@ chmod +x "$work/bin/lib"
   build windows-x86_64 llvm-nm --toolchain=msvc --cc="$windows" --cxx="$windows" --ld=lld-link \
     --ar=lib --nm=llvm-nm --target-os=win64 --arch=x86_64 --enable-cross-compile \
     --enable-ffnvcodec --enable-nvenc --enable-amf --enable-encoder="$WINDOWS_ENCODERS" \
-    --enable-decoder=hevc
+    --enable-d3d11va --enable-hwaccel="$WINDOWS_HWACCELS" \
+    --enable-decoder="$DECODERS" --enable-parser="$PARSERS"
 )
 
 if grep -En '/(tmp|nix|home)/' "$work"/gen/*/config.{h,asm}; then
@@ -183,10 +199,14 @@ cp -r "$work/gen" "$here/gen"
 # FFmpeg's own symbols get a prefix, and so do the libva functions it calls,
 # which src/va.c forwards to libva once it's loaded.
 # Not FFmpeg's: clang-cl's constants for Windows (string literals, vector
-# and floating point constants), which the linker merges, and the UCRT's
-# stdio functions, which its headers define inline.
+# and floating point constants), which the linker merges; the UCRT's stdio
+# functions, which its headers define inline; and the GUIDs the Windows SDK's
+# headers define for its interfaces, its displays and its video codecs, which
+# Direct3D 11's decode names. Those are `DEFINE_GUID`'s `selectany` ones, which
+# the linker merges, and every one of them is a name the SDK chose: `GUID_…`,
+# `IID_…`, `DXVA_…` and the like, never FFmpeg's `av_`/`ff_` prefixes.
 sort -u "$work/defined.txt" | grep -vxE 'av_log2(_16bit)?' |
-  grep -vE '^(\?\?_C@|__(xmm|ymm|real)@|__local_stdio_)|^_?v?[sf]?n?w?(printf|scanf)(_s)?$' > "$work/defined.sorted"
+  grep -vE '^(\?\?_C@|__(xmm|ymm|real)@|__local_stdio_)|^_?v?[sf]?n?w?(printf|scanf)(_s)?$|_GUID$|^(GUID|IID|CLSID|LIBID|FMTID|WKPDID|D3D|D3D11|D3D12|DXGI|DXVA|DXVA2)_' > "$work/defined.sorted"
 mv "$work/defined.sorted" "$work/defined.txt"
 # Renamed too, though named otherwise: the GUIDs the AMF headers define in
 # each file that includes them, and a table hwcontext_amf.c leaves global.

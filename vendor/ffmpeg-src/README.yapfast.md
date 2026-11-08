@@ -35,7 +35,9 @@ configured with clang-cl.
 
 `build.rs` compiles those files with `gen/rename.h` included first, and
 assembles the assembly with NASM's `--gprefix yf_`, which gives the same
-prefix to every symbol the assembly defines or uses. The prefix matters: libwebrtc's archive holds Chromium's own FFmpeg, built to
+prefix to every symbol the assembly defines or uses. The C compiles with
+clang, which configure used for every target that isn't MSVC: GCC 14.3's
+expander gives up on `me_cmp.c`'s VSAD at the level `build.rs` asks for. The prefix matters: libwebrtc's archive holds Chromium's own FFmpeg, built to
 decode, and three quarters of the names would otherwise meet. `src/va.c`
 defines the `yf_va...` functions, which load libva on first use, so the
 binary needs neither libva nor NVIDIA's libraries to start, and an encoder
