@@ -378,6 +378,12 @@ export component Avatar inherits Rectangle {
     /// Discord's client animates a decoration while the pointer is on its row
     /// or message.
     in property <bool> animate;
+    /// The still picture's address its animation is found by, when it is
+    /// drawn from `picture` rather than `picture-url`: an animated avatar has
+    /// a GIF beside its PNG, which also plays while `animate`.
+    in property <string> moving-url: root.picture-url;
+    property <string> moving: root.animate && root.moving-url != "" ? PictureStore.animated(root.moving-url) : "";
+    property <bool> moves: root.moving != "" && root.moving != root.moving-url;
     property <image> decoration: root.decoration-url != "" ? PictureStore.picture(root.decoration-url, PictureStore.revision) : @image-url("");
     property <string> animated-url: root.animate && root.decoration-url != "" ? PictureStore.animated(root.decoration-url) : "";
     function request-decoration() {
@@ -387,7 +393,11 @@ export component Avatar inherits Rectangle {
         if root.animated-url != "" {
             PictureStore.request(root.animated-url);
         }
+        if root.moves {
+            PictureStore.request(root.moving);
+        }
     }
+    changed moving => { root.request-decoration(); }
     changed decoration-url => { root.request-decoration(); }
     changed decoration => { root.request-decoration(); }
     changed animated-url => { root.request-decoration(); }
@@ -408,7 +418,12 @@ export component Avatar inherits Rectangle {
         border-bottom-left-radius: root.corner-bl >= 0px ? root.corner-bl : root.shape;
         border-bottom-right-radius: root.corner-br >= 0px ? root.corner-br : root.shape;
         clip: true;
-        Image { source: root.shown-picture; width: root.size; height: root.size; image-fit: cover; }
+        Picture {
+            width: root.size; height: root.size; image-fit: cover; accessible-role: none;
+            still: root.shown-picture;
+            frames: root.moves ? PictureStore.frames(root.moving, PictureStore.revision) : [];
+            delays: root.moves ? PictureStore.delays(root.moving, PictureStore.revision) : [];
+        }
     }
     if root.decoration.width > 0: Picture {
         x: -root.size / 10; y: -root.size / 10; width: root.size * 1.2; height: root.size * 1.2;

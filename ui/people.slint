@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, Picture, TextField, ServerTagChip, TipIcon } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
@@ -414,6 +414,9 @@ export struct ProfileData {
     tag: string, tag-badge: string,
     /// The banner picture, else its colour.
     banner: image, accent: color, has-accent: bool,
+    /// The addresses of the avatar and banner, whose animations play while
+    /// the card shows; empty for none.
+    avatar-url: string, banner-url: string,
     /// As in MemberRow.
     presence: string, activity: string, activity-emoji: string,
     /// What they're doing, in full: games, music, streams.
@@ -954,8 +957,15 @@ export component ProfileCard inherits Rectangle {
                         Rectangle {
                             y: 0px; height: root.banner-height;
                             background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
-                            if root.data.banner.width > 0: Image {
-                                width: parent.width; height: parent.height; source: root.data.banner; image-fit: cover;
+                            if root.data.banner.width > 0: Picture {
+                                property <string> moving: root.data.banner-url != "" ? PictureStore.animated(root.data.banner-url) : "";
+                                property <bool> moves: self.moving != "" && self.moving != root.data.banner-url;
+                                init => { if self.moves { PictureStore.request(self.moving); } }
+                                changed moving => { if self.moves { PictureStore.request(self.moving); } }
+                                width: parent.width; height: parent.height; image-fit: cover;
+                                still: root.data.banner;
+                                frames: self.moves ? PictureStore.frames(self.moving, PictureStore.revision) : [];
+                                delays: self.moves ? PictureStore.delays(self.moving, PictureStore.revision) : [];
                             }
                         }
                         // What they're up to, a thought beside the picture: two
@@ -1018,7 +1028,7 @@ export component ProfileCard inherits Rectangle {
                             x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
                             width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
                             background: root.ground;
-                            Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: card-pointer.has-hover; }
+                            Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; moving-url: root.data.avatar-url; animate: true; }
                             if root.data.presence != "" && root.data.presence != "offline": StatusDot {
                                 x: parent.width - self.width - (root.large ? 14px : 10px); y: parent.height - self.height - (root.large ? 14px : 10px);
                                 presence: root.data.presence; ring: root.ground;

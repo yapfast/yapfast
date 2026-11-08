@@ -571,6 +571,8 @@ pub(super) fn profile_data(
         tag: tag_text(cosmetics.tag(profile.tag.as_ref())),
         tag_badge: tag_badge(cosmetics.tag(profile.tag.as_ref())),
         banner: banner.clone(),
+        avatar_url: profile.avatar.as_deref().unwrap_or_default().into(),
+        banner_url: profile.banner.as_deref().unwrap_or_default().into(),
         accent: role_color(accent),
         has_accent: accent.is_some(),
         presence: presence_name(profile.presence).into(),

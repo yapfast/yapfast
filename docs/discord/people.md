@@ -462,6 +462,15 @@ else the item's `collectibles_item` or `bundle_items`. The client's card shows
 only lines 1, 7 and 14; Yapfast also shows others it can name, by the store
 picture if they have one.
 
+## Animated avatars and banners
+
+An avatar, banner or server icon whose hash starts with `a_` is animated:
+Discord serves a GIF beside its still PNG. Yapfast shows the PNG and plays
+the GIF only where Discord's client does, so pictures nobody looks at cost
+nothing: an avatar while the pointer is on its message or member row, and
+the avatar and banner of a profile card while it shows. The frames decode as
+they show, as a decoration's do, and stop while the window lacks focus.
+
 ## Avatar decorations and nameplates
 
 What a person equips from Discord's shop shows as it does in Discord's client.

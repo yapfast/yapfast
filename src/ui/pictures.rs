@@ -128,8 +128,25 @@ pub(super) fn animated_url(url: &str) -> String {
                 String::new()
             }
         }
-        _ => url.to_owned(),
+        _ => moving_picture(url).unwrap_or_else(|| url.to_owned()),
     }
+}
+
+/// The GIF Discord serves beside an animated avatar's, banner's or server
+/// icon's still PNG: those whose hash starts with `a_`.
+pub(super) fn moving_picture(url: &str) -> Option<String> {
+    let (path, query) = url.split_once('?').unwrap_or((url, ""));
+    let still = path.strip_suffix(".png")?;
+    let file = still.rsplit('/').next()?;
+    let kind = ["/avatars/", "/banners/", "/icons/"];
+    if !file.starts_with("a_") || !kind.iter().any(|kind| path.contains(kind)) {
+        return None;
+    }
+    Some(if query.is_empty() {
+        format!("{still}.gif")
+    } else {
+        format!("{still}.gif?{query}")
+    })
 }
 
 /// Whether decorations and nameplates may play; see [`animated_url`].
@@ -1065,5 +1082,28 @@ mod tests {
         assert_eq!(runs(), 0);
         show(4);
         assert_eq!(runs(), 1);
+    }
+}
+
+#[cfg(test)]
+mod moving_tests {
+    use super::moving_picture;
+
+    #[test]
+    fn animated_avatars_banners_and_icons_have_a_gif_beside_their_png() {
+        assert_eq!(
+            moving_picture("https://cdn.discordapp.com/avatars/1/a_abc.png?size=128").as_deref(),
+            Some("https://cdn.discordapp.com/avatars/1/a_abc.gif?size=128")
+        );
+        assert_eq!(
+            moving_picture("https://cdn.discordapp.com/guilds/10/users/2/banners/a_d.png?size=600")
+                .as_deref(),
+            Some("https://cdn.discordapp.com/guilds/10/users/2/banners/a_d.gif?size=600")
+        );
+        assert!(moving_picture("https://cdn.discordapp.com/icons/5/a_e.png").is_some());
+        // Still pictures, and other kinds, have none.
+        assert!(moving_picture("https://cdn.discordapp.com/avatars/1/abc.png?size=128").is_none());
+        assert!(moving_picture("https://cdn.discordapp.com/embed/avatars/1.png").is_none());
+        assert!(moving_picture("https://cdn.discordapp.com/emojis/a_1.png").is_none());
     }
 }
