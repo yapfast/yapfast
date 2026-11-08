@@ -123,6 +123,9 @@ pub struct Server {
     pub icon: Option<String>,
     /// The address of its banner, if it has one.
     pub banner: Option<String>,
+    /// The tag its members can wear, if it offers one.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
     /// How many members it has, as of READY or GUILD_CREATE.
     pub member_count: Option<u64>,
     /// Text and announcement channels, in Discord's order.
@@ -1376,6 +1379,7 @@ pub fn server(guild: &Value) -> Option<Server> {
         .or_else(|| guild["properties"]["premium_tier"].as_u64())
         .unwrap_or_default();
     let mut server = Server {
+        tag: offered_tag(guild),
         id,
         name,
         icon,
@@ -1602,6 +1606,29 @@ pub fn custom_emoji(id: &str, animated: bool, size: u32) -> String {
     format!("{}/emojis/{id}.{format}?size={size}", cdn())
 }
 
+/// The tag a server offers its members, from its `profile`, which a user
+/// account's READY puts under its `properties`.
+fn offered_tag(guild: &Value) -> Option<crate::message::Tag> {
+    let id = guild["id"]
+        .as_str()
+        .or_else(|| guild["properties"]["id"].as_str())?;
+    let profile = match &guild["properties"]["profile"] {
+        Value::Null => &guild["profile"],
+        profile => profile,
+    };
+    let text = profile["tag"]
+        .as_str()
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())?;
+    Some(crate::message::Tag {
+        text: text.into(),
+        badge: profile["badge"]
+            .as_str()
+            .filter(|badge| !badge.is_empty())
+            .map(|badge| guild_tag_badge(id, badge).into()),
+    })
+}
+
 /// The badge of a server's tag, which people wearing it show by their name.
 /// Shown at 14px; this is sharp at twice that.
 pub fn guild_tag_badge(guild: &str, hash: &str) -> String {
@@ -1714,6 +1741,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn servers_offer_their_tag_from_their_profile() {
+        let guild = json!({"id": "9", "properties": {"profile": {"tag": "GUYS", "badge": "abc"}}});
+        let tag = offered_tag(&guild).unwrap();
+        assert_eq!(&*tag.text, "GUYS");
+        assert!(
+            tag.badge
+                .unwrap()
+                .ends_with("/clan-badges/9/abc.png?size=32")
+        );
+        assert_eq!(offered_tag(&json!({"id": "9", "profile": null})), None);
+    }
 
     #[test]
     fn only_lottie_sticker_addresses_are_lottie() {

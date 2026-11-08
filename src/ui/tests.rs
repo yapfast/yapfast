@@ -121,6 +121,47 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
+fn this_accounts_own_profile_shares_its_friends_and_servers_with_nobody() {
+    let view = |id: &str| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: id.into(),
+            name: "Sam".into(),
+            servers: vec![yapfast_core::chat::ProfileServer {
+                id: "s".into(),
+                name: "Server".into(),
+                icon: None,
+                banner: None,
+                members: None,
+                channels: 2,
+                nick: None,
+            }],
+            friends: vec![yapfast_core::chat::ProfileFriend {
+                id: "7".into(),
+                name: "Bob".into(),
+                avatar: None,
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = yapfast_core::application::AppState::default();
+    state.discord_user = Some("42".into());
+    let mut pictures = HashMap::new();
+
+    // Anyone else's card names what the account shares with them.
+    let other = profile_data(&mut pictures, &state, &view("7"));
+    assert_eq!(other.mutual_friends_text, "1 mutual friend");
+    assert_eq!(other.mutual_servers_text, "1 mutual server");
+    assert!(!other.own);
+
+    // Its own profile shares them with nobody, so it names them plainly.
+    let own = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(own.mutual_friends_text, "1 friend");
+    assert_eq!(own.mutual_servers_text, "1 server");
+    assert!(own.own);
+}
+
+#[test]
 fn blank_lines_between_lines_show() {
     assert_eq!(keep_blank_lines("a\n\nb"), "a\n\u{a0}\nb");
     assert_eq!(keep_blank_lines("a\n\n\nb"), "a\n\u{a0}\n\u{a0}\nb");
@@ -3160,6 +3201,7 @@ fn older_messages_go_in_above_without_moving_those_shown() {
         first_unread: None,
         revealed: &revealed,
         restyle: false,
+        decorations: true,
     };
     let model = Rc::new(VecModel::default());
     let mut rows = Vec::new();
@@ -3766,6 +3808,79 @@ fn clicking_a_category_collapses_it() {
     assert!(window.get_rooms().iter().any(|row| row.collapsed));
     window.invoke_toggle_category(category);
     assert!(!window.get_rooms().iter().any(|row| row.collapsed));
+}
+
+#[test]
+fn clicking_the_voice_panels_channel_line_opens_the_call() {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    use slint::platform::{PointerEventButton, WindowEvent};
+    use std::ops::ControlFlow;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let server = adapter.borrow().app.state.servers[0].id.clone();
+    window.invoke_navigate_server(server.clone().into());
+    let lounge = {
+        let state = &adapter.borrow().app.state;
+        let room = state
+            .rooms
+            .iter()
+            .find(|room| room.voice && state.in_scope(room));
+        room.expect("the preview server has a voice channel")
+            .id
+            .clone()
+    };
+    window.invoke_select_room(lounge.clone().into());
+    window.invoke_navigate_dms();
+    assert!(window.get_voice_active() && !window.get_voice_here());
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // The line under "Voice connected" names the call's channel.
+    let place = || {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let link = ItemRc::new_root(inner.component())
+            .visit_descendants(|item| {
+                let label = item.accessible_string_property(AccessibleStringProperty::Label);
+                if label.is_some_and(|label| label.ends_with(". Open the call")) {
+                    ControlFlow::Break(item.clone())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .expect("the voice panel's channel line");
+        link.map_to_window(link.geometry().center())
+    };
+    let click = |at: slint::LogicalPosition| {
+        let native = window.window();
+        let button = PointerEventButton::Left;
+        native.dispatch_event(WindowEvent::PointerMoved { position: at });
+        native.dispatch_event(WindowEvent::PointerPressed {
+            position: at,
+            button,
+        });
+        native.dispatch_event(WindowEvent::PointerReleased {
+            position: at,
+            button,
+        });
+    };
+    let at = place();
+    click(slint::LogicalPosition::new(at.x, at.y));
+    let state = || {
+        let app = &adapter.borrow().app;
+        (app.state.navigation.clone(), app.state.selected.clone())
+    };
+    assert_eq!(state(), (Navigation::Server(server), Some(lounge)));
+    assert!(window.get_voice_here());
 }
 
 #[test]

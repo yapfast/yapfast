@@ -508,7 +508,8 @@ The window follows Discord's arrangement:
 - A dock across the rail and sidebar: the voice panel, whose signal icon
   and status show a Discord call's ping on hover and its connection details
   on a click (see [Connection details](discord/voice.md#connection-details)),
-  and whose channel line under them opens the call, as Discord's does; then
+  and whose channel line under them opens the call, as Discord's does (see
+  [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
   theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
