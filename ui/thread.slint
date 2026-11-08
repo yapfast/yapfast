@@ -43,6 +43,9 @@ export component ThreadPanel inherits Rectangle {
     changed paste-tick => { composer.paste-text(); }
     in property <string> emoji-font;
     in property <length> message-font-size;
+    /// A name wears its Discord name style at rest; off, the style shows while
+    /// the pointer is on the message.
+    in property <bool> show-styles: true;
     in property <[EmojiCell]> bar-reactions;
     /// The window's message under the pointer, and those its popups are for,
     /// whose actions stay.
@@ -230,6 +233,7 @@ export component ThreadPanel inherits Rectangle {
                             MessageContent {
                                 message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
+                                show-styles: root.show-styles; hovered: row-pointer.has-hover;
                                 end-padding: 16px; collapse-long: root.collapse-long;
                                 // The view keeps the message's top: it stops following
                                 // the newest, and Show less on a message whose top is

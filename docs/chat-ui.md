@@ -510,7 +510,8 @@ The window follows Discord's arrangement:
   on a click (see [Connection details](discord/voice.md#connection-details)),
   and whose channel line under them opens the call, as Discord's does; then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
+  theme, audio devices, message text size, clock, link previews, Nitro name
+  styles and folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu; the input menu shows a local level meter. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in

@@ -2557,6 +2557,29 @@ fn the_nameplates_setting_is_remembered() {
 }
 
 #[test]
+fn the_name_styles_setting_is_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // On unless turned off.
+    assert!(window.get_show_name_styles());
+    assert_eq!(Layout::read(directory.path()).name_styles, None);
+    window.set_show_name_styles(false);
+    window.invoke_preferences_changed();
+    let saved = Layout::read(directory.path());
+    assert_eq!(saved.name_styles, Some(false));
+    saved.apply(&window);
+    assert!(!window.get_show_name_styles());
+}
+
+#[test]
 fn a_nameplates_picture_is_asked_for_when_its_row_shows() {
     i_slint_backend_testing::init_no_event_loop();
     let window = classic_window();
