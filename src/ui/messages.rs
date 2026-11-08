@@ -45,6 +45,8 @@ pub(super) struct Marks<'a> {
     pub revealed: &'a HashSet<String>,
     /// Every row is built again, as for a new layout.
     pub restyle: bool,
+    /// Decorations show around authors' avatars, as the profile switches say.
+    pub decorations: bool,
 }
 
 /// What a row shows of the messages around it, and of its author's picture.
@@ -136,7 +138,7 @@ pub(super) fn show_timeline(
                 .as_ref()
                 .and_then(|reply| reply.avatar.as_deref())
                 .unwrap_or_default(),
-            decoration_url: if collapsed(message, marks.revealed) {
+            decoration_url: if collapsed(message, marks.revealed) || !marks.decorations {
                 ""
             } else {
                 message.decoration.as_deref().unwrap_or_default()
@@ -675,8 +677,8 @@ pub(super) fn message_row_within(
         id: message.id.clone().into(),
         item: message.item.clone().into(),
         author: message.author.clone().into(),
-        tag: tag_text(&message.tag),
-        tag_badge: tag_badge(&message.tag),
+        tag: tag_text(message.tag.as_ref()),
+        tag_badge: tag_badge(message.tag.as_ref()),
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
@@ -757,6 +759,7 @@ pub(super) fn message_row_within(
         blocks: blocks.map_or_else(ModelRc::default, |blocks| {
             ModelRc::new(VecModel::from(blocks))
         }),
+        expanded: expanded(&message.item, revealed),
         hidden_card: SharedString::default(),
         delivery: delivery.into(),
         delivery_failed: message.delivery == Delivery::Failed,
@@ -1227,6 +1230,17 @@ pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> s
         body
     };
     styled(&body)
+}
+
+/// Whether Show more was clicked on a long message, which shows it whole
+/// until Show less, while Yapfast runs.
+pub(super) fn expanded(item: &str, revealed: &HashSet<String>) -> bool {
+    revealed.contains(&fold_key(item))
+}
+
+/// What `revealed` holds for a long message shown whole.
+pub(super) fn fold_key(item: &str) -> String {
+    format!("{item}/more")
 }
 
 /// Whether a message shows collapsed, being from someone blocked.

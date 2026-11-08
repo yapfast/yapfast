@@ -12,11 +12,15 @@ Scope for the beta:
   RNNoise, rather than WebRTC's, as described under Microphone below.
 
 Clicking a voice channel joins through the same voice dock and one-call rule as
-Matrix voice. Calls start with the microphone on unless Settings turns that
-off, mute and deafen show in Discord, and a voice gate sends audio only during
-speech. Audio goes through `audio_io.rs`, PulseAudio on Linux and WASAPI on
-Windows, and libwebrtc's processing module; see the [Windows
-guide](../windows-beta.md#discord-voice-on-windows) for what's been checked there.
+Matrix voice, and, as Discord's client does, without showing the call: a second
+click on the channel, or its line in the dock, does that. Discord's client goes
+to the channel as it joins only when its chat has a mention, where it opens the
+chat, and from buttons that say so, such as Join Voice on a voice channel's
+popout, which Yapfast doesn't have. Calls start with the microphone on unless
+Settings turns that off, mute and deafen show in Discord, and a voice gate
+sends audio only during speech. Audio goes through `audio_io.rs`, PulseAudio
+on Linux and WASAPI on Windows, and libwebrtc's processing module; see the
+[Windows guide](../windows-beta.md#discord-voice-on-windows) for what's been checked there.
 davey's change for Go Live groups is described in
 `vendor/davey/README.yapfast.md`.
 
@@ -24,9 +28,25 @@ Discord may move a call to another voice server, saying so with a new
 `VOICE_SERVER_UPDATE` while the call is connected. Yapfast connects the call
 there and it goes on. The old server may drop the connection before that
 word comes, so a dropped connection waits five seconds for it before the
-call ends. A stream moves the same way, with a new `STREAM_CREATE` and
+call ends. Someone moving the account to a channel on another voice server
+goes that way: its voice state names the channel, the old server closes the
+connection with 4014, and `VOICE_SERVER_UPDATE` follows some 40 ms later.
+The call's connection, closed with 4014, keeps its media and waits those
+five seconds for the move; being disconnected from voice gets no new
+server, and the call ends then. A stream moves the same way, with a new `STREAM_CREATE` and
 `STREAM_SERVER_UPDATE`: sharing sends to the new server, after waiting up to
 five seconds for it when the old connection ends, and watching connects again.
+
+A join that fails says why in the dock. Discord's gateway errors are
+sentences of their own ("Discord disconnected while joining voice."); a
+voice server that fails says the step: "Couldn't connect to Discord voice:
+the voice server didn't answer address discovery, asked 5 times over 5 s.",
+where address discovery is the UDP exchange a firewall or VPN may block. The log has a warning at the
+default level with the whole chain of causes, whether it was a server's
+channel or a DM, and the step: asking Discord, or connecting to its voice
+server. A stream that can't start or be watched logs its chain the same way.
+`a_call_that_cant_connect_says_why` checks it, with the fake's voice server
+ignoring address discovery (`POST /_control/voice-discovery?off`).
 
 The account may be in voice on another client too, such as Discord's app on
 a phone. Yapfast tells that client's voice state from its own by the
@@ -66,6 +86,17 @@ Opus comes from the libopus inside Yapfast's libwebrtc archive, called directly
 (`yapfast_discord::opus`), not from a crate such as `opus2` that builds a
 libopus of its own: two copies of the same symbols risk a clash when
 linking, particularly with MSVC on Windows.
+
+## The call's channel line
+
+As in Discord's voice panel, the dock's line under the status ("gen ·
+End-to-end encrypted") is a link to the call: a server's voice channel opens
+on its server showing its call, and a DM's or group DM's call opens its DM,
+the friends list included. While the call's channel or DM already shows, its
+chat beside the call included, it does nothing rather than reopening it.
+It's underlined with a pointer while hovered, and takes the keyboard's focus
+as the dock's buttons do, underlined while focused, Enter or Space following
+it. The status and the signal icon open the connection details instead.
 
 ## Connection details
 
@@ -264,8 +295,10 @@ DM's picture, Decline and Accept, and Yapfast rings: a rising arpeggio
 synthesized in `ring.rs` and played through `audio_io.rs` on the call's speakers
 until the call is answered, declined or stops ringing. While Yapfast isn't in
 front a desktop notification says who is calling. On Do Not Disturb the card
-shows without the ring or the notification. Accepting opens the DM and
-joins, leaving any other call without asking, since answering already chose.
+shows without the ring or the notification. Accepting joins, leaving any
+other call without asking, since answering already chose, and leaves what's
+on screen as it was, as Discord's client does for a voice call: the call shows
+in the dock, whose channel line opens the DM.
 Declining posts `POST /channels/{id}/call/stop-ringing` with this account,
 which leaves the call to the others. The DM's own call shows the same choice
 above its messages when it's open.
@@ -396,10 +429,15 @@ RNNoise, through `nnnoiseless` (BSD-3-Clause), lets keyboard clicks through,
 and they hold the gate open. Settings → Voice & video → "Noise suppression in
 Discord calls" still chooses it, to compare the two, as does Off, for a quiet
 room: RNNoise then only tells the gate which blocks are speech. Yapfast keeps
-the choice in `layout.json` as `noise_suppression`. A call going on switches
-between blocks rather than in one, after DeepFilterNet's 0.2 s load if
-switching to it, and the network it replaces goes before the new one loads,
-so a switch never holds two of them.
+the choice in `layout.json` as `noise_suppression`. The microphone's menu, from
+the caret beside mute, has the same three choices. During a Discord call, a
+button beside Leave in the call panel turns suppression off, shown red while
+it's off, and on again to the kind last used, wherever it was chosen:
+DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
+suppresses its noise. A
+call going on switches at its next block rather than in one, after
+DeepFilterNet's 0.2 s load if switching to it, and the network it replaces goes
+before the new one loads, so a switch never holds two of them.
 Muting closes the microphone, but the call's microphone thread,
 `yapfast-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it
@@ -524,7 +562,8 @@ the next key pressed, and Escape stops without changing it; until there's a
 key, settings say the microphone sends nothing. Yapfast keeps the key by its
 scan code (`push_to_talk_key`), so it's the same key on any keyboard layout,
 with its name and, for the portal below, its keysym. One key, without
-modifiers; mouse buttons can't be recorded.
+modifiers. On Windows, Mouse 4 (Back) and Mouse 5 (Forward) can be recorded
+instead; reserved values in the same field distinguish them from scan codes.
 
 `crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether the key is
 down and the delay in atomics. The microphone reads them each 10 ms block,
@@ -542,7 +581,7 @@ on the local stack.
 | --- | --- | --- |
 | Wayland | The xdg-desktop-portal GlobalShortcuts portal: Yapfast binds one shortcut, offering the key as its preferred trigger, and holds it from Activated to Deactivated. The desktop may ask to approve it or give it another key; settings show the shortcut it gave. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_key_and_holds_it`); not on a real desktop |
 | X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the key to it | Under Xvfb, with xdotool typing (`x11_hears_the_key_whatever_has_the_focus`) |
-| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) on a thread of its own, which sees the key's release, unlike `RegisterHotKey`, and passes every key on | Under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); not on real Windows, where Windows may keep keys typed into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
+| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) for a key or mouse hook (`WH_MOUSE_LL`) for Mouse 4/5, on a thread of its own, which sees the release, unlike `RegisterHotKey`, and passes every event on | Keyboard under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); mouse recording, XBUTTON down/up and the focused fallback in unit tests; not on real Windows, where Windows may keep input into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
 
 Where none of these works, as on a wlroots desktop such as Sway, which has no
 GlobalShortcuts, the window's own key events stand in, so the key works while

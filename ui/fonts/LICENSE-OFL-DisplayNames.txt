@@ -1,7 +1,9 @@
 Copyright notices of the display name fonts (DisplayName-*.ttf), as their
 name tables carry them. Discord Inc. made the copies Yapfast uses (renamed
 where the licence reserves a name, subset to Latin) and Yapfast subset the
-largest further; all are licensed as below.
+largest further; all are licensed as below. Medieval and Vampyre, which
+come from their designers, have their own: LICENSE-OIFL-Medieval.txt and
+LICENSE-OFL-Vampyre.txt.
 
 Sakura (Cherry Bomb One): Copyright 2019 The Cherry Bomb Project Authors (https://github.com/satsuyako/CherryBomb)
 Jellybean (Chicle): Copyright (c) 2007 Angel Koziupa (sudtipos@sudtipos.com), Copyright (c) 2007 Alejandro Paul (sudtipos@sudtipos.com), with Reserved Font Name "Chicle"

@@ -197,7 +197,9 @@ version = "0.157.0"
 # Yapfast: Skia's own FreeType, which draws COLRv1 colour fonts, such as the only
 # Noto Color Emoji Fedora installs; the prebuilt Skia built for the system's
 # FreeType draws none of their glyphs. Rust-skia prebuilds that Skia only with
-# textlayout and without Vulkan, which Yapfast draws without.
+# textlayout and without Vulkan, which Yapfast draws without; see build.rs, which
+# keeps Skia's Vulkan out of the wgpu surface beside it, since rust-skia gates
+# `gpu::vk` behind that feature as of 0.157.
 features = [
     "gl",
     "embed-freetype",

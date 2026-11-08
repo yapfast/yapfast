@@ -91,7 +91,9 @@ impl Output {
     /// `None` when the server doesn't answer.
     pub fn queued(&self) -> Option<u64> {
         let latency = self.0.get_latency().ok()?;
-        let seconds = f64::from(latency.0) / 1_000_000.0;
+        // The server's latency is in microseconds, which the newer
+        // libpulse-binding carries as a u64.
+        let seconds = latency.0 as f64 / 1_000_000.0;
         Some((seconds * f64::from(self.1)).round() as u64)
     }
 }

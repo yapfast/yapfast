@@ -245,7 +245,7 @@ pub fn trim() {}
 /// Without Direct3D there is no shared texture to open, and a stream that
 /// publishes one is asked for pixels.
 #[cfg(not(windows))]
-pub fn install() -> Result<slint::wgpu_30::WGPUConfiguration> {
+pub fn install() -> anyhow::Result<slint::wgpu_30::WGPUConfiguration> {
     anyhow::bail!("a shared picture needs Direct3D 12, which only Windows has")
 }
 

@@ -83,6 +83,11 @@ impl Reach {
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// A server's Discord id, from Yapfast's id for it.
+fn discord_server_id(id: &str) -> &str {
+    id.rsplit(':').next().unwrap_or(id)
+}
+
 impl Adapter {
     /// Browse Channels' rows whose channel's name has its search in it, each
     /// under its category's heading.
@@ -97,11 +102,10 @@ impl Adapter {
             name: channel.name.as_str().into(),
             topic: channel.topic.as_str().into(),
             icon: match channel.kind {
-                BrowsedKind::Voice => self.icons.voice.clone(),
-                BrowsedKind::Forum => self.icons.forum.clone(),
-                BrowsedKind::Category | BrowsedKind::Text | BrowsedKind::Announcement => {
-                    self.icons.text.clone()
-                }
+                BrowsedKind::Voice => self.icons.voice.plain.clone(),
+                BrowsedKind::Forum => self.icons.forum.plain.clone(),
+                BrowsedKind::Announcement => self.icons.announcement.plain.clone(),
+                BrowsedKind::Category | BrowsedKind::Text => self.icons.text.plain.clone(),
             },
             category: channel.kind == BrowsedKind::Category,
             voice: channel.kind == BrowsedKind::Voice,
@@ -128,6 +132,53 @@ impl Adapter {
     }
 }
 
+/// The account's own profile its card was built from, with how many of the
+/// card's pictures had come then, and the count of picture changes they were
+/// counted at.
+pub(super) struct AccountCardShown {
+    profile: Arc<yapfast_core::chat::Profile>,
+    changes: u64,
+    pictures: usize,
+}
+
+/// How many of the pictures a profile's card draws have come.
+fn card_pictures(state: &AppState, profile: &yapfast_core::chat::Profile) -> usize {
+    let servers = profile
+        .servers
+        .iter()
+        .flat_map(|server| [server.icon.as_deref(), server.banner.as_deref()]);
+    let friends = profile
+        .friends
+        .iter()
+        .map(|friend| friend.avatar.as_deref());
+    [profile.avatar.as_deref(), profile.banner.as_deref()]
+        .into_iter()
+        .chain(servers)
+        .chain(friends)
+        .flatten()
+        .filter(|url| state.pictures.contains_key(*url))
+        .count()
+}
+
+/// What the profile editor's preview takes from the account's own profile:
+/// what the editor doesn't change.
+fn own_profile_parts(own: Option<&yapfast_core::chat::Profile>) -> yapfast_core::chat::Profile {
+    let Some(own) = own else {
+        return Default::default();
+    };
+    yapfast_core::chat::Profile {
+        decoration: own.decoration.clone(),
+        effect: own.effect.clone(),
+        tag: own.tag.clone(),
+        badges: own.badges.clone(),
+        connections: own.connections.clone(),
+        presence: own.presence,
+        activity: own.activity.clone(),
+        activities: own.activities.clone(),
+        ..Default::default()
+    }
+}
+
 /// What the sidebar was built from, kept to tell whether it changed. The
 /// rooms and servers go by their count of changes and the other lists by a
 /// hash: copies of them took megabytes on a large account.
@@ -145,6 +196,8 @@ pub(super) struct SidebarShown {
     list_changes: u64,
     /// Whether Discord took changes, which the header's invite button needs.
     discord_online: bool,
+    /// What the profile switches let DM rows show.
+    cosmetics: yapfast_core::application::Cosmetics,
 }
 
 impl SidebarShown {
@@ -161,6 +214,7 @@ impl SidebarShown {
             category_changes: state.category_changes,
             list_changes: state.list_changes,
             discord_online: state.discord_online,
+            cosmetics: state.cosmetics,
         }
     }
 
@@ -197,20 +251,41 @@ impl SidebarShown {
 }
 
 impl Icons {
-    /// A conversation's icon, as the sidebar shows it.
-    fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
+    /// A conversation's icon, as the sidebar shows it: a lock for one this
+    /// account may not read.
+    pub(super) fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
         if room.locked {
             self.lock.clone()
-        } else if room.voice {
-            self.voice.clone()
-        } else if room.forum {
-            self.forum.clone()
-        } else if room.direct {
-            self.dm.clone()
-        } else if room.parent.is_some() {
-            self.thread.clone()
         } else {
-            self.text.clone()
+            self.channel(room)
+        }
+    }
+
+    /// A conversation's own icon, as its header shows it: for a Discord
+    /// channel, its kind's, marked as Discord's client marks it, with a
+    /// warning sign before a lock.
+    pub(super) fn channel(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
+        use yapfast_core::chat::MarkKind;
+        if room.direct {
+            return self.dm.clone();
+        } else if room.parent.is_some() {
+            return self.thread.clone();
+        }
+        let icon = match room.mark.kind {
+            MarkKind::Rules => return self.rules.clone(),
+            MarkKind::Stage => &self.stage,
+            _ if room.voice => &self.voice,
+            MarkKind::Media => &self.media,
+            _ if room.forum => &self.forum,
+            MarkKind::Announcement => &self.announcement,
+            MarkKind::Plain => &self.text,
+        };
+        if room.mark.age_restricted {
+            icon.age_restricted.clone()
+        } else if room.mark.private {
+            icon.private.clone()
+        } else {
+            icon.plain.clone()
         }
     }
 }
@@ -569,6 +644,7 @@ impl Adapter {
         }
         self.sidebar = Some(SidebarShown::of(&self.app.state, window));
         let state = &self.app.state;
+        let cosmetics = state.cosmetics;
         let query = window.get_filter().to_lowercase();
         window.set_sidebar_title(match &state.navigation {
             Navigation::DirectMessages => "Direct messages".into(),
@@ -822,7 +898,10 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
-                    decoration_url: room.decoration.as_deref().unwrap_or_default().into(),
+                    decoration_url: cosmetics
+                        .decoration(room.decoration.as_deref())
+                        .unwrap_or_default()
+                        .into(),
                     nameplate_url: room
                         .nameplate
                         .as_ref()
@@ -840,12 +919,12 @@ impl Adapter {
                             .as_ref()
                             .and_then(|plate| Some(plate.colors?[1])),
                     ),
-                    name_style: name_style::row(room.style.as_deref(), &room.name),
+                    name_style: name_style::row(cosmetics.style(room.style.as_deref()), &room.name),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
-                    tag: tag_text(&room.tag),
-                    tag_badge: tag_badge(&room.tag),
+                    tag: tag_text(cosmetics.tag(room.tag.as_ref())),
+                    tag_badge: tag_badge(cosmetics.tag(room.tag.as_ref())),
                     official: room.official,
                     wave: if room.empty && !room.request {
                         room.person.as_deref().unwrap_or_default().into()
@@ -1030,11 +1109,46 @@ impl Adapter {
             state,
             state.account_avatar.as_deref(),
         ));
+        // The account's card, from its own profile once that's come. Its
+        // pictures are counted again only once some picture has come.
+        let shown = self.account_profile_shown.take();
+        let own = state.account_profile.as_ref().map(|profile| {
+            let kept = shown
+                .as_ref()
+                .filter(|shown| Arc::ptr_eq(&shown.profile, profile));
+            let pictures = match kept {
+                Some(kept) if kept.changes == state.picture_changes => kept.pictures,
+                _ => card_pictures(state, profile),
+            };
+            AccountCardShown {
+                profile: profile.clone(),
+                changes: state.picture_changes,
+                pictures,
+            }
+        });
+        let same = match (&own, &shown) {
+            (Some(own), Some(shown)) => {
+                Arc::ptr_eq(&own.profile, &shown.profile) && own.pictures == shown.pictures
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            let data = own.as_ref().map_or_else(ProfileData::default, |own| {
+                let view = ProfileView {
+                    profile: yapfast_core::chat::Profile::clone(&own.profile),
+                    ..Default::default()
+                };
+                profile_data(&mut self.pictures, state, &view)
+            });
+            window.set_account_profile(data);
+        }
+        self.account_profile_shown = own;
         let look = window.global::<AccountLook>();
+        let cosmetics = state.cosmetics;
         look.set_decoration_url(
-            state
-                .account_decoration
-                .as_deref()
+            cosmetics
+                .decoration(state.account_decoration.as_deref())
                 .unwrap_or_default()
                 .into(),
         );
@@ -1561,17 +1675,10 @@ impl Adapter {
         window.set_room_parent(parent.map_or("", |parent| parent.name.as_str()).into());
         window.set_room_parent_id(parent.map_or("", |parent| parent.id.as_str()).into());
         window.set_room_parent_forum(parent.is_some_and(|parent| parent.forum));
-        window.set_room_icon(if room.is_some_and(|room| room.parent.is_some()) {
-            self.icons.thread.clone()
-        } else if room.is_some_and(|room| room.voice) {
-            self.icons.voice.clone()
-        } else if room.is_some_and(|room| room.forum) {
-            self.icons.forum.clone()
-        } else if room.is_some_and(|room| room.direct) {
-            self.icons.dm.clone()
-        } else {
-            self.icons.text.clone()
-        });
+        window.set_room_icon(room.map_or_else(
+            || self.icons.text.plain.clone(),
+            |room| self.icons.channel(room),
+        ));
         // Discord counts a channel's members only once its list comes.
         window.set_members(
             room.map_or(SharedString::default(), |room| match room.members {
@@ -1758,6 +1865,9 @@ impl Adapter {
     /// The member list, the reactions offered on messages, and a role's card.
     fn show_members(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
+        let cosmetics = state.cosmetics;
+        // In a server, names show their style's font alone.
+        let in_server = name_style::in_server(state.selected.as_deref());
         let now = yapfast_core::clock::now_ms();
         let members = match &state.members {
             Some(Ok(members)) => members.as_slice(),
@@ -1808,10 +1918,16 @@ impl Adapter {
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
                         group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
-                        tag: tag_text(&member.tag),
-                        tag_badge: tag_badge(&member.tag),
-                        decoration_url: member.decoration.as_deref().unwrap_or_default().into(),
-                        name_style: name_style::row(member.style.as_deref(), &member.name),
+                        tag: tag_text(cosmetics.tag(member.tag.as_ref())),
+                        tag_badge: tag_badge(cosmetics.tag(member.tag.as_ref())),
+                        decoration_url: cosmetics
+                            .decoration(member.decoration.as_deref())
+                            .unwrap_or_default()
+                            .into(),
+                        name_style: name_style::font_only_in(
+                            in_server,
+                            name_style::row(cosmetics.style(member.style.as_deref()), &member.name),
+                        ),
                         nameplate_url: member
                             .nameplate
                             .as_ref()
@@ -1834,6 +1950,16 @@ impl Adapter {
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         bot: member.bot,
                         owner: owner.as_deref() == Some(member.id.as_str()),
+                        boosting: member
+                            .boosting_since
+                            .map(|since| {
+                                format!(
+                                    "Server boosting since {}",
+                                    yapfast_core::clock::day(since / 1000)
+                                )
+                            })
+                            .unwrap_or_default()
+                            .into(),
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
                         has_color: member.color.is_some(),
@@ -2490,16 +2616,41 @@ impl Adapter {
                 bio: written(&editor.bio, fallback.map(|fallback| &fallback.bio)),
                 created: fallback.and_then(|fallback| fallback.created.clone()),
                 joined: fallback.and_then(|fallback| fallback.joined.clone()),
-                ..Default::default()
+                theme: editor.theme().ok().flatten(),
+                style: editor.name_style().map(Arc::new),
+                widgets: fallback
+                    .map(|fallback| fallback.widgets.clone())
+                    .unwrap_or_default(),
+                board_asked: fallback.is_some_and(|fallback| fallback.board_asked),
+                board_named: fallback.is_some_and(|fallback| fallback.board_named),
+                wishlist_place: fallback.and_then(|fallback| fallback.wishlist_place.clone()),
+                wishlist: editor.wishlist.clone(),
+                // What the editor doesn't change comes from the profile it
+                // read: its decoration, effect, tag, badges, connections and
+                // activities.
+                ..own_profile_parts(fallback)
             },
             large: false,
             loading: false,
             kept: false,
             note: None,
+            ..Default::default()
         };
         let mut preview = profile_data(&mut self.pictures, &self.app.state, &view);
         // Someone's own card offers them nothing.
         preview.friend = 0;
+        // The tabs' lists stay as they are unless they changed, so a card
+        // doesn't lose its place or its pictures as this is shown again.
+        let shown_prompt = window.get_profile_editor_prompt();
+        let shown = &shown_prompt.preview;
+        preview.widgets = same_widget_rows(&shown.widgets, preview.widgets);
+        preview.wishlist = same_list(&shown.wishlist, preview.wishlist);
+        let cosmetics = self.app.state.cosmetics;
+        if editor.loading() {
+            preview.board_note = "Loading the board...".into();
+        } else if editor.profile.is_none() {
+            preview.board_note = "Couldn't load the board.".into();
+        }
         if let Some(picture) = new_avatar {
             preview.picture = slint_image(picture);
         }
@@ -2537,6 +2688,19 @@ impl Adapter {
                 "Tell this server a bit about yourself",
             )
         };
+        let own = fallback;
+        // What it would wear: the choice, else what the profile has.
+        let shown_tag = match &editor.chosen_tag {
+            None => own.and_then(|own| own.tag.clone()),
+            Some(None) => None,
+            Some(Some(chosen)) => self
+                .app
+                .state
+                .servers
+                .iter()
+                .find(|server| discord_server_id(&server.id) == chosen)
+                .and_then(|server| server.tag.clone()),
+        };
         window.set_profile_editor_prompt(ProfileEditorPrompt {
             title: title.into(),
             detail: detail.into(),
@@ -2559,6 +2723,60 @@ impl Adapter {
             upgrade: editor.upgrade(),
             banner_shown: !main || editor.nitro(),
             colour_shown: editor.may_write(ProfileText::Colour),
+            // The rows stay as they are unless they changed, so the picker
+            // doesn't build them all again with every event.
+            server_tags: same_list(
+                &shown_prompt.server_tags,
+                ModelRc::new(VecModel::from(
+                    self.app
+                        .state
+                        .servers
+                        .iter()
+                        .filter_map(|server| {
+                            let tag = server.tag.as_ref()?;
+                            Some(ServerTagRow {
+                                id: discord_server_id(&server.id).into(),
+                                name: server.name.as_str().into(),
+                                icon: server.icon.as_deref().unwrap_or_default().into(),
+                                tag: (&*tag.text).into(),
+                                badge: cosmetics
+                                    .tag(tag.badge.as_ref())
+                                    .map_or("", |badge| &**badge)
+                                    .into(),
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                )),
+            ),
+            tag_chosen_id: editor
+                .chosen_tag
+                .as_ref()
+                .and_then(|chosen| chosen.as_deref())
+                .unwrap_or_default()
+                .into(),
+            tag_text: shown_tag.as_ref().map_or("", |tag| &*tag.text).into(),
+            tag_icon: cosmetics
+                .tag(shown_tag.as_ref().and_then(|tag| tag.badge.as_ref()))
+                .map_or("", |badge| &**badge)
+                .into(),
+            look_enabled: editor.may_write(ProfileText::ThemeTop),
+            // What the account wears, though the profile switches may keep
+            // its pictures from showing.
+            decoration_set: own.is_some_and(|own| own.decoration.is_some()),
+            effect_set: own.is_some_and(|own| own.effect.is_some()),
+            // Yapfast doesn't read profile frames.
+            frame_set: false,
+            name_font_id: editor.name_font.map_or(11, |font| font as i32),
+            name_effect_id: editor.name_effect as i32,
+            name_colours_key: editor
+                .name_colours
+                .iter()
+                .map(|colour| format!("{colour:06x}"))
+                .collect::<Vec<_>>()
+                .join(",")
+                .into(),
+            theme_top_text: editor.theme_top.as_str().into(),
+            theme_bottom_text: editor.theme_bottom.as_str().into(),
             colour: colour
                 .ok()
                 .flatten()
@@ -3046,6 +3264,9 @@ impl Adapter {
         window.set_aside_start(aside.history_start);
         window.set_aside_failed(aside.history_failed);
         window.set_aside_composer_enabled(state.can_write_in(room));
+        let reacts = state.reacts_in(room);
+        window.set_aside_reactions_enabled(reacts != Reacts::None);
+        window.set_aside_new_reactions_enabled(reacts == Reacts::Any);
         window.set_aside_can_send(state.can_send_in(room));
         let draft = state.aside_draft();
         if window.get_aside_draft() != draft {
@@ -3076,8 +3297,10 @@ impl Adapter {
             first_unread: None,
             revealed: &self.revealed,
             restyle: std::mem::take(&mut self.aside_restyle),
+            decorations: self.layout.cosmetics().decorations,
         };
         let layout = &self.layout;
+        let in_server = name_style::in_server(Some(room));
         show_timeline(
             &self.models.aside_messages,
             &mut self.aside_rows,
@@ -3085,10 +3308,13 @@ impl Adapter {
             &aside.messages,
             &marks,
             |message| {
-                layout.restyle(
+                let mut row = layout.restyle(
                     message,
                     message_row_within(message, marks.revealed, Some(fit)),
-                )
+                );
+                // In a server, an author's name shows its style's font alone.
+                row.name_style = name_style::font_only_in(in_server, row.name_style);
+                row
             },
         );
         self.aside_messages = aside.messages.clone();
@@ -3169,6 +3395,12 @@ impl Adapter {
                     }
                 }),
         );
+        // A Discord channel may take reactions where it takes no messages.
+        let reacts = room
+            .filter(|_| state.shows_text())
+            .map_or(Reacts::None, |room| state.reacts_in(&room.id));
+        window.set_reactions_enabled(reacts != Reacts::None);
+        window.set_new_reactions_enabled(reacts == Reacts::Any);
         window.set_can_send(state.can_send());
         window.set_can_attach(state.can_attach());
         window.set_can_mark_spoilers(state.can_mark_spoilers());
@@ -3401,15 +3633,22 @@ impl Adapter {
                 first_unread: state.first_unread.as_deref(),
                 revealed: &self.revealed,
                 restyle,
+                decorations: self.layout.cosmetics().decorations,
             };
             let layout = &self.layout;
+            let in_server = name_style::in_server(state.selected.as_deref());
             show_timeline(
                 &self.models.messages,
                 &mut self.rows,
                 &self.messages,
                 &state.messages,
                 &marks,
-                |message| layout.restyle(message, message_row(message, marks.revealed)),
+                |message| {
+                    let mut row = layout.restyle(message, message_row(message, marks.revealed));
+                    // In a server, an author's name shows its style's font alone.
+                    row.name_style = name_style::font_only_in(in_server, row.name_style);
+                    row
+                },
             );
             if selection_changed || reset {
                 self.latest_due = false;
@@ -3567,6 +3806,12 @@ impl Adapter {
         ));
         window.set_voice_leaving(voice.phase == Phase::Leaving);
         window.set_voice_here(voice_here);
+        window.set_voice_discord(
+            voice
+                .room
+                .as_deref()
+                .is_some_and(|room| Network::of(room) == Network::Discord),
+        );
         window.set_can_share(
             !state.preview
                 && voice.phase == Phase::Connected

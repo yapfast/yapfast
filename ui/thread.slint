@@ -19,6 +19,8 @@ export component ThreadPanel inherits Rectangle {
     in property <bool> failed;
     in property <bool> busy;
     in property <bool> composer-enabled;
+    in property <bool> reactions-enabled;
+    in property <bool> new-reactions-enabled;
     in property <bool> can-send;
     in property <bool> sending;
     /// "Replying to ..." or "Editing your message", over the composer.
@@ -88,6 +90,10 @@ export component ThreadPanel inherits Rectangle {
     callback retry(string);
     callback cancel-send(string);
     callback reveal-attachment(string, int);
+    /// Long messages fold, and Show more or Show less was clicked on one:
+    /// its item, and whether it shows whole now.
+    in property <bool> collapse-long;
+    callback fold(string, bool);
     callback view-image(string, int);
     callback save-attachment(string, int);
     public function focus-composer() { composer.focus-input(); }
@@ -222,9 +228,19 @@ export component ThreadPanel inherits Rectangle {
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
                             }
                             MessageContent {
-                                message: message; active-item: root.active-item; composer-enabled: root.composer-enabled;
+                                message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
-                                end-padding: 16px;
+                                end-padding: 16px; collapse-long: root.collapse-long;
+                                // The view keeps the message's top: it stops following
+                                // the newest, and Show less on a message whose top is
+                                // above the view brings its top back into it.
+                                fold(item, whole, y) => {
+                                    root.follow-latest = false;
+                                    if !whole && y < thread-list.absolute-position.y {
+                                        thread-list.content-y += thread-list.absolute-position.y - y;
+                                    }
+                                    root.fold(item, whole);
+                                }
                                 author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
                                 author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
                                 jump-to(item) => { root.jump-to(item); }
@@ -277,7 +293,7 @@ export component ThreadPanel inherits Rectangle {
                                     icon: @image-url("icons/reply.svg"); label: "Reply";
                                     clicked => { root.reply(message.item); root.focus-composer(); }
                                 }
-                                if message.can-react && root.composer-enabled: HorizontalLayout {
+                                if message.can-react && root.new-reactions-enabled: HorizontalLayout {
                                     spacing: 0px;
                                     for cell[slot] in root.bar-reactions: EmojiButton {
                                         animation-key: cell.key;
@@ -292,7 +308,8 @@ export component ThreadPanel inherits Rectangle {
                                 }
                                 if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                 if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
-                                if message-bar.quick && message.can-forward && root.forward-allowed: IconButton {
+                                // Beside Reply, as in Discord, whether or not Shift is held.
+                                if message.can-forward && root.forward-allowed: IconButton {
                                     icon: @image-url("icons/forward.svg"); label: "Forward";
                                     clicked => { root.start-forward(message.item); }
                                 }
