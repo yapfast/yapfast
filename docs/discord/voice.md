@@ -24,7 +24,12 @@ Discord may move a call to another voice server, saying so with a new
 `VOICE_SERVER_UPDATE` while the call is connected. Yapfast connects the call
 there and it goes on. The old server may drop the connection before that
 word comes, so a dropped connection waits five seconds for it before the
-call ends. A stream moves the same way, with a new `STREAM_CREATE` and
+call ends. Someone moving the account to a channel on another voice server
+goes that way: its voice state names the channel, the old server closes the
+connection with 4014, and `VOICE_SERVER_UPDATE` follows some 40 ms later.
+The call's connection, closed with 4014, keeps its media and waits those
+five seconds for the move; being disconnected from voice gets no new
+server, and the call ends then. A stream moves the same way, with a new `STREAM_CREATE` and
 `STREAM_SERVER_UPDATE`: sharing sends to the new server, after waiting up to
 five seconds for it when the old connection ends, and watching connects again.
 

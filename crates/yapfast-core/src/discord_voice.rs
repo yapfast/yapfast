@@ -8,7 +8,7 @@ use yapfast_discord::{
     ready::PRIVATE,
     service::{Discord, Live, Snapshot, Status, VoiceServer},
     stream::{self, StreamServer},
-    voice::{Call as DiscordCall, live_microphone},
+    voice::{Call as DiscordCall, MOVE_GRACE, live_microphone},
 };
 
 use crate::{
@@ -1067,9 +1067,6 @@ pub(crate) async fn call(
     result
 }
 
-/// How long a dropped voice connection waits for Discord to say it moved
-/// the call, before the call ends.
-const MOVE_GRACE: Duration = Duration::from_secs(5);
 /// How long connecting to the voice server a call moved to may take.
 const MOVE_TIMEOUT: Duration = Duration::from_secs(15);
 
