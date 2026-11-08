@@ -230,6 +230,9 @@ impl Cache {
                 return;
             };
             if let Some(taken) = self.entries.remove(&key) {
+                // The renderer owns the same pixels through its registry.
+                // Dropping our cache entry alone does not release any frames.
+                i_slint_core::yapfast_emoji::remove(&key);
                 self.bytes -= taken.frames.bytes();
             }
         }
@@ -277,6 +280,14 @@ impl Cache {
     }
 }
 
+impl Drop for Cache {
+    fn drop(&mut self) {
+        for key in self.entries.keys() {
+            i_slint_core::yapfast_emoji::remove(key);
+        }
+    }
+}
+
 /// One emoji's frames on their way back from the decoder.
 struct Decoded {
     key: String,
@@ -294,6 +305,9 @@ const DECODING_AT_ONCE: usize = 1;
 pub(super) struct Animations {
     cache: Cache,
     queue: Queue,
+    /// The picker's current ready rows, replaced rather than accumulated as
+    /// it scrolls. Message emoji are tracked separately by the cache's pins.
+    picker: HashSet<String>,
     /// The emoji whose frames a thread is decoding now.
     decoding: std::collections::HashSet<String>,
     done: std::sync::mpsc::Sender<Decoded>,
@@ -314,6 +328,7 @@ impl Animations {
         Self {
             cache: Cache::new(),
             queue: Queue::default(),
+            picker: HashSet::new(),
             decoding: std::collections::HashSet::new(),
             done,
             decoded,
@@ -355,6 +370,7 @@ impl Animations {
             wanted.push((key, glyph, address));
         }
         self.cache.pin(keys.iter().map(String::as_str));
+        self.cache.evict();
         for (key, glyph, address) in wanted {
             self.queue.want(Job {
                 key,
@@ -362,6 +378,7 @@ impl Animations {
                 address,
             });
         }
+        self.prune_waiting();
     }
 
     /// Wants frames for emoji shown somewhere that pins nothing, such as the
@@ -372,8 +389,10 @@ impl Animations {
         shown: impl IntoIterator<Item = (String, Option<char>, String)>,
         pictures: &HashMap<String, Arc<Picture>>,
     ) {
+        self.picker.clear();
         for (key, glyph, address) in shown {
-            if self.cache.contains(&key)
+            self.picker.insert(key.clone());
+            if self.cache.get(&key).is_some()
                 || self.cache.is_still(&key)
                 || self.decoding.contains(&key)
                 || !pictures.contains_key(&address)
@@ -386,6 +405,29 @@ impl Animations {
                 address,
             });
         }
+        self.prune_waiting();
+    }
+
+    /// Queued work and late results belong only to messages or to the
+    /// picker's current rows, not every row it has ever passed.
+    fn prune_waiting(&mut self) {
+        let (messages, picker) = (&self.cache.pinned, &self.picker);
+        self.queue
+            .waiting
+            .retain(|job| messages.contains(&job.key) || picker.contains(&job.key));
+    }
+
+    /// The picker closed. Its unpinned frames must leave the renderer too,
+    /// and a decoder already running must not register them again later.
+    /// Whether the picker's ready rows animate `key`.
+    pub(super) fn animates_in_picker(&self, key: &str) -> bool {
+        self.picker.contains(key)
+    }
+
+    pub(super) fn hide_picker(&mut self) {
+        self.picker.clear();
+        self.prune_waiting();
+        self.cache.evict_to(0);
     }
 
     /// Starts decoding what is wanted, within the budget of work in flight.
@@ -416,6 +458,9 @@ impl Animations {
     pub(super) fn drain(&mut self) {
         while let Ok(decoded) = self.decoded.try_recv() {
             self.decoding.remove(&decoded.key);
+            if !self.cache.pinned.contains(&decoded.key) && !self.picker.contains(&decoded.key) {
+                continue;
+            }
             if decoded.frames.is_empty() {
                 self.cache.still(&decoded.key);
                 continue;
@@ -446,10 +491,22 @@ impl Animations {
     pub(super) fn run(&mut self, window: &YapfastWindow, pictures: &HashMap<String, Arc<Picture>>) {
         self.start(pictures);
         self.drain();
-        window
-            .global::<EmojiAnimations>()
-            .set_revision(i_slint_core::yapfast_emoji::revision() as i32);
-        window.window().request_redraw();
+        if self.decoding.is_empty()
+            && self.queue.len() == 0
+            && i_slint_core::yapfast_emoji::is_empty()
+        {
+            self.timer.stop();
+            self.interval = 0;
+        }
+        // Only a frame that changed, or one that came or went, draws again:
+        // the clock ticks faster than most frames change, and each draw walks
+        // the whole window.
+        let revision = i_slint_core::yapfast_emoji::revision() as i32;
+        let global = window.global::<EmojiAnimations>();
+        if global.get_revision() != revision {
+            global.set_revision(revision);
+            window.window().request_redraw();
+        }
     }
 
     /// Sets whether the clock may move, and starts or stops the timer: it runs
@@ -652,6 +709,270 @@ mod tests {
         assert!(!cache.contains("a"), "shown before c");
         assert!(cache.contains("c"), "shown last, so kept");
         assert_eq!(cache.bytes(), 16);
+    }
+
+    #[test]
+    fn eviction_releases_the_renderers_animation_too() {
+        let mut cache = Cache::new();
+        let key = "eviction-releases-registry:1";
+        let frames = small(1);
+        let animation = Rc::new(i_slint_core::yapfast_emoji::Animation::new(
+            frames.images().to_vec(),
+            frames.delays(),
+        ));
+        let retained = Rc::downgrade(&animation);
+        i_slint_core::yapfast_emoji::insert(key, Some('\u{10ffe2}'), animation);
+        cache.insert(key.into(), Some('\u{10ffe2}'), frames);
+        cache.evict_to(0);
+        let still_retained = retained.upgrade().is_some();
+        // Clean up even on the broken implementation, before asserting.
+        i_slint_core::yapfast_emoji::remove(key);
+        assert!(
+            !still_retained,
+            "eviction left the renderer owning the animation"
+        );
+        assert!(i_slint_core::yapfast_emoji::frame_of_glyph('\u{10ffe2}').is_none());
+    }
+
+    #[test]
+    fn scrolling_animation_frames_stays_within_the_real_pixel_budget() {
+        let mut animations = Animations::new();
+        animations.side = 96;
+        let keys: Vec<String> = (0..64).map(|n| format!("scroll-memory:{n}")).collect();
+        let bytes_per_animation = 16 * 96 * 96 * 4;
+        for key in &keys {
+            animations.picker = HashSet::from([key.clone()]);
+            animations
+                .done
+                .send(Decoded {
+                    key: key.clone(),
+                    glyph: None,
+                    frames: vec![vec![0; 96 * 96 * 4]; 16],
+                    delays: vec![50; 16],
+                })
+                .unwrap();
+            animations.drain();
+        }
+        let registered = keys
+            .iter()
+            .filter(|key| i_slint_core::yapfast_emoji::frame_of_key(key).is_some())
+            .count();
+        let retained_bytes = registered * bytes_per_animation;
+        eprintln!(
+            "animation pixels: cache={} bytes; renderer={} bytes; scrolled={} bytes",
+            animations.cache.bytes(),
+            retained_bytes,
+            keys.len() * bytes_per_animation
+        );
+        animations.hide_picker();
+        let after_close = keys
+            .iter()
+            .filter(|key| i_slint_core::yapfast_emoji::frame_of_key(key).is_some())
+            .count()
+            * bytes_per_animation;
+        eprintln!("animation pixels after closing: {after_close} bytes");
+        for key in &keys {
+            i_slint_core::yapfast_emoji::remove(key);
+        }
+        assert!(
+            retained_bytes <= Cache::BUDGET,
+            "renderer retained {retained_bytes} bytes despite the {} byte cache budget",
+            Cache::BUDGET
+        );
+        assert_eq!(
+            after_close, 0,
+            "a closed picker retains no unpinned animation pixels"
+        );
+    }
+
+    /// Run alone under an external process-memory sampler. The phase pauses
+    /// let it read the process without adding a platform-specific allocator or
+    /// profiler to the app. Unlike the unit regression above, this processes
+    /// 288 MiB of frame pixels to expose growth across a large scroll.
+    #[test]
+    #[ignore = "manual process-memory probe; run alone with --nocapture"]
+    fn animation_scroll_process_memory_probe() {
+        use std::io::Write;
+        let phase = |name: &str| {
+            println!("emoji-memory-phase:{name}");
+            std::io::stdout().flush().unwrap();
+            std::thread::sleep(Duration::from_millis(500));
+        };
+        let mut animations = Animations::new();
+        animations.side = 96;
+        phase("before");
+        for index in 0..512 {
+            let key = format!("process-memory-probe:{index}");
+            animations.picker = HashSet::from([key.clone()]);
+            animations
+                .done
+                .send(Decoded {
+                    key,
+                    glyph: None,
+                    frames: vec![vec![0; 96 * 96 * 4]; 16],
+                    delays: vec![50; 16],
+                })
+                .unwrap();
+            animations.drain();
+        }
+        phase("after-scroll");
+        animations.hide_picker();
+        phase("after-close");
+        trim();
+        phase("after-trim");
+        assert_eq!(animations.cache.bytes(), 0);
+        assert!(i_slint_core::yapfast_emoji::is_empty());
+    }
+
+    #[test]
+    fn closing_the_picker_discards_late_frames_and_preserves_message_animations() {
+        let mut animations = Animations::new();
+        animations.side = 2;
+        let message = "close-keeps-message:1";
+        let picker = "close-drops-picker:2";
+        let pictures = HashMap::new();
+        animations.show([(message.into(), None, "message.png".into())], &pictures);
+        animations.also([(picker.into(), None, "picker.gif".into())], &pictures);
+        for key in [message, picker] {
+            animations
+                .done
+                .send(Decoded {
+                    key: key.into(),
+                    glyph: None,
+                    frames: vec![vec![0; 16]],
+                    delays: vec![50],
+                })
+                .unwrap();
+            animations.queue.want(job(key, key));
+        }
+        animations.drain();
+        assert!(i_slint_core::yapfast_emoji::frame_of_key(picker).is_some());
+        animations.hide_picker();
+        assert!(i_slint_core::yapfast_emoji::frame_of_key(picker).is_none());
+        assert!(i_slint_core::yapfast_emoji::frame_of_key(message).is_some());
+        assert_eq!(animations.queue.len(), 1);
+        assert_eq!(animations.queue.take().unwrap().key, message);
+        // A decoder already running at close cannot put the frames back.
+        animations.decoding.insert(picker.into());
+        animations
+            .done
+            .send(Decoded {
+                key: picker.into(),
+                glyph: None,
+                frames: vec![vec![0; 16]],
+                delays: vec![50],
+            })
+            .unwrap();
+        animations.drain();
+        assert!(animations.decoding.is_empty());
+        assert!(i_slint_core::yapfast_emoji::frame_of_key(picker).is_none());
+        assert_eq!(animations.cache.bytes(), 16);
+        drop(animations);
+        assert!(i_slint_core::yapfast_emoji::frame_of_key(message).is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "discord")]
+    fn quiet_picker_updates_restart_animation_processing_after_close() {
+        use yapfast_discord::{
+            marked::MarkedServer,
+            ready::{Emoji, Server},
+            service::Snapshot,
+        };
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let window = YapfastWindow::new().unwrap();
+        let adapter = Adapter::new(
+            Arc::new(BackgroundRuntime::new().unwrap()),
+            directory.path().into(),
+            &window,
+        )
+        .unwrap();
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.apply(Event::Discord(Arc::new(Snapshot {
+            servers: vec![MarkedServer::from(Server {
+                id: "10".into(),
+                name: "Test".into(),
+                emojis: vec![Emoji {
+                    id: "123".into(),
+                    name: "restart".into(),
+                    animated: true,
+                    available: true,
+                }]
+                .into(),
+                ..Default::default()
+            })],
+            ..Default::default()
+        })));
+        let url = adapter.app.emoji_by_id(&["123"].into_iter().collect())[0]
+            .picture
+            .clone();
+        let mut data = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut data);
+            for _ in 0..2 {
+                encoder
+                    .encode_frame(image::Frame::from_parts(
+                        image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 0, 0, 255])),
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(50, 1),
+                    ))
+                    .unwrap();
+            }
+        }
+        adapter.app.state.pictures.insert(
+            url,
+            Arc::new(yapfast_core::chat::decode_picture(&data, 2, 2).unwrap()),
+        );
+        adapter.models.emoji_rows.set_vec(vec![EmojiRow {
+            cells: ModelRc::new(VecModel::from(vec![emoji::cell("restart:123")])),
+            ..Default::default()
+        }]);
+        assert!(!adapter.animations.timer.running());
+        // No full refresh: the same helper handles scroll and picture arrivals.
+        super::super::callbacks::want_shown_animations(&mut adapter, &window);
+        assert!(adapter.animations.timer.running());
+        assert!(!adapter.animations.decoding.is_empty());
+        adapter.animations.hide_picker();
+        for _ in 0..200 {
+            adapter.run_emoji_animations(&window);
+            if adapter.animations.decoding.is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(adapter.animations.decoding.is_empty());
+        assert!(!adapter.animations.timer.running());
+        super::super::callbacks::want_shown_animations(&mut adapter, &window);
+        assert!(
+            adapter.animations.timer.running(),
+            "reopening restarts the timer without a refresh"
+        );
+        assert!(!adapter.animations.decoding.is_empty());
+    }
+
+    #[test]
+    fn scrolling_to_rows_without_animations_discards_obsolete_work() {
+        let mut animations = Animations::new();
+        let pictures = HashMap::new();
+        let key = "scroll-left-animation:1";
+        animations.also([(key.into(), None, "animation.gif".into())], &pictures);
+        animations.queue.want(job(key, "animation.gif"));
+        animations.also(std::iter::empty(), &pictures);
+        assert_eq!(animations.queue.len(), 0);
+        animations
+            .done
+            .send(Decoded {
+                key: key.into(),
+                glyph: None,
+                frames: vec![vec![0; 16]],
+                delays: vec![50],
+            })
+            .unwrap();
+        animations.drain();
+        assert_eq!(animations.cache.bytes(), 0);
+        assert!(i_slint_core::yapfast_emoji::frame_of_key(key).is_none());
     }
 
     #[test]

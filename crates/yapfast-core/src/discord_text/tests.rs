@@ -874,6 +874,25 @@ async fn until<T>(
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn the_sticker_picker_lists_the_servers_own_stickers() {
+    // READY gives each server's own stickers, as Discord's client reads them
+    // there: the picker asks for no server's list.
+    let discord = fake_discord().await;
+    let snapshot = discord.snapshots().borrow().clone();
+    let server = snapshot
+        .servers
+        .iter()
+        .find(|server| server.id == FAKE_GUILD)
+        .expect("the fake's server");
+    assert!(
+        server.stickers.iter().any(|sticker| sticker.name == "Wave"),
+        "the server's own stickers come with it: {:?}",
+        server.stickers
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
     let discord = fake_discord().await;
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
