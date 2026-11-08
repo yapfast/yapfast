@@ -3279,7 +3279,8 @@ export component YapfastWindow inherits Window {
                                                         }
                                                         if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                                         if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
-                                                        if message-bar.quick && message.can-forward && root.forward-allowed: IconButton {
+                                                        // Beside Reply, as in Discord, whether or not Shift is held.
+                                                        if message.can-forward && root.forward-allowed: IconButton {
                                                             icon: @image-url("icons/forward.svg"); label: "Forward";
                                                             clicked => { root.start-forward(message.item); }
                                                         }
