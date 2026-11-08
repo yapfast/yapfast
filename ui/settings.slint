@@ -1073,7 +1073,7 @@ export component AccessibilitySettings inherits VerticalLayout {
             accessible-role: groupbox; accessible-label: "Accessibility preview";
             VerticalLayout {
                 padding: 16px; spacing: 16px;
-                for text in ["what happened to all the beans", "here's a link <https://discord.com/accessibility>"]: HorizontalLayout {
+                for text in [@markdown("what happened to all the beans"), @markdown("here's a link [https://discord.com/accessibility](https://discord.com/accessibility)")]: HorizontalLayout {
                     spacing: 16px;
                     if root.chat-display == 0: VerticalLayout { alignment: start; Avatar { initial: "E"; tint: #c0679a; } }
                     if root.chat-display == 1: Text { text: "02:44"; color: Theme.muted; font-size: max(10px, root.message-font-size - 4px); vertical-alignment: center; }
@@ -1087,7 +1087,7 @@ export component AccessibilitySettings inherits VerticalLayout {
                             Rectangle { horizontal-stretch: 1; }
                         }
                         StyledText {
-                            text: @markdown("\{text}"); link-color: Theme.link; default-color: Theme.text;
+                            text: text; link-color: Theme.link; default-color: Theme.text;
                             default-font-size: root.message-font-size;
                         }
                     }
@@ -1118,10 +1118,12 @@ export component AccessibilitySettings inherits VerticalLayout {
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "VISUAL DENSITY"; }
+        Text { text: "UI density"; color: Theme.text; font-size: 15px; }
         Choices {
             label: "UI density"; options: ["Compact", "Default", "Spacious"];
             current <=> root.ui-density; chosen => { root.preferences-changed(); }
         }
+        Text { text: "Chat message display"; color: Theme.text; font-size: 15px; }
         Choices {
             label: "Chat message display"; options: ["Default", "Compact"];
             current <=> root.chat-display; chosen => { root.preferences-changed(); }
@@ -1167,6 +1169,7 @@ export component AccessibilitySettings inherits VerticalLayout {
             description: "Stop UI transitions and pause automatic media playback.";
             checked <=> root.reduced-motion; toggled => { root.preferences-changed(); }
         }
+        Text { text: "Play GIFs, emoji and stickers"; color: Theme.text; font-size: 15px; }
         Choices {
             label: "Play GIFs, emoji and stickers";
             options: ["While Yapfast is focused", "Always", "Never"];

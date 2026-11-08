@@ -2041,9 +2041,9 @@ component CompactMessageHeading inherits HorizontalLayout {
         width: 44px; vertical-alignment: center; overflow: elide;
     }
     if message.first && message.notice == "": Rectangle {
-        width: min(180px, compact-plain.preferred-width);
+        width: min(180px, compact-plain.preferred-width); clip: true;
         compact-plain := Text {
-            width: parent.width; height: parent.height; visible: !root.name-styled;
+            height: parent.height; visible: !root.name-styled;
             text: message.author; color: message.has-color ? message.color : Theme.text;
             font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
             font-family: message.name-style[0].family;
@@ -2295,13 +2295,21 @@ export component MessageContent inherits VerticalLayout {
                             accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
                             VerticalLayout {
                                 spacing: 2px;
-                                if root.compact: CompactMessageHeading {
-                                    message: message; message-font-size: root.message-font-size;
-                                    show-styles: root.show-styles; hovered: root.hovered;
-                                    author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
-                                    author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
+                                if root.compact: HorizontalLayout {
+                                    spacing: 8px;
+                                    CompactMessageHeading {
+                                        message: message; message-font-size: root.message-font-size;
+                                        show-styles: root.show-styles; hovered: root.hovered;
+                                        author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
+                                        author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
+                                    }
+                                    TextBlocks {
+                                        blocks: message.blocks; font-size: root.message-font-size;
+                                        color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                                        open-link(link) => { root.link-clicked(link); }
+                                    }
                                 }
-                                TextBlocks {
+                                if !root.compact: TextBlocks {
                                     blocks: message.blocks; font-size: root.message-font-size;
                                     color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
                                     open-link(link) => { root.link-clicked(link); }
