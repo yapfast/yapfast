@@ -239,7 +239,7 @@ pub(crate) fn keep_build_number(number: u64) {
     let Some(file) = build_number_file() else {
         return;
     };
-    if let Err(error) = std::fs::write(&file, format!("{number}\n")) {
+    if let Err(error) = write_bytes(&file, format!("{number}\n").as_bytes()) {
         tracing::warn!(%error, "could not keep Discord's build number");
     }
 }
@@ -396,7 +396,9 @@ pub fn has_gif(url: &str) -> bool {
 /// request each. A tile still asks when it shows.
 pub fn skip_gif_ahead(url: &str) {
     if let Some(file) = gif_file(url) {
-        let _ = std::fs::write(file.with_extension("skip"), []);
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        let _ = open_in_folder(&options, &file.with_extension("skip"));
     }
 }
 
@@ -719,11 +721,7 @@ pub fn save_messages(channel: &str, messages: Vec<Message>) {
         return;
     };
     let newest = &messages[messages.len().saturating_sub(CHANNEL_MESSAGES)..];
-    let written = file
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .map_err(anyhow::Error::from)
-        .and_then(|()| write_sealed(&file, &newest));
+    let written = write_sealed(&file, &newest);
     if let Err(error) = written {
         tracing::warn!(%error, "could not save a Discord channel");
     }
@@ -759,11 +757,7 @@ pub(crate) fn save_profile(guild: &str, user: &str, profile: &Profile) {
     let Some(file) = profile_file(guild, user) else {
         return;
     };
-    let written = file
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .map_err(anyhow::Error::from)
-        .and_then(|()| write_sealed(&file, profile));
+    let written = write_sealed(&file, profile);
     if let Err(error) = written {
         tracing::warn!(%error, "could not save a Discord profile");
     }
@@ -837,9 +831,6 @@ impl KeptPicture {
 
     /// Keeps `data` as the picture. Without a key, an encrypted one isn't.
     fn write(&self, data: &[u8]) -> anyhow::Result<()> {
-        if let Some(directory) = self.file().parent() {
-            std::fs::create_dir_all(directory)?;
-        }
         match self {
             Self::Plain(file) => write_bytes(file, data),
             Self::Sealed(file) => write_sealed_with(file, |sealing| Ok(sealing.write_all(data)?)),
@@ -1042,12 +1033,30 @@ fn write_with(
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut writer = std::io::BufWriter::new(options.open(&partial)?);
+    let mut writer = std::io::BufWriter::new(open_in_folder(&options, &partial)?);
     fill(&mut writer)?;
     writer.flush()?;
     drop(writer);
     std::fs::rename(&partial, file)?;
     Ok(())
+}
+
+/// Opens `file` with `options`, making its folder first if it's gone: one
+/// made at the start, or the whole data folder, can be deleted while Yapfast
+/// runs, by a cleaner, and every save after would fail.
+pub(crate) fn open_in_folder(
+    options: &std::fs::OpenOptions,
+    file: &Path,
+) -> std::io::Result<std::fs::File> {
+    match options.open(file) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(folder) = file.parent() {
+                std::fs::create_dir_all(folder)?;
+            }
+            options.open(file)
+        }
+        opened => opened,
+    }
 }
 
 #[cfg(test)]
@@ -1335,6 +1344,18 @@ mod tests {
             "an unfavourited one's goes"
         );
         std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn saves_again_after_its_folder_is_deleted() {
+        let data =
+            std::env::temp_dir().join(format!("yapfast-discord-deleted-{}", std::process::id()));
+        let file = data.join("discord-pictures").join("picture");
+        write_bytes(&file, b"one").unwrap();
+        std::fs::remove_dir_all(&data).unwrap();
+        write_bytes(&file, b"two").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"two");
+        std::fs::remove_dir_all(&data).unwrap();
     }
 
     #[test]

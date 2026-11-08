@@ -8,7 +8,8 @@ use std::{
 use crate::{
     chat::{
         self, ChatMember, ChatMessage, ChatRoom, ChatServer, Command, Contact, DiscordCommand,
-        Event, ForwardFailure, MentionGroup, Picture, Profile, ProfileRole, Reaction, Reply, Role,
+        Event, ForwardFailure, MentionGroup, Picture, Profile, ProfileRole, Reaction, Reacts,
+        Reply, Role,
     },
     discord,
     mention::{self, Candidate, Target},
@@ -793,6 +794,25 @@ impl AppState {
             self.discord_online && !room.locked && !room.read_only
         } else {
             self.preview || (self.trusted && room.encrypted)
+        }
+    }
+
+    /// What reacting this device may do in a conversation: what a Discord
+    /// channel allows while Discord is connected, which a read-only channel
+    /// may; and in a Matrix room, all of it where it may write.
+    pub fn reactable(&self, room: &ChatRoom) -> Reacts {
+        if !room.has_text() {
+            Reacts::None
+        } else if room.network == Network::Discord {
+            if self.discord_online && !room.locked {
+                room.reacts
+            } else {
+                Reacts::None
+            }
+        } else if self.writable(room) {
+            Reacts::Any
+        } else {
+            Reacts::None
         }
     }
 

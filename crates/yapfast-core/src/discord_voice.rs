@@ -8,7 +8,7 @@ use yapfast_discord::{
     ready::PRIVATE,
     service::{Discord, Live, Snapshot, Status, VoiceServer},
     stream::{self, StreamServer},
-    voice::{Call as DiscordCall, live_microphone},
+    voice::{Call as DiscordCall, MOVE_GRACE, live_microphone},
 };
 
 use crate::{
@@ -141,7 +141,40 @@ enum SoundEvent {
 }
 
 /// Joining the call: Discord's voice server, then connecting to it.
-type Joining<'a> = Pin<Box<dyn Future<Output = Result<(VoiceServer, DiscordCall)>> + 'a>>;
+type Joining<'a> =
+    Pin<Box<dyn Future<Output = Result<(VoiceServer, DiscordCall), (Step, anyhow::Error)>> + 'a>>;
+
+/// Where joining a call failed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Step {
+    /// Asking Discord's gateway to join, until it names a voice server.
+    Asking,
+    /// Connecting to that voice server.
+    Connecting,
+}
+
+/// Logs why joining failed, and gives the error the call ends with, which
+/// the UI shows: the gateway's own sentence, or the voice server's step.
+fn join_failed(guild: &str, step: Step, error: anyhow::Error) -> anyhow::Error {
+    tracing::warn!(
+        error = format!("{error:#}"),
+        kind = kind(guild),
+        ?step,
+        "could not join the Discord call"
+    );
+    match step {
+        Step::Asking => error,
+        Step::Connecting => {
+            let shown = format!("Couldn't connect to Discord voice: {error}.");
+            error.context(shown)
+        }
+    }
+}
+
+/// A server's voice channel or a DM's call, for the log.
+fn kind(guild: &str) -> &'static str {
+    if guild == PRIVATE { "DM" } else { "server" }
+}
 
 /// Connects to the voice server Discord assigned for `channel`.
 fn connect<'a>(
@@ -151,8 +184,10 @@ fn connect<'a>(
     hearing: Arc<Hearing>,
 ) -> Joining<'a> {
     Box::pin(async move {
-        let call = DiscordCall::connect(&server, guild, &channel, hearing).await?;
-        Ok((server, call))
+        match DiscordCall::connect(&server, guild, &channel, hearing).await {
+            Ok(call) => Ok((server, call)),
+            Err(error) => Err((Step::Connecting, error)),
+        }
     })
 }
 
@@ -302,7 +337,10 @@ pub(crate) async fn call(
     // From before joining, so that a move while connecting is heard.
     let mut live = discord.live();
     let mut joining: Joining = Box::pin(async {
-        let server = discord.join(guild, channel).await?;
+        let server = discord
+            .join(guild, channel)
+            .await
+            .map_err(|error| (Step::Asking, error))?;
         connect(server, guild, channel.to_owned(), hearing.clone()).await
     });
     // Where this account is, which someone such as a bot may move it from.
@@ -325,6 +363,7 @@ pub(crate) async fn call(
                 _ => {}
             },
             () = &mut deadline => {
+                tracing::warn!(kind = kind(guild), "Discord voice took too long to connect");
                 discord.leave(guild);
                 bail!("Discord voice took too long to connect. Try again.");
             }
@@ -353,9 +392,9 @@ pub(crate) async fn call(
     };
     let (mut server, mut call) = match joined {
         Ok(joined) => joined,
-        Err(error) => {
+        Err((step, error)) => {
             discord.leave(guild);
-            return Err(error);
+            return Err(join_failed(guild, step, error));
         }
     };
     let (played, reverse) = std::sync::mpsc::sync_channel(8);
@@ -780,6 +819,7 @@ pub(crate) async fn call(
                             }
                         }
                         Err(error) => {
+                            tracing::warn!(error = format!("{error:#}"), kind = kind(guild), "could not start the stream");
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
                             }
@@ -831,10 +871,14 @@ pub(crate) async fn call(
                             if let Some(watching) = watch.as_mut()
                                 && let Err(error) = watching.open(&server, state)
                             {
+                                tracing::warn!(error = format!("{error:#}"), "could not watch the stream");
                                 stop = Some(Some(format!("{error:#}")));
                             }
                         }
-                        WatchEvent::Opened(Err(error)) => stop = Some(Some(error.to_string())),
+                        WatchEvent::Opened(Err(error)) => {
+                            tracing::warn!(error = format!("{error:#}"), kind = kind(guild), "could not watch the stream");
+                            stop = Some(Some(error.to_string()));
+                        }
                         WatchEvent::Report(Some(Report::Ready)) => {
                             if let Some(frames) = state.watching.as_ref().and_then(|watching| watching.frames.as_ref()) {
                                 frames.unlink();
@@ -1023,9 +1067,6 @@ pub(crate) async fn call(
     result
 }
 
-/// How long a dropped voice connection waits for Discord to say it moved
-/// the call, before the call ends.
-const MOVE_GRACE: Duration = Duration::from_secs(5);
 /// How long connecting to the voice server a call moved to may take.
 const MOVE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -1211,3 +1252,6 @@ fn alone(snapshot: &yapfast_discord::service::Snapshot, channel: &str, me: &str)
         .flatten()
         .all(|member| member.user_id == me)
 }
+
+#[cfg(test)]
+mod tests;

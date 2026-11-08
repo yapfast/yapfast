@@ -24,9 +24,25 @@ Discord may move a call to another voice server, saying so with a new
 `VOICE_SERVER_UPDATE` while the call is connected. Yapfast connects the call
 there and it goes on. The old server may drop the connection before that
 word comes, so a dropped connection waits five seconds for it before the
-call ends. A stream moves the same way, with a new `STREAM_CREATE` and
+call ends. Someone moving the account to a channel on another voice server
+goes that way: its voice state names the channel, the old server closes the
+connection with 4014, and `VOICE_SERVER_UPDATE` follows some 40 ms later.
+The call's connection, closed with 4014, keeps its media and waits those
+five seconds for the move; being disconnected from voice gets no new
+server, and the call ends then. A stream moves the same way, with a new `STREAM_CREATE` and
 `STREAM_SERVER_UPDATE`: sharing sends to the new server, after waiting up to
 five seconds for it when the old connection ends, and watching connects again.
+
+A join that fails says why in the dock. Discord's gateway errors are
+sentences of their own ("Discord disconnected while joining voice."); a
+voice server that fails says the step: "Couldn't connect to Discord voice:
+the voice server didn't answer address discovery, asked 5 times over 5 s.",
+where address discovery is the UDP exchange a firewall or VPN may block. The log has a warning at the
+default level with the whole chain of causes, whether it was a server's
+channel or a DM, and the step: asking Discord, or connecting to its voice
+server. A stream that can't start or be watched logs its chain the same way.
+`a_call_that_cant_connect_says_why` checks it, with the fake's voice server
+ignoring address discovery (`POST /_control/voice-discovery?off`).
 
 The account may be in voice on another client too, such as Discord's app on
 a phone. Yapfast tells that client's voice state from its own by the
@@ -484,7 +500,8 @@ the next key pressed, and Escape stops without changing it; until there's a
 key, settings say the microphone sends nothing. Yapfast keeps the key by its
 scan code (`push_to_talk_key`), so it's the same key on any keyboard layout,
 with its name and, for the portal below, its keysym. One key, without
-modifiers; mouse buttons can't be recorded.
+modifiers. On Windows, Mouse 4 (Back) and Mouse 5 (Forward) can be recorded
+instead; reserved values in the same field distinguish them from scan codes.
 
 `crates/yapfast-core/src/push_to_talk.rs` keeps the mode, whether the key is
 down and the delay in atomics. The microphone reads them each 10 ms block,
@@ -502,7 +519,7 @@ on the local stack.
 | --- | --- | --- |
 | Wayland | The xdg-desktop-portal GlobalShortcuts portal: Yapfast binds one shortcut, offering the key as its preferred trigger, and holds it from Activated to Deactivated. The desktop may ask to approve it or give it another key; settings show the shortcut it gave. KDE Plasma, Hyprland and GNOME from 48 have the portal | Against a stand-in portal on a private bus (`the_portal_binds_the_key_and_holds_it`); not on a real desktop |
 | X11 | XInput 2's raw key events on the root window, which come whatever window has the focus and leave the key to it | Under Xvfb, with xdotool typing (`x11_hears_the_key_whatever_has_the_focus`) |
-| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) on a thread of its own, which sees the key's release, unlike `RegisterHotKey`, and passes every key on | Under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); not on real Windows, where Windows may keep keys typed into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
+| Windows | A low-level keyboard hook (`WH_KEYBOARD_LL`) for a key or mouse hook (`WH_MOUSE_LL`) for Mouse 4/5, on a thread of its own, which sees the release, unlike `RegisterHotKey`, and passes every event on | Keyboard under Wine 10.0, with `SendInput` typing (`the_hook_hears_the_key_go_down_and_up`); mouse recording, XBUTTON down/up and the focused fallback in unit tests; not on real Windows, where Windows may keep input into a program running as administrator, such as some games, from the hook, as Discord warns of its own |
 
 Where none of these works, as on a wlroots desktop such as Sway, which has no
 GlobalShortcuts, the window's own key events stand in, so the key works while
