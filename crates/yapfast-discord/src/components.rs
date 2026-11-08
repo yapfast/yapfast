@@ -185,7 +185,7 @@ impl Parsed {
                         let slot = self.slot();
                         let spoiler = spoiler || accessory["spoiler"].as_bool().unwrap_or(false);
                         let size = (THUMBNAIL_SIZE, THUMBNAIL_SIZE);
-                        media(&accessory["media"], slot, size, spoiler).map(|picture| {
+                        media(accessory, &accessory["media"], slot, size, spoiler).map(|picture| {
                             self.media.push(picture);
                             Beside::Thumbnail(slot)
                         })
@@ -204,6 +204,7 @@ impl Parsed {
                     .filter_map(|item| {
                         let spoiler = spoiler || item["spoiler"].as_bool().unwrap_or(false);
                         media(
+                            item,
                             &item["media"],
                             slot,
                             (PREVIEW_WIDTH, PREVIEW_HEIGHT),
@@ -328,7 +329,13 @@ fn select(component: &Value) -> Row {
 
 /// A picture or video of a gallery or thumbnail, from its unfurled media
 /// item, fitted into `size`. Discord's proxy must have it.
-fn media(item: &Value, slot: usize, size: (u64, u64), spoiler: bool) -> Option<Attachment> {
+fn media(
+    component: &Value,
+    item: &Value,
+    slot: usize,
+    size: (u64, u64),
+    spoiler: bool,
+) -> Option<Attachment> {
     let url = item["url"].as_str()?;
     item["proxy_url"].as_str()?;
     let video = item["content_type"]
@@ -337,7 +344,10 @@ fn media(item: &Value, slot: usize, size: (u64, u64), spoiler: bool) -> Option<A
     let side = |name: &str| u32::try_from(item[name].as_u64()?).ok();
     Some(Attachment {
         name: crate::embed::file_name(url).unwrap_or("image").to_owned(),
-        description: None,
+        description: component["description"]
+            .as_str()
+            .or_else(|| item["description"].as_str())
+            .map(str::to_owned),
         size: None,
         url: url.into(),
         image: !video,
@@ -403,8 +413,11 @@ mod tests {
                 {"type": 10, "content": "# Hello"},
                 {"type": 14, "divider": false, "spacing": 2},
                 {"type": 9, "components": [{"type": 10, "content": "One"}, {"type": 10, "content": "Two"}],
-                 "accessory": {"type": 11, "media": picture("thumb.png")}},
-                {"type": 12, "items": [{"media": picture("a.png")}, {"media": picture("b.png"), "spoiler": true}]},
+                 "accessory": {"type": 11, "description": "A small thumbnail", "media": picture("thumb.png")}},
+                {"type": 12, "items": [
+                    {"description": "First gallery image", "media": picture("a.png")},
+                    {"description": "A hidden landscape", "media": picture("b.png"), "spoiler": true}
+                ]},
                 {"type": 13, "file": {"url": "https://cdn.discordapp.com/attachments/1/2/notes.txt"},
                  "name": "notes.txt", "size": 12},
                 {"type": 1, "components": [
@@ -473,6 +486,20 @@ mod tests {
             ]
         );
         assert!(parsed.media[0].preview_url.is_some());
+        let descriptions: Vec<_> = parsed
+            .media
+            .iter()
+            .map(|media| media.description.as_deref())
+            .collect();
+        assert_eq!(
+            descriptions,
+            [
+                Some("A small thumbnail"),
+                Some("First gallery image"),
+                Some("A hidden landscape"),
+                None,
+            ]
+        );
         assert_eq!(parsed.media[3].preview_url, None);
         assert_eq!(parsed.media[3].size, Some(12));
     }

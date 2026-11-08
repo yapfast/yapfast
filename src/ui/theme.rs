@@ -796,6 +796,31 @@ struct Accessibility {
     dark: bool,
 }
 
+/// Black or white, whichever is more readable on a transformed button.
+fn contrasting_ink(background: Color) -> Color {
+    fn luminance(colour: Color) -> f32 {
+        fn linear(channel: u8) -> f32 {
+            let value = channel as f32 / 255.;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        0.2126 * linear(colour.red())
+            + 0.7152 * linear(colour.green())
+            + 0.0722 * linear(colour.blue())
+    }
+    let background = luminance(background);
+    let white = 1.05 / (background + 0.05);
+    let black = (background + 0.05) / 0.05;
+    if black >= white {
+        rgb(0)
+    } else {
+        rgb(0xffffff)
+    }
+}
+
 /// Recolours one RGBA colour for the accessibility preferences. Custom colours
 /// use `foreground` so high contrast moves them away from the chat background.
 pub(super) fn accessible_colour(
@@ -904,6 +929,7 @@ impl Theme {
     pub fn apply(&self, window: &YapfastWindow) -> bool {
         let saturation = window.get_colour_saturation();
         let high_contrast = window.get_high_contrast();
+        let polarity_changed = high_contrast && ACCESSIBILITY.get().dark != self.dark;
         ACCESSIBILITY.set(Accessibility {
             saturation,
             custom_colours: window.get_saturate_custom_colours(),
@@ -911,7 +937,7 @@ impl Theme {
             dark: self.dark,
         });
         CURRENT.replace(*self);
-        let adjust = |colour: Color| {
+        let adjust = |colour: Color, foreground: bool| {
             float_colour(accessible_colour(
                 (
                     colour.red() as f32 / 255.,
@@ -922,27 +948,43 @@ impl Theme {
                 saturation,
                 high_contrast,
                 self.dark,
-                false,
+                foreground,
             ))
         };
         let mut shown = *self;
         for index in 0..Theme::NAMES.len() {
+            let foreground = matches!(
+                Theme::NAMES[index],
+                "text"
+                    | "secondary"
+                    | "muted"
+                    | "faint"
+                    | "danger"
+                    | "danger_hover"
+                    | "live"
+                    | "loud"
+                    | "link"
+            );
             *shown.colour_mut(index).expect("theme colour") =
-                adjust(self.colour(index).expect("theme colour"));
+                adjust(self.colour(index).expect("theme colour"), foreground);
+        }
+        if high_contrast {
+            shown.on_accent = contrasting_ink(shown.accent);
+            shown.on_danger = contrasting_ink(shown.danger);
         }
         shown.set(&window.global::<yapfast_ui::Theme>());
         let encoded = |colour: Color| colour.as_argb_encoded() & 0xff_ffff;
         // Bonfire draws a mention's text as Discord's dark theme does, a light
         // blurple; the other themes use their link colour.
         let mention_colour = if self.dark && encoded(self.link) == encoded(BONFIRE.link) {
-            encoded(adjust(rgb(0xc9cdfb)))
+            encoded(adjust(rgb(0xc9cdfb), true))
         } else {
             encoded(shown.link)
         };
         let mention = MENTION.replace(mention_colour) != mention_colour;
         let text = TEXT.replace(encoded(shown.text)) != encoded(shown.text);
         let muted = MUTED.replace(encoded(shown.muted)) != encoded(shown.muted);
-        mention || text || muted
+        mention || text || muted || polarity_changed
     }
 }
 
@@ -1053,5 +1095,57 @@ impl Editor {
     /// Whether every field holds a colour.
     pub fn valid(&self) -> bool {
         !self.rows.iter().any(|row| row.wrong)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ratio(a: Color, b: Color) -> f32 {
+        fn luminance(colour: Color) -> f32 {
+            fn linear(channel: u8) -> f32 {
+                let value = channel as f32 / 255.;
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            }
+            0.2126 * linear(colour.red())
+                + 0.7152 * linear(colour.green())
+                + 0.0722 * linear(colour.blue())
+        }
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn high_contrast_improves_bonfire_danger_and_its_button_text() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = crate::ui::yapfast::window().unwrap();
+        window.set_high_contrast(true);
+        let before = ratio(BONFIRE.danger, BONFIRE.chat);
+        BONFIRE.apply(&window);
+        let shown = Theme::shown(&window);
+        let after = ratio(shown.danger, shown.chat);
+        assert!(
+            after > before,
+            "danger/chat contrast must rise, not fall: {before:.2} -> {after:.2}"
+        );
+        assert!(ratio(shown.on_danger, shown.danger) >= 4.5);
+    }
+
+    #[test]
+    fn high_contrast_refreshes_custom_colours_when_only_polarity_changes() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = crate::ui::yapfast::window().unwrap();
+        window.set_high_contrast(true);
+        YAP.apply(&window);
+        let light = Theme { dark: false, ..YAP };
+        assert!(
+            light.apply(&window),
+            "role and name-style rows need their other polarity"
+        );
     }
 }
