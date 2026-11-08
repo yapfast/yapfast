@@ -1402,6 +1402,17 @@ impl<const NEEDS_SET_DIRTY: bool, DirtyHandler: PropertyDirtyHandler>
         });
     }
 
+    /// Marks the bindings and trackers that depend on this tracker dirty, as a change to one of
+    /// the properties it read would. Call it before dropping a tracker others may depend on:
+    /// dropping only unlinks them, so they would keep what they computed through it and miss
+    /// every later change to those properties.
+    pub fn mark_dependents_dirty(self: Pin<&Self>) {
+        // Safety: dependencies is a valid DependencyListHead, and a tracker is never constant
+        unsafe {
+            mark_dependencies_dirty(self.holder.dependencies.as_ptr() as *mut DependencyListHead)
+        }
+    }
+
     /// Any of the properties accessed during the last evaluation of the closure called
     /// from the last call to evaluate is potentially dirty.
     pub fn is_dirty(&self) -> bool {
@@ -1542,6 +1553,31 @@ fn test_property_listener_scope() {
     let mut ok = false;
     scope.as_ref().evaluate_if_dirty(|| ok = true);
     assert!(ok);
+}
+
+#[test]
+fn test_dropped_tracker_marks_dependents_dirty() {
+    use std::rc::Rc;
+    // A binding that reads a property through a tracker, as a measured text size reads its text
+    // through the text layout cache.
+    let text = Rc::pin(Property::new(1));
+    let tracker = Rc::new(RefCell::new(Some(Box::pin(<PropertyTracker>::default()))));
+    let measured = Rc::pin(Property::new(0));
+    measured.as_ref().set_binding({
+        let (text, tracker) = (text.clone(), tracker.clone());
+        move || match &*tracker.borrow() {
+            Some(tracker) => tracker.as_ref().evaluate(|| text.as_ref().get()),
+            None => -1,
+        }
+    });
+    assert_eq!(measured.as_ref().get(), 1);
+    text.as_ref().set(2);
+    assert_eq!(measured.as_ref().get(), 2);
+
+    let dropped = tracker.borrow_mut().take().unwrap();
+    dropped.as_ref().mark_dependents_dirty();
+    drop(dropped);
+    assert_eq!(measured.as_ref().get(), -1);
 }
 
 #[test]

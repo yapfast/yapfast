@@ -227,7 +227,9 @@ dependency in Cargo.toml:
 - `i-slint-core`: Slint's core at `ac7d423f` with selectable `StyledText`,
   mentions coloured in a `TextInput`, timelines that keep their place as
   older messages load, a wheel that speeds up when spun fast, and middle-click
-  autoscroll, above.
+  autoscroll, above. Its per-item caches also mark dirty whatever depended on
+  an entry they drop, so a size measured through the text layout cache before
+  the window has a surface, or before a zoom, follows its text afterwards.
 - `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
   mipmapped pictures, and Skia's own FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows
