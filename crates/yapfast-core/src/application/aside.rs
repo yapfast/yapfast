@@ -104,6 +104,19 @@ impl AppState {
                 .is_some_and(|listed| self.writable(listed))
     }
 
+    /// What reacting this account may do in a room on screen, once its
+    /// timeline came, as [`Self::can_write_in`] asks of writing.
+    pub fn reacts_in(&self, room: &str) -> Reacts {
+        let ready = match &self.aside {
+            Some(aside) if aside.room == room => aside.ready,
+            _ => self.selected.as_deref() == Some(room) && self.room_ready,
+        };
+        match self.rooms.iter().find(|listed| listed.id == room) {
+            Some(listed) if ready && !self.busy => self.reactable(listed),
+            _ => Reacts::None,
+        }
+    }
+
     /// Whether the composer of a room on screen can send what it holds.
     pub fn can_send_in(&self, room: &str) -> bool {
         let draft = self.drafts.get(room).map_or("", String::as_str);

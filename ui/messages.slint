@@ -2028,7 +2028,8 @@ export component MessageContent inherits VerticalLayout {
     /// The message the pointer or keyboard is on, whose time shows.
     in property <string> active-item;
     in property <bool> preview;
-    in property <bool> composer-enabled;
+    /// Adding to the message's reactions, or taking one's own back.
+    in property <bool> reactions-enabled;
     in property <string> emoji-font;
     in property <length> message-font-size;
     /// A name wears its Discord name style at rest; off, the style shows while
@@ -2292,7 +2293,7 @@ export component MessageContent inherits VerticalLayout {
                 spacing: 6px; alignment: start; padding-top: 4px;
                 for reaction in message.reactions: ReactionToggle {
                     item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
-                    enabled: message.can-react && root.composer-enabled;
+                    enabled: message.can-react && root.reactions-enabled;
                     clicked => { root.react(message.item, reaction.key); }
                 }
             }

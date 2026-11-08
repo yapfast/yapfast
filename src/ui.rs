@@ -22,7 +22,7 @@ use yapfast_core::{
     backend::Backend,
     chat::{
         ChannelKind, ChannelSettings, ChatMessage, Command, Delivery, EmbedField, Event, Picture,
-        Placement, Presence, ProfilePicture, ProfileRole, Role, VideoCommand,
+        Placement, Presence, ProfilePicture, ProfileRole, Reacts, Role, VideoCommand,
     },
     clock, discord, links, mention,
     meter::{self, InputMeter},
@@ -498,6 +498,21 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     });
                 }
                 crate::push_to_talk::window_event(event);
+                // Windows' two side buttons are recordable shortcuts too.
+                #[cfg(windows)]
+                if let Some(window) = weak.upgrade()
+                    && window.get_talk_recording()
+                    && let Some(recorded) = crate::push_to_talk::Keybind::recorded_mouse(event)
+                {
+                    window.set_talk_recording(false);
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().set_talk_key(&window, recorded);
+                        }
+                    });
+                    return EventResult::PreventDefault;
+                }
                 // While recording the push-to-talk key, the next key becomes
                 // it, and Escape stops; either way only the recorder sees it.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event

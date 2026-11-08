@@ -247,6 +247,9 @@ export global PictureStore {
     pure callback animated(string) -> string;
     pure callback frames(string, int) -> [image];
     pure callback delays(string, int) -> [int];
+    /// How many times an animated picture plays before holding its last
+    /// frame, as its file says; 0 for ever.
+    pure callback plays(string, int) -> int;
 }
 
 // Whether animations play: only while Yapfast's window has the focus, as in
@@ -260,12 +263,28 @@ export component Picture inherits Image {
     in property <image> still;
     in property <[image]> frames;
     in property <[int]> delays;
+    /// How many times it plays before holding its last frame, as a browser
+    /// plays an APNG; 0 for ever.
+    in property <int> plays;
     property <int> frame;
+    property <int> rounds;
+    // Once it holds its last frame its timer stops, so it repaints nothing.
+    property <bool> held: root.plays > 0 && root.rounds >= root.plays;
+    changed frames => { root.frame = 0; root.rounds = 0; }
     source: root.frames.length > 1 ? root.frames[root.frame] : root.still;
     Timer {
-        running: root.frames.length > 1 && Motion.playing;
+        running: root.frames.length > 1 && Motion.playing && !root.held;
         interval: max(20, root.delays[root.frame]) * 1ms;
-        triggered => { root.frame = mod(root.frame + 1, root.frames.length); }
+        triggered => {
+            if root.frame + 1 < root.frames.length {
+                root.frame += 1;
+            } else if root.plays > 0 && root.rounds + 1 >= root.plays {
+                root.rounds = root.plays;
+            } else {
+                root.rounds += 1;
+                root.frame = 0;
+            }
+        }
     }
 }
 
@@ -613,6 +632,7 @@ component EffectLayerView inherits Rectangle {
         still: self.first; image-fit: fill; accessible-role: none;
         frames: PictureStore.frames(PictureStore.animated(root.layer.url), PictureStore.revision);
         delays: PictureStore.delays(PictureStore.animated(root.layer.url), PictureStore.revision);
+        plays: PictureStore.plays(PictureStore.animated(root.layer.url), PictureStore.revision);
         init => { if self.first.width == 0 { PictureStore.request(root.layer.url); } }
     }
 }

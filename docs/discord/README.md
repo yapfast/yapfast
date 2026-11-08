@@ -197,7 +197,7 @@ In rough order. The browser covers these until then.
 - A server's privacy settings: direct messages, message requests and
   activity status from its members.
 - Discord's voice settings beyond those above, and push-to-talk's sounds,
-  mouse buttons or key combinations as its key, and more than one key.
+  key combinations as its key, and more than one key.
 - A server's soundboard sounds in its settings.
 - Activities, and the rest of a server's settings.
 - [Mirroring into Matrix](#mirroring-into-matrix).
