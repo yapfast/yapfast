@@ -469,7 +469,7 @@ component ShowcasePicture inherits Rectangle {
 }
 
 // A widget on the Board tab: Discord's heading for it, then its games.
-component BoardCard inherits Rectangle {
+export component BoardCard inherits Rectangle {
     in property <ProfileWidgetRow> widget;
     in property <color> tile: Theme.raised;
     background: root.tile;
@@ -494,7 +494,7 @@ component BoardCard inherits Rectangle {
 }
 
 // An item on the Wishlist tab: its picture, and its name under that.
-component WishlistCard inherits Rectangle {
+export component WishlistCard inherits Rectangle {
     in property <ProfileWishlistRow> item;
     in property <color> tile: Theme.raised;
     background: root.tile;

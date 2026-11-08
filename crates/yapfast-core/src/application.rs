@@ -103,7 +103,7 @@ pub use threads::{
 use calls::call_sounds;
 use compose::has_markdown;
 use preview::{preview_members, sample_actions};
-use profiles::dm_profile;
+use profiles::{dm_profile, keep_board, names_games, same_board};
 
 /// How many people the composer suggests for an `@` word, and how many roles
 /// and groups after them.
@@ -2090,6 +2090,16 @@ pub enum Action {
     OpenProfileTab(ProfileTab),
     /// The account's card opened: ask for its own profile, which it draws from.
     LoadOwnProfile,
+    /// Pick the server whose tag to wear in the profile editor; empty for none.
+    ChooseServerTag(String),
+    /// Set the name style from its window; colours are hex, joined by commas.
+    ChooseNameStyle {
+        font: u8,
+        effect: u8,
+        colours: String,
+    },
+    /// The profile editor's wishlist tab opened.
+    OpenWishlist,
     /// Which cosmetics show, from Settings → Appearance → Profiles. What's
     /// shown loses what's turned off at once; what's turned on shows as its
     /// pictures arrive, and a profile's effect once the profile is fetched
@@ -3525,6 +3535,19 @@ impl Application {
             }
             Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
             Action::LoadOwnProfile => self.load_own_profile(),
+            Action::OpenWishlist => self.open_wishlist(),
+            Action::ChooseServerTag(server) => {
+                self.choose_server_tag(server);
+                vec![]
+            }
+            Action::ChooseNameStyle {
+                font,
+                effect,
+                colours,
+            } => {
+                self.choose_name_style(font, effect, &colours);
+                vec![]
+            }
             Action::SetCosmetics(cosmetics) => {
                 self.state.cosmetics = cosmetics;
                 vec![]
@@ -3770,7 +3793,7 @@ impl Application {
             Event::ActivityFeedDue => return self.activity_feed_due(),
             Event::ActivityPeople { room, people } => self.show_activity_people(room, people),
             Event::KeptProfile { user, profile } => return self.show_kept_profile(user, profile),
-            Event::Wishlist { id, wishlist } => self.profile_wishlist_loaded(&id, &wishlist),
+            Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
@@ -3897,11 +3920,11 @@ impl Application {
             Event::ServerDeleted { server, result } => self.server_deleted(server, result),
             Event::ServerTransferred { server, result } => self.server_transferred(server, result),
             Event::ServerPincodeSent { server, result } => self.server_pincode_sent(server, result),
-            Event::OwnProfile { server, result } => self.own_profile_loaded(server, result),
+            Event::OwnProfile { server, result } => return self.own_profile_loaded(server, result),
             Event::ProfilePicture { kind, path, result } => {
                 self.profile_picture_read(kind, path, result);
             }
-            Event::ProfileSaved { server, result } => self.profile_saved(server, result),
+            Event::ProfileSaved { server, result } => return self.profile_saved(server, result),
             Event::MfaRequired { id, methods } => return self.mfa_required(id, methods),
             Event::MfaFinished { id, result } => return self.mfa_finished(id, result),
             Event::MfaTexted { id, result } => self.mfa_texted(id, result),

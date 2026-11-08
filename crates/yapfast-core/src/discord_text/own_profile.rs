@@ -160,8 +160,15 @@ pub(super) fn command(
                     }
                     None => {
                         let (user, profile) = main_bodies(&change);
+                        let tag = change.primary_server.clone();
                         drop(change);
-                        discord.save_main_profile(&user, &profile).await
+                        discord
+                            .save_main_profile(
+                                &user,
+                                &profile,
+                                tag.as_ref().map(|tag| tag.as_deref()),
+                            )
+                            .await
                     }
                 };
                 let result = result.map_err(|error| {
@@ -306,7 +313,9 @@ fn server_bodies(change: &ProfileChange) -> (Value, Value) {
 /// What Discord's client sends for a change to the main profile: the
 /// user's fields, its display name and avatar, for `PATCH /users/@me`, and
 /// the profile's, its bio, pronouns, banner and banner colour, for `PATCH
-/// /users/@me/profile`. An empty display name goes by the username.
+/// /users/@me/profile`. An empty display name goes by the username. The
+/// server tag is neither's: Discord's editor sends it to `PUT
+/// /users/@me/clan`; see `Discord::save_main_profile`.
 fn main_bodies(change: &ProfileChange) -> (Value, Value) {
     let (mut user, mut profile) = (Map::new(), Map::new());
     if let Some(name) = &change.name {
@@ -326,6 +335,23 @@ fn main_bodies(change: &ProfileChange) -> (Value, Value) {
     }
     if let Some(accent) = change.accent {
         profile.insert("accent_color".into(), accent.into());
+    }
+    if let Some(theme) = change.theme {
+        profile.insert("theme_colors".into(), serde_json::json!(theme));
+    }
+    if let Some(style) = &change.name_style {
+        user.insert(
+            "display_name_font_id".into(),
+            serde_json::json!(style.map(|style| style.font)),
+        );
+        user.insert(
+            "display_name_effect_id".into(),
+            serde_json::json!(style.map(|style| style.effect)),
+        );
+        user.insert(
+            "display_name_colors".into(),
+            serde_json::json!(style.as_ref().map(|style| style.colors())),
+        );
     }
     (Value::Object(user), Value::Object(profile))
 }
@@ -572,5 +598,48 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(profile, serde_json::json!({"accent_color": null}));
+    }
+
+    /// Discord's editor sends the tag to its own endpoint: `primary_guild_id`
+    /// in `PATCH /users/@me` isn't what its Save does.
+    #[test]
+    fn a_server_tag_stays_out_of_the_user_and_profile_bodies() {
+        for primary_server in [Some("9".to_owned()), None] {
+            let (user, profile) = main_bodies(&ProfileChange {
+                primary_server: Some(primary_server),
+                ..Default::default()
+            });
+            assert_eq!(user, serde_json::json!({}));
+            assert_eq!(profile, serde_json::json!({}));
+        }
+    }
+
+    #[test]
+    fn a_theme_and_name_style_go_where_discords_editor_sends_them() {
+        let (user, profile) = main_bodies(&ProfileChange {
+            theme: Some(Some([0x112233, 0x445566])),
+            name_style: Some(Some(crate::chat::NameStyle::new(
+                4,
+                2,
+                &[0xff0000, 0x00ff00],
+            ))),
+            ..Default::default()
+        });
+        assert_eq!(
+            user,
+            serde_json::json!({"display_name_font_id": 4, "display_name_effect_id": 2, "display_name_colors": [0xff0000, 0x00ff00]})
+        );
+        assert_eq!(
+            profile,
+            serde_json::json!({"theme_colors": [0x112233, 0x445566]})
+        );
+        let (user, _) = main_bodies(&ProfileChange {
+            name_style: Some(None),
+            ..Default::default()
+        });
+        assert_eq!(
+            user,
+            serde_json::json!({"display_name_font_id": null, "display_name_effect_id": null, "display_name_colors": null})
+        );
     }
 }
