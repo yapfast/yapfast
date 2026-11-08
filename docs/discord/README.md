@@ -99,6 +99,8 @@ Yapfast follows the rules Discord documents for every client:
   other. Their newest batch goes first, in its order: rows on screen now
   come before rows scrolled past, and opening the emoji picker queues its
   pictures in the picker's order instead of asking for hundreds at once.
+  A start fetches the sticker picker's pictures ahead into the disk cache,
+  which decodes none of them and holds none.
   One kept on disk shows without waiting for a turn. A file someone asked
   for, such as the image the viewer shows or one they save or copy, skips
   the queue. A

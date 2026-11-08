@@ -260,17 +260,19 @@ pub(super) async fn preview(discord: &Discord, url: &str) -> Option<Arc<Picture>
         .await
         .ok()?;
     let url = url.to_owned();
-    tokio::task::spawn_blocking(move || {
-        decode(
-            &url,
-            &data,
-            (crate::chat::PREVIEW_WIDTH, crate::chat::PREVIEW_HEIGHT),
-        )
-    })
-    .await
-    .ok()
-    .flatten()
-    .map(Arc::new)
+    // A sticker is decoded at the size a message shows it, as Discord draws
+    // it, whatever the timeline's preview size is.
+    let size = if yapfast_discord::ready::is_sticker(url.as_str()) {
+        let side = yapfast_discord::stickers::MESSAGE_SIZE;
+        (side, side)
+    } else {
+        (crate::chat::PREVIEW_WIDTH, crate::chat::PREVIEW_HEIGHT)
+    };
+    tokio::task::spawn_blocking(move || decode(&url, &data, size))
+        .await
+        .ok()
+        .flatten()
+        .map(Arc::new)
 }
 
 /// A picture downloaded from `url`, decoded to fit `width` by `height`: as

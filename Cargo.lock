@@ -11666,6 +11666,7 @@ dependencies = [
  "arboard",
  "emojis",
  "futures-util",
+ "harfrust",
  "i-slint-backend-testing",
  "i-slint-core",
  "i-slint-renderer-skia",

@@ -47,6 +47,7 @@ pub mod server_settings;
 pub mod service;
 pub mod settings;
 pub mod soundboard;
+pub mod stickers;
 pub mod stream;
 pub mod stream_connection;
 pub mod token;
