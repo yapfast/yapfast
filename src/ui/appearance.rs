@@ -185,7 +185,11 @@ impl Adapter {
             Ok(()) => note_theme(window, format!("Exported to {name}."), false),
             Err(error) => {
                 tracing::warn!(%error, "could not write a theme file");
-                note_theme(window, format!("Couldn't save the theme file: {error}"), true);
+                note_theme(
+                    window,
+                    format!("Couldn't save the theme file: {error}"),
+                    true,
+                );
             }
         }
     }
@@ -196,7 +200,11 @@ impl Adapter {
     pub(super) fn import_theme(&mut self, window: &YapfastWindow, path: &std::path::Path) {
         use std::io::Read;
         if self.theme_editor.is_some() {
-            note_theme(window, "Save or cancel the theme being edited first.".into(), true);
+            note_theme(
+                window,
+                "Save or cancel the theme being edited first.".into(),
+                true,
+            );
             return;
         }
         let mut bytes = Vec::new();

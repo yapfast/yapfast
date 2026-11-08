@@ -7156,7 +7156,10 @@ fn a_theme_file_made_by_hand_or_another_version_still_loads() {
     // An unknown or missing base is Yap, and a missing name gets one.
     let file = br##"{"format": "yapfast-theme", "version": 1, "base": "gone", "colours": {"chat": "#102030"}}"##;
     let imported = theme::import(file).unwrap();
-    assert_eq!((imported.base, imported.name.as_str()), ("yap", "Imported theme"));
+    assert_eq!(
+        (imported.base, imported.name.as_str()),
+        ("yap", "Imported theme")
+    );
 
     // A name loses control characters and stops at a card's width.
     let long = "x".repeat(200);
@@ -7174,22 +7177,25 @@ fn a_file_that_is_not_a_theme_is_turned_away_with_a_reason() {
     let import = |text: &str| theme::import(text.as_bytes()).unwrap_err();
     assert_eq!(import("not json"), NotATheme);
     assert_eq!(import("[]"), NotATheme);
-    assert_eq!(import(r#"{"name": "x", "colours": {"chat": "#102030"}}"#), NotATheme);
-    assert_eq!(import(r#"{"format": "other", "version": 1}"#), NotATheme);
+    assert_eq!(import(r##"{"name": "x", "colours": {"chat": "#102030"}}"##), NotATheme);
+    assert_eq!(import(r##"{"format": "other", "version": 1}"##), NotATheme);
     // A custom theme as layout.json keeps it is not a file to share.
     assert_eq!(
-        import(r#"{"id": "custom:1", "name": "x", "base": "yap", "colours": {"chat": "#102030"}}"#),
+        import(r##"{"id": "custom:1", "name": "x", "base": "yap", "colours": {"chat": "#102030"}}"##),
         NotATheme
     );
     assert_eq!(
-        import(r#"{"format": "yapfast-theme", "version": 2, "colours": {"chat": "#102030"}}"#),
+        import(r##"{"format": "yapfast-theme", "version": 2, "colours": {"chat": "#102030"}}"##),
         Newer
     );
     assert_eq!(
-        import(r#"{"format": "yapfast-theme", "version": 1, "colours": {"nope": "#102030"}}"#),
+        import(r##"{"format": "yapfast-theme", "version": 1, "colours": {"nope": "#102030"}}"##),
         Empty
     );
-    assert_eq!(import(r#"{"format": "yapfast-theme", "version": 1}"#), Empty);
+    assert_eq!(
+        import(r##"{"format": "yapfast-theme", "version": 1}"##),
+        Empty
+    );
     let big = vec![b' '; theme::FILE_LIMIT as usize + 1];
     assert_eq!(theme::import(&big).unwrap_err(), TooLarge);
 }
@@ -7197,12 +7203,12 @@ fn a_file_that_is_not_a_theme_is_turned_away_with_a_reason() {
 #[test]
 fn a_theme_file_is_named_after_the_theme_without_what_file_names_forbid() {
     assert_eq!(theme::file_name("Plum"), "Plum.yapfast-theme.json");
-    assert_eq!(
-        theme::file_name("a/b\\c:d*?"),
-        "a-b-c-d.yapfast-theme.json"
-    );
+    assert_eq!(theme::file_name("a/b\\c:d*?"), "a-b-c-d.yapfast-theme.json");
     assert_eq!(theme::file_name("../.."), "theme.yapfast-theme.json");
-    assert_eq!(theme::file_name("Rosé Pine"), "Rosé Pine.yapfast-theme.json");
+    assert_eq!(
+        theme::file_name("Rosé Pine"),
+        "Rosé Pine.yapfast-theme.json"
+    );
 }
 
 #[test]
@@ -7243,8 +7249,13 @@ fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() 
     assert_eq!(file_name, "Night - Shift.yapfast-theme.json");
     let path = files.path().join(&file_name);
     std::fs::write(&path, text).unwrap();
-    adapter.borrow_mut().theme_exported(&window, &file_name, Ok(()));
-    assert_eq!(window.get_theme_note(), "Exported to Night - Shift.yapfast-theme.json.");
+    adapter
+        .borrow_mut()
+        .theme_exported(&window, &file_name, Ok(()));
+    assert_eq!(
+        window.get_theme_note(),
+        "Exported to Night - Shift.yapfast-theme.json."
+    );
     assert!(!window.get_theme_note_wrong());
     adapter.borrow_mut().theme_exported(
         &window,
@@ -7262,7 +7273,11 @@ fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() 
     assert_eq!(theme::Theme::shown(&other), made);
     assert_eq!(other.get_themes().row_count(), theme::BUILT_IN.len() + 1);
     assert_eq!(
-        other.get_themes().row_data(theme::BUILT_IN.len()).unwrap().name,
+        other
+            .get_themes()
+            .row_data(theme::BUILT_IN.len())
+            .unwrap()
+            .name,
         "Night / Shift"
     );
     assert_eq!(other.get_theme_note(), "Imported Night / Shift.");
