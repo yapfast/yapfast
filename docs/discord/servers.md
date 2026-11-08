@@ -111,7 +111,9 @@ the open member list again when it lists them, and renders the open channel
 again, so names, colours and the list follow. As in Discord's client, the
 member list marks someone who boosts the server with a pink gem after their
 name, whose tooltip says since when ("Server boosting since 3 March 2024");
-Show boost gems in Settings > Messages turns the gem off (`boost_gems` in `layout.json`, on by default). Yapfast keeps the date only for those boosting, while it runs. A member who leaves is forgotten. A nickname,
+Show boost gems in Settings > Messages turns the gem off (`boost_gems` in
+`layout.json`, on by default). Yapfast keeps the date only for those boosting,
+while it runs. A member who leaves is forgotten. A nickname,
 timeout, kick or ban that fails says why in its dialog; a role says so in a
 notice.
 
