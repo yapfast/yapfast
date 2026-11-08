@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
@@ -35,6 +35,10 @@ export struct MemberRow {
     /// The pictures of the role their group is and of their highest role that
     /// has one, which Discord draws by the group's heading and their name.
     group-icon: string, role-icon: string,
+    /// "Server boosting since 3 March 2024" for someone who boosts their
+    /// Discord server, which a gem by the name says on hover; empty for
+    /// anyone else.
+    boosting: string,
 }
 
 /// A role's picture, asked for as it shows.
@@ -104,6 +108,8 @@ export component MemberPanel inherits Rectangle {
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
+    /// A gem by each server booster's name; on unless turned off.
+    in property <bool> boost-gems: true;
     /// A member was clicked: their id, and where their row is in the window.
     callback open-profile(string, length);
     /// A member was right-clicked: their id, and where in the window.
@@ -298,6 +304,14 @@ export component MemberPanel inherits Rectangle {
                                     source: @image-url("icons/crown.svg"); width: 14px; height: 14px; image-fit: contain;
                                     colorize: #f0b232; opacity: member.presence == "offline" ? 0.5 : 1;
                                     accessible-role: image; accessible-label: "Server Owner";
+                                }
+                            }
+                            // Discord's boosting pink, the same in every theme, as in
+                            // Discord's client.
+                            if root.boost-gems && member.boosting != "": Middle {
+                                TipIcon {
+                                    source: @image-url("icons/gem.svg"); width: 14px; height: 14px;
+                                    colorize: #ff73fa; tip: member.boosting;
                                 }
                             }
                             if member.timed-out: Image {

@@ -1,6 +1,6 @@
 import { ComboBox } from "std-widgets.slint";
-import { Theme, Middle, Label, Tip } from "theme.slint";
-import { ActionButton, Avatar, IconButton, TextField } from "controls.slint";
+import { Theme, Middle, Label } from "theme.slint";
+import { ActionButton, Avatar, IconButton, TextField, TipIcon } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
 import { ListView } from "scrollview.slint";
 
@@ -91,25 +91,6 @@ export struct InvitesPrompt {
     security-error: string,
     /// Invites may be made here.
     may-create: bool,
-}
-
-// An icon whose meaning shows on hover, as Discord's signals have it.
-component TipIcon inherits Image {
-    in property <string> tip;
-    width: 18px; height: 18px;
-    accessible-role: image; accessible-label: root.tip;
-    TouchArea {
-        changed has-hover => {
-            if self.has-hover {
-                Tip.text = root.tip;
-                Tip.side = 0;
-                Tip.x = self.absolute-position.x + self.width / 2;
-                Tip.y = self.absolute-position.y;
-            } else if Tip.text == root.tip {
-                Tip.text = "";
-            }
-        }
-    }
 }
 
 // A role as a chip: its colour's dot and name, then "+2" for more.

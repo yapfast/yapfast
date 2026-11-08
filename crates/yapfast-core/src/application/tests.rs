@@ -290,6 +290,7 @@ fn members_belong_to_the_selected_text_room() {
         tag: None,
         group_icon: None,
         role_icon: None,
+        boosting_since: None,
     };
     app.apply(Event::Members {
         room: "games".into(),
@@ -3039,6 +3040,7 @@ fn member(id: &str, name: &str) -> ChatMember {
         tag: None,
         group_icon: None,
         role_icon: None,
+        boosting_since: None,
     }
 }
 
@@ -3987,6 +3989,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             tag: None,
             group_icon: None,
             role_icon: None,
+            boosting_since: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {

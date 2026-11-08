@@ -989,6 +989,9 @@ pub struct ChatMember {
     pub timed_out_until: Option<u64>,
     /// The server tag they wear by their name, on Discord.
     pub tag: Option<ServerTag>,
+    /// Since when they've boosted the Discord server, in Unix milliseconds,
+    /// while they do.
+    pub boosting_since: Option<u64>,
 }
 
 /// Someone to start a DM with.

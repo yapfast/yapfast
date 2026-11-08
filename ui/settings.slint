@@ -1052,6 +1052,7 @@ export component MessageSettings inherits VerticalLayout {
     in-out property <int> text-size;
     in-out property <bool> link-previews;
     in-out property <bool> collapse-long;
+    in-out property <bool> boost-gems;
     in-out property <bool> share-typing;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
@@ -1132,6 +1133,12 @@ export component MessageSettings inherits VerticalLayout {
         text: "Collapse long messages";
         description: "Long messages and code show their first lines, with Show more to see the rest.";
         checked <=> root.collapse-long;
+        toggled => { root.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Show boost gems";
+        description: "A gem by the name of each member boosting their Discord server, in the member list.";
+        checked <=> root.boost-gems;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {

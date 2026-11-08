@@ -1136,6 +1136,7 @@ impl Tracker {
                     timed_out_until: None,
                     group_icon: None,
                     role_icon: None,
+                    boosting_since: None,
                 }
             })
             .collect();

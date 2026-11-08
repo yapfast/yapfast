@@ -31,9 +31,11 @@ glyphs such as check, x and chevrons.
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
   the speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
-  id-filled, music, plus, trophy, tv and verified; and for Discord's
-  channel kinds, megaphone (an announcement channel), stage (a broadcast
-  mast) and rules (a book with a check cut out of its cover).
+  id-filled, music, plus, trophy, tv and verified; gem, a hexagonal gem
+  drawn as an outline round a solid core, which marks a member boosting
+  their Discord server; and for Discord's channel kinds, megaphone (an
+  announcement channel), stage (a broadcast mast) and rules (a book with a
+  check cut out of its cover).
 - The channel icons with a badge at their top right, the room around it
   cut from the icon: hash, megaphone, message-square-text, image, volume-2
   and stage with a small lock (`-lock`), and all but stage with a warning
