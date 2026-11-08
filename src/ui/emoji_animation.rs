@@ -419,6 +419,11 @@ impl Animations {
 
     /// The picker closed. Its unpinned frames must leave the renderer too,
     /// and a decoder already running must not register them again later.
+    /// Whether the picker's ready rows animate `key`.
+    pub(super) fn animates_in_picker(&self, key: &str) -> bool {
+        self.picker.contains(key)
+    }
+
     pub(super) fn hide_picker(&mut self) {
         self.picker.clear();
         self.prune_waiting();
@@ -493,10 +498,15 @@ impl Animations {
             self.timer.stop();
             self.interval = 0;
         }
-        window
-            .global::<EmojiAnimations>()
-            .set_revision(i_slint_core::yapfast_emoji::revision() as i32);
-        window.window().request_redraw();
+        // Only a frame that changed, or one that came or went, draws again:
+        // the clock ticks faster than most frames change, and each draw walks
+        // the whole window.
+        let revision = i_slint_core::yapfast_emoji::revision() as i32;
+        let global = window.global::<EmojiAnimations>();
+        if global.get_revision() != revision {
+            global.set_revision(revision);
+            window.window().request_redraw();
+        }
     }
 
     /// Sets whether the clock may move, and starts or stops the timer: it runs

@@ -1852,6 +1852,40 @@ fn an_animated_emoji_draws_a_frame_only_while_playing() {
     );
 }
 
+/// The clock ticks at the pace of the fastest animation, and most ticks show
+/// no new frame: those draw nothing again, as each draw walks the window.
+#[test]
+fn the_animation_clock_draws_again_only_when_a_frame_changes() {
+    use i_slint_core::yapfast_emoji as registry;
+    let frame =
+        || slint::Image::from_rgba8(slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(2, 2));
+    registry::set_playing(true);
+    let spin = Rc::new(registry::Animation::new(
+        vec![frame(), frame()],
+        &[100, 100],
+    ));
+    registry::insert("test-spin:1", None, spin);
+    let start = registry::revision();
+    // 30ms into a 100ms frame: nothing to draw again.
+    registry::advance(Duration::from_millis(30));
+    assert_eq!(registry::revision(), start);
+    registry::advance(Duration::from_millis(80));
+    assert_eq!(
+        registry::revision(),
+        start.wrapping_add(1),
+        "the second frame shows"
+    );
+    // A still never moves it.
+    registry::remove("test-spin:1");
+    let still = Rc::new(registry::Animation::new(vec![frame()], &[100]));
+    registry::insert("test-still:1", None, still);
+    let held = registry::revision();
+    registry::advance(Duration::from_millis(500));
+    assert_eq!(registry::revision(), held);
+    registry::remove("test-still:1");
+    registry::set_playing(false);
+}
+
 #[test]
 fn an_emoji_card_says_how_many_of_its_servers_members_are_online() {
     let mut pictures = HashMap::new();

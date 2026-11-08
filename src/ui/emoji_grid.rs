@@ -96,12 +96,14 @@ impl Adapter {
                     continue;
                 };
                 for (column, cell) in row.cells.iter().enumerate() {
+                    let animated = self.animations.animates_in_picker(&cell.key);
                     tiles.push((
                         (index, column),
                         EmojiTile {
                             cell,
                             x: PADDING + column as f32 * emoji::CELL,
                             y: row.top,
+                            animated,
                         },
                     ));
                 }

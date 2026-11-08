@@ -38,7 +38,10 @@ export struct EmojiRow {
 /// the grid only those in sight and a row or two around them, and an emoji that
 /// scrolls in takes the place of one that scrolled out, so a scroll changes the
 /// data of a few buttons rather than making a row of new ones.
-export struct EmojiTile { cell: EmojiCell, x: length, y: length }
+/// A button of the emoji picker's grid. `animated` when its emoji's frames
+/// play there: only those follow the animations' clock, so a frame redraws
+/// its own button rather than the whole grid.
+export struct EmojiTile { cell: EmojiCell, x: length, y: length, animated: bool }
 /// A place the emoji picker's sidebar jumps to: the row of its heading, and the
 /// row after its last. Its icon is named by the heading.
 export struct EmojiSection {
@@ -69,7 +72,11 @@ export component EmojiFace inherits Rectangle {
     property <image> animation-frame: root.animation-key == "" ? @image-url("") : EmojiAnimations.frame(root.animation-key, EmojiAnimations.revision);
     // The frame once it is there, else the still it shows until then.
     property <image> shown-picture: root.animation-frame.width > 0 ? root.animation-frame : root.emoji.picture;
-    if root.shown-picture.width > 0: Image {
+    // An item of its own rather than an `if`: each `if` is a component the
+    // renderer visits apart, and the picker's grid draws dozens of faces, its
+    // whole tree walked for every frame an animation shows.
+    Image {
+        visible: root.shown-picture.width > 0;
         source: root.shown-picture; width: root.side; height: root.side; image-fit: contain;
         x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
     }
@@ -1235,9 +1242,10 @@ export component EmojiPicker inherits Rectangle {
                             x: tile.x; y: tile.y;
                             emoji: tile.cell; font: root.emoji-font; size: 56px; glyph: 36px; tip: false;
                             usable: tile.cell.usable;
-                            // Its own `name:id`, which its animation is registered under; a
-                            // Unicode emoji's shortcode has none, and keeps its still.
-                            animation-key: tile.cell.key;
+                            // Its own `name:id`, which its animation is registered under,
+                            // for an animated one alone: a face with a key redraws on
+                            // every frame of every animation.
+                            animation-key: tile.animated ? tile.cell.key : "";
                             verb: root.verb;
                             favoritable: true;
                             favorite: EmojiFavorites.is-favorite(tile.cell.key, EmojiFavorites.revision);

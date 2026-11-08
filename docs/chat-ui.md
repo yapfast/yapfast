@@ -306,7 +306,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   touched the window for 15 seconds and while it is minimised, and go on
   from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
   at Always, plays them unfocused, but not while minimised, and at Never
-  keeps them all still.
+  keeps them all still. The clock they share ticks at the pace of the
+  fastest, and only a tick that shows some animation a new frame draws
+  again; in the emoji picker only an animated emoji's button follows it, so
+  a frame redraws that button, not the grid.
 - Who reacted, as in Discord's client: half a second on a reaction shows a
   tooltip, ":tada: reacted by Ann, Bo, Cy, and 2 others", naming the first
   three by their name there, once they come (`Command::Reactors`, three at a
