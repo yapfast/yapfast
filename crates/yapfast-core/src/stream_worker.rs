@@ -2263,7 +2263,7 @@ enum After {
 /// Whether the card's capture paths can take `source` at all: they capture a
 /// display, where a window, a camera and a test pattern are the processor's
 /// or nobody's.
-#[cfg(any(wgc, dup))]
+#[cfg(any(wgc, dup, test))]
 fn on_the_card(source: &Source) -> bool {
     match source {
         Source::Screen | Source::Display(_) => true,
@@ -2706,21 +2706,36 @@ fn monitor_of(place: u64) -> Result<u64> {
         })
 }
 
-/// Which screen `source` is, when it is one: the display's own handle, or the
-/// one the desktop starts on when nothing has been picked yet. A window or a
-/// camera is not a screen, and saying so is the reason a share of one stays on
-/// the processor.
-#[cfg(wgc)]
-fn screen_of(source: &Source) -> Result<wgc::Monitor> {
+/// What a share of `source` is captured as, before its handle is turned into a
+/// `wgc::Target`: a window as itself, a display as the monitor the shell's list
+/// named, and the primary display when nothing has been chosen.
+///
+/// It is the whole of the decision `graphics_capture` makes about which of the
+/// two constructors it asks for, kept apart from the capture it opens so that
+/// the rule can be checked without a screen or a window: a window is captured
+/// as that window, and never as the display it sits on.
+#[cfg(any(wgc, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CardTarget {
+    /// A window's own handle, which `CreateForWindow` is given.
+    Window(u64),
+    /// A display's monitor handle, or [`None`] for the one the desktop starts
+    /// on, which `CreateForMonitor` is given as the primary display.
+    Display(Option<u64>),
+}
+
+/// Which target `source` is captured as: see [`CardTarget`]. A camera and a
+/// test pattern are not a screen, and saying so is the reason a share of one
+/// stays on the processor.
+#[cfg(any(wgc, test))]
+fn card_target(source: &Source) -> Result<CardTarget> {
     match source {
-        Source::Display(screen) => Ok(wgc::Monitor::new(
-            monitor_of(*screen)? as usize as *mut std::ffi::c_void
-        )),
-        Source::Screen => Ok(wgc::Monitor::PRIMARY),
-        Source::Window(_) => bail!(
-            "a window is captured on the processor: what Windows Graphics Capture \
-             fills a texture from here is a screen"
-        ),
+        // The window's handle is carried unchanged: it is the one
+        // `CreateForWindow` is given, and the display the window is composited
+        // on is not what the person chose.
+        Source::Window(window) => Ok(CardTarget::Window(*window)),
+        Source::Screen => Ok(CardTarget::Display(None)),
+        Source::Display(place) => Ok(CardTarget::Display(Some(*place))),
         Source::Camera(_) => bail!("a camera isn't a screen"),
         Source::TestPattern => bail!("a test pattern is drawn, not captured"),
     }
@@ -2741,12 +2756,17 @@ fn graphics_capture(
     sink: &Sink,
     (max_width, max_height): (u32, u32),
 ) -> Result<Card> {
-    // A window is captured as itself, by the item `CreateForWindow` makes: the
-    // person chose that window, and the display it sits on is not what they
-    // chose. A screen or a display is the monitor the shell's list named.
-    let target = match source {
-        Source::Window(id) => wgc::Target::from(wgc::Window::new(*id as usize as *mut c_void)),
-        _ => wgc::Target::from(screen_of(source)?),
+    // Which of the two constructors this goes through, and the handle it names:
+    // a window as itself, by the item `CreateForWindow` makes, and a display as
+    // the monitor the shell's list named.
+    let target = match card_target(source)? {
+        CardTarget::Window(window) => {
+            wgc::Target::from(wgc::Window::new(window as usize as *mut c_void))
+        }
+        CardTarget::Display(None) => wgc::Target::from(wgc::Monitor::PRIMARY),
+        CardTarget::Display(Some(place)) => {
+            wgc::Target::from(wgc::Monitor::new(monitor_of(place)? as usize as *mut c_void))
+        }
     };
     let capture = wgc::Capture::open(target)?;
     let (width, height) = capture.content_size();
@@ -2804,7 +2824,7 @@ fn duplication(source: &Source, sink: &Sink, (max_width, max_height): (u32, u32)
 }
 
 /// Which display a duplication captures, following the rule the first rung's
-/// [`screen_of`] follows: the primary display when the person hasn't chosen
+/// `card_target` follows: the primary display when the person hasn't chosen
 /// one, and otherwise the one they chose — here as the adapter and output index
 /// DXGI knows it by, since a duplication is opened by those and not by a monitor
 /// handle.
@@ -3375,6 +3395,35 @@ struct Capture {
     captured: Arc<Mutex<Captured>>,
 }
 
+/// Whether the processor's capturer is asked for a window of its own, on a
+/// platform that takes the kind from the caller: a window is shared as that
+/// window — the same one the card's rungs refused, when they did — and every
+/// other source as a screen. Linux asks its own dialog instead, which picks
+/// either, so this is not what it is told.
+#[cfg(any(not(target_os = "linux"), test))]
+fn capturer_takes_a_window(source: &Source) -> bool {
+    matches!(source, Source::Window(_))
+}
+
+/// The kind of source the processor's capturer is asked for. On Linux the
+/// system's own screen sharing dialog picks a screen or a window, and the kind
+/// only says what the dialog offers first.
+fn capturer_kind(source: &Source) -> livekit::webrtc::desktop_capturer::DesktopCaptureSourceType {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = source;
+        livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if capturer_takes_a_window(source) {
+            livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Window
+        } else {
+            livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Screen
+        }
+    }
+}
+
 impl Capture {
     /// Starts capturing `source`, fitting its frames in `max_width` by
     /// `max_height`; on Linux, a screen or window the system's dialog picks.
@@ -3388,16 +3437,9 @@ impl Capture {
             return Self::camera(id, sink, max_width, max_height);
         }
         use livekit::webrtc::desktop_capturer::{
-            CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
+            CaptureError, DesktopCapturer, DesktopCapturerOptions,
         };
-        // On Linux the system's screen sharing dialog picks a screen or window.
-        #[cfg(target_os = "linux")]
-        let kind = DesktopCaptureSourceType::Generic;
-        #[cfg(not(target_os = "linux"))]
-        let kind = match source {
-            Source::Window(_) => DesktopCaptureSourceType::Window,
-            _ => DesktopCaptureSourceType::Screen,
-        };
+        let kind = capturer_kind(&source);
         let mut options = DesktopCapturerOptions::new(kind);
         options.set_include_cursor(true);
         let mut capturer = DesktopCapturer::new(options)
@@ -4399,7 +4441,6 @@ mod tests {
     /// A window is the card's only where Windows Graphics Capture can take
     /// one: DXGI duplicates a display and nothing else, and a person who chose
     /// a window never gets the desktop it happens to sit on.
-    #[cfg(any(wgc, dup))]
     #[test]
     fn a_window_is_the_cards_only_where_capture_takes_one() {
         assert_eq!(on_the_card(&Source::Window(0x1234)), cfg!(wgc));
@@ -4407,6 +4448,88 @@ mod tests {
         assert!(on_the_card(&Source::Display(0)), "the primary display");
         assert!(!on_the_card(&Source::Camera("cam".into())));
         assert!(!on_the_card(&Source::TestPattern));
+    }
+
+    /// What the card asks Windows Graphics Capture for is what the person chose:
+    /// a window's own handle goes to `CreateForWindow`, a display's to
+    /// `CreateForMonitor`, and there is no source that is captured as the other
+    /// kind. Nothing here needs a screen or a window, so the rule is checked on
+    /// every platform this crate builds for, including the one where the rung
+    /// isn't carried at all.
+    #[cfg(any(wgc, test))]
+    #[test]
+    fn the_card_captures_a_window_as_itself_and_never_as_a_display() {
+        // The handle `Source::Window` carries is the one the window is captured
+        // by, unchanged: nothing reinterprets it as a monitor's.
+        assert_eq!(
+            card_target(&Source::Window(0x1234)).ok(),
+            Some(CardTarget::Window(0x1234))
+        );
+        // A screen and a display are displays, and the primary display is the
+        // one with no handle of its own.
+        assert_eq!(
+            card_target(&Source::Screen).ok(),
+            Some(CardTarget::Display(None))
+        );
+        assert_eq!(
+            card_target(&Source::Display(3)).ok(),
+            Some(CardTarget::Display(Some(3)))
+        );
+        // Whichever source is asked about, the two kinds of target are never
+        // each other's.
+        for source in [
+            Source::Window(7),
+            Source::Screen,
+            Source::Display(1),
+            Source::Camera("cam".into()),
+            Source::TestPattern,
+        ] {
+            let kind = card_target(&source).ok();
+            assert_eq!(
+                matches!(kind, Some(CardTarget::Window(_))),
+                matches!(source, Source::Window(_)),
+                "{source:?} is captured as {kind:?}"
+            );
+        }
+        // A camera and a test pattern are no screen, and are refused by name
+        // rather than captured as the desktop behind them.
+        for source in [Source::Camera("cam".into()), Source::TestPattern] {
+            let refused = card_target(&source).expect_err("not a screen");
+            assert!(!format!("{refused:#}").is_empty(), "{source:?}");
+        }
+    }
+
+    /// The fallback keeps the window it was given: what the card's paths can't
+    /// take is the processor's, and the processor's capturer is asked for a
+    /// window of its own rather than for a screen — the same window, by the same
+    /// handle, and never the display it sits on.
+    #[cfg(any(not(target_os = "linux"), test))]
+    #[test]
+    fn a_window_the_card_cannot_take_goes_on_as_that_window() {
+        for source in [
+            Source::Window(0x1234),
+            Source::Screen,
+            Source::Display(2),
+            Source::Camera("cam".into()),
+            Source::TestPattern,
+        ] {
+            assert_eq!(
+                capturer_takes_a_window(&source),
+                matches!(source, Source::Window(_)),
+                "{source:?}"
+            );
+        }
+        // A build with Windows Graphics Capture keeps a window on the card, so a
+        // window reaches the processor only where the card has no way to take
+        // one — and there it arrives as the window it was.
+        assert_eq!(on_the_card(&Source::Window(0x1234)), cfg!(wgc));
+        // On Linux there is no kind to ask for: the system's own dialog picks a
+        // screen or a window, and what it picks is what the fallback shares.
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            capturer_kind(&Source::Window(0x1234)),
+            livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic
+        );
     }
 
     /// A duplication asked for a window says so rather than capturing the

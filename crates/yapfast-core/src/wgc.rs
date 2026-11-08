@@ -482,6 +482,285 @@ mod tests {
         fn GetForegroundWindow() -> *mut c_void;
     }
 
+    /// A window this test makes and owns, so that a capture of one can be driven
+    /// through what its owner does to it — resized, minimised, restored, closed,
+    /// taken out of every capture — instead of through whatever the desktop's
+    /// foreground window happens to be doing.
+    ///
+    /// It is a `STATIC`, one of the classes Windows registers for itself: a window
+    /// of the system's own, with a background brush and a title, so the compositor
+    /// has something to fill a frame with without this test registering a class
+    /// and handing user32 a structure whose layout has to be right on two
+    /// architectures for no answer the system's own class doesn't already give.
+    ///
+    /// The ten calls are declared here rather than taken from the `windows`
+    /// crate's `Win32_UI_WindowsAndMessaging` bindings: they take plain arguments,
+    /// and that feature is code the whole program would carry on Windows for a
+    /// window that only exists in a test. user32 and kernel32 are linked already.
+    mod own {
+        use std::ffi::c_void;
+
+        // SAFETY: each is declared as Windows declares it, and every pointer
+        // passed is a window this module made, a buffer of its own, or null.
+        unsafe extern "system" {
+            #[allow(clippy::too_many_arguments)]
+            fn CreateWindowExW(
+                ex_style: u32,
+                class: *const u16,
+                title: *const u16,
+                style: u32,
+                x: i32,
+                y: i32,
+                width: i32,
+                height: i32,
+                parent: *mut c_void,
+                menu: *mut c_void,
+                instance: *mut c_void,
+                param: *mut c_void,
+            ) -> *mut c_void;
+            fn DestroyWindow(window: *mut c_void) -> i32;
+            fn ShowWindow(window: *mut c_void, command: i32) -> i32;
+            #[allow(clippy::too_many_arguments)]
+            fn SetWindowPos(
+                window: *mut c_void,
+                after: *mut c_void,
+                x: i32,
+                y: i32,
+                width: i32,
+                height: i32,
+                flags: u32,
+            ) -> i32;
+            fn SetWindowDisplayAffinity(window: *mut c_void, affinity: u32) -> i32;
+            fn PeekMessageW(
+                message: *mut c_void,
+                window: *mut c_void,
+                first: u32,
+                last: u32,
+                remove: u32,
+            ) -> i32;
+            fn TranslateMessage(message: *const c_void) -> i32;
+            fn DispatchMessageW(message: *const c_void) -> isize;
+            fn GetCurrentProcess() -> *mut c_void;
+            fn GetProcessHandleCount(process: *mut c_void, count: *mut u32) -> i32;
+        }
+
+        /// `WS_OVERLAPPEDWINDOW`: a title bar and a sizeable frame, which is the
+        /// window a person has and a capture of one meets.
+        const OVERLAPPED: u32 = 0x00CF_0000;
+        const CHILD: u32 = 0x4000_0000;
+        const VISIBLE: u32 = 0x1000_0000;
+        const SW_MINIMIZE: i32 = 6;
+        const SW_RESTORE: i32 = 9;
+        const PM_REMOVE: u32 = 1;
+        const SWP_NOMOVE: u32 = 0x0002;
+        const SWP_NOZORDER: u32 = 0x0004;
+        const SWP_NOACTIVATE: u32 = 0x0010;
+        /// `WDA_EXCLUDEFROMCAPTURE`: out of every capture, Windows Graphics
+        /// Capture's and the compositor's alike. Windows 10 2004 added it.
+        const EXCLUDED_FROM_CAPTURE: u32 = 0x0000_0011;
+
+        /// A string Windows takes: UTF-16 with the zero it ends at.
+        fn wide(text: &str) -> Vec<u16> {
+            text.encode_utf16().chain([0]).collect()
+        }
+
+        /// A window this test made, destroyed when it goes.
+        pub(super) struct Owned {
+            window: *mut c_void,
+        }
+
+        impl Owned {
+            /// A shown, title-barred window of `size` that this process owns.
+            pub(super) fn new((width, height): (i32, i32)) -> Self {
+                let class = wide("STATIC");
+                let title = wide("yapfast's own test window");
+                // SAFETY: both strings end with a zero and outlive the call; a
+                // `STATIC` is a class Windows registers itself, so no instance, no
+                // parent and no menu are needed.
+                let window = unsafe {
+                    CreateWindowExW(
+                        0,
+                        class.as_ptr(),
+                        title.as_ptr(),
+                        OVERLAPPED | VISIBLE,
+                        40,
+                        40,
+                        width,
+                        height,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                };
+                assert!(!window.is_null(), "a window of this test's own");
+                Self { window }
+            }
+
+            /// The handle a capture of it is opened with.
+            pub(super) fn handle(&self) -> *mut c_void {
+                self.window
+            }
+
+            /// A window of the same class inside this one, whose capture item would
+            /// be this window's rather than its own.
+            pub(super) fn child(&self) -> *mut c_void {
+                let class = wide("STATIC");
+                let title = wide("");
+                // SAFETY: both strings end with a zero and outlive the call, and the
+                // parent is this test's own window, which destroys its children
+                // when it goes.
+                unsafe {
+                    CreateWindowExW(
+                        0,
+                        class.as_ptr(),
+                        title.as_ptr(),
+                        CHILD | VISIBLE,
+                        0,
+                        0,
+                        20,
+                        20,
+                        self.window,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                }
+            }
+
+            /// Answers the messages a shown window is sent, which is what paints it:
+            /// the compositor has a picture of a window that has answered its own
+            /// `WM_PAINT`, and nothing of one that hasn't.
+            pub(super) fn pump(&self) {
+                // Room for a `MSG` without declaring one: the calls below fill it
+                // and it is handed straight back, and nothing here reads a field.
+                let mut message = [0u64; 16];
+                // SAFETY: the buffer is larger than a `MSG` and aligned like one,
+                // and every message taken out of the queue is dispatched before the
+                // next is asked for.
+                unsafe {
+                    while PeekMessageW(
+                        message.as_mut_ptr().cast(),
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        PM_REMOVE,
+                    ) != 0
+                    {
+                        TranslateMessage(message.as_ptr().cast());
+                        DispatchMessageW(message.as_ptr().cast());
+                    }
+                }
+            }
+
+            /// Drags the window to `size`, as a person does with the frame.
+            pub(super) fn resize(&self, (width, height): (i32, i32)) {
+                // SAFETY: the window is this test's own and alive, and the flags
+                // leave its place and its order on the desktop alone.
+                let moved = unsafe {
+                    SetWindowPos(
+                        self.window,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        width,
+                        height,
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    )
+                };
+                assert!(moved != 0, "a window of this test's own is resized");
+            }
+
+            /// Minimises it, which is a window that composites nothing.
+            pub(super) fn minimise(&self) {
+                // SAFETY: the window is this test's own and alive.
+                unsafe { ShowWindow(self.window, SW_MINIMIZE) };
+            }
+
+            /// Puts it back on the desktop at its own size.
+            pub(super) fn restore(&self) {
+                // SAFETY: the window is this test's own and alive.
+                unsafe { ShowWindow(self.window, SW_RESTORE) };
+            }
+
+            /// Takes it out of every capture, as a password manager's window does.
+            /// False on a Windows that won't set the flag, which is a Windows this
+            /// can't be shown on rather than a capture that went wrong.
+            pub(super) fn exclude_from_capture(&self) -> bool {
+                // SAFETY: the window is this test's own and alive, and the affinity
+                // is the one Windows defines for it.
+                unsafe { SetWindowDisplayAffinity(self.window, EXCLUDED_FROM_CAPTURE) != 0 }
+            }
+
+            /// Closes it, as its owner does when they quit: what is left is a handle
+            /// no window is behind any more.
+            pub(super) fn close(&mut self) {
+                // SAFETY: a window this test made and hasn't given back is destroyed
+                // once, and the handle is dropped here so the drop below has nothing
+                // left to do.
+                unsafe { DestroyWindow(self.window) };
+                self.window = std::ptr::null_mut();
+            }
+        }
+
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                if !self.window.is_null() {
+                    // SAFETY: a window this test made and hasn't destroyed yet.
+                    unsafe { DestroyWindow(self.window) };
+                }
+            }
+        }
+
+        /// How many handles this process holds, which is one of the things a
+        /// capture that opened and closed without letting go of its device or its
+        /// pool grows.
+        pub(super) fn handles() -> u32 {
+            let mut count = 0;
+            // SAFETY: the process is this one and the count is a place of its own.
+            let asked = unsafe { GetProcessHandleCount(GetCurrentProcess(), &mut count) };
+            assert!(asked != 0, "this process's handle count can be asked");
+            count
+        }
+    }
+
+    /// What the card has of its own memory in use, as DXGI reports it: the whole
+    /// machine's usage, not this process's, which is why a test prints it instead
+    /// of asserting on it. `None` on a machine whose driver doesn't answer.
+    fn video_usage() -> Option<u64> {
+        use windows::Win32::Graphics::Dxgi::{
+            CreateDXGIFactory1, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, IDXGIAdapter3, IDXGIFactory1,
+        };
+        use windows::core::Interface;
+
+        // SAFETY: DXGI is asked for its factory, then for its first adapter, and
+        // both are released when they go out of scope.
+        unsafe {
+            let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
+            let adapter = factory.EnumAdapters1(0).ok()?;
+            let budget: IDXGIAdapter3 = adapter.cast().ok()?;
+            let mut info = Default::default();
+            budget
+                .QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info)
+                .ok()?;
+            Some(info.CurrentUsage)
+        }
+    }
+
+    /// The next answer that isn't "nothing new", pumping the window meanwhile for
+    /// up to `wait`: a still desktop delivers nothing, which is not a failure.
+    fn wait(capture: &mut Capture, window: &own::Owned, wait: Duration) -> Option<Arrival> {
+        let started = Instant::now();
+        while started.elapsed() < wait {
+            window.pump();
+            match capture.frame().expect("the shim's answer") {
+                Arrival::Idle => std::thread::sleep(Duration::from_millis(5)),
+                arrival => return Some(arrival),
+            }
+        }
+        None
+    }
+
     /// The numbers native/wgc.cc answers with, read as the arrivals they mean, and
     /// one it doesn't have refused rather than taken as the nearest answer: this is
     /// the whole vocabulary of the boundary, and none of it needs a screen. The
@@ -653,5 +932,249 @@ mod tests {
             }
         }
         drop(capture);
+    }
+
+    /// A window that is not a window of its own is refused by name, before
+    /// anything is opened: the desktop, which is a display and is captured as
+    /// one, and a child window, whose capture item would be its application's
+    /// whole window. A share that promised one window and handed over the screen
+    /// behind it is the thing this refuses, and the desktop's handle is a real
+    /// one that no check of nullness could have caught.
+    #[test]
+    fn the_desktop_and_a_child_window_are_refused_as_a_window() {
+        let owner = own::Owned::new((320, 240));
+        let child = owner.child();
+        assert!(!child.is_null(), "a child of this test's own window");
+        let mut refused = Vec::new();
+        for (why, window) in [
+            ("the desktop", unsafe { GetDesktopWindow() }),
+            ("the shell's window", unsafe { GetShellWindow() }),
+            ("a child window", child),
+        ] {
+            if window.is_null() {
+                eprintln!("this desktop has no {why} to ask about");
+                continue;
+            }
+            let Err(error) = Capture::open(Window::new(window)) else {
+                panic!("{why} opened as a capture of a window");
+            };
+            refused.push((why, format!("{error:#}")));
+        }
+        for (why, said) in &refused {
+            // Each refusal names what it found: the desktop is one, a child's
+            // top-level window is named as the window a capture of it would be.
+            assert!(
+                said.contains("desktop") || said.contains("top-level window"),
+                "{why}: {said}"
+            );
+        }
+        assert_eq!(refused.len(), 3, "all three were refused");
+    }
+
+    /// A window its owner closes ends the capture, and the end names a window
+    /// rather than a display: the shim asks Windows whether a window is still
+    /// behind the handle before it touches the pool, so this is the same answer on
+    /// a desktop where nothing ever draws, which is what makes it a test that
+    /// needs no picture. It is how a share of somebody's window finishes when
+    /// they quit.
+    #[test]
+    fn a_window_that_closes_ends_the_capture() {
+        let mut window = own::Owned::new((320, 240));
+        let mut capture = Capture::open(Window::new(window.handle()))
+            .expect("a capture of a window this test made");
+        assert!(
+            capture.describe().contains("the window \""),
+            "what is captured is a window rather than a display: {}",
+            capture.describe()
+        );
+        window.close();
+        assert_eq!(
+            capture.frame().expect("the shim's answer"),
+            Arrival::Closed,
+            "a capture of a window that closed is over"
+        );
+        // Either sentence is the same end: the item's own `Closed` event fires as
+        // the window goes, and the per-frame check finds the same thing when the
+        // event is slower than the next look.
+        let ending = capture.ending();
+        assert!(
+            ending.to_lowercase().contains("window"),
+            "the end names the window: {ending:?}"
+        );
+    }
+
+    /// A window that takes itself out of every capture is one no picture of can be
+    /// had, so a capture of it ends rather than handing over the last picture it
+    /// took: the pool still holds one from before the flag was set, and sending
+    /// that again is the content its owner kept out of captures.
+    #[test]
+    fn a_window_that_leaves_every_capture_ends_it() {
+        let window = own::Owned::new((320, 240));
+        let mut capture = Capture::open(Window::new(window.handle()))
+            .expect("a capture of a window this test made");
+        if !window.exclude_from_capture() {
+            eprintln!(
+                "this Windows won't set WDA_EXCLUDEFROMCAPTURE on a window, so a window that \
+                 leaves every capture can't be shown here"
+            );
+            return;
+        }
+        assert_eq!(
+            capture.frame().expect("the shim's answer"),
+            Arrival::Closed,
+            "a capture of a window that left every capture is over"
+        );
+        drop(capture);
+        // Which of the two things ended it is the shim's own sentence, and a
+        // capture opened after the flag is set is one no `Closed` event has fired
+        // on: it answers with the flag itself.
+        let mut after = Capture::open(Window::new(window.handle()))
+            .expect("a capture of a window that left every capture");
+        assert_eq!(
+            after.frame().expect("the shim's answer"),
+            Arrival::Closed,
+            "a window that is out of every capture hands over nothing"
+        );
+        assert!(
+            after.ending().contains("WDA_EXCLUDEFROMCAPTURE"),
+            "the end is the window's own exclusion: {:?}",
+            after.ending()
+        );
+    }
+
+    /// A minimised window composites nothing, so a capture of one answers that
+    /// there is nothing new — not a thumbnail at the window's own size, which
+    /// would read as a resize a frame — and a restored window is a picture again.
+    #[test]
+    fn a_minimised_window_hands_over_nothing_new_until_it_is_restored() {
+        let window = own::Owned::new((320, 240));
+        window.pump();
+        let mut capture = Capture::open(Window::new(window.handle()))
+            .expect("a capture of a window this test made");
+        window.minimise();
+        window.pump();
+        assert_eq!(
+            capture.frame().expect("the shim's answer"),
+            Arrival::Idle,
+            "a minimised window is nothing new"
+        );
+        window.restore();
+        window.pump();
+        match wait(&mut capture, &window, Duration::from_secs(10)) {
+            // A window put back on the desktop is the picture it was, at its own
+            // size, or at worst one that reports the size it came back at.
+            Some(Arrival::Frame | Arrival::Resized) => {}
+            Some(other) => panic!("a restored window is a picture again, not {other:?}"),
+            None => eprintln!(
+                "no picture in 10 s: this desktop isn't drawing the window, and the capture is \
+                 open on it"
+            ),
+        }
+    }
+
+    /// A window dragged to a new size is captured at the new one: the shim rebuilds
+    /// its pool at the frame's own size and answers that the size changed, so an
+    /// encoder built for the old size is never handed a picture at the new one.
+    /// This is the one transition that needs the compositor: a window that nothing
+    /// draws has no frame to report a size with, so a desktop that gives none says
+    /// so instead of failing.
+    #[test]
+    fn a_resized_window_is_captured_at_its_new_size() {
+        let window = own::Owned::new((320, 240));
+        window.pump();
+        let mut capture = Capture::open(Window::new(window.handle()))
+            .expect("a capture of a window this test made");
+        if wait(&mut capture, &window, Duration::from_secs(10)).is_none() {
+            eprintln!(
+                "no picture in 10 s: this desktop isn't drawing the window, so a resize can't be \
+                 seen here"
+            );
+            return;
+        }
+        let (before_width, before_height) = capture.content_size();
+        window.resize((480, 360));
+        window.pump();
+        let started = Instant::now();
+        let mut resized = None;
+        while started.elapsed() < Duration::from_secs(10) {
+            window.pump();
+            match capture.frame().expect("the shim's answer") {
+                Arrival::Resized => {
+                    resized = Some(capture.content_size());
+                    break;
+                }
+                // A frame the compositor handed over at the size before the new
+                // one, which is nothing to report.
+                Arrival::Frame | Arrival::Idle => std::thread::sleep(Duration::from_millis(5)),
+                Arrival::Closed => panic!(
+                    "the window closed rather than being resized: {}",
+                    capture.ending()
+                ),
+            }
+        }
+        let Some((width, height)) = resized else {
+            panic!(
+                "a window resized to 480x360 was never reported at its new size, from \
+                 {before_width}x{before_height}"
+            );
+        };
+        assert!(
+            width > before_width && height > before_height,
+            "{width}x{height} came of a window that was {before_width}x{before_height}"
+        );
+    }
+
+    /// Switching between windows again and again leaves the process where it was:
+    /// the device, the frame pool and the session that a capture of the window let
+    /// go of are all given back with it, which is what a share that changes what
+    /// it shares over and over must not grow. Two windows are taken in turns, the
+    /// way a share switches — one capture let go of before the other opens.
+    ///
+    /// Handles are counted because they are this process's own. What the card has
+    /// in use is printed rather than asserted: DXGI's usage is the whole machine's
+    /// and not this share's, so a difference between two readings of it is
+    /// nobody's in particular.
+    #[test]
+    fn switching_between_windows_again_and_again_takes_no_handles_with_it() {
+        let first = own::Owned::new((320, 240));
+        let second = own::Owned::new((480, 360));
+        // One capture of each first: the first device, the driver's first session
+        // and the thread pool behind them take handles once, and those aren't this
+        // test's to count.
+        for window in [first.handle(), second.handle()] {
+            drop(Capture::open(Window::new(window)).expect("a capture of a window this test made"));
+        }
+        let before = own::handles();
+        let usage = video_usage();
+        for turn in 0..20 {
+            // The capture of what was shared before is let go before this one
+            // opens, as a switch does.
+            let window = if turn % 2 == 0 {
+                first.handle()
+            } else {
+                second.handle()
+            };
+            drop(
+                Capture::open(Window::new(window)).expect("a capture of the window this turn took"),
+            );
+        }
+        let after = own::handles();
+        assert!(
+            after <= before + 2,
+            "20 switches between two windows took {} handles with them ({before} to {after})",
+            after.saturating_sub(before)
+        );
+        eprintln!(
+            "20 switches between two windows: {before} handles to {after}, card memory {usage:?} \
+             to {:?}",
+            video_usage()
+        );
+    }
+
+    // Two window calls of Windows' own, for the desktop and the shell's window: the
+    // handles a capture of a window must take as a display rather than as a window.
+    unsafe extern "system" {
+        fn GetDesktopWindow() -> *mut c_void;
+        fn GetShellWindow() -> *mut c_void;
     }
 }
