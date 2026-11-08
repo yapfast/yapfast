@@ -645,10 +645,21 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
                 nameplate: None,
                 style: None,
                 bot: false,
+                boosting_since: Some(1_709_467_200_000),
             }]),
         });
         adapter.refresh(&window);
     }
+    // She boosts the server, which the gem by her name says on hover.
+    let carol = window
+        .get_roster()
+        .iter()
+        .find(|row| row.name == "Carol")
+        .unwrap();
+    assert!(
+        carol.boosting.starts_with("Server boosting since ")
+            && carol.boosting.ends_with("March 2024")
+    );
     // `@` in the thread's composer suggests the channel's people, and the one
     // chosen goes in that composer, not the channel's.
     window.invoke_aside_composer_caret("hey @ca".into(), 7);
@@ -753,6 +764,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         twelve_hour_clock: true,
         text_size: Some(2),
         link_previews: Some(false),
+        boost_gems: Some(false),
         unmute_on_join: Some(true),
         noise_suppression: yapfast_core::noise::Suppressor::RNNoise,
         noise_strength: yapfast_core::noise::Strength::Light,
@@ -801,6 +813,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     let window = classic_window();
     layout.apply(&window);
     assert!(window.get_twelve_hour_clock() && !window.get_link_previews());
+    assert!(!window.get_boost_gems());
     // Discord calls suppress noise with the chosen network, as far as chosen.
     assert_eq!(window.get_noise_suppression(), 1);
     assert_eq!(window.get_noise_strength(), 2);
@@ -846,6 +859,9 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     window.set_voice_ready(true);
     slint::platform::update_timers_and_animations();
     assert!(deafened.get() && !unmuted.get());
+    // Boost gems show unless turned off.
+    assert!(YapfastWindow::new().unwrap().get_boost_gems());
+    assert!(Layout::default().boost_gems.unwrap_or(true));
 }
 
 #[test]
@@ -2384,6 +2400,7 @@ fn the_activity_panel_shows_discords_feed_in_its_order_for_those_the_channel_may
         role_icon: None,
         group_icon: None,
         timed_out_until: None,
+        boosting_since: None,
     };
     let room = room_id("1", "2");
     let mut state = AppState::default();
@@ -2495,6 +2512,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         avatar: None,
         decoration: None,
         nameplate: None,
+        boosting_since: None,
         style: None,
         tag: None,
         group: Some("Online — 2".into()),

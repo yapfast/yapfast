@@ -106,9 +106,14 @@ Matrix room's, the right click still sets only the volume.
 Discord answers each change with GUILD_MEMBER_UPDATE, or for a kick with
 GUILD_MEMBER_REMOVE, and for a ban with GUILD_BAN_ADD as well, and sends the
 member list's subscribers its operations. Yapfast learns the member's
-nickname, roles and `communication_disabled_until`, shows the open member
-list again when it lists them, and renders the open channel again, so names,
-colours and the list follow. A member who leaves is forgotten. A nickname,
+nickname, roles, `communication_disabled_until` and `premium_since`, shows
+the open member list again when it lists them, and renders the open channel
+again, so names, colours and the list follow. As in Discord's client, the
+member list marks someone who boosts the server with a pink gem after their
+name, whose tooltip says since when ("Server boosting since 3 March 2024");
+Show boost gems in Settings > Messages turns the gem off (`boost_gems` in
+`layout.json`, on by default). Yapfast keeps the date only for those boosting,
+while it runs. A member who leaves is forgotten. A nickname,
 timeout, kick or ban that fails says why in its dialog; a role says so in a
 notice.
 

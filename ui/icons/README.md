@@ -31,7 +31,9 @@ glyphs such as check, x and chevrons.
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
   the speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
-  id-filled, music, plus, trophy, tv and verified.
+  id-filled, music, plus, trophy, tv and verified; and gem, a hexagonal gem
+  drawn as an outline round a solid core, which marks a member boosting
+  their Discord server.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
 LICENSE (ISC): calendar, check, chevron-down, chevron-left, chevron-right,
