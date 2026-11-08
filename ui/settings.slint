@@ -127,10 +127,17 @@ export component Choices inherits Rectangle {
     /// update would no longer show.
     in property <bool> controlled;
     callback chosen(int);
+    function choose(index: int) {
+        keys.focus();
+        if !root.controlled { root.current = index; }
+        root.chosen(index);
+    }
     height: 36px; max-width: 360px;
     border-radius: 8px; background: Theme.sunken;
+    border-width: keys.has-focus ? 2px : 0px; border-color: Theme.text;
     accessible-role: groupbox;
     accessible-label: root.label;
+    forward-focus: keys;
     HorizontalLayout {
         padding: 3px; spacing: 3px;
         for option[index] in root.options: Rectangle {
@@ -139,7 +146,7 @@ export component Choices inherits Rectangle {
             animate background { duration: Theme.quick; }
             accessible-role: button;
             accessible-label: index == root.current ? option + ", chosen" : option;
-            accessible-action-default => { if !root.controlled { root.current = index; } root.chosen(index); }
+            accessible-action-default => { root.choose(index); }
             Text {
                 text: option; font-size: 14px;
                 color: index == root.current ? Theme.text : Theme.secondary;
@@ -147,8 +154,23 @@ export component Choices inherits Rectangle {
             }
             choice := TouchArea {
                 mouse-cursor: MouseCursor.pointer;
-                clicked => { if !root.controlled { root.current = index; } root.chosen(index); }
+                clicked => { root.choose(index); }
             }
+        }
+    }
+    keys := FocusScope {
+        width: 0; height: 0;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow || event.text == Key.UpArrow {
+                root.choose(max(0, root.current - 1)); return accept;
+            }
+            if event.text == Key.RightArrow || event.text == Key.DownArrow {
+                root.choose(min(root.options.length - 1, root.current + 1)); return accept;
+            }
+            if event.text == Key.Home { root.choose(0); return accept; }
+            if event.text == Key.End { root.choose(root.options.length - 1); return accept; }
+            if event.text == Key.Return || event.text == " " { root.choose(root.current); return accept; }
+            return reject;
         }
     }
 }
