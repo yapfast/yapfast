@@ -44,7 +44,8 @@ quick switcher and Nitro, Shop and Quests pages. Several need data the client
 does not fetch yet. The account popover asks for the account's own profile
 each time it opens (`Action::LoadOwnProfile`, the main profile, without its
 effect) and draws its banner or colour, theme, decoration, styled name,
-server tag and badges from it once it has come.
+server tag and badges from it once it has come. A card of the account opened
+in a server, whose banner, bio and theme are the server's, leaves it be.
 
 ## Tests
 

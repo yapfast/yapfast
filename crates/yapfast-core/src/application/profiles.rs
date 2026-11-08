@@ -260,7 +260,7 @@ impl Application {
         else {
             return vec![];
         };
-        let room = crate::discord::room_id(yapfast_discord::ready::PRIVATE, "0");
+        let room = crate::discord::room_id(crate::discord::DM_GUILD, "0");
         vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
             room,
             user,
@@ -268,9 +268,11 @@ impl Application {
         }))]
     }
 
-    /// Keeps a profile that's the account's own for its card.
+    /// Keeps a profile that's the account's own for its card: the main one.
+    /// A server's says when they joined it, and its banner, bio and theme
+    /// win over the main profile's, so a card opened in a server is left out.
     fn keep_own_profile(&mut self, user: &str, profile: &Profile) {
-        if self.state.discord_user.as_deref() == Some(user) {
+        if self.state.discord_user.as_deref() == Some(user) && profile.joined.is_none() {
             self.state.account_profile = Some(Arc::new(profile.clone()));
         }
     }

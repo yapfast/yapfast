@@ -10724,6 +10724,42 @@ fn wishlist_asked(effects: &[Effect]) -> Option<&str> {
     }
 }
 
+/// The account's card keeps its main profile: a card of the account opened
+/// in a server, whose banner, bio and theme are the server's, leaves it be.
+#[test]
+fn the_account_card_keeps_the_main_profile_not_a_servers() {
+    let mut app = Application::default();
+    app.state.discord_user = Some("1".into());
+    let main = Profile {
+        id: "1".into(),
+        bio: "main".into(),
+        theme: Some([1, 2]),
+        ..Default::default()
+    };
+    app.apply(Event::Profile {
+        user: "1".into(),
+        result: Ok(main.clone()),
+    });
+    app.apply(Event::KeptProfile {
+        user: "1".into(),
+        profile: Profile {
+            bio: "server".into(),
+            theme: Some([3, 4]),
+            joined: Some("1 September 2026".into()),
+            ..main.clone()
+        },
+    });
+    app.apply(Event::Profile {
+        user: "1".into(),
+        result: Ok(Profile {
+            bio: "server".into(),
+            joined: Some("1 September 2026".into()),
+            ..main.clone()
+        }),
+    });
+    assert_eq!(app.state.account_profile.as_deref(), Some(&main));
+}
+
 #[cfg(feature = "discord")]
 /// A full profile on screen with a public wishlist at 90, and a game on its board.
 fn full_profile_with_tabs(large: bool) -> Application {

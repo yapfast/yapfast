@@ -68,7 +68,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{Reach, SidebarShown, SwitcherShown};
+use refresh::{AccountCardShown, Reach, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -1788,10 +1788,9 @@ struct Adapter {
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
-    /// The account's own profile its card showed last, with the count of
-    /// pictures that had arrived, so the card is built again only once
-    /// either changes.
-    account_profile_shown: Option<(Arc<yapfast_core::chat::Profile>, u64)>,
+    /// The account's own profile its card showed last, so the card is built
+    /// again only once that or one of its pictures changes.
+    account_profile_shown: Option<AccountCardShown>,
     /// What the quick switcher listed last, while it's open.
     switcher: Option<SwitcherShown>,
     /// The room ids of the rows a Discord server's channel list drags and
