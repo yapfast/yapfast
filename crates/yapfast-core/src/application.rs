@@ -8,7 +8,8 @@ use std::{
 use crate::{
     chat::{
         self, ChatMember, ChatMessage, ChatRoom, ChatServer, Command, Contact, DiscordCommand,
-        Event, ForwardFailure, MentionGroup, Picture, Profile, ProfileRole, Reaction, Reply, Role,
+        Event, ForwardFailure, MentionGroup, Picture, Profile, ProfileRole, Reaction, Reacts,
+        Reply, Role,
     },
     discord,
     mention::{self, Candidate, Target},
@@ -796,6 +797,25 @@ impl AppState {
         }
     }
 
+    /// What reacting this device may do in a conversation: what a Discord
+    /// channel allows while Discord is connected, which a read-only channel
+    /// may; and in a Matrix room, all of it where it may write.
+    pub fn reactable(&self, room: &ChatRoom) -> Reacts {
+        if !room.has_text() {
+            Reacts::None
+        } else if room.network == Network::Discord {
+            if self.discord_online && !room.locked {
+                room.reacts
+            } else {
+                Reacts::None
+            }
+        } else if self.writable(room) {
+            Reacts::Any
+        } else {
+            Reacts::None
+        }
+    }
+
     /// Text channels and group DMs list their members; voice channels and
     /// one-to-one DMs don't.
     pub fn lists_members(&self) -> bool {
@@ -999,6 +1019,7 @@ impl AppState {
                 tag: None,
                 group_icon: None,
                 role_icon: None,
+                boosting_since: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -1030,6 +1051,7 @@ impl AppState {
                 tag: None,
                 group_icon: None,
                 role_icon: None,
+                boosting_since: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -1061,6 +1083,7 @@ impl AppState {
             tag: None,
             group_icon: None,
             role_icon: None,
+            boosting_since: None,
         })
     }
 
@@ -1578,8 +1601,8 @@ pub enum Action {
     NavigateBack,
     /// Go forward again after going back.
     NavigateForward,
-    /// Answer a Discord DM call ringing this account: open the conversation
-    /// and join, leaving any other call, or decline it.
+    /// Answer a Discord DM call ringing this account: join it, leaving any
+    /// other call, without opening the conversation; or decline it.
     AcceptCall(String),
     DeclineCall(String),
     /// Send a Discord user a friend request, or accept theirs.

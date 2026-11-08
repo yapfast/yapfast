@@ -22,7 +22,7 @@ use yapfast_core::{
     backend::Backend,
     chat::{
         ChannelKind, ChannelSettings, ChatMessage, Command, Delivery, EmbedField, Event, Picture,
-        Placement, Presence, ProfilePicture, ProfileRole, Role, VideoCommand,
+        Placement, Presence, ProfilePicture, ProfileRole, Reacts, Role, VideoCommand,
     },
     clock, discord, links, mention,
     meter::{self, InputMeter},
@@ -498,6 +498,21 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     });
                 }
                 crate::push_to_talk::window_event(event);
+                // Windows' two side buttons are recordable shortcuts too.
+                #[cfg(windows)]
+                if let Some(window) = weak.upgrade()
+                    && window.get_talk_recording()
+                    && let Some(recorded) = crate::push_to_talk::Keybind::recorded_mouse(event)
+                {
+                    window.set_talk_recording(false);
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().set_talk_key(&window, recorded);
+                        }
+                    });
+                    return EventResult::PreventDefault;
+                }
                 // While recording the push-to-talk key, the next key becomes
                 // it, and Escape stops; either way only the recorder sees it.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
@@ -1081,12 +1096,17 @@ struct Layout {
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
+    /// A gem by each server booster in the member list; on unless turned off.
+    boost_gems: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
     strip_tracking: Option<bool>,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
+    /// Long messages fold to a few lines, with Show more; off unless turned
+    /// on.
+    collapse_long: bool,
     /// When animations play.
     animate: Animate,
     /// Joining a call turns the microphone on; on unless turned off.
@@ -1360,9 +1380,11 @@ impl Layout {
         self.apply_date_format();
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
         window.set_link_previews(self.link_previews.unwrap_or(true));
+        window.set_boost_gems(self.boost_gems.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
+        window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);
@@ -1619,15 +1641,39 @@ impl Models {
     }
 }
 
+/// A kind of Discord channel's icon, alone and with a lock or a warning
+/// sign at its top right, as Discord's client marks a channel @everyone is
+/// kept out of and an age-restricted one.
+struct ChannelIcon {
+    plain: slint::Image,
+    private: slint::Image,
+    age_restricted: slint::Image,
+}
+
+impl ChannelIcon {
+    fn load(plain: &[u8], private: &[u8], age_restricted: &[u8]) -> Result<Self> {
+        Ok(Self {
+            plain: slint::Image::load_from_svg_data(plain)?,
+            private: slint::Image::load_from_svg_data(private)?,
+            age_restricted: slint::Image::load_from_svg_data(age_restricted)?,
+        })
+    }
+}
+
 struct Icons {
     dm: slint::Image,
     chat: slint::Image,
-    text: slint::Image,
+    text: ChannelIcon,
     /// A boxed ID, for Copy ID.
     id: slint::Image,
     thread: slint::Image,
-    forum: slint::Image,
-    voice: slint::Image,
+    forum: ChannelIcon,
+    voice: ChannelIcon,
+    announcement: ChannelIcon,
+    media: ChannelIcon,
+    /// A stage channel's, which Discord doesn't mark age-restricted.
+    stage: ChannelIcon,
+    rules: slint::Image,
     lock: slint::Image,
     read: slint::Image,
     call: slint::Image,
@@ -1894,13 +1940,39 @@ impl Adapter {
             chat: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/message-square-text.svg"
             ))?,
-            text: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/hash.svg"))?,
+            text: ChannelIcon::load(
+                include_bytes!("../ui/icons/hash.svg"),
+                include_bytes!("../ui/icons/hash-lock.svg"),
+                include_bytes!("../ui/icons/hash-warning.svg"),
+            )?,
             id: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-filled.svg"))?,
             thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
-            forum: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/message-square-text.svg"
-            ))?,
-            voice: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/volume-2.svg"))?,
+            forum: ChannelIcon::load(
+                include_bytes!("../ui/icons/message-square-text.svg"),
+                include_bytes!("../ui/icons/message-square-text-lock.svg"),
+                include_bytes!("../ui/icons/message-square-text-warning.svg"),
+            )?,
+            voice: ChannelIcon::load(
+                include_bytes!("../ui/icons/volume-2.svg"),
+                include_bytes!("../ui/icons/volume-2-lock.svg"),
+                include_bytes!("../ui/icons/volume-2-warning.svg"),
+            )?,
+            announcement: ChannelIcon::load(
+                include_bytes!("../ui/icons/megaphone.svg"),
+                include_bytes!("../ui/icons/megaphone-lock.svg"),
+                include_bytes!("../ui/icons/megaphone-warning.svg"),
+            )?,
+            media: ChannelIcon::load(
+                include_bytes!("../ui/icons/image.svg"),
+                include_bytes!("../ui/icons/image-lock.svg"),
+                include_bytes!("../ui/icons/image-warning.svg"),
+            )?,
+            stage: ChannelIcon::load(
+                include_bytes!("../ui/icons/stage.svg"),
+                include_bytes!("../ui/icons/stage-lock.svg"),
+                include_bytes!("../ui/icons/stage.svg"),
+            )?,
+            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
             lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
             read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
             call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,

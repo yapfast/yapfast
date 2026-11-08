@@ -257,6 +257,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window
         .global::<PictureStore>()
         .on_delays(|url, _revision| avatar_animation(url.as_str()).1);
+    window
+        .global::<PictureStore>()
+        .on_plays(|url, _revision| picture_plays(url.as_str()));
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -1329,6 +1332,30 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             adapter.action(&window, Action::ShowHiddenChannels(shown));
         }
     });
+    // Show more or Show less on a long message: only its own rows change,
+    // in the timeline and the thread beside it.
+    let state = adapter.clone();
+    window.on_fold_message(move |item, whole| {
+        let mut adapter = state.borrow_mut();
+        let key = messages::fold_key(&item);
+        if whole {
+            adapter.revealed.insert(key);
+        } else {
+            adapter.revealed.remove(&key);
+        }
+        let adapter = &mut *adapter;
+        for (model, rows) in [
+            (&adapter.models.messages, &mut adapter.rows),
+            (&adapter.models.aside_messages, &mut adapter.aside_rows),
+        ] {
+            for (index, row) in rows.iter_mut().enumerate() {
+                if row.item == item && row.expanded != whole {
+                    row.expanded = whole;
+                    model.set_row_data(index, row.clone());
+                }
+            }
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_reveal_attachment(move |item, index| {
@@ -1555,9 +1582,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
+        layout.boost_gems = Some(window.get_boost_gems());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.nameplates = Some(window.get_show_nameplates());
+        layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);

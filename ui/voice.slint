@@ -370,6 +370,8 @@ export component VoiceDock inherits Rectangle {
     callback open-soundboard(length, length);
     /// The call's connection in detail, from where its status is.
     callback open-call-link(length, length, length, length);
+    /// Shows the call's channel or DM.
+    callback open-call;
     background: Theme.panel;
     VerticalLayout {
         padding-top: 10px; padding-bottom: 8px; padding-right: 8px; spacing: 6px;
@@ -391,7 +393,7 @@ export component VoiceDock inherits Rectangle {
                 min-height: status-text.min-height; preferred-height: status-text.preferred-height;
                 status-text := VerticalLayout {
                     alignment: center;
-                    HorizontalLayout {
+                    status-row := HorizontalLayout {
                         spacing: 6px;
                         Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 700; overflow: elide; }
                         if root.voice-time != "": Text {
@@ -400,9 +402,28 @@ export component VoiceDock inherits Rectangle {
                         }
                         Rectangle { horizontal-stretch: 1; }
                     }
-                    if root.voice-active: Text { text: root.voice-detail; color: Theme.muted; font-size: 13px; overflow: elide; }
+                    // The channel's line opens the call, as Discord's link
+                    // under "Voice Connected" does; the status opens the
+                    // connection's details.
+                    if root.voice-active: Rectangle {
+                        height: 18px;
+                        Text {
+                            width: parent.width; height: parent.height;
+                            text: root.voice-detail; font-size: 13px; overflow: elide; vertical-alignment: center;
+                            color: detail-touch.has-hover ? Theme.text : Theme.muted;
+                        }
+                        detail-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            accessible-role: button; accessible-label: root.voice-detail + ". Open the call";
+                            accessible-action-default => { root.open-call(); }
+                            clicked => { root.open-call(); }
+                        }
+                    }
                 }
-                LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
+                LinkTouch {
+                    y: status-text.y + status-row.y; height: status-row.height;
+                    open(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                }
             }
             // Beside leaving, as in Vesktop. Off shows red, so it isn't forgotten.
             if root.voice-active && root.can-noise: IconButton {

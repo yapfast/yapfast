@@ -757,6 +757,7 @@ pub(super) fn message_row_within(
         blocks: blocks.map_or_else(ModelRc::default, |blocks| {
             ModelRc::new(VecModel::from(blocks))
         }),
+        expanded: expanded(&message.item, revealed),
         hidden_card: SharedString::default(),
         delivery: delivery.into(),
         delivery_failed: message.delivery == Delivery::Failed,
@@ -1227,6 +1228,17 @@ pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> s
         body
     };
     styled(&body)
+}
+
+/// Whether Show more was clicked on a long message, which shows it whole
+/// until Show less, while Yapfast runs.
+pub(super) fn expanded(item: &str, revealed: &HashSet<String>) -> bool {
+    revealed.contains(&fold_key(item))
+}
+
+/// What `revealed` holds for a long message shown whole.
+pub(super) fn fold_key(item: &str) -> String {
+    format!("{item}/more")
 }
 
 /// Whether a message shows collapsed, being from someone blocked.

@@ -604,10 +604,21 @@ fn the_thread_beside_suggests_mentions_and_emoji_above_its_composer() {
                 nameplate: None,
                 style: None,
                 bot: false,
+                boosting_since: Some(1_709_467_200_000),
             }]),
         });
         adapter.refresh(&window);
     }
+    // She boosts the server, which the gem by her name says on hover.
+    let carol = window
+        .get_roster()
+        .iter()
+        .find(|row| row.name == "Carol")
+        .unwrap();
+    assert!(
+        carol.boosting.starts_with("Server boosting since ")
+            && carol.boosting.ends_with("March 2024")
+    );
     // `@` in the thread's composer suggests the channel's people, and the one
     // chosen goes in that composer, not the channel's.
     window.invoke_aside_composer_caret("hey @ca".into(), 7);
@@ -735,6 +746,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         twelve_hour_clock: true,
         text_size: Some(2),
         link_previews: Some(false),
+        boost_gems: Some(false),
         unmute_on_join: Some(true),
         noise_suppression: yapfast_core::noise::Suppressor::RNNoise,
         noise_strength: yapfast_core::noise::Strength::Light,
@@ -783,6 +795,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     let window = classic_window();
     layout.apply(&window);
     assert!(window.get_twelve_hour_clock() && !window.get_link_previews());
+    assert!(!window.get_boost_gems());
     // Discord calls suppress noise with the chosen network, as far as chosen.
     assert_eq!(window.get_noise_suppression(), 1);
     assert_eq!(window.get_noise_strength(), 2);
@@ -828,6 +841,9 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     window.set_voice_ready(true);
     slint::platform::update_timers_and_animations();
     assert!(deafened.get() && !unmuted.get());
+    // Boost gems show unless turned off.
+    assert!(YapfastWindow::new().unwrap().get_boost_gems());
+    assert!(Layout::default().boost_gems.unwrap_or(true));
 }
 
 #[test]
@@ -2366,6 +2382,7 @@ fn the_activity_panel_shows_discords_feed_in_its_order_for_those_the_channel_may
         role_icon: None,
         group_icon: None,
         timed_out_until: None,
+        boosting_since: None,
     };
     let room = room_id("1", "2");
     let mut state = AppState::default();
@@ -2477,6 +2494,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         avatar: None,
         decoration: None,
         nameplate: None,
+        boosting_since: None,
         style: None,
         tag: None,
         group: Some("Online — 2".into()),
@@ -2690,7 +2708,7 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
     click(1080., 24.);
     assert!(window.get_member_list());
     // Voice channels and one-to-one DMs have no member list.
-    window.invoke_select_room("lounge".into());
+    window.invoke_open_conversation("lounge".into());
     assert!(!window.get_members_available());
     window.invoke_navigate_dms();
     assert!(!window.get_members_available());
@@ -3368,9 +3386,18 @@ fn callbacks_preserve_drafts_scope_voice_and_clear_session_inputs() {
     window.invoke_toggle_mute();
     assert!(!window.get_unmute_on_join() && adapter.borrow().layout.unmute_on_join == Some(false));
     let voice_room = rooms.iter().find(|room| room.voice).unwrap();
-    // Clicking a voice channel joins it.
+    // Clicking a voice channel joins it and leaves the channel on screen,
+    // as Discord's client does; clicking it again shows the call.
     window.invoke_select_room(voice_room.id.clone().into());
-    assert!(window.get_voice_here() && window.get_voice_active() && window.get_muted());
+    assert!(window.get_voice_active() && window.get_muted() && window.get_voice_visible());
+    assert!(!window.get_voice_here());
+    assert_eq!(window.get_voice_channel(), voice_room.id.as_str());
+    assert_eq!(
+        adapter.borrow().app.state.selected.as_deref(),
+        Some(text_rooms[0].id.as_str())
+    );
+    window.invoke_select_room(voice_room.id.clone().into());
+    assert!(window.get_voice_here());
     window.invoke_navigate_dms();
     assert!(window.get_voice_active() && window.get_voice_visible());
     assert!(!window.get_voice_here());
@@ -3458,6 +3485,49 @@ fn message_actions_reach_the_shared_application_in_the_preview() {
     // Shift's quick Delete deletes the reply at once, without asking.
     window.invoke_delete_now(reply.item.clone());
     assert!(row(&reply.item).deleted && window.get_confirm_delete().is_empty());
+}
+
+#[test]
+fn a_discord_channel_without_sending_still_takes_reactions() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let set = |reacts: Reacts| {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.discord_online = true;
+        let id = adapter.app.state.selected.clone().unwrap();
+        let room = adapter
+            .app
+            .state
+            .rooms
+            .iter_mut()
+            .map(Arc::make_mut)
+            .find(|room| room.id == id)
+            .unwrap();
+        room.network = yapfast_core::network::Network::Discord;
+        room.read_only = true;
+        room.reacts = reacts;
+        adapter.app.state.list_changes += 1;
+        adapter.refresh(&window);
+    };
+    // An announcement channel: no composer, but any reaction.
+    set(Reacts::Any);
+    assert!(!window.get_composer_enabled());
+    assert!(window.get_reactions_enabled() && window.get_new_reactions_enabled());
+    // Without Add Reactions, only those already there.
+    set(Reacts::Existing);
+    assert!(window.get_reactions_enabled() && !window.get_new_reactions_enabled());
+    // Timed out: none.
+    set(Reacts::None);
+    assert!(!window.get_reactions_enabled() && !window.get_new_reactions_enabled());
 }
 
 #[test]
@@ -4267,8 +4337,66 @@ fn a_profile_shows_activities_as_discord_cards() {
 }
 
 #[test]
+fn discord_channels_show_their_kinds_icons_marked_as_discord_marks_them() {
+    use yapfast_core::chat::{ChannelMark, ChatRoom, MarkKind};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let adapter = adapter.borrow();
+    let icons = &adapter.icons;
+    let base = adapter
+        .app
+        .state
+        .rooms
+        .iter()
+        .find(|room| !room.direct && !room.voice)
+        .map(|room| ChatRoom::clone(room))
+        .unwrap();
+    let channel = |kind, private, age_restricted, voice, forum| ChatRoom {
+        mark: ChannelMark {
+            kind,
+            private,
+            age_restricted,
+        },
+        voice,
+        forum,
+        ..base.clone()
+    };
+    let shown = |room: &ChatRoom| icons.channel(room);
+    assert!(shown(&channel(MarkKind::Plain, false, false, false, false)) == icons.text.plain);
+    assert!(
+        shown(&channel(MarkKind::Announcement, true, false, false, false))
+            == icons.announcement.private
+    );
+    assert!(
+        shown(&channel(MarkKind::Plain, true, true, false, true)) == icons.forum.age_restricted,
+        "the warning sign comes before the lock"
+    );
+    assert!(shown(&channel(MarkKind::Media, false, false, false, true)) == icons.media.plain);
+    assert!(shown(&channel(MarkKind::Stage, true, false, true, false)) == icons.stage.private);
+    assert!(shown(&channel(MarkKind::Plain, true, false, true, false)) == icons.voice.private);
+    assert!(
+        shown(&channel(MarkKind::Rules, true, true, false, false)) == icons.rules,
+        "the rules channel has its book whatever else"
+    );
+    let unreadable = ChatRoom {
+        locked: true,
+        ..channel(MarkKind::Announcement, false, false, false, false)
+    };
+    assert!(icons.room(&unreadable) == icons.lock && shown(&unreadable) != icons.lock);
+}
+
+#[test]
 fn friends_in_a_servers_voice_channel_show_where() {
-    use yapfast_core::chat::{ChatRoom, ChatServer, VoicePerson};
+    use yapfast_core::chat::{ChatRoom, ChatServer, Reacts, VoicePerson};
     let person = |id: &str| VoicePerson {
         id: id.into(),
         name: id.into(),
@@ -4290,6 +4418,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         locked: false,
         join_locked: false,
         read_only: false,
+        reacts: Reacts::Any,
         slowed: false,
         timed_out_until: None,
         category: String::new(),
@@ -4309,6 +4438,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         tag: None,
         official: false,
@@ -6958,7 +7088,7 @@ fn the_thread_beside_keeps_its_rows_when_a_new_layout_builds_them_again() {
 #[cfg(feature = "discord")]
 #[test]
 fn requests_list_someone_once_with_their_message() {
-    use yapfast_core::chat::{ChatRoom, FriendRequest, RequestPreview};
+    use yapfast_core::chat::{ChatRoom, FriendRequest, Reacts, RequestPreview};
     use yapfast_core::network::Network;
     let request = |id: &str, name: &str, incoming, spam| FriendRequest {
         id: id.into(),
@@ -6983,6 +7113,7 @@ fn requests_list_someone_once_with_their_message() {
         locked: false,
         join_locked: false,
         read_only: true,
+        reacts: Reacts::None,
         slowed: false,
         timed_out_until: None,
         category: category.into(),
@@ -7002,6 +7133,7 @@ fn requests_list_someone_once_with_their_message() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         tag: None,
         official: false,
@@ -8623,4 +8755,76 @@ fn an_avatars_colour_is_worked_out_once_it_has_arrived() {
     );
     assert_eq!(profile::avatar_color(Some("b.png"), &waiting), None);
     assert_eq!(profile::avatar_color(None, &avatar), None);
+}
+
+#[test]
+fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    assert!(!window.get_collapse_long(), "off unless turned on");
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // A frame or so: the list lays its rows out as time moves on.
+    let settle = |window: &YapfastWindow| {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+            slint::platform::update_timers_and_animations();
+            let _ = window.invoke_timeline_extent();
+        }
+    };
+    settle(&window);
+    let before = window.invoke_timeline_extent();
+    let count = window.get_messages().row_count();
+    // The preview's short messages don't fold.
+    window.set_collapse_long(true);
+    settle(&window);
+    assert_eq!(window.invoke_timeline_extent(), before);
+    window.set_collapse_long(false);
+    settle(&window);
+    let long: String = (1..=40)
+        .map(|line| format!("Line {line} of the plan\n"))
+        .collect();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SetDraft(long.trim_end().into()));
+    adapter.borrow_mut().action(&window, Action::Send);
+    settle(&window);
+    assert_eq!(window.get_messages().row_count(), count + 1, "it was sent");
+    let item = window.get_messages().iter().last().unwrap().item;
+    let whole = window.invoke_timeline_extent();
+    let line = window.get_message_font_size() * 1.3;
+    assert!(whole - before > line * 30., "{before} grew to {whole}");
+
+    // With the switch on it folds to twelve lines, and the list is shorter.
+    window.set_collapse_long(true);
+    settle(&window);
+    let folded = window.invoke_timeline_extent();
+    assert!(whole - folded > line * 20., "{whole} folds to {folded}");
+
+    // Show more shows it whole, in its own row, and Show less folds it again.
+    window.invoke_fold_message(item.clone(), true);
+    settle(&window);
+    let row = window.get_messages().iter().last().unwrap();
+    assert!(row.item == item && row.expanded);
+    let shown = window.invoke_timeline_extent();
+    assert!(shown > whole, "whole, with Show less under it: {shown}");
+    window.invoke_fold_message(item.clone(), false);
+    settle(&window);
+    assert!(!window.get_messages().iter().last().unwrap().expanded);
+    assert_eq!(window.invoke_timeline_extent(), folded);
+
+    // The switch is kept with the other preferences.
+    window.invoke_preferences_changed();
+    assert!(adapter.borrow().layout.collapse_long);
 }

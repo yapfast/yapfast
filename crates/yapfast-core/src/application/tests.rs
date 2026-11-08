@@ -290,6 +290,7 @@ fn members_belong_to_the_selected_text_room() {
         tag: None,
         group_icon: None,
         role_icon: None,
+        boosting_since: None,
     };
     app.apply(Event::Members {
         room: "games".into(),
@@ -320,7 +321,7 @@ fn members_belong_to_the_selected_text_room() {
         members: Err(late),
     });
     assert_eq!(app.state.members, Some(Err(late)), "loading ends");
-    app.dispatch(Action::SelectRoom("lounge".into()));
+    app.dispatch(Action::Open("lounge".into()));
     assert!(!app.state.lists_members());
 
     let mut preview = Application::default();
@@ -1734,21 +1735,36 @@ fn clicking_someone_with_only_a_camera_shows_the_channel_without_joining() {
 }
 
 #[test]
-fn clicking_a_voice_channel_joins_it_and_asks_before_leaving_another() {
+fn clicking_a_voice_channel_joins_it_where_you_are_and_asks_before_leaving_another() {
     let mut app = Application::default();
     app.dispatch(Action::Preview);
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    // Joining keeps the channel on screen, as Discord's client does: the
+    // call shows in the voice dock.
     app.dispatch(Action::SelectRoom("lounge".into()));
     assert_eq!(app.state.voice.room.as_deref(), Some("lounge"));
-    // Clicking the channel you are in only shows it.
-    app.dispatch(Action::SelectRoom("general".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    // Clicking the channel you are in shows its call.
     app.dispatch(Action::SelectRoom("lounge".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("lounge"));
     assert!(app.state.switch_voice.is_none());
+    // Another server's channel asks first, and still doesn't show.
     app.dispatch(Action::Navigate(Navigation::Server("coop".into())));
+    app.dispatch(Action::SelectRoom("looking-for-group".into()));
     app.dispatch(Action::SelectRoom("party-voice".into()));
     assert_eq!(app.state.voice.room.as_deref(), Some("lounge"));
     assert_eq!(app.state.switch_voice.as_deref(), Some("party-voice"));
     app.dispatch(Action::CancelVoiceSwitch);
     assert_eq!(app.state.voice.room.as_deref(), Some("lounge"));
+    app.dispatch(Action::SelectRoom("party-voice".into()));
+    app.dispatch(Action::ConfirmVoiceSwitch);
+    assert_eq!(app.state.voice.room.as_deref(), Some("party-voice"));
+    assert_eq!(app.state.selected.as_deref(), Some("looking-for-group"));
+    // The voice dock's channel line goes to the call.
+    app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
+    app.dispatch(Action::Open("party-voice".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("party-voice"));
+    assert!(!app.state.voice_chat);
     // Coming back to a server restores its voice channel without joining it.
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
     app.dispatch(Action::Voice(voice::Command::Leave));
@@ -1757,6 +1773,35 @@ fn clicking_a_voice_channel_joins_it_and_asks_before_leaving_another() {
     assert!(!app.state.voice.active() && app.state.switch_voice.is_none());
     app.dispatch(Action::SelectRoom("party-voice".into()));
     assert_eq!(app.state.voice.room.as_deref(), Some("party-voice"));
+}
+
+#[test]
+fn a_voice_channel_whose_chat_mentions_you_opens_its_chat_as_it_joins() {
+    let mut app = connected();
+    let id = "discord:10:11";
+    let mut room = preview_room(id, "Lounge", false, 3);
+    room.voice = true;
+    room.mentions = 1;
+    app.state.discord_online = true;
+    app.state.rooms.push(Arc::new(room));
+    Arc::make_mut(&mut app.state.servers[0])
+        .channels
+        .push(id.into());
+    assert!(
+        app.state
+            .rooms
+            .iter()
+            .any(|room| room.id == id && room.voice_chat())
+    );
+    let server = app.state.servers[0].id.clone();
+    app.dispatch(Action::Navigate(Navigation::Server(server)));
+
+    let effects = app.dispatch(Action::SelectRoom(id.into()));
+    assert_eq!(app.state.selected.as_deref(), Some(id));
+    assert!(app.state.voice_chat);
+    assert!(effects.iter().any(|effect| matches!(
+        effect, Effect::Backend(Command::Voice(voice::Command::Join(room))) if room == id
+    )));
 }
 
 #[test]
@@ -2995,6 +3040,7 @@ fn member(id: &str, name: &str) -> ChatMember {
         tag: None,
         group_icon: None,
         role_icon: None,
+        boosting_since: None,
     }
 }
 
@@ -3720,9 +3766,24 @@ fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
     assert!(!app.state.room_ready, "a channel not shown before loads");
     app.apply(Event::Timeline {
         room: "discord:10:22".into(),
-        messages: timeline(vec![]),
+        messages: timeline(vec![ChatMessage {
+            item: "d:2".into(),
+            body: "Out now".into(),
+            can_react: true,
+            ..Default::default()
+        }]),
     });
     assert!(!app.state.can_write(), "read-only channel");
+    // It takes reactions all the same, as Add Reactions isn't sending.
+    assert_eq!(app.state.reacts_in("discord:10:22"), chat::Reacts::Any);
+    let effects = app.dispatch(Action::React {
+        item: "d:2".into(),
+        key: "🎉".into(),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::React { room, .. })] if room == "discord:10:22"
+    ));
     // Back to general: shown as it was left at once, while the backend
     // sends it afresh.
     app.dispatch(Action::SelectRoom("discord:10:21".into()));
@@ -3738,6 +3799,7 @@ fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
         ..snapshot(false)
     }));
     assert!(!app.state.can_write(), "sending waits for Discord");
+    assert_eq!(app.state.reacts_in("discord:10:21"), chat::Reacts::None);
 }
 
 #[test]
@@ -3927,6 +3989,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             tag: None,
             group_icon: None,
             role_icon: None,
+            boosting_since: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {
@@ -4573,11 +4636,14 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         app.dispatch(Action::DeclineCall(dm.clone())).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::DeclineCall { room }))] if *room == dm
     ));
+    let erin = "discord:@me:40";
+    app.dispatch(Action::Open(erin.into()));
+    assert_eq!(app.state.selected.as_deref(), Some(erin));
     let effects = app.dispatch(Action::AcceptCall(dm.clone()));
     assert_eq!(
-        app.state.selected.as_ref(),
-        Some(&dm),
-        "answering opens the DM"
+        app.state.selected.as_deref(),
+        Some(erin),
+        "answering leaves what shows, as Discord's client does"
     );
     assert!(matches!(
         effects.last(),
@@ -6720,7 +6786,7 @@ fn server_channels_list_their_pins_and_search_them() {
             if place == "discord:10"
     ));
     // A voice channel has neither.
-    app.dispatch(Action::SelectRoom("discord:10:14".into()));
+    app.dispatch(Action::Open("discord:10:14".into()));
     assert!(app.state.conversation_that(|can| can.pins).is_none());
     assert!(app.dispatch(Action::ShowPins(true)).is_empty());
 }
@@ -6889,7 +6955,7 @@ fn a_server_search_stays_open_in_its_channels_and_jumps_into_them() {
     );
 
     // A voice channel can't search, so it closes the search.
-    app.dispatch(Action::SelectRoom("discord:10:14".into()));
+    app.dispatch(Action::Open("discord:10:14".into()));
     assert!(app.state.search.is_none());
 }
 
@@ -8428,7 +8494,7 @@ fn a_channels_threads_list_as_discords_client_lists_them() {
     let sections = app.thread_sections().unwrap();
     assert_eq!(rooms(&sections.other), ["34"]);
     // A voice channel has none.
-    app.dispatch(Action::SelectRoom("discord:10:13".into()));
+    app.dispatch(Action::Open("discord:10:13".into()));
     assert_eq!(app.state.threads_channel(), None);
 }
 

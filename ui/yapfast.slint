@@ -437,6 +437,10 @@ export component YapfastWindow inherits Window {
     /// A voice room shows its call, rather than its chat.
     property <bool> voice-panel: root.voice-room && !root.voice-chat;
     in property <bool> composer-enabled;
+    /// Adding to a message's reactions, or taking one's own back; and adding
+    /// any reaction. A Discord channel decides these apart from sending.
+    in property <bool> reactions-enabled;
+    in property <bool> new-reactions-enabled;
     /// The selected conversation is a Discord message request, introduced by
     /// the title; it's answered instead of written to.
     in property <bool> room-request;
@@ -462,6 +466,8 @@ export component YapfastWindow inherits Window {
     in property <bool> aside-start;
     in property <bool> aside-failed;
     in property <bool> aside-composer-enabled;
+    in property <bool> aside-reactions-enabled;
+    in property <bool> aside-new-reactions-enabled;
     in property <bool> aside-can-send;
     in property <string> aside-compose-label;
     in property <bool> aside-reply-ping;
@@ -1115,6 +1121,7 @@ export component YapfastWindow inherits Window {
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size: 1;
     in-out property <bool> link-previews: true;
+    in-out property <bool> boost-gems: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
     /// Whether nameplates show, in member lists and on the account's card.
@@ -1537,6 +1544,11 @@ export component YapfastWindow inherits Window {
     callback jump-to(string);
     // Uncovers a spoiler picture: the message's item and the attachment's index.
     callback reveal-attachment(string, int);
+    /// Long messages fold to a few lines, with Show more; and Show more or
+    /// Show less was clicked on one, by its item, saying whether it shows
+    /// whole now.
+    in-out property <bool> collapse-long;
+    callback fold-message(string, bool);
     /// Brings the message at `index` into view: an estimate first, so the list builds its
     /// row, then the row places itself on each `settle-jump` as the rows around it measure.
     /// A lit message sits a third of the way down, highlighted; another at the top.
@@ -2179,7 +2191,8 @@ export component YapfastWindow inherits Window {
         }
     }
     // A message's actions, from its hover bar's "More" button or a right click.
-    property <bool> menu-can-react: root.menu-message.can-react && root.composer-enabled;
+    property <bool> menu-can-react: root.menu-message.can-react
+        && (root.menu-aside ? root.aside-new-reactions-enabled : root.new-reactions-enabled);
     call-link-menu := PopupWindow {
         width: 320px; height: call-link-content.content-height;
         x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
@@ -2449,6 +2462,7 @@ export component YapfastWindow inherits Window {
                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                    open-call => { root.open-conversation(root.voice-channel); }
                 }
                 // Inset the account card while preserving the inherited controls.
                 VerticalLayout {
@@ -2952,7 +2966,7 @@ export component YapfastWindow inherits Window {
                                     if event.text == Key.Return || event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
                                         root.keyboard-popup = "menu"; return accept;
                                     }
-                                    if (event.text == "+" || event.text == "=") && root.keyed-message.can-react && root.composer-enabled {
+                                    if (event.text == "+" || event.text == "=") && root.keyed-message.can-react && root.new-reactions-enabled {
                                         root.keyboard-popup = "react"; return accept;
                                     }
                                     if (event.text == "r" || event.text == "R") && root.keyed-message.can-reply && root.composer-enabled {
@@ -3128,8 +3142,19 @@ export component YapfastWindow inherits Window {
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
                                                     }
                                                     MessageContent {
-                                                        message: message; active-item: root.active-item; preview: root.preview; composer-enabled: root.composer-enabled;
+                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
+                                                        collapse-long: root.collapse-long;
+                                                        // The view keeps the message's top: it stops following
+                                                        // the newest, and Show less on a message whose top is
+                                                        // above the view brings its top back into it.
+                                                        fold(item, whole, y) => {
+                                                            root.follow-latest = false;
+                                                            if !whole && y < timeline.absolute-position.y {
+                                                                timeline.content-y += timeline.absolute-position.y - y;
+                                                            }
+                                                            root.fold-message(item, whole);
+                                                        }
                                                         author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
                                                         author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
                                                         jump-to(item) => { root.jump-to(item); }
@@ -3202,7 +3227,7 @@ export component YapfastWindow inherits Window {
                                                             icon: @image-url("icons/reply.svg"); label: "Reply";
                                                             clicked => { root.reply(message.item); root.focus-composer(); }
                                                         }
-                                                        if message.can-react && root.composer-enabled: HorizontalLayout {
+                                                        if message.can-react && root.new-reactions-enabled: HorizontalLayout {
                                                             spacing: 0px;
                                                             if !message-bar.quick: HorizontalLayout {
                                                                 spacing: 0px;
@@ -3542,6 +3567,7 @@ export component YapfastWindow inherits Window {
                         composer-focused => { root.aside-composer-last = true; }
                         escape-composing => { return root.escape-composing(); }
                         busy: root.busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
+                        reactions-enabled: root.aside-reactions-enabled; new-reactions-enabled: root.aside-new-reactions-enabled;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }
                         staged: root.aside-staged; can-attach: root.aside-can-attach; can-mark-spoilers: root.aside-can-mark-spoilers;
@@ -3607,9 +3633,11 @@ export component YapfastWindow inherits Window {
                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                         view-image(id, index) => { root.view-image(id, index); }
                         save-attachment(id, index) => { root.save-attachment(id, index); }
+                        collapse-long: root.collapse-long;
+                        fold(item, whole) => { root.fold-message(item, whole); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member;
+                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
@@ -3863,9 +3891,10 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 2: MessageSettings {
             message-font-size: root.message-font-size;
             twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
-            link-previews <=> root.link-previews; share-typing <=> root.share-typing;
+            link-previews <=> root.link-previews; boost-gems <=> root.boost-gems; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
+            collapse-long <=> root.collapse-long;
             matrix: root.matrix-build; discord: root.discord-linked;
             preferences-changed => { root.preferences-changed(); }
         }
