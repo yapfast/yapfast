@@ -756,6 +756,9 @@ export component YapfastWindow inherits Window {
     in property <bool> voice-ready;
     in property <bool> voice-leaving;
     in property <bool> voice-here;
+    /// The call is Discord's, whose sound Yapfast suppresses noise in itself;
+    /// a Yapfast call uses WebRTC's own suppressor.
+    in property <bool> voice-discord;
     /// The voice channel this account is connected to, whose participants are listed under it.
     in property <string> voice-channel;
     /// 0 while joining or reconnecting, 1 when connected, 2 after a failure.
@@ -1123,17 +1126,18 @@ export component YapfastWindow inherits Window {
     in-out property <bool> level-voice: true;
     in-out property <int> noise-suppression;
     /// The suppression the call panel's toggle turns back on: the one last
-    /// used before Off, DeepFilterNet unless another was.
+    /// used before Off, DeepFilterNet unless another was, however it was
+    /// chosen.
     property <int> noise-last: 0;
+    changed noise-suppression => {
+        if self.noise-suppression != 2 {
+            self.noise-last = self.noise-suppression;
+        }
+    }
     /// Turns noise suppression off, or back on to the kind last used, and
     /// saves it, as the call panel's toggle does.
     public function toggle-noise() {
-        if root.noise-suppression == 2 {
-            root.noise-suppression = root.noise-last;
-        } else {
-            root.noise-last = root.noise-suppression;
-            root.noise-suppression = 2;
-        }
+        root.noise-suppression = root.noise-suppression == 2 ? root.noise-last : 2;
         root.preferences-changed();
     }
     in-out property <int> noise-strength;
@@ -2436,7 +2440,7 @@ export component YapfastWindow inherits Window {
                     share-watchers: root.share-viewers.length;
                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                     can-soundboard: root.can-soundboard;
-                    noise-on: root.noise-suppression != 2; can-noise: root.discord-linked;
+                    noise-on: root.noise-suppression != 2; can-noise: root.voice-discord;
                     toggle-noise => { root.toggle-noise(); }
                     leave-voice => { root.leave-voice(); }
                     dismiss-voice-error => { root.dismiss-voice-error(); }
