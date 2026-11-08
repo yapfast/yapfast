@@ -10,6 +10,8 @@ mod autostart;
 mod copy;
 #[cfg(feature = "desktop")]
 mod custom_emoji;
+#[cfg(feature = "desktop")]
+mod custom_font;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod desktop_entry;
 #[cfg(feature = "desktop")]
@@ -46,6 +48,8 @@ mod tray;
 mod twemoji;
 #[cfg(feature = "desktop")]
 mod ui;
+#[cfg(feature = "desktop")]
+mod woff;
 #[cfg(feature = "desktop")]
 mod zoom;
 

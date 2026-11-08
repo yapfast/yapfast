@@ -11513,6 +11513,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "emojis",
+ "flate2",
  "futures-util",
  "i-slint-backend-testing",
  "i-slint-core",

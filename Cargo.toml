@@ -23,7 +23,7 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:flate2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -41,6 +41,9 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal"], o
 emojis = { version = "0.9", optional = true }
 # Maps the color emoji font Yapfast registers with Slint, rather than copying it.
 memmap2 = { version = "0.9", optional = true }
+# Unpacks the tables of WOFF fonts the person loads; see src/woff.rs. Pure Rust,
+# no zlib: the backend of miniz_oxide, which the tree already builds.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"], optional = true }
 # Slint's internals, for the selection of text across messages Yapfast patches in; see
 # docs/building.md. Tests also read the testing backend's clipboard through it.
 i-slint-core = { version = "=1.19.0", optional = true }
