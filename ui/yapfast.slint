@@ -1144,7 +1144,12 @@ export component YapfastWindow inherits Window {
     /// Turns noise suppression off, or back on to the kind last used, and
     /// saves it, as the call panel's toggle does.
     public function toggle-noise() {
-        root.noise-suppression = root.noise-suppression == 2 ? root.noise-last : 2;
+        if root.noise-suppression == 2 {
+            root.noise-suppression = root.noise-last;
+        } else {
+            root.noise-last = root.noise-suppression;
+            root.noise-suppression = 2;
+        }
         root.preferences-changed();
     }
     in-out property <int> noise-strength;

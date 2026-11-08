@@ -713,6 +713,13 @@ fn the_call_panels_noise_toggle_turns_back_on_the_kind_last_used() {
     window.invoke_toggle_noise();
     assert_eq!(window.get_noise_suppression(), 1);
     assert_eq!(saves.get(), 4);
+    // Off picked elsewhere after RNNoise brings RNNoise back too.
+    window.set_noise_suppression(1);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    window.set_noise_suppression(2);
+    i_slint_core::properties::ChangeTracker::run_change_handlers();
+    window.invoke_toggle_noise();
+    assert_eq!(window.get_noise_suppression(), 1);
 }
 
 #[test]
