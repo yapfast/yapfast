@@ -624,6 +624,14 @@ impl OpenChannel {
         changed
     }
 
+    /// Whether a name, avatar or role its messages show changed since they
+    /// were rendered, as a member list teaches them; it's dirty if so.
+    pub(super) fn names_changed(&mut self, discord: &Discord) -> bool {
+        let changed = discord.names_version() != self.rendered_with.names;
+        self.dirty |= changed;
+        changed
+    }
+
     fn apply_live(&mut self, event: &Live) -> bool {
         match event {
             // A window of older messages takes no new ones.
