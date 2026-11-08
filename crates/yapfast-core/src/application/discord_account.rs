@@ -107,6 +107,7 @@ impl Application {
             loading: fetch,
             kept: false,
             note: None,
+            ..Default::default()
         });
         if fetch {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {

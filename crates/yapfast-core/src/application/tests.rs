@@ -5060,6 +5060,7 @@ fn discord_dialogs_stop_waiting_when_the_backend_cant_answer() {
         loading: true,
         kept: false,
         note: None,
+        ..Default::default()
     });
     app.stopped();
     let editor = app.state.status_editor.as_ref().expect("still open");
@@ -5513,6 +5514,7 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
         loading: false,
         kept: false,
         note: None,
+        ..Default::default()
     });
     app.dispatch(Action::CloseAside);
     assert!(app.requested_pictures.contains("9-still.png#effect"));
@@ -10712,4 +10714,159 @@ fn back_and_forward_walk_the_conversations_visited_without_recording_the_walk() 
     assert_eq!(app.state.selected.as_deref(), Some("games"));
     app.dispatch(Action::NavigateBack);
     assert_eq!(app.state.selected.as_deref(), Some("general"));
+}
+
+#[cfg(feature = "discord")]
+fn wishlist_asked(effects: &[Effect]) -> Option<&str> {
+    match effects {
+        [Effect::Backend(Command::Discord(DiscordCommand::Wishlist { id }))] => Some(id),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "discord")]
+/// A full profile on screen with a public wishlist at 90, and a game on its board.
+fn full_profile_with_tabs(large: bool) -> Application {
+    let mut app = Application::default();
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "2".into(),
+            wishlist_place: Some(chat::WishlistPlace {
+                id: "90".into(),
+                private: false,
+            }),
+            widgets: vec![chat::ProfileWidget {
+                title: "Want to Play".into(),
+                lists_games: true,
+                games: vec![chat::ProfileGame {
+                    id: "7".into(),
+                    name: "Unknown game".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        large,
+        ..Default::default()
+    });
+    app
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn someone_elses_lists_are_asked_for_only_when_a_full_profiles_tab_opens() {
+    // A card asks for nothing.
+    let mut card = full_profile_with_tabs(false);
+    assert!(
+        card.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty()
+    );
+
+    let mut app = full_profile_with_tabs(true);
+    let asked = app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist));
+    assert_eq!(wishlist_asked(&asked), Some("90"));
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty(),
+        "once"
+    );
+    // Only the list it asked for counts.
+    app.apply(Event::Wishlist {
+        id: "91".into(),
+        wishlist: chat::Wishlist::Hidden,
+    });
+    let wishlist = |app: &Application| app.state.profile.clone().unwrap().profile.wishlist;
+    assert_eq!(wishlist(&app), chat::Wishlist::Loading);
+    app.apply(Event::Wishlist {
+        id: "90".into(),
+        wishlist: chat::Wishlist::Hidden,
+    });
+    assert_eq!(wishlist(&app), chat::Wishlist::Hidden);
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty(),
+        "private stays private"
+    );
+
+    let asked = app.dispatch(Action::OpenProfileTab(ProfileTab::Board));
+    let [Effect::Backend(Command::Discord(DiscordCommand::ProfileBoard { user, widgets }))] =
+        asked.as_slice()
+    else {
+        panic!("it should ask for the names on the board");
+    };
+    assert_eq!(user, "2");
+    let mut named = widgets.clone();
+    named[0].games[0].name = "Made-up Racers".into();
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Board))
+            .is_empty(),
+        "once"
+    );
+    app.apply(Event::ProfileBoard {
+        user: "2".into(),
+        widgets: named,
+    });
+    let profile = app.state.profile.clone().unwrap().profile;
+    assert!(profile.board_named);
+    assert_eq!(profile.widgets[0].games[0].name, "Made-up Racers");
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn a_profile_coming_after_a_tab_opened_keeps_what_it_asked_and_asks_what_it_didnt() {
+    let mut app = full_profile_with_tabs(true);
+    {
+        let view = app.state.profile.as_mut().unwrap();
+        view.loading = true;
+        view.profile.wishlist_place = None;
+    }
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty(),
+        "the profile will say where it is"
+    );
+    let fresh = Profile {
+        id: "2".into(),
+        wishlist_place: Some(chat::WishlistPlace {
+            id: "90".into(),
+            private: false,
+        }),
+        ..Default::default()
+    };
+    let asked = app.apply(Event::Profile {
+        user: "2".into(),
+        result: Ok(fresh),
+    });
+    assert_eq!(wishlist_asked(&asked), Some("90"));
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn recent_activity_is_asked_for_once_when_the_activity_tab_opens() {
+    let mut app = full_profile_with_tabs(true);
+    let asked = app.dispatch(Action::OpenProfileTab(ProfileTab::Activity));
+    assert!(matches!(
+        asked.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ProfileRecent { user }))] if user == "2"
+    ));
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Activity))
+            .is_empty()
+    );
+    app.apply(Event::ProfileRecent {
+        user: "2".into(),
+        recent: vec![chat::RecentActivity {
+            title: "A song".into(),
+            ..Default::default()
+        }],
+    });
+    let view = app.state.profile.as_ref().unwrap();
+    assert_eq!(view.profile.recent[0].title, "A song");
+    // A card asks for none of it.
+    let mut card = full_profile_with_tabs(false);
+    assert!(
+        card.dispatch(Action::OpenProfileTab(ProfileTab::Activity))
+            .is_empty()
+    );
 }
