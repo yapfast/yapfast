@@ -1057,6 +1057,9 @@ export component AccessibilitySettings inherits VerticalLayout {
     in-out property <bool> high-contrast;
     in-out property <bool> contrast-indicators;
     in-out property <bool> underline-links;
+    in-out property <bool> show-name-styles;
+    /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
+    in-out property <int> animate;
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Accessibility"; }
@@ -1104,6 +1107,11 @@ export component AccessibilitySettings inherits VerticalLayout {
             description: "Underline links in messages and other rich text.";
             checked <=> root.underline-links; toggled => { root.preferences-changed(); }
         }
+        SettingsSwitch {
+            text: "Display Name Styles";
+            description: "Show the gradient, effect and font of a Discord name style.";
+            checked <=> root.show-name-styles; toggled => { root.preferences-changed(); }
+        }
     }
     VerticalLayout {
         spacing: 8px;
@@ -1149,6 +1157,16 @@ export component AccessibilitySettings inherits VerticalLayout {
             checked <=> root.contrast-indicators; toggled => { root.preferences-changed(); }
         }
     }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "REDUCED MOTION"; }
+        Choices {
+            label: "Play GIFs, emoji and stickers";
+            options: ["While Yapfast is focused", "Always", "Never"];
+            current <=> root.animate; chosen => { root.preferences-changed(); }
+        }
+        Label { text: "Choose when animated pictures play."; }
+    }
 }
 
 // Settings: how messages look, and what they share.
@@ -1158,13 +1176,8 @@ export component MessageSettings inherits VerticalLayout {
     /// The date format: 0 day first, 1 month first, 2 year first; -1 follows the clock.
     in-out property <int> date-format: -1;
     in-out property <bool> link-previews;
-    /// Whether a name wears its Discord name style at rest; off, the style
-    /// shows while the pointer is on the message.
-    in-out property <bool> show-name-styles;
     in-out property <bool> collapse-long;
     in-out property <bool> share-typing;
-    /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
-    in-out property <int> animate;
     in-out property <bool> reply-ping;
     in-out property <bool> strip-tracking;
     /// The networks in use, which the descriptions name.
@@ -1194,26 +1207,11 @@ export component MessageSettings inherits VerticalLayout {
             chosen(index) => { root.date-format = index; root.preferences-changed(); }
         }
     }
-    VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "PLAY GIFS, EMOJI AND STICKERS"; }
-        Choices {
-            label: "Play GIFs, emoji and stickers"; options: ["While Yapfast is focused", "Always", "Never"];
-            current <=> root.animate;
-            chosen => { root.preferences-changed(); }
-        }
-    }
     Rectangle { height: 1px; background: Theme.line; }
     SettingsSwitch {
         text: "Show link previews";
         description: "Cards for links, videos and bots under messages. Linked pictures still show.";
         checked <=> root.link-previews;
-        toggled => { root.preferences-changed(); }
-    }
-    SettingsSwitch {
-        text: "Show Nitro name styles";
-        description: "The font, effect and colours people chose with Nitro colour their name, in place of the one their highest role gives it. Off, names keep their role colours, and a message shows the style while the pointer is on it.";
-        checked <=> root.show-name-styles;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {

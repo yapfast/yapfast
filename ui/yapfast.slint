@@ -3848,6 +3848,7 @@ export component YapfastWindow inherits Window {
             saturate-custom-colours <=> root.saturate-custom-colours;
             high-contrast <=> root.high-contrast; contrast-indicators <=> root.contrast-indicators;
             underline-links <=> root.underline-links;
+            show-name-styles <=> root.show-name-styles; animate <=> root.animate;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 1: VoiceSettings {
@@ -3879,8 +3880,6 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 2: MessageSettings {
             twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format;
             link-previews <=> root.link-previews; share-typing <=> root.share-typing;
-            show-name-styles <=> root.show-name-styles;
-            animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
             collapse-long <=> root.collapse-long;
             matrix: root.matrix-build; discord: root.discord-linked;
