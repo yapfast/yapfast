@@ -601,20 +601,23 @@ the width is the same for all three tabs and comes back at the next start
   pack's first sticker. A server's heading carries the same icon at 16px
   before its name, which is written as it is named, not in capitals.
 
-- A server's own stickers are `GET /guilds/{id}/stickers`, which any member
-  may ask for. Yapfast keeps them in `discord-server-stickers.json`, by server
-  id, and shows them at once next time; past a day it asks again as the
-  picker opens. A guild object's own `stickers` seed the list when it carries
-  them, and GUILD_STICKERS_UPDATE replaces it when they change.
+- A server's own stickers are the guild object's `stickers`, as READY and
+  GUILD_CREATE carry them and GUILD_STICKERS_UPDATE replaces them, which is
+  where Discord's client reads them: nothing asks for a server's list. One
+  with `available: false`, which the server's boosts no longer cover, isn't
+  listed, as Discord's client leaves it out. The picker makes its lists from
+  the snapshot as it opens, follows a change while it is open, and lets go of
+  them as it closes.
 - The default packs are `GET /sticker-packs`, with the sticker packs' ids,
   names and stickers. Yapfast keeps them in `discord-sticker-packs.json`,
-  public and unsealed, and shows them at once at a start within a day of
+  public and unsealed, which unlinking deletes, and shows them at once at a
+  start within a day of
   Discord's answer; past that it asks again, which the snapshot asks at every
   start and the picker asks as it opens.
 - The pictures of every sticker the picker offers — the collection buttons'
   too — are fetched ahead into `discord-pictures/` through
-  `DiscordCommand::PrefetchPictures`, which downloads and keeps without
-  decoding or holding anything, so the tiles read them from the disk instead
+  `DiscordCommand::PrefetchPictures`, as a start and a changed list bring
+  them, which downloads and keeps without decoding or holding anything, so the tiles read them from the disk instead
   of waiting on the CDN, and cost no memory until they show. A tile's picture
   is decoded at 96px when it shows, a Lottie sticker's JSON with ThorVG as
   stickers in messages are, and let go of when the picker closes or the tile
@@ -623,8 +626,15 @@ the width is the same for all three tabs and comes back at the next start
   the sticker alone as Discord's client sends it; the gateway's MESSAGE_CREATE
   shows it, as it shows a poll. A sticker that couldn't be sent says why in
   the channel.
-- Without Nitro the picker offers only the server's own stickers, as
-  Discord's client does, and with it Discord's packs too.
+- Discord's default packs are anyone's to send, and the open server's own
+  stickers too; another server's, and every server's in a DM, need Nitro and
+  show greyed with a lock until then, as Discord's client has them
+  (`SENDABLE`, `SENDABLE_WITH_PREMIUM`). A favourite or frequent sticker from
+  a server this account left is no one's. Discord's client also locks
+  another server's stickers where the channel denies USE_EXTERNAL_STICKERS;
+  Yapfast doesn't read that permission yet.
+- A sticker sent closes the picker as closing it does, and the renderer's
+  caches go a second later.
 
 ## Jumping to a message
 

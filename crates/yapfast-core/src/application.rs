@@ -1721,7 +1721,9 @@ pub enum Action {
     SearchStickers(String),
     /// Send a sticker, by its id, as a message of its own.
     PickSticker(String),
-    /// Keep an emoji among the favorites, or let it go, by its reaction key.
+    /// Star an emoji among the Discord account's favourites, or let it go, by
+    /// the name Discord's settings keep it by: a custom emoji's id, or a
+    /// Unicode emoji's Discord name.
     FavoriteEmoji(String),
     /// Pictures the picker draws that are not on screen, by address, which it
     /// shows once they come.
@@ -2225,9 +2227,6 @@ pub struct Application {
     samples: HashMap<String, Vec<Arc<ChatMessage>>>,
     /// How often this device added each reaction.
     reaction_uses: HashMap<String, u32>,
-    /// The emoji this device keeps, by reaction key, which the picker lists
-    /// first.
-    emoji_favorites: Vec<String>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
     /// Custom emoji pictures the picker asked for and let go of before they
@@ -4025,12 +4024,6 @@ impl Application {
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
             Event::StickerPacks(result) => return self.sticker_packs_came(result),
             Event::KeptStickerPacks(packs) => return self.kept_sticker_packs_came(packs),
-            Event::GuildStickers { server, result } => {
-                return self.guild_stickers_came(server, result);
-            }
-            Event::KeptGuildStickers { server, stickers } => {
-                self.kept_guild_stickers_came(server, stickers);
-            }
             Event::StickerPicture { url, picture } => self.sticker_picture_came(url, picture),
             Event::StickerSent { room, result } => self.sticker_sent(room, result),
             Event::Reactors {
@@ -4628,30 +4621,36 @@ impl Application {
         )))]
     }
 
-    /// The emoji this device keeps, which the picker lists first.
-    pub fn emoji_favorites(&self) -> &[String] {
-        &self.emoji_favorites
-    }
-
-    /// Restores what [`Self::emoji_favorites`] kept.
-    pub fn remember_emoji_favorites(&mut self, favorites: Vec<String>) {
-        let kept = &mut self.emoji_favorites;
-        for key in favorites {
-            if !kept.contains(&key) {
-                kept.push(key);
-            }
+    /// An emoji's star: puts it among the Discord account's favourites, last,
+    /// or takes it out, as Discord's client does, which keeps at most
+    /// [`yapfast_discord::frecency::MOST_FAVORITE_EMOJIS`]; every client of the
+    /// account shares them.
+    #[cfg(feature = "discord")]
+    pub(super) fn favorite_emoji(&mut self, name: String) -> Vec<Effect> {
+        if name.is_empty() || self.state.preview {
+            return vec![];
         }
-    }
-
-    /// An emoji's star: keeps it among the favorites, or lets it go.
-    pub(super) fn favorite_emoji(&mut self, key: String) -> Vec<Effect> {
-        let favorites = &mut self.emoji_favorites;
-        match favorites.iter().position(|known| *known == key) {
+        let favorites = &mut self.state.discord_emojis.favorites;
+        match favorites.iter().position(|known| *known == name) {
             Some(index) => {
                 favorites.remove(index);
             }
-            None => favorites.push(key),
+            None if favorites.len() >= yapfast_discord::frecency::MOST_FAVORITE_EMOJIS => {
+                self.state.notice = Some(format!(
+                    "You can have up to {} favourite emoji.",
+                    yapfast_discord::frecency::MOST_FAVORITE_EMOJIS
+                ));
+                return vec![];
+            }
+            None => favorites.push(name),
         }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::SetFavoriteEmojis(favorites.clone()),
+        ))]
+    }
+
+    #[cfg(not(feature = "discord"))]
+    pub(super) fn favorite_emoji(&mut self, _name: String) -> Vec<Effect> {
         vec![]
     }
 

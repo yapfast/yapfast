@@ -516,37 +516,56 @@ impl Adapter {
             self.layout.reactions = self.app.reaction_uses().clone();
             self.layout.write(&self.root);
         }
-        // The stickers sent, for Frequently Used at the next start.
-        let uses: Vec<KeptStickerUse> = self
-            .app
-            .sticker_uses()
-            .iter()
-            .map(|used| KeptStickerUse {
-                id: used.sticker.id.clone(),
-                name: used.sticker.name.clone(),
-                format: used.sticker.format,
-                picture: used.sticker.picture.clone(),
-                uses: used.uses,
-            })
-            .collect();
-        if uses != self.layout.sticker_uses {
-            self.layout.sticker_uses = uses;
+        // The stickers sent and those kept, for Frequently Used and Favorites
+        // at the next start: compared in place, as this runs on every event,
+        // and copied only when they changed.
+        let kept = |kept: &KeptSticker, sticker: &yapfast_core::chat::Sticker| {
+            kept.id == sticker.id
+                && kept.name == sticker.name
+                && kept.format == sticker.format
+                && kept.picture == sticker.picture
+        };
+        let uses = self.app.sticker_uses();
+        let same_uses = uses.len() == self.layout.sticker_uses.len()
+            && uses
+                .iter()
+                .zip(&self.layout.sticker_uses)
+                .all(|(used, known)| {
+                    used.uses == known.uses
+                        && known.id == used.sticker.id
+                        && known.name == used.sticker.name
+                        && known.format == used.sticker.format
+                        && known.picture == used.sticker.picture
+                });
+        if !same_uses {
+            self.layout.sticker_uses = uses
+                .iter()
+                .map(|used| KeptStickerUse {
+                    id: used.sticker.id.clone(),
+                    name: used.sticker.name.clone(),
+                    format: used.sticker.format,
+                    picture: used.sticker.picture.clone(),
+                    uses: used.uses,
+                })
+                .collect();
             self.layout.write(&self.root);
         }
-        // The stickers kept, for Favorites at the next start.
-        let favorites: Vec<KeptSticker> = self
-            .app
-            .sticker_favorites()
-            .iter()
-            .map(|sticker| KeptSticker {
-                id: sticker.id.clone(),
-                name: sticker.name.clone(),
-                format: sticker.format,
-                picture: sticker.picture.clone(),
-            })
-            .collect();
-        if favorites != self.layout.sticker_favorites {
-            self.layout.sticker_favorites = favorites;
+        let favorites = self.app.sticker_favorites();
+        let same_favorites = favorites.len() == self.layout.sticker_favorites.len()
+            && favorites
+                .iter()
+                .zip(&self.layout.sticker_favorites)
+                .all(|(sticker, known)| kept(known, sticker));
+        if !same_favorites {
+            self.layout.sticker_favorites = favorites
+                .iter()
+                .map(|sticker| KeptSticker {
+                    id: sticker.id.clone(),
+                    name: sticker.name.clone(),
+                    format: sticker.format,
+                    picture: sticker.picture.clone(),
+                })
+                .collect();
             self.layout.write(&self.root);
         }
         if changes.selection && !state.preview && state.account.is_some() {

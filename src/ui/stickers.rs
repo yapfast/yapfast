@@ -67,8 +67,10 @@ pub(super) struct Shown {
     slots: Vec<usize>,
     /// Each picture's converted copy, by the picture and whether it draws as a
     /// still, kept while the picker shows it: a tile laid out again draws the
-    /// image it had, not a new copy of it.
-    surfaces: HashMap<(usize, bool), Surface>,
+    /// image it had, not a new copy of it. The picture is held with it, so
+    /// its address names no other while it is kept, and it goes once the app
+    /// let go of the picture, as a tile scrolled away does.
+    surfaces: HashMap<(usize, bool), (Arc<Picture>, Surface)>,
 }
 
 #[derive(PartialEq)]
@@ -129,6 +131,7 @@ impl Adapter {
         self.stickers.published = None;
         self.stickers.published_tiles = None;
         let surfaces = &mut self.stickers.surfaces;
+        let_go_of_surfaces(surfaces);
         let mut tiles = vec![];
         let mut sections = vec![];
         let mut placed = vec![];
@@ -329,6 +332,7 @@ impl Adapter {
         let state = &self.app.state;
         let pictures = &state.stickers.pictures;
         let surfaces = &mut self.stickers.surfaces;
+        let_go_of_surfaces(surfaces);
         let showing = |url: &String| {
             matches!(pictures.get(url), Some(StickerPicture::Shown(_)))
                 || state.pictures.contains_key(url)
@@ -520,7 +524,7 @@ impl Adapter {
 /// A picture's converted copy, by the picture and whether it draws as a still,
 /// so a tile laid out again draws the image it had rather than a new copy.
 fn converted(
-    surfaces: &mut HashMap<(usize, bool), Surface>,
+    surfaces: &mut HashMap<(usize, bool), (Arc<Picture>, Surface)>,
     picture: &Arc<Picture>,
     still: bool,
 ) -> Surface {
@@ -528,13 +532,21 @@ fn converted(
     surfaces
         .entry(key)
         .or_insert_with(|| {
-            if still {
+            let surface = if still {
                 Surface::still(picture)
             } else {
                 Surface::shown(picture)
-            }
+            };
+            (picture.clone(), surface)
         })
+        .1
         .clone()
+}
+
+/// Lets go of the converted copies of the pictures the app let go of: the
+/// copy holds the last of it then. A tile still drawing one keeps its image.
+fn let_go_of_surfaces(surfaces: &mut HashMap<(usize, bool), (Arc<Picture>, Surface)>) {
+    surfaces.retain(|_, (picture, _)| Arc::strong_count(picture) > 1);
 }
 
 /// The icon of the server a collection of stickers is, which its heading and
@@ -604,7 +616,22 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             }
         });
     }
-    act!(on_sticker_pick(id) => Action::PickSticker(id.into()));
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_sticker_pick(move |id| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::PickSticker(id.into()));
+                // A sticker sent closes the picker, as closing it does, and
+                // what drew its pictures goes after them.
+                if !state.borrow().app.state.stickers.open {
+                    let_go_after_picker(&window);
+                }
+            }
+        });
+    }
     act!(on_sticker_favorite(id) => Action::FavoriteSticker(id.into()));
     act!(on_sticker_search(text) => Action::SearchStickers(text.into()));
     let state = adapter.clone();

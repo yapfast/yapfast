@@ -18,6 +18,10 @@ pub struct Sticker {
     /// Discord's `format_type`: 1 PNG, 2 APNG, 3 Lottie, 4 GIF. A missing
     /// one is a PNG.
     pub format: u64,
+    /// A server's sticker its boosts no longer cover, `available: false`:
+    /// Discord's client leaves it out of the picker.
+    #[serde(default)]
+    pub unavailable: bool,
 }
 
 impl Sticker {
@@ -46,6 +50,7 @@ pub fn parse(sticker: &Value) -> Option<Sticker> {
             .as_u64()
             .or_else(|| sticker["format_type"].as_str()?.parse().ok())
             .unwrap_or(1),
+        unavailable: sticker["available"].as_bool() == Some(false),
     })
 }
 
@@ -112,6 +117,20 @@ mod tests {
         let sticker = parse(&json!({"id": "7", "name": "Wave"})).unwrap();
         assert_eq!(sticker.format, 1);
         assert!(sticker.picture().ends_with("/stickers/7.png?size=96"));
+    }
+
+    #[test]
+    fn a_sticker_the_boosts_no_longer_cover_says_so() {
+        let sticker =
+            |available| parse(&json!({"id": "7", "name": "Wave", "available": available}));
+        assert!(sticker(json!(false)).unwrap().unavailable);
+        assert!(!sticker(json!(true)).unwrap().unavailable);
+        // A pack's sticker says nothing, and is there.
+        assert!(
+            !parse(&json!({"id": "7", "name": "Wave"}))
+                .unwrap()
+                .unavailable
+        );
     }
 
     #[test]

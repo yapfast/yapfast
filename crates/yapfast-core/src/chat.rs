@@ -2490,6 +2490,9 @@ pub enum DiscordCommand {
     PlacesUsed,
     /// Keep these as the account's favourite GIFs, in place of the old.
     SetFavoriteGifs(Vec<FavoriteGif>),
+    /// Keep these as the account's favourite emoji, in place of the old: each
+    /// a custom emoji's id or a Unicode emoji's Discord name.
+    SetFavoriteEmojis(Vec<String>),
     /// Download a GIF's picture and decode it to fit `width` by `height`;
     /// [`Event::GifPicture`] follows. A favourite's comes from a thumbnail
     /// kept on disk, made the first time.
@@ -2503,12 +2506,6 @@ pub enum DiscordCommand {
     /// [`Event::StickerPacks`] follows, and [`Event::KeptStickerPacks`] first
     /// when Yapfast kept them.
     StickerPacks,
-    /// A server's own stickers, by its id, as `GET /guilds/{id}/stickers`
-    /// lists them; [`Event::GuildStickers`] follows, and
-    /// [`Event::KeptGuildStickers`] first when Yapfast kept them.
-    GuildStickers {
-        server: String,
-    },
     /// Download a sticker's picture and decode it for the picker's tile, a
     /// Lottie one drawn as it animates; [`Event::StickerPicture`] follows.
     StickerPicture {
@@ -3759,16 +3756,6 @@ pub enum Event {
     StickerPacks(Result<Vec<StickerCollection>, String>),
     /// The default sticker packs Yapfast kept, to show until Discord's come.
     KeptStickerPacks(Vec<StickerCollection>),
-    /// A server's own stickers, or why they couldn't be fetched.
-    GuildStickers {
-        server: String,
-        result: Result<Vec<Sticker>, String>,
-    },
-    /// A server's stickers Yapfast kept, to show until Discord's come.
-    KeptGuildStickers {
-        server: String,
-        stickers: Vec<Sticker>,
-    },
     /// A sticker's picture for the picker's tile, or none when it failed.
     StickerPicture {
         url: String,

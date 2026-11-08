@@ -4,10 +4,13 @@
 //!
 //! Every server's stickers show, as the emoji picker shows every server's
 //! emoji: the open server's list first, since they're usable there without
-//! Nitro, and the rest greyed with a lock until Nitro. The default packs are
-//! kept on disk for a day and the pictures are fetched ahead into the disk
-//! cache at a start; the pictures decoded for the tiles are held only while
-//! the picker is open.
+//! Nitro, and the rest greyed with a lock until Nitro. Discord's default packs
+//! are anyone's to send, as its client has them. A server's stickers come with
+//! the snapshot, as READY and GUILD_STICKERS_UPDATE give them, and one its
+//! boosts no longer cover isn't listed. The default packs are kept on disk for
+//! a day and the pictures are fetched ahead into the disk cache; the pictures
+//! decoded for the tiles, and the lists, are held only while the picker is
+//! open.
 
 use super::*;
 #[cfg(feature = "discord")]
@@ -63,13 +66,15 @@ pub struct StickerPicker {
     pub error: Option<String>,
     /// The pictures of the tiles shown, and how to show them.
     pub pictures: HashMap<String, StickerPicture>,
-    /// The collections whose pictures were fetched ahead, by id.
+    /// The packs and favourites whose pictures were fetched ahead, by id.
     prefetched: HashSet<String>,
+    /// Each server's list of stickers whose pictures were fetched ahead, by
+    /// its id: the snapshot shares a list until it changes.
+    #[cfg(feature = "discord")]
+    prefetched_servers: HashMap<String, Arc<Vec<yapfast_discord::stickers::Sticker>>>,
     /// Discord was asked for the packs, so a snapshot doesn't ask again;
     /// opening the picker does, which retries what failed.
     pub(super) asked: bool,
-    /// The servers asked for their own stickers this session.
-    pub(super) asked_servers: HashSet<String>,
 }
 
 /// A collection the picker lists, its stickers borrowed: what the grid lays
@@ -129,21 +134,26 @@ impl StickerPicker {
     pub fn listed(&self, nitro: bool) -> Vec<ListedCollection<'_>> {
         let search = self.query.trim().to_lowercase();
         let here = self.server_for.as_deref();
-        // The open server's sticker ids: its stickers are the ones a picker
-        // offers without Nitro, wherever they are listed.
-        let here_ids: HashSet<&str> = here
-            .and_then(|here| self.servers.iter().find(|server| server.id == here))
-            .map(|server| {
-                server
-                    .stickers
-                    .iter()
-                    .map(|sticker| sticker.id.as_str())
-                    .collect()
-            })
-            .unwrap_or_default();
-        // What this device keeps and sends is usable where its server's
-        // stickers are, or with Nitro.
-        let usable = |sticker: &Sticker| nitro || here_ids.contains(sticker.id.as_str());
+        // Where each sticker is from, by id: Discord's packs are anyone's, the
+        // open server's are usable here without Nitro, and another server's
+        // with it, as Discord's client has them. One from nowhere this account
+        // is, as a favourite of a server it left, is no one's.
+        let mut from: HashMap<&str, Option<&str>> = HashMap::new();
+        for server in &self.servers {
+            for sticker in &server.stickers {
+                from.insert(sticker.id.as_str(), Some(server.id.as_str()));
+            }
+        }
+        for pack in &self.packs {
+            for sticker in &pack.stickers {
+                from.insert(sticker.id.as_str(), None);
+            }
+        }
+        let usable = |sticker: &Sticker| match from.get(sticker.id.as_str()) {
+            Some(None) => true,
+            Some(Some(server)) => nitro || here == Some(*server),
+            None => false,
+        };
         let mut listed = vec![];
         for (id, name, stickers) in [("favorites", "Favorites", self.favorites.iter())] {
             if let Some(collection) = ListedCollection::of(id, name, stickers, &search, usable) {
@@ -178,11 +188,10 @@ impl StickerPicker {
                 listed.push(collection);
             }
         }
-        // Discord's packs are Nitro's.
         for pack in &self.packs {
             if let Some(collection) =
                 ListedCollection::of(&pack.id, &pack.name, pack.stickers.iter(), &search, |_| {
-                    nitro
+                    true
                 })
             {
                 listed.push(collection);
@@ -231,43 +240,40 @@ impl Application {
         // in it: a channel's permissions come with its snapshot, and the
         // picker can open before it. The button that opens it is offered only
         // where it may.
-        self.follow_sticker_server();
         self.state.stickers.open = true;
+        self.follow_sticker_server();
         self.state.stickers.asked = false;
         let mut effects = self.load_sticker_packs();
-        effects.extend(self.load_guild_stickers());
         effects.extend(self.prefetch_stickers());
         effects
     }
 
-    /// Closes the picker, letting go of the pictures it decoded.
+    /// Closes the picker, letting go of the pictures it decoded and the
+    /// lists it made of the snapshot's, which its next opening makes again.
     pub(super) fn close_stickers(&mut self) -> Vec<Effect> {
         let picker = &mut self.state.stickers;
         picker.open = false;
-        picker.pictures.clear();
+        picker.pictures = HashMap::new();
+        picker.servers = Vec::new();
         vec![]
     }
 
     /// Takes the open room's server, and the stickers the snapshot carries of
-    /// every server, so they list before Discord answers.
+    /// every server, while the picker is open.
     pub(super) fn follow_sticker_server(&mut self) {
         self.state.stickers.server_for = self.state.selected.as_deref().and_then(room_server);
-        for (id, name, stickers) in self.snapshot_stickers() {
-            let picker = &mut self.state.stickers;
-            match picker.servers.iter_mut().find(|server| server.id == id) {
-                Some(server) => {
-                    server.name = name;
-                    if server.stickers.is_empty() {
-                        server.stickers = stickers;
-                    }
-                }
-                None => picker.servers.push(ServerStickers { id, name, stickers }),
-            }
+        if !self.state.stickers.open {
+            return;
         }
+        self.state.stickers.servers = self
+            .snapshot_stickers()
+            .into_iter()
+            .map(|(id, name, stickers)| ServerStickers { id, name, stickers })
+            .collect();
     }
 
     /// Every server this account is in, its name and the stickers the
-    /// snapshot gave it, by id.
+    /// snapshot gave it that its boosts cover, by id.
     #[cfg(feature = "discord")]
     fn snapshot_stickers(&self) -> Vec<(String, String, Vec<Sticker>)> {
         let Some(snapshot) = &self.discord else {
@@ -280,6 +286,7 @@ impl Application {
                 let stickers = server
                     .stickers
                     .iter()
+                    .filter(|sticker| !sticker.unavailable)
                     .map(|sticker| Sticker {
                         picture: yapfast_discord::ready::sticker_at(
                             &sticker.id,
@@ -303,11 +310,12 @@ impl Application {
     }
 
     /// The name of the server `id`, as the snapshot has it.
+    #[cfg(feature = "discord")]
     fn server_name(&self, id: &str) -> String {
-        self.snapshot_stickers()
-            .into_iter()
-            .find(|(server, _, _)| server == id)
-            .map(|(_, name, _)| name)
+        self.discord
+            .as_ref()
+            .and_then(|snapshot| snapshot.servers.iter().find(|server| server.id == id))
+            .map(|server| server.name.clone())
             .unwrap_or_default()
     }
 
@@ -324,23 +332,6 @@ impl Application {
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::StickerPacks,
         ))]
-    }
-
-    /// Asks Discord for every server's own stickers it hasn't asked for this
-    /// session: each server's list is its own request, answered from the disk
-    /// when it came within a day.
-    pub(super) fn load_guild_stickers(&mut self) -> Vec<Effect> {
-        let mut effects = vec![];
-        for (server, _, _) in self.snapshot_stickers() {
-            if !self.state.stickers.asked_servers.insert(server.clone()) {
-                continue;
-            }
-            tracing::info!(server = %server, "asking for a server's stickers");
-            effects.push(Effect::Backend(Command::Discord(
-                DiscordCommand::GuildStickers { server },
-            )));
-        }
-        effects
     }
 
     /// The default packs as Discord answered them.
@@ -374,66 +365,6 @@ impl Application {
         self.prefetch_stickers()
     }
 
-    /// A server's own stickers as Yapfast kept them, shown until Discord's
-    /// answer comes.
-    pub(super) fn kept_guild_stickers_came(&mut self, server: String, stickers: Vec<Sticker>) {
-        if stickers.is_empty() {
-            return;
-        }
-        let name = self.server_name(&server);
-        let picker = &mut self.state.stickers;
-        match picker.servers.iter_mut().find(|known| known.id == server) {
-            // What the snapshot carried may be newer than the disk.
-            Some(known) if !known.stickers.is_empty() => {}
-            Some(known) => known.stickers = stickers,
-            None => picker.servers.push(ServerStickers {
-                id: server,
-                name,
-                stickers,
-            }),
-        }
-    }
-
-    /// A server's own stickers as Discord answered them.
-    pub(super) fn guild_stickers_came(
-        &mut self,
-        server: String,
-        result: Result<Vec<Sticker>, String>,
-    ) -> Vec<Effect> {
-        let name = self.server_name(&server);
-        let picker = &mut self.state.stickers;
-        match result {
-            Ok(stickers) => {
-                tracing::info!(
-                    server = %server,
-                    count = stickers.len(),
-                    "a server's stickers came"
-                );
-                match picker.servers.iter_mut().find(|known| known.id == server) {
-                    Some(known) => {
-                        known.name = name;
-                        known.stickers = stickers;
-                    }
-                    None => picker.servers.push(ServerStickers {
-                        id: server.clone(),
-                        name,
-                        stickers,
-                    }),
-                }
-                // The list changed, so its pictures are fetched ahead again.
-                picker.prefetched.remove(&server);
-                self.prefetch_stickers()
-            }
-            Err(error) => {
-                tracing::info!(server = %server, %error, "a server's stickers failed");
-                picker.error = Some(error);
-                // The next open asks again rather than never.
-                picker.asked_servers.remove(&server);
-                vec![]
-            }
-        }
-    }
-
     /// Takes the server's stickers as a change gave them, when the picker
     /// lists that server.
     pub(super) fn follow_picker_stickers(
@@ -446,6 +377,10 @@ impl Application {
             let Some(guild) = server.strip_prefix("discord:") else {
                 return;
             };
+            // A closed picker lists the snapshot's as it opens.
+            if !self.state.stickers.open {
+                return;
+            }
             let stickers: Vec<Sticker> = stickers
                 .iter()
                 .filter(|sticker| sticker.available)
@@ -479,7 +414,7 @@ impl Application {
     /// Fetches the pictures of every sticker the picker offers into the disk
     /// cache, ahead of it showing them, once a collection: nothing is decoded
     /// or held, and a tile then reads its picture from the disk.
-    fn prefetch_stickers(&mut self) -> Vec<Effect> {
+    pub(super) fn prefetch_stickers(&mut self) -> Vec<Effect> {
         let picker = &mut self.state.stickers;
         let mut wanted = vec![];
         for pack in &picker.packs {
@@ -487,15 +422,29 @@ impl Application {
                 wanted.extend(pictures(pack));
             }
         }
-        for server in &picker.servers {
-            if picker.prefetched.insert(server.id.clone()) {
-                wanted.extend(
-                    server
-                        .stickers
-                        .iter()
-                        .map(|sticker| sticker.picture.clone()),
-                );
+        // Each server's list once, and again once it changed.
+        #[cfg(feature = "discord")]
+        for server in self.discord.iter().flat_map(|snapshot| &snapshot.servers) {
+            let fetched = picker.prefetched_servers.get(&server.id);
+            if fetched.is_some_and(|fetched| Arc::ptr_eq(fetched, &server.stickers)) {
+                continue;
             }
+            picker
+                .prefetched_servers
+                .insert(server.id.clone(), server.stickers.clone());
+            wanted.extend(
+                server
+                    .stickers
+                    .iter()
+                    .filter(|sticker| !sticker.unavailable)
+                    .map(|sticker| {
+                        yapfast_discord::ready::sticker_at(
+                            &sticker.id,
+                            sticker.format,
+                            yapfast_discord::stickers::TILE_SIZE,
+                        )
+                    }),
+            );
         }
         for sticker in &picker.favorites {
             if picker.prefetched.insert(format!("favorite:{}", sticker.id)) {
@@ -564,11 +513,13 @@ impl Application {
         let picked = self
             .state
             .stickers
-            .collections(self.discord_nitro())
+            .listed(self.discord_nitro())
             .into_iter()
             .flat_map(|collection| collection.stickers)
-            .find(|sticker| sticker.id == id);
-        let Some(sticker) = picked.filter(|sticker| sticker.usable) else {
+            .find(|(sticker, _)| sticker.id == id)
+            .filter(|(_, usable)| *usable)
+            .map(|(sticker, _)| sticker.clone());
+        let Some(sticker) = picked else {
             return vec![];
         };
         let uses = &mut self.state.stickers.uses;
@@ -608,10 +559,11 @@ impl Application {
         let Some(sticker) = self
             .state
             .stickers
-            .collections(nitro)
+            .listed(nitro)
             .into_iter()
             .flat_map(|collection| collection.stickers)
-            .find(|sticker| sticker.id == id)
+            .find(|(sticker, _)| sticker.id == id)
+            .map(|(sticker, _)| sticker.clone())
         else {
             return vec![];
         };

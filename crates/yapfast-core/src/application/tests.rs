@@ -10064,11 +10064,21 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
                 name: "general".into(),
                 ..Default::default()
             }],
-            stickers: Arc::new(vec![yapfast_discord::stickers::Sticker {
-                id: "5".into(),
-                name: "Wave".into(),
-                format: 1,
-            }]),
+            stickers: Arc::new(vec![
+                yapfast_discord::stickers::Sticker {
+                    id: "5".into(),
+                    name: "Wave".into(),
+                    format: 1,
+                    unavailable: false,
+                },
+                // One the server's boosts no longer cover, which isn't listed.
+                yapfast_discord::stickers::Sticker {
+                    id: "8".into(),
+                    name: "Gone".into(),
+                    format: 1,
+                    unavailable: true,
+                },
+            ]),
             ..Default::default()
         })],
         ..Default::default()
@@ -10090,18 +10100,19 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
     };
     let wave = "https://cdn.discordapp.com/stickers/5.png?size=96";
     assert!(app.state.can_pick_stickers());
-    // A start asks Discord for its default packs, and every server's own
-    // stickers, which are kept on disk and fetched ahead. The GIFs' picker is
-    // asked for at the same start, so only the stickers' asks are read here.
+    // A start asks Discord for its default packs and fetches the pictures of
+    // the stickers the snapshot gave every server ahead, those its boosts
+    // cover; no server's list is asked for, as READY gave them. The GIFs'
+    // picker is asked for at the same start, so only the stickers' asks are
+    // read here.
     let at_start: Vec<Command> = backend(at_start)
         .into_iter()
-        .filter(|command| {
-            matches!(
-                command,
-                Command::Discord(
-                    DiscordCommand::StickerPacks | DiscordCommand::GuildStickers { .. }
-                )
-            )
+        .filter(|command| match command {
+            Command::Discord(DiscordCommand::StickerPacks) => true,
+            Command::Discord(DiscordCommand::PrefetchPictures(urls)) => {
+                urls.iter().any(|url| url.contains("/stickers/"))
+            }
+            _ => false,
         })
         .collect();
     assert!(
@@ -10109,62 +10120,41 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
             at_start.as_slice(),
             [
                 Command::Discord(DiscordCommand::StickerPacks),
-                Command::Discord(DiscordCommand::GuildStickers { server }),
-            ] if server == "10"
+                Command::Discord(DiscordCommand::PrefetchPictures(urls)),
+            ] if urls == &[wave.to_owned()]
         ),
-        "a start asks for the packs and the servers' stickers"
+        "a start asks for the packs and fetches the servers' stickers ahead"
     );
-
-    // Opening asks for the pictures of the stickers the snapshot gave, which
-    // are fetched ahead into the disk cache; the list was asked for already.
-    let asked = backend(app.dispatch(Action::OpenStickers));
+    // A snapshot that leaves the list as it was fetches nothing again.
     assert!(
-        matches!(
-            asked.as_slice(),
-            [Command::Discord(DiscordCommand::PrefetchPictures(urls))]
-                if urls == &[wave.to_owned()]
-        ),
-        "the server's stickers are fetched ahead"
+        app.state.stickers.servers.is_empty(),
+        "a closed picker holds no list"
     );
 
-    // Discord's list replaces what the snapshot had, and its pictures are
-    // fetched ahead.
-    let listed = backend(app.apply(Event::GuildStickers {
-        server: "10".into(),
-        result: Ok(vec![
-            Sticker {
-                id: "5".into(),
-                name: "Wave".into(),
-                format: 1,
-                picture: wave.into(),
-                usable: true,
-            },
-            Sticker {
-                id: "6".into(),
-                name: "Spin".into(),
-                format: 3,
-                picture: "https://cdn.discordapp.com/stickers/6.json".into(),
-                usable: true,
-            },
-        ]),
-    }));
-    assert!(matches!(
-        listed.as_slice(),
-        [Command::Discord(DiscordCommand::PrefetchPictures(urls))]
-            if urls == &[wave.to_owned(), "https://cdn.discordapp.com/stickers/6.json".to_owned()]
-    ));
+    // Opening lists the stickers the snapshot gave, without asking Discord;
+    // their pictures were fetched ahead already.
+    let asked = backend(app.dispatch(Action::OpenStickers));
+    assert!(asked.is_empty(), "the list and its pictures were there");
     assert_eq!(
         app.state
             .stickers
             .servers
             .iter()
             .find(|server| server.id == "10")
-            .map(|server| (server.name.as_str(), server.stickers.len())),
-        Some(("Test", 2))
+            .map(|server| {
+                (
+                    server.name.as_str(),
+                    server
+                        .stickers
+                        .iter()
+                        .map(|sticker| sticker.name.as_str())
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        Some(("Test", vec!["Wave"]))
     );
 
-    // The packs come, whose pictures are fetched ahead too; without Nitro
-    // only the server's stickers list.
+    // The packs come, whose pictures are fetched ahead too.
     let packs = vec![StickerCollection {
         id: "1".into(),
         name: "Wumpus".into(),
@@ -10199,9 +10189,7 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
         .iter()
         .map(|collection| collection.name.clone())
         .collect();
-    // Frequently Used, every server's stickers, and Discord's packs too;
-    // without Nitro only the open server's are usable, which the picker shows
-    // locked.
+    // Frequently Used, every server's stickers, and Discord's packs.
     assert_eq!(listed, ["Frequently Used", "Test", "Wumpus"]);
     // Nothing was sent yet, so Frequently Used shows Discord's own first.
     let seeded: Vec<String> = app
@@ -10219,24 +10207,34 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
         })
         .unwrap_or_default();
     assert_eq!(seeded, ["Party"]);
-    let usable = |nitro: bool, collection: &str| {
+    fn usable(app: &Application, nitro: bool, collection: &str) -> bool {
         app.state
             .stickers
             .collections(nitro)
             .into_iter()
             .find(|listed| listed.name == collection)
             .is_some_and(|listed| listed.stickers.iter().all(|sticker| sticker.usable))
-    };
+    }
     assert!(
-        usable(false, "Test"),
+        usable(&app, false, "Test"),
         "the open server's stickers are usable"
     );
-    assert!(!usable(false, "Wumpus"), "Discord's packs need Nitro");
-    assert!(usable(true, "Wumpus"), "which makes them usable");
-    // Before this device has sent one, Frequently Used shows Discord's own,
-    // which are Nitro's.
-    assert!(!usable(false, "Frequently Used"));
-    assert!(usable(true, "Frequently Used"));
+    // Discord's packs are anyone's, as its client has them.
+    assert!(
+        usable(&app, false, "Wumpus"),
+        "Discord's packs need no Nitro"
+    );
+    assert!(usable(&app, true, "Wumpus"));
+    // Before this device has sent one, Frequently Used shows Discord's own.
+    assert!(usable(&app, false, "Frequently Used"));
+    // Another server's stickers need Nitro: in a DM, none is the open one's.
+    app.state.stickers.server_for = None;
+    assert!(
+        !usable(&app, false, "Test"),
+        "another server's stickers need Nitro"
+    );
+    assert!(usable(&app, true, "Test"));
+    app.state.stickers.server_for = Some("10".into());
     let with_nitro: Vec<String> = app
         .state
         .stickers
@@ -10263,7 +10261,7 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
     ));
 
     // A click sends the sticker as a message of its own, and the picker
-    // closes, letting go of its pictures.
+    // closes, letting go of its pictures and its lists.
     let sent = backend(app.dispatch(Action::PickSticker("5".into())));
     assert!(matches!(
         sent.as_slice(),
@@ -10271,6 +10269,9 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
             if room == "discord:10:21" && id == "5"
     ));
     assert!(!app.state.stickers.open && app.state.stickers.pictures.is_empty());
+    assert!(app.state.stickers.servers.is_empty());
+    // The rest is read with the picker open again.
+    app.dispatch(Action::OpenStickers);
 
     // A sticker that couldn't be sent says why in the room.
     app.apply(Event::StickerSent {
@@ -10370,15 +10371,8 @@ fn the_sticker_picker_lists_the_servers_own_stickers_from_discord() {
         let effects = app.dispatch(action);
         send(&backend, effects);
     }
+    // READY gave the server's stickers, which list as the picker opens.
     let opened = app.dispatch(Action::OpenStickers);
-    assert!(
-        opened.iter().any(|effect| matches!(
-            effect,
-            Effect::Backend(Command::Discord(DiscordCommand::GuildStickers { server }))
-                if server == guild
-        )),
-        "opening the picker asks for the server's stickers"
-    );
     send(&backend, opened);
     // Discord's answer, applied as the window applies it.
     let server_stickers = |app: &Application| {
@@ -11459,6 +11453,49 @@ fn discord_emoji_favourites_and_uses_rank_and_last_through_partial_updates() {
     assert_eq!(lists.favorites, ["heart"]);
     assert_eq!(lists.frequent, ["joy", "thumbsup"]);
     assert_eq!(lists.reactions, ["fire"]);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_emoji_star_keeps_the_discord_accounts_favourites() {
+    let mut app = connected();
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
+        favorites: Some(vec!["skull_crossbones".into()]),
+        ..Default::default()
+    }));
+    let saved = |effects: Vec<Effect>| -> Option<Vec<String>> {
+        effects.into_iter().find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::SetFavoriteEmojis(favorites))) => {
+                Some(favorites)
+            }
+            _ => None,
+        })
+    };
+    // A star puts it last, and Discord keeps them all, in that order.
+    assert_eq!(
+        saved(app.dispatch(Action::FavoriteEmoji("1400000000000000300".into()))),
+        Some(vec![
+            "skull_crossbones".to_owned(),
+            "1400000000000000300".to_owned()
+        ])
+    );
+    assert_eq!(
+        app.state.discord_emojis.favorites,
+        ["skull_crossbones", "1400000000000000300"]
+    );
+    // Starred again, it goes.
+    assert_eq!(
+        saved(app.dispatch(Action::FavoriteEmoji("skull_crossbones".into()))),
+        Some(vec!["1400000000000000300".to_owned()])
+    );
+    // Discord keeps 250 at most, as its client says.
+    app.state.discord_emojis.favorites = (0..250).map(|index| index.to_string()).collect();
+    assert_eq!(
+        saved(app.dispatch(Action::FavoriteEmoji("joy".into()))),
+        None
+    );
+    assert_eq!(app.state.discord_emojis.favorites.len(), 250);
+    assert!(app.state.notice.is_some());
 }
 
 #[test]

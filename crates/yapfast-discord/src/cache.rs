@@ -584,59 +584,6 @@ pub fn sticker_packs_are_fresh(fetched: u64) -> bool {
     now().saturating_sub(fetched) < STICKER_PACKS_FRESH
 }
 
-fn server_stickers_file() -> Option<PathBuf> {
-    Some(file()?.with_file_name("discord-server-stickers.json"))
-}
-
-/// A server's own stickers as the picker last had them, with when they came.
-#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct KeptServerStickers {
-    /// When Discord's answer came, in Unix milliseconds.
-    pub fetched: u64,
-    pub stickers: Vec<crate::stickers::Sticker>,
-}
-
-/// Each server's own stickers, by its id, as the picker last had them.
-type KeptServers = std::collections::HashMap<String, KeptServerStickers>;
-
-/// A server's own stickers as the picker last had them. It reads the disk, so
-/// the async side calls it off its threads.
-pub fn server_stickers(guild: &str) -> Option<KeptServerStickers> {
-    read_servers(&server_stickers_file()?)?.remove(guild)
-}
-
-/// [`server_stickers`] from `file`, which a test can give it.
-fn read_servers(file: &Path) -> Option<KeptServers> {
-    serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
-}
-
-/// Keeps a server's own stickers as they just came, stamped with the time, so
-/// the picker shows them at once next time.
-pub fn keep_server_stickers(guild: &str, stickers: Vec<crate::stickers::Sticker>) {
-    let Some(file) = server_stickers_file() else {
-        return;
-    };
-    write_server_stickers(&file, guild, stickers);
-}
-
-/// [`keep_server_stickers`] into `file`, which a test can give it.
-fn write_server_stickers(file: &Path, guild: &str, stickers: Vec<crate::stickers::Sticker>) {
-    let mut servers = read_servers(file).unwrap_or_default();
-    servers.insert(
-        guild.to_owned(),
-        KeptServerStickers {
-            fetched: now(),
-            stickers,
-        },
-    );
-    let Ok(text) = serde_json::to_vec(&servers) else {
-        return;
-    };
-    if let Err(error) = write_bytes(file, &text) {
-        tracing::warn!(%error, "could not keep a server's stickers");
-    }
-}
-
 /// This moment, in Unix milliseconds.
 fn now() -> u64 {
     std::time::SystemTime::now()
@@ -1098,9 +1045,14 @@ fn prune(directory: &Path, size: u64, count: usize) {
 
 /// Deletes everything kept, as when unlinking.
 pub fn forget() {
-    for file in [file(), favorite_gifs_file(), gif_home_answer_file()]
-        .into_iter()
-        .flatten()
+    for file in [
+        file(),
+        favorite_gifs_file(),
+        gif_home_answer_file(),
+        sticker_packs_file(),
+    ]
+    .into_iter()
+    .flatten()
     {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
@@ -1400,6 +1352,8 @@ mod tests {
         assert_eq!(favorite_gifs(), None);
         load("token", Some(KEY));
         keep_gif_home_answer(&KeptHome::default());
+        keep_sticker_packs(vec![]);
+        assert!(sticker_packs().is_some());
         std::fs::create_dir_all(gif_home().unwrap()).unwrap();
         forget();
         assert!(load("token", Some(KEY)).snapshot.servers.is_empty());
@@ -1410,6 +1364,10 @@ mod tests {
         assert_eq!(kept_gif(gif), None);
         assert!(!gif_home().unwrap().exists());
         assert_eq!(gif_home_answer(), None);
+        assert!(
+            sticker_packs().is_none(),
+            "unlinking deletes the sticker packs"
+        );
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
@@ -1522,41 +1480,6 @@ mod tests {
     }
 
     #[test]
-    fn keeps_a_servers_stickers_by_server() {
-        let file = std::env::temp_dir().join(format!(
-            "yapfast-discord-server-stickers-{}.json",
-            std::process::id()
-        ));
-        let wave = crate::stickers::Sticker {
-            id: "10".into(),
-            name: "Wave".into(),
-            format: 1,
-        };
-        let spin = crate::stickers::Sticker {
-            id: "11".into(),
-            name: "Spin".into(),
-            format: 3,
-        };
-        write_server_stickers(&file, "1", vec![wave.clone()]);
-        write_server_stickers(&file, "2", vec![spin.clone()]);
-        // Each server keeps its own, and they read back.
-        let kept = read_servers(&file).expect("the servers read back");
-        assert_eq!(
-            kept.get("1").map(|kept| kept.stickers.clone()),
-            Some(vec![wave])
-        );
-        assert_eq!(
-            kept.get("2").map(|kept| kept.stickers.clone()),
-            Some(vec![spin])
-        );
-        // A later answer for one leaves the other as it was.
-        write_server_stickers(&file, "1", vec![]);
-        let kept = read_servers(&file).expect("the servers read back");
-        assert!(kept["1"].stickers.is_empty() && kept["2"].stickers.len() == 1);
-        std::fs::remove_file(&file).ok();
-    }
-
-    #[test]
     fn keeps_the_sticker_packs_and_tells_when_they_go_stale() {
         let file = std::env::temp_dir().join(format!(
             "yapfast-discord-sticker-packs-{}.json",
@@ -1569,6 +1492,7 @@ mod tests {
                 id: "10".into(),
                 name: "Wave".into(),
                 format: 1,
+                unavailable: false,
             }],
         }];
         write_packs(&file, packs.clone());

@@ -1429,7 +1429,7 @@ fn the_sticker_picker_lists_the_servers_stickers_above_the_packs() {
         .map(|tile| tile.label.to_string())
         .collect();
     // Every collection lists: Frequently Used first, then the server's own
-    // stickers, then Discord's packs, which are Nitro's and so locked.
+    // stickers, then Discord's packs.
     assert_eq!(
         labels,
         [
@@ -1450,8 +1450,8 @@ fn the_sticker_picker_lists_the_servers_stickers_above_the_packs() {
         .collect();
     assert_eq!(
         locked,
-        [false, true, true, false],
-        "the server's are usable here; Discord's packs need Nitro, those before them too"
+        [true, true, true, true],
+        "the server's are usable here, and Discord's packs are anyone's"
     );
     // The rail lists the same sections the emoji picker's does, with no line
     // between them.
@@ -8161,10 +8161,10 @@ fn the_picker_draws_the_emoji_it_shows_as_pictures_of_the_grids_size() {
             if cell.key.contains(':') || cell.glyph != cell.key || cell.glyph.chars().count() != 1 {
                 continue;
             }
-            // Twemoji's own 72px, which the cell draws at the grid's size.
+            // Shrunk once to the grid's 36px, so a frame copies it.
             assert_eq!(
                 cell.picture.size().width,
-                crate::twemoji::NATIVE,
+                36,
                 "{} is drawn as a picture",
                 cell.name
             );

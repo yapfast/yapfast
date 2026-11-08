@@ -550,6 +550,16 @@ impl Application {
                     .zip(&earlier.servers)
                     .any(|(now, then)| now.id != then.id || !Arc::ptr_eq(&now.emojis, &then.emojis))
         });
+        let stickers_changed = self.discord.as_ref().is_none_or(|earlier| {
+            snapshot.servers.len() != earlier.servers.len()
+                || snapshot
+                    .servers
+                    .iter()
+                    .zip(&earlier.servers)
+                    .any(|(now, then)| {
+                        now.id != then.id || !Arc::ptr_eq(&now.stickers, &then.stickers)
+                    })
+        });
         self.discord = Some(snapshot);
         let mut effects = self.list_discord();
         self.refresh_browse();
@@ -568,11 +578,15 @@ impl Application {
         // The sticker picker's default packs, their pictures fetched ahead,
         // so it opens at once.
         effects.extend(self.load_sticker_packs());
-        // Every server's stickers are asked for, and their pictures fetched
-        // ahead, as the snapshot names the servers, so the picker opens on
-        // them rather than downloading while it shows.
-        self.follow_sticker_server();
-        effects.extend(self.load_guild_stickers());
+        // Every server's stickers come with the snapshot, as Discord's client
+        // reads them from READY: their pictures are fetched ahead as a list
+        // comes or changes, and an open picker lists what changed.
+        if stickers_changed {
+            if self.state.stickers.open {
+                self.follow_sticker_server();
+            }
+            effects.extend(self.prefetch_stickers());
+        }
         effects.extend(self.ask_activity());
         effects
     }

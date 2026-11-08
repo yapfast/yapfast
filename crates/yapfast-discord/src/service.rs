@@ -2098,28 +2098,6 @@ impl Discord {
         Ok(packs)
     }
 
-    /// A server's own stickers as Yapfast last saw them, to show until
-    /// [`Self::server_sticker_list`] answers.
-    pub async fn kept_server_stickers(&self, guild: &str) -> Option<cache::KeptServerStickers> {
-        let guild = guild.to_owned();
-        tokio::task::spawn_blocking(move || cache::server_stickers(&guild))
-            .await
-            .ok()
-            .flatten()
-    }
-
-    /// A server's own stickers, at the picker's size, as `GET
-    /// /guilds/{id}/stickers` lists them; kept on disk, so the picker shows
-    /// them at once next time.
-    pub async fn server_sticker_list(&self, guild: &str) -> Result<Vec<crate::stickers::Sticker>> {
-        let answer = self.api.guild_stickers(guild).await?;
-        let stickers = crate::stickers::parse_all(&answer);
-        let (kept, guild) = (stickers.clone(), guild.to_owned());
-        let _ =
-            tokio::task::spawn_blocking(move || cache::keep_server_stickers(&guild, kept)).await;
-        Ok(stickers)
-    }
-
     /// Posts sticker `id` in `channel`, as Discord's client does when one is
     /// clicked in the picker. The gateway shows the message.
     pub async fn send_sticker(&self, guild: &str, channel: &str, id: &str) -> Result<()> {
@@ -2171,6 +2149,15 @@ impl Discord {
             .await?;
         keep_favorite_gifs(favorites.to_vec()).await;
         Ok(())
+    }
+
+    /// Puts the account's favourite emoji in Discord's settings, as its
+    /// client's star in the picker does: each a custom emoji's id or a
+    /// Unicode emoji's Discord name, in the order they were starred.
+    pub async fn set_favorite_emojis(&self, favorites: &[String]) -> Result<()> {
+        self.api
+            .set_frecency_settings(&crate::frecency::write_favorite_emojis(favorites))
+            .await
     }
 
     /// Sends someone a friend request from their profile, or accepts theirs.

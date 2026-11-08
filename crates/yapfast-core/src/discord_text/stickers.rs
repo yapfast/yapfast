@@ -20,20 +20,12 @@ pub(super) fn command(
     let discord = match (&command, discord) {
         (
             DiscordCommand::StickerPacks
-            | DiscordCommand::GuildStickers { .. }
             | DiscordCommand::StickerPicture { .. }
             | DiscordCommand::SendSticker { .. },
             Ok(discord),
         ) => discord.clone(),
         (DiscordCommand::StickerPacks, Err(why)) => {
             let _ = events.send(Event::StickerPacks(Err(why.into())));
-            return None;
-        }
-        (DiscordCommand::GuildStickers { server }, Err(why)) => {
-            let _ = events.send(Event::GuildStickers {
-                server: server.clone(),
-                result: Err(why.into()),
-            });
             return None;
         }
         (DiscordCommand::SendSticker { room, .. }, Err(why)) => {
@@ -68,29 +60,6 @@ pub(super) fn command(
                     .map(|packs| packs.into_iter().map(collection).collect())
                     .map_err(|error| format!("Couldn't load the stickers: {error}"));
                 let _ = events.send(Event::StickerPacks(result));
-            });
-        }
-        DiscordCommand::GuildStickers { server } => {
-            tokio::spawn(async move {
-                // What Yapfast kept shows at once, whether or not it is a day
-                // old: Discord is asked only once it is.
-                let mut ask = true;
-                if let Some(kept) = discord.kept_server_stickers(&server).await {
-                    ask = !yapfast_discord::cache::sticker_packs_are_fresh(kept.fetched);
-                    let _ = events.send(Event::KeptGuildStickers {
-                        server: server.clone(),
-                        stickers: kept.stickers.into_iter().map(sticker).collect(),
-                    });
-                }
-                if !ask {
-                    return;
-                }
-                let result = discord
-                    .server_sticker_list(&server)
-                    .await
-                    .map(|stickers| stickers.into_iter().map(sticker).collect())
-                    .map_err(|error| format!("Couldn't load the server's stickers: {error}"));
-                let _ = events.send(Event::GuildStickers { server, result });
             });
         }
         DiscordCommand::StickerPicture { url } => {

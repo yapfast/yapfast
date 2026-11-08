@@ -1340,6 +1340,22 @@ async fn fetches_the_favourite_and_used_emoji_with_the_favourite_gifs() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_star_saves_the_favourite_emoji_and_leaves_the_rest() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("a_star_saves_the_favourite_emoji_and_leaves_the_rest").await;
+    let (gifs, before) = discord.favorite_gifs_and_emojis().await.unwrap();
+    let mut favorites = before.favorites.unwrap();
+    favorites.push("joy".into());
+    discord.set_favorite_emojis(&favorites).await.unwrap();
+    // The favourites are the new ones, and the GIFs and the uses stay.
+    let (kept_gifs, after) = discord.favorite_gifs_and_emojis().await.unwrap();
+    assert_eq!(after.favorites.as_ref(), Some(&favorites));
+    assert_eq!(kept_gifs, gifs);
+    assert_eq!(after.used, before.used);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn fetches_the_profile_effect_a_profile_names() {
     let Fixture {
         _fake,
@@ -6142,14 +6158,20 @@ async fn picks_the_stickers_of_the_default_packs() {
             .find(|known| known.id == guild)
             .is_some_and(|known| known.stickers.iter().any(|sticker| sticker.name == "Wave"))
     };
-    snapshot_where(&discord, server_stickers).await;
-    // The picker lists a server's stickers with GET /guilds/{id}/stickers,
-    // which a member may ask for; they come at the tiles' size.
-    let owned = discord.server_sticker_list(&guild).await.unwrap();
+    let snapshot = snapshot_where(&discord, server_stickers).await;
+    // The picker lists them from there, as Discord's client reads them from
+    // READY, at the tiles' size.
+    let owned = &snapshot
+        .servers
+        .iter()
+        .find(|known| known.id == guild)
+        .unwrap()
+        .stickers;
     let wave = owned
         .iter()
         .find(|sticker| sticker.name == "Wave")
         .expect("the server's own stickers come, not only Discord's packs");
+    assert!(!wave.unavailable, "the server's boosts cover it");
     assert!(
         wave.picture().ends_with("?size=96"),
         "the picker's tiles are 96px: {}",

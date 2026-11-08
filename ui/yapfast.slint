@@ -2267,10 +2267,12 @@ export component YapfastWindow inherits Window {
             ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         EmojiPicker {
-            emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+            emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; rail-sections: root.emoji-rail-sections;
+            emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
             emoji-tiles: root.emoji-tiles; emoji-headings: root.emoji-headings; grid-height: root.emoji-grid-height;
             emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
             emoji-search(text) => { root.emoji-search(text); }
+            favorite(key) => { root.emoji-favorite(key); }
             pick(cell) => { root.pick(cell); }
             unlock-nitro => { root.unlock-nitro(); }
             close-picker => { emoji-picker.close(); }

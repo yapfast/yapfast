@@ -408,27 +408,21 @@ pub(super) fn custom_ids_to_fetch(
 }
 
 thread_local! {
-    /// The emoji this device keeps, by reaction key, which the picker's stars
-    /// ask about as they draw.
+    /// The Discord account's favourite emoji, by picker key, which the
+    /// picker's stars ask about as they draw.
     static EMOJI_FAVORITES: std::cell::RefCell<std::collections::HashSet<String>> =
         std::cell::RefCell::default();
 }
 
-/// The emoji this device keeps, as the picker's stars, and the grid again so
-/// its Favorites section follows.
-fn refresh_emoji_favorites(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow) {
-    let keys: Vec<String> = adapter.borrow().app.emoji_favorites().to_vec();
+/// The picker's stars, from the Discord account's favourites: `favorites`,
+/// by picker key.
+fn show_emoji_stars(window: &YapfastWindow, favorites: &[(String, bool)]) {
     EMOJI_FAVORITES.with_borrow_mut(|set| {
         set.clear();
-        set.extend(keys);
+        set.extend(favorites.iter().map(|(key, _)| key.clone()));
     });
     let global = window.global::<EmojiFavorites>();
     global.set_revision(global.get_revision().wrapping_add(1));
-    let (query, columns) = (
-        window.get_emoji_query(),
-        window.get_emoji_columns().max(1) as usize,
-    );
-    show_emoji(adapter, window, query.as_str(), columns);
 }
 
 /// Gives the picker's grid the emoji `query` finds, `columns` to a row, and
@@ -471,12 +465,42 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
         } else {
             Default::default()
         };
+        // A search lists no Favorites, and keeps the stars it had.
+        if query.trim().trim_matches(':').is_empty() {
+            show_emoji_stars(window, &favorites);
+        }
         emoji::rows(query, &favorites, &frequent, &custom, columns, |set| {
             let url = set.icon.clone()?;
             let icon = adapter.app.state.pictures.get(&url)?;
             Some((url, picture(icon)))
         })
     };
+    // The rail lists the same sections the grid has, at the rows they start
+    // and end at; matches have none, and it keeps those it jumps back to.
+    if !sections.is_empty() {
+        let rail: Vec<RailSection> = sections
+            .iter()
+            .map(|section| RailSection {
+                name: section.icon.name.clone(),
+                icon: section.icon.clone(),
+                // The sticker picker's clock, for the one heading both share.
+                glyph: emoji::section_glyph(section.icon.name.as_str()),
+                top: section.top,
+                end: section.end,
+            })
+            .collect();
+        update_model(&adapter.models.emoji_rail, rail);
+    }
+    // Each server's icon heads its emoji in the rail, and need not be on
+    // screen anywhere else, so the ones not in memory are asked for.
+    let wanted: Vec<String> = sections
+        .iter()
+        .map(|section| section.icon_url.to_string())
+        .filter(|url| !url.is_empty() && !adapter.app.state.pictures.contains_key(url))
+        .collect();
+    if !wanted.is_empty() {
+        adapter.action(window, Action::WantedPictures(wanted));
+    }
     let grid_height = rows.last().map_or(0.0, |row| row.top + row.height);
     update_model(&adapter.models.emoji_rows, rows);
     window.set_emoji_grid_height(grid_height);
@@ -549,18 +573,38 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let state = adapter.clone();
         let weak = window.as_weak();
         window.on_emoji_favorite(move |key| {
-            if let Some(window) = weak.upgrade() {
-                state
-                    .borrow_mut()
-                    .action(&window, Action::FavoriteEmoji(key.into()));
-                refresh_emoji_favorites(&state, &window);
+            let Some(window) = weak.upgrade() else { return };
+            // Discord's settings keep it by its id or its Discord name.
+            let Some(name) = emoji::discord_name(&key) else {
+                return;
+            };
+            state
+                .borrow_mut()
+                .action(&window, Action::FavoriteEmoji(name));
+            // The grid again, so its Favorites section and the stars follow;
+            // a search keeps its matches and shows the star alone.
+            let query = window.get_emoji_query();
+            if query.trim().trim_matches(':').is_empty() {
+                let columns = window.get_emoji_columns().max(1) as usize;
+                show_emoji(&state, &window, query.as_str(), columns);
+            } else {
+                let favorites = {
+                    let adapter = state.borrow();
+                    let custom = adapter.app.emoji_sets();
+                    let by_id: HashMap<&str, &yapfast_core::chat::CustomEmoji> = custom
+                        .iter()
+                        .flat_map(|set| &set.emoji)
+                        .map(|emoji| (emoji.id.as_str(), emoji))
+                        .collect();
+                    emoji::discord_keys(&adapter.app.state.discord_emojis.favorites, &by_id)
+                };
+                show_emoji_stars(&window, &favorites);
             }
         });
     }
     window
         .global::<EmojiFavorites>()
         .on_is_favorite(|key, _| EMOJI_FAVORITES.with_borrow(|set| set.contains(key.as_str())));
-    refresh_emoji_favorites(adapter, window);
     super::polls::bind(window, adapter);
     super::call_link::bind(window, adapter);
     super::server_settings::bind(window, adapter);

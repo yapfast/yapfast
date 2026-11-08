@@ -203,9 +203,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   keep their size and their spacing as it widens, so what the width has over
   stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
   which is the artwork Discord's client uses and which the program carries
-  (`vendor/twemoji`, CC-BY 4.0), decoded once at Twemoji's own 72px and drawn
-  from there at the size a cell shows, which costs a tenth of what resizing one
-  for each size cost and is what a scroll through the grid did then; drawing
+  (`vendor/twemoji`, CC-BY 4.0), decoded once and shrunk to the pixels a cell
+  draws, averaging the part of the 72px picture each covers, alpha
+  premultiplied as Skia draws it, so a frame copies it: drawn at 72px into the
+  cell, Skia scaled every picture again on every frame of a scroll. Drawing
   the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
   slowly. It lists only the emoji Twemoji has a picture for. A screen of rows either side of those shown is drawn with them, and
@@ -232,9 +233,14 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   drain a deduplicated URL queue; a visible request promotes an active background
   job instead of downloading the same picture twice. Cancelling a foreground
   request returns its URL to background warming instead of abandoning it. At most twelve encoded
-  pictures are held across downloading and decoding, with eight network turns
-  and four decode turns; cancelling a queued request releases its turn waiter,
-  and a blocking decode keeps its permits until it actually finishes. Once
+  pictures read from the disk or downloaded are held waiting for the four
+  decode turns, and eight downloads run at once; a picture the disk doesn't
+  hold lets its turn go while it downloads, so one the disk holds never waits
+  behind downloads waiting out a backoff. Cancelling a queued request
+  releases its turn waiter, and a blocking decode keeps its permits until it
+  actually finishes. A picture Discord says isn't there, or that doesn't
+  decode, isn't asked for again that session; one that failed only while
+  Discord or the network was down is tried again when next asked for. Once
   cached, emoji load from disk rather than waiting for the CDN. A second after
   the emoji or the sticker picker closes, Skia lets go of the textures and
   copies it kept to draw their pictures, and the heap gives back what that
@@ -267,7 +273,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   this account may not use where it
   is looking — another server's, or an animated one without Nitro — are
   greyed with a lock in their corner, and pressing one opens Discord's Nitro
-  page. Cache warming runs off the thread that draws and does not decode
+  page. A cell's star, in both pickers, adds the emoji to the Discord
+  account's favourites or takes it out, as Discord's client's does: they are
+  `favorite_emojis` in the second settings protobuf, a custom emoji by its id
+  and a Unicode one by its Discord name without a skin tone, at most 250, which
+  every client of the account shares, and Favorites lists them. The grid is
+  built as a picker opens, not at a start. Cache warming runs off the thread that draws and does not decode
   pictures; a section reached before warming finishes can still show placeholders.
   A drag that changed the width keeps it in
   `layout.json` (`picker_width`), written once the drags have stopped for a

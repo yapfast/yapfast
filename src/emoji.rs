@@ -249,6 +249,60 @@ pub fn discord_key(
     (emoji.unicode_version() <= NEWEST).then(|| (emoji.as_str().to_owned(), true))
 }
 
+/// The name Discord's settings keep the emoji of picker key `key` by, as
+/// [`discord_key`] reads it back: a custom emoji's id, or a Unicode emoji's
+/// Discord name without its skin tone, as Discord's client stars the emoji
+/// itself.
+pub fn discord_name(key: &str) -> Option<String> {
+    if let Some((_, id)) = key.rsplit_once(':') {
+        return Some(id.to_owned());
+    }
+    let emoji = emojis::get(key)?;
+    let base = emoji
+        .with_skin_tone(emojis::SkinTone::Default)
+        .unwrap_or(emoji);
+    let flag = || {
+        let letters: Option<String> = base
+            .as_str()
+            .chars()
+            .map(|point| {
+                let letter = u32::from(point).checked_sub(0x1F1E6)?;
+                (letter < 26).then(|| char::from(b'a' + letter as u8))
+            })
+            .collect();
+        letters
+            .filter(|letters| letters.len() == 2)
+            .map(|letters| format!("flag_{letters}"))
+    };
+    // The emoji's first name, which Discord's client takes a favourite out
+    // by, then any other it reads back as this emoji: some of GitHub's name
+    // another one on Discord.
+    let none = HashMap::new();
+    let plain = |text: &str| text.replace('\u{FE0F}', "");
+    let first = crate::discord_emoji_names::FIRST
+        .iter()
+        .find(|(glyph, _)| plain(glyph) == plain(base.as_str()))
+        .map(|(_, name)| (*name).to_owned());
+    first
+        .into_iter()
+        .chain(
+            base.shortcodes()
+                .filter(|code| code.starts_with(|c: char| c.is_ascii_alphanumeric()))
+                .map(str::to_owned),
+        )
+        .chain(
+            crate::discord_emoji_names::NAMES
+                .iter()
+                .filter(|(_, glyph)| {
+                    emojis::get(glyph).map(emojis::Emoji::as_str) == Some(base.as_str())
+                })
+                .map(|(name, _)| (*name).to_owned()),
+        )
+        .chain(flag())
+        .chain(base.shortcodes().map(str::to_owned))
+        .find(|name| discord_key(name, &none).is_some_and(|(found, _)| found == base.as_str()))
+}
+
 /// The flag `flag_xx` names, from its country's two letters: GitHub's shortcode
 /// `cl` is the CL button, not Chile's flag.
 fn country_flag(name: &str) -> Option<&'static emojis::Emoji> {
@@ -814,6 +868,30 @@ mod tests {
         // Where JoyPixels and Discord mean different emoji by a name.
         assert_eq!(key("beach_umbrella").as_deref(), Some("⛱️"));
         assert_eq!(key("city_sunset").as_deref(), Some("🌇"));
+    }
+
+    #[test]
+    fn names_an_emoji_as_discord_keeps_its_favourites() {
+        // As Discord's settings name them, read back to the same emoji.
+        for (key, name) in [
+            ("☠️", "skull_crossbones"),
+            ("🙂", "slight_smile"),
+            ("😂", "joy"),
+            ("🇫🇷", "flag_fr"),
+            ("🇨🇱", "flag_cl"),
+            ("💯", "100"),
+            ("⛱️", "beach_umbrella"),
+            ("talk:5", "5"),
+        ] {
+            assert_eq!(discord_name(key).as_deref(), Some(name), "{key}");
+        }
+        // Discord's first name, not GitHub's `+1` or the `thumbs_up` it reads
+        // too, and a hyphen as Discord writes it.
+        assert_eq!(discord_name("👍").as_deref(), Some("thumbsup"));
+        assert_eq!(discord_name("📧").as_deref(), Some("e_mail"));
+        // A skin tone is the emoji itself, which Discord's client stars.
+        assert_eq!(discord_name("👍🏾").as_deref(), Some("thumbsup"));
+        assert_eq!(discord_name("not an emoji"), None);
     }
 
     #[test]

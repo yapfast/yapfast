@@ -5012,6 +5012,42 @@ function linkedGifEmbed(content: string, origin: string) {
 }
 let frecencySettings: string | null = null;
 
+/** A protobuf's top-level fields, each its number and its bytes as written. */
+function writtenFields(bytes: Uint8Array): { number: number; bytes: Uint8Array }[] {
+  const fields: { number: number; bytes: Uint8Array }[] = [];
+  let at = 0;
+  const varint = () => {
+    let value = 0n;
+    for (let shift = 0n; ; shift += 7n) {
+      const byte = bytes[at++]!;
+      value |= BigInt(byte & 0x7f) << shift;
+      if (byte < 0x80) return value;
+    }
+  };
+  while (at < bytes.length) {
+    const start = at;
+    const tag = Number(varint());
+    switch (tag & 7) {
+      case 0: varint(); break;
+      case 1: at += 8; break;
+      // The length first: `at += …` would read `at` before it moved past it.
+      case 2: { const length = Number(varint()); at += length; break; }
+      case 5: at += 4; break;
+      default: throw new Error(`wire type ${tag & 7}`);
+    }
+    fields.push({ number: tag >> 3, bytes: bytes.slice(start, at) });
+  }
+  return fields;
+}
+
+/** `kept` with each top-level field `patch` has replaced by the patch's. */
+function mergeProto(kept: string, patch: string): string {
+  const patched = writtenFields(Buffer.from(patch, "base64"));
+  const replaced = new Set(patched.map((field) => field.number));
+  const merged = [...writtenFields(Buffer.from(kept, "base64")).filter((field) => !replaced.has(field.number)), ...patched];
+  return Buffer.concat(merged.map((field) => field.bytes)).toString("base64");
+}
+
 const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   description: "Discard this unrelated catalogue metadata when caching",
   executables: [
@@ -6384,8 +6420,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/2") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
-    frecencySettings = body.settings;
-    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: frecencySettings }, partial: true });
+    // Each field the PATCH carries takes the place of the one kept; the rest
+    // stay, as a save of the favourite emoji leaves the GIFs.
+    frecencySettings = mergeProto(frecencySettings ??= favoriteGifs(origin), body.settings);
+    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: body.settings }, partial: true });
     return json({ settings: frecencySettings });
   }
 

@@ -1095,7 +1095,9 @@ struct PictureLoads {
     decodes: Arc<Turns>,
     backoff: Mutex<Backoff>,
     pending: Arc<Mutex<HashMap<String, Waiting>>>,
-    /// The pictures that failed for good, which aren't tried again.
+    /// The pictures that failed for good, which aren't tried again: Discord
+    /// said there is none, or what came doesn't decode. One that failed only
+    /// while Discord or the network was down is tried again when asked for.
     failed: Mutex<HashSet<String>>,
 }
 
@@ -1447,41 +1449,54 @@ impl PictureLoads {
     }
 
     async fn fetch(&self, discord: &Discord, pending: Pending) {
-        // Bound encoded data before reading the disk cache or downloading.
-        // This is separate from decoding so eight downloads can still run
-        // alongside four decoders, instead of all waiting behind them.
-        let Some(buffer) = self.buffers.take(&pending.batch).await else {
+        // Bound encoded data before reading the disk cache, and before
+        // decoding what came, so the disk isn't read far ahead of the four
+        // decoders. A picture the disk doesn't hold lets its turn go while it
+        // downloads, which has turns of its own: downloads waiting out a
+        // backoff held every turn, and kept the pictures the disk has from
+        // showing until the network came back.
+        let Some(reading) = self.buffers.take(&pending.batch).await else {
             return;
         };
-        let data = match discord.kept_picture(&pending.url, MAX_PICTURE_BYTES).await {
+        let (data, buffer) = match discord.kept_picture(&pending.url, MAX_PICTURE_BYTES).await {
             Some(kept) => {
                 tracing::trace!(url = %pending.url, bytes = kept.len(), "read a Discord picture from cache");
-                kept
+                (kept, Some(reading))
             }
-            None => match download(
-                discord,
-                &pending.url,
-                &self.turns,
-                &pending.batch,
-                &self.backoff,
-            )
-            .await
-            {
-                Some(data) => data,
-                None => {
-                    // Cache-only failures must not blacklist a picture
-                    // before the foreground has ever tried to show it.
-                    if pending.events().is_some() {
-                        locked(&self.failed).insert(pending.url.clone());
+            None => {
+                drop(reading);
+                match download(
+                    discord,
+                    &pending.url,
+                    &self.turns,
+                    &pending.batch,
+                    &self.backoff,
+                )
+                .await
+                {
+                    Ok(data) => (data, None),
+                    Err(for_good) => {
+                        // Cache-only failures must not blacklist a picture
+                        // before the foreground has ever tried to show it.
+                        if for_good && pending.events().is_some() {
+                            locked(&self.failed).insert(pending.url.clone());
+                        }
+                        return;
                     }
-                    return;
                 }
-            },
+            }
         };
         if pending.events().is_none() {
             tracing::debug!(url = %pending.url, bytes = data.len(), "prefetched a picture");
             return;
         }
+        let buffer = match buffer {
+            Some(buffer) => buffer,
+            None => match self.buffers.take(&pending.batch).await {
+                Some(buffer) => buffer,
+                None => return,
+            },
+        };
         let (width, height) = if pending.url.contains("/banners/") {
             BANNER_SIZE
         } else if pending.url.ends_with(chat::EFFECT_PICTURE) {
@@ -1655,7 +1670,9 @@ async fn download_turn(
 
 /// Downloads a picture in its turn, trying again after the wait every
 /// download keeps to while it may work later. The turn is held only while
-/// downloading.
+/// downloading. A failure says whether it was for good, as an answer that
+/// there is no such picture is, rather than one that may work later or a
+/// download called off.
 #[cfg(feature = "discord")]
 async fn download(
     discord: &Discord,
@@ -1663,17 +1680,17 @@ async fn download(
     turns: &Arc<Turns>,
     batch: &Arc<AtomicU64>,
     backoff: &Mutex<Backoff>,
-) -> Option<Vec<u8>> {
+) -> Result<Vec<u8>, bool> {
     let mut tries = 0;
     loop {
-        let turn = download_turn(turns, batch, backoff).await?;
+        let turn = download_turn(turns, batch, backoff).await.ok_or(false)?;
         tries += 1;
         let started = Instant::now();
         let result = discord.download_now(url, MAX_PICTURE_BYTES).await;
         match result {
             Ok(data) => {
                 locked(backoff).succeeded();
-                return Some(data);
+                return Ok(data);
             }
             Err(error) => {
                 let retryable = yapfast_discord::api::may_work_later(&error);
@@ -1686,7 +1703,7 @@ async fn download(
                     tracing::debug!(%error, %url, tries, "will download a Discord picture again");
                 } else {
                     tracing::debug!(%error, %url, "could not download a Discord picture");
-                    return None;
+                    return Err(!retryable);
                 }
             }
         }

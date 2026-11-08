@@ -219,10 +219,14 @@ fn joins(pictures: &[(String, Vec<u8>)]) -> emoji_font_tables::Joins {
             sequences.push((form, glyph_at(index)));
         }
     }
+    // Not a keycap's digit, `#` or `*`: text in this font's family, such as a
+    // reaction's `:name2:` before its picture comes, would draw those as
+    // nothing. A keycap typed as text is shown by the font before this one.
     let mut empty: Vec<u32> = sequences
         .iter()
         .flat_map(|(points, _)| points.iter().copied())
         .filter(|point| !own.contains(point))
+        .filter(|point| !matches!(char::from_u32(*point), Some('0'..='9' | '#' | '*')))
         .collect();
     // The selectors, which text puts after a single emoji too.
     empty.extend([0xFE0E, 0xFE0F]);
