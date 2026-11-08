@@ -4429,6 +4429,64 @@ fn a_profile_shows_activities_as_discord_cards() {
 }
 
 #[test]
+fn discord_channels_show_their_kinds_icons_marked_as_discord_marks_them() {
+    use yapfast_core::chat::{ChannelMark, ChatRoom, MarkKind};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let adapter = adapter.borrow();
+    let icons = &adapter.icons;
+    let base = adapter
+        .app
+        .state
+        .rooms
+        .iter()
+        .find(|room| !room.direct && !room.voice)
+        .map(|room| ChatRoom::clone(room))
+        .unwrap();
+    let channel = |kind, private, age_restricted, voice, forum| ChatRoom {
+        mark: ChannelMark {
+            kind,
+            private,
+            age_restricted,
+        },
+        voice,
+        forum,
+        ..base.clone()
+    };
+    let shown = |room: &ChatRoom| icons.channel(room);
+    assert!(shown(&channel(MarkKind::Plain, false, false, false, false)) == icons.text.plain);
+    assert!(
+        shown(&channel(MarkKind::Announcement, true, false, false, false))
+            == icons.announcement.private
+    );
+    assert!(
+        shown(&channel(MarkKind::Plain, true, true, false, true)) == icons.forum.age_restricted,
+        "the warning sign comes before the lock"
+    );
+    assert!(shown(&channel(MarkKind::Media, false, false, false, true)) == icons.media.plain);
+    assert!(shown(&channel(MarkKind::Stage, true, false, true, false)) == icons.stage.private);
+    assert!(shown(&channel(MarkKind::Plain, true, false, true, false)) == icons.voice.private);
+    assert!(
+        shown(&channel(MarkKind::Rules, true, true, false, false)) == icons.rules,
+        "the rules channel has its book whatever else"
+    );
+    let unreadable = ChatRoom {
+        locked: true,
+        ..channel(MarkKind::Announcement, false, false, false, false)
+    };
+    assert!(icons.room(&unreadable) == icons.lock && shown(&unreadable) != icons.lock);
+}
+
+#[test]
 fn friends_in_a_servers_voice_channel_show_where() {
     use yapfast_core::chat::{ChatRoom, ChatServer, Reacts, VoicePerson};
     let person = |id: &str| VoicePerson {
@@ -4472,6 +4530,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         tag: None,
         official: false,
@@ -7166,6 +7225,7 @@ fn requests_list_someone_once_with_their_message() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         tag: None,
         official: false,

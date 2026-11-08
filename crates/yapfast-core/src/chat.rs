@@ -126,6 +126,8 @@ pub struct ChatRoom {
     pub parent: Option<String>,
     /// A Discord forum, whose posts show in place of messages.
     pub forum: bool,
+    /// What a Discord channel's icon shows besides.
+    pub mark: ChannelMark,
     /// A Discord server's text channel its channel list leaves out unless
     /// it's open or mentions this account, as Discord's client does with
     /// Show All Channels off for one this account doesn't follow; or a
@@ -174,6 +176,31 @@ pub enum Reacts {
     Existing,
     /// Add any reaction too.
     Any,
+}
+
+/// What a Discord channel's icon shows besides its being text, voice, a
+/// forum or a thread, as Discord's client draws it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ChannelMark {
+    pub kind: MarkKind,
+    /// @everyone may not see it, or may not connect to a voice channel,
+    /// which a lock on the icon shows.
+    pub private: bool,
+    /// Age-restricted, which a warning sign on the icon shows.
+    pub age_restricted: bool,
+}
+
+/// The kinds of Discord channel with an icon of their own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MarkKind {
+    #[default]
+    Plain,
+    Announcement,
+    /// A media channel, a forum of pictures and videos.
+    Media,
+    Stage,
+    /// The server's rules channel, whatever its kind.
+    Rules,
 }
 
 /// A Discord message request's latest message, as the requests list shows it.

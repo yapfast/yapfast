@@ -178,6 +178,9 @@ pub struct Server {
     /// [`crate::marked::MarkedServer::follows_only`].
     #[serde(default)]
     pub community: bool,
+    /// The channel its rules are in, from `rules_channel_id`.
+    #[serde(default)]
+    pub rules_channel: Option<String>,
     /// This account's timeout here while it lasts, set on a copy of the
     /// server when the service publishes it; see [`crate::marked`] for the
     /// rest of what's this account's.
@@ -338,6 +341,12 @@ pub struct Channel {
     /// A stage channel, among the voice channels, where no join sound plays.
     #[serde(default)]
     pub stage: bool,
+    /// A media channel: a forum whose posts lead with pictures and videos.
+    #[serde(default)]
+    pub media: bool,
+    /// Age-restricted, as its `nsfw` says.
+    #[serde(default)]
+    pub nsfw: bool,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -726,6 +735,31 @@ impl Server {
         } else {
             Access::Join
         }
+    }
+
+    /// Whether @everyone is kept out of `channel`, which Discord's client
+    /// marks with a lock on its icon: the channel's own overwrite for
+    /// @everyone denies viewing it, or for a voice or stage channel,
+    /// @everyone may not connect to it. Other roles may still be let in.
+    pub fn private(&self, channel: &Channel) -> bool {
+        let everyone = channel
+            .overwrites
+            .iter()
+            .find(|overwrite| !overwrite.member && overwrite.id == self.id);
+        if everyone.is_some_and(|overwrite| overwrite.deny & VIEW_CHANNEL != 0) {
+            return true;
+        }
+        let voice = self
+            .voice_channels
+            .iter()
+            .any(|voice| voice.id == channel.id);
+        // Without the server's roles, @everyone is taken to connect.
+        voice
+            && self.roles.get(&self.id).is_some_and(|base| {
+                let connects =
+                    everyone.map_or(*base, |overwrite| *base & !overwrite.deny | overwrite.allow);
+                connects & CONNECT == 0
+            })
     }
 
     /// Whether `user`, holding `roles`, may send in `channel`'s text. A voice
@@ -1375,6 +1409,10 @@ pub fn server(guild: &Value) -> Option<Server> {
         forwarding_disabled: has("FORWARDING_DISABLED"),
         verified: has("VERIFIED") || has("PARTNERED"),
         community: has("COMMUNITY"),
+        rules_channel: guild["rules_channel_id"]
+            .as_str()
+            .or_else(|| guild["properties"]["rules_channel_id"].as_str())
+            .map(str::to_owned),
         ..Default::default()
     };
     for role in guild["roles"].as_array().into_iter().flatten() {
@@ -1504,6 +1542,8 @@ fn parse_channel(channel: &Value) -> Option<Channel> {
         overwrites: Arc::new(overwrites(channel)),
         announcement: channel["type"].as_u64() == Some(GUILD_ANNOUNCEMENT),
         stage: channel["type"].as_u64() == Some(GUILD_STAGE_VOICE),
+        media: channel["type"].as_u64() == Some(GUILD_MEDIA),
+        nsfw: channel["nsfw"].as_bool().unwrap_or(false),
         archive_after: channel["default_auto_archive_duration"]
             .as_u64()
             .and_then(|minutes| u16::try_from(minutes).ok())
@@ -1789,6 +1829,40 @@ mod tests {
                 .role_icon(&mine)
                 .unwrap()
                 .contains("/role-icons/20/abc.png")
+        );
+    }
+
+    #[test]
+    fn channels_say_what_their_icons_mark() {
+        let guild = json!({
+            "id": "10",
+            "properties": {"name": "Test", "rules_channel_id": "11"},
+            "roles": [{"id": "10", "name": "@everyone", "permissions": (VIEW_CHANNEL | CONNECT).to_string(), "position": 0}],
+            "channels": [
+                {"id": "11", "name": "rules", "type": 0, "position": 0},
+                {"id": "12", "name": "news", "type": 5, "position": 1, "nsfw": true},
+                {"id": "13", "name": "art", "type": 16, "position": 2},
+                {"id": "14", "name": "staff", "type": 0, "position": 3,
+                 "permission_overwrites": [{"id": "10", "type": 0, "allow": "0", "deny": VIEW_CHANNEL.to_string()}]},
+                {"id": "15", "name": "Lounge", "type": 2, "position": 0,
+                 "permission_overwrites": [{"id": "10", "type": 0, "allow": "0", "deny": CONNECT.to_string()}]},
+                {"id": "16", "name": "Talks", "type": 13, "position": 1},
+            ],
+        });
+        let server = server(&guild).unwrap();
+        assert_eq!(server.rules_channel.as_deref(), Some("11"));
+        let channel = |id: &str| server.channel(id).unwrap();
+        assert!(channel("12").announcement && channel("12").nsfw);
+        assert!(channel("13").media && !channel("13").nsfw);
+        assert!(channel("16").stage);
+        let private: Vec<_> = ["11", "12", "13", "14", "15", "16"]
+            .into_iter()
+            .filter(|id| server.private(channel(id)))
+            .collect();
+        assert_eq!(
+            private,
+            ["14", "15"],
+            "@everyone may not see staff, nor connect to Lounge"
         );
     }
 
