@@ -13,6 +13,10 @@ pub use yapfast_discord;
 
 pub mod application;
 mod audio_io;
+/// Where a watched stream's sound and picture sit on the streamer's own clock,
+/// and the bound on when a decoded picture is shown; see src/av_timing.rs.
+#[cfg(feature = "discord")]
+pub mod av_timing;
 pub mod backend;
 pub mod blocks;
 #[cfg(feature = "matrix")]

@@ -54,6 +54,7 @@ use crate::dup;
 #[cfg(wgc)]
 use crate::wgc;
 use crate::{
+    av_timing,
     decode::{Frame, Live},
     encode::{self, Effort, Encoder},
     frames::{Drawn, Frames, Writer},
@@ -1681,7 +1682,12 @@ fn watch(
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
     let mut receiver = StreamReceiver::start(server, crate::decode::DECODES.to_vec())?;
-    let player = receiver.take_sounds().and_then(|sounds| {
+    // The clock the streamer's sender reports put its sound and picture on,
+    // read before the player takes the sounds: what places each of the two
+    // positions a viewer's lip sync is measured from.
+    let sounds = receiver.take_sounds();
+    let clock = sounds.as_ref().map(stream_connection::SoundReceiver::clock);
+    let player = sounds.and_then(|sounds| {
         stream_audio::Player::start(
             sounds,
             sound.speakers,
@@ -1712,10 +1718,33 @@ fn watch(
     // same once a second a share's report keeps, so a viewer's Stream tab has
     // something true to show too.
     let mut told = Instant::now() - SENDING_EVERY;
+    // The streamer's two clocks as its sender reports put them, and the bound
+    // on when a decoded picture goes to the window: the sound that is already
+    // audible is the master. Both reset on a stop, a deafen or a clock the
+    // streamer broke, since nothing measured across one means anything after.
+    let mut timeline = av_timing::Timeline::new();
+    let mut scheduler = av_timing::Scheduler::new();
+    // The stream time of the picture last handed to the window and how its
+    // time is known, which the presentation skew is read against.
+    let mut presented: Option<av_timing::Presented> = None;
+    // The pictures the scheduler dropped or deferred, said once a second with
+    // the rest of how the watch is doing.
+    let mut dropped = 0u64;
+    let mut deferred = 0u64;
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
             match control {
-                Control::Hear(hearing) => sound.hearing.store(hearing, Ordering::Relaxed),
+                Control::Hear(hearing) => {
+                    sound.hearing.store(hearing, Ordering::Relaxed);
+                    // Deafened: nothing of this stream is heard, so the sound
+                    // is no longer what the picture is timed against, and a
+                    // picture waiting for it is one nobody will see.
+                    if !hearing {
+                        timeline.reset();
+                        scheduler.reset();
+                        presented = None;
+                    }
+                }
                 Control::Volume(volume) => sound.volume.set(volume),
                 Control::Shown(shown) => visible = shown,
                 // The tile showing the stream says how large it is when that
@@ -1780,10 +1809,45 @@ fn watch(
         };
         // How the watch is doing, said once a second while it plays: a hidden
         // tile is still a stream being decoded, and its report says so rather
-        // than going quiet and leaving the call's Stream tab with nothing.
+        // than going quiet and leaving the call's Stream Tab with nothing.
         if told.elapsed() >= SENDING_EVERY {
             told = Instant::now();
             let (width, height) = picture.size();
+            // The streamer's two clocks, read where the connection keeps them:
+            // its sender reports come about once a second, so this is read
+            // once a second too rather than locking them for every frame. The
+            // timeline carries each on from its own report between reads.
+            let now = Instant::now();
+            let (mut heard, mut queued) = (None, None);
+            if let Some(clock) = clock.as_ref() {
+                if let Some(report) = clock.audio() {
+                    timeline.heard(av_timing::Clock::Sound, mapping_of(report));
+                }
+                if let Some(report) = clock.video() {
+                    timeline.heard(av_timing::Clock::Picture, mapping_of(report));
+                }
+            }
+            if let Some((played, held)) = player.as_ref().and_then(stream_audio::Player::heard) {
+                heard = Some(played);
+                queued = Some(held);
+            }
+            // How far the picture runs from the sound, on the streamer's own
+            // timeline: the two clocks carried to now, and what the device
+            // says it has played against the picture last handed over. Both
+            // are `None` while a mapping is missing or older than five
+            // seconds, and the device's buffer is only in the second.
+            let held = Duration::from_millis(u64::from(queued.unwrap_or(0)));
+            tracing::debug!(
+                arrival_skew_ms = ?timeline.arrival_ms(now),
+                presentation_skew_ms = ?timeline.presentation_ms(
+                    now,
+                    held,
+                    presented.map(|presented| presented.time_ms)
+                ),
+                dropped,
+                deferred,
+                "watched stream A/V timing"
+            );
             report(Report::Sending(StreamStats {
                 codec: frame.codec.name().to_owned(),
                 decoder: Some(decoder.clone()),
@@ -1794,14 +1858,8 @@ fn watch(
                 width,
                 height,
                 preview: visible,
-                sound_heard_ms: player
-                    .as_ref()
-                    .and_then(stream_audio::Player::heard)
-                    .map(|(heard, _)| heard),
-                sound_queued_ms: player
-                    .as_ref()
-                    .and_then(stream_audio::Player::heard)
-                    .map(|(_, queued)| queued),
+                sound_heard_ms: heard,
+                sound_queued_ms: queued,
                 ..StreamStats::default()
             }));
         }
@@ -1835,6 +1893,41 @@ fn watch(
         // picture is told from the one before it and can be matched against the
         // sound when the two are put on one timeline.
         let time_ms = u64::from(frame.timestamp) * 1_000 / 90_000;
+        // The sound already audible is the master: a picture it has passed is
+        // dropped rather than shown late, and one it hasn't reached waits,
+        // briefly, rather than jumping ahead. Neither bound blocks this loop,
+        // which is the decode thread's own, and the UI and network never see
+        // it.
+        let now = Instant::now();
+        let held = player
+            .as_ref()
+            .and_then(stream_audio::Player::heard)
+            .map_or(Duration::ZERO, |(_, queued)| {
+                Duration::from_millis(u64::from(queued))
+            });
+        if let Some(audible) = timeline.audible_ms(now, held) {
+            match scheduler.offer(time_ms, audible, now) {
+                av_timing::Show::Now => {}
+                av_timing::Show::Drop => {
+                    dropped += 1;
+                    continue;
+                }
+                // Held only until it is due, and the wait is spent taking the
+                // next frame rather than sleeping: this loop is the one that
+                // drains the frames channel, so sleeping here would pack it
+                // and stall the network thread behind it. What comes in the
+                // meantime waits in `ahead` for the next turn, as a look-ahead
+                // frame does.
+                av_timing::Show::After(wait) => {
+                    deferred += 1;
+                    if ahead.is_none()
+                        && let Some(frame) = receiver.next(wait)
+                    {
+                        ahead = Some(frame);
+                    }
+                }
+            }
+        }
         let (width, height) = match picture {
             Frame::Software(picture) => write_picture(
                 &mut writer,
@@ -1869,6 +1962,13 @@ fn watch(
         // Once the conversion is done, not when it began: what the next
         // picture is measured from is when this one reached the screen.
         showing = Some(Instant::now());
+        // What reached the window, for the presentation skew: a worker hands
+        // a picture over through the frames file and the renderer's own
+        // completion is the window's to observe, so this is its submission and
+        // says so.
+        if !abandoned {
+            presented = Some(av_timing::Presented::submitted(time_ms, Instant::now()));
+        }
         if first {
             // What decodes it and where it goes, which is the half a viewer
             // can't tell from the picture: the card leaves it on the card and
@@ -1915,6 +2015,17 @@ fn write_picture(
 /// large the window is.
 fn tile_size((width, height): (u32, u32)) -> Option<(u32, u32)> {
     (width > 0 && height > 0).then(|| (width.min(WATCH_WIDTH), height.min(WATCH_HEIGHT)))
+}
+
+/// One of the streamer's clocks as its last sender report puts it, in the
+/// timeline's own terms. The connection keeps the two separately, so which
+/// clock a report is of is already known here and no SSRC has to be carried.
+fn mapping_of(report: stream_connection::SenderReport) -> av_timing::Mapping {
+    av_timing::Mapping {
+        ntp: report.ntp,
+        rtp: report.rtp,
+        heard: report.heard,
+    }
 }
 
 /// How soon after one picture another is worth converting and scaling: faster

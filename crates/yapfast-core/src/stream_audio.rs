@@ -1635,7 +1635,7 @@ mod tests {
         let tone = std::env::var("YAPFAST_TONE").expect("YAPFAST_TONE names a WAV file");
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone()).unwrap();
+        let capture = listen(inputs.clone(), Arc::default(), stop.clone()).unwrap();
         let mut player = std::process::Command::new("paplay")
             .args(["--volume=100", &tone])
             .spawn()
@@ -1667,7 +1667,7 @@ mod tests {
     fn leaves_out_yapfasts_own_sound() {
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone()).unwrap();
+        let capture = listen(inputs.clone(), Arc::default(), stop.clone()).unwrap();
         let mut player =
             crate::audio_io::Output::<f32>::open(None, "Discord voice", RATE, 2, None).unwrap();
         // A second of a 440 Hz tone at about -56 dB.
