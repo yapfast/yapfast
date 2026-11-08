@@ -1131,10 +1131,7 @@ impl Writer {
         // is decided by the middle this was claimed against — the swap below
         // takes the middle as it is at that moment, and `back` is the writer's
         // alone until then.
-        debug_assert_eq!(
-            slot, self.back,
-            "a picture goes into the writer's own slot"
-        );
+        debug_assert_eq!(slot, self.back, "a picture goes into the writer's own slot");
         let slot = self.back;
         let shared = &header.pictures[slot as usize];
         if drawn.texture.set < shared.set.load(Ordering::Acquire) {
@@ -1654,7 +1651,9 @@ mod tests {
         // claim and the publish.
         let slot = writer.claim().expect("a slot the writer may draw in");
         assert!(writer.publish_into(slot, &drawn(13, 4, 2)));
-        let slot = writer.claim().expect("the next slot the writer may draw in");
+        let slot = writer
+            .claim()
+            .expect("the next slot the writer may draw in");
         assert_ne!(slot, newest.slot, "not the picture on the screen");
         let taken = picture(&frames).expect("the picture the middle held");
         assert_ne!(slot, taken.slot, "the middle moved away from the slot");

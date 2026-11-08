@@ -393,7 +393,16 @@ impl Encoder {
             bail!("{codec:?} frames need an even size, not {width}x{height}");
         }
         let opened = match hardware.then(|| {
-            open_hardware(codec, width, height, fps, kbps, Tuning::default(), capture, &[])
+            open_hardware(
+                codec,
+                width,
+                height,
+                fps,
+                kbps,
+                Tuning::default(),
+                capture,
+                &[],
+            )
         }) {
             Some(Ok(opened)) => opened,
             refused => {
@@ -714,8 +723,14 @@ impl Encoder {
     /// The codec is kept rather than renegotiated: a stream's viewers were
     /// promised it, so a failure changes the encoder and not the format.
     fn reopen(&mut self) -> Result<()> {
-        let (codec, width, height, fps, kbps, effort) =
-            (self.codec, self.width, self.height, self.fps, self.kbps, self.effort);
+        let (codec, width, height, fps, kbps, effort) = (
+            self.codec,
+            self.width,
+            self.height,
+            self.fps,
+            self.kbps,
+            self.effort,
+        );
         if let Some(opened) = open_hardware(
             codec,
             width,
@@ -962,9 +977,7 @@ fn plan(codec: Codec, capture: Option<Luid>) -> Plan {
         };
         // One name, one open: two adapters of one vendor offer the encoder of
         // the same name, and opening it twice tells the second nothing.
-        if plan.tried.iter().any(|(_, tried)| *tried == name)
-            || plan.missing.contains(&name)
-        {
+        if plan.tried.iter().any(|(_, tried)| *tried == name) || plan.missing.contains(&name) {
             continue;
         }
         if has(name) {
@@ -1012,7 +1025,10 @@ fn open_hardware(
         None
     } else {
         let names: Vec<&'static str> = trying.iter().map(|(_, name)| *name).collect();
-        Some(std::ffi::CString::new(names.join(",")).map_err(|_| "a name with a zero in it".to_owned())?)
+        Some(
+            std::ffi::CString::new(names.join(","))
+                .map_err(|_| "a name with a zero in it".to_owned())?,
+        )
     };
     // The kind of GPU the stream asked for. native/hwenc.c uses it for the
     // render nodes VA-API chooses between itself on Linux; nothing else here
@@ -1028,7 +1044,9 @@ fn open_hardware(
         fps,
         kbps,
         tuning: tuning.name().as_ptr(),
-        encoders: listed.as_ref().map_or(std::ptr::null(), |names| names.as_ptr()),
+        encoders: listed
+            .as_ref()
+            .map_or(std::ptr::null(), |names| names.as_ptr()),
         preference: preference.as_ptr(),
     };
     let mut report = [0u8; 512];
@@ -1603,8 +1621,7 @@ mod tests {
     /// its predecessor did.
     #[test]
     fn a_replaced_encoder_starts_its_drop_count_at_none() {
-        let mut encoder =
-            Encoder::new(Codec::H264, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        let mut encoder = Encoder::new(Codec::H264, 64, 36, 30, 500, Effort::Light, false).unwrap();
         encoder.late = 7;
         let opened = open_software(Codec::H264, 64, 36, 30, 500, Effort::Light).unwrap();
         encoder.replace(opened);

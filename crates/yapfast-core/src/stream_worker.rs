@@ -5576,14 +5576,16 @@ root.mainloop()
         // A share started while the worker thought nothing watched it: the
         // control comes, and the next frame has a picture for the UI.
         controls.send(Control::Preview(true)).unwrap();
-        sink.check(pressure::Reading::default(), &mut report).unwrap();
+        sink.check(pressure::Reading::default(), &mut report)
+            .unwrap();
         sink.frame(&picture).unwrap();
         let (width, height) = frames
             .take(|width, height, _| (width, height))
             .expect("the frame after the control");
         assert_eq!((width, height), (PREVIEW_WIDTH, PREVIEW_HEIGHT));
         controls.send(Control::Preview(false)).unwrap();
-        sink.check(pressure::Reading::default(), &mut report).unwrap();
+        sink.check(pressure::Reading::default(), &mut report)
+            .unwrap();
         sink.frame(&picture).unwrap();
         assert_eq!(
             frames.take(|_, _, _| ()),
@@ -5656,11 +5658,23 @@ root.mainloop()
             diagnosis: Diagnosis::default(),
         };
         let mut report = |_| {};
-        assert_eq!(sink.check(pressure::Reading::default(), &mut report).unwrap(), None);
+        assert_eq!(
+            sink.check(pressure::Reading::default(), &mut report)
+                .unwrap(),
+            None
+        );
         controls.send(Control::Switch(Source::Display(1))).unwrap();
         controls.send(Control::Switch(Source::Window(2))).unwrap();
-        assert_eq!(sink.check(pressure::Reading::default(), &mut report).unwrap(), Some(Source::Window(2)));
-        assert_eq!(sink.check(pressure::Reading::default(), &mut report).unwrap(), None);
+        assert_eq!(
+            sink.check(pressure::Reading::default(), &mut report)
+                .unwrap(),
+            Some(Source::Window(2))
+        );
+        assert_eq!(
+            sink.check(pressure::Reading::default(), &mut report)
+                .unwrap(),
+            None
+        );
     }
 
     #[test]

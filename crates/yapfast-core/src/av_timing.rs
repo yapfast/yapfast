@@ -134,9 +134,8 @@ impl Timeline {
             Clock::Sound => SOUND_RATE,
             Clock::Picture => PICTURE_RATE,
         };
-        let broken = |held: Option<Mapping>| {
-            held.is_some_and(|held| !continuous(held, mapping, rate))
-        };
+        let broken =
+            |held: Option<Mapping>| held.is_some_and(|held| !continuous(held, mapping, rate));
         let changed = match clock {
             Clock::Sound => broken(self.sound),
             Clock::Picture => broken(self.picture),
@@ -429,10 +428,7 @@ mod tests {
     fn stream(now: Instant) -> Timeline {
         let mut timeline = Timeline::new();
         timeline.heard(Clock::Sound, mapping(now, Duration::ZERO, 100, 4_800_000));
-        timeline.heard(
-            Clock::Picture,
-            mapping(now, Duration::ZERO, 100, 9_000_000),
-        );
+        timeline.heard(Clock::Picture, mapping(now, Duration::ZERO, 100, 9_000_000));
         timeline
     }
 
@@ -471,10 +467,7 @@ mod tests {
         // The sound now comes on a clock that doesn't carry the held one on —
         // a restart, or another SSRC — so the picture's mapping, measured
         // against the old sound clock, no longer says anything.
-        timeline.heard(
-            Clock::Sound,
-            mapping(now, Duration::ZERO, 140, 6_720_000),
-        );
+        timeline.heard(Clock::Sound, mapping(now, Duration::ZERO, 140, 6_720_000));
         assert!(!timeline.mapped(), "both mappings go");
         let skew = timeline.skew(now, (Some(4_800_000), Some(9_000_000)), (None, None));
         assert_eq!(skew, Skew::default(), "nothing to compare");
@@ -573,13 +566,12 @@ mod tests {
         // The NTP time kept turns over at 65_536 s. A sound at the last second
         // of it and a picture a second past the start are two seconds apart,
         // not eighteen hours.
-        timeline.heard(Clock::Sound, mapping(now, Duration::ZERO, 65_535, 4_800_000));
-        timeline.heard(Clock::Picture, mapping(now, Duration::ZERO, 0, 0));
-        let skew = timeline.skew(
-            now,
-            (Some(4_800_000), Some(90_000)),
-            (None, None),
+        timeline.heard(
+            Clock::Sound,
+            mapping(now, Duration::ZERO, 65_535, 4_800_000),
         );
+        timeline.heard(Clock::Picture, mapping(now, Duration::ZERO, 0, 0));
+        let skew = timeline.skew(now, (Some(4_800_000), Some(90_000)), (None, None));
         assert_eq!(skew.arrival_ms, Some(2_000));
     }
 
@@ -599,16 +591,15 @@ mod tests {
         // ago. With nothing held, the sound audible now is a second of its
         // clock past zero, which is a second on the picture's timeline too.
         let mut timeline = Timeline::new();
-        timeline.heard(
-            Clock::Sound,
-            mapping(now, Duration::from_secs(1), 100, 0),
-        );
+        timeline.heard(Clock::Sound, mapping(now, Duration::from_secs(1), 100, 0));
         timeline.heard(Clock::Picture, mapping(now, Duration::ZERO, 100, 0));
         let audible = timeline.audible_ms(now, Duration::ZERO).unwrap();
         assert!((audible as i64 - 1_000).abs() <= 1, "{audible}");
         // Half a second held at the device is half a second the viewer hasn't
         // heard yet.
-        let held = timeline.audible_ms(now, Duration::from_millis(500)).unwrap();
+        let held = timeline
+            .audible_ms(now, Duration::from_millis(500))
+            .unwrap();
         assert!((held as i64 - 500).abs() <= 1, "{held}");
     }
 
@@ -617,10 +608,7 @@ mod tests {
         let now = Instant::now();
         let mut timeline = Timeline::new();
         assert_eq!(timeline.audible_ms(now, Duration::ZERO), None);
-        timeline.heard(
-            Clock::Sound,
-            mapping(now, Duration::from_secs(6), 100, 0),
-        );
+        timeline.heard(Clock::Sound, mapping(now, Duration::from_secs(6), 100, 0));
         assert_eq!(timeline.audible_ms(now, Duration::ZERO), None, "stale");
     }
 
@@ -631,22 +619,13 @@ mod tests {
         // Carried to now they are still level, so nothing separates what
         // arrived. The device's buffer is not in this number.
         let mut timeline = Timeline::new();
-        timeline.heard(
-            Clock::Sound,
-            mapping(now, Duration::from_secs(1), 100, 0),
-        );
-        timeline.heard(
-            Clock::Picture,
-            mapping(now, Duration::from_secs(1), 100, 0),
-        );
+        timeline.heard(Clock::Sound, mapping(now, Duration::from_secs(1), 100, 0));
+        timeline.heard(Clock::Picture, mapping(now, Duration::from_secs(1), 100, 0));
         assert_eq!(timeline.arrival_ms(now), Some(0));
         // The picture's report came only half a second ago, so its clock is
         // carried half as far: it sits half a second behind the sound.
         let mut timeline = Timeline::new();
-        timeline.heard(
-            Clock::Sound,
-            mapping(now, Duration::from_secs(1), 100, 0),
-        );
+        timeline.heard(Clock::Sound, mapping(now, Duration::from_secs(1), 100, 0));
         timeline.heard(
             Clock::Picture,
             mapping(now, Duration::from_millis(500), 100, 0),
@@ -661,10 +640,7 @@ mod tests {
         assert_eq!(timeline.arrival_ms(now), None);
         timeline.heard(Clock::Sound, mapping(now, Duration::ZERO, 100, 0));
         assert_eq!(timeline.arrival_ms(now), None, "no picture mapping");
-        timeline.heard(
-            Clock::Picture,
-            mapping(now, Duration::from_secs(6), 100, 0),
-        );
+        timeline.heard(Clock::Picture, mapping(now, Duration::from_secs(6), 100, 0));
         assert_eq!(timeline.arrival_ms(now), None, "stale");
     }
 
@@ -675,17 +651,13 @@ mod tests {
         // ago, so the sound audible now is at a second on the picture's
         // timeline. A picture shown at 1.5 s is half a second ahead of it.
         let mut timeline = Timeline::new();
-        timeline.heard(
-            Clock::Sound,
-            mapping(now, Duration::from_secs(1), 100, 0),
-        );
+        timeline.heard(Clock::Sound, mapping(now, Duration::from_secs(1), 100, 0));
         timeline.heard(Clock::Picture, mapping(now, Duration::ZERO, 100, 0));
         let presentation = timeline.presentation_ms(now, Duration::ZERO, Some(1_500));
         assert_eq!(presentation, Some(500));
         // Half a second still held at the device is half a second the sound
         // hasn't been heard yet: the picture is a whole second ahead.
-        let presentation =
-            timeline.presentation_ms(now, Duration::from_millis(500), Some(1_500));
+        let presentation = timeline.presentation_ms(now, Duration::from_millis(500), Some(1_500));
         assert_eq!(presentation, Some(1_000));
         // No picture shown yet says nothing.
         assert_eq!(timeline.presentation_ms(now, Duration::ZERO, None), None);
@@ -713,13 +685,13 @@ mod tests {
         );
         assert_eq!(scheduler.waiting(), Some(1_030));
         // A second ahead still waits only the 80 ms bound.
-        assert_eq!(
-            scheduler.offer(2_000, 1_000, now),
-            Show::After(EARLY)
-        );
+        assert_eq!(scheduler.offer(2_000, 1_000, now), Show::After(EARLY));
         assert_eq!(scheduler.waiting(), Some(2_000), "the newer one waits");
         // Due exactly 80 ms on.
-        assert_eq!(scheduler.ready(now + EARLY - Duration::from_millis(1)), None);
+        assert_eq!(
+            scheduler.ready(now + EARLY - Duration::from_millis(1)),
+            None
+        );
         assert_eq!(scheduler.ready(now + EARLY), Some(2_000));
         assert_eq!(scheduler.waiting(), None, "handed over once");
         assert_eq!(scheduler.ready(now + EARLY), None, "and not again");
