@@ -1986,6 +1986,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_open_call(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(&window, Action::GoToCall);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_open_chat(move |id| {
         if let Some(window) = weak.upgrade() {
             state

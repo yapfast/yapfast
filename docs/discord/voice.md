@@ -87,6 +87,17 @@ Opus comes from the libopus inside Yapfast's libwebrtc archive, called directly
 libopus of its own: two copies of the same symbols risk a clash when
 linking, particularly with MSVC on Windows.
 
+## The call's channel line
+
+As in Discord's voice panel, the dock's line under the status ("gen ·
+End-to-end encrypted") is a link to the call: a server's voice channel opens
+on its server showing its call, and a DM's or group DM's call opens its DM,
+the friends list included. While the call's channel or DM already shows, its
+chat beside the call included, it does nothing rather than reopening it.
+It's underlined with a pointer while hovered, and takes the keyboard's focus
+as the dock's buttons do, underlined while focused, Enter or Space following
+it. The status and the signal icon open the connection details instead.
+
 ## Connection details
 
 As in Discord's voice panel, the dock's status has a signal icon graded by

@@ -1414,6 +1414,9 @@ pub enum Action {
     OpenChat(String),
     /// Show the selected voice channel's chat, or with `false` its call.
     ShowVoiceChat(bool),
+    /// Go to the call this account is in, from the voice panel's link to it:
+    /// its server and channel, or its DM; nothing while it already shows.
+    GoToCall,
     /// Show a Discord thread beside the open channel, as its link in a
     /// message does; anything else opens as [`Action::Open`] does.
     OpenAside(String),
@@ -2834,6 +2837,7 @@ impl Application {
             Action::Open(id) => self.open(id, false),
             Action::OpenChat(id) => self.open(id, true),
             Action::ShowVoiceChat(chat) => self.show_voice_chat(chat),
+            Action::GoToCall => self.go_to_call(),
             Action::OpenAside(id) => self.open_aside(id),
             Action::CloseAside => self.close_aside(),
             Action::ExpandAside => self.expand_aside(),

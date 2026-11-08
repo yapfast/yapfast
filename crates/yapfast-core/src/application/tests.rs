@@ -241,6 +241,42 @@ fn navigation_restores_each_scope_selection_and_draft() {
 }
 
 #[test]
+fn the_voice_panels_channel_line_opens_the_call_unless_it_shows() {
+    let mut app = connected();
+    assert!(app.dispatch(Action::GoToCall).is_empty(), "no call");
+    app.state.voice.room = Some("lounge".into());
+    app.state.voice.phase = voice::Phase::Connected;
+    // From a DM: to the channel's server, and the channel's call.
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.navigation, Navigation::Server("friends".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("lounge"));
+    assert!(!app.state.voice_chat);
+    assert!(app.dispatch(Action::GoToCall).is_empty(), "already there");
+    // A preview voice room has no chat; a Discord voice channel's has.
+    let lounge = app.state.rooms.iter_mut().find(|room| room.id == "lounge");
+    Arc::make_mut(lounge.unwrap()).network = Network::Discord;
+    app.dispatch(Action::ShowVoiceChat(true));
+    assert!(
+        app.dispatch(Action::GoToCall).is_empty(),
+        "its chat is beside the same call"
+    );
+    assert!(app.state.voice_chat);
+    // From another channel of the server.
+    app.dispatch(Action::SelectRoom("games".into()));
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.selected.as_deref(), Some("lounge"));
+    // A DM's call goes to the DM, from the server or the friends list.
+    app.state.voice.room = Some("dm".into());
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.dm_screen, None);
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+}
+
+#[test]
 fn servers_open_their_last_channel_across_runs_or_the_top_one() {
     let mut app = connected();
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
