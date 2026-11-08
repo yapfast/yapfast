@@ -68,7 +68,7 @@ fn write(file: &std::path::Path, store: &CookieStore) -> anyhow::Result<()> {
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut writer = std::io::BufWriter::new(options.open(&partial)?);
+    let mut writer = std::io::BufWriter::new(crate::cache::open_in_folder(&options, &partial)?);
     cookie_store::serde::json::save(store, &mut writer)
         .map_err(|error| anyhow::anyhow!("{error}"))?;
     writer.flush()?;

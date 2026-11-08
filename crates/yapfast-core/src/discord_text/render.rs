@@ -636,6 +636,35 @@ pub(super) fn chat_profile(
                 since: connection.since.map(|ms| crate::clock::day(ms / 1000)),
             })
             .collect(),
+        widgets: profile
+            .widgets
+            .into_iter()
+            .map(|widget| crate::chat::ProfileWidget {
+                title: widget.title,
+                application: widget.application,
+                lists_games: widget.lists_games,
+                games: widget
+                    .games
+                    .into_iter()
+                    .map(|game| crate::chat::ProfileGame {
+                        id: game.id,
+                        name: game.name,
+                        icon: game.icon,
+                        comment: game.comment,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        wishlist_place: profile.wishlist.map(|place| crate::chat::WishlistPlace {
+            id: place.id,
+            private: place.private,
+        }),
+        // Each tab of the full profile asks for its own when it opens.
+        wishlist: Default::default(),
+        board_asked: false,
+        board_named: false,
+        recent: Vec::new(),
+        recent_asked: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
@@ -770,6 +799,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         roles: member.roles,
         timed_out_until: member.timed_out_until,
         tag: discord::server_tag(member.tag),
+        boosting_since: member.boosting_since,
     }
 }
 

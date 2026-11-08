@@ -493,6 +493,25 @@ impl Application {
         }
     }
 
+    /// Goes to the call this account is in, as the channel line of Discord's
+    /// voice panel does, unless it's what shows already: a voice channel's
+    /// chat counts, as it's beside the same call in Discord.
+    pub(super) fn go_to_call(&mut self) -> Vec<Effect> {
+        let state = &self.state;
+        let Some(id) = state.voice.room.clone().filter(|_| state.voice.active()) else {
+            return vec![];
+        };
+        let showing = state
+            .selected_room()
+            .is_some_and(|room| room.id == id && state.in_scope(room))
+            && state.dm_screen.is_none()
+            && state.browse.is_none();
+        if showing {
+            return vec![];
+        }
+        self.open(id, false)
+    }
+
     /// Switches the selected voice channel between its chat and its call.
     pub(super) fn show_voice_chat(&mut self, chat: bool) -> Vec<Effect> {
         match self.state.selected.clone() {
@@ -538,19 +557,32 @@ impl Application {
         }
     }
 
+    /// A click on a conversation in the list. Clicking a voice channel joins
+    /// it, or asks before leaving another call, and leaves what's on screen
+    /// as it is, as Discord's client does: the call shows in the voice dock
+    /// until the channel is clicked again, or the dock's channel name. A
+    /// voice channel whose chat mentions you opens on its chat as it joins,
+    /// as Discord's does, and one that can't be joined shows. Restoring a
+    /// selection, for example on navigation, never joins.
     pub(super) fn select_room(&mut self, id: String) -> Vec<Effect> {
-        let mut effects = self.select(id.clone());
-        // Clicking a voice channel joins it, or asks before leaving another
-        // call. Restoring a selection, for example on navigation, never joins.
-        let voice = self.state.selected.as_ref() == Some(&id)
-            && self
-                .state
-                .rooms
-                .iter()
-                .any(|room| room.id == id && room.voice);
-        if voice {
-            effects.extend(self.dispatch(Action::RequestJoinVoice(id)));
-        }
+        let voice = &self.state.voice;
+        let in_call = voice.active() && voice.room.as_ref() == Some(&id);
+        let joins = self
+            .state
+            .rooms
+            .iter()
+            .find(|room| room.id == id && room.voice && self.state.in_scope(room))
+            .filter(|_| !in_call && self.state.can_join_voice(&id))
+            .map(|room| room.mentions > 0 && room.voice_chat());
+        let Some(chat) = joins else {
+            return self.select(id);
+        };
+        let mut effects = if chat {
+            self.select_showing(id.clone(), true)
+        } else {
+            vec![]
+        };
+        effects.extend(self.dispatch(Action::RequestJoinVoice(id)));
         effects
     }
 

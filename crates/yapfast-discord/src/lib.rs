@@ -55,3 +55,5 @@ pub mod unread;
 pub mod voice;
 mod voice_connection;
 mod websocket;
+pub mod widgets;
+pub mod wishlist;

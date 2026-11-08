@@ -50,7 +50,9 @@
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
 // seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
-// resume with op 7. Each call connection gets an RTCP receiver report about
+// resume with op 7. POST /_control/voice-discovery?off makes the voice
+// server ignore UDP address discovery, so that joining fails as a blocked
+// network makes it, and without ?off answer again. Each call connection gets an RTCP receiver report about
 // its audio every 50 packets, as Discord's voice server sends; POST
 // /_control/voice-link?ping=300&loss=7 holds each heartbeat ACK (op 6) back
 // 300 ms and reports 7% of the audio lost, and with no parameters sets both
@@ -67,7 +69,9 @@
 // counted, and AV1's RTP aggregation and OBU framing are checked too. GET
 // /_control/video lists what each stream received.
 // /_control/voice-move moves Alice's call in the server to another voice
-// server, and GET /_control/voice-identifies lists the tokens voice
+// server, or with ?channel=ID moves her to that channel on another voice
+// server, as a member who drags her there does; POST /_control/voice-kick
+// disconnects her from voice. GET /_control/voice-identifies lists the tokens voice
 // connections identified with. POST /_control/elsewhere has Alice join the
 // Lounge on another client, whose session her voice state then names, and
 // ends her calls here; ?leave leaves it there. Op 4 with no channel takes
@@ -646,11 +650,12 @@ function wireUser(user: User) {
     discriminator: "0",
     public_flags: 0,
     // Bob wears the server's tag, as Discord sends the server a user
-    // chose to represent them; everyone else has none.
+    // chose to represent them, and Alice the one she chose with PUT
+    // /users/@me/clan; everyone else has none.
     primary_guild:
       user.id === users.bob.id
         ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
-        : null,
+        : (user as any).clan ?? null,
     avatar_decoration_data: decoration
       ? { asset: `a_${decoration}`, sku_id: decoration, expires_at: null }
       : null,
@@ -766,8 +771,10 @@ function collectiblePicture(sku: string, animated: boolean): Uint8Array {
 // banner and banner colour with PATCH /users/@me/profile, each answered
 // with USER_UPDATE. An empty display name goes by her username, and null
 // takes a picture or colour away. The banner needs Nitro, and an animated
-// avatar Nitro or Classic, here `--nitro`. GET /_control/profile shows hers,
-// and POST /_control/profile-reset puts it back as it started.
+// avatar Nitro or Classic, here `--nitro`. PUT /users/@me/clan with
+// {identity_guild_id, identity_enabled} chooses the server tag she wears,
+// "CREW" for "Server", or takes it off with null. GET /_control/profile shows
+// hers, and POST /_control/profile-reset puts it back as it started.
 const memberRoles = new Map<string, string[]>();
 const memberNicks = new Map<string, string>();
 /** Server profiles by user: avatar and banner hashes, bio and pronouns. */
@@ -3479,6 +3486,9 @@ const voiceSockets = new Set<Socket>();
 /** The token Alice's voice session holds now: a connection identifying
  *  with the one before is no longer valid, as on Discord. */
 let voiceToken = VOICE_TOKEN;
+/** Whether POST /_control/voice-discovery?off has the voice server ignore
+ *  address discovery. */
+let discoveryOff = false;
 const voiceEndpoint = (ws: Socket) => `${ws.data.origin.replace(/^http/, "ws")}/voice`;
 let ssrcs = 100;
 
@@ -4550,6 +4560,7 @@ const udp = await Bun.udpSocket({
   socket: {
     data(socket, data, port, address) {
       // IP discovery: type 1, length 70, SSRC, then the answer fills in the address.
+      if (discoveryOff && data.length === 74 && data.readUInt16BE(0) === 1) return;
       if (data.length !== 74 || data.readUInt16BE(0) !== 1) {
         if (data.length > 12 && (data[0]! & 0xc0) === 0x80 && !(data[1]! >= 192 && data[1]! <= 223)) {
           const ssrc = data.readUInt32BE(8);
@@ -6716,6 +6727,18 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     dispatch("USER_UPDATE", wire);
     return json(wire);
   }
+  if (method === "PUT" && path === "/users/@me/clan") {
+    const body: any = await req.json().catch(() => ({}));
+    const alice: any = users.alice;
+    const guild = body.identity_guild_id;
+    if (guild !== null && guild !== GUILD) return json({ message: "Unknown Guild", code: 10004 }, 404);
+    alice.clan = guild === null
+      ? null
+      : { identity_guild_id: guild, identity_enabled: body.identity_enabled, tag: "CREW", badge: "crew" };
+    const wire = { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 };
+    dispatch("USER_UPDATE", wire);
+    return json(wire);
+  }
   if (method === "PATCH" && path === "/users/@me/profile") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.pronouns === "string" && body.pronouns.length > 40) return tooLong("pronouns", 40);
@@ -7587,7 +7610,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
  *  and channels. */
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
-  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move",
+  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
@@ -8145,7 +8168,7 @@ const server = Bun.serve<SocketData>({
       return Response.json({ global_name, avatar, ...aliceProfile });
     }
     if (req.method === "POST" && path === "/_control/profile-reset") {
-      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1" });
+      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1", clan: null });
       Object.assign(aliceProfile, { bio: "", pronouns: "", banner: null, accent_color: null });
       dispatch("USER_UPDATE", { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 });
       return new Response("Alice's profile is as it started\n");
@@ -8256,6 +8279,10 @@ const server = Bun.serve<SocketData>({
     if (req.method === "GET" && path === "/_control/discovery-drop") {
       return Response.json({ dropped: discovery.dropped, answered: discovery.answered });
     }
+    if (req.method === "POST" && path === "/_control/voice-discovery") {
+      discoveryOff = url.searchParams.has("off");
+      return new Response(`address discovery ${discoveryOff ? "ignored" : "answered"}\n`);
+    }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
       for (const ws of calls) ws.close(4015, "Voice server crashed.");
@@ -8264,14 +8291,38 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/voice-move") {
       // Discord moves Alice's call in the server to another voice server: it
       // names the new one, and the old one closes with 4014 once she's there.
+      // Someone moving her to ?channel=ID on another voice server goes as on
+      // Discord: her voice state says where, the old server closes her call
+      // with 4014, and the new one is named 40 ms later.
       const state = voice.get(ALICE);
       if (!state?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
-      voiceToken = MOVED_VOICE_TOKEN;
-      for (const ws of sockets) {
-        if (ws.data.session !== state.session) continue;
-        send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+      const name = () => {
+        voiceToken = MOVED_VOICE_TOKEN;
+        for (const ws of sockets) {
+          if (ws.data.session !== state.session) continue;
+          send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+        }
+      };
+      const to = url.searchParams.get("channel");
+      if (!to) {
+        name();
+        return new Response("moved Alice's call\n");
       }
-      return new Response("moved Alice's call\n");
+      state.channel = to;
+      announce(ALICE);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      setTimeout(name, 40);
+      return new Response(`moved Alice to ${to}\n`);
+    }
+    if (req.method === "POST" && path === "/_control/voice-kick") {
+      // Someone disconnects Alice from voice: her voice state has no
+      // channel, and the voice server closes her call with 4014.
+      const before = voice.get(ALICE);
+      if (!before?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
+      voice.delete(ALICE);
+      moved(ALICE, before, origin);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      return new Response("disconnected Alice from voice\n");
     }
     if (req.method === "POST" && path === "/_control/elsewhere") {
       // Alice joins the Lounge on another client, such as her phone, or

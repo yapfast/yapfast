@@ -22,7 +22,11 @@ messages only to subscribers. Yapfast sends, replies, edits, deletes, reacts
 and sends files through Discord's cloud uploads. Mentions and timestamps show
 as text, custom emoji and stickers as pictures, every attachment shows, images
 with previews scaled by Discord's media proxy, and channels the account can't
-send in are read-only. Bots and webhooks have an APP tag after their name. An
+send in are read-only. Reacting follows Add Reactions instead, as in Discord's
+client: a channel the account can't send in, such as an announcement channel,
+still takes reactions, and without Add Reactions it can add to a reaction
+already on a message or take its own back. A timeout, or an archived thread
+it couldn't open again, takes reacting away. Bots and webhooks have an APP tag after their name. An
 author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
 authors' member profiles.
@@ -155,9 +159,11 @@ Yapfast starts from Discord as it last saw it, kept in the data directory by
 
 The files are readable only by the user and aren't encrypted. Each names its
 login by a SHA-256 hash of the token, so another linked account starts empty,
-and unlinking deletes them all. While Discord is unreachable, an open channel
-shows what was saved, waits, and loads once Yapfast is back, rather than showing
-an error.
+and unlinking deletes them all. A file is written beside its own and then
+swapped in; when its folder is gone, as when a cleaner deletes the data folder
+while Yapfast runs, the write makes the folder again. While Discord is
+unreachable, an open channel shows what was saved, waits, and loads once
+Yapfast is back, rather than showing an error.
 
 - Discord servers appear in the server rail with a Discord badge, and Discord
   DMs appear in the DM list with the same badge. A build without Matrix leaves

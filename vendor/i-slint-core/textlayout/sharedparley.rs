@@ -152,8 +152,8 @@ use cache::cached_paragraphs;
 use layout::{Layout, LayoutOptions, layout};
 use selection::{SelectionRendering, SelectionSpans};
 use shaping::{
-    Brush, LayoutWithoutLineBreaksBuilder, create_text_paragraphs, shape_paragraphs,
-    shaping_builder,
+    Brush, LayoutWithoutLineBreaksBuilder, TextParagraph, create_text_paragraphs,
+    shape_paragraphs, shaping_builder,
 };
 
 /// Lays out the shaped text of an item and runs `f` over the result.
@@ -261,6 +261,7 @@ pub fn draw_text(
     let text_overflow = text.overflow();
     let text_color = text.color().color();
     let text_selection = text.selection();
+    let hovered_link = text.hovered_link();
 
     let _ = with_render_text_layout(
         scale_factor,
@@ -321,6 +322,7 @@ pub fn draw_text(
                     platform_stroke_brush,
                     text_color,
                     selection.as_ref(),
+                    hovered_link,
                 );
             }
 
@@ -372,10 +374,28 @@ pub fn link_under_cursor(
     cache: Option<&TextLayoutCache>,
 ) -> Option<std::string::String> {
     with_render_text_layout(scale_factor, text, Some(item_rc), size, window, cache, |layout| {
-        link_in_layout(layout, cursor)
+        link_in_layout(layout, cursor).map(|(_, (_, link), _)| link.clone())
     })
     .flatten()
-    .map(|(link, _)| link)
+}
+
+/// Yapfast: where the link under the cursor ends, as a byte offset with the paragraphs counted as
+/// if joined by newlines: what `RenderText::hovered_link` gives back to draw its underline.
+#[cfg(feature = "std")]
+pub fn link_end_under_cursor(
+    scale_factor: ScaleFactor,
+    text: Pin<&dyn crate::item_rendering::RenderText>,
+    item_rc: &crate::item_tree::ItemRc,
+    size: LogicalSize,
+    cursor: PhysicalPoint,
+    window: &crate::api::Window,
+    cache: Option<&TextLayoutCache>,
+) -> Option<usize> {
+    with_render_text_layout(scale_factor, text, Some(item_rc), size, window, cache, |layout| {
+        link_in_layout(layout, cursor)
+            .map(|(paragraph, (range, _), _)| paragraph.range.start + range.end)
+    })
+    .flatten()
 }
 
 /// Yapfast: how much text a press selects.
@@ -495,15 +515,17 @@ pub fn link_box_under_cursor(
     cache: Option<&TextLayoutCache>,
 ) -> Option<(std::string::String, PhysicalRect)> {
     with_render_text_layout(scale_factor, text, Some(item_rc), size, window, cache, |layout| {
-        link_in_layout(layout, cursor)
+        link_in_layout(layout, cursor).map(|(_, (_, link), rect)| (link.clone(), rect))
     })
     .flatten()
 }
 
+/// The link under the cursor: its paragraph, its range there and address, and the box of its
+/// part on the line there.
 fn link_in_layout(
     layout: &Layout,
     cursor: PhysicalPoint,
-) -> Option<(std::string::String, PhysicalRect)> {
+) -> Option<(&TextParagraph, &(Range<usize>, std::string::String), PhysicalRect)> {
     layout.paragraph_by_y(cursor.y_length()).and_then(|paragraph| {
         // Where the paragraph is drawn: `y_offset` carries the vertical alignment.
         let paragraph_y: f64 = (layout.y_offset + paragraph.y).cast::<f64>().get();
@@ -547,7 +569,7 @@ fn link_in_layout(
                 });
                 clicked
             })
-            .map(|(_, link)| (link.clone(), found))
+            .map(|link| (paragraph, link, found))
     })
 }
 
@@ -633,6 +655,7 @@ pub fn draw_text_input(
                     None,
                     text_color,
                     selection.as_ref(),
+                    None,
                 );
 
                 if let Some((cursor_pos, cursor_width)) = cursor {

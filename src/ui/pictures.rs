@@ -116,12 +116,29 @@ pub(super) fn avatar_picture(url: &str) -> slint::Image {
 
 /// The address of the animated version of a collectible's still picture:
 /// Discord serves a decoration's or nameplate's `/static` PNG and, beside it,
-/// an `/animated` APNG. Any other address is its own.
+/// an `/animated` APNG. Any other address is its own. While the profile
+/// switches hold collectibles still, a collectible has none, so its APNG is
+/// never asked for.
 pub(super) fn animated_url(url: &str) -> String {
     match url.strip_suffix("/static") {
-        Some(base) if url.contains("/collectibles-shop/") => format!("{base}/animated"),
+        Some(base) if url.contains("/collectibles-shop/") => {
+            if MOVING_COLLECTIBLES.get() {
+                format!("{base}/animated")
+            } else {
+                String::new()
+            }
+        }
         _ => url.to_owned(),
     }
+}
+
+/// Whether decorations and nameplates may play; see [`animated_url`].
+pub(super) fn set_moving_collectibles(moving: bool) {
+    MOVING_COLLECTIBLES.set(moving);
+}
+
+thread_local! {
+    static MOVING_COLLECTIBLES: Cell<bool> = const { Cell::new(true) };
 }
 
 /// The frames and delays of the animation at `url`, once it has arrived and
@@ -131,6 +148,15 @@ pub(super) fn avatar_animation(url: &str) -> (ModelRc<slint::Image>, ModelRc<i32
     let source =
         AVATAR_SOURCES.with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade));
     source.map_or_else(Default::default, |source| animation(&source))
+}
+
+/// How many times the animation at `url` plays before holding its last
+/// frame; 0 for ever, or until it has arrived.
+pub(super) fn picture_plays(url: &str) -> i32 {
+    AVATAR_SOURCES
+        .with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade))
+        .and_then(|source| source.animation.as_ref().map(|animation| animation.plays))
+        .map_or(0, |plays| i32::try_from(plays).unwrap_or(0))
 }
 
 thread_local! {
@@ -969,6 +995,10 @@ mod tests {
         i_slint_backend_testing::init_no_event_loop();
         let still = "https://cdn.discordapp.com/media/v1/collectibles-shop/5/static";
         let animated = "https://cdn.discordapp.com/media/v1/collectibles-shop/5/animated";
+        // Held still by the profile switches, a collectible has none to ask for.
+        set_moving_collectibles(false);
+        assert_eq!(animated_url(still), "");
+        set_moving_collectibles(true);
         assert_eq!(animated_url(still), animated);
         assert_eq!(animated_url(animated), animated);
         let avatar = "https://cdn.discordapp.com/avatars/5/abc.png/static";

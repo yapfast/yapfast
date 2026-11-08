@@ -528,6 +528,7 @@ impl Tracker {
                 known.forwarding_disabled = update.forwarding_disabled;
                 known.verified = update.verified;
                 known.community = update.community;
+                known.rules_channel = update.rules_channel;
                 self.sort_servers();
                 true
             }
@@ -1147,6 +1148,7 @@ impl Tracker {
                     timed_out_until: None,
                     group_icon: None,
                     role_icon: None,
+                    boosting_since: None,
                 }
             })
             .collect();

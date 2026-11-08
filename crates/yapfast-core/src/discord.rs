@@ -29,7 +29,7 @@ use yapfast_discord::{
 
 #[cfg(feature = "discord")]
 use crate::{
-    chat::{self, ChatRoom, ChatServer, Event, VoicePerson},
+    chat::{self, ChatRoom, ChatServer, Event, Reacts, VoicePerson},
     network::Network,
 };
 
@@ -675,6 +675,11 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         join_locked: false,
         // Replying waits until the request is accepted.
         read_only: dm.request,
+        reacts: if dm.request {
+            Reacts::None
+        } else {
+            Reacts::Any
+        },
         slowed: false,
         timed_out_until: None,
         category: match (dm.request, dm.spam) {
@@ -704,6 +709,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         activities: dm.activities.clone(),
         parent: None,
         forum: false,
+        mark: Default::default(),
         unlisted: false,
         tag: server_tag(dm.tag.clone()),
         official: dm.official,
@@ -832,6 +838,7 @@ fn server_rooms(
                 locked: marks.access == Access::Hidden,
                 join_locked: marks.access != Access::Join,
                 read_only: !server.may_send(channel, me, &server.marks.roles),
+                reacts: reacts(server, channel, me),
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
@@ -854,6 +861,7 @@ fn server_rooms(
                 ),
                 parent: None,
                 forum: false,
+                mark: mark(server, channel),
                 unlisted: false,
                 tag: None,
                 official: false,
@@ -884,6 +892,7 @@ fn server_rooms(
                 locked: marks.access == Access::Hidden,
                 join_locked: false,
                 read_only: marks.access == Access::Locked,
+                reacts: reacts(server, channel, me),
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
@@ -906,6 +915,7 @@ fn server_rooms(
                 ),
                 parent: None,
                 forum: channel.forum.is_some(),
+                mark: mark(server, channel),
                 unlisted: unlisted(channel),
                 tag: None,
                 official: false,
@@ -930,6 +940,7 @@ fn server_rooms(
         muted: server.marks.muted,
         unavailable: server.unavailable,
         icon: server.icon.clone(),
+        tag: server_tag(server.tag.clone()),
         // Index::update sets it, since a folder changes without its servers.
         folder: None,
         hide_muted: server.marks.notifications.hide_muted_channels,
@@ -952,6 +963,58 @@ fn server_rooms(
             .collect(),
     };
     (rooms, server)
+}
+
+/// What reacting `me` may do in a server's channel or thread, as Discord's
+/// client decides apart from sending: nothing while timed out, unless the
+/// owner or an administrator, or in an archived thread that's locked or
+/// that `me` couldn't open again by sending in it; any reaction with Add
+/// Reactions; and else only adding to those already there.
+#[cfg(feature = "discord")]
+fn reacts(server: &MarkedServer, channel: &yapfast_discord::ready::Channel, me: &str) -> Reacts {
+    use yapfast_discord::ready::permission::{
+        ADD_REACTIONS, ALL, SEND_MESSAGES, SEND_MESSAGES_IN_THREADS,
+    };
+    // Without the server's roles, only the timeout is known.
+    let permissions = if server.roles.is_empty() {
+        ADD_REACTIONS | SEND_MESSAGES | SEND_MESSAGES_IN_THREADS
+    } else {
+        server.channel_permissions(channel, me, &server.marks.roles)
+    };
+    let reopens = SEND_MESSAGES | SEND_MESSAGES_IN_THREADS;
+    let shut = channel.thread.as_ref().is_some_and(|thread| {
+        thread.archived && (thread.locked || permissions & reopens != reopens)
+    });
+    if server.my_timeout.is_some() && permissions != ALL || shut {
+        Reacts::None
+    } else if permissions & ADD_REACTIONS != 0 {
+        Reacts::Any
+    } else {
+        Reacts::Existing
+    }
+}
+
+/// What a server channel's icon shows besides, as Discord's client marks
+/// it: the rules channel above all, then its kind, and whether @everyone is
+/// kept out of it or it's age-restricted.
+#[cfg(feature = "discord")]
+fn mark(server: &MarkedServer, channel: &yapfast_discord::ready::Channel) -> chat::ChannelMark {
+    use chat::MarkKind;
+    chat::ChannelMark {
+        kind: if server.rules_channel.as_deref() == Some(channel.id.as_str()) {
+            MarkKind::Rules
+        } else if channel.announcement {
+            MarkKind::Announcement
+        } else if channel.media {
+            MarkKind::Media
+        } else if channel.stage {
+            MarkKind::Stage
+        } else {
+            MarkKind::Plain
+        },
+        private: server.private(channel),
+        age_restricted: channel.nsfw,
+    }
 }
 
 /// A thread as it lists under `parent`, its channel's room.
@@ -981,6 +1044,7 @@ fn thread_room(
         join_locked: false,
         // Locked, or this account may not write in threads here.
         read_only: thread.marks.access == Access::Locked,
+        reacts: reacts(server, &thread, me),
         slowed: server.slowed(&thread, me, &server.marks.roles),
         timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
         category: parent.category.clone(),
@@ -1000,6 +1064,7 @@ fn thread_room(
         upload_limit: yapfast_discord::api::upload_limit(premium, Some(server.premium_tier)),
         parent: Some(parent.id.clone()),
         forum: false,
+        mark: Default::default(),
         unlisted: parent.unlisted,
         tag: None,
         official: false,
@@ -2562,6 +2627,74 @@ mod tests {
         assert_eq!(rooms.len(), 1);
         assert_eq!(rooms[0].people.len(), 1);
         assert_eq!(kept.dm_sources.len(), 1);
+    }
+
+    #[test]
+    fn reacting_follows_add_reactions_rather_than_sending() {
+        use yapfast_discord::ready::{
+            Overwrite, Thread, Timeout,
+            permission::{
+                ADD_REACTIONS, READ_MESSAGE_HISTORY, SEND_MESSAGES, SEND_MESSAGES_IN_THREADS,
+                VIEW_CHANNEL,
+            },
+        };
+        let reader = VIEW_CHANNEL | READ_MESSAGE_HISTORY | ADD_REACTIONS;
+        let everyone = |allow, deny| Overwrite {
+            id: "10".into(),
+            member: false,
+            allow,
+            deny,
+        };
+        let channel = |overwrites| Channel {
+            id: "21".into(),
+            overwrites: std::sync::Arc::new(overwrites),
+            ..Default::default()
+        };
+        let server = |my_timeout| {
+            marked(
+                Server {
+                    id: "10".into(),
+                    roles: HashMap::from([("10".to_owned(), reader)]).into(),
+                    my_timeout,
+                    ..Default::default()
+                },
+                &[],
+            )
+        };
+        let timed_out = server(Some(Timeout {
+            user: "1".into(),
+            until: u64::MAX,
+        }));
+        let server = server(None);
+        // An announcement channel: nobody sends, everyone reacts.
+        let announcements = channel(vec![]);
+        assert!(!server.may_send(&announcements, "1", &[]));
+        assert_eq!(reacts(&server, &announcements, "1"), Reacts::Any);
+        let no_reactions = channel(vec![everyone(SEND_MESSAGES, ADD_REACTIONS)]);
+        assert_eq!(
+            reacts(&server, &no_reactions, "1"),
+            Reacts::Existing,
+            "adding to a reaction there needs no Add Reactions"
+        );
+        let archived = |locked| Channel {
+            thread: Some(Box::new(Thread {
+                archived: true,
+                locked,
+                ..Default::default()
+            })),
+            ..channel(vec![everyone(SEND_MESSAGES | SEND_MESSAGES_IN_THREADS, 0)])
+        };
+        assert_eq!(reacts(&server, &archived(false), "1"), Reacts::Any);
+        assert_eq!(
+            reacts(&server, &archived(true), "1"),
+            Reacts::None,
+            "an archived thread that's locked takes none"
+        );
+        assert_eq!(
+            reacts(&timed_out, &announcements, "1"),
+            Reacts::None,
+            "a timeout takes reacting away"
+        );
     }
 
     #[test]

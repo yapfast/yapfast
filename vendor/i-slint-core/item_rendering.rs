@@ -49,6 +49,19 @@ impl<T> Default for ItemCache<T> {
     }
 }
 
+/// Drops entries taken out of an [`ItemCache`], first marking dirty whatever depends on them.
+/// Dropping an entry's tracker only unlinks its dependents: a binding that measured a text through
+/// it would keep that size, and miss every later change to the text.
+/// Called with the map no longer borrowed, as a dirty handler may use the cache.
+#[cfg(feature = "std")]
+fn drop_entries<T>(entries: impl IntoIterator<Item = crate::graphics::CachedGraphicsData<T>>) {
+    for entry in entries {
+        if let Some(tracker) = &entry.dependency_tracker {
+            tracker.as_ref().mark_dependents_dirty();
+        }
+    }
+}
+
 #[cfg(feature = "std")]
 impl<T: Clone> ItemCache<T> {
     /// Like [`Self::get_or_update_cache_entry`], but drops a value for which `is_stale` returns
@@ -136,7 +149,8 @@ impl<T> ItemCache<T> {
 
     /// free the whole cache
     pub fn clear_all(&self) {
-        self.map.borrow_mut().clear();
+        let map = core::mem::take(&mut *self.map.borrow_mut());
+        drop_entries(map.into_values().flat_map(HashMap::into_values));
     }
 
     /// Function that must be called when a component is destroyed.
@@ -150,15 +164,16 @@ impl<T> ItemCache<T> {
     /// given the address that [`crate::item_tree::ItemTreeRef::as_ptr`] returned for it.
     pub fn component_destroyed_at(&self, component_ptr: core::ptr::NonNull<u8>) {
         let component_ptr: *const _ = component_ptr.cast().as_ptr();
-        self.map.borrow_mut().remove(&component_ptr);
+        let removed = self.map.borrow_mut().remove(&component_ptr);
+        drop_entries(removed.into_iter().flat_map(HashMap::into_values));
     }
 
     /// free the cache for a given item
     pub fn release(&self, item_rc: &ItemRc) {
         let component = &(**item_rc.item_tree()) as *const _;
-        if let Some(sub) = self.map.borrow_mut().get_mut(&component) {
-            sub.remove(&item_rc.index());
-        }
+        let removed =
+            self.map.borrow_mut().get_mut(&component).and_then(|sub| sub.remove(&item_rc.index()));
+        drop_entries(removed);
     }
 
     /// Returns true if there are no entries in the cache; false otherwise.
@@ -168,8 +183,8 @@ impl<T> ItemCache<T> {
 
     /// Calls `f` on every cached value.
     ///
-    /// Use this to shrink values in place rather than removing their entries:
-    /// whatever depends on an entry is only notified of later changes while the entry exists.
+    /// Use this to shrink values in place rather than removing their entries: removing one
+    /// marks whatever depends on it dirty, so it is computed again.
     pub fn for_each_mut(&self, mut f: impl FnMut(&mut T)) {
         for per_component in self.map.borrow_mut().values_mut() {
             for entry in per_component.values_mut() {
@@ -641,6 +656,11 @@ pub trait RenderText: RenderString {
     }
     /// The part of the text drawn as selected, if any.
     fn selection(self: Pin<&Self>) -> Option<TextSelection> {
+        None
+    }
+    /// Yapfast: where the link under the pointer ends, the paragraphs counted as if joined by
+    /// newlines, so its text is underlined.
+    fn hovered_link(self: Pin<&Self>) -> Option<usize> {
         None
     }
 }

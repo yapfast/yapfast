@@ -247,6 +247,9 @@ export global PictureStore {
     pure callback animated(string) -> string;
     pure callback frames(string, int) -> [image];
     pure callback delays(string, int) -> [int];
+    /// How many times an animated picture plays before holding its last
+    /// frame, as its file says; 0 for ever.
+    pure callback plays(string, int) -> int;
 }
 
 // Whether animations play: only while Yapfast's window has the focus, as in
@@ -260,12 +263,28 @@ export component Picture inherits Image {
     in property <image> still;
     in property <[image]> frames;
     in property <[int]> delays;
+    /// How many times it plays before holding its last frame, as a browser
+    /// plays an APNG; 0 for ever.
+    in property <int> plays;
     property <int> frame;
+    property <int> rounds;
+    // Once it holds its last frame its timer stops, so it repaints nothing.
+    property <bool> held: root.plays > 0 && root.rounds >= root.plays;
+    changed frames => { root.frame = 0; root.rounds = 0; }
     source: root.frames.length > 1 ? root.frames[root.frame] : root.still;
     Timer {
-        running: root.frames.length > 1 && Motion.playing;
+        running: root.frames.length > 1 && Motion.playing && !root.held;
         interval: max(20, root.delays[root.frame]) * 1ms;
-        triggered => { root.frame = mod(root.frame + 1, root.frames.length); }
+        triggered => {
+            if root.frame + 1 < root.frames.length {
+                root.frame += 1;
+            } else if root.plays > 0 && root.rounds + 1 >= root.plays {
+                root.rounds = root.plays;
+            } else {
+                root.rounds += 1;
+                root.frame = 0;
+            }
+        }
     }
 }
 
@@ -491,6 +510,16 @@ export struct NameStyleRow {
     letters: [NameLetter],
 }
 
+// What the profile editor's name style window asks of the Rust side: a style
+// drawn as names are drawn everywhere else (src/ui/name_style.rs), from its
+// font, effect and colours written as hex joined by commas; one of those
+// colours; and whether a text holds a search.
+export global NameStyles {
+    pure callback row(int, int, string, string) -> [NameStyleRow];
+    pure callback stripe(string, int) -> color;
+    pure callback contains(string, string) -> bool;
+}
+
 // A name drawn with its style, as wide as its text: a line the width of the
 // name, with a row's own colour when it has no style. A few effects stack
 // the text twice, as Discord's `::before` copies do.
@@ -613,6 +642,7 @@ component EffectLayerView inherits Rectangle {
         still: self.first; image-fit: fill; accessible-role: none;
         frames: PictureStore.frames(PictureStore.animated(root.layer.url), PictureStore.revision);
         delays: PictureStore.delays(PictureStore.animated(root.layer.url), PictureStore.revision);
+        plays: PictureStore.plays(PictureStore.animated(root.layer.url), PictureStore.revision);
         init => { if self.first.width == 0 { PictureStore.request(root.layer.url); } }
     }
 }
@@ -1226,43 +1256,6 @@ export component ContextMenu inherits Rectangle {
     }
 }
 
-// The menu behind a toggle's caret: its devices, anything placed inside, then
-// a way into the full settings.
-export component DeviceMenu inherits Rectangle {
-    in property <string> heading;
-    in property <[string]> devices;
-    in property <int> current;
-    in property <string> empty;
-    callback select(int);
-    callback settings;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
-    VerticalLayout {
-        padding: 6px; spacing: 6px;
-        HorizontalLayout {
-            padding-left: 8px; padding-top: 4px;
-            Text { text: root.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if root.devices.length > 0: ScrollView {
-            // Five devices before the list scrolls.
-            height: min(5, root.devices.length) * 32px;
-            VerticalLayout {
-                for device[index] in root.devices: MenuItem {
-                    text: device; checked: index == root.current;
-                    clicked => { root.select(index); }
-                }
-            }
-        }
-        if root.devices.length == 0: HorizontalLayout {
-            padding-left: 8px; padding-right: 8px;
-            Label { text: root.empty; }
-        }
-        @children
-        Rectangle { height: 1px; background: Theme.line; }
-        MenuItem { text: "Voice settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
-    }
-}
-
 // How loud something sounds, from 0% to `maximum`: a marigold fill up to the
 // value. Above 100%, as Discord allows for people, a mark shows 100%, and a
 // drag snaps to it nearby. Dragging reports each step through `changed` and the
@@ -1345,6 +1338,65 @@ export component VolumeSlider inherits Rectangle {
             if event.text == Key.RightArrow || event.text == Key.UpArrow { root.move(root.step); return accept; }
             return reject;
         }
+    }
+}
+
+// The menu behind a device toggle's caret, as Vesktop's: the device chosen,
+// which opens the list of them in place, how loud it is, anything placed
+// inside, then a way into the voice settings.
+export component QuickDeviceMenu inherits Rectangle {
+    /// "Output" or "Input".
+    in property <string> kind;
+    in property <[string]> devices;
+    in property <int> current;
+    in property <string> empty;
+    in-out property <int> volume: 100;
+    callback select(int);
+    callback settings;
+    callback volume-changed(int);
+    callback volume-committed(int);
+    property <bool> listing;
+    // Five devices before the list scrolls.
+    property <length> list-height: root.listing ? min(5, max(1, root.devices.length)) * 32px + 4px : 0px;
+    animate list-height { duration: 180ms; easing: ease-out; }
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    VerticalLayout {
+        padding: 6px; spacing: 4px;
+        MenuItem {
+            text: root.kind + " Device"; submenu: true;
+            subtitle: root.devices.length == 0 ? "None found"
+                : root.current >= 0 && root.current < root.devices.length ? root.devices[root.current] : "System default";
+            clicked => { root.listing = !root.listing; }
+        }
+        Rectangle {
+            height: root.list-height; clip: true;
+            if root.devices.length > 0: ScrollView {
+                height: min(5, root.devices.length) * 32px;
+                VerticalLayout {
+                    for device[index] in root.devices: MenuItem {
+                        text: device; checked: index == root.current;
+                        clicked => { root.select(index); root.listing = false; }
+                    }
+                }
+            }
+            if root.devices.length == 0: HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Label { text: root.empty; }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        HorizontalLayout {
+            padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px;
+            VolumeSlider {
+                label: root.kind + " Volume"; value <=> root.volume;
+                changed(value) => { root.volume-changed(value); }
+                committed(value) => { root.volume-committed(value); }
+            }
+        }
+        @children
+        Rectangle { height: 1px; background: Theme.line; }
+        MenuItem { text: "Voice Settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
     }
 }
 
@@ -1495,6 +1547,25 @@ export component SensitivitySlider inherits Rectangle {
             if event.text == Key.LeftArrow || event.text == Key.DownArrow { root.step(-1); return accept; }
             if event.text == Key.RightArrow || event.text == Key.UpArrow { root.step(1); return accept; }
             return reject;
+        }
+    }
+}
+
+// An icon whose meaning shows on hover, as Discord's signals have it.
+export component TipIcon inherits Image {
+    in property <string> tip;
+    width: 18px; height: 18px;
+    accessible-role: image; accessible-label: root.tip;
+    TouchArea {
+        changed has-hover => {
+            if self.has-hover {
+                Tip.text = root.tip;
+                Tip.side = 0;
+                Tip.x = self.absolute-position.x + self.width / 2;
+                Tip.y = self.absolute-position.y;
+            } else if Tip.text == root.tip {
+                Tip.text = "";
+            }
         }
     }
 }

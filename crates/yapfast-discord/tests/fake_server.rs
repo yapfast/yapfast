@@ -3224,6 +3224,127 @@ async fn asks_again_when_address_discovery_is_lost() {
     assert_eq!(asks(), serde_json::json!({"dropped": 10, "answered": 2}));
 }
 
+/// A call's audio, as [`Hearer`] hears it, and why its connection dropped.
+#[derive(Default)]
+struct Dropping {
+    heard: Hearer,
+    dropped: std::sync::Mutex<Vec<String>>,
+}
+
+impl Listener for Dropping {
+    fn tick(&self, voices: &[(u64, &[i16])]) {
+        self.heard.tick(voices);
+    }
+    fn disconnected(&self, reason: &str) {
+        self.dropped.lock().unwrap().push(reason.to_owned());
+    }
+}
+
+/// Joins the Lounge, connecting a call that reports to `listener`.
+async fn join_lounge(
+    fixture: &Fixture,
+    listener: Arc<Dropping>,
+) -> (yapfast_discord::service::VoiceServer, Call) {
+    let assigned = fixture
+        .discord
+        .join(&fixture.guild, &fixture.lounge)
+        .await
+        .unwrap();
+    let call = timeout(
+        WAIT,
+        Call::connect(&assigned, &fixture.guild, &fixture.lounge, listener),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+    (assigned, call)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_call_follows_a_move_to_another_voice_server() {
+    let fixture = Fixture::start("a_call_follows_a_move_to_another_voice_server").await;
+    let (discord, server, guild) = (&fixture.discord, fixture.server, &fixture.guild);
+    let listener = Arc::new(Dropping::default());
+    let (assigned, mut call) = join_lounge(&fixture, listener.clone()).await;
+    let mut live = discord.live();
+    // Someone drags Alice to Create Room, on another voice server: her
+    // voice state says so, the old server closes the call with 4014, and
+    // the new server is named just after, as in a user's log.
+    let to = discord
+        .snapshots()
+        .borrow()
+        .servers
+        .iter()
+        .flat_map(|server| &server.voice_channels)
+        .find(|found| found.name == "Create Room")
+        .map(|found| found.id.clone())
+        .unwrap();
+    post_control(server, &format!("/_control/voice-move?channel={to}"), "");
+    let channel = live_where(&mut live, |event| match event {
+        Live::VoiceChannel {
+            guild: moved,
+            channel,
+        } if moved == *guild => Some(channel),
+        _ => None,
+    })
+    .await;
+    assert_eq!(channel, to);
+    let moved = live_where(&mut live, |event| match event {
+        Live::VoiceMoved {
+            guild: moved,
+            server,
+        } if moved == *guild => Some(server),
+        _ => None,
+    })
+    .await;
+    assert_eq!(moved.session_id, assigned.session_id);
+    until("the old connection closed", || {
+        !listener.dropped.lock().unwrap().is_empty()
+    })
+    .await;
+    assert!(listener.dropped.lock().unwrap()[0].contains("4014"));
+    // The call waited, and carries on there: Bob's tone comes through.
+    timeout(WAIT, call.move_to(&moved, &to))
+        .await
+        .expect("timed out moving the call")
+        .unwrap();
+    post_control(server, "/_control/bob-speak", "");
+    let bob: u64 = fixture.bob.parse().unwrap();
+    until("Bob's tone was heard", || {
+        listener
+            .heard
+            .0
+            .lock()
+            .unwrap()
+            .get(&bob)
+            .copied()
+            .unwrap_or(0)
+            > 3_000
+    })
+    .await;
+    assert_eq!(listener.dropped.lock().unwrap().len(), 1);
+    call.leave();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_call_disconnected_from_voice_ends_after_the_grace() {
+    let fixture = Fixture::start("a_call_disconnected_from_voice_ends_after_the_grace").await;
+    let listener = Arc::new(Dropping::default());
+    let (assigned, mut call) = join_lounge(&fixture, listener.clone()).await;
+    // Someone disconnects Alice from voice: 4014, and no new server.
+    post_control(fixture.server, "/_control/voice-kick", "");
+    until("the connection closed", || {
+        !listener.dropped.lock().unwrap().is_empty()
+    })
+    .await;
+    tokio::time::sleep(yapfast_discord::voice::MOVE_GRACE + Duration::from_millis(500)).await;
+    let late = call.move_to(&assigned, &fixture.lounge).await.unwrap_err();
+    assert_eq!(late.to_string(), "the call has ended");
+    assert_eq!(listener.dropped.lock().unwrap().len(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn follows_the_call_across_rooms_and_clients() {
@@ -6191,6 +6312,7 @@ async fn edits_the_main_profile_as_discords_client_does() {
         .save_main_profile(
             &serde_json::json!({"global_name": "Ally", "avatar": dot}),
             &serde_json::json!({"bio": "Hi, I'm **Ally**", "pronouns": "she/her", "accent_color": 0x5865f2}),
+            None,
         )
         .await
         .unwrap();
@@ -6212,7 +6334,11 @@ async fn edits_the_main_profile_as_discords_client_does() {
     assert_eq!(own.accent, Some(0x5865f2));
     assert!(
         discord
-            .save_main_profile(&serde_json::json!({}), &serde_json::json!({"banner": dot}))
+            .save_main_profile(
+                &serde_json::json!({}),
+                &serde_json::json!({"banner": dot}),
+                None,
+            )
             .await
             .is_err(),
         "a banner takes Nitro"
@@ -6223,6 +6349,7 @@ async fn edits_the_main_profile_as_discords_client_does() {
         .save_main_profile(
             &serde_json::json!({"global_name": "", "avatar": null}),
             &serde_json::json!({"accent_color": null}),
+            None,
         )
         .await
         .unwrap();
@@ -6240,6 +6367,28 @@ async fn edits_the_main_profile_as_discords_client_does() {
         (own.name.as_str(), own.avatar, own.accent),
         ("", None, None)
     );
+    // The server tag she wears goes to its own endpoint, and shows in the
+    // profile fetched next; none takes it off.
+    let empty = serde_json::json!({});
+    let me = discord.snapshots().borrow().user_id.clone().unwrap();
+    let tag = async || {
+        discord
+            .profile(yapfast_discord::ready::PRIVATE, &me, |_| {})
+            .await
+            .unwrap()
+            .tag
+            .map(|tag| tag.text)
+    };
+    discord
+        .save_main_profile(&empty, &empty, Some(Some(&fixture.guild)))
+        .await
+        .unwrap();
+    assert_eq!(tag().await.as_deref(), Some("CREW"));
+    discord
+        .save_main_profile(&empty, &empty, Some(None))
+        .await
+        .unwrap();
+    assert_eq!(tag().await, None);
     post_control(server, "/_control/profile-reset", "");
     snapshot_where(discord, renamed("Alice")).await;
 }
