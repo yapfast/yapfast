@@ -175,7 +175,15 @@ audio waits in a jitter buffer per speaker: playing
 starts once 60 ms has arrived, a missing packet plays as Opus's loss
 concealment (or from the next packet's forward error correction), and a
 speaker who stays silent for 100 ms drops out of the mix until they speak
-again. When the voice gateway drops, the connection resumes with op 7, and
+again. A packet that DAVE drops, such as an unencrypted frame in an encrypted
+call outside a transition, plays as nothing rather than as a lost frame to
+conceal. NetEq plays by timestamp, so Discord's clients never conceal those
+frames. Some senders' streams carry such packets between their sealed frames,
+one for every frame or bursts of 50 at once, and counting each one as lost
+played those speakers at half speed or cut them out. The log line "dropping a
+speaker's audio" gives the first such packet's size and Opus TOC byte. After an
+upgrade from transport-only encryption, unencrypted frames pass for 10 s,
+libdave's transition expiry, and all along a pending downgrade. When the voice gateway drops, the connection resumes with op 7, and
 connects again from scratch if resuming fails.
 
 Before it selects the protocol, a connection, a call's or a stream's, learns
