@@ -1300,6 +1300,9 @@ impl Eq for Pixels {}
 pub struct Animation {
     /// How long each frame shows, in milliseconds.
     pub delays: Vec<u32>,
+    /// How many times its file says it plays, before holding its last frame;
+    /// 0 for ever.
+    pub plays: u32,
     file: AnimationFile,
     format: AnimationFormat,
 }
@@ -4150,6 +4153,7 @@ fn decode_kept_lottie(
         rgba: Pixels::new(frames.width, frames.height, frames.next()?),
         animation: Some(Animation {
             delays: std::mem::take(&mut frames.delays),
+            plays: 0,
             file: AnimationFile::of(data, kept),
             format: AnimationFormat::Lottie,
         }),
@@ -4260,6 +4264,11 @@ fn decode_animation(
         rgba: Pixels::new(width, height, first),
         animation: Some(Animation {
             delays,
+            plays: if format == AnimationFormat::Png {
+                apng_plays(data)
+            } else {
+                0
+            },
             file: AnimationFile::of(data, kept),
             format,
         }),
@@ -4332,6 +4341,56 @@ fn apng_delays(data: &[u8]) -> Option<Vec<u32>> {
     }
     delays.truncate(usize::try_from(count?).ok()?);
     Some(delays)
+}
+
+/// How many times an animated PNG says it plays, from its `acTL` chunk; 0
+/// for ever, as the standard says.
+fn apng_plays(data: &[u8]) -> u32 {
+    let mut at = 8usize;
+    while let Some(header) = data.get(at..at + 8) {
+        let Ok(size) = <[u8; 4]>::try_from(&header[..4]).map(u32::from_be_bytes) else {
+            return 0;
+        };
+        if &header[4..] == b"acTL" {
+            return data
+                .get(at + 12..at + 16)
+                .and_then(|plays| <[u8; 4]>::try_from(plays).ok())
+                .map_or(0, u32::from_be_bytes);
+        }
+        if &header[4..] == b"IDAT" {
+            return 0;
+        }
+        at += 12 + size as usize;
+    }
+    0
+}
+
+#[cfg(test)]
+mod apng_plays_tests {
+    use super::apng_plays;
+
+    #[test]
+    fn an_animated_png_says_how_many_times_it_plays() {
+        let chunk = |name: &[u8; 4], body: &[u8]| {
+            let mut bytes = (body.len() as u32).to_be_bytes().to_vec();
+            bytes.extend_from_slice(name);
+            bytes.extend_from_slice(body);
+            bytes.extend_from_slice(&[0; 4]);
+            bytes
+        };
+        let png = |plays: u32| {
+            let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+            data.extend(chunk(b"IHDR", &[0; 13]));
+            let mut control = 2u32.to_be_bytes().to_vec();
+            control.extend_from_slice(&plays.to_be_bytes());
+            data.extend(chunk(b"acTL", &control));
+            data.extend(chunk(b"IDAT", &[0]));
+            data
+        };
+        assert_eq!(apng_plays(&png(1)), 1);
+        assert_eq!(apng_plays(&png(0)), 0, "for ever");
+        assert_eq!(apng_plays(b"not a picture"), 0);
+    }
 }
 
 /// An animated WebP's frames' durations, in milliseconds, from their `ANMF`
@@ -4433,6 +4492,7 @@ impl Animation {
     pub(crate) fn video(data: &[u8], kept: Option<&std::path::Path>, delays: Vec<u32>) -> Self {
         Self {
             delays,
+            plays: 0,
             file: AnimationFile::of(data, kept),
             format: AnimationFormat::Video,
         }
