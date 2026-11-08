@@ -1,6 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
-import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
+import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem, NameStyleRow } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 
 export struct PersonRow {
@@ -19,6 +19,10 @@ export struct PersonRow {
     /// Who they are across calls, by Discord or Matrix user id, which their
     /// volumes are remembered by.
     person: string,
+    /// On Discord, how they draw their name, and the server tag they wear by
+    /// it with its badge's address, as their member row has them.
+    name-style: [NameStyleRow],
+    tag: string, tag-badge: string,
 }
 
 // Marks someone sharing their screen, as Discord's red LIVE tag does.
@@ -706,6 +710,9 @@ component StageTile inherits Rectangle {
 // A tile's name, at its bottom left.
 component TileChip inherits Rectangle {
     in property <string> name;
+    /// The font their name style picks, and its weight; empty for the UI's own.
+    in property <string> name-family;
+    in property <int> name-weight;
     in property <bool> live;
     /// Why their tile may look wrong, such as a lost connection.
     in property <string> note;
@@ -718,7 +725,10 @@ component TileChip inherits Rectangle {
     chip := HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 6px;
         @children
-        Text { text: root.name; color: #ffffff; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+        Text {
+            text: root.name; font-family: root.name-family; font-weight: root.name-family != "" ? root.name-weight : 700;
+            color: #ffffff; font-size: 14px; vertical-alignment: center; overflow: elide;
+        }
         if root.live: Middle { LivePill { } }
         if root.note != "": Text { text: root.note; color: Theme.accent; font-size: 13px; vertical-alignment: center; overflow: elide; }
     }
@@ -917,6 +927,7 @@ export component ParticipantGrid inherits Flickable {
         }
         TileChip {
             tile-width: parent.width; tile-height: parent.height; name: stream.person.name; live: true;
+            name-family: stream.person.name-style[0].family; name-weight: stream.person.name-style[0].weight;
             Image { source: @image-url("icons/screen-share.svg"); width: 14px; image-fit: contain; colorize: #ffffff; }
         }
     }
@@ -977,6 +988,7 @@ export component ParticipantGrid inherits Flickable {
             tile-width: parent.width; tile-height: parent.height;
             // A stream with a tile of its own is LIVE there.
             name: person.name; live: person.live && (person.local || !person.video);
+            name-family: person.name-style[0].family; name-weight: person.name-style[0].weight;
             note: person.status != "Muted" && person.status != "Deafened" && person.status != "Speaking" && person.status != "Listening" ? person.status : "";
             if person.muted && !person.deafened: Image { source: @image-url("icons/mic-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
             if person.deafened: Image { source: @image-url("icons/headphone-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }

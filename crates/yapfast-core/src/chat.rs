@@ -480,6 +480,10 @@ pub struct VoicePerson {
     /// This account, in the call on another client, as Discord shows it:
     /// dimmed, without its icons.
     pub elsewhere: bool,
+    /// How they draw their name in the call's server, or everywhere, and
+    /// the server tag they wear by it, on Discord.
+    pub style: Option<Arc<NameStyle>>,
+    pub tag: Option<ServerTag>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Hash)]
