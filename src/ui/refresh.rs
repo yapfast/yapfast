@@ -102,6 +102,13 @@ impl Reach {
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// How long a member list stays as built while its people change: in a busy
+/// server someone comes, goes or changes what they're doing several times a
+/// second, and each change drew a frame. So the list shows at most two
+/// changes a second, the first at once and those in the pause after it
+/// together at its end.
+pub(super) const ROSTER_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
+
 /// How long a custom emoji's picture waits for others before the emoji picker
 /// shows it: a few frames, as showing them costs little.
 const EMOJI_BATCH: std::time::Duration = std::time::Duration::from_millis(32);
@@ -2087,9 +2094,22 @@ impl Adapter {
             .as_deref()
             .and_then(|room| self.app.server_owner(room));
         let shown = self.roster_shown.as_ref();
-        let list = !shown.is_some_and(|shown| shown.shows_list(state, &state.members, &owner, now));
-        let panel = !shown.is_some_and(|shown| shown.shows_panel(state, &state.members, now));
-        let members = match &state.members {
+        // The same conversation's people, changed within the pause after the
+        // list was built, wait for its end; see `ROSTER_PAUSE`.
+        let held = shown.filter(|shown| {
+            self.roster_due.running()
+                && shown.selection_version == state.selection_version
+                && matches!((&shown.members, &state.members), (Some(Ok(_)), Some(Ok(_))))
+                && !shown.same_members(state, &state.members)
+        });
+        self.roster_held |= held.is_some();
+        let shown_members = match held {
+            Some(shown) => shown.members.clone(),
+            None => state.members.clone(),
+        };
+        let list = !shown.is_some_and(|shown| shown.shows_list(state, &shown_members, &owner, now));
+        let panel = !shown.is_some_and(|shown| shown.shows_panel(state, &shown_members, now));
+        let members = match &shown_members {
             Some(Ok(members)) => members.as_slice(),
             _ => &[],
         };
@@ -2110,10 +2130,21 @@ impl Adapter {
         };
         if list {
             self.show_roster(window, members, owner.as_deref(), now);
+            self.roster_held = false;
+            let (adapter, weak) = (self.weak.clone(), window.as_weak());
+            self.roster_due
+                .start(slint::TimerMode::SingleShot, ROSTER_PAUSE, move || {
+                    if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                        let mut adapter = adapter.borrow_mut();
+                        if adapter.roster_held {
+                            adapter.show_members(&window);
+                        }
+                    }
+                });
         }
         if list || panel {
             self.roster_shown = Some(RosterShown {
-                members: state.members.clone(),
+                members: shown_members.clone(),
                 selection_version: state.selection_version,
                 owner,
                 cosmetics: state.cosmetics,

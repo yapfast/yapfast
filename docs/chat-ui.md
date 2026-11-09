@@ -71,6 +71,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   feed of what people there are doing and did lately; see
   [the Activity panel](discord/people.md#the-activity-panel). Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
+  The list shows a change at once, then holds for half a second and shows
+  the changes from that time together, so a busy server's list draws at most
+  twice a second.
 - Read live text messages. Earlier history loads once the timeline has
   stayed within a screen of its top for 50 ms, a page at a time (30 events
   for Matrix, 50 messages for Discord), until the conversation's first

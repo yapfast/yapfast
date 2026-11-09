@@ -2883,6 +2883,8 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         let window = window.clone_strong();
         adapter.refresh(&window);
     }
+    // The preview's people were shown just before, so these wait out the pause.
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
     let roster = window.get_roster();
     let (bob, dave) = (roster.row_data(0).unwrap(), roster.row_data(1).unwrap());
     assert_eq!(bob.decoration_url, "ring.png");
@@ -2974,6 +2976,8 @@ fn the_member_list_is_built_again_only_once_what_it_shows_changes() {
         adapter.refresh(&window);
     };
     refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    // The preview's people were shown just before, so these wait out the pause.
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
     let roster = window.get_roster();
     assert_eq!(roster.row_data(0).unwrap().name, "Bob");
     assert!(roster.row_data(1).unwrap().timed_out);
@@ -2989,8 +2993,11 @@ fn the_member_list_is_built_again_only_once_what_it_shows_changes() {
     // A refresh for anything else, such as a message, leaves the rows be.
     refresh(&|state| state.picture_changes += 1);
     assert_eq!(roster.row_data(0).unwrap().name, "marked");
-    // The same people, come again, are a new list.
+    // The same people, come again, are a new list, which waits out the pause
+    // after the list was built.
     refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    assert_eq!(roster.row_data(0).unwrap().name, "marked");
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
     assert_eq!(roster.row_data(0).unwrap().name, "Bob");
     mark();
     refresh(&|state| state.hide_nameplates = true);

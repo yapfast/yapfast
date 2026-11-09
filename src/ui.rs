@@ -1928,6 +1928,12 @@ struct Adapter {
     sidebar: Option<SidebarShown>,
     /// What the member list showed last, so it's built again only once that changes.
     roster_shown: Option<RosterShown>,
+    /// Runs for [`ROSTER_PAUSE`] after the member list was built; see
+    /// `show_members`.
+    roster_due: slint::Timer,
+    /// Whether the member list changed while `roster_due` ran, to show
+    /// once it ends.
+    roster_held: bool,
     /// The account's own profile its card showed last, so the card is built
     /// again only once that or one of its pictures changes.
     account_profile_shown: Option<AccountCardShown>,
@@ -2289,6 +2295,8 @@ impl Adapter {
                 rows: Vec::new(),
                 sidebar: None,
                 roster_shown: None,
+                roster_due: slint::Timer::default(),
+                roster_held: false,
                 account_profile_shown: None,
                 switcher: None,
                 places: Vec::new(),
