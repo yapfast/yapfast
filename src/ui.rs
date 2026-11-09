@@ -2224,6 +2224,12 @@ impl Adapter {
         let layout = Layout::read(&root);
         layout.apply(window);
         let mut app = Application::default();
+        #[cfg(feature = "plugins")]
+        let mut plugins = plugins;
+        #[cfg(feature = "plugins")]
+        if let Some(plugins) = &mut plugins {
+            plugins.enable(&mut app);
+        }
         app.remember_reaction_uses(layout.reactions.clone());
         app.remember_sticker_favorites(
             layout

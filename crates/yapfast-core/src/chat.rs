@@ -4314,6 +4314,9 @@ pub enum Event {
     Sync(bool),
     Error(String),
     LoggedOut,
+    /// The plugin runtime changed what a plugin draws.
+    #[cfg(feature = "plugins")]
+    Plugin(crate::plugins::slots::Output),
 }
 
 pub fn sort_members(members: &mut [ChatMember]) {

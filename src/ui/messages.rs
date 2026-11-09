@@ -795,6 +795,8 @@ pub(super) fn message_row_within(
             })
             .unwrap_or_default(),
         has_poll: message.poll.is_some(),
+        // Plugins' decorations go on after, where any are kept.
+        plugin: ModelRc::default(),
     };
     if collapsed(message, revealed) {
         // Discord shows nothing of a blocked message until asked.

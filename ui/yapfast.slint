@@ -1,6 +1,7 @@
 import { AccountPopover } from "yapfast/account-popover.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { UiParts } from "yapfast/parts.slint";
+import { PluginPart, PluginBanner, PluginToast, PluginButtons } from "plugins.slint";
 import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
 import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
@@ -68,6 +69,7 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
 export { UiParts } from "yapfast/parts.slint";
+export { PluginKind, PluginTone, PluginCell, PluginRow, PluginPart } from "plugins.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
@@ -350,6 +352,18 @@ export component YapfastWindow inherits Window {
     in property <string> account-status-emoji;
     in property <string> storage;
     in property <string> notice;
+    /// What plugins draw in their slots: notices above the conversation,
+    /// toasts in the window's corner, and buttons beside the composer's and
+    /// on a message's hover bar. Empty without plugins.
+    in property <[PluginPart]> plugin-banners;
+    in property <[PluginPart]> plugin-toasts;
+    in property <[PluginPart]> plugin-composer;
+    in property <[PluginPart]> plugin-hover;
+    /// The person used a plugin's widget: the plugin, its slot, the
+    /// widget's id, its value, and what it's drawn on, such as a message.
+    callback plugin-acted(string, string, string, string, string);
+    /// The person closed a plugin's notice or toast: the plugin and slot.
+    callback plugin-dismissed(string, string);
     in-out property <string> graphics-notice;
     in property <string> room-name;
     /// A Discord thread's channel: its name, and its room id to go back to.
@@ -2942,6 +2956,11 @@ export component YapfastWindow inherits Window {
                         }
                         if root.graphics-notice != "": Banner { text <=> root.graphics-notice; dismissed => { root.graphics-notice = ""; } }
                         if root.notice != "": Banner { text: root.notice; dismissed => { root.dismiss-notice(); } }
+                        for part in root.plugin-banners: PluginBanner {
+                            part: part;
+                            acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
+                            dismissed(plugin, slot) => { root.plugin-dismissed(plugin, slot); }
+                        }
                         // Voice channel: a stage of participants, or an invitation to join.
                         // A DM's call shows the same above its messages.
                         if root.voice-panel || root.call-shown: Rectangle {
@@ -3260,6 +3279,7 @@ export component YapfastWindow inherits Window {
                                                             root.open-link(link);
                                                         }
                                                         open-link(link) => { root.open-link(link); }
+                                                        plugin-acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                                                         open-thread(room) => { root.open-aside(room); }
                                                         react(item, key) => { root.react(item, key); }
                                                         retry(item) => { root.retry(item); }
@@ -3359,6 +3379,10 @@ export component YapfastWindow inherits Window {
                                                         if message-bar.deletes: IconButton {
                                                             icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
                                                             clicked => { root.delete-now(message.item); }
+                                                        }
+                                                        if root.plugin-hover.length > 0: PluginButtons {
+                                                            parts: root.plugin-hover; subject: message.item;
+                                                            acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                                                         }
                                                         if !message-bar.deletes && UiParts.message-more: IconButton {
                                                             icon: @image-url("icons/ellipsis.svg"); label: "More";
@@ -3575,6 +3599,13 @@ export component YapfastWindow inherits Window {
                                                 } else {
                                                     root.open-picker("yapfast:composer");
                                                 }
+                                            }
+                                        }
+                                        if root.plugin-composer.length > 0: VerticalLayout {
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
+                                            PluginButtons {
+                                                parts: root.plugin-composer;
+                                                acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                                             }
                                         }
                                         // As Discord's: the GIFs, the stickers, then the emoji,
@@ -4756,6 +4787,16 @@ export component YapfastWindow inherits Window {
     }
     if root.title-height > 0 && !root.window-maximized: ResizeEdges {
         resize-window(direction) => { root.resize-window(direction); }
+    }
+    // Plugins' toasts, the newest at the bottom, over the composer's corner.
+    if root.plugin-toasts.length > 0: VerticalLayout {
+        x: root.width - self.width - 16px; y: root.height - self.height - 88px;
+        width: 340px; height: self.preferred-height; spacing: 8px;
+        for part in root.plugin-toasts: PluginToast {
+            part: part; counting: root.window-focused;
+            acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
+            dismissed(plugin, slot) => { root.plugin-dismissed(plugin, slot); }
+        }
     }
     if Tip.text != "": tip-card := Rectangle {
         property <length> w: tip-text.preferred-width + 20px;

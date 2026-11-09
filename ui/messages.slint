@@ -3,6 +3,7 @@ import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
+import { PluginPart, PluginWidgets } from "plugins.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
 /// emoji is Discord's `name:id`. A custom emoji shows its `picture` once it has
@@ -798,6 +799,9 @@ export struct MessageRow {
     thread-room: string, thread-name: string, thread-detail: string,
     /// The Discord poll it asks.
     poll: PollCard, has-poll: bool,
+    /// What plugins draw under it, each under its plugin's name: empty
+    /// unless a plugin decorated it.
+    plugin: [PluginPart],
 }
 
 // The card a click on an emoji in a message's text opens, as Discord's shows
@@ -2355,6 +2359,8 @@ export component MessageContent inherits VerticalLayout {
     /// A sticker in the message was clicked: its card opens there.
     callback open-sticker(string, int, length, length, length, length);
     callback media-menu(string, int, bool, length, length);
+    /// A plugin's widget under the message was used; see PluginWidgets.
+    callback plugin-acted(string, string, string, string, string);
     /// Long bodies fold to twelve lines of text, with Show more.
     in property <bool> collapse-long;
     /// Show more or Show less was clicked: the message's item, whether it
@@ -2581,6 +2587,10 @@ export component MessageContent inherits VerticalLayout {
                 view-image(id, index) => { root.view-image(id, index); }
                 save-attachment(id, index) => { root.save-attachment(id, index); }
                 media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
+            }
+            for part in message.plugin: PluginWidgets {
+                part: part; subject: message.item;
+                acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
             }
             if message.thread-room != "": ThreadChip {
                 name: message.thread-name; detail: message.thread-detail;

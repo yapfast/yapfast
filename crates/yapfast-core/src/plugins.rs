@@ -3,6 +3,7 @@
 //! ([`ui`]). Nothing here starts a process or loads WebAssembly; a plugin
 //! that only changes the interface needs neither. See `docs/plugins.md`.
 
+pub mod slots;
 pub mod ui;
 
 use std::{
@@ -46,15 +47,21 @@ pub enum Input {
         action: String,
         target: String,
     },
-    /// Clicked or changed the widget `id` the plugin drew in `slot`: a
-    /// toggle's `true` or `false`, a select's option, an input's text, a
-    /// slider's number; empty for a button or link.
+    /// Clicked or changed the widget `id` the plugin drew in `slot`, with
+    /// its value: a toggle's `true` or `false`, a select's option, an
+    /// input's text, a slider's number, a link's own value, and nothing for
+    /// a button. `subject` is what the widget is drawn on: the message, for
+    /// one under a message or on its hover bar; the open conversation, for
+    /// the composer's; and nothing elsewhere.
     Widget {
         plugin: String,
-        slot: String,
+        slot: slots::Slot,
         id: String,
         value: String,
+        subject: String,
     },
+    /// Closed the plugin's notice or toast, which leaves the interface.
+    Dismissed { plugin: String, slot: slots::Slot },
 }
 
 /// The plugin runtime, as the interface reaches it. The runtime implements
@@ -183,6 +190,56 @@ pub fn load_folder(folder: &Path) -> Vec<Found> {
     found
 }
 
+/// What a plugin's folder shows as it loads, from its `slots.json`: an
+/// object from a slot's id to a widget tree, or from `message:` and a
+/// message's id to what the plugin draws under that message. A stand-in for
+/// the runtime's `ui.set_slot` and decorate replies while there is none,
+/// for trying the widgets; a file that can't be used is logged and shows
+/// nothing.
+pub fn preview(found: &Found) -> Vec<slots::Output> {
+    let path = found.folder.join("slots.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let trees: std::collections::BTreeMap<String, serde_json::Value> =
+        match serde_json::from_str(&text) {
+            Ok(trees) => trees,
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "skipped a plugin's slots");
+                return Vec::new();
+            }
+        };
+    let plugin = &found.manifest.id;
+    trees
+        .into_iter()
+        .filter_map(|(key, tree)| {
+            let tree = serde_json::from_value::<ui::Tree>(tree)
+                .map_err(|error| error.to_string())
+                .and_then(ui::Tree::checked);
+            let output = tree.and_then(|tree| match key.strip_prefix("message:") {
+                Some(message) => Ok(slots::Output::Decorate {
+                    plugin: plugin.clone(),
+                    message: message.to_owned(),
+                    tree: Some(tree),
+                }),
+                None => match slots::Slot::from_id(&key) {
+                    Some(slot) if slot != slots::Slot::Message => Ok(slots::Output::SetSlot {
+                        plugin: plugin.clone(),
+                        slot,
+                        tree,
+                    }),
+                    _ => Err(format!("there's no slot {key:?}")),
+                },
+            });
+            output
+                .inspect_err(|reason| {
+                    tracing::warn!(path = %path.display(), reason, "skipped a plugin's slot");
+                })
+                .ok()
+        })
+        .collect()
+}
+
 /// The plugins in the folder [`FOLDER_VARIABLE`] names: none when it names
 /// none, or in safe mode.
 pub fn load_from_environment() -> Vec<Found> {
@@ -222,10 +279,22 @@ mod tests {
         let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing/plugins");
         let found = load_folder(&folder);
         assert!(!found.is_empty());
+        let mut previews = 0;
         for plugin in found {
             let checked = ui::check(&plugin.manifest);
             assert!(checked.refused.is_empty(), "{:?}", checked.refused);
+            let slots = plugin.folder.join("slots.json");
+            if slots.exists() {
+                let keys = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                    &std::fs::read_to_string(slots).unwrap(),
+                )
+                .unwrap()
+                .len();
+                assert_eq!(preview(&plugin).len(), keys, "every slot shows");
+                previews += keys;
+            }
         }
+        assert!(previews > 0);
     }
 
     #[test]

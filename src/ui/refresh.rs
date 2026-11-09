@@ -37,6 +37,8 @@ pub(super) struct Reach {
     emoji: bool,
     /// The video playing changed.
     video: bool,
+    /// What a plugin draws changed, which shows only in plugins' slots.
+    plugins: bool,
     pub(super) everything: bool,
 }
 
@@ -48,6 +50,7 @@ impl Reach {
         picker: true,
         emoji: true,
         video: true,
+        plugins: true,
         everything: true,
     };
 
@@ -82,6 +85,11 @@ impl Reach {
                 video: true,
                 ..Self::default()
             },
+            #[cfg(feature = "plugins")]
+            Event::Plugin(_) => Self {
+                plugins: true,
+                ..Self::default()
+            },
             _ => Self::EVERYTHING,
         }
     }
@@ -94,6 +102,7 @@ impl Reach {
             picker: self.picker || other.picker,
             emoji: self.emoji || other.emoji,
             video: self.video || other.video,
+            plugins: self.plugins || other.plugins,
             everything: self.everything || other.everything,
         }
     }
@@ -396,6 +405,10 @@ impl Adapter {
         if reach.video {
             self.show_video(window);
         }
+        #[cfg(feature = "plugins")]
+        if reach.plugins {
+            self.show_plugin_slots(window);
+        }
     }
 
     /// The custom emoji pictures that arrived for the emoji picker, shown in
@@ -462,6 +475,8 @@ impl Adapter {
             window.set_search_text(SharedString::default());
         }
         self.show_header(window);
+        #[cfg(feature = "plugins")]
+        self.show_plugin_slots(window);
         self.show_dm_tools(window);
         self.show_threads(window);
         self.show_forum(window);
@@ -3811,6 +3826,10 @@ impl Adapter {
                     let mut row = layout.restyle(message, message_row(message, marks.revealed));
                     // In a server, an author's name shows its style's font alone.
                     row.name_style = name_style::font_only_in(in_server, row.name_style);
+                    #[cfg(feature = "plugins")]
+                    if let Some(slots) = &state.plugins {
+                        row.plugin = super::plugins::decorations(slots, &message.id);
+                    }
                     row
                 },
             );

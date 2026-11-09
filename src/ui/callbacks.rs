@@ -1028,6 +1028,30 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
         });
     }
+    #[cfg(feature = "plugins")]
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_plugin_acted(move |plugin, slot, id, value, subject| {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .plugin_acted(&window, &plugin, &slot, &id, &value, &subject);
+            }
+        });
+    }
+    #[cfg(feature = "plugins")]
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_plugin_dismissed(move |plugin, slot| {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .plugin_dismissed(&window, &plugin, &slot);
+            }
+        });
+    }
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();

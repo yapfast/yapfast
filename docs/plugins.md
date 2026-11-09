@@ -160,3 +160,57 @@ Slint draws no tree of any depth. A cell's `kind` is `text`, `heading`,
 never a colour. `Tree::parse` refuses a tree of more than 64 rows and cells
 together, or an interactive cell without a plain `id`, and cuts text to
 4 KiB a cell.
+
+```json
+{ "rows": [
+  { "cells": [{ "kind": "heading", "text": "Daily digest" }, { "kind": "badge", "text": "New", "tone": "accent" }] },
+  { "framed": true, "cells": [{ "kind": "toggle", "id": "digest", "text": "Every morning", "checked": true }] },
+  { "cells": [{ "kind": "button", "id": "open", "text": "Open", "tone": "accent" }] }
+] }
+```
+
+## Slots
+
+[`plugins/slots.rs`](../crates/yapfast-core/src/plugins/slots.rs) keeps what
+plugins draw, in `AppState::plugins`, which is `None` with no plugin enabled.
+The plugin runtime changes it by sending `Event::Plugin` with an `Output`:
+`SetSlot` and `ClearSlot` for a slot, and `Decorate` for what a plugin draws
+under a message. The same tree again changes nothing. `Reach::of` sends that
+event to `show_plugin_slots` alone, which builds again only the slots whose
+count of changes moved, and only the message rows whose decorations changed.
+
+| Slot | Id | Where | Draws |
+| --- | --- | --- | --- |
+| Banner | `banner` | Under Yapfast's own notices, above the conversation, with Dismiss | Any widget |
+| Toast | `toast` | Over the window's bottom right, gone after 6 s while the window is focused and the pointer isn't on it | Any widget |
+| Composer | `composer` | Beside the composer's GIF, sticker and emoji buttons | Buttons only |
+| Hover bar | `message.actions` | On a message's hover bar, before More, in the open channel | Buttons only |
+| Message | `message` | Under a message's text, attachments and cards, before its reactions | Any widget |
+
+A message's decorations are in `MessageRow::plugin`, one field: an empty
+model unless a plugin decorated that row, so a timeline without plugins
+carries one empty model per row. `Slots` keeps the decorations of the last
+512 messages decorated and drops the least recent; the runtime decorates a
+message again when it's edited, or when it comes back on screen after being
+dropped. Rows of the thread beside a channel aren't decorated yet.
+
+[`ui/plugins.slint`](../ui/plugins.slint) draws a tree with precompiled
+components. `PluginWidgets` puts *From* and the plugin's name above every
+tree, and a plugin's buttons on the hover bar and beside the composer say
+whose they are to a screen reader. Each interactive cell has a role, a label
+and keyboard focus, with Space and Enter: buttons and links are buttons, a
+toggle a switch, a select a combo box, a slider a slider. Pictures in `icon`
+and `image` cells stay empty until the runtime fetches them.
+
+What the person does goes back through the window's `plugin-acted` callback
+as `Input::Widget`: the plugin, the slot, the cell's id, its value (`true`
+or `false` for a toggle, the option, the text, the number; nothing for a
+button) and its subject, the message a widget is drawn on, or the open
+conversation for a composer button. Closing a notice or toast sends
+`Input::Dismissed` and takes it away at once. Both reach the `Runtime` as
+`Effect::Plugin`.
+
+`slots.json` beside a manifest in `YAPFAST_PLUGINS_DIR` stands in for the
+runtime: an object from a slot's id, or `message:` and a message's id, to a
+tree, shown as the plugins load. [`testing/plugins/widgets`](../testing/plugins/widgets)
+shows each widget that way.

@@ -6,8 +6,13 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use yapfast_core::plugins::{
     self,
-    ui::{Checked, Part, Place, ROW_PREFIX, Size, Subject, Target, UiOverrides},
+    slots::{Output, Slot},
+    ui::{
+        Checked, Kind, Part, Place, PluginName, ROW_PREFIX, Size, Subject, Target, Tone, Tree,
+        UiOverrides,
+    },
 };
+use yapfast_ui::{PluginCell, PluginKind, PluginPart, PluginRow, PluginTone};
 
 use super::*;
 
@@ -17,6 +22,12 @@ pub(super) struct Plugins {
     /// Where what the person does with plugins' rows and widgets goes: the
     /// plugin runtime, once one is attached.
     pub(super) runtime: Option<Box<dyn plugins::Runtime>>,
+    names: Vec<PluginName>,
+    /// What the plugins' folders show in slots until the runtime can,
+    /// handed to the application once it exists.
+    previews: Vec<Output>,
+    /// Each slot's count of changes when the window last showed it.
+    shown: [u64; Slot::ALL.len()],
 }
 
 impl Plugins {
@@ -52,10 +63,151 @@ impl Plugins {
         });
         theme::set_overlay(colours);
         tracing::info!(plugins = checked.len(), "loaded plugins");
+        let previews = found.iter().flat_map(plugins::preview).collect();
+        let names = found
+            .into_iter()
+            .map(|found| PluginName {
+                id: found.manifest.id,
+                name: found.manifest.name,
+            })
+            .collect();
         Some(Box::new(Self {
             overrides,
             runtime: None,
+            names,
+            previews,
+            shown: [0; Slot::ALL.len()],
         }))
+    }
+
+    #[cfg(test)]
+    fn with(
+        overrides: Option<Arc<UiOverrides>>,
+        runtime: Option<Box<dyn plugins::Runtime>>,
+    ) -> Self {
+        let names = overrides
+            .as_ref()
+            .map_or_else(Vec::new, |overrides| overrides.plugins.clone());
+        Self {
+            overrides,
+            runtime,
+            names,
+            previews: Vec::new(),
+            shown: [0; Slot::ALL.len()],
+        }
+    }
+
+    /// Tells the application which plugins are enabled, and shows what
+    /// their folders preview.
+    pub(super) fn enable(&mut self, app: &mut Application) {
+        app.enable_plugins(self.names.clone());
+        for output in self.previews.drain(..) {
+            app.apply(yapfast_core::chat::Event::Plugin(output));
+        }
+    }
+}
+
+/// What plugins draw under a message: an empty model unless one decorated
+/// it.
+pub(super) fn decorations(slots: &plugins::slots::Slots, message: &str) -> ModelRc<PluginPart> {
+    let parts: Vec<PluginPart> = slots
+        .decorations(message)
+        .map(|kept| part(&slots.names()[kept.plugin], Slot::Message, &kept.tree))
+        .collect();
+    if parts.is_empty() {
+        ModelRc::default()
+    } else {
+        ModelRc::new(VecModel::from(parts))
+    }
+}
+
+/// A widget tree as the window draws it, under its plugin's name.
+fn part(name: &PluginName, slot: Slot, tree: &Tree) -> PluginPart {
+    let kind = |kind: Kind| match kind {
+        Kind::Text => PluginKind::Text,
+        Kind::Heading => PluginKind::Heading,
+        Kind::Muted => PluginKind::Muted,
+        Kind::Code => PluginKind::Code,
+        Kind::Badge => PluginKind::Badge,
+        Kind::Icon => PluginKind::Icon,
+        Kind::Image => PluginKind::Image,
+        Kind::Button => PluginKind::Button,
+        Kind::Link => PluginKind::Link,
+        Kind::Toggle => PluginKind::Toggle,
+        Kind::Select => PluginKind::Select,
+        Kind::Input => PluginKind::Input,
+        Kind::Slider => PluginKind::Slider,
+        Kind::Progress => PluginKind::Progress,
+        Kind::Divider => PluginKind::Divider,
+        Kind::Spacer => PluginKind::Spacer,
+    };
+    let tone = |tone: Tone| match tone {
+        Tone::Normal => PluginTone::Normal,
+        Tone::Muted => PluginTone::Muted,
+        Tone::Accent => PluginTone::Accent,
+        Tone::Success => PluginTone::Success,
+        Tone::Warning => PluginTone::Warning,
+        Tone::Danger => PluginTone::Danger,
+    };
+    let rows: Vec<PluginRow> = tree
+        .rows
+        .iter()
+        .map(|row| {
+            let cells: Vec<PluginCell> = row
+                .cells
+                .iter()
+                .map(|cell| {
+                    let number = cell.value.trim().parse::<f32>().ok();
+                    let amount = number.map_or(0.0, |number| {
+                        ((number - cell.min) / (cell.max - cell.min)).clamp(0.0, 1.0)
+                    });
+                    let markdown = matches!(cell.kind, Kind::Text | Kind::Muted);
+                    PluginCell {
+                        kind: kind(cell.kind),
+                        id: cell.id.as_str().into(),
+                        text: cell.text.as_str().into(),
+                        styled: if markdown {
+                            slint::StyledText::from_markdown(&cell.text)
+                                .unwrap_or_else(|_| slint::StyledText::from_plain_text(&cell.text))
+                        } else {
+                            Default::default()
+                        },
+                        tone: tone(cell.tone),
+                        value: cell.value.as_str().into(),
+                        checked: cell.checked,
+                        enabled: cell.enabled,
+                        // Plugins' pictures come with the runtime's assets and
+                        // network gate.
+                        picture: slint::Image::default(),
+                        options: ModelRc::new(VecModel::from(
+                            cell.options
+                                .iter()
+                                .map(|option| SharedString::from(option.as_str()))
+                                .collect::<Vec<_>>(),
+                        )),
+                        selected: cell
+                            .options
+                            .iter()
+                            .position(|option| *option == cell.value)
+                            .map_or(-1, |index| index as i32),
+                        minimum: cell.min,
+                        maximum: cell.max,
+                        amount,
+                    }
+                })
+                .collect();
+            PluginRow {
+                framed: row.framed,
+                indent: i32::from(row.indent),
+                cells: ModelRc::new(VecModel::from(cells)),
+            }
+        })
+        .collect();
+    PluginPart {
+        plugin: name.id.as_str().into(),
+        name: name.name.as_str().into(),
+        slot: slot.id().into(),
+        rows: ModelRc::new(VecModel::from(rows)),
     }
 }
 
@@ -86,6 +238,86 @@ pub(super) fn show(window: &YapfastWindow, plugins: Option<&Plugins>) {
 }
 
 impl Adapter {
+    /// Shows each slot whose trees changed since the window last showed
+    /// it, and nothing else.
+    pub(super) fn show_plugin_slots(&mut self, window: &YapfastWindow) {
+        let (Some(plugins), Some(slots)) = (&mut self.plugins, &mut self.app.state.plugins) else {
+            return;
+        };
+        // Only the rows of messages whose decorations changed.
+        let decorated = slots.take_decorated();
+        if !decorated.is_empty() {
+            for (index, row) in self.rows.iter_mut().enumerate() {
+                if decorated.iter().any(|id| *id == row.id.as_str()) {
+                    row.plugin = decorations(slots, &row.id);
+                    self.models.messages.set_row_data(index, row.clone());
+                }
+            }
+        }
+        for slot in Slot::ALL {
+            let changes = slots.changes(slot);
+            if plugins.shown[slot as usize] == changes {
+                continue;
+            }
+            plugins.shown[slot as usize] = changes;
+            if slot == Slot::Message {
+                continue;
+            }
+            let parts: Vec<PluginPart> = slots
+                .drawn(slot)
+                .map(|drawn| part(&slots.names()[drawn.plugin], slot, &drawn.tree))
+                .collect();
+            let model = ModelRc::new(VecModel::from(parts));
+            match slot {
+                Slot::Banner => window.set_plugin_banners(model),
+                Slot::Toast => window.set_plugin_toasts(model),
+                Slot::Composer => window.set_plugin_composer(model),
+                Slot::HoverBar => window.set_plugin_hover(model),
+                // Rows of messages, above.
+                Slot::Message => {}
+            }
+        }
+    }
+
+    /// What the person did with a plugin's widget, for the application to
+    /// pass on: a composer button acts on the open conversation.
+    pub(super) fn plugin_acted(
+        &mut self,
+        window: &YapfastWindow,
+        plugin: &str,
+        slot: &str,
+        id: &str,
+        value: &str,
+        subject: &str,
+    ) {
+        let Some(slot) = Slot::from_id(slot) else {
+            return;
+        };
+        let subject = match slot {
+            Slot::Composer => self.app.state.selected.clone().unwrap_or_default(),
+            _ => subject.to_owned(),
+        };
+        let input = plugins::Input::Widget {
+            plugin: plugin.to_owned(),
+            slot,
+            id: id.to_owned(),
+            value: value.to_owned(),
+            subject,
+        };
+        self.action(window, Action::Plugin(input));
+    }
+
+    /// The person closed a plugin's notice or toast.
+    pub(super) fn plugin_dismissed(&mut self, window: &YapfastWindow, plugin: &str, slot: &str) {
+        if let Some(slot) = Slot::from_id(slot) {
+            let input = plugins::Input::Dismissed {
+                plugin: plugin.to_owned(),
+                slot,
+            };
+            self.action(window, Action::Plugin(input));
+        }
+    }
+
     pub(super) fn ui_overrides(&self) -> Option<&UiOverrides> {
         self.plugins.as_ref()?.overrides.as_deref()
     }
@@ -461,13 +693,13 @@ mod tests {
         let window = YapfastWindow::new().unwrap();
         let adapter = adapter(&window);
         let received = Rc::new(RefCell::new(Vec::new()));
-        adapter.borrow_mut().plugins = Some(Box::new(Plugins {
-            overrides: Some(overrides(&[(
+        adapter.borrow_mut().plugins = Some(Box::new(Plugins::with(
+            Some(overrides(&[(
                 "{}",
                 r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
             )])),
-            runtime: Some(Box::new(Recorder(received.clone()))),
-        }));
+            Some(Box::new(Recorder(received.clone()))),
+        )));
         menus::choose(
             &mut adapter.borrow_mut(),
             &window,
@@ -497,14 +729,14 @@ mod tests {
     fn parts_and_sizes_show_as_plugins_set_them_and_return_without() {
         i_slint_backend_testing::init_no_event_loop();
         let window = YapfastWindow::new().unwrap();
-        let plugins = Plugins {
-            overrides: Some(overrides(&[(
+        let plugins = Plugins::with(
+            Some(overrides(&[(
                 r#"{ "parts": { "hide": ["timeline.typing", "message.actions.more"] },
                      "sizes": { "message-group-gap": 4, "text-size": 18 } }"#,
                 "[]",
             )])),
-            runtime: None,
-        };
+            None,
+        );
         show(&window, Some(&plugins));
         let parts = window.global::<yapfast_ui::UiParts>();
         let style = window.global::<ClientStyle>();
@@ -518,6 +750,78 @@ mod tests {
         assert!(parts.get_timeline_typing() && parts.get_message_more());
         assert_eq!(style.get_message_group_gap(), 16.0);
         assert_eq!(style.get_text_size(), 15.0);
+    }
+
+    #[test]
+    fn a_slot_shows_what_the_runtime_sets_and_closing_it_tells_the_plugin() {
+        struct Recorder(Rc<RefCell<Vec<Input>>>);
+        impl plugins::Runtime for Recorder {
+            fn input(&self, input: Input) {
+                self.0.borrow_mut().push(input);
+            }
+        }
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let adapter = adapter(&window);
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let mut plugins = Plugins::with(
+            Some(overrides(&[(
+                "{}",
+                r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
+            )])),
+            Some(Box::new(Recorder(received.clone()))),
+        );
+        let mut adapter = adapter.borrow_mut();
+        plugins.enable(&mut adapter.app);
+        adapter.plugins = Some(Box::new(plugins));
+        let event = yapfast_core::chat::Event::Plugin(Output::SetSlot {
+            plugin: "com.example.p0".into(),
+            slot: Slot::Banner,
+            tree: Tree::parse(
+                r#"{ "rows": [{ "cells": [
+                    { "kind": "text", "text": "Hi **there**", "tone": "success" },
+                    { "kind": "slider", "id": "v", "min": 0, "max": 10, "value": "5" },
+                    { "kind": "select", "id": "s", "options": ["a", "b"], "value": "b" }
+                ] }] }"#,
+            )
+            .unwrap(),
+        });
+        let reach = refresh::Reach::of(&event);
+        adapter.app.apply(event);
+        adapter.show(&window, reach);
+        let banners = window.get_plugin_banners();
+        assert_eq!(banners.row_count(), 1);
+        let banner = banners.row_data(0).unwrap();
+        assert_eq!(
+            (banner.name.as_str(), banner.slot.as_str()),
+            ("Plugin 0", "banner")
+        );
+        let cells = banner.rows.row_data(0).unwrap().cells;
+        assert_eq!(cells.row_data(0).unwrap().tone, PluginTone::Success);
+        assert_eq!(cells.row_data(1).unwrap().amount, 0.5);
+        assert_eq!(cells.row_data(2).unwrap().selected, 1);
+        assert_eq!(window.get_plugin_toasts().row_count(), 0, "untouched");
+        // A composer button acts on the open conversation.
+        adapter.app.state.selected = Some("general".into());
+        adapter.plugin_acted(&window, "com.example.p0", "composer", "shrug", "", "");
+        adapter.plugin_dismissed(&window, "com.example.p0", "banner");
+        assert_eq!(window.get_plugin_banners().row_count(), 0);
+        assert_eq!(
+            *received.borrow(),
+            [
+                Input::Widget {
+                    plugin: "com.example.p0".into(),
+                    slot: Slot::Composer,
+                    id: "shrug".into(),
+                    value: String::new(),
+                    subject: "general".into(),
+                },
+                Input::Dismissed {
+                    plugin: "com.example.p0".into(),
+                    slot: Slot::Banner,
+                },
+            ]
+        );
     }
 
     #[test]
