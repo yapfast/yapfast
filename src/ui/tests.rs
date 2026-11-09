@@ -1536,6 +1536,7 @@ fn a_servers_icon_draws_on_its_heading_and_rail_button() {
             banner: None,
             verified: false,
             events: Vec::new(),
+            boosts: None,
             tag: None,
         })];
         state.stickers.open = true;
