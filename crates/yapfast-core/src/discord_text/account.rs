@@ -1270,6 +1270,7 @@ pub(super) fn command(
         | DiscordCommand::CloseDm { .. }
         | DiscordCommand::Mute { .. }
         | DiscordCommand::Notifications { .. }
+        | DiscordCommand::FolderNotifications { .. }
         | DiscordCommand::PinChannel { .. }
         | DiscordCommand::MoveChannels { .. }
         | DiscordCommand::FollowChannel { .. }
@@ -1659,6 +1660,16 @@ fn change_person(
                     .change_notifications(guild, channel, notification_change(change))
                     .await;
                 (result, "change the notification settings")
+            }
+            DiscordCommand::FolderNotifications { servers, change } => {
+                let guilds: Vec<&str> = servers
+                    .iter()
+                    .filter_map(|server| discord::parse_server(server))
+                    .collect();
+                let result = discord
+                    .change_servers_notifications(&guilds, notification_change(change))
+                    .await;
+                (result, "change the folder's notification settings")
             }
             DiscordCommand::PinChannel { room, flags } => {
                 let result = match discord::parse_room(&room) {

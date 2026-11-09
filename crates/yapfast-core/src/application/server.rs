@@ -277,12 +277,27 @@ impl Application {
     /// Asks Discord to change a server's, channel's or category's
     /// notification settings; snapshots show it once Discord confirms it.
     /// A server's own switches change only for a server, and only while
-    /// Discord is connected.
+    /// Discord is connected. A rail folder, by its id, changes all its
+    /// servers at once.
     pub(super) fn change_notifications(
         &mut self,
         place: String,
         change: NotificationChange,
     ) -> Vec<Effect> {
+        if self.state.is_folder(&place) {
+            let servers: Vec<String> = self
+                .state
+                .folder_servers(&place)
+                .filter(|server| server.discord)
+                .map(|server| server.id.clone())
+                .collect();
+            if !self.state.discord_online || servers.is_empty() {
+                return vec![];
+            }
+            return vec![Effect::Backend(Command::Discord(
+                DiscordCommand::FolderNotifications { servers, change },
+            ))];
+        }
         let server_only = matches!(
             change,
             NotificationChange::HideMuted(_)

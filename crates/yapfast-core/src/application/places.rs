@@ -4,7 +4,7 @@
 //! choices as its menu in the rail, in the order Discord's dropdown has.
 
 use super::*;
-use crate::chat::{ChannelKind, ChannelSettings, Permission};
+use crate::chat::{ChannelKind, ChannelSettings, Permission, ServerNotifications};
 
 /// A Discord category as the channel list heads its channels with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,6 +124,9 @@ impl Application {
         if self.discord_server(id) {
             return self.discord_server_choices(id, &listed);
         }
+        if self.state.is_folder(id) {
+            return self.folder_choices(id, listed);
+        }
         if self.state.is_category(id) {
             return self.category_choices(id, &listed);
         }
@@ -213,6 +216,40 @@ impl Application {
         }
         choices.extend([MenuChoice::CopyLink, MenuChoice::CopyId]);
         choices
+    }
+
+    /// A rail folder's menu: marking it read, as Discord's does, then the
+    /// notifications of all its servers at once, while Discord is connected
+    /// and knows each one's. Unmute shows once every one of them is muted.
+    fn folder_choices(&self, id: &str, mut listed: Vec<MenuChoice>) -> Vec<MenuChoice> {
+        let notifications: Option<Vec<_>> = self
+            .folder_notifications(id)
+            .map(|(_, notifications)| notifications)
+            .collect();
+        if let (true, Some(all)) = (self.state.discord_online, notifications)
+            && !all.is_empty()
+        {
+            listed.push(if all.iter().all(|known| known.own.muted) {
+                MenuChoice::UnmuteFolder
+            } else {
+                MenuChoice::MuteFolder
+            });
+            listed.push(MenuChoice::FolderNotifications);
+        }
+        listed
+    }
+
+    /// How each Discord server of a rail folder notifies this account, by
+    /// its server id, in the rail's order; none for one Yapfast doesn't
+    /// know the settings of.
+    pub fn folder_notifications<'a>(
+        &'a self,
+        folder: &'a str,
+    ) -> impl Iterator<Item = (&'a str, Option<ServerNotifications>)> + 'a {
+        self.state
+            .folder_servers(folder)
+            .filter(|server| server.discord)
+            .map(|server| (server.id.as_str(), self.server_notifications(&server.id)))
     }
 
     /// Whether this account may leave a Discord server: any but one it

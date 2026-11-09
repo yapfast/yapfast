@@ -2389,6 +2389,22 @@ impl Discord {
         self.api.guild_settings(guild, &body).await
     }
 
+    /// Makes the same change to this account's notification settings for
+    /// each server of `guilds`, in one request, as a rail folder's menu
+    /// does; see [`crate::notifications::servers_body`]. Snapshots show it
+    /// when Discord confirms it.
+    pub async fn change_servers_notifications(
+        &self,
+        guilds: &[&str],
+        change: Change,
+    ) -> Result<()> {
+        if guilds.is_empty() {
+            return Ok(());
+        }
+        let body = crate::notifications::servers_body(guilds, change);
+        self.api.guilds_settings(&body).await
+    }
+
     /// Sets the `flags` of a server's channel's override, which pin it to
     /// the top of the channel list or unpin it, see
     /// [`crate::notifications::Override::pin_flags`], and add it to the

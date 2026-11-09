@@ -344,9 +344,50 @@ pub fn flags_body(guild: &str, channel: &str, flags: u64) -> Value {
     json!({"guilds": {guild: {"channel_overrides": {channel: {"flags": flags}}}}})
 }
 
+/// The body of `PATCH /users/@me/guilds/settings` that makes the same
+/// change to each server of `guilds`, as Discord's client sends a server's
+/// own settings: `{"guilds": {"<id>": <partial settings>}}`. A mute with an
+/// end ends at the same time for each.
+pub fn servers_body(guilds: &[&str], change: Change) -> Value {
+    let fields = change.body(None).unwrap_or_default();
+    let guilds: Map<String, Value> = guilds
+        .iter()
+        .map(|guild| ((*guild).to_owned(), fields.clone()))
+        .collect();
+    json!({ "guilds": guilds })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changes_several_servers_in_one_body() {
+        let body = servers_body(&["10", "11"], Change::Level(Some(Level::Mentions)));
+        assert_eq!(
+            body,
+            json!({"guilds": {
+                "10": {"message_notifications": 1},
+                "11": {"message_notifications": 1},
+            }})
+        );
+        let body = servers_body(
+            &["10", "11"],
+            Change::Mute {
+                muted: true,
+                seconds: Some(900),
+            },
+        );
+        let ten = &body["guilds"]["10"];
+        assert_eq!(ten["muted"], true);
+        assert_eq!(ten["mute_config"]["selected_time_window"], 900);
+        assert!(ten["mute_config"]["end_time"].is_string());
+        assert_eq!(ten, &body["guilds"]["11"], "one end for both");
+        assert_eq!(
+            servers_body(&["10"], Change::SuppressRoles(true)),
+            json!({"guilds": {"10": {"suppress_roles": true}}})
+        );
+    }
 
     #[test]
     fn reads_mutes_levels_and_overrides() {

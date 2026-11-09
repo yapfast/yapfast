@@ -1061,6 +1061,25 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
+        window.on_search_menu(move |target, row, text| {
+            if let Some(window) = weak.upgrade() {
+                menus::search(&adapter.borrow(), &window, &target, &row, &text);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_list_item_menu(move |target, row, item| {
+            if let Some(window) = weak.upgrade() {
+                let rows = menus::item_rows(&adapter.borrow(), &target, &row, &item);
+                window.set_menu_item_rows(ModelRc::new(VecModel::from(rows)));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
         window.on_choose_menu(move |target, person, id| {
             if let Some(window) = weak.upgrade() {
                 menus::choose(

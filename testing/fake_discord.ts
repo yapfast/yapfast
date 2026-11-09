@@ -23,7 +23,8 @@
 // busy account has, for measuring; POST /_control/busy-start makes Bob post
 // in their channels ten times a second, and /_control/busy-stop stops him.
 // `--folders` puts them in folders in Alice's server list: the first three in
-// a red "Games" folder, the next two in one without a name or colour.
+// a red "Games" folder, or as many as `--folder-size N` says, for a big
+// folder's menu, the next two in one without a name or colour.
 // `--dms N` adds N older DMs, each with a person of its own, every other one
 // a friend, as a busy account has. `--images N` attaches a picture of its own
 // to every Nth extra history message, for a channel heavy with previews.
@@ -208,7 +209,8 @@
 // /users/@me/guilds/{id}/settings changes her notification settings for a
 // server and its channels, and USER_GUILD_SETTINGS_UPDATE says so; PATCH
 // /users/@me/guilds/settings changes several servers' at once, as Discord's
-// client pins a channel to the top with its override's flags. POST
+// client pins a channel to the top with its override's flags and Yapfast's
+// folder menu changes all of a folder's servers. POST
 // /channels/{id}/invites makes an invite to a channel of "Server" or of a
 // `--servers` filler, which @everyone may, as on Discord, and GET
 // /_control/invites lists them, each with the location its
@@ -334,6 +336,7 @@ const { values: args } = parseArgs({
     "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
+    "folder-size": { type: "string", default: "3" },
     "cdn-delay": { type: "string", default: "0" },
     unread: { type: "string", default: "5" },
     env: { type: "string" },
@@ -2721,11 +2724,12 @@ function folderEntry(servers: string[], id?: number, name?: string, color?: numb
 if (args.folders && !env) {
   const entry = folderEntry;
   const ids = fillers.map((filler) => filler.id);
+  const size = Math.max(1, Number(args["folder-size"]));
   const list = [
     entry([GUILD]),
-    entry(ids.slice(0, 3), 1, "Games", 0xed4245),
-    entry(ids.slice(3, 5), 2),
-    ...ids.slice(5).map((id) => entry([id])),
+    entry(ids.slice(0, size), 1, "Games", 0xed4245),
+    entry(ids.slice(size, size + 2), 2),
+    ...ids.slice(size + 2).map((id) => entry([id])),
   ];
   const folders = new Uint8Array(list.flatMap((bytes) => [...bytes]));
   settings = Buffer.concat([Buffer.from(settings, "base64"), protoBytes(14, folders)]).toString("base64");
