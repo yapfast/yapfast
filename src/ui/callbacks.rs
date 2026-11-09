@@ -1574,7 +1574,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let mut adapter = state.borrow_mut();
         let layout = &mut adapter.layout;
         layout.twelve_hour_clock = window.get_twelve_hour_clock();
-        yapfast_core::clock::set_twelve_hour_clock(layout.twelve_hour_clock);
         layout.clock_seconds = window.get_clock_seconds();
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
         layout.apply_date_format();

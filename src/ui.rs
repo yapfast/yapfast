@@ -1257,8 +1257,9 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
 }
 
 impl Layout {
-    /// Hands the date format to what formats times.
+    /// Hands the date format and the 12-hour clock to what formats times.
     fn apply_date_format(&self) {
+        clock::set_twelve_hour_clock(self.twelve_hour_clock);
         clock::set_date_format(self.date_format.and_then(|index| {
             clock::DateFormat::ALL
                 .get(usize::try_from(index).ok()?)
@@ -1358,7 +1359,6 @@ impl Layout {
         window.set_member_list(!self.members_hidden);
         window.set_profile_panel(!self.profile_panel_hidden);
         window.set_twelve_hour_clock(self.twelve_hour_clock);
-        yapfast_core::clock::set_twelve_hour_clock(self.twelve_hour_clock);
         window.set_clock_seconds(self.clock_seconds);
         window.set_date_format(self.date_format.unwrap_or(-1));
         self.apply_date_format();

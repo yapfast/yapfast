@@ -1916,9 +1916,7 @@ impl Names {
             let (name, id) = emoji.split_once(':')?;
             (digits(id) && !name.is_empty()).then(|| format!(":{name}:"))
         } else if let Some(time) = tag.strip_prefix("t:") {
-            let mut parts = time.split(':');
-            let seconds = parts.next()?.parse::<i64>().ok()?;
-            Some(timestamp(seconds, parts.next()))
+            timestamp_tag(time)
         } else {
             None
         }
@@ -1994,15 +1992,9 @@ pub fn render_timestamps(text: &str) -> String {
     while let Some(start) = rest.find("<t:") {
         out.push_str(&rest[..start]);
         let tag = &rest[start + 3..];
-        let parsed = tag.find('>').and_then(|end| {
-            let mut parts = tag[..end].split(':');
-            let seconds = parts.next()?.parse::<i64>().ok()?;
-            let style = parts.next();
-            parts
-                .next()
-                .is_none()
-                .then(|| (timestamp(seconds, style), end))
-        });
+        let parsed = tag
+            .find('>')
+            .and_then(|end| Some((timestamp_tag(&tag[..end])?, end)));
         match parsed {
             Some((time, end)) => {
                 out.push_str(&time);
@@ -2016,6 +2008,15 @@ pub fn render_timestamps(text: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// A timestamp tag's inside, `SECONDS` or `SECONDS:STYLE`, as the time it
+/// names; none for anything else.
+fn timestamp_tag(tag: &str) -> Option<String> {
+    let mut parts = tag.split(':');
+    let seconds = parts.next()?.parse::<i64>().ok()?;
+    let style = parts.next();
+    parts.next().is_none().then(|| timestamp(seconds, style))
 }
 
 /// Whether `<t:…>` timestamps show a 12-hour clock, as the app's setting
@@ -2071,18 +2072,28 @@ fn relative(seconds: i64) -> String {
     let span = i64::try_from(seconds.unsigned_abs()).unwrap_or(i64::MAX);
     // Rounded to the nearest unit; each range starts where that rounds to 2.
     let count = |unit: i64, name: &str| format!("{} {name}", (span + unit / 2) / unit);
-    let words = match span {
-        ..45 => "a few seconds".to_owned(),
-        45..90 => "a minute".to_owned(),
-        90..2700 => count(MINUTE, "minutes"),
-        2700..5400 => "an hour".to_owned(),
-        5400..79200 => count(HOUR, "hours"),
-        79200..129600 => "a day".to_owned(),
-        129600..2246400 => count(DAY, "days"),
-        2246400..3974400 => "a month".to_owned(),
-        3974400..27648000 => count(MONTH, "months"),
-        27648000..47260800 => "a year".to_owned(),
-        _ => count(YEAR, "years"),
+    let words = if span < 45 {
+        "a few seconds".to_owned()
+    } else if span < 90 {
+        "a minute".to_owned()
+    } else if span < 45 * MINUTE {
+        count(MINUTE, "minutes")
+    } else if span < 90 * MINUTE {
+        "an hour".to_owned()
+    } else if span < 22 * HOUR {
+        count(HOUR, "hours")
+    } else if span < 36 * HOUR {
+        "a day".to_owned()
+    } else if span < 26 * DAY {
+        count(DAY, "days")
+    } else if span < 46 * DAY {
+        "a month".to_owned()
+    } else if span < 320 * DAY {
+        count(MONTH, "months")
+    } else if span < 547 * DAY {
+        "a year".to_owned()
+    } else {
+        count(YEAR, "years")
     };
     if seconds >= 0 {
         format!("in {words}")
