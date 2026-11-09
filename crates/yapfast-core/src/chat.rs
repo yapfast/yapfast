@@ -516,6 +516,9 @@ pub struct ChatServer {
     /// Its scheduled events that haven't ended, soonest first, which its
     /// channel list counts in an "N Events" row.
     pub events: Vec<ServerEvent>,
+    /// How many boosts it has, when its owner shows the boost progress bar
+    /// above its channels.
+    pub boosts: Option<u32>,
 }
 
 /// A Discord server's scheduled event, as its events list shows it.
