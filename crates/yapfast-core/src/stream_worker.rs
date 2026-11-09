@@ -4142,7 +4142,10 @@ impl Worker {
             .map(|fd| fd as std::os::fd::RawFd);
         #[cfg(not(target_os = "linux"))]
         let _ = frames;
-        let spawning = || {
+        // `mut` only where the closure is called directly: on Linux it is
+        // handed to `inheriting`, which calls it, and the borrow is the same.
+        #[cfg_attr(target_os = "linux", allow(unused_mut))]
+        let mut spawning = || {
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
