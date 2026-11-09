@@ -70,7 +70,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{AccountCardShown, Reach, SidebarShown, SwitcherShown};
+use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -300,6 +300,31 @@ const EVENT_BATCH: usize = 256;
 
 /// How long the zoom level shows after it changes.
 const ZOOM_NOTE: Duration = Duration::from_millis(1200);
+
+/// What the mouse's back and forward buttons do, as Alt+Left and Alt+Right
+/// do.
+fn side_button_action(button: slint::winit_030::winit::event::MouseButton) -> Option<Action> {
+    use slint::winit_030::winit::event::MouseButton;
+    match button {
+        MouseButton::Back => Some(Action::NavigateBack),
+        MouseButton::Forward => Some(Action::NavigateForward),
+        _ => None,
+    }
+}
+
+/// Carries out `action` once the event that asked for it is done.
+fn navigate(
+    adapter: &std::rc::Weak<RefCell<Adapter>>,
+    window: &slint::Weak<YapfastWindow>,
+    action: Action,
+) {
+    let (adapter, window) = (adapter.clone(), window.clone());
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        if let (Some(adapter), Some(window)) = (adapter.upgrade(), window.upgrade()) {
+            adapter.borrow_mut().action(&window, action);
+        }
+    });
+}
 
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
@@ -613,19 +638,28 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     && !window.get_settings_open()
                 {
                     if !key.repeat {
-                        let action = if named == NamedKey::ArrowLeft {
-                            Action::NavigateBack
-                        } else {
-                            Action::NavigateForward
-                        };
-                        let (adapter, weak) = (adapter.clone(), weak.clone());
-                        slint::Timer::single_shot(Duration::ZERO, move || {
-                            if let (Some(adapter), Some(window)) =
-                                (adapter.upgrade(), weak.upgrade())
-                            {
-                                adapter.borrow_mut().action(&window, action);
-                            }
-                        });
+                        navigate(
+                            &adapter,
+                            &weak,
+                            if named == NamedKey::ArrowLeft {
+                                Action::NavigateBack
+                            } else {
+                                Action::NavigateForward
+                            },
+                        );
+                    }
+                    return EventResult::PreventDefault;
+                }
+                // So do the mouse's back and forward buttons. The release is
+                // kept from the window too, so that it isn't taken for a click.
+                if let WindowEvent::MouseInput { state, button, .. } = event
+                    && let Some(action) = side_button_action(*button)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                {
+                    if *state == ElementState::Pressed {
+                        navigate(&adapter, &weak, action);
                     }
                     return EventResult::PreventDefault;
                 }
@@ -1930,6 +1964,14 @@ struct Adapter {
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
+    /// What the member list showed last, so it's built again only once that changes.
+    roster_shown: Option<RosterShown>,
+    /// Runs for [`ROSTER_PAUSE`] after the member list was built; see
+    /// `show_members`.
+    roster_due: slint::Timer,
+    /// Whether the member list changed while `roster_due` ran, to show
+    /// once it ends.
+    roster_held: bool,
     /// The account's own profile its card showed last, so the card is built
     /// again only once that or one of its pictures changes.
     account_profile_shown: Option<AccountCardShown>,
@@ -1988,6 +2030,9 @@ struct Adapter {
     animations: emoji_animation::Animations,
     /// `AppState::picture_changes` when the message rows were last built.
     pictures_seen: u64,
+    /// `AppState::picture_changes` when `PictureStore` last caught up with
+    /// it; none before the first refresh.
+    pictures_sourced: Option<u64>,
     /// The last jump to a message the timeline made; see `AppState::jump`.
     jumped: Option<(String, u64)>,
     /// `AppState::unread_jump` when the timeline last brought the first
@@ -2297,6 +2342,9 @@ impl Adapter {
                 messages: Arc::new(Vec::new()),
                 rows: Vec::new(),
                 sidebar: None,
+                roster_shown: None,
+                roster_due: slint::Timer::default(),
+                roster_held: false,
                 account_profile_shown: None,
                 switcher: None,
                 places: Vec::new(),
@@ -2321,6 +2369,7 @@ impl Adapter {
                 sticker_card: None,
                 animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
+                pictures_sourced: None,
                 jumped: None,
                 unread_jumped: 0,
                 latest_due: false,

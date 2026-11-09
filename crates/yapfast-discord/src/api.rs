@@ -354,11 +354,19 @@ impl Api {
 
     fn request(&self, method: Method, path: &str) -> RequestBuilder {
         // Only the API gets the client's description, as in the web client;
-        // it changes through a run, so each request makes it again.
+        // it changes through a run, so each request makes it again. The
+        // web client sends its language and time zone with every request
+        // too, and a request without them looks less like it.
         let request = self
             .http
             .request(method, format!("{}{path}", self.base))
-            .header("X-Super-Properties", client::super_properties());
+            .header("X-Super-Properties", client::super_properties())
+            .header(header::ACCEPT_LANGUAGE, client::ACCEPT_LANGUAGE)
+            .header("X-Discord-Locale", client::LOCALE);
+        let request = match client::timezone() {
+            Some(zone) => request.header("X-Discord-Timezone", zone),
+            None => request,
+        };
         // A request sent again once confirmed carries what confirmed it.
         let request = match mfa::token() {
             Some(confirmed) => request.header("X-Discord-MFA-Authorization", confirmed),

@@ -393,6 +393,19 @@ pub enum DmScreen {
     Requests,
 }
 
+/// Somewhere the main area shows, which the title bar's back and forward
+/// arrows return to. Settings are not one: they open over the window, as in
+/// Discord's client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HistoryPlace {
+    /// A conversation, by its room id.
+    Room(String),
+    /// A screen of the DM list.
+    Dm(DmScreen),
+    /// Browse Channels, for the server with this id.
+    Browse(String),
+}
+
 /// A role someone clicked in a message: its name and the members known to have it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RoleView {
@@ -538,10 +551,10 @@ pub struct AppState {
     pub pending_watch: Option<(String, String)>,
     /// A video call's room: the camera goes on once its call connects.
     pub pending_camera: Option<String>,
-    /// The conversations visited before this one, newest last, and those
-    /// stepped back from, for the title bar's back and forward arrows.
-    pub nav_back: Vec<String>,
-    pub nav_forward: Vec<String>,
+    /// The places visited before this one, newest last, and those stepped
+    /// back from, for the title bar's back and forward arrows.
+    pub nav_back: Vec<HistoryPlace>,
+    pub nav_forward: Vec<HistoryPlace>,
     /// A step through that history is under way: it records no visit.
     pub nav_walking: bool,
     pub account: Option<String>,
@@ -610,7 +623,9 @@ pub struct AppState {
     pub room_ready: bool,
     pub messages: Arc<Vec<Arc<ChatMessage>>>,
     /// The selected room's joined members, by role and then name; `None` while loading.
-    pub members: Option<Result<Vec<ChatMember>, &'static str>>,
+    /// Shared, so a channel's kept view holds the same list, and a list that
+    /// came anew is one the UI can tell from the one it showed.
+    pub members: Option<Result<Arc<Vec<ChatMember>>, &'static str>>,
     /// A page of earlier history is on its way.
     pub loading_history: bool,
     /// The selected room's first message is loaded, so there's no earlier
@@ -882,21 +897,38 @@ impl AppState {
             || self.viewer.is_some()
     }
 
-    /// The most conversations the back arrow remembers.
+    /// The most places the back arrow remembers.
     const HISTORY: usize = 50;
 
-    /// Notes that the conversation on screen gives way to `next`, which
-    /// forgets what going back would have gone forward to.
-    pub(crate) fn record_visit(&mut self, next: &str) {
-        let Some(previous) = self
-            .selected
-            .as_deref()
-            .filter(|previous| *previous != next)
-        else {
+    /// What the main area shows: a screen of the DM list or Browse Channels
+    /// in place of a conversation, or the conversation selected.
+    pub fn place(&self) -> Option<HistoryPlace> {
+        if let Some(screen) = self.dm_screen {
+            Some(HistoryPlace::Dm(screen))
+        } else if let Some(browse) = &self.browse {
+            Some(HistoryPlace::Browse(browse.server.clone()))
+        } else {
+            self.selected.clone().map(HistoryPlace::Room)
+        }
+    }
+
+    /// Whether a place can be shown again: its conversation is still there,
+    /// and its server still offers Browse Channels.
+    pub fn place_exists(&self, place: &HistoryPlace) -> bool {
+        match place {
+            HistoryPlace::Room(id) => self.rooms.iter().any(|room| &room.id == id),
+            HistoryPlace::Dm(_) => true,
+            HistoryPlace::Browse(server) => self.offers_browse(server),
+        }
+    }
+
+    /// Notes that the place on screen, `previous`, gives way to `next`,
+    /// which forgets what going back would have gone forward to.
+    pub(crate) fn record_visit(&mut self, previous: Option<HistoryPlace>, next: &HistoryPlace) {
+        let Some(previous) = previous.filter(|previous| previous != next) else {
             return;
         };
-        if self.nav_back.last().map(String::as_str) != Some(previous) {
-            let previous = previous.to_owned();
+        if self.nav_back.last() != Some(&previous) {
             self.nav_back.push(previous);
             if self.nav_back.len() > Self::HISTORY {
                 self.nav_back.remove(0);
@@ -907,16 +939,19 @@ impl AppState {
 
     /// Whether the title bar's back arrow has somewhere to go.
     pub fn can_go_back(&self) -> bool {
-        self.nav_back
-            .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+        self.can_go(&self.nav_back)
     }
 
     /// Whether the title bar's forward arrow has somewhere to go.
     pub fn can_go_forward(&self) -> bool {
-        self.nav_forward
+        self.can_go(&self.nav_forward)
+    }
+
+    fn can_go(&self, places: &[HistoryPlace]) -> bool {
+        let current = self.place();
+        places
             .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+            .any(|place| Some(place) != current.as_ref() && self.place_exists(place))
     }
 
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
@@ -1008,7 +1043,7 @@ impl AppState {
             .members
             .iter()
             .flatten()
-            .flatten()
+            .flat_map(|members| members.iter())
             .chain(&self.found_members)
             .chain(
                 self.role
@@ -1125,7 +1160,11 @@ impl AppState {
             .cloned()
             .collect();
         let mut candidates = Vec::new();
-        let listed = self.members.iter().flatten().flatten();
+        let listed = self
+            .members
+            .iter()
+            .flatten()
+            .flat_map(|members| members.iter());
         let people = listed.chain(&self.found_members).map(|member| {
             (
                 member.id.as_str(),
@@ -1363,7 +1402,7 @@ impl AppState {
                 self.members
                     .iter()
                     .flatten()
-                    .flatten()
+                    .flat_map(|members| members.iter())
                     .map(|member| member.id.as_str()),
             )
             .collect()
@@ -2275,6 +2314,10 @@ pub struct Application {
     aside_visible: Vec<String>,
     /// The thread beside's timeline as its pictures were last asked for.
     pictured_aside: Arc<Vec<Arc<ChatMessage>>>,
+    /// [`AppState::list_changes`], the navigation and the selected room
+    /// when the pictures of the rooms in scope were last asked for: those
+    /// rooms are the same until one of them changes.
+    pictured_rooms: Option<(u64, Navigation, Option<String>)>,
     /// A DM with a friend is starting, to open once it has.
     starting_dm: bool,
     /// Its call starts once it opens, as [`Action::CallPerson`] asks.
@@ -2326,7 +2369,7 @@ struct Seeking {
 struct Shown {
     room: String,
     messages: Arc<Vec<Arc<ChatMessage>>>,
-    members: Option<Result<Vec<ChatMember>, &'static str>>,
+    members: Option<Result<Arc<Vec<ChatMember>>, &'static str>>,
 }
 
 /// Discord channels whose last view is kept, as many as the Discord side
@@ -2359,11 +2402,14 @@ fn visible_range(
 /// The server icons and avatars on screen: the rail, the first DMs listed,
 /// the people in the listed voice channels, the call, `timeline` and the
 /// member list, profiles and people to start a DM with, with the server tags
-/// and role icons by their names.
+/// and role icons by their names. Without `list_avatars`, it leaves out
+/// those the UI's virtualized rows ask for; without `rooms`, the people in
+/// the rooms in scope, which take going through every room.
 fn pictures_on_screen<'a>(
     state: &'a AppState,
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
+    rooms: bool,
 ) -> impl Iterator<Item = &'a str> {
     let cosmetics = state.cosmetics;
     state
@@ -2387,9 +2433,10 @@ fn pictures_on_screen<'a>(
                 .map(|plate| &*plate.picture),
         )
         .chain(
-            state
-                .scoped_rooms()
-                .filter(move |_| list_avatars)
+            list_avatars
+                .then(|| state.scoped_rooms())
+                .into_iter()
+                .flatten()
                 .flat_map(move |room| {
                     [
                         room.avatar.as_deref(),
@@ -2591,8 +2638,10 @@ fn pictures_on_screen<'a>(
                 }),
         )
         .chain(
-            state
-                .scoped_rooms()
+            rooms
+                .then(|| state.scoped_rooms())
+                .into_iter()
+                .flatten()
                 .flat_map(|room| &room.people)
                 .filter_map(|person| person.avatar.as_deref()),
         )
@@ -2632,7 +2681,7 @@ fn pictures_on_screen<'a>(
                 .iter()
                 .filter(move |_| list_avatars)
                 .flatten()
-                .flatten()
+                .flat_map(|members| members.iter())
                 .chain(&state.found_members)
                 .chain(
                     state
@@ -2770,10 +2819,21 @@ impl Application {
 
     /// Asks for the server icons and avatars on screen that weren't asked
     /// for before; see [`pictures_on_screen`]. The timeline, which can hold
-    /// thousands of messages, is gone through only when it changed.
+    /// thousands of messages, and the rooms in scope, which can be thousands
+    /// of channels, are gone through only when they changed: this runs on
+    /// every event.
     fn request_pictures(&mut self) -> Option<Effect> {
         self.let_go_of_effect_pictures();
         let state = &self.state;
+        let rooms_changed =
+            !self
+                .pictured_rooms
+                .as_ref()
+                .is_some_and(|(changes, navigation, selected)| {
+                    *changes == state.list_changes
+                        && *navigation == state.navigation
+                        && *selected == state.selected
+                });
         let timeline = if Arc::ptr_eq(&self.pictured_timeline, &state.messages) {
             &[][..]
         } else {
@@ -2783,7 +2843,7 @@ impl Application {
         let mut wanted = Vec::new();
         // Virtualized UI rows request their own avatars; this covers profiles,
         // calls and the custom emoji in nearby messages.
-        for url in pictures_on_screen(state, timeline, false) {
+        for url in pictures_on_screen(state, timeline, false, rooms_changed) {
             if !self.requested_pictures.contains(url) {
                 self.requested_pictures.insert(url.to_owned());
                 self.let_go_emoji.remove(url);
@@ -2791,11 +2851,18 @@ impl Application {
             }
         }
         self.pictured_timeline = self.state.messages.clone();
+        if rooms_changed {
+            self.pictured_rooms = Some((
+                self.state.list_changes,
+                self.state.navigation.clone(),
+                self.state.selected.clone(),
+            ));
+        }
         // The thread beside is short, and shows its custom emoji whole.
         if let Some(aside) = &self.state.aside
             && !Arc::ptr_eq(&self.pictured_aside, &aside.messages)
         {
-            for url in pictures_on_screen(state, &aside.messages, false) {
+            for url in pictures_on_screen(state, &aside.messages, false, false) {
                 if !self.requested_pictures.contains(url) {
                     self.requested_pictures.insert(url.to_owned());
                     self.let_go_emoji.remove(url);
@@ -2972,11 +3039,11 @@ impl Application {
                 let start = range.start().saturating_sub(PICTURED_AROUND);
                 &messages[start..(range.end() + 1 + PICTURED_AROUND).min(messages.len())]
             });
-        let shown: HashSet<String> = pictures_on_screen(&self.state, timeline, true)
+        let shown: HashSet<String> = pictures_on_screen(&self.state, timeline, true, true)
             .chain(
                 aside
                     .into_iter()
-                    .flat_map(|aside| pictures_on_screen(&self.state, aside, true)),
+                    .flat_map(|aside| pictures_on_screen(&self.state, aside, true, false)),
             )
             .map(str::to_owned)
             .collect();
@@ -3977,7 +4044,7 @@ impl Application {
                 // A list that came stays when a later check finds none came.
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));
                 if self.state.selected.as_ref() == Some(&room) && !listed {
-                    self.state.members = Some(members);
+                    self.state.members = Some(members.map(Arc::new));
                 }
             }
             Event::People {

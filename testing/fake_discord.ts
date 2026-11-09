@@ -30,6 +30,10 @@
 // `--channels N` adds text channels room-1 to room-N to "Server", each with 60
 // messages, every third with a picture, written in turn by `--authors N`
 // people of their own (Bob without it), for a long session across channels.
+// `--members N` adds N people, online, to Server's member list, as a busy
+// server's first hundred rows are. POST /_control/churn-start takes one of
+// them offline or back online ten times a second, each a member list update,
+// and /_control/churn-stop stops it.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -326,6 +330,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
@@ -1651,6 +1656,7 @@ const rooms = Array.from({ length: Number(args.channels) }, (_, n) => {
   return id;
 });
 let crowd: ReturnType<typeof setInterval> | undefined;
+let churn: ReturnType<typeof setInterval> | undefined;
 let crowdCount = 0;
 let burst: ReturnType<typeof setInterval> | undefined;
 let burstPosted = 0;
@@ -2882,6 +2888,18 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+// The people of `--members`, in Server's member list alone.
+const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
+  id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
+  username: `member${n}`,
+  global_name: `Member ${n}`,
+  avatar: `m${n}`,
+}));
+for (const person of listed) {
+  userById.set(person.id, person);
+  presences[person.id] = { status: "online", activities: [] };
+}
+
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
 // panel here shows: someone in no server, and a custom status.
@@ -2952,7 +2970,7 @@ function listId(channelId: string): string {
 
 function memberList(id = "everyone") {
   const offline = (user: User) => presences[user.id]!.status === "offline";
-  const present = Object.values(users).filter((user) => !removed.has(user.id));
+  const present = [...Object.values(users), ...listed].filter((user) => !removed.has(user.id));
   const mods = present.filter((user) => memberRoles.get(user.id)?.includes(MODS));
   const others = present.filter((user) => !mods.includes(user));
   const groups = [
@@ -8235,6 +8253,23 @@ const server = Bun.serve<SocketData>({
       presences[users.bob.id] = { status: "online", activities: [], client_status: { mobile: "online" } };
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, ...presences[users.bob.id] });
       return new Response("Bob is on his phone\n");
+    }
+    if (req.method === "POST" && path === "/_control/churn-start") {
+      let turn = 0;
+      clearInterval(churn);
+      churn = setInterval(() => {
+        const person = listed[(turn++ * 7) % listed.length]!;
+        changeMembers(() => {
+          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
+          presences[person.id] = { status, activities: [] };
+          dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
+        });
+      }, 100);
+      return new Response("churn\n");
+    }
+    if (req.method === "POST" && path === "/_control/churn-stop") {
+      clearInterval(churn);
+      return new Response("no churn\n");
     }
     if (req.method === "POST" && path === "/_control/bob-offline") {
       presences[users.bob.id] = { status: "offline", activities: [] };
