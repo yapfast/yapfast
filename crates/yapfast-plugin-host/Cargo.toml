@@ -1,0 +1,38 @@
+[package]
+name = "yapfast-plugin-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The yapfast-plugins helper: serves the plugin protocol and runs plugin modules in a process of their own"
+
+[lib]
+doctest = false
+
+[[bin]]
+name = "yapfast-plugins"
+path = "src/main.rs"
+# Extism is what the binary is for; without it there is no helper to build.
+required-features = ["host"]
+
+[features]
+# Loading, calling and unloading modules needs Extism and wasmtime. Off by
+# default, so a check of the workspace links neither; the binary and the tests
+# that run a module turn it on.
+host = ["dep:extism"]
+
+[dependencies]
+yapfast-plugin-api = { path = "../yapfast-plugin-api" }
+serde_json.workspace = true
+# Pinned exactly, as Slint is: the memory limits and the module checks below
+# rely on how Extism and wasmtime behave, and an upgrade re-runs the plan's
+# measurements. `register-filesystem` is what lets a manifest name a module
+# with `Wasm::file`, which keeps each instance's manifest copy at a path.
+extism = { version = "=1.41.0", default-features = false, features = ["register-filesystem"], optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+# Tests only: a checked-in `.wat` is assembled at the test's fixture path, so
+# neither the helper nor production ever carries a WAT compiler.
+wat = "1"
