@@ -73,6 +73,10 @@ FORWARD(VAStatus, vaGetConfigAttributes,
         (VADisplay dpy, VAProfile profile, VAEntrypoint entrypoint, VAConfigAttrib *attribs,
          int count),
         (dpy, profile, entrypoint, attribs, count), FAILED)
+/* QSV asks the display which Intel device it is, to pick the driver. */
+FORWARD(VAStatus, vaGetDisplayAttributes,
+        (VADisplay dpy, VADisplayAttribute *attr_list, int num_attributes),
+        (dpy, attr_list, num_attributes), FAILED)
 FORWARD(VADisplay, vaGetDisplayDRM, (int fd), (fd), NULL)
 FORWARD(VAStatus, vaGetImage,
         (VADisplay dpy, VASurfaceID surface, int x, int y, unsigned int width,

@@ -18,7 +18,7 @@ fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    for path in ["ffmpeg", "gen", "include", "src/va.c"] {
+    for path in ["ffmpeg", "gen", "include", "src/va.c", "src/vpl.c"] {
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-env-changed=NASM");
@@ -41,6 +41,9 @@ fn main() {
     // configure's order: its output, then the source, then its own folders
     // inside it, such as Windows' compat/stdbit.
     let mut folders = vec![generated.clone(), root.clone(), include.clone()];
+    // oneVPL's headers, which FFmpeg includes as <mfxvideo.h> from beside
+    // their own folder, as oneVPL's pkg-config file puts them on the path.
+    folders.push(include.join("vpl"));
     folders.extend(lines("includes.txt").iter().map(|folder| root.join(folder)));
     let joined = env::join_paths(&folders).expect("include folders");
     println!("cargo:include={}", joined.to_string_lossy());
@@ -87,17 +90,19 @@ fn main() {
         &lines("asm.txt"),
         &lines("asmflags.txt"),
     ));
+    // libva and oneVPL, the encoders' own libraries, which src/ loads when an
+    // encoder first runs: the binary starts on a machine without them.
+    let mut shims = cc::Build::new();
+    shims.include(&include).opt_level(2).warnings(true);
     if os == "linux" {
-        objects.extend(
-            cc::Build::new()
-                .file(manifest.join("src/va.c"))
-                .include(&include)
-                .opt_level(2)
-                .warnings(true)
-                .compile_intermediates(),
-        );
+        shims.file(manifest.join("src/va.c"));
         println!("cargo:rustc-link-lib=dl");
     }
+    objects.extend(
+        shims
+            .file(manifest.join("src/vpl.c"))
+            .compile_intermediates(),
+    );
     for library in lines("libs.txt") {
         println!("cargo:rustc-link-lib={library}");
     }

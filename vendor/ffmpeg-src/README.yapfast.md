@@ -1,39 +1,43 @@
 # FFmpeg for Yapfast
 
 Go Live's hardware encoders: FFmpeg 9.0.2's NVENC encoders for NVIDIA, on
-Linux and Windows, on Windows its AMF ones for AMD, and on Linux its VA-API
-ones for AMD and Intel, for H264, HEVC and AV1; and the H264, HEVC, AV1 and
-VP9 decoders and parsers a watched stream comes from, on both targets, with
-their x86-64 assembly. On Windows it also carries Direct3D 11's hwaccel for
-all four (`--enable-d3d11va`, `--enable-hwaccel=…`), so a picture is decoded
-into a texture on the device the window and the encoder hold. Nothing else of
-FFmpeg is built: no formats or filters.
+Linux and Windows, on Windows its AMF ones for AMD, on Linux its VA-API
+ones for AMD and Intel, and on both its QSV ones for Intel, for H264, HEVC
+and AV1; and the H264, HEVC, AV1 and VP9 decoders and parsers a watched
+stream comes from, on both targets, with their x86-64 assembly. On Windows it
+also carries Direct3D 11's hwaccel for all four (`--enable-d3d11va`,
+`--enable-hwaccel=…`), so a picture is decoded into a texture on the device
+the window and the encoder hold. Nothing else of FFmpeg is built: no formats
+or filters.
 `crates/yapfast-core/native/hwenc.c` drives the encoders, `native/hevc.c` the
 software HEVC decoder, and `native/hwdec.c` Direct3D 11's decode of all four.
 
 `update.sh` makes everything here except `src/` and `patches/`. It downloads
-FFmpeg's release, nv-codec-headers 12.0.16.1 and AMD's AMF headers 1.5.2
-and checks their SHA-256, takes libva's headers from the development
-shell's nixpkgs, configures and builds FFmpeg for each target, and keeps
-what follows. Windows is built with clang-cl against the MSVC runtime and
+FFmpeg's release, nv-codec-headers 12.0.16.1, AMD's AMF headers 1.5.2 and
+Intel's oneVPL 2.14.0 and checks their SHA-256, takes libva's headers from
+the development shell's nixpkgs, configures and builds FFmpeg for each
+target, and keeps what follows. Windows is built with clang-cl against the MSVC runtime and
 Windows SDK in cargo-xwin's cache, which `scripts/build-windows` fills the
 first time; configure finds them through `INCLUDE` and `LIB`, so
 `config.h` names no folder of the machine that ran it. When nothing else is set,
 `build.rs` picks `clang-cl` for MSVC targets, because `gen/windows-x86_64` was
-configured with clang-cl.
+configured with clang-cl. oneVPL is linked by neither build: `configure`
+links a test against it, oneVPL's own dispatcher for Linux and an import
+library for `vpl.dll` made from its headers for Windows, and neither is kept.
 
 - `ffmpeg/`: the FFmpeg files that build read, unchanged but for `patches/`,
   under FFmpeg's LGPL-2.1-or-later (`ffmpeg/COPYING.LGPLv2.1`).
 - `include/`: nv-codec-headers' `ffnvcodec/`, which loads NVIDIA's driver
-  at run time, the AMF headers the Windows build read, `AMF/`, and libva's
-  `va/`, all MIT (`include/NOTICE`).
+  at run time, the AMF headers the Windows build read, `AMF/`, libva's
+  `va/` and oneVPL's `vpl/`, all MIT (`include/NOTICE`).
 - `gen/<os>-<arch>/`: what configure generated, `config.asm` among it, the
   C files to compile and the assembly to assemble (`sources.txt`,
   `asm.txt`), and configure's defines, include folders, NASM flags and
   system libraries, which `build.rs` uses as configure's makefiles would.
 - `gen/rename.h`: a `#define` giving each of FFmpeg's symbols, and the libva
-  functions it calls, a `yf_` prefix. Not clang-cl's constants or the UCRT's
-  inline stdio functions, which every Windows library defines alike.
+  and oneVPL functions it calls, a `yf_` prefix. Not clang-cl's constants or
+  the UCRT's inline stdio functions, which every Windows library defines
+  alike.
 
 `build.rs` compiles those files with `gen/rename.h` included first, and
 assembles the assembly with NASM's `--gprefix yf_`, which gives the same
@@ -41,15 +45,21 @@ prefix to every symbol the assembly defines or uses. The C compiles with
 clang, which configure used for every target that isn't MSVC: GCC 14.3's
 expander gives up on `me_cmp.c`'s VSAD at the level `build.rs` asks for. The prefix matters: libwebrtc's archive holds Chromium's own FFmpeg, built to
 decode, and three quarters of the names would otherwise meet. `src/va.c`
-defines the `yf_va...` functions, which load libva on first use, so the
-binary needs neither libva nor NVIDIA's libraries to start, and an encoder
-that can't load them fails to open.
+defines the `yf_va...` functions, which load libva on first use, and
+`src/vpl.c` the `yf_MFX...` ones, which load oneVPL's dispatcher the same
+way, so the binary needs neither libva, oneVPL, nor NVIDIA's libraries to
+start, and an encoder that can't load them fails to open.
 
 The minimum NVIDIA driver follows the nv-codec-headers version: 12.0 needs
 520 or newer. Newer headers would raise it. AMF's do the same for AMD's
 driver: FFmpeg asks its AMF runtime for the headers' version, and 1.5.2 is
 the oldest FFmpeg 9 builds with. FFmpeg loads `amfrt64.dll` from the system
-folder only when an AMF encoder opens.
+folder only when an AMF encoder opens. Intel's driver supplies oneVPL's
+dispatcher, `libvpl.so.2` on Linux and `vpl.dll` or `libvpl.dll` on Windows,
+and a QSV encoder opens only where it and a driver behind it are there; a
+card that has no AV1 encoder refuses `av1_qsv` and the other two still open.
+QSV's decoders are not built: pictures come from the software decoders and
+Direct3D 11's.
 
 ## Changes
 
@@ -72,5 +82,5 @@ folder only when an AMF encoder opens.
 ## Updating
 
 Change the versions and hashes at the top of `update.sh`, run it, and build:
-it fails when FFmpeg starts calling a libva function `src/va.c` lacks, or
-when a patch no longer applies.
+it fails when FFmpeg starts calling a libva or oneVPL function `src/va.c` or
+`src/vpl.c` lacks, or when a patch no longer applies.

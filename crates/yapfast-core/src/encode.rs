@@ -1112,7 +1112,10 @@ fn open_hardware(
     );
     // Said once at the open, since it holds for as long as the encoder does:
     // this encoder reads its frames from system memory, and the adapter it is
-    // on is the one the upload lands on.
+    // on is the one the upload lands on. Every backend here is in that one
+    // case, Quick Sync's too: it is handed NV12 from the processor, which
+    // FFmpeg copies into the surfaces its session encodes from, so no stream
+    // through this seam is zero-copy and none of them says it is.
     if let Some(candidate) = candidate {
         if candidate.reach == Reach::Crosses {
             tracing::warn!(
@@ -1128,6 +1131,14 @@ fn open_hardware(
                 "encoding on the GPU's encoder from the processor: every frame is uploaded to it"
             );
         }
+    } else {
+        // An encoder the shim's own order opened, which is what a platform that
+        // can't list its adapters is given: the same upload, with no adapter
+        // chosen for the line to name.
+        tracing::info!(
+            engine = report.as_str(),
+            "encoding on the GPU's encoder from the processor: every frame is uploaded to it"
+        );
     }
     Ok(Opened {
         raw,
@@ -1695,7 +1706,10 @@ mod tests {
     /// Which reason VA-API gives depends on the build, and the box this was
     /// written on showed that plainly: FFmpeg for Windows has no h264_vaapi
     /// in it, so it is "not in this FFmpeg" there rather than the no-device
-    /// reason a Linux build without a driver would give.
+    /// reason a Linux build without a driver would give. Quick Sync is named
+    /// whether or not this build carries it — h264_qsv here, or "not in this
+    /// FFmpeg" — so a machine with Intel's GPU is told which of the two it is
+    /// rather than left out of the report.
     #[cfg(hwenc)]
     #[test]
     fn a_backend_passed_over_says_why() {
@@ -1723,12 +1737,29 @@ mod tests {
         }
         let report = c_text(&report);
         // Each name, and a reason after it rather than a bare mention.
-        for name in ["h264_nvenc", "h264_amf", "h264_vaapi"] {
+        for name in ["h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi"] {
             assert!(
                 report.contains(&format!("{name}: ")) || report.contains(&format!("{name} (")),
                 "{name} is unmentioned in {report:?}"
             );
         }
+    }
+
+    /// Quick Sync is asked for by FFmpeg's name for each codec, and not for
+    /// VP8, which has no hardware encoder anywhere: a name that doesn't exist
+    /// is one the probe would report as missing from the build on every Intel
+    /// machine, so the mapping is pinned here rather than found from a log on
+    /// hardware nobody has run this on.
+    #[test]
+    fn quick_sync_names_the_encoder_of_each_codec_it_encodes() {
+        for (codec, name) in [
+            (Codec::H264, "h264_qsv"),
+            (Codec::H265, "hevc_qsv"),
+            (Codec::Av1, "av1_qsv"),
+        ] {
+            assert_eq!(engine_name(gpu::Backend::Qsv, codec), Some(name));
+        }
+        assert_eq!(engine_name(gpu::Backend::Qsv, Codec::Vp8), None);
     }
 
     /// Main profile H264 at `size` that decodes: parameter sets and an IDR

@@ -1,6 +1,7 @@
 /* Hardware encoding for Go Live, through FFmpeg's encoders in
  * vendor/ffmpeg-src: NVIDIA's NVENC, then AMD's AMF on Windows and VA-API
- * (AMD and Intel) on Linux.
+ * (AMD and Intel) on Linux, and Intel's Quick Sync through oneVPL where the
+ * build carries it.
  * The same interface as h264.c, so Rust drives both alike: I420 frames in,
  * Annex B access units out, each NAL unit after a start code. Opening tries
  * each encoder in turn and says which one opened, or why none did.
@@ -39,10 +40,12 @@ struct yapfast_hwenc {
    * which is what Rust matches its choice of backend back to: `config` and
    * the report name VA-API's device as well. */
   const char *engine;
-  /* VA-API's device, and the frame its encoder reads, on the GPU. */
+  /* VA-API's or Quick Sync's device, and VA-API's frame its encoder reads,
+   * on the GPU. */
   AVBufferRef *device;
   AVFrame *surface;
-  /* The frame handed over, in memory: I420 for NVENC, NV12 for VA-API. */
+  /* The frame handed over, in memory: I420 for NVENC, NV12 for VA-API, AMF
+   * and Quick Sync. */
   AVFrame *frame;
   AVPacket *packet;
   /* Packets handed back for an earlier picture than the frame given: a
@@ -58,6 +61,9 @@ struct yapfast_hwenc {
   char config[80];
   /* AMF hands a frame back a little after taking it, and is polled for it. */
   int poll;
+  /* Whether Quick Sync opened: its cap and target are the pair
+   * `set_qsv_rate` makes, which a new rate has to keep. */
+  int qsv;
   /* The optional settings FFmpeg didn't have or its driver didn't keep,
    * separated by commas, and empty when it kept them all: Rust warns about
    * what the stream lost. */
@@ -151,6 +157,19 @@ static void set_rate(AVCodecContext *codec, unsigned kbps) {
   codec->bit_rate = (int64_t)kbps * 1000;
   codec->rc_max_rate = (int64_t)kbps * 1000;
   codec->rc_buffer_size = (int)(kbps * 500);
+}
+
+/* The rate Quick Sync is opened with, and moved to. FFmpeg's Quick Sync reads
+ * its rate control out of these numbers, and one whose target equals its cap
+ * it takes as constant bitrate, which keeps a calm screen at the cap by
+ * padding it. So the cap is the stream's target, over the same half second
+ * the other encoders are given, and the average is a kbit/s under it: that is
+ * MFX's VBR, spending what a picture needs up to the cap. The encoders here
+ * choose none of this, and a measurement on Intel hardware is what would
+ * change it (docs/discord/go-live.md). */
+static void set_qsv_rate(AVCodecContext *codec, unsigned kbps) {
+  set_rate(codec, kbps);
+  codec->bit_rate = (int64_t)kbps * 1000 - 1000;
 }
 
 /* One complete set of the settings NVENC is opened with: a row per tuning
@@ -308,7 +327,8 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   /* A new viewer waits at most this long for a picture. */
   codec->gop_size = (int)fps * 3;
   codec->max_b_frames = 0;
-  codec->pix_fmt = vaapi ? AV_PIX_FMT_VAAPI : amf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+  codec->pix_fmt =
+      vaapi ? AV_PIX_FMT_VAAPI : (amf || qsv) ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
   /* What the pixels are, not what a player might prefer them to be: the
    * screen, the camera and the clip all reach an encoder through libyuv's
    * ABGR to I420, whose matrix is BT.601's over its limited range, so that
@@ -318,7 +338,12 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   codec->color_trc = AVCOL_TRC_SMPTE170M;
   codec->colorspace = AVCOL_SPC_SMPTE170M;
   codec->color_range = AVCOL_RANGE_MPEG;
-  set_rate(codec, kbps);
+  /* Quick Sync's cap and target are a pair its rate control is chosen from,
+   * so the one place that sets them is the one that knows. */
+  if (qsv)
+    set_qsv_rate(codec, kbps);
+  else
+    set_rate(codec, kbps);
   if (codec_id == CODEC_H264) codec->profile = AV_PROFILE_H264_MAIN;
   /* What the tuning that opened the encoder said its quality is, for Rust to
    * log: FFmpeg reports no more of it back than it was told, and whatever a
@@ -339,16 +364,49 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     ret = open_vaapi(h, codec, device);
     if (ret < 0) return ret;
   } else if (qsv) {
-    /* Quick Sync takes its frames as NV12 and has settings of its own; this
-     * shim drives the three backends it was written for, so a build with
-     * --enable-libvpl says so here rather than opening Intel's encoder with
-     * NVENC's settings and reporting FFmpeg's complaint about them as the
-     * reason. Intel's GPUs are encoded through VA-API on Linux and not on this
-     * path in this build (README.yapfast.md). */
-    snprintf(first_error, sizeof first_error,
-             "Quick Sync is not driven by this shim: it needs a build with oneVPL and settings of "
-             "its own");
-    return AVERROR(ENOSYS);
+    /* Quick Sync is fed from the processor, as AMF is: NV12 frames in system
+     * memory, which FFmpeg copies into the surfaces its session encodes from.
+     * No frame here takes a zero-copy path, and the log says so.
+     *
+     * The session is asked for Intel's GPU through oneVPL, which is the device
+     * `-init_hw_device qsv` makes: a machine can hold another maker's card as
+     * well, and which implementation oneVPL picks by itself is not this side's
+     * to guess. A build with no QSV device to make leaves FFmpeg to open its
+     * own internal session, which is the same upload. */
+    ret = av_hwdevice_ctx_create(&h->device, AV_HWDEVICE_TYPE_QSV, NULL, NULL, 0);
+    if (ret >= 0) {
+      codec->hw_device_ctx = av_buffer_ref(h->device);
+      if (!codec->hw_device_ctx) return AVERROR(ENOMEM);
+    } else {
+      /* Not a reason to stop: the encoder may still open without it, and if
+       * it can't, its own error is the one the report wants. */
+      first_error[0] = 0;
+    }
+    /* One frame in flight, so a frame doesn't wait for the next; an IDR when
+     * one is asked for; and the average obeyed frame by frame rather than
+     * banked. The stream needs the first two, so a driver that can't do either
+     * fails the open; the medium preset and the per-frame average only improve
+     * the picture and the latency. */
+    const struct setting qsv_settings[] = {
+        {REQUIRED, "async_depth", "1"},
+        {REQUIRED, "forced_idr", "1"},
+        {OPTIONAL, "preset", "medium"},
+        {OPTIONAL, "low_delay_brc", "1"},
+    };
+    ret = set_options(h, qsv_settings, sizeof qsv_settings / sizeof *qsv_settings);
+    /* Look-ahead is off in FFmpeg's default and is asked for by name where the
+     * encoder has the switch, so a default that changed can't add a frame of
+     * delay to the stream. AV1 has only a depth, which does nothing without
+     * extended rate control. */
+    if (ret >= 0 && codec_id != CODEC_AV1)
+      ret = set_option(h, OPTIONAL, "look_ahead", "0");
+    /* AV1 encodes in Quick Sync's low-power engine, the only one it has. */
+    if (ret >= 0 && codec_id == CODEC_AV1)
+      ret = set_option(h, OPTIONAL, "low_power", "1");
+    if (ret < 0) return ret;
+    preset = "medium";
+    rate = "VBR";
+    h->qsv = 1;
   } else if (amf) {
     /* Or FFmpeg holds each frame's packet back until the next frame. */
     codec->flags |= AV_CODEC_FLAG_LOW_DELAY;
@@ -466,14 +524,22 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
  * order for a machine whose adapters Rust couldn't list; each system builds in
  * those it has.
  *
- * Quick Sync is named here so that a machine with Intel's GPU is told this
- * build hasn't got h264_qsv rather than nothing at all: it needs FFmpeg
- * configured with --enable-libvpl and oneVPL built beside it, which update.sh
- * does not do yet (README.yapfast.md). */
+ * Quick Sync is named here whether or not this FFmpeg carries it: a build with
+ * `--enable-libvpl` and oneVPL beside it (README.yapfast.md) opens Intel's
+ * encoders here, and one without says "not in this FFmpeg" for h264_qsv as it
+ * does for any encoder it lacks, so a machine with Intel's GPU is told which
+ * of the two happened rather than nothing at all.
+ *
+ * Quick Sync is last behind VA-API rather than in front of it: an Intel GPU on
+ * Linux encodes through VA-API today, and this order keeps that machine on the
+ * encoder its picture was measured with, with Quick Sync tried after it where
+ * no render node opens. On Windows Rust names the encoders it wants in the
+ * order its adapters gave them, so this row is what a machine whose adapters
+ * couldn't be listed falls back to. */
 static const char *const ENCODERS[][5] = {
-    [CODEC_H264] = {"h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi", NULL},
-    [CODEC_HEVC] = {"hevc_nvenc", "hevc_amf", "hevc_qsv", "hevc_vaapi", NULL},
-    [CODEC_AV1] = {"av1_nvenc", "av1_amf", "av1_qsv", "av1_vaapi", NULL},
+    [CODEC_H264] = {"h264_nvenc", "h264_amf", "h264_vaapi", "h264_qsv", NULL},
+    [CODEC_HEVC] = {"hevc_nvenc", "hevc_amf", "hevc_vaapi", "hevc_qsv", NULL},
+    [CODEC_AV1] = {"av1_nvenc", "av1_amf", "av1_vaapi", "av1_qsv", NULL},
 };
 
 /* The encoders to try, in the order asked for: Rust names them where it chose
@@ -728,9 +794,9 @@ struct yapfast_hwenc *yapfast_hwenc_new(const struct yapfast_hwenc_open *ask, ch
 }
 
 /* Copies an I420 picture into the frame the encoder reads: as it is for
- * NVENC, with its chroma planes interleaved for VA-API's and AMF's NV12.
- * `open_encoder` checked the frame's format, so the other layout is I420
- * rather than whatever the driver felt like. */
+ * NVENC, with its chroma planes interleaved for VA-API's, AMF's and Quick
+ * Sync's NV12. `open_encoder` checked the frame's format, so the other layout
+ * is I420 rather than whatever the driver felt like. */
 static int fill(struct yapfast_hwenc *h, const uint8_t *y, int y_stride, const uint8_t *u,
                 int u_stride, const uint8_t *v, int v_stride) {
   AVFrame *frame = h->frame;
@@ -876,10 +942,16 @@ int yapfast_hwenc_has(const char *name) { return avcodec_find_encoder_by_name(na
 
 /* Changes the bitrate aimed for, from the next frame on, without a
  * keyframe: patches/ in vendor/ffmpeg-src make NVENC, AMF and VA-API follow
- * it. Returns 0: the context's aim is what is set here, and the driver's
- * answer comes with the frames after, as FFmpeg's own error. */
+ * it, and FFmpeg's own Quick Sync applies it to its running session. Returns
+ * 0: the context's aim is what is set here, and the driver's answer comes
+ * with the frames after, as FFmpeg's own error. Quick Sync's cap and target
+ * are the pair it chose its rate control from at the open, so a new rate is
+ * made into the same pair rather than a target level with the cap. */
 int yapfast_hwenc_set_bitrate(struct yapfast_hwenc *h, unsigned kbps) {
-  set_rate(h->codec, kbps);
+  if (h->qsv)
+    set_qsv_rate(h->codec, kbps);
+  else
+    set_rate(h->codec, kbps);
   return 0;
 }
 

@@ -154,9 +154,10 @@ impl Backend {
     /// The backends a GPU of `vendor` has on this platform, best first: only
     /// the ones a driver of that vendor really provides, since VA-API is
     /// Linux's and AMF and Quick Sync are Windows', so no card is asked for an
-    /// encoder its platform hasn't got. Empty for a vendor with none — Intel's
-    /// GPUs on Windows have Quick Sync, which the shipped FFmpeg is not built
-    /// with.
+    /// encoder its platform hasn't got. Empty for a vendor with none. Intel's
+    /// GPUs on Windows have Quick Sync, which this FFmpeg carries only when it
+    /// was built with oneVPL: a name the build hasn't got is one `plan` leaves
+    /// out, and the report says so for it.
     pub fn on(vendor: u32) -> &'static [Backend] {
         if cfg!(windows) {
             match vendor {
