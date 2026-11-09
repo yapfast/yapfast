@@ -8,6 +8,7 @@ import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, Text
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
+import { BuildInfo, Updates, UpdateStatus } from "yapfast/build-info.slint";
 
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
@@ -385,6 +386,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: "About", icon: @image-url("icons/help-circle.svg"), id: 9 },
     ];
     property <[SettingsRow]> without-discord: [
         { heading: true, text: "SETTINGS" },
@@ -395,6 +397,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: "About", icon: @image-url("icons/help-circle.svg"), id: 9 },
     ];
     SettingsCard {
         motion: root.motion;
@@ -405,7 +408,8 @@ export component SettingsScreen inherits Rectangle {
             page-title: root.settings-section == 0 ? "My Account" : root.settings-section == 1 ? "Voice & Video"
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
-                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance" : "Game Activity";
+                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
+                : root.settings-section == 9 ? "About" : "Game Activity";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -1369,6 +1373,85 @@ export component AdvancedSettings inherits VerticalLayout {
     Label {
         text: "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).";
         font-size: 12px; color: Theme.faint;
+    }
+}
+
+// Settings: which build this is, and whether a newer release is out. The check
+// is a switch, off until it's turned on; nothing here installs a release.
+export component AboutSettings inherits VerticalLayout {
+    callback copy-text(string);
+    property <bool> copied;
+    property <string> status-text:
+        Updates.status == UpdateStatus.checking ? "Looking for a newer release..."
+        : Updates.status == UpdateStatus.current ? "Yapfast is up to date."
+        : Updates.status == UpdateStatus.available ? "Yapfast " + Updates.latest + " is out."
+        : Updates.status == UpdateStatus.skipped ? "You skipped Yapfast " + Updates.latest + "."
+        : Updates.status == UpdateStatus.failed ? "Could not look for a newer release: " + Updates.error
+        : Updates.status == UpdateStatus.source ? "This is a build from source, so there is no release to compare it with."
+        : Updates.check ? "" : "Updates aren't checked. Turn the check on, or press Check now.";
+    spacing: 16px;
+    SettingsTitle { text: "About"; }
+    Rectangle {
+        background: Theme.sidebar; border-radius: 8px;
+        HorizontalLayout {
+            padding: 16px; spacing: 16px;
+            VerticalLayout {
+                alignment: center; spacing: 4px; horizontal-stretch: 1;
+                Text { text: BuildInfo.headline; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                HorizontalLayout {
+                    alignment: start;
+                    Text {
+                        text: BuildInfo.channel; font-size: 13px; font-weight: 700;
+                        color: BuildInfo.tone == 0 ? Theme.live : BuildInfo.tone == 1 ? Theme.accent : Theme.danger-text;
+                    }
+                    if BuildInfo.details != "": Text { text: " · " + BuildInfo.details; color: Theme.muted; font-size: 13px; overflow: elide; }
+                }
+            }
+            Middle {
+                ActionButton {
+                    text: root.copied ? "Copied" : "Copy version";
+                    clicked => { root.copy-text(BuildInfo.summary); root.copied = true; }
+                }
+            }
+        }
+    }
+    Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
+    SettingsHeading { text: "UPDATES"; }
+    if Updates.manager != "": Label {
+        text: "Yapfast was installed with " + Updates.manager + ", which updates it. Use it to get a newer release.";
+    }
+    if root.status-text != "": Label {
+        text: root.status-text;
+        color: Updates.status == UpdateStatus.available ? Theme.accent : Updates.status == UpdateStatus.failed ? Theme.danger-text : Theme.muted;
+    }
+    HorizontalLayout {
+        spacing: 8px; alignment: start;
+        if Updates.status == UpdateStatus.available || Updates.status == UpdateStatus.skipped: ActionButton {
+            text: "View release"; icon: @image-url("icons/download.svg"); primary: Updates.status == UpdateStatus.available;
+            clicked => { Updates.view(); }
+        }
+        if Updates.status == UpdateStatus.available: ActionButton {
+            text: "Skip this update";
+            clicked => { Updates.skip(); }
+        }
+        ActionButton {
+            text: "Check now"; icon: @image-url("icons/refresh-cw.svg"); enabled: Updates.status != UpdateStatus.checking;
+            clicked => { Updates.check-now(); }
+        }
+    }
+    SettingsSwitch {
+        text: "Check for updates";
+        description: "When Yapfast starts, it asks GitHub for the list of releases and says here when a newer one is out. The request carries only Yapfast's name and version. Off, Yapfast makes no request, and Check now looks once.";
+        checked <=> Updates.check;
+        toggled => { Updates.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Include nightly builds";
+        description: "Nightlies are builds of the main branch, made for testing and rougher than a release. Off, only releases count.";
+        checked <=> Updates.nightlies;
+        enabled: Updates.check;
+        locked-tip: "Turn on Check for updates first";
+        toggled => { Updates.preferences-changed(); }
     }
 }
 

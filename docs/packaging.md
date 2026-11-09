@@ -137,6 +137,49 @@ new commit even when no file it reads changed. A build outside a repository,
 such as a source archive, names no commit. A build doesn't look for edits to
 files on top of the commit, so a development build can't say it has them.
 
+## Newer releases
+
+Settings' About page shows the build, as the lines under the sections do, and
+says whether a newer release is out. A line under the sections tells too:
+"Update available" with the release's tag, and a click opens About. About
+offers View release, which opens the release's page in the browser, and Skip
+this update, which hides that release until a newer one comes. Yapfast
+installs nothing.
+
+The look is off until a person turns on Check for updates, so a fresh install
+makes no request to GitHub. On, Yapfast makes one request when it starts, for
+the list of releases (`api.github.com/repos/yapfast/yapfast/releases`), which
+carries only `Yapfast/VERSION` as its user agent and no account or identifier.
+Check now looks once, whatever the switch says. Nightlies count as newer only
+with Include nightly builds, so a stable install isn't offered one. A build
+from source is never offered an update: its version is that of the release it
+grew from, so every later release would look new. A nightly is offered the
+stable release that follows it.
+
+`src/update.rs` compares versions as SemVer does and decides from the list
+what to offer, in functions the tests call without a network;
+`src/ui/updates.rs` keeps the last list for the session and fills the
+`Updates` global. The saved choices are `check_for_updates`, `update_nightlies`
+and `skipped_update` in `layout.json`.
+
+It also works out how Yapfast was installed, from the program's path and the
+`APPIMAGE` and `FLATPAK_ID` variables: Scoop, Chocolatey, WinGet, the Microsoft
+Store, Nix, Snap, Homebrew, Flatpak and a distribution's `/usr` are managed, and
+About then says to update through that package manager.
+
+### Updating itself
+
+`src/update/install.rs` can download a release, check it against the
+release's `SHA256SUMS.txt` and install it: it replaces an AppImage with a
+rename, which is atomic on one filesystem, or runs the Windows installer. The
+file streams to disk, never held whole in memory, and replaces nothing unless
+the sum matches. It is built only with the `self-update` Cargo feature, which
+no packaging script sets, and nothing calls it: no switch, button or flag
+reaches it, because the project hasn't decided whether Yapfast updates itself.
+Wiring it in means calling `install::apply` from a button, for installs whose
+`update::source()` is `AppImage` or `Installer`. Test it with
+`cargo test --features desktop,discord,self-update update`.
+
 ## The app icon
 
 `packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in

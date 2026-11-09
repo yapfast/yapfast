@@ -9198,6 +9198,64 @@ fn yapfast_settings_name_the_build_and_copy_it_on_a_click() {
 }
 
 #[test]
+fn yapfast_settings_offer_a_newer_release_and_open_about_on_a_click() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_own_title_bar(true);
+    window.set_account_name("Alex".into());
+    window.set_account_initial("A".into());
+    let build = window.global::<BuildInfo>();
+    build.set_headline("Yapfast v0.4.0".into());
+    build.set_channel("Stable".into());
+    window.set_settings_open(true);
+    window.set_settings_section(6);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1920., 1080.));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    let click = |y: f32| {
+        let position = slint::LogicalPosition::new(350., y);
+        window.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+    };
+    // Nothing is offered until a look finds a release, so no click along the
+    // navigation's foot opens About.
+    let rows: Vec<f32> = (880..1000).step_by(4).map(|y| y as f32).collect();
+    for &y in &rows {
+        click(y);
+    }
+    assert_eq!(window.get_settings_section(), 6);
+    let updates = window.global::<Updates>();
+    updates.set_status(UpdateStatus::Available);
+    updates.set_latest("v0.4.1".into());
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+    // The notice sits above the build; one of the clicks along the foot lands on it.
+    for &y in &rows {
+        click(y);
+        if window.get_settings_section() == 9 {
+            break;
+        }
+    }
+    assert_eq!(
+        window.get_settings_section(),
+        9,
+        "a click on the notice goes to About"
+    );
+    assert!(window.get_settings_open());
+    window.hide().unwrap();
+}
+
+#[test]
 fn yapfast_account_popover_copies_its_id_and_opens_settings_without_changing_status() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");
