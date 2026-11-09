@@ -24,7 +24,8 @@ application model are in `yapfast-core`.
   window sizing from 1120×760 down to 800×560. Settings cover the window in
   sections: account, appearance (the [themes](themes.md)), voice and video,
   messages (text size, clock, link previews, folding long messages and boost gems), notifications, sounds, Discord
-  and advanced (the renderer, closing to the tray), closed by its close button
+  and advanced (the renderer, closing to the tray), with
+  [plugins](plugin-settings.md) in a build that has them, closed by its close button
   or Escape. Desktop notifications for DMs and mentions show while Yapfast
   isn't in front; clicking one opens the conversation. Closing the window
   leaves Yapfast in the [tray](tray.md).

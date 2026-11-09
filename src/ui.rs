@@ -54,6 +54,8 @@ mod move_loop;
 mod name_style;
 mod pictures;
 mod placement;
+#[cfg(feature = "plugins")]
+mod plugin_settings;
 mod polls;
 mod profile;
 mod refresh;

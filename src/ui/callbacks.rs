@@ -606,6 +606,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         .global::<EmojiFavorites>()
         .on_is_favorite(|key, _| EMOJI_FAVORITES.with_borrow(|set| set.contains(key.as_str())));
     super::polls::bind(window, adapter);
+    #[cfg(feature = "plugins")]
+    super::plugin_settings::bind(window, adapter);
     super::call_link::bind(window, adapter);
     super::server_settings::bind(window, adapter);
     super::channel_settings::bind(window, adapter);
