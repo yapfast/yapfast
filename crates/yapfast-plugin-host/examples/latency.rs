@@ -548,4 +548,33 @@ mod tests {
             prerequisite_problem(Path::new("C:/fixtures/x"), Path::new("echo.wasm")).is_some()
         );
     }
+
+    #[test]
+    fn a_timing_block_carries_its_samples_and_percentiles() {
+        let block = timing(&[4, 8, 12, 16], "one exchange");
+        assert_eq!(block["unit"], "nanoseconds");
+        assert_eq!(block["definition"], "one exchange");
+        assert_eq!(block["samples"], json!([4, 8, 12, 16]));
+        assert_eq!(
+            block["percentiles"],
+            json!({"p50": 8, "p95": 16, "p99": 16})
+        );
+        assert_eq!(timing(&[], "one exchange")["percentiles"], Value::Null);
+    }
+
+    #[test]
+    fn the_stderr_tail_keeps_what_the_helper_said() {
+        assert_eq!(
+            drain_stderr(Cursor::new(b"the module trapped".to_vec())),
+            b"the module trapped"
+        );
+    }
+
+    #[test]
+    fn the_stderr_tail_is_bounded_to_its_documented_size() {
+        let long: Vec<u8> = vec![b'e'; STDERR_TAIL + 100];
+        let tail = drain_stderr(Cursor::new(long));
+        assert_eq!(tail.len(), STDERR_TAIL);
+        assert!(tail.iter().all(|byte| *byte == b'e'));
+    }
 }
