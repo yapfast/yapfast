@@ -18,6 +18,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SKIA_BINARIES_URL");
     println!("cargo:rerun-if-changed=vendor/twemoji/72x72");
     println!("cargo:rerun-if-changed=src/emoji_font_tables.rs");
+    build_info();
     if env::var_os("CARGO_FEATURE_DESKTOP").is_some() {
         pack_twemoji();
     }
@@ -233,6 +234,74 @@ fn joins(pictures: &[(String, Vec<u8>)]) -> emoji_font_tables::Joins {
     empty.sort_unstable();
     empty.dedup();
     emoji_font_tables::Joins { empty, sequences }
+}
+
+/// Hands src/build_info.rs the commit and its date, and whether this is a
+/// release build. Nix's sandbox has no Git, so nix/package.nix gives the
+/// first two in `YAPFAST_COMMIT` and `YAPFAST_COMMIT_DATE`; a build in a
+/// checkout asks Git. Without either, the build names no commit. Only a
+/// release's packaging sets `YAPFAST_RELEASE`: every other build, such as
+/// `cargo run`, is a development build.
+fn build_info() {
+    for name in ["YAPFAST_COMMIT", "YAPFAST_COMMIT_DATE", "YAPFAST_RELEASE"] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    // Only this directory's own repository counts: source unpacked inside
+    // another one, as a package build may do, isn't at that one's commit.
+    // `--show-prefix` is empty at a repository's top, also in a worktree.
+    let checkout = git(&["rev-parse", "--show-prefix"]).is_some_and(|prefix| prefix.is_empty());
+    // A new commit or a checkout moves HEAD, and appends to its log, which
+    // also changes when HEAD stays on a branch that gains a commit. Edits to
+    // files aren't watched, so a build doesn't recompile the program for
+    // them: the commit named is the one the checkout is on, with or without
+    // changes on top.
+    if checkout {
+        for path in ["HEAD", "logs/HEAD"] {
+            if let Some(path) = git(&["rev-parse", "--git-path", path]).map(PathBuf::from)
+                && path.exists()
+            {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
+    }
+    let commit = env::var("YAPFAST_COMMIT")
+        .ok()
+        .filter(|commit| !commit.is_empty())
+        .or_else(|| git(&["rev-parse", "HEAD"]).filter(|_| checkout));
+    let date = env::var("YAPFAST_COMMIT_DATE")
+        .ok()
+        .filter(|date| !date.is_empty())
+        .or_else(|| {
+            // UTC, as Nix's `lastModifiedDate` is, so a commit has one date
+            // wherever it is built.
+            Command::new("git")
+                .args(["log", "-1", "--date=format-local:%Y-%m-%d", "--format=%cd"])
+                .env("TZ", "UTC")
+                .output()
+                .ok()
+                .filter(|output| checkout && output.status.success())
+                .and_then(|output| String::from_utf8(output.stdout).ok())
+                .map(|date| date.trim().to_owned())
+        });
+    if let Some(commit) = commit.filter(|commit| !commit.is_empty()) {
+        println!("cargo:rustc-env=YAPFAST_BUILD_COMMIT={commit}");
+    }
+    if let Some(date) = date.filter(|date| !date.is_empty()) {
+        println!("cargo:rustc-env=YAPFAST_BUILD_DATE={date}");
+    }
+    if env::var_os("YAPFAST_RELEASE").is_some_and(|release| !release.is_empty()) {
+        println!("cargo:rustc-env=YAPFAST_BUILD_RELEASE=1");
+    }
+}
+
+/// What `git` prints for `arguments`, when it runs here and succeeds.
+fn git(arguments: &[&str]) -> Option<String> {
+    let output = Command::new("git").args(arguments).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    Some(text.trim().to_owned())
 }
 
 fn windows_icon() {
