@@ -296,32 +296,58 @@ pub enum Request {
 impl Request {
     /// The frame kind this request travels as.
     pub fn kind(&self) -> Kind {
-        todo!()
+        match self {
+            Self::Load { .. } => Kind::Load,
+            Self::Call { .. } => Kind::Call,
+            Self::Unload { .. } => Kind::Unload,
+            Self::Shutdown => Kind::Shutdown,
+        }
     }
 
     /// Checks the request's invariants, such as an absolute module path.
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        todo!()
+        match self {
+            Self::Load { module, .. } if !module.is_absolute() => {
+                Err(ProtocolError::RelativeModulePath(module.clone()))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// The request as the JSON a frame carries.
     pub fn to_value(&self) -> Result<Value, ProtocolError> {
-        todo!()
+        self.validate()?;
+        Ok(serde_json::to_value(self)?)
     }
 
     /// Parses and checks a request from the JSON a frame carried.
     pub fn from_value(value: Value) -> Result<Self, ProtocolError> {
-        todo!()
+        let request: Self = serde_json::from_value(value)?;
+        request.validate()?;
+        Ok(request)
     }
 
     /// Wraps the request in a frame with `id`.
     pub fn to_frame(&self, id: u64) -> Result<Frame, ProtocolError> {
-        todo!()
+        self.validate()?;
+        let payload = serde_json::to_vec(self)?;
+        Ok(Frame::new(self.kind(), id, payload)?)
     }
 
     /// Parses a request from a frame, refusing a frame that is not a request.
     pub fn from_frame(frame: &Frame) -> Result<Self, ProtocolError> {
-        todo!()
+        match frame.kind() {
+            Kind::Load | Kind::Call | Kind::Unload | Kind::Shutdown => {}
+            other => return Err(ProtocolError::NotRequest(other)),
+        }
+        let request = Self::from_value(serde_json::from_slice(frame.payload())?)?;
+        if request.kind() != frame.kind() {
+            return Err(ProtocolError::KindMismatch {
+                kind: frame.kind(),
+                payload: request.kind(),
+            });
+        }
+        Ok(request)
     }
 }
 
@@ -351,27 +377,45 @@ pub enum Response {
 impl Response {
     /// The frame kind this response travels as.
     pub fn kind(&self) -> Kind {
-        todo!()
+        match self {
+            Self::Ready => Kind::Ready,
+            Self::Loaded => Kind::Loaded,
+            Self::Reply { .. } => Kind::Reply,
+            Self::Unloaded => Kind::Unloaded,
+            Self::Error { .. } => Kind::Error,
+        }
     }
 
     /// The response as the JSON a frame carries.
     pub fn to_value(&self) -> Result<Value, ProtocolError> {
-        todo!()
+        Ok(serde_json::to_value(self)?)
     }
 
     /// Parses a response from the JSON a frame carried.
     pub fn from_value(value: Value) -> Result<Self, ProtocolError> {
-        todo!()
+        Ok(serde_json::from_value(value)?)
     }
 
     /// Wraps the response in a frame with `id`.
     pub fn to_frame(&self, id: u64) -> Result<Frame, ProtocolError> {
-        todo!()
+        let payload = serde_json::to_vec(self)?;
+        Ok(Frame::new(self.kind(), id, payload)?)
     }
 
     /// Parses a response from a frame, refusing a frame that is not a response.
     pub fn from_frame(frame: &Frame) -> Result<Self, ProtocolError> {
-        todo!()
+        match frame.kind() {
+            Kind::Ready | Kind::Loaded | Kind::Reply | Kind::Unloaded | Kind::Error => {}
+            other => return Err(ProtocolError::NotResponse(other)),
+        }
+        let response = Self::from_value(serde_json::from_slice(frame.payload())?)?;
+        if response.kind() != frame.kind() {
+            return Err(ProtocolError::KindMismatch {
+                kind: frame.kind(),
+                payload: response.kind(),
+            });
+        }
+        Ok(response)
     }
 }
 

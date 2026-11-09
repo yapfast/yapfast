@@ -240,10 +240,7 @@ fn an_unknown_type_is_a_json_error() {
 
 #[test]
 fn a_frame_whose_kind_contradicts_its_json_is_refused() {
-    let frame = request_frame(
-        Kind::Load,
-        json!({ "type": "unload", "plugin": "echo" }),
-    );
+    let frame = request_frame(Kind::Load, json!({ "type": "unload", "plugin": "echo" }));
     assert!(matches!(
         Request::from_frame(&frame),
         Err(ProtocolError::KindMismatch {
