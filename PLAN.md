@@ -267,12 +267,11 @@ is read once at startup.
 
 Each plugin names what wakes it:
 
-```toml
-[activation]
-on = ["command", "menu", "event:message_create"]   # or "startup"
+```json
+{ "activation": { "on": ["command", "menu", "event:message_create"] } }
 ```
 
-Contributions are in the manifest, so the parent can show a command in the `/`
+`"startup"` is the other choice. Contributions are in the manifest, so the parent can show a command in the `/`
 list or an item in a menu with the helper not even running. When one is used:
 
 1. Spawn the helper if it isn't running.
@@ -482,12 +481,11 @@ The draft's concern is load order. The useful observation is that **only
 activation has an order; compilation doesn't.** Module A needs nothing from
 module B to compile.
 
-```toml
-[dependencies]
-"com.example.shared-emoji" = "^1.2"
-
-[optional-dependencies]
-"com.example.themes" = "^2"
+```json
+{
+  "dependencies": { "com.example.shared-emoji": "^1.2" },
+  "optional_dependencies": { "com.example.themes": "^2" }
+}
 ```
 
 **At install and enable:** build the graph with Kahn's algorithm. A cycle or a
@@ -534,7 +532,7 @@ plugins' code in one trust domain and complicate per-plugin hot reload.
 
 ```
 my-plugin/
-  yapfast-plugin.toml
+  yapfast-plugin.json
   plugin.wasm           built artifact, checked in, as the maintainer suggested
   icon.png              64×64 to 256×256, ≤ 64 KiB
   assets/               optional
@@ -549,59 +547,61 @@ compile time and compiled-code memory.
 
 ### 8.2 Manifest
 
-```toml
-api = 1
-id = "com.example.word-filter"       # reverse-DNS, stable forever
-name = "Word Filter"
-version = "1.4.0"
-description = "Hides words you'd rather not read."
-authors = ["Ada <ada@example.com>"]
-license = "MIT"
-homepage = "https://example.com/word-filter"
-source = "https://codeberg.org/ada/word-filter"
-min_yapfast = "0.5.0"
+```json
+{
+  "api": 1,
+  "id": "com.example.word-filter",
+  "name": "Word Filter",
+  "version": "1.4.0",
+  "description": "Hides words you'd rather not read.",
+  "authors": ["Ada <ada@example.com>"],
+  "license": "MIT",
+  "homepage": "https://example.com/word-filter",
+  "source": "https://codeberg.org/ada/word-filter",
+  "min_yapfast": "0.5.0",
 
-wasm = "plugin.wasm"                 # optional; see §17.2
-icon = "icon.png"
-wasi = false
+  "wasm": "plugin.wasm",
+  "icon": "icon.png",
+  "wasi": false,
 
-[limits]
-memory_pages = 128
+  "limits": { "memory_pages": 128 },
+  "activation": { "on": ["event:message_create", "command"] },
+  "permissions": {
+    "network": ["api.example.com", "*.cdn.example.com"],
+    "capabilities": ["messages.read", "messages.intercept", "storage"]
+  },
 
-[activation]
-on = ["event:message_create", "command"]
-
-[permissions]
-network = ["api.example.com", "*.cdn.example.com"]
-capabilities = ["messages.read", "messages.intercept", "storage"]
-
-[[commands]]
-name = "filter"
-description = "Add a word to the filter"
-options = [{ name = "word", type = "string", required = true }]
-
-[[menus]]
-target = "message"
-label = "Filter this word"
-icon = "assets/filter.png"
-action = "filter_selected"
-when = { network = "discord", own = false }
-
-[[settings]]
-key = "replacement"
-type = "string"
-label = "Replacement text"
-default = "***"
-
-[[settings]]
-key = "strict"
-type = "bool"
-label = "Match inside words"
-default = false
+  "commands": [
+    {
+      "name": "filter",
+      "description": "Add a word to the filter",
+      "options": [{ "name": "word", "type": "string", "required": true }]
+    }
+  ],
+  "menus": [
+    {
+      "target": "message",
+      "label": "Filter this word",
+      "icon": "assets/filter.png",
+      "action": "filter_selected",
+      "when": { "network": "discord", "own": false }
+    }
+  ],
+  "settings": [
+    { "key": "replacement", "type": "string", "label": "Replacement text", "default": "***" },
+    { "key": "strict", "type": "bool", "label": "Match inside words", "default": false }
+  ]
+}
 ```
 
-The `fetch` subcommand validates it and writes `manifest.json`, so the parent
-needs only `serde_json` and no TOML parser on the startup path.
+`id` is reverse-DNS and stable forever. `wasm` is optional
+([§17.2](#172-additions-to-the-api)).
+
+Manifests are JSON because Yapfast already depends on `serde_json`, so the
+plugin system adds no format parser of its own, and the app itself gains none.
+The helper still links `toml`, only because Extism and wasmtime's compile cache
+depend on it. The file is strict JSON, without comments or trailing commas. The `fetch` subcommand validates it and stores the validated
+copy as `manifest.json`, which is what the parent reads.
 
 ### 8.3 Where things live
 
@@ -679,7 +679,7 @@ no server to run.
 
 ```
 yapfast-plugin-registry/
-  plugins/com.example.word-filter.toml     repo, path, rev, sha256, category, tags
+  plugins/com.example.word-filter.json     repo, path, rev, sha256, category, tags
   icons/com.example.word-filter.webp       128×128, ≤ 24 KiB
   index.json                               built by CI
 ```
@@ -866,8 +866,8 @@ Vencord's `src/api/`, one by one.
 | --- | --- | --- |
 | `MessageEvents` pre-send, pre-edit | `message.pre_send`, `message.pre_edit` | Hooks with budgets; [§10.3](#103-hooks-and-their-budgets) |
 | `MessageEvents` click | `message.clicked` | Opt-in; from existing row handlers |
-| `Commands` | `[[commands]]` | Declarative, local; new `/` UI |
-| `ContextMenu` | `[[menus]]` | Declarative with data predicates. Vencord's patch callback needs arbitrary code during menu build, which the UI thread must not wait for |
+| `Commands` | `commands` | Declarative, local; new `/` UI |
+| `ContextMenu` | `menus` | Declarative with data predicates. Vencord's patch callback needs arbitrary code during menu build, which the UI thread must not wait for |
 | `MessagePopover` | `[[message_actions]]` | Hover bar button |
 | `ChatButtons` | `[[composer_buttons]]` | Next to the composer |
 | `MessageDecorations` | `message.decorate` | Badge after the author's name |
@@ -879,7 +879,7 @@ Vencord's `src/api/`, one by one.
 | `Notices` | `ui.notice` | Top banner, one at a time |
 | `Notifications` | `notify.send` | Through `Effect::Notify`, rate-limited |
 | `DataStore` | `storage.*` | Per-plugin, quota |
-| `Settings` | `[[settings]]` | Generated form |
+| `Settings` | `settings` | Generated form |
 | `Styles` | none | No CSS exists. Theme tokens only |
 | `Themes` | Theme files | Existing custom themes, `docs/themes.md` |
 | `SettingsSync` | Later | Export/import first |
@@ -1146,7 +1146,7 @@ immediately, its status (*Idle*, *Running*, *Suspended: ran out of memory*),
 and *Update* when one exists. Below it, the helper's current memory total while
 the page is open. Opening a plugin shows:
 
-- settings generated from its `[[settings]]`;
+- settings generated from its `settings`;
 - permissions and network grants, each revocable;
 - source, commit, license; update and roll back;
 - recent log lines; Uninstall, which offers to delete its data.
@@ -1161,7 +1161,7 @@ Git repository   [ https://codeberg.org/ada/word-filter        ]
 *Find plugin* moves to a review dialog showing the plugin's name, icon, source
 and commit, what it can do, its memory cap and dependencies, with an
 *Unreviewed source* warning, and **Install** or **Cancel**. Progress and errors
-are stated plainly: *"That repository has no yapfast-plugin.toml."* *"plugin.wasm
+are stated plainly: *"That repository has no yapfast-plugin.json."* *"plugin.wasm
 is a Git LFS pointer; check in the file itself."*
 
 Advanced (footer of the page): Load folder; memory budget; idle eviction time.
@@ -1187,31 +1187,26 @@ Most of it fits in the manifest, so a plugin that only changes the interface
 needs no `wasm`, helper process or instance, like a setting point
 ([§17.2](#172-additions-to-the-api)):
 
-```toml
-[permissions]
-capabilities = ["ui.modify"]
-
-[[ui.menu]]
-target = "message"
-row = "pin"
-hide = true
-
-[[ui.menu]]
-target = "user"
-row = "copy-id"
-label = "Copy user ID"
-before = "mention"
-
-[ui.parts]
-hide = ["sidebar.banner", "message.actions.react"]
-replace = ["account.identity"]       # needs wasm: filled by ui.set_slot
-
-[ui.colors]
-accent = "#7aa2ff"
-
-[ui.sizes]
-message-group-gap = 8                # logical pixels, clamped to the point's range
+```json
+{
+  "permissions": { "capabilities": ["ui.modify"] },
+  "ui": {
+    "menu": [
+      { "target": "message", "row": "pin", "hide": true },
+      { "target": "user", "row": "copy-id", "label": "Copy user ID", "before": "mention" }
+    ],
+    "parts": {
+      "hide": ["sidebar.banner", "message.actions.react"],
+      "replace": ["account.identity"]
+    },
+    "colors": { "accent": "#7aa2ff" },
+    "sizes": { "message-group-gap": 8 }
+  }
+}
 ```
+
+`replace` is the one entry that needs `wasm`, since `ui.set_slot` fills the
+part. Sizes are logical pixels, clamped to each value's range.
 
 **Editing rows.**
 
@@ -1307,7 +1302,7 @@ and the plugin's page says *This part no longer exists* rather than the plugin
 failing. A test checks every published ID against the real tables.
 
 **Safe mode.** `yapfast --no-plugins` starts with no helper and applies no
-`[ui]` or `[tweaks]`, without changing which plugins are enabled. The Plugins
+`ui` or `tweaks` entries, without changing which plugins are enabled. The Plugins
 page says it's in safe mode and can still disable or uninstall anything. It's
 the way back from an interface a plugin has made unusable.
 
@@ -1459,7 +1454,7 @@ refused; Discord hosts refused; bare `*` rejected; path traversal and symlinks
 in a repository refused; oversized repository killed at its cap; guest stdout
 can't reach the pipe; a tampered `.wasm` fails its hash; prompt-bombing capped;
 a revoked host stops immediately; a plugin without `messages.read` receives no
-message event; a `[ui]` entry naming a protected part or a `danger` row is
+message event; a `ui` entry naming a protected part or a `danger` row is
 refused; a low-contrast colour is refused; the unmodified theme shows while a
 consent dialog is open; disabling a plugin restores every changed part;
 `--no-plugins` starts no helper and applies no change.
@@ -1488,6 +1483,7 @@ consent dialog is open; disabling a plugin restores every changed part;
 | Question | Decision |
 | --- | --- |
 | Helper | A separate `yapfast-plugins` binary ([§3.2](#32-a-separate-binary-not-yapfast---plugin-host)) |
+| Manifest format | Strict JSON, read with the `serde_json` Yapfast already has ([§8.2](#82-manifest)) |
 | Sending with no user action | A gated capability whose warning says automated sending can get the account banned ([§9.1](#91-capabilities)) |
 | Scope | The plugin system only. Plugins never patch anything ([§17](#17-abilities-the-api-needs)) |
 | Marketplace | A repository in the Yapfast organization; a maintainer reads the source before merging ([§8.6](#86-marketplace)) |
@@ -1543,7 +1539,7 @@ Permissions for these are in [§9.1](#91-capabilities).
 | **Curated actions** | `discord.*`: see below | Do things the user could do |
 | **Audio** | `audio.play` through `audio_io`, `audio.speak` through the OS (speech-dispatcher, SAPI, macOS's speech synthesis), and later `audio.record` | Play sounds, announce things aloud |
 | **Local reach** | `network.local`, one exact loopback port, WebSocket or UDP. `open.app`, an allow-list of URI schemes with confirmation | Talk to an app on this computer, open links in apps |
-| **Input** | `[[keybinds]]` scoped to the window; `message.clicked` with modifiers | Add shortcuts |
+| **Input** | `keybinds` scoped to the window; `message.clicked` with modifiers | Add shortcuts |
 | **Providers** | Plugin-supplied sources for the GIF picker | Offer another GIF source |
 | **Local-only notices** | `timeline.notice`: an entry visible only to you, in the open room, never stored or sent | Answer a command privately |
 | **Widgets** | `avatar`, `tabs`, `collapsible`, virtualized `list`, `table`, selectable `code`, `color` | Build fuller dialogs and settings |
@@ -1552,17 +1548,17 @@ Permissions for these are in [§9.1](#91-capabilities).
 **Setting points.** `wasm` becomes optional in the manifest, and a plugin
 without it just sets named points:
 
-```toml
-api = 1
-id = "com.example.no-mosaic"
-name = "No Mosaic"
-version = "1.0.0"
-
-[tweaks]
-"messages.attachments.mosaic" = false
+```json
+{
+  "api": 1,
+  "id": "com.example.no-mosaic",
+  "name": "No Mosaic",
+  "version": "1.0.0",
+  "tweaks": { "messages.attachments.mosaic": false }
+}
 ```
 
-This plan builds the mechanism: an optional `wasm`, the `[tweaks]` table, and a
+This plan builds the mechanism: an optional `wasm`, the `tweaks` object, and a
 registry in a new `crates/yapfast-core/src/tweaks.rs`. A point is an ordinary
 field with a default, a type and a doc line, read where it applies, so it costs
 nothing at runtime. Individual points are added separately as behaviours are
@@ -1596,30 +1592,29 @@ something Yapfast already does, so the rate limiter and token stay in Yapfast.
 
 ## Appendix: a whole plugin
 
-```toml
-# yapfast-plugin.toml
-api = 1
-id = "com.example.shout"
-name = "Shout"
-version = "1.0.0"
-description = "Adds /shout, which sends your text in capitals."
-authors = ["Ada"]
-license = "MIT"
-wasm = "plugin.wasm"
+`yapfast-plugin.json`:
 
-[limits]
-memory_pages = 64
-
-[activation]
-on = ["command"]
-
-[permissions]
-capabilities = ["messages.send"]
-
-[[commands]]
-name = "shout"
-description = "Send text in capitals"
-options = [{ name = "text", type = "string", required = true }]
+```json
+{
+  "api": 1,
+  "id": "com.example.shout",
+  "name": "Shout",
+  "version": "1.0.0",
+  "description": "Adds /shout, which sends your text in capitals.",
+  "authors": ["Ada"],
+  "license": "MIT",
+  "wasm": "plugin.wasm",
+  "limits": { "memory_pages": 64 },
+  "activation": { "on": ["command"] },
+  "permissions": { "capabilities": ["messages.send"] },
+  "commands": [
+    {
+      "name": "shout",
+      "description": "Send text in capitals",
+      "options": [{ "name": "text", "type": "string", "required": true }]
+    }
+  ]
+}
 ```
 
 ```rust
