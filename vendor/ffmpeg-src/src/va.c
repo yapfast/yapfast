@@ -73,6 +73,17 @@ FORWARD(VAStatus, vaGetConfigAttributes,
         (VADisplay dpy, VAProfile profile, VAEntrypoint entrypoint, VAConfigAttrib *attribs,
          int count),
         (dpy, profile, entrypoint, attribs, count), FAILED)
+/* A decoded picture is handed over as a DMA-BUF on Linux: the surface is
+ * exported, or a buffer's handle taken and released, rather than copied. */
+FORWARD(VAStatus, vaAcquireBufferHandle,
+        (VADisplay dpy, VABufferID buf_id, VABufferInfo *buf_info),
+        (dpy, buf_id, buf_info), FAILED)
+FORWARD(VAStatus, vaExportSurfaceHandle,
+        (VADisplay dpy, VASurfaceID surface_id, uint32_t mem_type, uint32_t flags,
+         void *descriptor, int *fd),
+        (dpy, surface_id, mem_type, flags, descriptor, fd), FAILED)
+FORWARD(VAStatus, vaReleaseBufferHandle, (VADisplay dpy, VABufferID buf_id),
+        (dpy, buf_id), FAILED)
 /* QSV asks the display which Intel device it is, to pick the driver. */
 FORWARD(VAStatus, vaGetDisplayAttributes,
         (VADisplay dpy, VADisplayAttribute *attr_list, int num_attributes),

@@ -620,8 +620,10 @@ pub struct Planes {
 /// as.
 #[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, test)))]
 mod vaapi {
+    #[cfg(test)]
+    use std::ffi::c_void;
     use std::{
-        ffi::{c_int, c_uchar, c_void},
+        ffi::{c_int, c_uchar},
         os::fd::RawFd,
         ptr,
     };
@@ -691,7 +693,8 @@ mod vaapi {
         fn yapfast_vadec_free(decoder: *mut Raw);
         /// [`Hardware::decode`]'s descriptor reading, without a decoder: `drm`
         /// is the `AVDRMFrameDescriptor` a DRM PRIME frame's `data[0]` points
-        /// at, which a test builds.
+        /// at, which a test builds. Only a test asks for it.
+        #[cfg(test)]
         fn yapfast_vadec_describe(
             drm: *const c_void,
             picture: *mut RawPicture,

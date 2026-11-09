@@ -81,6 +81,7 @@ libavcodec/hevc/parse.c
 libavcodec/hevc/parser.c
 libavcodec/hevc/pred.c
 libavcodec/hevc/ps.c
+libavcodec/hevc/ps_enc.c
 libavcodec/hevc/refs.c
 libavcodec/hevc/sei.c
 libavcodec/idctdsp.c
@@ -107,6 +108,11 @@ libavcodec/pthread.c
 libavcodec/pthread_frame.c
 libavcodec/pthread_slice.c
 libavcodec/qsv_api.c
+libavcodec/qsv.c
+libavcodec/qsvenc_av1.c
+libavcodec/qsvenc.c
+libavcodec/qsvenc_h264.c
+libavcodec/qsvenc_hevc.c
 libavcodec/raw.c
 libavcodec/simple_idct.c
 libavcodec/startcode.c
@@ -192,6 +198,7 @@ libavutil/hwcontext_amf.c
 libavutil/hwcontext.c
 libavutil/hwcontext_cuda.c
 libavutil/hwcontext_d3d11va.c
+libavutil/hwcontext_qsv.c
 libavutil/hwcontext_stub.c
 libavutil/iamf.c
 libavutil/imgutils.c

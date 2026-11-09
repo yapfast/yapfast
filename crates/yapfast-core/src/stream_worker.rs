@@ -1950,6 +1950,24 @@ fn watch(
                 }
                 (width, height)
             }
+            // The card's decoder on Linux leaves the picture in a DMA-BUF: no
+            // pixel of it is copied, and the window imports it where it lies if
+            // it can. A window that can't is what the publish says so, and the
+            // stream falls back to the processor's decoder from a keyframe —
+            // the picture before this one stays up rather than a blank tile.
+            #[cfg(vaapidec)]
+            Frame::Hardware(hardware) => {
+                let (stream_width, stream_height) = hardware.size();
+                let (width, height) = fit(stream_width, stream_height, max_width, max_height);
+                let published = hardware
+                    .dmabuf()
+                    .is_some_and(|picture| writer.publish_dmabuf(&picture));
+                hardware.release();
+                if !published {
+                    abandoned = true;
+                }
+                (width, height)
+            }
         };
         if abandoned {
             tracing::warn!("a picture the graphics card decoded wasn't shown");
