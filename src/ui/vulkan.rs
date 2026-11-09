@@ -20,19 +20,17 @@
 //! costs is the picture path, and the window still draws.
 //!
 //! The device is the window's presentation device, as the Direct3D 12 device
-//! `gpu::install` makes on Windows is there, and a stream's texture opens on
-//! this one and no other: a shared resource opens on the adapter that made it.
-#![allow(
-    unexpected_cfgs,
-    reason = "`vulkan` is the build feature that carries Skia's Vulkan; until that build lands the cfg names a feature Cargo doesn't know yet, and afterwards it says exactly what this file needs to know"
-)]
+//! `gpu::install` makes on Windows is there, and a stream's DMA-BUF picture is
+//! imported on this one and no other: a picture is shown where it lies, so what
+//! shows it is the device the window draws with. `gpu::window_device` is handed
+//! that device here, once, and `gpu::taken` imports on it from then on.
 
 /// Whether this build carries Skia's Vulkan renderer at all.
 ///
 /// A build without it can't draw on a Vulkan device whatever the machine has,
 /// so the device isn't worth making there. Asking costs nothing.
 pub fn carried() -> bool {
-    cfg!(all(target_os = "linux", feature = "vulkan"))
+    cfg!(all(target_os = "linux", feature = "skia-vulkan"))
 }
 
 /// The Vulkan device the window draws with, for Slint to take through
@@ -42,7 +40,7 @@ pub fn carried() -> bool {
 /// texture can be shown only on the device the window draws with, and this
 /// hands it that one. It changes nothing about when the window repaints, as
 /// the Direct3D 12 device on Windows changes nothing either.
-#[cfg(all(target_os = "linux", feature = "vulkan"))]
+#[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
 pub fn install() -> anyhow::Result<slint::wgpu_30::WGPUConfiguration> {
     use anyhow::Context as _;
     use slint::wgpu_30::wgpu;
@@ -75,6 +73,9 @@ pub fn install() -> anyhow::Result<slint::wgpu_30::WGPUConfiguration> {
         backend = %info.backend,
         "the window draws on Yapfast's own Vulkan device"
     );
+    // The same device imports a stream's DMA-BUF picture, so the window knows
+    // which device to draw for and a picture is shown where it lies.
+    crate::ui::gpu::window_device(device.clone(), queue.clone());
     Ok(slint::wgpu_30::WGPUConfiguration::Manual {
         instance,
         adapter,
@@ -85,7 +86,7 @@ pub fn install() -> anyhow::Result<slint::wgpu_30::WGPUConfiguration> {
 
 /// A build without Skia's Vulkan has no device to hand Slint, and the window
 /// draws with Skia on OpenGL as it always did.
-#[cfg(not(all(target_os = "linux", feature = "vulkan")))]
+#[cfg(not(all(target_os = "linux", feature = "skia-vulkan")))]
 pub fn install() -> anyhow::Result<slint::wgpu_30::WGPUConfiguration> {
     anyhow::bail!("this build draws with Skia on OpenGL")
 }
@@ -94,7 +95,7 @@ pub fn install() -> anyhow::Result<slint::wgpu_30::WGPUConfiguration> {
 /// they are polled: a native adapter and its device come back ready, which is
 /// what lets wgpu make its own in a single poll. So this polls, yielding a
 /// turn, rather than carrying an executor for two calls.
-#[cfg(all(target_os = "linux", feature = "vulkan"))]
+#[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
     use std::{
         pin::pin,

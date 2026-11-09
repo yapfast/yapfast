@@ -55,6 +55,11 @@ const PATH: &str = "/org/freedesktop/portal/desktop";
 const SCREENCAST: &str = "org.freedesktop.portal.ScreenCast";
 /// A session's own interface, which is where `Close` is.
 const SESSION: &str = "org.freedesktop.portal.Session";
+/// The bus's own name, path and interface, which is where a share asks whether
+/// the portal is on it at all: see [`answers`].
+const BUS: &str = "org.freedesktop.DBus";
+const BUS_PATH: &str = "/org/freedesktop/DBus";
+const BUS_INTERFACE: &str = "org.freedesktop.DBus";
 
 /// What a capture asks the desktop to share.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -171,6 +176,31 @@ pub struct Stream {
     /// desktop remembers. Absent when it is not remembered, and from a portal
     /// older than 4.
     pub id: Option<String>,
+}
+
+/// Whether a screen sharing portal answers this session's bus, which is the
+/// question a share asks before it offers the desktop's dialog at all.
+///
+/// It costs one call on the bus and answers nothing about the person: a desktop
+/// that has a portal can still refuse the share, and that refusal comes from
+/// [`Session::open`]. What this keeps a share from is asking a desktop that has
+/// no portal — XFCE on X11, say — and waiting for the timeout that comes back
+/// instead of the dialog.
+pub fn answers() -> bool {
+    let Ok(connection) = Connection::session() else {
+        return false;
+    };
+    let asked = connection.call_method(
+        Some(BUS),
+        BUS_PATH,
+        Some(BUS_INTERFACE),
+        "NameHasOwner",
+        &(PORTAL,),
+    );
+    asked
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<(bool,)>().ok())
+        .is_some_and(|(owned,)| owned)
 }
 
 /// A share the desktop has started: the session object that holds it, what it is

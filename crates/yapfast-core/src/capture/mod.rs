@@ -48,6 +48,11 @@ mod portal;
 #[cfg(screencast)]
 pub mod pipewire;
 
+/// A picture the card drew, read back into memory: the one copy a share whose
+/// pictures are DMA-BUFs is allowed, which is Discord's still of the stream.
+#[cfg(target_os = "linux")]
+pub mod linear;
+
 /// Which way a share captures a screen.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -214,6 +219,136 @@ pub fn platform() -> Platform {
 #[cfg(all(dup, not(wgc)))]
 pub fn platform() -> Platform {
     Platform::new(0)
+}
+
+/// One way a Linux session captures a screen on the card.
+///
+/// They differ in which door they come through and not in what they hand over:
+/// a DMA-BUF the compositor drew, which the window imports where it lies. That
+/// is why there is no setting for them the way Windows has one for its two
+/// rungs: the border that choice is about doesn't exist here, and the portal
+/// rung is strictly the better one where it is there.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinuxRung {
+    /// The desktop's screen sharing portal and the PipeWire node it names, whose
+    /// buffers are the compositor's own: nothing of a frame passes through this
+    /// process on its way to the window.
+    Portal,
+    /// The X server's Composite redirection, exported through DRI3 as a
+    /// DMA-BUF, for a session whose X server is what captures.
+    X11,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxRung {
+    /// What this rung is called in the one log line that says which ran.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Portal => "the screen sharing portal's PipeWire stream",
+            Self::X11 => "X11's DRI3 capture",
+        }
+    }
+}
+
+/// Whether a Linux session is Wayland, which decides what an X11 capture is:
+/// under Wayland it is Xwayland's windows and not the desktop they sit on.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Session {
+    wayland: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl Session {
+    pub const fn new(wayland: bool) -> Self {
+        Self { wayland }
+    }
+
+    pub const fn wayland(self) -> bool {
+        self.wayland
+    }
+}
+
+/// What a Linux session can capture a screen with, as the rung choice asks: the
+/// facts a build and a desktop supply, kept apart from the captures themselves
+/// so that the choice can be checked without a portal, a DRI3 export or even an
+/// X server.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Linux {
+    /// Whether a screen sharing portal answers this session's bus, and this
+    /// build carries the capture that reads the PipeWire stream it names. The
+    /// portal answering is not the person saying yes: that answer comes from the
+    /// dialog, when the capture opens, and a refusal is the fallback.
+    pub portal: bool,
+    /// Whether this session names an X server for a capture to open. Whether
+    /// that server exports a redirected pixmap through DRI3 is the opening
+    /// capture's answer rather than this one's, and a server that doesn't is a
+    /// rung that refused.
+    pub x11: bool,
+}
+
+/// The rungs a Linux share tries, in the order it tries them: the desktop's own
+/// portal first, since its frames are the compositor's and nothing in this
+/// process copies them, and then the X server.
+///
+/// A Wayland session that answers a portal is not offered the X11 rung at all:
+/// an X11 capture there sees Xwayland's windows and not the desktop they sit on,
+/// so falling to it would share the wrong thing rather than nothing. Every other
+/// session tries both, and one with neither is a share that stays on the
+/// processor — which is what every Linux share did before this.
+#[cfg(target_os = "linux")]
+pub fn linux_order(session: Session, available: Linux) -> Vec<LinuxRung> {
+    let mut rungs = Vec::new();
+    if available.portal {
+        rungs.push(LinuxRung::Portal);
+    }
+    if available.x11 && !(session.wayland() && available.portal) {
+        rungs.push(LinuxRung::X11);
+    }
+    rungs
+}
+
+/// Adds one rung's refusal to the line a share reports, in the order they were
+/// tried, naming the rung and what it said.
+#[cfg(target_os = "linux")]
+pub fn refused(into: &mut String, rung: LinuxRung, reason: &str) {
+    if !into.is_empty() {
+        into.push_str("; ");
+    }
+    into.push_str(rung.name());
+    into.push_str(": ");
+    into.push_str(reason);
+}
+
+/// Why a Linux share captures the way it does, in the sentence its one log line
+/// carries. With nothing refused it is the fact that decided the order — a
+/// portal that answers, or a session that has none; with refusals before it, it
+/// is those and the rung that came next, which is where a desktop whose portal
+/// answered and then wouldn't open says so in the portal's own words.
+#[cfg(target_os = "linux")]
+pub fn linux_why(session: Session, available: Linux, rung: LinuxRung, refused: &str) -> String {
+    if !refused.is_empty() {
+        return format!("{refused}; {} came next", rung.name());
+    }
+    match rung {
+        LinuxRung::Portal if session.wayland() => {
+            "a Wayland session shares its screen through the desktop's portal"
+        }
+        LinuxRung::Portal => {
+            "this desktop answers the screen sharing portal, so its own pictures are what a share \
+             gets"
+        }
+        LinuxRung::X11 if session.wayland() => {
+            "the portal isn't there, so this share captures Xwayland's X11 windows"
+        }
+        LinuxRung::X11 if !available.portal => {
+            "this desktop has no screen sharing portal, so the X server's own capture runs"
+        }
+        LinuxRung::X11 => "the portal wouldn't open, so the X server's own capture runs",
+    }
+    .to_owned()
 }
 
 #[cfg(test)]
@@ -427,6 +562,98 @@ mod tests {
             None,
             Some(Rung::Graphics)
         ));
+    }
+
+    /// The rung choice on Linux is a function of what the session and the build
+    /// answer, and not of a capture: the portal first wherever it answers,
+    /// because its frames are the compositor's own, and the X server after it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_linux_rungs_are_the_portal_first_and_then_the_x_server() {
+        use super::{Linux, LinuxRung, Session, linux_order};
+
+        let both = Linux {
+            portal: true,
+            x11: true,
+        };
+        // An X11 desktop with a portal, such as GNOME on X11: the portal is
+        // the compositor's own pictures, so it comes first, and the X server
+        // is what runs when the portal's dialog is cancelled.
+        assert_eq!(
+            linux_order(Session::new(false), both),
+            [LinuxRung::Portal, LinuxRung::X11]
+        );
+        // A Wayland session: the portal, and no X11 rung after it, since what
+        // an X11 capture sees there is Xwayland's windows and not the desktop.
+        assert_eq!(linux_order(Session::new(true), both), [LinuxRung::Portal]);
+        // A desktop with no portal, as XFCE on X11: the X server's DRI3
+        // export is the only way to a picture the card drew.
+        assert_eq!(
+            linux_order(
+                Session::new(false),
+                Linux {
+                    portal: false,
+                    x11: true
+                }
+            ),
+            [LinuxRung::X11]
+        );
+        // A Wayland session with no portal tries Xwayland rather than nothing:
+        // a share of an X11 window is more than no share at all.
+        assert_eq!(
+            linux_order(
+                Session::new(true),
+                Linux {
+                    portal: false,
+                    x11: true
+                }
+            ),
+            [LinuxRung::X11]
+        );
+        // Neither is a share that stays on the processor.
+        assert!(linux_order(Session::new(false), Linux::default()).is_empty());
+        assert!(linux_order(Session::new(true), Linux::default()).is_empty());
+    }
+
+    /// What a share says it did, in the one line a reader looks at: the fact
+    /// that put the rung first, or the refusals that came before it, in the
+    /// order they were tried and in each rung's own words.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_linux_share_says_why_it_captures_the_way_it_does() {
+        use super::{Linux, LinuxRung, Session, linux_why, refused};
+
+        let both = Linux {
+            portal: true,
+            x11: true,
+        };
+        let none = Linux::default();
+        assert!(linux_why(Session::new(true), both, LinuxRung::Portal, "").contains("Wayland"));
+        assert!(
+            linux_why(Session::new(false), both, LinuxRung::Portal, "")
+                .contains("answers the screen sharing portal")
+        );
+        assert!(
+            linux_why(Session::new(false), none, LinuxRung::X11, "")
+                .contains("no screen sharing portal")
+        );
+        // A portal that answered and then wouldn't open: its refusal is the
+        // sentence, and the rung that came next is named after it.
+        let mut refusals = String::new();
+        refused(&mut refusals, LinuxRung::Portal, "the person said no");
+        let why = linux_why(Session::new(true), both, LinuxRung::X11, &refusals);
+        assert_eq!(
+            why,
+            "the screen sharing portal's PipeWire stream: the person said no; X11's DRI3 \
+             capture came next"
+        );
+        // And one refusal after another keeps the order they were tried in.
+        refused(&mut refusals, LinuxRung::X11, "no DRI3 here");
+        assert_eq!(
+            refusals,
+            "the screen sharing portal's PipeWire stream: the person said no; X11's DRI3 capture: \
+             no DRI3 here"
+        );
     }
 
     /// The choice is one value for the process, as the GPU's and the

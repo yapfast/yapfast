@@ -4,6 +4,13 @@
 //! the GPU has one. Frames arrive as RGBA or I420 and leave as VP8 frames,
 //! H264 or H265 access units in Annex B form, or AV1 temporal units of OBUs
 //! that give their sizes.
+//!
+//! On Linux a frame can also arrive as a DMA-BUF, the picture still on the
+//! card that made it: [`Encoder::encode_dmabuf`] wraps it into a VA-API surface
+//! with FFmpeg's `av_hwframe_map` and the VA-API encoder reads that surface,
+//! through native/hwenc_dmabuf.c. No pixel of such a picture comes back to the
+//! processor; every other encoder here reads its frames from memory, says so,
+//! and is handed the picture through the plane path instead.
 
 use std::{
     ffi::{c_char, c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
@@ -151,6 +158,51 @@ unsafe extern "C" {
     fn yapfast_hwenc_free(encoder: *mut Raw);
 }
 
+// The VA-API encoder that reads the card's own pictures, from
+// native/hwenc_dmabuf.c: a DMA-BUF wrapped into a VA-API surface and encoded
+// there, with no upload. It is a session of its own, on the device the encoder
+// above opened on, with the same settings; see [`Encoder::encode_dmabuf`].
+#[cfg(dmabufenc)]
+unsafe extern "C" {
+    #[allow(clippy::too_many_arguments)]
+    fn yapfast_hwenc_dmabuf_new(
+        codec: c_uint,
+        width: c_uint,
+        height: c_uint,
+        fps: c_uint,
+        kbps: c_uint,
+        encoder: *const c_char,
+        device: *const c_char,
+        driver: *const c_char,
+        report: *mut c_char,
+        report_size: usize,
+    ) -> *mut Raw;
+    fn yapfast_hwenc_dmabuf_encode(
+        encoder: *mut Raw,
+        picture: *const DmabufPicture,
+        pts: c_longlong,
+        keyframe: c_int,
+        is_key: *mut c_int,
+    ) -> c_long;
+    fn yapfast_hwenc_dmabuf_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
+    fn yapfast_hwenc_dmabuf_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
+    fn yapfast_hwenc_dmabuf_late(encoder: *mut Raw) -> c_uint;
+    fn yapfast_hwenc_dmabuf_config(encoder: *mut Raw, config: *mut c_char, config_size: usize);
+    fn yapfast_hwenc_dmabuf_error(encoder: *const Raw) -> *const c_char;
+    fn yapfast_hwenc_dmabuf_free(encoder: *mut Raw);
+    /// The settings the encoder that reads the card's own pictures is opened
+    /// with, for a test to hold them to native/hwenc.c's VA-API branch without a
+    /// GPU in the shape of the question. Nothing else in this build asks: what
+    /// the session took is its `config`, logged at the open.
+    #[cfg(test)]
+    fn yapfast_hwenc_dmabuf_settings(
+        fps: c_uint,
+        kbps: c_uint,
+        out: *mut c_char,
+        size: usize,
+    ) -> c_int;
+}
+
 /// What native/hwenc.c is asked for, laid out as its `struct yapfast_hwenc_open`.
 #[cfg(hwenc)]
 #[repr(C)]
@@ -169,6 +221,98 @@ struct OpenRequest {
     /// "dedicated" or "integrated", for the render nodes VA-API chooses
     /// between itself; null when nothing is preferred.
     preference: *const c_char,
+}
+
+/// A picture in a DMA-BUF, as native/hwenc_dmabuf.c reads it: one DRM object
+/// holding an NV12 picture, which is the shape a VA-API surface is made of
+/// without a conversion. Laid out as its `struct yapfast_dmabuf_picture`.
+#[cfg(target_os = "linux")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct DmabufPicture {
+    width: c_int,
+    height: c_int,
+    /// The one descriptor the picture is in, and how much of it the picture
+    /// needs: a descriptor carries no size of its own.
+    fd: c_int,
+    size: u64,
+    /// The DRM modifier the driver laid the buffer out with.
+    modifier: u64,
+    /// Where each of NV12's two planes starts in that buffer, and how many
+    /// bytes apart its rows are.
+    offset: [u32; 2],
+    pitch: [u32; 2],
+}
+
+/// DRM's fourcc for NV12, as a descriptor names its format: the one picture a
+/// VA-API surface can be made of without converting it, and so the one a
+/// descriptor can be encoded in.
+#[cfg(target_os = "linux")]
+const NV12: u32 = u32::from_le_bytes(*b"NV12");
+
+/// Why a picture didn't go to the encoder where it lay, and so is a picture for
+/// the plane path: the caller logs one line with [`Encoder::engine`] and hands
+/// the same picture to [`Encoder::encode_i420`], which is the only path here
+/// that moves pixels. Nothing is copied on the way to this answer — an encoder
+/// with no path from a DMA-BUF is told so rather than handed one it would
+/// upload.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refused {
+    /// The encoder that opened reads its pictures from the processor's memory:
+    /// NVENC, Quick Sync, AMF and x264 have no path from a DMA-BUF to their
+    /// frames, so taking one would be an upload.
+    Uploads,
+    /// A VA-API encoder, but this FFmpeg wasn't built with the device and the
+    /// DRM PRIME import a descriptor is wrapped with (`--enable-vaapi` and
+    /// `--enable-libdrm`), so nothing in this build can read one.
+    NotBuilt,
+    /// A VA-API encoder, but this picture isn't one a surface can be made of:
+    /// the reason is this side's, read from the descriptor without asking the
+    /// card.
+    Unimportable(&'static str),
+    /// The card's VA-API encoder wouldn't take the picture, which it said in
+    /// the log when it tried.
+    Failed,
+}
+
+#[cfg(target_os = "linux")]
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Uploads => f.write_str("the encoder reads its pictures from memory"),
+            Self::NotBuilt => f.write_str("this build has no VA-API path for a DMA-BUF"),
+            Self::Unimportable(why) => f.write_str(why),
+            Self::Failed => f.write_str("the card's encoder wouldn't take the picture"),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl std::error::Error for Refused {}
+
+/// Whether the encoder FFmpeg calls `name` reads a picture where it lies.
+///
+/// A VA-API encoder is handed a VA-API surface, which FFmpeg makes from a
+/// DMA-BUF by importing the buffer rather than copying it; NVENC, Quick Sync,
+/// AMF and x264 are handed frames in system memory, so a picture in a DMA-BUF
+/// would have to be copied into one. The name decides it, so a stream on a GPU
+/// without the path is told before its picture is looked at.
+fn takes_dmabuf(name: &str) -> bool {
+    name.ends_with("_vaapi")
+}
+
+/// The render node and libva driver the encoder opened on, out of the report it
+/// wrote: `"h264_vaapi (/dev/dri/renderD128, radeonsi)"`. `None` for a report
+/// without a device in it — an encoder on the processor, or one opened where
+/// the shim had no render node to name — which leaves the encoder that reads
+/// the card's pictures to FFmpeg to place.
+#[cfg(target_os = "linux")]
+#[cfg_attr(not(dmabufenc), allow(dead_code))]
+fn vaapi_device(report: &str) -> Option<(&str, &str)> {
+    let (_, inside) = report.split_once(" (")?;
+    let (path, driver) = inside.strip_suffix(')')?.split_once(", ")?;
+    (!path.is_empty() && !driver.is_empty()).then_some((path, driver))
 }
 
 /// RTP's video clock.
@@ -286,6 +430,27 @@ pub struct Encoder {
     /// the copy the receiver never got.
     #[cfg(test)]
     submitted: usize,
+    /// The encoder that reads the card's own pictures, from
+    /// native/hwenc_dmabuf.c: opened on the first DMA-BUF a stream hands over,
+    /// on the device the encoder above opened on. `None` until then, and for
+    /// every encoder with no such path.
+    #[cfg(dmabufenc)]
+    dmabuf: Option<Dmabuf>,
+    /// FFmpeg's own name for the encoder that runs, such as "h264_vaapi", which
+    /// is which backend it is without the device the report adds. Kept beside
+    /// `tried` so that reopening for a picture in memory doesn't read the name
+    /// of the encoder it is about to try.
+    engine_name: String,
+    /// How many pictures went to the encoder where they lay, in the DMA-BUF they
+    /// arrived in, and so cost the processor no pixel.
+    in_place: u64,
+    /// Which encoder runs and how its pictures reach it, for the report while a
+    /// stream's pictures are the card's own: empty until the first one is
+    /// encoded, so the line is the open's own until there is something to add.
+    in_place_engine: String,
+    /// How many pictures the processor moved into the encoder's own memory,
+    /// which is every picture the plane path hands over.
+    moved: u64,
     /// The frame as I420, for [`Self::encode`]: a full-size luma plane, then
     /// two quarter-size chroma planes. Empty until it's first needed: the
     /// screen and the camera arrive as I420.
@@ -329,6 +494,28 @@ struct Opened {
     /// couldn't be listed.
     #[cfg_attr(not(hwenc), allow(dead_code))]
     candidate: Option<Candidate>,
+}
+
+/// The VA-API encoder that reads the card's own pictures: a session with its
+/// own surfaces, which FFmpeg imports a DMA-BUF into for each picture. It runs
+/// beside the encoder that reads the processor's memory while both may be
+/// needed, which is why a stream whose pictures are all the card's own gives
+/// that one up ([`Encoder::give_up_planes`]).
+#[cfg(dmabufenc)]
+struct Dmabuf {
+    raw: *mut Raw,
+    /// Pictures this encoder answered late, dropped rather than sent under the
+    /// next picture's time, as last read, so that a driver falling behind is
+    /// warned about once for each.
+    late: u32,
+}
+
+#[cfg(dmabufenc)]
+impl Drop for Dmabuf {
+    fn drop(&mut self) {
+        // SAFETY: raw came from yapfast_hwenc_dmabuf_new and is freed once.
+        unsafe { yapfast_hwenc_dmabuf_free(self.raw) };
+    }
 }
 
 /// What one call of an encoder made of a frame.
@@ -420,6 +607,7 @@ impl Encoder {
             }
         };
         let pixels = (width * height) as usize;
+        let engine_name = opened.name.clone();
         Ok(Self {
             raw: opened.raw,
             codec,
@@ -438,6 +626,12 @@ impl Encoder {
             chosen: opened.candidate,
             capture,
             tried: vec![opened.name],
+            #[cfg(dmabufenc)]
+            dmabuf: None,
+            engine_name,
+            in_place: 0,
+            in_place_engine: String::new(),
+            moved: 0,
             #[cfg(test)]
             submitted: 0,
             planes: Vec::new(),
@@ -447,8 +641,13 @@ impl Encoder {
     }
 
     /// Which encoder runs: "libvpx", "x264", or FFmpeg's name for a
-    /// hardware one, such as "h264_nvenc".
+    /// hardware one, such as "h264_nvenc". Once a picture has been encoded
+    /// where it lay, the line says that too: the encoder and the device, and
+    /// that its pictures are the card's own rather than uploaded to it.
     pub fn engine(&self) -> &str {
+        if self.in_place > 0 {
+            return &self.in_place_engine;
+        }
         &self.configuration.engine
     }
 
@@ -459,7 +658,34 @@ impl Encoder {
     }
 
     fn hardware(&self) -> bool {
-        !matches!(self.engine(), "libvpx" | "x264")
+        // The line [`Self::engine`] reports is not what decides this: it grows
+        // a note about where the pictures come from, and an encoder's kind is
+        // what it opened as.
+        !matches!(self.configuration.engine.as_str(), "libvpx" | "x264")
+    }
+
+    /// FFmpeg's own name for the encoder that runs, such as "h264_vaapi":
+    /// which backend it is, without the device the report adds beside it.
+    fn ffmpeg_name(&self) -> &str {
+        &self.engine_name
+    }
+
+    /// How many pictures the processor moved into the encoder's own memory
+    /// since this encoder opened: every picture the plane path hands over, and
+    /// none of the ones the card's encoder reads where they lie. A capture that
+    /// started converting DMA-BUFs into pictures would say so here without any
+    /// picture looking different.
+    pub fn copied(&self) -> u64 {
+        self.moved
+    }
+
+    /// How many pictures were encoded where they lay, in the DMA-BUF they
+    /// arrived in: no pixel of one of these came back to the processor. Zero
+    /// while every picture is a picture in memory, which is every stream on an
+    /// encoder with no path from a descriptor, and every stream that has never
+    /// handed one over.
+    pub fn encoded_in_place(&self) -> u64 {
+        self.in_place
     }
 
     /// The hardware encoder that runs, and what reaching it costs: the
@@ -477,8 +703,11 @@ impl Encoder {
 
     /// Puts `opened` in place of the encoder running now.
     fn replace(&mut self, opened: Opened) {
-        // SAFETY: raw came from its codec's constructor and is freed once.
-        unsafe { (self.free)(self.raw) };
+        // SAFETY: raw came from its codec's constructor and is freed once; an
+        // encoder given up for the card's own pictures has none.
+        if !self.raw.is_null() {
+            unsafe { (self.free)(self.raw) };
+        }
         self.raw = opened.raw;
         self.encode = opened.encode;
         self.drain = opened.drain;
@@ -486,6 +715,7 @@ impl Encoder {
         self.set_bitrate = opened.set_bitrate;
         self.free = opened.free;
         self.configuration = opened.configuration;
+        self.engine_name = opened.name.clone();
         self.chosen = opened.candidate;
         self.tried.push(opened.name);
         // The encoder that replaced it has dropped none of its own frames: a
@@ -540,15 +770,28 @@ impl Encoder {
     /// holds it to rather than a growing history.
     #[cfg(test)]
     fn staging(&self) -> usize {
-        // SAFETY: raw came from this codec's constructor and is still live.
+        // SAFETY: raw came from this codec's constructor and is still live; an
+        // encoder given up for the card's own pictures has nothing staged.
+        if self.raw.is_null() {
+            return 0;
+        }
         unsafe { (self.staging)(self.raw) }
     }
 
     /// Aims for `kbps` from the next frame on, without a keyframe.
     pub fn set_bitrate(&mut self, kbps: u32) -> Result<()> {
-        // SAFETY: raw came from this codec's constructor and is still live.
-        if unsafe { (self.set_bitrate)(self.raw, kbps) } != 0 {
+        // SAFETY: raw came from this codec's constructor and is still live; an
+        // encoder given up for the card's own pictures takes the rate when it
+        // is opened again.
+        if !self.raw.is_null() && unsafe { (self.set_bitrate)(self.raw, kbps) } != 0 {
             bail!("the {:?} encoder refused {kbps} kbit/s", self.codec);
+        }
+        // The encoder that reads the card's pictures is the one the frames come
+        // from while it runs, so the new rate has to reach it as well.
+        #[cfg(dmabufenc)]
+        if let Some(dmabuf) = &self.dmabuf {
+            // SAFETY: dmabuf is an open encoder.
+            unsafe { yapfast_hwenc_dmabuf_set_bitrate(dmabuf.raw, kbps) };
         }
         self.kbps = kbps;
         Ok(())
@@ -628,11 +871,310 @@ impl Encoder {
         )
     }
 
+    /// Encodes a picture the card already holds, in the DMA-BUF it arrived in:
+    /// its time is `time_ms` into the stream, which is [`timestamp`]ed into
+    /// [`CLOCK`] units, so a picture is encoded at one time whichever way it
+    /// reached the encoder.
+    ///
+    /// A VA-API encoder wraps the descriptor into a VA-API surface with FFmpeg's
+    /// `av_hwframe_map` and encodes that surface (native/hwenc_dmabuf.c), so no
+    /// pixel of the picture comes back to the processor.
+    ///
+    /// Every other encoder here — NVENC, Quick Sync, AMF, x264 — reads its
+    /// pictures from memory, and answers [`Refused`] rather than copying a
+    /// DMA-BUF into one. Any outer `Err` is one line in the log and then the same
+    /// picture through [`Self::encode_i420`], which is the fallback and the only
+    /// path that moves pixels; nothing here copies a picture on the way to saying
+    /// it can't take one. The inner result is the encode itself, for an encoder
+    /// that took the picture and then failed.
+    #[cfg(target_os = "linux")]
+    pub fn encode_dmabuf(
+        &mut self,
+        picture: &crate::dmabuf::Descriptor<'_>,
+        keyframe: bool,
+        time_ms: u64,
+    ) -> std::result::Result<Result<Option<Frame>>, Refused> {
+        let at = timestamp(Duration::from_millis(time_ms));
+        // Which encoder runs, and whether it reads a picture where it lies: the
+        // name answers that, so a stream on NVENC or x264 is told before its
+        // picture is looked at.
+        if !takes_dmabuf(self.ffmpeg_name()) {
+            return Err(Refused::Uploads);
+        }
+        let picture = self.importable(picture)?;
+        self.encode_in_place(&picture, at, keyframe)
+    }
+
+    /// `picture`, as native/hwenc_dmabuf.c reads it: one DRM object holding an
+    /// NV12 picture, which is the shape a VA-API surface is made of without a
+    /// conversion. These checks are this side's, so a descriptor that can't be a
+    /// surface is answered before the card is asked, and a picture the encoder
+    /// would have to convert is never taken for one it can encode.
+    #[cfg(target_os = "linux")]
+    fn importable(
+        &self,
+        picture: &crate::dmabuf::Descriptor<'_>,
+    ) -> Result<DmabufPicture, Refused> {
+        if (picture.width, picture.height) != (self.width, self.height) {
+            return Err(Refused::Unimportable(
+                "a picture of another size than the encoder's",
+            ));
+        }
+        if picture.fourcc != NV12 {
+            return Err(Refused::Unimportable(
+                "a picture that isn't NV12, which a VA-API surface is made of",
+            ));
+        }
+        if picture.planes.len() != 2 || picture.fds.len() != 2 {
+            return Err(Refused::Unimportable(
+                "a picture that isn't NV12's two planes in one buffer",
+            ));
+        }
+        let (luma, chroma) = (picture.planes[0], picture.planes[1]);
+        let (fd, beside) = (picture.fds[0], picture.fds[1]);
+        if fd < 0 || beside < 0 {
+            return Err(Refused::Unimportable("a plane with no buffer"));
+        }
+        // One DRM object is what FFmpeg imports as a surface; two buffers would
+        // have to be one, and this won't pretend they are.
+        if fd != beside {
+            return Err(Refused::Unimportable(
+                "planes in two buffers, which one surface can't be made of",
+            ));
+        }
+        let (width, height) = (u64::from(self.width), u64::from(self.height));
+        if u64::from(luma.stride) < width || u64::from(chroma.stride) < width {
+            return Err(Refused::Unimportable("a pitch narrower than the picture"));
+        }
+        // Where the picture ends in the buffer, which is the size the import is
+        // told: a descriptor carries the offset and pitch of each plane and no
+        // size of its own, and a plane's last row has to fit.
+        let size = std::cmp::max(
+            u64::from(luma.offset) + u64::from(luma.stride) * height,
+            u64::from(chroma.offset) + u64::from(chroma.stride) * height.div_ceil(2),
+        );
+        Ok(DmabufPicture {
+            width: self.width as c_int,
+            height: self.height as c_int,
+            fd,
+            size,
+            modifier: picture.modifier,
+            offset: [luma.offset, chroma.offset],
+            pitch: [luma.stride, chroma.stride],
+        })
+    }
+
+    /// Encodes a picture that is on the card, where it lies, and gives the
+    /// access unit it produced the time `at` in [`CLOCK`] units.
+    #[cfg(all(target_os = "linux", dmabufenc))]
+    fn encode_in_place(
+        &mut self,
+        picture: &DmabufPicture,
+        at: u64,
+        keyframe: bool,
+    ) -> std::result::Result<Result<Option<Frame>>, Refused> {
+        let raw = self.descriptor_encoder()?;
+        let mut is_key: c_int = 0;
+        // SAFETY: raw is the descriptor encoder's and is open, and the picture
+        // is one of this encoder's size, mapped from a descriptor.
+        let written = unsafe {
+            yapfast_hwenc_dmabuf_encode(
+                raw,
+                picture,
+                at as c_longlong,
+                c_int::from(keyframe),
+                &mut is_key,
+            )
+        };
+        let (size, keyframe) = match written {
+            ..0 => {
+                tracing::warn!(
+                    engine = self.engine(),
+                    why = self.descriptor_error().as_str(),
+                    "the card's encoder wouldn't take the picture where it lies; it goes through \
+                     the processor instead"
+                );
+                return Err(Refused::Failed);
+            }
+            0 => return Ok(Ok(None)),
+            size => (size as usize, is_key != 0),
+        };
+        // The picture was encoded where it lay, so a failure here is the copy of
+        // its bitstream, not a picture for the fallback: the encoder's state has
+        // moved on and encoding it again would reference one nobody got.
+        let frame = match self.collect(size, keyframe, at, raw, yapfast_hwenc_dmabuf_drain) {
+            Ok(frame) => frame,
+            Err(error) => return Ok(Err(error)),
+        };
+        self.note_dmabuf_late();
+        self.in_place += 1;
+        Ok(Ok(Some(frame)))
+    }
+
+    /// A VA-API encoder, but this build has nothing to wrap a descriptor with:
+    /// FFmpeg wasn't configured for the device and the DRM PRIME import it
+    /// needs, so no encoder in it can read one.
+    #[cfg(all(target_os = "linux", not(dmabufenc)))]
+    fn encode_in_place(
+        &mut self,
+        _: &DmabufPicture,
+        _: u64,
+        _: bool,
+    ) -> std::result::Result<Result<Option<Frame>>, Refused> {
+        Err(Refused::NotBuilt)
+    }
+
+    /// The encoder that reads the card's pictures, opened on the first one: the
+    /// same codec on the same GPU as the encoder this stream opened, with the
+    /// same settings, reading a surface rather than a frame in memory. Its
+    /// reason for not opening is logged once, and every picture after it gets
+    /// [`Refused::Failed`] without the card being asked again.
+    #[cfg(all(target_os = "linux", dmabufenc))]
+    fn descriptor_encoder(&mut self) -> Result<*mut Raw, Refused> {
+        if let Some(dmabuf) = &self.dmabuf {
+            return Ok(dmabuf.raw);
+        }
+        // An encoder a stream has already handed pictures in memory to may
+        // still be given one, so a failure here changes nothing: it is one line
+        // and the plane path.
+        let Ok(name) = std::ffi::CString::new(self.ffmpeg_name()) else {
+            return Err(Refused::Failed);
+        };
+        // The device the encoder opened on, so that the picture is imported on
+        // the GPU the stream chose. A report with no device in it leaves FFmpeg
+        // to place the session, which is what a machine whose adapters couldn't
+        // be listed gets.
+        let (path, driver) = vaapi_device(&self.configuration.engine).unzip();
+        let device = path.and_then(|path| std::ffi::CString::new(path).ok());
+        let driver = driver.and_then(|driver| std::ffi::CString::new(driver).ok());
+        let (device, driver) = (
+            device
+                .as_ref()
+                .map_or(std::ptr::null(), |text| text.as_ptr()),
+            driver
+                .as_ref()
+                .map_or(std::ptr::null(), |text| text.as_ptr()),
+        );
+        let codec = match self.codec {
+            Codec::H264 => 0,
+            Codec::H265 => 1,
+            Codec::Av1 => 2,
+            Codec::Vp8 => return Err(Refused::Uploads),
+        };
+        let mut report = [0u8; 128];
+        // SAFETY: the strings outlive the call, and the report is a buffer of the
+        // size given, which the shim ends with a zero.
+        let raw = unsafe {
+            yapfast_hwenc_dmabuf_new(
+                codec,
+                self.width,
+                self.height,
+                self.fps,
+                self.kbps,
+                name.as_ptr(),
+                device,
+                driver,
+                report.as_mut_ptr().cast(),
+                report.len(),
+            )
+        };
+        if raw.is_null() {
+            tracing::warn!(
+                engine = self.configuration.engine.as_str(),
+                // SAFETY: a failed open leaves its reason in the shim's own
+                // thread-local, which needs no encoder to read.
+                why = self.descriptor_error().as_str(),
+                "no encoder here reads the card's pictures where they lie; every picture goes \
+                 through the processor"
+            );
+            return Err(Refused::Failed);
+        }
+        // Two sessions on the card are two hungers for its encode engines, so
+        // the encoder this opened for pictures in memory is given up when it has
+        // never encoded one: a stream whose pictures are the card's own runs one
+        // session, and a picture that has to come through memory opens the other
+        // again.
+        if self.moved == 0 {
+            self.give_up_planes();
+        }
+        let mut config = [0u8; 80];
+        // SAFETY: raw is an open encoder, and the buffer is as large as its size.
+        unsafe { yapfast_hwenc_dmabuf_config(raw, config.as_mut_ptr().cast(), config.len()) };
+        let report = c_text(&report);
+        self.in_place_engine = format!("{report}, encoding DMA-BUFs where they lie");
+        tracing::info!(
+            engine = self.in_place_engine.as_str(),
+            config = c_text(&config),
+            "encoding the card's own pictures: a DMA-BUF is wrapped as a VA-API surface for the \
+             encoder to read, and no pixel of it is uploaded"
+        );
+        self.dmabuf = Some(Dmabuf { raw, late: 0 });
+        Ok(raw)
+    }
+
+    /// The card's encoder's own last word about a picture, or about not opening
+    /// at all, in words: what the log line beside a fallback says.
+    #[cfg(all(target_os = "linux", dmabufenc))]
+    fn descriptor_error(&self) -> String {
+        let encoder = self
+            .dmabuf
+            .as_ref()
+            .map_or(std::ptr::null_mut(), |dmabuf| dmabuf.raw);
+        // SAFETY: an open encoder, or null, which the shim answers with the
+        // reason its last open failed.
+        let why = unsafe { yapfast_hwenc_dmabuf_error(encoder) };
+        if why.is_null() {
+            return String::new();
+        }
+        // SAFETY: the shim keeps the text alive until its next call.
+        unsafe { std::ffi::CStr::from_ptr(why) }
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    /// Gives up the encoder that reads pictures from the processor's memory,
+    /// when the card's own path has taken the stream over: one session on the
+    /// card while every picture arrives where it is encoded. The encoder given
+    /// up is not one that failed, so it is the first this stream opens again if a
+    /// picture has to come through memory.
+    #[cfg(all(target_os = "linux", dmabufenc))]
+    fn give_up_planes(&mut self) {
+        if self.raw.is_null() {
+            return;
+        }
+        // SAFETY: raw came from its codec's constructor and is freed once.
+        unsafe { (self.free)(self.raw) };
+        self.raw = std::ptr::null_mut();
+        self.tried.pop();
+    }
+
+    /// Warns about pictures the card's encoder answered late, when one was: a
+    /// driver falling behind, whose picture is dropped rather than sent under
+    /// this one's time, as the plane path's own encoder is watched.
+    #[cfg(all(target_os = "linux", dmabufenc))]
+    fn note_dmabuf_late(&mut self) {
+        let fresh = {
+            let Some(dmabuf) = self.dmabuf.as_mut() else {
+                return;
+            };
+            // SAFETY: dmabuf is an open encoder.
+            let late = unsafe { yapfast_hwenc_dmabuf_late(dmabuf.raw) };
+            let seen = std::mem::replace(&mut dmabuf.late, late);
+            late.saturating_sub(seen)
+        };
+        if fresh == 0 {
+            return;
+        }
+        tracing::warn!(
+            engine = self.engine(),
+            pictures = fresh,
+            "the card's encoder answered pictures late; they were dropped"
+        );
+    }
+
     /// Encodes three planes, each with its stride, and copies the access unit
     /// the encoder produced into a buffer from the encoder's pool: the frame, or
-    /// None when the encoder skipped it. A unit too big for the buffers grows
-    /// them, doubling until one holds it, and then goes into the grown buffer
-    /// from the encoder's own copy of it. The picture is not submitted again: an
+    /// None when the encoder skipped it. The picture is not submitted again: an
     /// encoder that had already encoded it moved on, so a second submission
     /// would reference a copy the receiver never got and cost the work again.
     /// When a hardware H264 encoder fails, x264 takes over from this frame, with
@@ -644,15 +1186,37 @@ impl Encoder {
         pts: u64,
         keyframe: bool,
     ) -> Result<Option<Frame>> {
+        // An encoder given up for the card's own pictures is opened again here,
+        // on the adapter and with the settings the open chose: a picture in
+        // memory is the one case that path can't take.
+        if self.raw.is_null() {
+            self.reopen("a picture in memory after the card's own")?;
+        }
         let written = self.encode_once_fallback(planes, pts, keyframe)?;
         self.note_late();
         let (size, keyframe) = match written {
             Written::Skipped => return Ok(None),
             Written::Frame(size, keyframe) => (size, keyframe),
         };
-        // The buffer that holds a frame is the one the pool hands out: a unit
-        // that outgrew it grows the pool first, so the copy below fits first
-        // time and the frame stays the one the encoder made.
+        Ok(Some(
+            self.collect(size, keyframe, pts, self.raw, self.drain)?,
+        ))
+    }
+
+    /// Copies an access unit `size` bytes long, which the encoder has put aside
+    /// for its own copy of it, into a buffer from the encoder's pool: the frame,
+    /// given the time it was encoded at. A unit larger than the buffers grows
+    /// them, doubling until one holds it. This is the one copy of a frame's
+    /// bytes between the encoder and the packetizer, and it happens once per
+    /// picture: `encoder` and `drain` are the ones that produced it.
+    fn collect(
+        &mut self,
+        size: usize,
+        keyframe: bool,
+        pts: u64,
+        encoder: *mut Raw,
+        drain: Drain,
+    ) -> Result<Frame> {
         while self.out.capacity() < size {
             if !self.out.grow() {
                 bail!(
@@ -663,31 +1227,22 @@ impl Encoder {
             }
         }
         let mut out = self.out.checkout();
-        let copied = self.drain_produced(&mut out)?;
-        debug_assert_eq!(copied, size, "the encoder gave back another frame");
-        out.finish(copied);
-        Ok(Some(Frame {
+        let spare = out.spare();
+        // SAFETY: the buffer is at least the unit's size, which the pool was
+        // grown to before this call, and both stay put during it.
+        let copied = unsafe { drain(encoder, spare.as_mut_ptr(), spare.len()) };
+        if copied <= 0 {
+            bail!("the {:?} encoder lost the frame it produced", self.codec);
+        }
+        debug_assert_eq!(copied as usize, size, "the encoder gave back another frame");
+        out.finish(copied as usize);
+        Ok(Frame {
             data: out,
             keyframe,
             // The frame was encoded at this time, whatever the pool had to do
             // to hold it: one picture, one submission.
             timestamp: pts as u32,
-        }))
-    }
-
-    /// Copies the access unit the encoder produced into `out`, whose buffer the
-    /// pool has already grown to hold it, and lets the encoder give up its copy:
-    /// this is the drain half of encode-then-copy, and the only copy of the
-    /// frame's bytes between the encoder and the packetizer.
-    fn drain_produced(&mut self, out: &mut Encoded) -> Result<usize> {
-        let spare = out.spare();
-        // SAFETY: the buffer is at least the unit's size, which the pool was
-        // grown to before this call, and both stay put during it.
-        let copied = unsafe { (self.drain)(self.raw, spare.as_mut_ptr(), spare.len()) };
-        match copied {
-            ..0 => bail!("the {:?} encoder lost the frame it produced", self.codec),
-            copied => Ok(copied as usize),
-        }
+        })
     }
 
     /// Encodes the planes, with x264 taking over when the GPU's H264 encoder
@@ -705,7 +1260,7 @@ impl Encoder {
                     %error,
                     "the GPU's encoder failed; reopening another"
                 );
-                self.reopen()?;
+                self.reopen("the GPU's encoder failed")?;
                 // The picture is submitted again, with a keyframe: the
                 // receiver never got the one that failed, so the frame it
                 // holds is one this stream's pictures no longer reference.
@@ -715,14 +1270,16 @@ impl Encoder {
         }
     }
 
-    /// Replaces the encoder that failed with the next one that opens: another
-    /// hardware encoder on this machine — the same codec, on another adapter or
-    /// backend, which is what the adapter preference's fallbacks are for — or,
-    /// when none is left, the processor's, which H264 alone has.
+    /// Replaces the encoder that is no longer there with the next one that
+    /// opens: another hardware encoder on this machine — the same codec, on
+    /// another adapter or backend, which is what the adapter preference's
+    /// fallbacks are for — or, when none is left, the processor's, which H264
+    /// alone has. `reason` is what the log says happened, which is a failure
+    /// for one and a picture in memory for another.
     ///
     /// The codec is kept rather than renegotiated: a stream's viewers were
     /// promised it, so a failure changes the encoder and not the format.
-    fn reopen(&mut self) -> Result<()> {
+    fn reopen(&mut self, reason: &'static str) -> Result<()> {
         let (codec, width, height, fps, kbps, effort) = (
             self.codec,
             self.width,
@@ -744,6 +1301,7 @@ impl Encoder {
             tracing::warn!(
                 engine = opened.name.as_str(),
                 fallback = true,
+                reason,
                 "the GPU's encoder was replaced by another on this machine"
             );
             self.replace(opened);
@@ -765,11 +1323,12 @@ impl Encoder {
 
     /// How many frames the GPU's encoder has answered late, and which
     /// native/hwenc.c dropped rather than let them be sent under a newer
-    /// frame's time. An encoder on the processor has none to report.
+    /// frame's time. An encoder on the processor has none to report, and
+    /// neither has one given up for the card's own pictures.
     fn late(&self) -> u32 {
         #[cfg(hwenc)]
         {
-            if self.hardware() {
+            if !self.raw.is_null() && self.hardware() {
                 // SAFETY: a hardware engine is native/hwenc.c's, and is live.
                 return unsafe { yapfast_hwenc_late(self.raw) };
             }
@@ -795,8 +1354,8 @@ impl Encoder {
     }
 
     /// Encodes the planes, and reports what the encoder produced. What it
-    /// produced stays in the encoder, for [`Self::drain_produced`] to copy out:
-    /// no output buffer crosses this boundary, so a frame too big for the one
+    /// produced stays in the encoder, for [`Self::collect`] to copy out: no
+    /// output buffer crosses this boundary, so a frame too big for the one
     /// waiting at the other side is copied rather than encoded again.
     fn encode_once(
         &mut self,
@@ -805,6 +1364,10 @@ impl Encoder {
         keyframe: bool,
     ) -> Result<Written> {
         let mut is_key: c_int = 0;
+        // Every picture the plane path hands over is one the processor moves
+        // into the encoder's own frame, whatever the encoder does with it
+        // afterwards: this is the count a stream says moved pixels for.
+        self.moved += 1;
         #[cfg(test)]
         {
             self.submitted += 1;
@@ -1200,8 +1763,12 @@ fn open_hardware(
 
 impl Drop for Encoder {
     fn drop(&mut self) {
-        // SAFETY: raw came from this codec's constructor and is freed once.
-        unsafe { (self.free)(self.raw) };
+        // SAFETY: raw came from its codec's constructor and is freed once; it is
+        // null when the card's own pictures took the stream over and the encoder
+        // on the processor's was given up.
+        if !self.raw.is_null() {
+            unsafe { (self.free)(self.raw) };
+        }
     }
 }
 
@@ -1209,6 +1776,8 @@ impl Drop for Encoder {
 mod tests {
     use super::*;
     use crate::decode::Decoder;
+    #[cfg(target_os = "linux")]
+    use crate::dmabuf;
     use std::{
         collections::VecDeque,
         sync::{
@@ -2003,6 +2572,291 @@ mod tests {
             crate::stream_worker::encoder_report(&encoder)
                 .settings_dropped
                 .is_empty()
+        );
+    }
+
+    /// Which encoders read a picture where it lies, by the name FFmpeg knows
+    /// them by: VA-API's, and no other. NVENC, AMF and Quick Sync are handed
+    /// frames in system memory, so a DMA-BUF given to one of them could only be
+    /// copied into one; x264 and libvpx read the processor's memory too.
+    ///
+    /// The names come from `engine_name`, so this is the answer for every
+    /// backend of every codec a stream can ask for, and a backend added to it
+    /// without one here fails rather than quietly uploading.
+    #[test]
+    fn only_vaapi_reads_a_picture_where_it_lies() {
+        for backend in [
+            gpu::Backend::Nvenc,
+            gpu::Backend::Amf,
+            gpu::Backend::Qsv,
+            gpu::Backend::Vaapi,
+        ] {
+            for codec in [Codec::H264, Codec::H265, Codec::Av1] {
+                let name = engine_name(backend, codec).unwrap();
+                assert_eq!(
+                    takes_dmabuf(name),
+                    backend == gpu::Backend::Vaapi,
+                    "{name} is on {backend:?}, and its answer changed"
+                );
+            }
+        }
+        // The two encoders on the processor report themselves by these names.
+        assert!(!takes_dmabuf("x264"));
+        assert!(!takes_dmabuf("libvpx"));
+        assert!(!takes_dmabuf(""));
+    }
+
+    /// An NV12 descriptor becomes one DRM object with two planes, which is what
+    /// native/hwenc_dmabuf.c hands FFmpeg to import as a VA-API surface: the
+    /// descriptor, the modifier, where each plane starts and how wide its rows
+    /// are, and a buffer size that holds both planes. This is the mapping on its
+    /// own, so it needs no card to prove it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_descriptor_maps_to_one_nv12_object() {
+        let encoder = Encoder::new(Codec::H264, 320, 180, 30, 500, Effort::Light, false).unwrap();
+        let planes = [
+            dmabuf::Plane {
+                offset: 0,
+                stride: 384,
+            },
+            dmabuf::Plane {
+                offset: 73_728,
+                stride: 384,
+            },
+        ];
+        let fds = [7, 7];
+        let picture = dmabuf::Descriptor {
+            width: 320,
+            height: 180,
+            fourcc: NV12,
+            modifier: 0x0100_0000_0000_0002,
+            planes: &planes,
+            fds: &fds,
+        };
+        assert_eq!(
+            encoder.importable(&picture),
+            Ok(DmabufPicture {
+                width: 320,
+                height: 180,
+                fd: 7,
+                // The chroma plane's last row ends at 73,728 + 384 × 90, past
+                // where the luma plane's does: that is how much of the buffer
+                // the picture needs, and a descriptor carries no size to be
+                // told instead.
+                size: 108_288,
+                modifier: 0x0100_0000_0000_0002,
+                offset: [0, 73_728],
+                pitch: [384, 384],
+            })
+        );
+    }
+
+    /// Every descriptor that isn't one NV12 picture in one buffer is refused by
+    /// name, rather than imported as a surface that would show something else:
+    /// the BGRA a screen capture's DMA-BUF holds, a picture of another size, a
+    /// pitch narrower than the picture, planes in two buffers, a plane with no
+    /// buffer, and a shape that isn't NV12's two planes.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_picture_that_isnt_nv12_is_refused_by_name() {
+        fn picture<'a>(
+            fourcc: u32,
+            (width, height): (u32, u32),
+            planes: &'a [dmabuf::Plane],
+            fds: &'a [c_int],
+        ) -> dmabuf::Descriptor<'a> {
+            dmabuf::Descriptor {
+                width,
+                height,
+                fourcc,
+                modifier: 0,
+                planes,
+                fds,
+            }
+        }
+        fn refuses(encoder: &Encoder, picture: &dmabuf::Descriptor<'_>, why: &'static str) {
+            assert_eq!(encoder.importable(picture), Err(Refused::Unimportable(why)));
+        }
+        let encoder = Encoder::new(Codec::H264, 320, 180, 30, 500, Effort::Light, false).unwrap();
+        let nv12 = [
+            dmabuf::Plane {
+                offset: 0,
+                stride: 384,
+            },
+            dmabuf::Plane {
+                offset: 73_728,
+                stride: 384,
+            },
+        ];
+        // A screen capture hands over BGRA, which a VA-API surface can't be made
+        // of without converting it: that conversion is the copy this doesn't
+        // make, so it is refused rather than done.
+        let bgra = u32::from_le_bytes(*b"XR24");
+        refuses(
+            &encoder,
+            &picture(bgra, (320, 180), &nv12, &[7, 7]),
+            "a picture that isn't NV12, which a VA-API surface is made of",
+        );
+        refuses(
+            &encoder,
+            &picture(NV12, (320, 182), &nv12, &[7, 7]),
+            "a picture of another size than the encoder's",
+        );
+        let narrow = [
+            dmabuf::Plane {
+                offset: 0,
+                stride: 256,
+            },
+            nv12[1],
+        ];
+        refuses(
+            &encoder,
+            &picture(NV12, (320, 180), &narrow, &[7, 7]),
+            "a pitch narrower than the picture",
+        );
+        refuses(
+            &encoder,
+            &picture(NV12, (320, 180), &nv12, &[7, 8]),
+            "planes in two buffers, which one surface can't be made of",
+        );
+        refuses(
+            &encoder,
+            &picture(NV12, (320, 180), &nv12, &[-1, -1]),
+            "a plane with no buffer",
+        );
+        let one = [nv12[0]];
+        refuses(
+            &encoder,
+            &picture(NV12, (320, 180), &one, &[7]),
+            "a picture that isn't NV12's two planes in one buffer",
+        );
+    }
+
+    /// The render node and libva driver the stream's encoder opened on are read
+    /// back out of the report native/hwenc.c wrote, so that the encoder reading
+    /// the card's pictures is on the GPU the stream chose. A report with no
+    /// device in it — an encoder on the processor, or a VA-API one whose shim
+    /// named no node — leaves FFmpeg to place the session.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_device_the_encoder_opened_on_is_read_back() {
+        assert_eq!(
+            vaapi_device("h264_vaapi (/dev/dri/renderD128, radeonsi)"),
+            Some(("/dev/dri/renderD128", "radeonsi"))
+        );
+        assert_eq!(
+            vaapi_device("av1_vaapi (/dev/dri/renderD129, iHD)"),
+            Some(("/dev/dri/renderD129", "iHD"))
+        );
+        for report in [
+            // The encoders on the processor, and NVENC, which has no device to
+            // name.
+            "x264",
+            "libvpx",
+            "h264_nvenc",
+            // A node with no driver named for it is not one to open.
+            "h264_vaapi (/dev/dri/renderD128)",
+            "h264_vaapi ()",
+        ] {
+            assert_eq!(vaapi_device(report), None, "{report:?}");
+        }
+    }
+
+    /// A DMA-BUF handed to an encoder on the processor is answered with a
+    /// refusal rather than a copy: the caller logs one line and hands the same
+    /// picture to the plane path, which is the fallback and the only path that
+    /// moves pixels. The counters say which of the two happened.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_encoder_on_the_processor_cannot_take_a_dmabuf() {
+        let (width, height) = (320u32, 180u32);
+        let mut encoder =
+            Encoder::new(Codec::H264, width, height, 30, 500, Effort::Light, false).unwrap();
+        assert_eq!(encoder.engine(), "x264");
+        let planes = [
+            dmabuf::Plane {
+                offset: 0,
+                stride: 384,
+            },
+            dmabuf::Plane {
+                offset: 73_728,
+                stride: 384,
+            },
+        ];
+        let fds = [7, 7];
+        let picture = dmabuf::Descriptor {
+            width,
+            height,
+            fourcc: NV12,
+            modifier: 0,
+            planes: &planes,
+            fds: &fds,
+        };
+        assert!(matches!(
+            encoder.encode_dmabuf(&picture, true, 0),
+            Err(Refused::Uploads)
+        ));
+        // The refusal is an answer, not a picture: nothing was encoded, nothing
+        // was moved, and nothing was encoded where it lay.
+        assert_eq!((encoder.copied(), encoder.encoded_in_place()), (0, 0));
+        assert_eq!(encoder.engine(), "x264", "the line reports what ran");
+        // The same picture through the plane path is the fallback, and it is the
+        // path the processor moves pixels for.
+        let rgba = vec![0u8; (width * height * 4) as usize];
+        let frame = encoder.encode(&rgba, 0, true).unwrap().unwrap();
+        assert!(frame.keyframe);
+        assert_eq!(frame.timestamp, 0);
+        assert_eq!((encoder.copied(), encoder.encoded_in_place()), (1, 0));
+    }
+
+    /// A refusal says in words what it is, since that is the one log line a
+    /// caller writes before falling back; nothing it names is a copy.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_refusal_says_which_it_is() {
+        assert_eq!(
+            Refused::Uploads.to_string(),
+            "the encoder reads its pictures from memory"
+        );
+        assert_eq!(
+            Refused::NotBuilt.to_string(),
+            "this build has no VA-API path for a DMA-BUF"
+        );
+        assert_eq!(
+            Refused::Unimportable("a pitch narrower than the picture").to_string(),
+            "a pitch narrower than the picture"
+        );
+        assert_eq!(
+            Refused::Failed.to_string(),
+            "the card's encoder wouldn't take the picture"
+        );
+    }
+
+    /// The encoder that reads the card's own pictures is opened with the same
+    /// settings as the one fed from the processor — Main profile H264, a keyframe
+    /// every three seconds, no B-frames, capped VBR with the cap equal to the aim
+    /// over half a second, one picture in flight — because a stream's picture
+    /// must not depend on which way its frames reached the encoder.
+    ///
+    /// The list is native/hwenc_dmabuf.c's own, so this reads what its open
+    /// applies rather than a copy here, and needs no GPU in the shape of the
+    /// question. A setting that changed without a measurement behind it is a
+    /// failing test rather than a picture nobody compared.
+    #[cfg(dmabufenc)]
+    #[test]
+    fn the_descriptor_encoders_settings_are_the_plane_paths() {
+        let mut asked = [0u8; 192];
+        // SAFETY: plain values, and a buffer of the size given.
+        let found = unsafe {
+            yapfast_hwenc_dmabuf_settings(30, 2500, asked.as_mut_ptr().cast(), asked.len())
+        };
+        assert_eq!(found, 0);
+        assert_eq!(
+            c_text(&asked),
+            "profile=main(required) gop=90(required) b_frames=0(required) \
+             rc_mode=VBR(required) async_depth=1(required) rate=2500 kbit/s capped at 2500 \
+             kbit/s over 500 ms(required)"
         );
     }
 }

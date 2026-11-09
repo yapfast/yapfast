@@ -77,7 +77,7 @@ use std::{
 
 use anyhow::{Result, bail};
 
-pub use super::portal::{Ask, Cursor, Source, Stream};
+pub use super::portal::{Ask, Cursor, Source, Stream, answers};
 
 /// A capture as `native/pipewire_capture.c` owns it.
 #[repr(C)]

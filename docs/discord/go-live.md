@@ -49,9 +49,13 @@ encoder's `engine` and `codec` from the last stats a share reported, and the
 picture `size` (or "up to" the job's bounds before one was reported).
 `a_worker_that_dies_says_how` runs a worker script that kills itself, through
 `YAPFAST_STREAM_WORKER`, which names the program to start instead of Yapfast.
-In a Wayland session, libwebrtc's capturer asks the screen sharing portal what
-to share. The portal answers over D-Bus through GLib, so the worker runs GLib's main
-context while it waits for the dialog and for frames. Yapfast tells Discord it's
+In a Wayland session, the desktop's screen sharing portal is what captures: on
+Linux with the `screencast` feature and PipeWire's headers, Yapfast asks the
+portal itself and reads the DMA-BUFs the compositor draws, and without them
+libwebrtc's capturer asks the portal instead and the worker runs GLib's main
+context while it waits for the dialog and for frames
+([below](#capturing-on-the-gpu-on-linux) says which of the two runs).
+Yapfast tells Discord it's
 live only once frames flow, so a cancelled dialog shares nothing. Windows has
 no such dialog, and libwebrtc uses the portal only on Wayland, so elsewhere,
 as on Windows and in an X11 session such as XFCE's, the share menu lists the
@@ -70,12 +74,13 @@ the dialog again) and keeps sending the first one's frames. When the second one
 gives a frame, it replaces the first. If the dialog is cancelled, the first
 one goes on. The encoder takes the new size on the same connection. A share
 that is on the card switches differently, since nothing of it is captured in
-memory: another screen is opened the way the share opened — the old capture
-first, because DXGI gives an output to one duplicator at a time, then the
-encoder session and the tile's own, which were both built on the device the
-old capture made — and the stream goes on. A window or a camera can't be
-captured on the card, so the share carries on from the processor rather than
-ending.
+memory: another screen is opened the way the share opened — on Windows the old
+capture first, because DXGI gives an output to one duplicator at a time, then
+the encoder session and the tile's own, which were both built on the device the
+old capture made; on Linux the picture's descriptor is dropped with the capture
+that made it — and the stream goes on. A camera, and on Windows a window, can't
+be captured on the card, so the share carries on from the processor rather than
+ending; on Linux a window is the card's as much as a screen is.
 `YAPFAST_STREAM_TEST_PATTERN=1` shares moving colour bars instead of a screen.
 
 A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
@@ -243,7 +248,13 @@ The window takes a slot for a picture only when the picture's message is
 waiting for that generation (`dmabuf::Reader::take`), and the descriptors it
 took are closed when it lets go of the picture, which is as it retires the slot:
 the memory a picture is in belongs to the worker until the window has finished
-sampling it, and no descriptor outlives that. A message that can't be read —
+sampling it, and no descriptor outlives that. The import itself duplicates each
+descriptor it is given, because Vulkan takes the copy and keeps it until the
+imported memory is freed: a picture's own descriptors stay the channel's and are
+closed with it. A window with no importer — one drawing without Vulkan, or a
+build without Skia's Vulkan — refuses a stream's pictures once, lets go of the
+picture and its slot at once, and the stream writes pixels from its next frame.
+A message that can't be read —
 another version, or one whose planes and descriptors disagree — is closed as it
 is read, and one it displaces is closed then too, so a window that stopped
 taking pictures holds one per slot and no more. The device a picture has to be
@@ -254,7 +265,7 @@ and the Skia archive built with it, see
 Skia on OpenGL otherwise (`src/ui/vulkan.rs`). Where the two adapters can't share a
 texture, or the window draws in software, the tile is read back into one
 staging texture at 1280×720 at most instead, ten times a second while the UI
-shows a preview. Everything else — Linux, a window or a camera, the processor setting,
+shows a preview. Everything else — a window or a camera, the processor setting,
 or a card that won't open on the capture's device — takes the libyuv path above,
 and one log line says which ran and why. Where Windows Graphics Capture is missing or won't open, DXGI's Desktop
 Duplication fills the same kind of texture — upright, in BGRA, with the pointer
@@ -267,6 +278,71 @@ the outline is something the person being shared with can see. Settings can name
 either rung, for a machine where another application already holds an output's
 duplication and the choice falls to the other. Discord's still is made from the
 same scaled picture, so it still refreshes while the local preview is hidden.
+
+### Capturing on the GPU on Linux
+
+Linux captures on the GPU the same way, through a different door: instead of a
+texture, the pictures are the DMA-BUFs the desktop's compositor drew, and the
+window imports the descriptor and draws it where it lies. Two rungs capture them,
+and `capture::linux_order` chooses the order from what the session answers rather
+than from a setting — nothing here draws a border, so there is nothing to prefer
+between them but what each one sees:
+
+* the desktop's screen sharing portal (`capture::portal`, `capture::pipewire`),
+  which is asked for the kind of thing the person picked — windows for a window,
+  one monitor for a display — and hands back the compositor's own buffers on a
+  PipeWire node. It is asked whether it answers at all first, with one call on
+  the session bus, so a desktop without one is not left waiting for a timeout;
+* the X server's Composite redirection exported through DRI3
+  (`capture::x11`), which redirects the window or the screen to a pixmap and
+  exports that as one DMA-BUF. It captures a window as that window and never the
+  desktop behind it, and a monitor as the screen cut to the monitor's rectangle.
+
+A Wayland session that answers a portal has no X11 rung at all: what an X11
+capture sees under Wayland is Xwayland's windows and not the desktop they sit on,
+so falling to it would share the wrong thing. Every other session tries the
+portal and then the X server, and each rung that refuses is named with what it
+said. A session with neither, a build without the `screencast` feature or
+PipeWire's headers, a window whose importer is missing, or a machine with the
+processor's encoder chosen all keep the share on the libyuv path, and the log
+says which: `sharing from the processor`, with the reason. The Stream tab says
+the same thing twice over, since a picture looks alike whichever way it came:
+`StreamStats.capture` names the rung and the size ("X11's DRI3 capture ·
+1920×1080"), and `fallback` says why a share left the card, in the words of the
+refusal that sent it there.
+
+Each pass of the loop asks the capture for a picture and gives it the wait until
+the stream's next slot, so a desktop that isn't changing sleeps in the capture's
+own timeout instead of spinning beside it; an arrival of `Still` is a pass that
+sends the picture the capture last handed over, and only while the stream wants
+one — a viewer joining, a decoder that lost its place, a codec Discord chose. A
+picture that has just arrived is published for the window when a preview is
+wanted, into a slot `frames::Writer::claim` answers, with
+`frames::Writer::publish_dmabuf`: the descriptor and its plane go over the
+stream's socket, and the window imports them. `frames::Writer::dmabuf_showable`
+is asked before any capture opens, and again before a publish that leaves a slot
+free: a window that can't show these pictures is a share that stays on the
+processor, where its frames have always been pixels. A size change (`Resized`, or
+a descriptor of another size) is reported to the UI at the size the next picture
+is sent at, and the stream's encoder is opened at it on the same connection.
+
+What the encoder is given is the descriptor itself, through
+`stream_worker::Encoding::encode_dmabuf`: a VA-API session imports it and no pixel
+of the picture comes back to the processor ([Encoding on the
+GPU](#encoding-on-the-gpu) says what a descriptor can hold there). A screen's
+DMA-BUF is BGRA, which is not the NV12 a VA-API surface is made of, so a screen
+still costs one copy: the picture is mapped read-only with `mmap`
+(`capture::linear`), converted to I420 in a buffer kept for it, and encoded from
+there — said once in the log and in the share's report, while the window goes on
+drawing the descriptor itself. A picture a driver tiled can't be read that way and isn't read
+wrongly: the share goes on from the processor's capturer instead, which is the
+one thing that always has pixels. Discord's still is made from the same map, is
+the one picture this path copies, and is made only when it is due.
+
+A share that stops lets go of its capture, which closes the portal's session and
+undoes the X server's redirection; a capture that ends — the person stopped
+sharing, the window was closed — ends the share with the capture's own sentence,
+as the capture of a screen does on Windows.
 
 A desktop that isn't changing is still a stream that can be asked for a picture.
 The capture keeps the last picture it made in its own texture, and a viewer
@@ -475,6 +551,37 @@ in this FFmpeg" for each. Quick Sync is fed from the processor the way AMF is:
 every frame is uploaded to it as NV12, and nothing on that path is zero-copy. It
 has not been measured on Intel hardware here, so what is known of it is that it
 opens and encodes, not that its picture beats x264's.
+
+On Linux, a picture that is already on the card goes to a VA-API encoder where
+it lies, with no copy at all: `encode::Encoder::encode_dmabuf` hands a frames
+channel's DMA-BUF descriptor to `native/hwenc_dmabuf.c`, which imports the
+descriptor's buffer as a VA-API surface — `av_hwframe_map` on a DRM PRIME frame,
+which wraps the buffer instead of copying it — and gives that surface to
+FFmpeg's VA-API encoder. No pixel of such a picture comes back to the processor,
+and the Stream tab's line says so once one has been encoded that way ("…,
+encoding DMA-BUFs where they lie"), as does the log at the open. The encoder is
+opened on the GPU the stream's encoder opened on, whose render node and libva
+driver are read back out of its report, and with the same settings as the
+session fed from memory: `native/hwenc_dmabuf.c` keeps them in one place and a
+test holds them to what the stream was measured with, so a picture can't depend
+on which way its frame reached the encoder. A stream whose pictures all arrive
+that way runs one session on the card, not two: the encoder opened for pictures
+in memory is given up when it has never encoded one, and opened again for the
+first picture that has to come through memory.
+
+What a descriptor can hold here is an NV12 picture in one buffer: that is what
+a picture the card decoded is, and what a VA-API surface is made of without
+converting it. A screen capture's DMA-BUF is BGRA —
+PipeWire's frames the compositor drew — so those pictures still come back
+through memory and are converted, the one copy that path allows. Every encoder
+here that reads its frames from memory — NVENC, Quick Sync, AMF and x264 —
+answers a DMA-BUF with a typed refusal (`encode::Refused`) rather than taking it
+and uploading it, and so does a VA-API encoder given a picture that isn't NV12:
+the caller logs one line and hands the same picture to the path fed from the
+processor, and nothing is copied on the way to that answer. `Encoder::copied`
+counts the pictures the processor moved, which is every picture of that path and
+none of the card's own, and `Encoder::encoded_in_place` counts the ones encoded
+where they lay.
 The setting lives in `layout.json` and reaches the worker with each
 `Job::Share`; the camera stays on x264. When the GPU's H264 encoder fails
 during a stream, x264 takes over from that frame with a keyframe, and the log
@@ -653,15 +760,17 @@ described above; what has been run on hardware is this:
 - **Intel Quick Sync** is in the vendored build (oneVPL 2.14.0,
   `--enable-libvpl`) and in the probe, and no Intel GPU has run it. It is fed
   from the processor, like AMF, and says so.
-- **Linux's card paths are built but not wired.** The DMA-BUF descriptor
-  channel (`dmabuf.rs`), the VA-API decoder (`native/hwdec_vaapi.c`), the
-  portal/PipeWire capturer (`capture/portal.rs`, `capture/pipewire.rs`) and
-  the X11 DRI3 capturer (`capture/x11.rs`) exist with their own tests and
-  fallbacks; the stream worker does not call the decoders or the capturers
-  yet, so Linux still captures and decodes on the processor. The VA-API path
-  also waits on the vendored FFmpeg being rebuilt with `--enable-libdrm` and
-  the VA-API hwaccels, which `build.rs` checks for and says so when it isn't
-  there.
+- **Linux's card paths are wired, and none of them has been seen working.**
+  The portal/PipeWire capturer, the X11 DRI3 capturer, the DMA-BUF picture
+  channel, the VA-API decoder and the VA-API encode-from-a-DMA-BUF are
+  called from the stream worker now, each with its own refusal that falls
+  back to the processor's path and says why. This machine has no portal, no
+  compositor, no DRI3 and no VA-API driver, so every one of them was exercised
+  only through its refusal: what a working session does is what the code says,
+  not what anyone saw. The Vulkan import of a DMA-BUF is behind the
+  `skia-vulkan` feature (below), so a build without it asks for pixels once and
+  stays on the processor's path; a build with it imports the picture on the
+  window's Vulkan device and samples it there.
 - **Vulkan on Linux** is opt-in: the Skia Vulkan build (`nix build
   path:./nix#skia-vulkan`) and the `skia-vulkan` feature, with OpenGL the
   default and the fallback. No Vulkan device was available to run it here.

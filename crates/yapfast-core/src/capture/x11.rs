@@ -993,6 +993,22 @@ pub struct Listed {
     pub title: String,
 }
 
+/// The id of the root window — the screen every other window on it sits on — of
+/// the default screen.
+///
+/// It is what libwebrtc's X11 capturer lists a screen by, so it is what a
+/// [`Source::Display`](crate::stream_worker::Source::Display) chosen from
+/// Yapfast's own menu carries for a whole screen. Asked on a connection of its
+/// own, which closes when the id is read.
+pub fn root_window() -> Result<u32> {
+    let (conn, screen) = x11rb::connect(None).context("no X server to ask for the screen's id")?;
+    conn.setup()
+        .roots
+        .get(screen)
+        .map(|setup| setup.root)
+        .with_context(|| format!("the X server has no screen number {screen}"))
+}
+
 /// Lists what this X11 session offers a share, on a connection of its own, which
 /// closes when the list is made.
 ///

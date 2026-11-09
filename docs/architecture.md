@@ -57,7 +57,19 @@ different things in two processes, so its layout and numbers go in the file and
 the descriptors themselves go over a socket pair the window makes before it
 starts the worker (`dmabuf.rs`, `frames::Frames::open_pictures`,
 `dmabuf::inheriting`), one `sendmsg` a picture with the descriptors attached
-through `SCM_RIGHTS`, and the window closes them as it retires the slot.
+through `SCM_RIGHTS`, and the window closes them as it retires the slot. A
+DMA-BUF the window takes is imported on the device it draws the window with
+(`src/ui/gpu.rs`'s Linux side): the image is made with
+`VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT` and the picture's fourcc, DRM
+modifier, plane offsets and strides (`src/ui/gpu.rs`'s `plane` module, which is
+the part a test can check without a card), one `VkDeviceMemory` is imported for
+each buffer its planes are in, and wgpu wraps the image as a texture. A 32-bit
+picture, which is what a compositor's screen is, is shown from that texture
+directly and Skia scales it into the tile. A card's decoded picture is NV12,
+which the vendored Skia import can't sample — it wraps single-plane 8-bit
+RGBA — so the window's `present` module runs one pass over the two plane views
+and writes the tile in BGRA instead; no pixel of either path crosses the
+processor.
 `stream_audio.rs` is a
 stream's sound both ways: what other applications play for a share, and the
 player that puts the sound coming the other way in order.

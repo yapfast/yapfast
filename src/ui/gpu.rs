@@ -23,10 +23,21 @@
 //! On Linux a picture is a DMA-BUF rather than a shared texture, so it arrives
 //! as descriptors over the stream's socket (`yapfast_core::dmabuf`) instead of
 //! as a handle in the frames header. Importing one is the window's Vulkan
-//! device taking those descriptors as external memory, which is not here yet:
-//! the descriptors are taken, and closed as the slot is retired, so the channel
-//! works end to end and a stream that sends pictures is asked for pixels until
-//! the importer exists.
+//! device taking those descriptors as external memory: the `VkImage` is made
+//! with `VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT` and the picture's
+//! fourcc, modifier, plane offsets and strides, one `VkDeviceMemory` is
+//! allocated per buffer the planes are in, and wgpu wraps the image as a
+//! texture (`wgpu::hal::vulkan::Device::texture_from_raw`), which Skia shows.
+//! The build that draws on Vulkan is the opt-in `skia-vulkan` one; every other
+//! build imports nothing and a stream that sends pictures is asked for pixels.
+//!
+//! A DMA-BUF picture is not always in a format Skia can sample: the vendored
+//! renderer imports a single-plane 8-bit RGBA (or BGRA) Vulkan image, and the
+//! card's decoder exports NV12, two planes, one luma and one interleaved
+//! chroma. A picture of that shape goes through a pass of its own first, which
+//! samples the two planes and writes the tile in BGRA: the card's own memory is
+//! read where it lies, and what Skia shows is a texture the size of the tile.
+//! Nothing of either path crosses the processor.
 //!
 //! A slot is the worker's to draw into again only when this process says it has
 //! finished with the picture that was there, one slot and generation at a time.
@@ -88,6 +99,11 @@ pub fn taken(frames: &Arc<Frames>) -> Option<slint::Image> {
             present.housekeeping();
         }
     });
+    // The same on Linux, for the pictures this window imported: a stream the UI
+    // let go of must not keep them, and a stream whose pictures were refused
+    // keeps none.
+    #[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
+    present::housekeeping();
     let shown = frames.take_frame(Taken::of);
     match shown? {
         Taken::Pixels(image) => Some(image),
@@ -175,30 +191,36 @@ fn shared(frames: &Arc<Frames>, picture: Picture) -> Option<slint::Image> {
     None
 }
 
-/// A picture the worker drew into a DMA-BUF, as the window shows it: nothing
-/// yet.
+/// A picture the worker drew into a DMA-BUF, as the window shows it.
 ///
-/// This is where importing one goes, and what it gets is the picture itself: the
-/// descriptors, one for each of its planes, with the fourcc and modifier that say
-/// how the memory is laid out, which the window's Vulkan device takes as
-/// external memory (`VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT`) and hands
-/// to a texture. There is no such device here yet, so the picture is retired at
-/// once — nothing shows it, so nothing samples it — and the stream is asked for
-/// its pixels from the next frame: the frame before this one stays up rather
-/// than a blank tile.
+/// The picture is imported on the window's Vulkan device — the descriptors,
+/// one for each of its planes, taken as external memory — and shown from the
+/// texture that comes back. What can't be imported is refused once, with the
+/// reason in the log, and the stream is asked for pixels from its next frame:
+/// the picture before this one stays up rather than a blank tile, which is what
+/// a stream that falls back costs.
 ///
-/// Letting go of the picture is what closes its descriptors, so the memory the
-/// worker shared goes with the picture and no further.
-#[cfg(target_os = "linux")]
+/// Nothing shows a picture when the window draws without a Vulkan device, or in
+/// a build that carries no importer: those are refusals, and a refusal retires
+/// the slot at once — nothing samples a picture nothing showed.
+#[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
+fn dmabuf(frames: &Arc<Frames>, picture: yapfast_core::dmabuf::Picture) -> Option<slint::Image> {
+    present::show(frames, picture)
+}
+
+/// A build without Skia's Vulkan has no device to import a DMA-BUF on, so a
+/// stream that publishes one is asked for pixels.
+#[cfg(all(target_os = "linux", not(feature = "skia-vulkan")))]
 fn dmabuf(frames: &Arc<Frames>, picture: yapfast_core::dmabuf::Picture) -> Option<slint::Image> {
     if frames.refuse_gpu() {
         tracing::warn!(
             planes = picture.plane_count(),
             fourcc = format!("{:08x}", picture.fourcc()),
             modifier = format!("{:x}", picture.modifier()),
-            "a stream draws into a DMA-BUF, which this build has no importer for; showing its pixels"
+            "this build draws without Vulkan, which is the device a DMA-BUF is imported on; showing the stream's pixels"
         );
     }
+    // A picture nothing can show is one the worker's slot holds for nothing.
     frames.retire(picture.slot(), picture.generation());
     None
 }
@@ -281,8 +303,17 @@ pub fn forget(key: u64) {
 }
 
 /// Without Direct3D there is nothing opened for a stream to let go of.
-#[cfg(not(windows))]
+#[cfg(not(all(target_os = "linux", feature = "skia-vulkan")))]
 pub fn forget(_key: u64) {}
+
+/// Lets go of a stream's imported pictures: the textures and the memory behind
+/// them, the slot each is still holding and the queue's own record of it. A
+/// stream the UI stopped watching shows its pictures again next tick, so this is
+/// for one that has ended, and for one whose pictures the UI refused.
+#[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
+pub fn forget(key: u64) {
+    present::forget(key);
+}
 
 /// Without Direct3D there is no shared texture to open, and a stream that
 /// publishes one is asked for pixels.
@@ -305,7 +336,7 @@ fn adapter_luid(device: &wgpu::Device) -> Result<u64> {
 /// How long a picture may take to be drawn before it's passed over: half a
 /// frame at 60 Hz, which a worker that signals its fence before it publishes
 /// never spends, and short enough that the window doesn't feel it.
-#[cfg(windows)]
+#[cfg(any(windows, all(target_os = "linux", feature = "skia-vulkan")))]
 const WAIT_MS: u32 = 8;
 
 /// How many pictures in a row may arrive before the GPU has finished drawing
@@ -319,7 +350,7 @@ const LATE_LIMIT: u32 = 10;
 /// screen, and the one before it, which the window's queue may still be drawing
 /// when the next arrives. A third would leave the worker no free slot of its
 /// three, so the picture is passed over instead.
-#[cfg(windows)]
+#[cfg(any(windows, all(target_os = "linux", feature = "skia-vulkan")))]
 const LEASES: usize = 2;
 
 /// How many pictures one set of the worker's shares, which is how many textures
@@ -600,7 +631,7 @@ impl Present {
 /// Asks a stream for pixels from its next frame, and logs why the first time:
 /// a stream decides once, because what it depends on — the pair of adapters,
 /// the renderer — doesn't change while the stream lasts.
-#[cfg(windows)]
+#[cfg(any(windows, all(target_os = "linux", feature = "skia-vulkan")))]
 fn refuse(frames: &Frames, reason: String, what: &str) {
     if frames.refuse_gpu() {
         tracing::warn!(reason = %reason, "{}; showing its pixels instead", what);
@@ -963,7 +994,7 @@ fn drawn(fence: &ID3D12Fence, value: u64) -> Option<bool> {
 
 /// Whether the window's queue has drawn everything it was given: until it has,
 /// the GPU may still be sampling a texture the worker would draw into again.
-#[cfg(windows)]
+#[cfg(any(windows, all(target_os = "linux", feature = "skia-vulkan")))]
 fn queue_empty(device: &wgpu::Device) -> bool {
     match device.poll(wgpu::PollType::Poll) {
         Ok(status) => status.is_queue_empty(),
@@ -975,7 +1006,7 @@ fn queue_empty(device: &wgpu::Device) -> bool {
 
 /// Asks the window's queue for the rest of what it was given, waiting a bounded
 /// moment for it, so that a slot is never kept because a queue never empties.
-#[cfg(windows)]
+#[cfg(any(windows, all(target_os = "linux", feature = "skia-vulkan")))]
 fn wait_drawn(device: &wgpu::Device) {
     let _ = device.poll(wgpu::PollType::Wait {
         submission_index: None,
@@ -1251,4 +1282,1574 @@ mod tests {
         drop(shared);
         eprintln!("two {width}x{height} pictures at {opened} handles opened, {closed} closed");
     }
+}
+
+/// How a DMA-BUF picture's descriptors become a texture: the shape the fourcc
+/// names, the format that shape is imported as, and where each plane starts in
+/// the memory it shares.
+///
+/// This is the part of the import that needs no card, so it is a function of the
+/// picture's own numbers and is tested without one. What a driver takes on
+/// trust is read here, once: an image declared a shape its memory isn't is a
+/// picture shown through the wrong channels, and one whose planes are placed
+/// wrongly reads past what the worker shared.
+#[cfg(target_os = "linux")]
+// Without the Vulkan feature nothing here imports a picture, but the reading
+// of a descriptor and its tests are worth keeping in every Linux build: they
+// are the part that needs no card.
+#[cfg_attr(not(feature = "skia-vulkan"), allow(dead_code))]
+mod plane {
+    use std::os::fd::RawFd;
+
+    use ash::vk;
+    use slint::wgpu_30::wgpu;
+    use yapfast_core::dmabuf::{MAX_PLANES, Picture, Plane};
+
+    /// `DRM_FORMAT_MOD_LINEAR`: the memory is the picture's rows one after
+    /// another, and nothing else about it needs saying.
+    pub const MOD_LINEAR: u64 = 0;
+
+    /// `DRM_FORMAT_MOD_INVALID`: the exporter didn't say how the memory is laid
+    /// out. A tiling nobody named can't be imported as any of them, and a
+    /// picture guessed at is a picture read wrongly, so it is refused.
+    pub const MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
+
+    /// `DRM_FORMAT_*`'s own packing of a fourcc into a number: the four
+    /// characters, the first in the low byte.
+    pub const fn fourcc(name: [u8; 4]) -> u32 {
+        (name[0] as u32)
+            | ((name[1] as u32) << 8)
+            | ((name[2] as u32) << 16)
+            | ((name[3] as u32) << 24)
+    }
+
+    /// What a picture's memory holds, as far as this importer can show it: the
+    /// shapes a fourcc names that a texture can be made of here, and what that
+    /// texture is to Vulkan and to wgpu.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Shape {
+        /// Bytes R, G, B, A: `DRM_FORMAT_ABGR8888`.
+        Rgba,
+        /// Bytes B, G, R, A: `DRM_FORMAT_ARGB8888`, which is what a card's
+        /// buffer of 32-bit pixels usually is.
+        Bgra,
+        /// A plane of luma and one of interleaved chroma: `DRM_FORMAT_NV12`,
+        /// 8-bit 4:2:0, which is what the card's decoder exports.
+        Nv12,
+    }
+
+    impl Shape {
+        /// `DRM_FORMAT_ABGR8888`, whose bytes are R, G, B, A.
+        pub const ABGR8888: u32 = fourcc(*b"AB24");
+        /// `DRM_FORMAT_ARGB8888`, whose bytes are B, G, R, A.
+        pub const ARGB8888: u32 = fourcc(*b"AR24");
+        /// `DRM_FORMAT_NV12`.
+        pub const NV12: u32 = fourcc(*b"NV12");
+
+        /// The shape the fourcc names, or the reason this importer can't show
+        /// a picture of it. Only the shapes Skia or the tile pass can read are
+        /// here: a ten-bit, a 4:2:2 or a planar picture would be a texture of a
+        /// format this renderer can't sample, and an import of it is a picture
+        /// shown wrongly rather than not at all.
+        pub fn of(fourcc: u32) -> Result<Self, String> {
+            match fourcc {
+                Self::ABGR8888 => Ok(Self::Rgba),
+                Self::ARGB8888 => Ok(Self::Bgra),
+                Self::NV12 => Ok(Self::Nv12),
+                other => Err(format!(
+                    "the picture is DRM format {other:08x} ({}), which this importer can't show",
+                    spelled(other)
+                )),
+            }
+        }
+
+        /// What the shape is called in a log line or a refusal.
+        pub fn named(self) -> &'static str {
+            match self {
+                Self::Rgba => "RGBA",
+                Self::Bgra => "BGRA",
+                Self::Nv12 => "NV12",
+            }
+        }
+
+        /// How many planes the shape has, which is how many descriptors a
+        /// picture of it carries.
+        pub fn planes(self) -> usize {
+            match self {
+                Self::Rgba | Self::Bgra => 1,
+                Self::Nv12 => 2,
+            }
+        }
+
+        /// The fewest bytes one row of `plane` takes in a picture `width` pixels
+        /// wide: four to a pixel, or — for NV12, whose chroma is two bytes a
+        /// pair — one to a pixel in either plane.
+        pub fn row(self, width: u32, plane: usize) -> u32 {
+            match (self, plane) {
+                (Self::Rgba | Self::Bgra, _) => width.saturating_mul(4),
+                (Self::Nv12, _) => width,
+            }
+        }
+
+        /// The Vulkan format the image is made as: the one whose memory layout
+        /// is the fourcc's, and the multi-plane one the card's decoder writes.
+        pub fn vk(self) -> vk::Format {
+            match self {
+                Self::Rgba => vk::Format::R8G8B8A8_UNORM,
+                Self::Bgra => vk::Format::B8G8R8A8_UNORM,
+                Self::Nv12 => vk::Format::G8_B8R8_2PLANE_420_UNORM,
+            }
+        }
+
+        /// The wgpu format the texture is declared as: the same memory, under
+        /// the name wgpu has for it.
+        pub fn wgpu(self) -> wgpu::TextureFormat {
+            match self {
+                Self::Rgba => wgpu::TextureFormat::Rgba8Unorm,
+                Self::Bgra => wgpu::TextureFormat::Bgra8Unorm,
+                Self::Nv12 => wgpu::TextureFormat::NV12,
+            }
+        }
+
+        /// What the window asks of the texture it wraps the picture in. A
+        /// picture Skia samples itself has to be renderable too, which is what
+        /// `slint::Image` asks of a texture it is given; an NV12 picture is only
+        /// ever read, by the pass that writes the tile.
+        pub fn uses(self) -> wgpu::TextureUsages {
+            match self {
+                Self::Rgba | Self::Bgra => {
+                    wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT
+                }
+                Self::Nv12 => wgpu::TextureUsages::TEXTURE_BINDING,
+            }
+        }
+    }
+
+    /// The fourcc's own characters, for a log line: what an exporter wrote is
+    /// more use than the number it wrote it as.
+    fn spelled(fourcc: u32) -> String {
+        let bytes = fourcc.to_le_bytes();
+        bytes
+            .iter()
+            .map(|byte| match byte {
+                0x20..=0x7e => char::from(*byte),
+                other => char::from(*other).escape_debug().next().unwrap_or('?'),
+            })
+            .collect()
+    }
+
+    /// One plane, placed in the memory its descriptor names: where it starts,
+    /// how far apart its rows are, and which of the picture's buffers it is in.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Placed {
+        pub offset: u32,
+        pub stride: u32,
+        /// Which of [`Plan::memories`] holds this plane. One memory is imported
+        /// and bound for each buffer, so planes that share a buffer share a
+        /// memory, and a picture whose planes are in two buffers is a disjoint
+        /// image to Vulkan.
+        pub memory: usize,
+    }
+
+    /// What the importer is to make of one picture.
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct Plan {
+        pub width: u32,
+        pub height: u32,
+        /// The DRM modifier the memory was laid out with, which is part of what
+        /// an image is created as and not something an importer may choose.
+        pub modifier: u64,
+        pub shape: Shape,
+        /// Each plane of the shape, in its order.
+        pub planes: [Option<Placed>; MAX_PLANES],
+        /// Each buffer the planes are in, as the descriptor the picture names
+        /// it by, which is the worker's and not this process's to close.
+        pub memories: [Option<RawFd>; MAX_PLANES],
+    }
+
+    impl Plan {
+        /// Each plane, in the shape's order.
+        pub fn planes(&self) -> impl Iterator<Item = Placed> + '_ {
+            self.planes.iter().flatten().copied()
+        }
+
+        /// The descriptor of each buffer the planes are in.
+        pub fn memories(&self) -> impl Iterator<Item = RawFd> + '_ {
+            self.memories.iter().flatten().copied()
+        }
+
+        /// Whether the planes are not all in one buffer, which is an image
+        /// Vulkan binds one plane at a time (`VK_IMAGE_CREATE_DISJOINT_BIT`).
+        pub fn disjoint(&self) -> bool {
+            self.memories().nth(1).is_some()
+        }
+    }
+
+    /// A picture's numbers, as the importer reads them: what
+    /// `yapfast_core::dmabuf::Picture` says in the shape this module works on,
+    /// so that a test describes one without a stream to take it from.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Numbers {
+        pub width: u32,
+        pub height: u32,
+        pub fourcc: u32,
+        pub modifier: u64,
+        /// Each plane's place and the descriptor it is in, in the order the
+        /// picture names them, and `None` past the last.
+        pub planes: [Option<(Plane, RawFd)>; MAX_PLANES],
+    }
+
+    impl Numbers {
+        /// What a picture that arrived says, as this module reads it.
+        pub fn of(picture: &Picture) -> Self {
+            let mut planes = [None; MAX_PLANES];
+            for (index, plane) in picture.planes().enumerate() {
+                planes[index] = Some(plane);
+            }
+            Self {
+                width: picture.width(),
+                height: picture.height(),
+                fourcc: picture.fourcc(),
+                modifier: picture.modifier(),
+                planes,
+            }
+        }
+    }
+
+    /// What importing `numbers` takes, or why the picture can't be imported.
+    pub fn layout(numbers: &Numbers) -> Result<Plan, String> {
+        let Numbers {
+            width,
+            height,
+            fourcc,
+            modifier,
+            planes,
+        } = *numbers;
+        if width == 0 || height == 0 {
+            return Err(format!("the picture is {width} by {height}"));
+        }
+        let shape = Shape::of(fourcc)?;
+        // NV12's chroma is one sample for each two pixels across and down, so a
+        // picture of an odd side has nowhere to put its last one: an importer
+        // told it is NV12 would read the row below as chroma.
+        if shape == Shape::Nv12 && (!width.is_multiple_of(2) || !height.is_multiple_of(2)) {
+            return Err(format!(
+                "an NV12 picture of {width} by {height} has half a chroma sample at its edge"
+            ));
+        }
+        if modifier == MOD_INVALID {
+            return Err(
+                "the picture was exported without saying how its memory is laid out".to_string(),
+            );
+        }
+        let described: Vec<(Plane, RawFd)> = planes.iter().flatten().copied().collect();
+        if described.len() != shape.planes() {
+            return Err(format!(
+                "a {} picture has {} plane{}, and this one came with {}",
+                shape.named(),
+                shape.planes(),
+                if shape.planes() == 1 { "" } else { "s" },
+                described.len()
+            ));
+        }
+        let mut placed: [Option<Placed>; MAX_PLANES] = [None; MAX_PLANES];
+        let mut memories: [Option<RawFd>; MAX_PLANES] = [None; MAX_PLANES];
+        let mut buffers = 0;
+        for (index, (plane, fd)) in described.iter().enumerate() {
+            let least = shape.row(width, index);
+            if plane.stride < least {
+                return Err(format!(
+                    "plane {index} of the {} picture has rows of {} bytes, and {width} pixels take at least {least}",
+                    shape.named(),
+                    plane.stride
+                ));
+            }
+            // Planes that are in one buffer are imported into one memory: the
+            // kernel's reference is taken once for the buffer, and Vulkan is
+            // asked for one allocation, which two planes of one image can
+            // share.
+            let memory = match memories.iter().flatten().position(|held| held == fd) {
+                Some(memory) => memory,
+                None => {
+                    let memory = buffers;
+                    memories[memory] = Some(*fd);
+                    buffers += 1;
+                    memory
+                }
+            };
+            placed[index] = Some(Placed {
+                offset: plane.offset,
+                stride: plane.stride,
+                memory,
+            });
+        }
+        Ok(Plan {
+            width,
+            height,
+            modifier,
+            shape,
+            planes: placed,
+            memories,
+        })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn plane(offset: u32, stride: u32) -> (Plane, RawFd) {
+            (Plane { offset, stride }, 7)
+        }
+
+        /// A two-plane NV12 picture of `width` by `height`, both planes in the
+        /// one buffer, as the card's decoder exports it.
+        fn nv12(width: u32, height: u32) -> Numbers {
+            let mut planes = [None; MAX_PLANES];
+            planes[0] = Some((
+                Plane {
+                    offset: 0,
+                    stride: width,
+                },
+                7,
+            ));
+            planes[1] = Some((
+                Plane {
+                    offset: width * height,
+                    stride: width,
+                },
+                7,
+            ));
+            Numbers {
+                width,
+                height,
+                fourcc: Shape::NV12,
+                modifier: MOD_LINEAR,
+                planes,
+            }
+        }
+
+        /// The fourcc decides what the memory holds, and the shape decides the
+        /// Vulkan format the image is made as and the wgpu format the texture
+        /// is declared as: the producer's own bytes, under each API's name for
+        /// them, and no swizzle anywhere.
+        #[test]
+        fn a_fourcc_is_imported_as_its_format() {
+            assert_eq!(Shape::of(Shape::ARGB8888), Ok(Shape::Bgra));
+            assert_eq!(Shape::of(Shape::ABGR8888), Ok(Shape::Rgba));
+            assert_eq!(Shape::of(Shape::NV12), Ok(Shape::Nv12));
+            assert_eq!(Shape::Bgra.vk(), vk::Format::B8G8R8A8_UNORM);
+            assert_eq!(Shape::Bgra.wgpu(), wgpu::TextureFormat::Bgra8Unorm);
+            assert_eq!(Shape::Rgba.vk(), vk::Format::R8G8B8A8_UNORM);
+            assert_eq!(Shape::Rgba.wgpu(), wgpu::TextureFormat::Rgba8Unorm);
+            assert_eq!(Shape::Nv12.vk(), vk::Format::G8_B8R8_2PLANE_420_UNORM);
+            assert_eq!(Shape::Nv12.wgpu(), wgpu::TextureFormat::NV12);
+            assert_eq!(
+                Shape::Bgra.uses(),
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                "a picture Skia samples itself is renderable too"
+            );
+            assert_eq!(
+                Shape::Nv12.uses(),
+                wgpu::TextureUsages::TEXTURE_BINDING,
+                "NV12 is only read, by the pass that writes the tile"
+            );
+        }
+
+        /// A picture of a shape this importer can't show says so in words that
+        /// name it, and a picture of a shape it can show has the number of
+        /// planes that shape has.
+        #[test]
+        fn a_shape_is_read_from_its_fourcc_or_refused_in_words() {
+            let mut numbers = nv12(4, 2);
+            numbers.fourcc = fourcc(*b"XR24");
+            let refused = layout(&numbers).expect_err("a format nothing here samples");
+            assert!(refused.contains("XR24"), "the reason names it: {refused}");
+            assert!(refused.contains("2") || refused.contains("plane"));
+
+            // Ten-bit NV12 is a picture this renderer has no sample format for.
+            numbers.fourcc = fourcc(*b"P010");
+            assert!(layout(&numbers).is_err());
+
+            // One plane and an NV12 fourcc is a picture whose memory was read
+            // wrongly by whatever exported it.
+            let mut half = nv12(4, 2);
+            half.planes[1] = None;
+            let refused = layout(&half).expect_err("a plane that isn't there");
+            assert!(refused.contains("2 planes"), "{refused}");
+        }
+
+        /// Both planes of the card's NV12 are in one buffer, so they are one
+        /// memory at the planes' own offsets and row pitches: two allocations
+        /// for two views of one buffer would be the driver told the picture is
+        /// something it isn't.
+        #[test]
+        fn the_planes_of_one_buffer_are_one_memory_at_their_own_places() {
+            let plan = layout(&nv12(4, 2)).expect("a picture the card exports");
+            assert_eq!(plan.shape, Shape::Nv12);
+            assert!(!plan.disjoint(), "one buffer, so one memory");
+            let planes: Vec<_> = plan.planes().collect();
+            assert_eq!(planes.len(), 2);
+            assert_eq!(
+                planes[0],
+                Placed {
+                    offset: 0,
+                    stride: 4,
+                    memory: 0
+                }
+            );
+            assert_eq!(
+                planes[1],
+                Placed {
+                    offset: 8,
+                    stride: 4,
+                    memory: 0
+                }
+            );
+            assert_eq!(plan.memories().collect::<Vec<_>>(), vec![7]);
+            assert_eq!(plan.modifier, MOD_LINEAR, "linear, as it said");
+        }
+
+        /// Planes in different buffers are two memories, which is an image
+        /// Vulkan binds one plane at a time.
+        #[test]
+        fn planes_in_different_buffers_are_a_disjoint_image() {
+            let mut numbers = nv12(4, 2);
+            numbers.planes[1] = Some((
+                Plane {
+                    offset: 0,
+                    stride: 4,
+                },
+                9,
+            ));
+            let plan = layout(&numbers).expect("two buffers");
+            assert!(plan.disjoint());
+            assert_eq!(plan.memories().collect::<Vec<_>>(), vec![7, 9]);
+            let planes: Vec<_> = plan.planes().collect();
+            assert_eq!((planes[0].memory, planes[1].memory), (0, 1));
+        }
+
+        /// A picture whose memory was laid out by a driver that didn't say how,
+        /// or whose rows are closer together than its pixels, is refused rather
+        /// than imported as something it isn't.
+        #[test]
+        fn a_layout_that_cannot_be_imported_is_refused_in_words() {
+            let mut numbers = nv12(4, 2);
+            numbers.modifier = MOD_INVALID;
+            let refused = layout(&numbers).expect_err("no modifier");
+            assert!(refused.contains("laid out"), "{refused}");
+
+            let mut numbers = nv12(4, 2);
+            numbers.planes[0] = Some((
+                Plane {
+                    offset: 0,
+                    stride: 3,
+                },
+                7,
+            ));
+            let refused = layout(&numbers).expect_err("too narrow a row");
+            assert!(refused.contains("3 bytes"), "{refused}");
+
+            let mut numbers = nv12(4, 2);
+            numbers.planes[0] = Some((
+                Plane {
+                    offset: 0,
+                    stride: 4,
+                },
+                7,
+            ));
+            numbers.width = 3;
+            let refused = layout(&numbers).expect_err("half a chroma sample");
+            assert!(refused.contains("chroma"), "{refused}");
+
+            let mut empty = nv12(4, 2);
+            empty.height = 0;
+            assert!(layout(&empty).is_err());
+        }
+
+        /// A 32-bit picture is one plane, one memory, at its own stride: what a
+        /// capture exports when the picture is already colour.
+        #[test]
+        fn a_colour_picture_is_one_plane_of_four_bytes_a_pixel() {
+            let mut planes = [None; MAX_PLANES];
+            planes[0] = Some(plane(64, 32));
+            let numbers = Numbers {
+                width: 8,
+                height: 2,
+                fourcc: Shape::ARGB8888,
+                modifier: MOD_LINEAR,
+                planes,
+            };
+            let plan = layout(&numbers).expect("a colour picture");
+            assert_eq!(plan.shape, Shape::Bgra);
+            assert_eq!(plan.memories().collect::<Vec<_>>(), vec![7]);
+            assert_eq!(
+                plan.planes().next(),
+                Some(Placed {
+                    offset: 64,
+                    stride: 32,
+                    memory: 0
+                })
+            );
+
+            let mut narrow = numbers;
+            narrow.planes[0] = Some(plane(0, 31));
+            let refused = layout(&narrow).expect_err("four bytes a pixel");
+            assert!(refused.contains("at least 32"), "{refused}");
+        }
+    }
+}
+
+/// The pictures one window has taken and not finished with, oldest first.
+///
+/// A picture is on the screen until the next replaces it, and the GPU may still
+/// be sampling it after that, so everything but the newest is let go of only
+/// once the window's queue has drawn a frame without it. Letting go is what
+/// destroys the texture it was imported into and frees the memory behind it, so
+/// it happens before the slot is the worker's again.
+#[cfg(target_os = "linux")]
+// Nothing outside the Vulkan importer leases a picture, but the rules here are
+// worth testing in every Linux build.
+#[cfg_attr(not(feature = "skia-vulkan"), allow(dead_code))]
+mod leases {
+    use std::collections::VecDeque;
+
+    /// The pictures of one stream, oldest first.
+    #[derive(Debug)]
+    pub struct Leases<T> {
+        queue: VecDeque<T>,
+    }
+
+    impl<T> Leases<T> {
+        pub fn new() -> Self {
+            Self {
+                queue: VecDeque::new(),
+            }
+        }
+
+        /// How many pictures are held, the one on the screen included.
+        pub fn len(&self) -> usize {
+            self.queue.len()
+        }
+
+        /// Takes a picture the window is showing now.
+        pub fn push(&mut self, held: T) {
+            self.queue.push_back(held);
+        }
+
+        /// The oldest picture, when it is safe to let go of: everything but the
+        /// one on the screen. `None` while that is all there is.
+        pub fn oldest(&mut self) -> Option<T> {
+            if self.queue.len() <= 1 {
+                return None;
+            }
+            self.queue.pop_front()
+        }
+
+        /// Lets go of every picture held, which a stream that has ended does.
+        pub fn clear(&mut self) {
+            self.queue.clear();
+        }
+    }
+
+    impl<T> Default for Leases<T> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        use super::Leases;
+
+        /// A picture that counts the times it was let go of. In the window it
+        /// is the imported picture, whose drop destroys its texture and closes
+        /// the descriptors behind it; what matters here is only *when* it is
+        /// let go of, which a descriptor number can't say: tests run in one
+        /// process and its numbers are handed out again as soon as one is free.
+        struct Picture(Arc<AtomicUsize>);
+
+        impl Drop for Picture {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        /// The picture on the screen is never let go of, and the one before it
+        /// is — which is what closes what it holds, and why the worker's slot is
+        /// the worker's again only then.
+        #[test]
+        fn a_picture_is_let_go_of_once_the_next_is_on_the_screen() {
+            let let_go = Arc::new(AtomicUsize::new(0));
+            let mut held = Leases::new();
+            assert!(held.oldest().is_none(), "nothing held");
+            held.push(Picture(let_go.clone()));
+            assert_eq!(held.len(), 1);
+            assert!(
+                held.oldest().is_none(),
+                "the picture on the screen stays, alone as it is"
+            );
+            assert_eq!(let_go.load(Ordering::Relaxed), 0, "and it is still held");
+
+            held.push(Picture(let_go.clone()));
+            assert_eq!(held.len(), 2);
+            drop(held.oldest());
+            assert_eq!(
+                let_go.load(Ordering::Relaxed),
+                1,
+                "letting go of the one before it closed what it held"
+            );
+            assert!(
+                held.oldest().is_none(),
+                "the picture on the screen is never let go of here"
+            );
+            drop(held);
+            assert_eq!(
+                let_go.load(Ordering::Relaxed),
+                2,
+                "a stream's last picture goes with it"
+            );
+        }
+
+        /// A stream that has ended lets go of every picture it still holds.
+        #[test]
+        fn a_stream_that_ended_lets_go_of_what_it_held() {
+            let let_go = Arc::new(AtomicUsize::new(0));
+            let mut held = Leases::new();
+            held.push(Picture(let_go.clone()));
+            held.push(Picture(let_go.clone()));
+            held.clear();
+            assert_eq!(held.len(), 0);
+            assert_eq!(let_go.load(Ordering::Relaxed), 2);
+        }
+    }
+}
+
+/// The window's own Vulkan device, and what each stream's DMA-BUF pictures
+/// became on it: the Linux half of what the Direct3D 12 code above does with
+/// shared textures.
+#[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
+mod present {
+    use std::{
+        cell::RefCell,
+        collections::HashMap,
+        os::fd::{FromRawFd, OwnedFd, RawFd},
+        ptr,
+        sync::{Arc, Weak},
+    };
+
+    use ash::{khr, vk};
+    use slint::wgpu_30::wgpu;
+    use yapfast_core::{
+        dmabuf::{self, MAX_PLANES},
+        frames::Frames,
+    };
+
+    use super::{LEASES, leases::Leases, plane, queue_empty, refuse, wait_drawn};
+
+    thread_local! {
+        /// The device Slint draws the window with, once it draws on Vulkan: a
+        /// picture is imported there and shown from there, and no other device
+        /// can show it.
+        static PRESENT: RefCell<Option<Present>> = const { RefCell::new(None) };
+    }
+
+    /// Hands the window's device to the importer. Called by `vulkan::install`,
+    /// the one place that device is made.
+    pub fn install(device: wgpu::Device, queue: wgpu::Queue) {
+        let number = device_number(&device);
+        PRESENT.with_borrow_mut(|present| {
+            *present = Some(Present {
+                device,
+                queue,
+                number,
+                streams: HashMap::new(),
+                pass: None,
+            });
+        });
+    }
+
+    /// The number the window's device is known by in the frames header, where
+    /// the shared texture path carries the adapter's LUID: the card's vendor and
+    /// device ids, which every process that opens this card reads the same way.
+    /// It names the model rather than one card of that model, which is enough
+    /// for the worker's own comparison — what decides whether a picture can be
+    /// shown is the import itself, and a picture that can't be is refused.
+    fn device_number(device: &wgpu::Device) -> u64 {
+        // SAFETY: the device is the window's and is alive here.
+        let Some(hal) = (unsafe { device.as_hal::<wgpu::hal::vulkan::Api>() }) else {
+            return 0;
+        };
+        // SAFETY: the physical device is the one this device was made on, and
+        // Vulkan answers its properties at any time.
+        let properties = unsafe {
+            hal.shared_instance()
+                .raw_instance()
+                .get_physical_device_properties(hal.raw_physical_device())
+        };
+        (u64::from(properties.vendor_id) << 32) | u64::from(properties.device_id)
+    }
+
+    /// Shows a picture the worker drew into a DMA-BUF, or refuses this stream's
+    /// pictures and says why, once.
+    pub fn show(frames: &Arc<Frames>, picture: dmabuf::Picture) -> Option<slint::Image> {
+        let (slot, generation) = (picture.slot(), picture.generation());
+        let shown = PRESENT.with_borrow_mut(|present| match present.as_mut() {
+            Some(present) => present.show(frames, picture),
+            None => {
+                if frames.refuse_gpu() {
+                    tracing::warn!(
+                        "the window has no Vulkan device of its own; showing streams' pixels"
+                    );
+                }
+                None
+            }
+        });
+        if shown.is_none() {
+            // Nothing shows this picture, so nothing samples what it is in: the
+            // worker has its slot back at once, rather than a stream left
+            // holding every slot it publishes into.
+            frames.retire(slot, generation);
+        }
+        shown
+    }
+
+    /// Lets go of what no stream is using any more: a stream the UI let go of,
+    /// and one whose pictures it refused. A stopped stream keeps the imported
+    /// pictures it holds, and the worker's slots with them, for as long as a
+    /// window keeps the entry — which nothing else would ever revisit.
+    pub fn housekeeping() {
+        PRESENT.with_borrow_mut(|present| {
+            let Some(present) = present.as_mut() else {
+                return;
+            };
+            present.housekeeping();
+        });
+    }
+
+    /// Lets go of a stream that has ended: the pictures it still holds are
+    /// dropped, which closes what is behind them, and the slots they are in are
+    /// the worker's again.
+    pub fn forget(key: u64) {
+        PRESENT.with_borrow_mut(|present| {
+            let Some(present) = present.as_mut() else {
+                return;
+            };
+            present.housekeeping();
+            if let Some(mut stream) = present.streams.remove(&key) {
+                stream.leases.clear();
+            }
+        });
+    }
+
+    /// The window's device, what the header calls it, and what was imported of
+    /// each stream's pictures.
+    struct Present {
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        /// What the header calls the adapter the window draws on; see
+        /// [`device_number`].
+        number: u64,
+        streams: HashMap<u64, Stream>,
+        /// The pass that turns the card's NV12 into what Skia samples, made the
+        /// first time a picture of that shape arrives: a pipeline is a shader
+        /// compile, and one is enough for the whole window.
+        pass: Option<Pass>,
+    }
+
+    /// What the UI imported of one stream's pictures.
+    struct Stream {
+        /// The stream this was made for, so that a stream the UI let go leaves
+        /// an id a new one takes over without inheriting what was imported for
+        /// the one before it.
+        frames: Weak<Frames>,
+        /// The pictures taken and not finished with, oldest first: the worker
+        /// may draw into those slots again only as they leave this queue, and
+        /// the newest is the picture on the screen.
+        leases: Leases<Lease>,
+        /// Whether the UI has refused this stream's pictures: what was imported
+        /// for it is let go with it, rather than waiting for another stream to
+        /// draw a picture.
+        refused: bool,
+    }
+
+    /// A picture the window has taken: the slot it is in, which picture of that
+    /// slot it is, and what was imported for it. The worker keeps the slot for
+    /// as long as this is unfinished with.
+    struct Lease {
+        slot: u32,
+        generation: u64,
+        shown: Shown,
+    }
+
+    /// A picture that was imported, and what Skia shows of it.
+    struct Shown {
+        /// The picture's own texture, over the memory the worker shared.
+        picture: wgpu::Texture,
+        /// The tile the pass wrote, where the picture's shape is not one Skia
+        /// samples: shown instead of the picture, and reading it, so it lives
+        /// exactly as long as the picture does.
+        tile: Option<wgpu::Texture>,
+    }
+
+    impl Shown {
+        /// What Slint is shown of the picture: the tile where a pass was needed
+        /// to read its planes, and the picture itself where Skia samples it.
+        fn image(&self) -> Result<slint::Image, String> {
+            let texture = self.tile.as_ref().unwrap_or(&self.picture).clone();
+            slint::Image::try_from(texture)
+                .map_err(|error| format!("Slint can't show a stream's DMA-BUF picture: {error:?}"))
+        }
+    }
+
+    impl Present {
+        /// Shows a picture the worker drew, or refuses this stream's pictures
+        /// and says why, once.
+        fn show(&mut self, frames: &Arc<Frames>, picture: dmabuf::Picture) -> Option<slint::Image> {
+            // A stream the UI let go of has left an entry that nothing may
+            // inherit.
+            self.housekeeping();
+            let Present {
+                device,
+                queue,
+                number,
+                streams,
+                pass,
+            } = self;
+            let stream = streams
+                .entry(frames.id())
+                .or_insert_with(|| Stream::new(frames));
+            // Slots the window's queue has finished with are the worker's
+            // again, and this is where it hears it: a picture taken is on the
+            // screen until the next one replaces it, and the queue has to have
+            // drawn a frame without it.
+            stream.retire_drawn(device, frames);
+            if stream.leases.len() >= LEASES {
+                // The queue is still drawing pictures this window replaced: ask
+                // it for the rest of what it was given, briefly, rather than
+                // passing over every picture from here on.
+                wait_drawn(device);
+                stream.retire_drawn(device, frames);
+                if stream.leases.len() >= LEASES {
+                    return None;
+                }
+            }
+            let shown = match import(device, queue, pass, &picture) {
+                Ok(shown) => shown,
+                Err(error) => {
+                    stream.refused = true;
+                    refuse(frames, error, "could not import a stream's DMA-BUF picture");
+                    return None;
+                }
+            };
+            let image = match shown.image() {
+                Ok(image) => image,
+                Err(error) => {
+                    stream.refused = true;
+                    refuse(frames, error, "could not show a stream's DMA-BUF picture");
+                    return None;
+                }
+            };
+            // From here the worker knows which device to draw for, and that its
+            // pictures are shown rather than copied.
+            frames.accept_dmabuf(*number);
+            stream.leases.push(Lease {
+                slot: picture.slot(),
+                generation: picture.generation(),
+                shown,
+            });
+            Some(image)
+        }
+
+        fn housekeeping(&mut self) {
+            self.streams
+                .retain(|_, stream| !stream.refused && stream.frames.strong_count() > 0);
+        }
+    }
+
+    impl Stream {
+        fn new(frames: &Arc<Frames>) -> Self {
+            Self {
+                frames: Arc::downgrade(frames),
+                leases: Leases::new(),
+                refused: false,
+            }
+        }
+
+        /// Retires the pictures the window's queue has drawn a frame without: the
+        /// worker may draw into those slots again, and the memory it shared is
+        /// free of this process's reading of it. The newest lease is the picture
+        /// on the screen and is never retired here.
+        fn retire_drawn(&mut self, device: &wgpu::Device, frames: &Arc<Frames>) {
+            while queue_empty(device) {
+                let Some(lease) = self.leases.oldest() else {
+                    break;
+                };
+                let Lease {
+                    slot,
+                    generation,
+                    shown,
+                } = lease;
+                // The picture goes before the slot is the worker's again: its
+                // texture, the image it was imported into and the descriptors
+                // behind it are closed here, and only then may the worker draw
+                // into the memory again.
+                drop(shown);
+                frames.retire(slot, generation);
+            }
+        }
+    }
+
+    /// Imports one picture on the window's device, and says what Skia is shown
+    /// of it.
+    fn import(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        pass: &mut Option<Pass>,
+        picture: &dmabuf::Picture,
+    ) -> Result<Shown, String> {
+        let plan = plane::layout(&plane::Numbers::of(picture))?;
+        // The import takes a duplicate of every descriptor it is given, and the
+        // picture keeps its own until it is dropped here: the memory belongs to
+        // the worker's channel until this process has its own reference to it.
+        let imported = unsafe { texture(device, &plan) }?;
+        let tile = match plan.shape {
+            plane::Shape::Rgba | plane::Shape::Bgra => None,
+            plane::Shape::Nv12 => {
+                let pass = match pass.as_mut() {
+                    Some(pass) => pass,
+                    None => pass.insert(Pass::new(device)?),
+                };
+                Some(pass.tile(device, queue, &imported, plan.width, plan.height)?)
+            }
+        };
+        Ok(Shown {
+            picture: imported,
+            tile,
+        })
+    }
+
+    /// A texture over the memory a picture's descriptors name, made on the
+    /// window's device through Vulkan's external memory: no pixel of the picture
+    /// is copied anywhere.
+    ///
+    /// The image is the picture's own shape: the fourcc's Vulkan format, the DRM
+    /// modifier with each plane's offset and row pitch given explicitly — a
+    /// modifier says how the driver laid the buffer out as a whole, and the
+    /// import is what says where this picture's planes start in it — and
+    /// `VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT` in its creation chain.
+    /// One `VkDeviceMemory` is imported for each buffer the planes are in, from
+    /// a duplicate this process owns of that buffer's descriptor, and bound to
+    /// every plane in it.
+    ///
+    /// # Safety
+    ///
+    /// The plan must be what the picture says, and the picture must have been
+    /// taken from its stream's socket, so that the descriptors in it are the
+    /// memory the worker shared.
+    unsafe fn texture(device: &wgpu::Device, plan: &plane::Plan) -> Result<wgpu::Texture, String> {
+        if !device
+            .features()
+            .contains(wgpu::Features::VULKAN_EXTERNAL_MEMORY_DMA_BUF)
+        {
+            return Err(
+                "the window's Vulkan device can't import DMA-BUF memory: VK_EXT_external_memory_dma_buf and VK_EXT_image_drm_format_modifier are not both enabled on it"
+                    .to_string(),
+            );
+        }
+        if plan.shape == plane::Shape::Nv12
+            && !device
+                .features()
+                .contains(wgpu::Features::TEXTURE_FORMAT_NV12)
+        {
+            return Err(
+                "the window's Vulkan device has no NV12 texture, which is the card's picture"
+                    .to_string(),
+            );
+        }
+        // SAFETY: the device is the window's and is alive here.
+        let hal = unsafe { device.as_hal::<wgpu::hal::vulkan::Api>() }
+            .ok_or("the window's device is not Vulkan")?;
+        let raw = hal.raw_device();
+        let instance = hal.shared_instance().raw_instance();
+        let physical = hal.raw_physical_device();
+        let fd_fn = khr::external_memory_fd::Device::new(hal.shared_instance().raw_instance(), raw);
+
+        // Where each plane starts and how its rows are spaced, in the shape
+        // Vulkan asks for them: the explicit layout of a DRM modifier image.
+        let layouts: Vec<vk::SubresourceLayout> = plan
+            .planes()
+            .map(|placed| vk::SubresourceLayout {
+                offset: u64::from(placed.offset),
+                row_pitch: u64::from(placed.stride),
+                size: 0,
+                array_pitch: 0,
+                depth_pitch: 0,
+            })
+            .collect();
+        let mut external = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+        let mut modifier = vk::ImageDrmFormatModifierExplicitCreateInfoEXT::default()
+            .drm_format_modifier(plan.modifier)
+            .plane_layouts(&layouts);
+        let mut flags = vk::ImageCreateFlags::empty();
+        if plan.disjoint() {
+            // A picture whose planes are in different buffers is one image whose
+            // planes each have their own memory.
+            flags |= vk::ImageCreateFlags::DISJOINT;
+        }
+        let mut info = vk::ImageCreateInfo::default()
+            .flags(flags)
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(plan.shape.vk())
+            .extent(vk::Extent3D {
+                width: plan.width,
+                height: plan.height,
+                depth: 1,
+            })
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            // Not OPTIMAL and not LINEAR: the tiling is the modifier's, and
+            // Vulkan reads it out of the structure chained below.
+            .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
+            .usage(
+                if plan
+                    .shape
+                    .uses()
+                    .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+                {
+                    vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::COLOR_ATTACHMENT
+                } else {
+                    vk::ImageUsageFlags::SAMPLED
+                },
+            )
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .initial_layout(vk::ImageLayout::UNDEFINED);
+        info.push_next(&mut external);
+        info.push_next(&mut modifier);
+        // SAFETY: the image is made on the device the plan is for, and the two
+        // structures it chains are alive for the call.
+        let image = unsafe { raw.create_image(&info, None) }
+            .map_err(|error| format!("Vulkan wouldn't make the picture's image: {error}"))?;
+        // From here the image and every memory that is bound to it are let go of
+        // unless the import finishes: a picture half-imported is memory the
+        // window holds for nothing.
+        let mut fresh = Fresh {
+            device: raw.handle(),
+            destroy_image: raw.fp_v1_0().destroy_image,
+            free_memory: raw.fp_v1_0().free_memory,
+            image,
+            memories: [None; MAX_PLANES],
+            handed_over: false,
+        };
+
+        for (index, fd) in plan.memories().enumerate() {
+            let fd = duplicate(fd)?;
+            // What this buffer has to be: the image's whole requirement when
+            // every plane is in this buffer, and the plane's own when they are
+            // not.
+            let requirements = if plan.disjoint() {
+                let mut plane_info = vk::ImagePlaneMemoryRequirementsInfo::default()
+                    .plane_aspect(plane_aspect(index));
+                let mut asked = vk::ImageMemoryRequirementsInfo2::default()
+                    .image(image)
+                    .push_next(&mut plane_info);
+                let mut answer = vk::MemoryRequirements2::default();
+                // SAFETY: the image is this one and the structure describes
+                // which plane is asked about.
+                unsafe { raw.get_image_memory_requirements2(&asked, &mut answer) };
+                answer.memory_requirements
+            } else {
+                // SAFETY: the image is this one, alive, and made on this device.
+                unsafe { raw.get_image_memory_requirements(image) }
+            };
+            fresh.memories[index] = Some(import_memory(
+                raw,
+                instance,
+                physical,
+                &fd_fn,
+                fd,
+                image,
+                &requirements,
+            )?);
+        }
+
+        if plan.disjoint() {
+            for (index, memory) in fresh.memories.iter().flatten().enumerate() {
+                let mut plane_info =
+                    vk::BindImagePlaneMemoryInfo::default().plane_aspect(plane_aspect(index));
+                let bind = vk::BindImageMemoryInfo::default()
+                    .image(image)
+                    .memory(*memory)
+                    .push_next(&mut plane_info);
+                // SAFETY: the memory was imported for this plane, and the image
+                // is the one it is being bound to.
+                unsafe { raw.bind_image_memory2(&[bind]) }.map_err(|error| {
+                    format!("Vulkan wouldn't bind a picture's plane memory: {error}")
+                })?;
+            }
+        } else if let Some(memory) = fresh.memories[0] {
+            // SAFETY: the memory was imported for this image, whose planes are
+            // all in that one buffer.
+            unsafe { raw.bind_image_memory(image, memory, 0) }
+                .map_err(|error| format!("Vulkan wouldn't bind a picture's memory: {error}"))?;
+        }
+
+        let hal_desc = wgpu::hal::TextureDescriptor {
+            label: Some("a stream's DMA-BUF picture"),
+            size: wgpu::Extent3d {
+                width: plan.width,
+                height: plan.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: plan.shape.wgpu(),
+            usage: if plan
+                .shape
+                .uses()
+                .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+            {
+                wgpu::wgt::TextureUses::RESOURCE | wgpu::wgt::TextureUses::COLOR_TARGET
+            } else {
+                wgpu::wgt::TextureUses::RESOURCE
+            },
+            memory_flags: wgpu::hal::MemoryFlags::empty(),
+            view_formats: Vec::new(),
+        };
+        let memories = fresh.memories;
+        let (device_handle, destroy_image, free_memory) =
+            (fresh.device, fresh.destroy_image, fresh.free_memory);
+        // SAFETY: the image is one this function made on this device, is not
+        // owned by anything else, and the memory it is bound to is the callback's
+        // to free: `External` says wgpu-hal frees neither, and the callback runs
+        // when the last texture over it is gone.
+        let hal_texture = unsafe {
+            hal.texture_from_raw(
+                image,
+                &hal_desc,
+                Some(Box::new(move || {
+                    // SAFETY: the device is alive for as long as a texture it
+                    // made is, and nothing else has freed this memory or
+                    // destroyed this image: this is the only place that does.
+                    unsafe {
+                        for memory in memories.iter().flatten() {
+                            (free_memory)(device_handle, *memory, ptr::null());
+                        }
+                        (destroy_image)(device_handle, image, ptr::null());
+                    }
+                })),
+                wgpu::hal::vulkan::TextureMemory::External,
+            )
+        };
+        fresh.handed_over = true;
+        let desc = wgpu::TextureDescriptor {
+            label: Some("a stream's DMA-BUF picture"),
+            size: hal_desc.size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: plan.shape.wgpu(),
+            usage: plan.shape.uses(),
+            view_formats: &[],
+        };
+        // SAFETY: the hal texture was made from this device's own handle, with
+        // the description above, and the memory behind it holds the picture.
+        Ok(unsafe {
+            device.create_texture_from_hal::<wgpu::hal::vulkan::Api>(
+                hal_texture,
+                &desc,
+                wgpu::wgt::TextureUses::UNINITIALIZED,
+            )
+        })
+    }
+
+    /// The image and the memories bound to it, until they are wgpu's: a picture
+    /// whose import stopped half way has its memory freed and its image destroyed
+    /// here, rather than held for as long as the window.
+    struct Fresh {
+        device: vk::Device,
+        destroy_image: vk::PFN_vkDestroyImage,
+        free_memory: vk::PFN_vkFreeMemory,
+        image: vk::Image,
+        memories: [Option<vk::DeviceMemory>; MAX_PLANES],
+        handed_over: bool,
+    }
+
+    impl Drop for Fresh {
+        fn drop(&mut self) {
+            if self.handed_over {
+                return;
+            }
+            // SAFETY: nothing else was given this image or these memories: they
+            // were made by the import that owns this, on this device.
+            unsafe {
+                for memory in self.memories.iter().flatten() {
+                    (self.free_memory)(self.device, *memory, ptr::null());
+                }
+                (self.destroy_image)(self.device, self.image, ptr::null());
+            }
+        }
+    }
+
+    /// Imports one buffer's memory, from a descriptor this process owns, and
+    /// says the memory Vulkan made of it. The descriptor is Vulkan's from here:
+    /// it keeps it until the memory is freed, which is what keeps the worker's
+    /// memory there after this process lets go of its own descriptor.
+    fn import_memory(
+        raw: &ash::Device,
+        instance: &ash::Instance,
+        physical: vk::PhysicalDevice,
+        fd_fn: &khr::external_memory_fd::Device,
+        fd: OwnedFd,
+        image: vk::Image,
+        requirements: &vk::MemoryRequirements,
+    ) -> Result<vk::DeviceMemory, String> {
+        use std::os::fd::IntoRawFd;
+
+        // Vulkan takes ownership of the descriptor on a successful allocation,
+        // and leaves it to the caller when the allocation fails.
+        let fd = fd.into_raw_fd();
+        let mut properties = vk::MemoryFdPropertiesKHR::default();
+        // SAFETY: the descriptor is one this process holds, of DMA-BUF memory,
+        // and the structure is the one this call fills in.
+        if let Err(error) = unsafe {
+            fd_fn.get_memory_fd_properties(
+                vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
+                fd,
+                &mut properties,
+            )
+        } {
+            // SAFETY: Vulkan didn't consume the descriptor, so it is still this
+            // process's to close.
+            unsafe { libc::close(fd) };
+            return Err(format!(
+                "Vulkan wouldn't read a picture's descriptor: {error}"
+            ));
+        }
+        let Some(memory_type) = memory_type(
+            instance,
+            physical,
+            requirements.memory_type_bits & properties.memory_type_bits,
+        ) else {
+            // SAFETY: as above: nothing consumed the descriptor.
+            unsafe { libc::close(fd) };
+            return Err(
+                "no memory type on the window's device takes the picture's buffer".to_string(),
+            );
+        };
+        let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().image(image);
+        let mut imported = vk::ImportMemoryFdInfoKHR::default()
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
+            .fd(fd);
+        let allocate = vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type)
+            .push_next(&mut imported)
+            .push_next(&mut dedicated);
+        // SAFETY: the descriptor is a DMA-BUF's, the size and type come from the
+        // image's own requirements, and a picture's memory is dedicated to the
+        // image it is imported for.
+        match unsafe { raw.allocate_memory(&allocate, None) } {
+            Ok(memory) => Ok(memory),
+            Err(error) => {
+                // SAFETY: the allocation failed, so Vulkan didn't take the
+                // descriptor and this process still owns it.
+                unsafe { libc::close(fd) };
+                Err(format!(
+                    "Vulkan wouldn't import a picture's memory: {error}"
+                ))
+            }
+        }
+    }
+
+    /// A memory type the image can be bound to that the buffer's own device
+    /// memory is: the first the two agree on, preferring the one the card keeps
+    /// to itself.
+    fn memory_type(
+        instance: &ash::Instance,
+        physical: vk::PhysicalDevice,
+        bits: u32,
+    ) -> Option<u32> {
+        // SAFETY: the physical device is the one the window's device was made
+        // on, and Vulkan answers its memory properties at any time.
+        let properties = unsafe { instance.get_physical_device_memory_properties(physical) };
+        for (index, kind) in properties.memory_types_as_slice().iter().enumerate() {
+            let bit = 1u32 << index;
+            if bits & bit != 0
+                && kind
+                    .property_flags
+                    .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+            {
+                return Some(index as u32);
+            }
+        }
+        // No device-local type takes it: an importer takes what it is given.
+        (0..32).find(|index| bits & (1 << index) != 0)
+    }
+
+    /// A descriptor this process owns for the same memory `fd` names: the
+    /// picture's own are its channel's and are closed when it is, and Vulkan
+    /// takes the one it is given. `F_DUPFD_CLOEXEC`, so the copy is nobody's but
+    /// this import's and no process this one starts inherits it.
+    fn duplicate(fd: RawFd) -> Result<OwnedFd, String> {
+        // SAFETY: the number is one the picture holds, and a duplicate of it is
+        // what this asks the kernel for.
+        let duplicated = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+        if duplicated < 0 {
+            return Err(format!(
+                "could not duplicate a picture's descriptor: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        // SAFETY: the number is one the kernel just made for this process, and
+        // nothing else here holds it.
+        Ok(unsafe { OwnedFd::from_raw_fd(duplicated) })
+    }
+
+    /// Which plane of a disjoint image index `index` names.
+    fn plane_aspect(index: usize) -> vk::ImageAspectFlags {
+        match index {
+            0 => vk::ImageAspectFlags::PLANE_0,
+            1 => vk::ImageAspectFlags::PLANE_1,
+            _ => vk::ImageAspectFlags::PLANE_2,
+        }
+    }
+
+    /// What the pass reads and writes: the tile Skia samples, in the format the
+    /// Direct3D path's pictures are in, so both look the same.
+    const TILE: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
+
+    /// The pass that turns the card's NV12 into what Skia samples: one triangle
+    /// over the tile, reading the picture's luma and chroma planes and writing
+    /// colour, which is also where the tile's own size is the scale.
+    struct Pass {
+        pipeline: wgpu::RenderPipeline,
+        layout: wgpu::BindGroupLayout,
+        sampler: wgpu::Sampler,
+    }
+
+    impl Pass {
+        fn new(device: &wgpu::Device) -> Result<Self, String> {
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("a stream's picture planes"),
+                source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            });
+            let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty,
+                count: None,
+            };
+            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("a stream's picture planes"),
+                entries: &[
+                    entry(
+                        0,
+                        wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                    ),
+                    entry(
+                        1,
+                        wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                    ),
+                    entry(
+                        2,
+                        wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    ),
+                ],
+            });
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("a stream's picture tile"),
+                bind_group_layouts: &[&layout],
+                push_constant_ranges: &[],
+            });
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("a stream's picture tile"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: TILE,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview: None,
+                cache: None,
+            });
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("a stream's picture planes"),
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            });
+            Ok(Self {
+                pipeline,
+                layout,
+                sampler,
+            })
+        }
+
+        /// Reads the picture's two planes into a tile `width` by `height`, on the
+        /// window's queue, and says the texture it wrote.
+        fn tile(
+            &self,
+            device: &wgpu::Device,
+            queue: &wgpu::Queue,
+            picture: &wgpu::Texture,
+            width: u32,
+            height: u32,
+        ) -> Result<wgpu::Texture, String> {
+            let plane = |label, format, aspect| {
+                picture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some(label),
+                    format: Some(format),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    usage: None,
+                    aspect,
+                    base_mip_level: 0,
+                    mip_level_count: None,
+                    base_array_layer: 0,
+                    array_layer_count: None,
+                })
+            };
+            let luma = plane(
+                "a stream's picture luma",
+                wgpu::TextureFormat::R8Unorm,
+                wgpu::TextureAspect::Plane0,
+            );
+            let chroma = plane(
+                "a stream's picture chroma",
+                wgpu::TextureFormat::Rg8Unorm,
+                wgpu::TextureAspect::Plane1,
+            );
+            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("a stream's picture planes"),
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&luma),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&chroma),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
+            let tile = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("a stream's picture tile"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TILE,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            let target = tile.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("a stream's picture tile"),
+            });
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("a stream's picture tile"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &bind, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            queue.submit(Some(encoder.finish()));
+            Ok(tile)
+        }
+    }
+
+    /// One triangle over the whole tile: its vertices are named by their index,
+    /// so it needs no buffer, and its texture coordinates come out of the same
+    /// numbers. The card's NV12 is BT.709 limited range, which is what the
+    /// colours are converted from; the chroma planes are sampled at their own
+    /// resolution, which the sampler does with the picture's texels.
+    const SHADER: &str = r#"
+struct Vertex {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) index: u32) -> Vertex {
+    let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    var out: Vertex;
+    out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+@group(0) @binding(0) var luma: texture_2d<f32>;
+@group(0) @binding(1) var chroma: texture_2d<f32>;
+@group(0) @binding(2) var planes: sampler;
+
+@fragment
+fn fs_main(in: Vertex) -> @location(0) vec4<f32> {
+    let y = 1.164 * (textureSample(luma, planes, in.uv).r - 16.0 / 255.0);
+    let c = textureSample(chroma, planes, in.uv).rg - vec2<f32>(128.0 / 255.0);
+    let rgb = vec3<f32>(
+        y + 1.793 * c.y,
+        y - 0.213 * c.x - 0.533 * c.y,
+        y + 2.112 * c.x,
+    );
+    return vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+}
+"#;
+
+    /// Nothing here works on a descriptor the picture still owns: every one that
+    /// is given to Vulkan is a duplicate; this is where the picture's own are
+    /// closed, as the picture is let go of.
+    fn drop_refs() {}
 }

@@ -16,6 +16,7 @@ fn main() {
         "picture.c",
         "camera.cc",
         "hwenc.c",
+        "hwenc_dmabuf.c",
         "hevc.c",
         "d3d11enc.c",
         "d3d11dec.cc",
@@ -69,6 +70,7 @@ fn main() {
         }
     }
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
+    println!("cargo::rustc-check-cfg=cfg(dmabufenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     println!("cargo::rustc-check-cfg=cfg(vaapidec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
@@ -301,6 +303,7 @@ fn main() {
         let mut vaapi = cc::Build::new();
         vaapi
             .file("native/hwdec_vaapi.c")
+            .file("native/hwenc_dmabuf.c")
             .includes(std::env::split_paths(&folders))
             .warnings(true);
         let rename = std::env::var("DEP_FFMPEG_RENAME").expect("ffmpeg-src's renames");
@@ -310,6 +313,17 @@ fn main() {
             Ok(()) => println!("cargo:rustc-cfg=vaapidec"),
             Err(missing) => println!(
                 "cargo:warning=this FFmpeg wasn't configured to decode on the card through VA-API ({missing}), so watched streams decode in software"
+            ),
+        }
+        // The libdrm and VA-API device a picture is exported with are what one
+        // is imported with, so a build that can hand a DMA-BUF out can hand one
+        // in: native/hwenc_dmabuf.c reads the descriptor's buffer as a VA-API
+        // surface with av_hwframe_map and the encoder reads that surface, with
+        // no pixel of the picture copied.
+        match vaapi_import(&folders) {
+            Ok(()) => println!("cargo::rustc-cfg=dmabufenc"),
+            Err(missing) => println!(
+                "cargo:warning=this FFmpeg wasn't configured to encode a picture the card holds through VA-API ({missing}), so a DMA-BUF is copied back to the processor before it is encoded"
             ),
         }
     }
@@ -373,6 +387,35 @@ fn vaapi_decode(folders: &std::ffi::OsStr) -> Result<(), String> {
     let components = components.unwrap_or_default();
     if !components.contains("#define CONFIG_H264_VAAPI_HWACCEL 1") {
         missing.push("no --enable-hwaccel=h264_vaapi");
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing.join(", "))
+    }
+}
+
+// Whether the FFmpeg this crate links was configured to encode a picture the
+// card already holds: its VA-API device (`--enable-vaapi`, which is also the
+// encoder's) and the DRM PRIME import `av_hwframe_map` makes a surface with
+// (`--enable-libdrm`). Ok when both are there, and the reason naming what isn't
+// when either is not.
+fn vaapi_import(folders: &std::ffi::OsStr) -> Result<(), String> {
+    let mut config = None;
+    for folder in std::env::split_paths(folders) {
+        config = config.or_else(|| std::fs::read_to_string(folder.join("config.h")).ok());
+    }
+    let Some(config) = config else {
+        return Err("configure's output isn't there".to_owned());
+    };
+    let mut missing = vec![];
+    if !config.contains("#define CONFIG_VAAPI 1") {
+        missing.push("no --enable-vaapi");
+    }
+    // Without libdrm, hwcontext_vaapi leaves importing a DMA-BUF as a surface
+    // out of the build, and av_hwframe_map answers that it can't.
+    if !config.contains("#define CONFIG_LIBDRM 1") {
+        missing.push("no --enable-libdrm for the DRM PRIME import");
     }
     if missing.is_empty() {
         Ok(())

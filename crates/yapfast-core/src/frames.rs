@@ -1008,6 +1008,27 @@ impl Frames {
     /// the adapter its window draws on: the worker publishes them from its
     /// next frame on. Says whether that changed what the header said.
     pub fn accept_gpu(&self, luid: u64) -> bool {
+        self.accept_pictures(luid)
+    }
+
+    /// As [`Self::accept_gpu`] for the pictures a stream publishes as DMA-BUFs,
+    /// which is how a card-drawn picture crosses on Linux: the window takes the
+    /// descriptors over the stream's socket and imports them on the device
+    /// `luid` names, so the worker knows it can publish them from its next
+    /// frame on. Says whether that changed what the header said.
+    ///
+    /// The answer is the one [`Self::accept_gpu`] writes, because it is the
+    /// same answer: a window that can show the one kind of picture can show the
+    /// kind its worker publishes. `luid` is the LUID of the adapter on Windows,
+    /// and on Linux the number the window's own device is known by — what the
+    /// worker compares with its own device before it draws.
+    pub fn accept_dmabuf(&self, luid: u64) -> bool {
+        self.accept_pictures(luid)
+    }
+
+    /// Writes the UI's answer into the header: it can show this stream's
+    /// pictures, drawn on `luid`.
+    fn accept_pictures(&self, luid: u64) -> bool {
         // Held so that one reader maps the file at a time: the lock each view
         // takes is the file's, and two views of one process would share it.
         let _front = self
@@ -1124,6 +1145,19 @@ impl Writer {
         let header = self.mapping.header();
         (header.ui.load(Ordering::Acquire) == UI_USABLE)
             .then(|| header.ui_luid.load(Ordering::Acquire))
+    }
+
+    /// The device the window shows this stream's DMA-BUF pictures on, once it
+    /// has said it can: what a worker asks before it exports a picture at all,
+    /// so that a window with no importer — or one that refused them — is not
+    /// drawn for. `None` while the window hasn't answered, while it refused
+    /// them, and while the file can't be mapped.
+    ///
+    /// The number is [`Self::presented_on`]'s: on Linux it is what the window's
+    /// own Vulkan device is known by, and the worker compares it with its own
+    /// device before it publishes, as it compares LUIDs on Windows.
+    pub fn dmabuf_showable(&mut self) -> Option<u64> {
+        self.presented_on()
     }
 
     /// The largest frame, in pixels, that fits.
@@ -1739,6 +1773,58 @@ mod tests {
             frames.take(|_, _, pixels| pixels.to_vec()),
             Some(vec![6; 32])
         );
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// The UI's answer on DMA-BUF pictures is the word it writes for a shared
+    /// texture, because it is the same answer, and the worker asks it before it
+    /// exports anything at all: a window that hasn't looked says nothing, one
+    /// that can import a picture names the device it shows it on, and one that
+    /// refused them is not drawn for.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_window_says_whether_it_can_show_dmabuf_pictures() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = socketed(&frames, &path);
+        frames.unlink();
+
+        assert_eq!(writer.dmabuf_showable(), None, "the window hasn't looked");
+        assert!(
+            frames.accept_dmabuf(0x55aa55aa),
+            "it can show them, on its own device"
+        );
+        assert_eq!(writer.dmabuf_showable(), Some(0x55aa55aa));
+        assert!(!frames.accept_dmabuf(0x55aa55aa), "said once");
+        assert_eq!(
+            writer.presented_on(),
+            Some(0x55aa55aa),
+            "the same answer a share reads"
+        );
+
+        assert!(frames.refuse_gpu());
+        assert_eq!(
+            writer.dmabuf_showable(),
+            None,
+            "a window that refused them isn't asked for them"
+        );
+        let name = "yapfast-test-frames-dmabuf-refused";
+        let memory = memory(name);
+        let fds = [memory.as_raw_fd()];
+        let planes = [dmabuf::Plane {
+            offset: 0,
+            stride: 16,
+        }];
+        let drawn = described((4, 2), &planes, &fds);
+        assert_eq!(writer.claim(), Some(0), "an empty slot");
+        assert!(
+            !writer.publish_dmabuf(&drawn),
+            "a refused picture isn't sent"
+        );
+        assert_eq!(naming(name), 1, "and its descriptors stay the worker's");
+        drop(memory);
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");

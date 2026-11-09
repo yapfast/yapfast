@@ -83,6 +83,14 @@ ksni = { version = "0.3.6", default-features = false, features = ["async-io", "b
 # trigger. All three are already in the tree, through zbus and winit. x11rb
 # also reads the X11 clipboard for a paste.
 futures-util = { workspace = true, optional = true }
+# `dup` for the descriptors of a DMA-BUF picture, which are the stream's until
+# the window's Vulkan device imports its own copy of each; see src/ui/gpu.rs.
+libc = "0.2.189"
+# Vulkan's own API, for the image a DMA-BUF is imported as: wgpu 30 can wrap a
+# `VkImage` (`wgpu::hal::vulkan::Device::texture_from_raw`) but cannot make one
+# out of descriptors itself, and it does not re-export the Vulkan structs that
+# takes. The same version wgpu-hal builds against.
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
 x11rb = { version = "0.13.2", default-features = false, features = ["xinput"], optional = true }
 xkeysym = { version = "0.2.1", optional = true }
 
