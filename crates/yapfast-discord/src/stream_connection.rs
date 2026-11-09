@@ -22,6 +22,7 @@ use tokio::{
 };
 
 use crate::{
+    congestion::{self, Controller},
     rtp::{self, Assembler, Codec, Packetizer},
     stream::{self, StreamServer},
     voice_connection::{Connection, Identity, lock, receive, send_json},
@@ -37,11 +38,22 @@ const LOG_EVERY: Duration = Duration::from_secs(5);
 const RESENDS: usize = 128;
 /// The most video SSRCs a watched stream puts frames together for.
 const MAX_SSRCS: usize = 4;
-/// A frame's packets past the first `BURST` go out `PACE` a millisecond,
-/// about 37 Mbit/s: a 1080p keyframe sent at once can overflow buffers on
-/// the way.
+/// A frame's packets past the first `BURST` go out paced, at
+/// [`pacing_rate`]: a 1080p keyframe sent at once can overflow buffers on
+/// the way, and fills the uplink's queue.
 const BURST: usize = 8;
-const PACE: usize = 4;
+/// The sender reports the last round trips are measured against, by the
+/// time in them a receiver report echoes.
+const ECHOED: usize = 4;
+
+/// The bit/s to pace a frame of `bytes` at, sending `fps` frames a second
+/// at `target` bit/s: 2.5 times the target, as libwebrtc's pacer, but fast
+/// enough to send the frame within two frames' time, so a keyframe doesn't
+/// hold the frames after it until the queue before the encoder drops them.
+fn pacing_rate(target: u64, bytes: usize, fps: u32) -> u64 {
+    let within = bytes as u64 * 8 * u64::from(fps.max(1)) / 2;
+    (target * 5 / 2).max(within).max(1)
+}
 
 /// The most bit/s a stream of `height` lines may take, as Discord's client
 /// decides it: 3.5 Mbit/s up to 720p, 9 Mbit/s above. Op 12 announces it.
@@ -104,9 +116,8 @@ struct Shared {
     /// streamer for one.
     keyframe: AtomicBool,
     size: Mutex<(u32, u32)>,
-    /// Sending: the bit/s Discord's server last estimated the path carries,
-    /// or 0 before it said.
-    estimate: AtomicU64,
+    /// Sending: the bit/s to encode at, as [`Controller`] decides.
+    target: AtomicU64,
     /// Sending: the codecs offered, most wanted first, and whether that
     /// changed since Discord was told. Receiving: the codecs decoded.
     offers: Mutex<Vec<Codec>>,
@@ -127,7 +138,7 @@ impl Shared {
             link: Mutex::new(Link::Connecting),
             keyframe: AtomicBool::new(true),
             size: Mutex::new(size),
-            estimate: AtomicU64::new(0),
+            target: AtomicU64::new(congestion::start(max_bitrate(size.1).into())),
             offers: Mutex::new(vec![SEND_CODEC]),
             offers_changed: AtomicBool::new(false),
             chosen: Mutex::new(None),
@@ -238,10 +249,10 @@ impl StreamSender {
         self.shared.keyframe.swap(false, Ordering::Relaxed)
     }
 
-    /// The bit/s Discord's server last estimated the path carries, once it
-    /// said.
-    pub fn bandwidth_estimate(&self) -> Option<u64> {
-        Some(self.shared.estimate.load(Ordering::Relaxed)).filter(|&estimate| estimate > 0)
+    /// The bit/s to encode at: what keeps the uplink's queue short, within
+    /// Discord's cap and its server's estimate. See [`congestion`].
+    pub fn target(&self) -> u64 {
+        self.shared.target.load(Ordering::Relaxed)
     }
 
     pub fn link(&self) -> Link {
@@ -472,6 +483,11 @@ async fn send(
     let mut connection = open(server, user, channel, Role::Send, shared).await?;
     let (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
     let mut size = *lock(&shared.size);
+    let mut pacing = Controller::new(max_bitrate(size.1).into());
+    shared.target.store(pacing.target(), Ordering::Relaxed);
+    // When the last video sender reports went out, by the time in them.
+    let mut echoed = [(0u32, std::time::Instant::now()); ECHOED];
+    let mut reports_sent = 0usize;
     send_json(
         &mut connection.ws,
         12,
@@ -522,6 +538,9 @@ async fn send(
                 if wanted != size {
                     size = wanted;
                     send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
+                    if let Some(reason) = pacing.set_cap(max_bitrate(size.1).into()) {
+                        retarget(shared, &pacing, reason, None);
+                    }
                 }
                 let encrypting = connection.dave.encrypting();
                 if encrypted != Some(encrypting) {
@@ -548,10 +567,18 @@ async fn send(
                 };
                 sent.frames += 1;
                 sent.keyframes += u32::from(frame.keyframe);
-                for (index, mut packet) in packetizer.packets(&payload, frame.timestamp, frame.keyframe).into_iter().enumerate() {
-                    if index >= BURST && index % PACE == 0 {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
+                let packets_of_frame = packetizer.packets(&payload, frame.timestamp, frame.keyframe);
+                let bytes: usize = packets_of_frame.iter().map(Vec::len).sum();
+                let rate = pacing_rate(pacing.target(), bytes, fps);
+                let (started, mut paced) = (Instant::now(), 0u64);
+                for (index, mut packet) in packets_of_frame.into_iter().enumerate() {
+                    if index >= BURST {
+                        let due = started + Duration::from_micros(paced * 8 * 1_000_000 / rate);
+                        if due > Instant::now() {
+                            tokio::time::sleep_until(due).await;
+                        }
                     }
+                    paced += packet.len() as u64;
                     history.remember(&packet);
                     let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
                     packets = packets.wrapping_add(1);
@@ -569,6 +596,10 @@ async fn send(
                         packets,
                         octets,
                     );
+                    if let Some(&(_, middle)) = rtp::sender_reports(&report).first() {
+                        echoed[reports_sent % ECHOED] = (middle, std::time::Instant::now());
+                        reports_sent += 1;
+                    }
                     connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
                     connection.udp.send(&report).await?;
                 }
@@ -651,8 +682,23 @@ async fn send(
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
                     shared.keyframe.store(true, Ordering::Relaxed);
                 }
-                if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video) {
-                    shared.estimate.store(estimate, Ordering::Relaxed);
+                if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video)
+                    && let Some(reason) = pacing.set_estimate(estimate)
+                {
+                    retarget(shared, &pacing, reason, None);
+                }
+                if let Some(reception) = rtp::reception(&rtcp, video) {
+                    let now = std::time::Instant::now();
+                    let trip = echoed
+                        .iter()
+                        .find(|&&(middle, _)| reception.last_report != 0 && middle == reception.last_report)
+                        .and_then(|&(_, sent)| rtp::round_trip(sent, now, reception.delay));
+                    if let Some(trip) = trip {
+                        sent.round_trip_ms = Some(trip.as_millis() as u32);
+                    }
+                    if let Some(reason) = pacing.report(now, trip, reception.fraction_lost) {
+                        retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
+                    }
                 }
                 for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
                     let Some(mut again) = history.get(lost).and_then(|original| packetizer.retransmit(original, rtx)) else {
@@ -668,11 +714,32 @@ async fn send(
                 }
             }
             _ = log.tick() => {
-                tracing::debug!(?sent, packets, octets, "stream sent");
+                let target_kbps = pacing.target() / 1000;
+                tracing::debug!(?sent, packets, octets, target_kbps, "stream sent");
                 sent = Sent::default();
             }
         }
     }
+}
+
+/// Hands the encoder the controller's new target, and logs why it changed,
+/// with what the receiver report that changed it said: the round trip it
+/// measured, and the packets lost out of 256.
+fn retarget(
+    shared: &Shared,
+    pacing: &Controller,
+    reason: congestion::Reason,
+    report: Option<(Option<Duration>, u8)>,
+) {
+    shared.target.store(pacing.target(), Ordering::Relaxed);
+    tracing::debug!(
+        kbps = pacing.target() / 1000,
+        %reason,
+        round_trip_ms = report.and_then(|(trip, _)| trip).map(|trip| trip.as_millis() as u64),
+        lowest_ms = pacing.baseline().map(|trip| trip.as_millis() as u64),
+        lost = report.map(|(_, lost)| lost),
+        "changing the stream's bitrate"
+    );
 }
 
 /// What a streamer sent and heard back since it last logged.
@@ -696,6 +763,8 @@ struct Sent {
     unopened: u32,
     /// RTP, which a streamer isn't sent.
     rtp_back: u32,
+    /// The last round trip a receiver report measured.
+    round_trip_ms: Option<u32>,
 }
 
 /// What the server said about the streamer's video.
@@ -1017,6 +1086,16 @@ async fn receive_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paces_frames_by_the_target() {
+        // A 40 kB frame at 4 Mbit/s goes out at 10 Mbit/s, in 32 ms.
+        assert_eq!(pacing_rate(4_000_000, 40_000, 30), 10_000_000);
+        // A 200 kB keyframe goes out within two frames, 67 ms at 30 fps,
+        // not 160 ms at 2.5 times the target.
+        assert_eq!(pacing_rate(4_000_000, 200_000, 30), 24_000_000);
+        assert_eq!(pacing_rate(4_000_000, 200_000, 60), 48_000_000);
+    }
 
     #[test]
     fn learns_the_streamers_video() {
