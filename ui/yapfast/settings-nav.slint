@@ -2,6 +2,7 @@ import { Theme, Middle } from "../theme.slint";
 import { Avatar, TextField } from "../controls.slint";
 import { ChannelRow } from "../rail.slint";
 import { ScrollView } from "../scrollview.slint";
+import { BuildStamp } from "build-info.slint";
 
 // Section IDs are the existing SettingsScreen contract. Only implemented pages
 // belong here; Discord's billing and subscription destinations have no adapter.
@@ -15,6 +16,8 @@ export component SettingsNavigation inherits Rectangle {
     in property <image> account-picture;
     callback chose(int);
     callback edit-profile;
+    /// Puts the build's version on the clipboard.
+    callback copy-text(string);
     property <string> query;
     function matches(text: string) -> bool {
         return root.query == "" || text.to-lowercase().replace-all(root.query.to-lowercase(), "") != text.to-lowercase();
@@ -83,5 +86,7 @@ export component SettingsNavigation inherits Rectangle {
                 }
             }
         }
+        // Which build this is, as Discord's own settings end with its version.
+        BuildStamp { copy(text) => { root.copy-text(text); } }
     }
 }

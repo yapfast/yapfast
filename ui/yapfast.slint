@@ -66,6 +66,7 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
+export { BuildInfo } from "yapfast/build-info.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
@@ -4064,6 +4065,7 @@ export component YapfastWindow inherits Window {
         discord-build: root.discord-build; preview: root.preview;
         close => { root.settings-open = false; }
         refresh-devices => { root.refresh-devices(); }
+        copy-text(text) => { root.copy-text(text); }
         if root.settings-section == 0: AccountSettings {
             account-name: root.account-name; account-status: root.account-status; account-status-emoji: root.account-status-emoji;
             account-initial: root.account-initial; account-tint: root.account-tint; account-picture: root.account-picture;

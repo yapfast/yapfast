@@ -230,6 +230,8 @@ export component SettingsFrame inherits Rectangle {
     in property <bool> with-discord;
     in property <bool> may-edit-profile;
     callback edit-profile;
+    /// Puts text on the clipboard, for the version under the sections.
+    callback copy-text(string);
     /// Room below the section, for a bar over its bottom.
     in property <length> bottom: 56px;
     /// The page fills the frame's height instead of scrolling in it, for
@@ -261,6 +263,7 @@ export component SettingsFrame inherits Rectangle {
                 may-edit-profile: root.may-edit-profile;
                 chose(id) => { root.chose(id); }
                 edit-profile => { root.edit-profile(); }
+                copy-text(text) => { root.copy-text(text); }
             }
             if !root.discord-layout: Rectangle {
                 background: Theme.sidebar; horizontal-stretch: 0; min-width: 232px;
@@ -370,6 +373,7 @@ export component SettingsScreen inherits Rectangle {
     callback close;
     callback edit-profile;
     callback refresh-devices;
+    callback copy-text(string);
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
@@ -407,6 +411,7 @@ export component SettingsScreen inherits Rectangle {
             with-discord: root.discord-build && !root.preview;
             may-edit-profile: root.may-edit-profile;
             edit-profile => { root.edit-profile(); }
+            copy-text(text) => { root.copy-text(text); }
             rows: root.discord-build && !root.preview ? root.with-discord : root.without-discord;
             selected: root.settings-section;
             chose(id) => {

@@ -9294,6 +9294,59 @@ fn yapfast_settings_navigation_and_header_keep_the_existing_actions() {
 }
 
 #[test]
+fn yapfast_settings_name_the_build_and_copy_it_on_a_click() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_own_title_bar(true);
+    window.set_account_name("Alex".into());
+    window.set_account_initial("A".into());
+    let build = window.global::<BuildInfo>();
+    build.set_headline("Yapfast v0.4.0-nightly.20261107.12".into());
+    build.set_channel("Nightly".into());
+    build.set_details("59391f96 · 2026-11-07".into());
+    build.set_tone(1);
+    build
+        .set_summary("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07".into());
+    window.set_settings_open(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1920., 1080.));
+    // The settings card fades in; let the animation finish so it takes clicks.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    let clipboard = || {
+        i_slint_core::window::WindowInner::from_pub(window.window())
+            .context()
+            .platform()
+            .clipboard_text(i_slint_core::platform::Clipboard::DefaultClipboard)
+    };
+    assert_ne!(
+        clipboard().as_deref(),
+        Some("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07")
+    );
+    // Under the sections, at the foot of the navigation.
+    let position = slint::LogicalPosition::new(350., 980.);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    assert_eq!(
+        clipboard().as_deref(),
+        Some("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07"),
+        "a click on the build copies it as one line"
+    );
+    assert!(window.get_settings_open(), "and leaves settings open");
+    window.hide().unwrap();
+}
+
+#[test]
 fn yapfast_account_popover_copies_its_id_and_opens_settings_without_changing_status() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");
