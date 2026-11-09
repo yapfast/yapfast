@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Formatting, doc links, Clippy, tests and a smoke run of the default build,
-# Discord on the desktop; --matrix adds the builds with Matrix.
+# Discord on the desktop; then the plugin helper with Extism on, and the
+# measurement harness's tests. --matrix adds the builds with Matrix.
 # Usage: scripts/check [--fast] [--matrix]
 # --fast builds with the `fast` profile, which local work uses. Each step
 # prints `=== step` and `rc=N` when it ends; its full output is in
@@ -71,6 +72,24 @@ if [[ "$(cat "$logs/build.rc")" == 0 ]]; then
 else
   echo "=== smoke: skipped, as the build failed"
 fi
+
+# The plugin helper, with Extism on. Extism sits behind yapfast-plugin-host's
+# `host` feature and the binary requires it, so no step above builds the helper
+# or links wasmtime: everyday builds stay without both. These steps turn the
+# feature on, in the same profile, and add the fixture example that assembles
+# the `.wasm` modules the measurement harness loads; the harness's own tests
+# are stdlib Python fakes, so they need neither the helper nor a module. See
+# docs/plugin-host.md and docs/plugin-measurements.md.
+plugins=(-p yapfast-plugin-api -p yapfast-plugin-host --features yapfast-plugin-host/host)
+run clippy-plugins "${clippy[@]}" "${plugins[@]}" -- -D warnings
+run test-plugins cargo test --locked "${profile[@]}" "${plugins[@]}"
+# The binary the harness spawns, at target/$profile_dir/yapfast-plugins.
+run build-plugins cargo build --locked "${profile[@]}" -p yapfast-plugin-host \
+  --features yapfast-plugin-host/host --bin yapfast-plugins
+run fixtures-plugins cargo run --locked "${profile[@]}" -p yapfast-plugin-host \
+  --features yapfast-plugin-host/host --example build_fixtures
+run harness-plugins python3 testing/test_measure_plugins.py
+steps+=(clippy-plugins test-plugins build-plugins fixtures-plugins harness-plugins)
 
 # The builds with Matrix: Matrix beside Discord, with its tests; Matrix
 # alone, in the desktop and in the shared core with its tests; and the

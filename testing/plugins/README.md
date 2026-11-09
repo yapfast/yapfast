@@ -10,25 +10,31 @@ check is the only thing standing between the content store and a text module.
 Do not add a production path that parses WAT, and do not point tests at
 `Wasm::data`.
 
-Generated `.wasm` files are not checked in. Rust tests assemble a fixture at
-run time with the [`wat`](https://docs.rs/wat) crate (test-only dependency)
-and write the bytes to a temp file, then call the same loader production uses:
+Generated `.wasm` files are not checked in. The Rust tests assemble a fixture at
+run time with the [`wat`](https://docs.rs/wat) crate (test-only dependency),
+write the bytes to a temp file, and hand that file to the same loader production
+uses. Those helpers are in
+[`crates/yapfast-plugin-host/tests/support/mod.rs`](../../crates/yapfast-plugin-host/tests/support/mod.rs):
 
 ```rust
-pub fn fixture_wasm(name: &str) -> (tempfile::TempDir, PathBuf) {
-    let wat = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../testing/plugins")
-        .join(name);
-    let bytes = wat::parse_file(&wat).expect("fixture WAT");
-    let dir = tempfile::tempdir().expect("temp dir");
-    let path = dir.path().join("fixture.wasm");
-    std::fs::write(&path, &bytes).expect("write fixture");
-    (dir, path)
-}
+wasm_fixture("echo.wat")  // (TempDir, PathBuf): assembled into a temporary .wasm
+text_fixture("echo.wat")  // the .wat bytes verbatim, so the loader refuses them
+fixture_path("echo.wat")  // testing/plugins/echo.wat
 ```
 
-Tests that need the WAT bytes verbatim (the bad-magic regression test) can
-read the `.wat` file and write it to `fixture.wasm` unchanged.
+`wasm_fixture` is what a module test wants; `text_fixture` exists for the
+bad-magic regression test, which needs a file that is not a WebAssembly binary.
+Keep the returned `TempDir` alive: dropping it deletes the module.
+
+The measurement harness cannot run a WAT compiler either, so it is handed real
+modules by the host crate's fixture example:
+
+```sh
+cargo run --locked --profile fast -p yapfast-plugin-host --example build_fixtures
+```
+
+That writes `target/plugin-fixtures/<name>.wasm` for both files; `scripts/check`
+runs it as its `fixtures-plugins` step.
 
 ## Fixtures
 
@@ -54,7 +60,11 @@ of the repository; the checks it makes are:
   stops at the cap after 15 x 1 MiB allocations.
 
 Status: `echo.wat` is verified against the real Extism 1.41 kernel and is safe
-for activation/call tests. `oom.wat` is verified to drive memory growth past
-the cap; the exact `"oom"` error string comes from Extism's
-`ResourceLimiter` and has not been observed under the real host yet. Treat the
-error classification as unverified until a host test asserts it.
+for activation and call tests. `oom.wat` is verified to drive memory growth past
+the cap, and the real host now shows how that ends:
+`a_guest_that_grows_past_the_page_limit_fails_the_call` in
+[`tests/host.rs`](../../crates/yapfast-plugin-host/tests/host.rs) loads it,
+calls `eat_memory`, and asserts the answer is an error whose message Extism
+classifies as `oom` — a plugin fault, not a helper fault. The scratch script
+above only showed the grow stopping at the cap; the classification the helper
+reports is the host test's to pin.
