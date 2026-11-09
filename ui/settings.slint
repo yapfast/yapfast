@@ -1382,13 +1382,13 @@ export component AboutSettings inherits VerticalLayout {
     callback copy-text(string);
     property <bool> copied;
     property <string> status-text:
-        Updates.status == UpdateStatus.checking ? "Looking for a newer release..."
-        : Updates.status == UpdateStatus.current ? "Yapfast is up to date."
+        Updates.status == UpdateStatus.checking ? "Checking..."
+        : Updates.status == UpdateStatus.current ? "You're up to date."
         : Updates.status == UpdateStatus.available ? "Yapfast " + Updates.latest + " is out."
-        : Updates.status == UpdateStatus.skipped ? "You skipped Yapfast " + Updates.latest + "."
-        : Updates.status == UpdateStatus.failed ? "Could not look for a newer release: " + Updates.error
-        : Updates.status == UpdateStatus.source ? "This is a build from source, so there is no release to compare it with."
-        : Updates.check ? "" : "Updates aren't checked. Turn the check on, or press Check now.";
+        : Updates.status == UpdateStatus.skipped ? "You skipped " + Updates.latest + "."
+        : Updates.status == UpdateStatus.failed ? "Couldn't check: " + Updates.error
+        : Updates.status == UpdateStatus.source ? "This is a build from source, so there's nothing to compare it with."
+        : Updates.check ? "" : "Update checks are off.";
     spacing: 16px;
     SettingsTitle { text: "About"; }
     Rectangle {
@@ -1418,7 +1418,7 @@ export component AboutSettings inherits VerticalLayout {
     Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
     SettingsHeading { text: "UPDATES"; }
     if Updates.manager != "": Label {
-        text: "Yapfast was installed with " + Updates.manager + ", which updates it. Use it to get a newer release.";
+        text: "Installed with " + Updates.manager + ". Update it there.";
     }
     if root.status-text != "": Label {
         text: root.status-text;
@@ -1441,17 +1441,30 @@ export component AboutSettings inherits VerticalLayout {
     }
     SettingsSwitch {
         text: "Check for updates";
-        description: "When Yapfast starts, it asks GitHub for the list of releases and says here when a newer one is out. The request carries only Yapfast's name and version. Off, Yapfast makes no request, and Check now looks once.";
+        description: "Looks for a new version when Yapfast starts and every few hours after. Only the version number goes to GitHub.";
         checked <=> Updates.check;
         toggled => { Updates.preferences-changed(); }
     }
     SettingsSwitch {
         text: "Include nightly builds";
-        description: "Nightlies are builds of the main branch, made for testing and rougher than a release. Off, only releases count.";
+        description: "Early builds that may be rough. Off, you only hear about releases.";
         checked <=> Updates.nightlies;
         enabled: Updates.check;
-        locked-tip: "Turn on Check for updates first";
         toggled => { Updates.preferences-changed(); }
+    }
+    // Not available: nothing turns it on. The code to install a release exists
+    // behind the self-update feature; see docs/packaging.md.
+    SettingsSwitch {
+        text: "Install updates automatically";
+        description: "Not available yet.";
+        checked: false;
+        enabled: false;
+    }
+    SettingsHeading { text: "LINKS"; }
+    HorizontalLayout {
+        spacing: 8px; alignment: start;
+        ActionButton { text: "Website"; clicked => { Updates.open-website(); } }
+        ActionButton { text: "GitHub"; clicked => { Updates.open-github(); } }
     }
 }
 

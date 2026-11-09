@@ -3,13 +3,29 @@
 //! when a person turns the check on or presses Check now (and once at start
 //! if the check is on), and shows the result in the `Updates` global. It opens
 //! the release's page in the browser and installs nothing.
+//!
+//! With the check on, it looks at start and every few hours after, and tells
+//! of a newer release once, in a notification that opens About.
 
 use super::*;
 use crate::update::{self, Outcome, Release, Version};
 
+/// The "room" of the notification that tells of a release; opening it shows About.
+pub(super) const ABOUT: &str = "yapfast:about";
+
+/// How long between looks while Yapfast runs. GitHub allows an address 60
+/// requests an hour without an account.
+const EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// The project's pages, which About's buttons open.
+const WEBSITE: &str = "https://yapfast.com";
+const GITHUB: &str = "https://github.com/yapfast/yapfast";
+
 /// What the last look at the releases found.
 #[derive(Default)]
 pub(super) struct State {
+    /// Looks again every [`EVERY`], while the check is on.
+    timer: slint::Timer,
     /// The releases GitHub listed, or why it couldn't.
     found: Option<Result<Vec<Release>, String>>,
     checking: bool,
@@ -61,8 +77,9 @@ pub(super) fn show(window: &YapfastWindow, layout: &Layout, state: &State) {
     shown.set_error(error.into());
 }
 
-/// Asks GitHub for the releases, unless a look is under way.
-fn look(adapter: &Rc<RefCell<Adapter>>) {
+/// Asks GitHub for the releases, unless a look is under way. `announce` tells
+/// of a newer release in a notification, as a look nobody asked for does.
+fn look(adapter: &Rc<RefCell<Adapter>>, announce: bool) {
     let mut guard = adapter.borrow_mut();
     if guard.updates.checking {
         return;
@@ -90,6 +107,9 @@ fn look(adapter: &Rc<RefCell<Adapter>>) {
         if let Some(window) = adapter.window.upgrade() {
             show(&window, &adapter.layout, &adapter.updates);
         }
+        if announce {
+            adapter.announce();
+        }
     });
     if let Err(error) = spawned {
         tracing::error!(%error, "could not wait for the look at the releases");
@@ -105,7 +125,51 @@ pub(super) fn start(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow) {
         adapter.layout.check_for_updates
     };
     if checking {
-        look(adapter);
+        look(adapter, true);
+    }
+    let weak = Rc::downgrade(adapter);
+    adapter
+        .borrow()
+        .updates
+        .timer
+        .start(slint::TimerMode::Repeated, EVERY, move || {
+            if let Some(adapter) = weak.upgrade()
+                && adapter.borrow().layout.check_for_updates
+            {
+                look(&adapter, true);
+            }
+        });
+}
+
+impl Adapter {
+    /// Tells of the newest release in a notification, once for each release,
+    /// unless notifications are off or the person skipped it.
+    fn announce(&mut self) {
+        let Some(Ok(found)) = &self.updates.found else {
+            return;
+        };
+        let Some(Outcome::Available(release)) = outcome(&self.layout, found) else {
+            return;
+        };
+        if self.layout.announced_update.as_deref() == Some(release.tag.as_str()) {
+            return;
+        }
+        self.layout.announced_update = Some(release.tag.clone());
+        self.layout.write(&self.root);
+        if !self.layout.notifications.unwrap_or(true) {
+            return;
+        }
+        self.notifier.show(
+            yapfast_core::chat::Alert {
+                room: ABOUT.into(),
+                title: format!("Yapfast {} is out", release.tag),
+                body: "Open About to see it.".into(),
+                picture: None,
+                call: false,
+                mention: false,
+            },
+            crate::notify::Style { text: true },
+        );
     }
 }
 
@@ -128,11 +192,11 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             turned_on
         };
         if turned_on {
-            look(&state);
+            look(&state, true);
         }
     });
     let state = adapter.clone();
-    shown.on_check_now(move || look(&state));
+    shown.on_check_now(move || look(&state, false));
     let (state, weak) = (adapter.clone(), window.as_weak());
     shown.on_skip(move || {
         let Some(window) = weak.upgrade() else { return };
@@ -159,4 +223,6 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             browser::open(&release.page);
         }
     });
+    shown.on_open_website(|| browser::open(WEBSITE));
+    shown.on_open_github(|| browser::open(GITHUB));
 }

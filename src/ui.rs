@@ -1287,6 +1287,9 @@ struct Layout {
     update_nightlies: bool,
     /// The tag of the release that Skip this update hid.
     skipped_update: Option<String>,
+    /// The tag of the release a notification last told of, so each release is
+    /// announced once.
+    announced_update: Option<String>,
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
