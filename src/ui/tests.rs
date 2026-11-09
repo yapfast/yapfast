@@ -285,6 +285,34 @@ fn the_composers_menu_cuts_copies_and_pastes_through_the_application() {
     assert_eq!(window.get_draft(), "hellohello");
 }
 
+#[test]
+fn the_typing_line_holds_still_while_animations_dont_play() {
+    use i_slint_core::item_tree::ItemRc;
+    use std::ops::ControlFlow;
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        body: "Hi".into(),
+        ..Default::default()
+    }]);
+    window.show().unwrap();
+    window.set_typing("Sam is typing...".into());
+    // Lays every item out, as a frame would, and says whether that asked
+    // for another frame: `animation-tick()` does whenever it's read.
+    let animating = |playing| {
+        window.global::<Motion>().set_playing(playing);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        slint::platform::update_timers_and_animations();
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let _ = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let _ = item.geometry();
+            ControlFlow::<()>::Continue(())
+        });
+        window.window().has_active_animations()
+    };
+    assert!(!animating(false), "nothing repaints while someone types");
+    assert!(animating(true), "the dots move while animations play");
+}
+
 /// Presses and lets go of a key, as typed.
 fn tap(window: &YapfastWindow, text: SharedString) {
     use slint::platform::WindowEvent;

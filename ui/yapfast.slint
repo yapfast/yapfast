@@ -43,7 +43,7 @@ import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
+import { ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
@@ -3429,7 +3429,9 @@ export component YapfastWindow inherits Window {
                             // Who else is typing, just above the composer in the room the
                             // last message leaves under it, so the timeline doesn't move.
                             // Its text lines up with the messages' (16px, a 40px avatar
-                            // and 16px in), and it breathes gently while they type.
+                            // and 16px in), and it breathes gently while they type, as
+                            // animations play: `animation-tick()` repaints every frame, so
+                            // with them held still it holds still too.
                             if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
                                 x: 72px - 4px; y: parent.height - self.height;
                                 width: min(parent.width - 72px - 12px, typing-text.preferred-width + 8px); height: 20px;
@@ -3438,16 +3440,17 @@ export component YapfastWindow inherits Window {
                                     x: 4px; width: parent.width - 8px;
                                     text: root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
                                     vertical-alignment: center; overflow: elide;
-                                    opacity: 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg);
+                                    opacity: Motion.playing ? 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg) : 1;
                                 }
                             }
-                            // Under the avatars, three dots rise and brighten in turn.
+                            // Under the avatars, three dots rise and brighten in turn, or
+                            // sit still in a row while animations don't play.
                             if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
                                 x: 36px - self.width / 2; y: parent.height - self.height;
                                 width: 32px; height: 20px;
                                 background: Theme.chat;
                                 for dot in 3: Rectangle {
-                                    property <float> wave: sin(animation-tick() / 1ms * 0.3deg - dot * 70deg);
+                                    property <float> wave: Motion.playing ? sin(animation-tick() / 1ms * 0.3deg - dot * 70deg) : 0;
                                     x: 4px + dot * 9px; y: (parent.height - self.height) / 2 - 1.5px * self.wave;
                                     width: 6px; height: 6px; border-radius: 3px;
                                     background: Theme.muted;
