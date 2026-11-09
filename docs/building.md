@@ -326,6 +326,13 @@ build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
 the desktop build, from that build. These build the default features, the
 release's: Discord on the desktop (see [Networks](#networks)).
 
+The plugin steps then check and test `yapfast-plugin-api` and
+`yapfast-plugin-host` with the host's `host` feature enabled, build the
+`yapfast-plugins` helper, assemble the WAT fixtures, and run the measurement
+harness's Python tests. Extism stays optional and out of the default workspace
+build above. The plugin measurements themselves are explicit runs, not a gate;
+see [the measurement method](measurements/README.md#the-plugin-helper).
+
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as each compile of the UI crate takes several GiB of memory: Clippy
 and the tests with Matrix beside Discord, Clippy for the Matrix-only build,
