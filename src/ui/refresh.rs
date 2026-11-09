@@ -272,6 +272,69 @@ impl SidebarShown {
     }
 }
 
+/// What the member list and its Activity panel were built from last, so each
+/// is built again only once that changed, not on every message and presence
+/// that refreshes the window.
+pub(super) struct RosterShown {
+    members: Members,
+    selection_version: u64,
+    owner: Option<String>,
+    cosmetics: yapfast_core::application::Cosmetics,
+    hide_nameplates: bool,
+    /// When the soonest timeout the list shows ends.
+    timeout_ends: Option<u64>,
+    feed: Arc<[yapfast_core::chat::FeedEntry]>,
+    people: Option<(String, Arc<[yapfast_core::chat::FeedPerson]>)>,
+    /// The second the panel's rows were worded in: they count the time
+    /// since, so a panel with rows is worded again each second.
+    panel_second: Option<u64>,
+}
+
+/// A conversation's member list, as `AppState::members` holds it.
+type Members = Option<Result<Arc<Vec<yapfast_core::chat::ChatMember>>, &'static str>>;
+
+impl RosterShown {
+    fn same_members(&self, state: &AppState, members: &Members) -> bool {
+        self.selection_version == state.selection_version
+            && match (&self.members, members) {
+                (Some(Ok(shown)), Some(Ok(members))) => Arc::ptr_eq(shown, members),
+                (shown, members) => {
+                    shown.is_none() && members.is_none()
+                        || matches!((shown, members), (Some(Err(a)), Some(Err(b))) if a == b)
+                }
+            }
+    }
+
+    /// Whether the list would show the same `members`.
+    fn shows_list(
+        &self,
+        state: &AppState,
+        members: &Members,
+        owner: &Option<String>,
+        now: u64,
+    ) -> bool {
+        self.same_members(state, members)
+            && self.owner == *owner
+            && self.cosmetics == state.cosmetics
+            && self.hide_nameplates == state.hide_nameplates
+            && self.timeout_ends.is_none_or(|ends| now < ends)
+    }
+
+    /// Whether the Activity panel would show the same of `members`.
+    fn shows_panel(&self, state: &AppState, members: &Members, now: u64) -> bool {
+        self.same_members(state, members)
+            && Arc::ptr_eq(&self.feed, &state.activity_feed)
+            && match (&self.people, &state.activity_people) {
+                (None, None) => true,
+                (Some((asked, people)), Some((room, known))) => {
+                    asked == room && Arc::ptr_eq(people, known)
+                }
+                _ => false,
+            }
+            && self.panel_second.is_none_or(|second| second == now / 1000)
+    }
+}
+
 impl Icons {
     /// A conversation's icon, as the sidebar shows it: a lock for one this
     /// account may not read.
@@ -2018,29 +2081,69 @@ impl Adapter {
     /// The member list, the reactions offered on messages, and a role's card.
     fn show_members(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let cosmetics = state.cosmetics;
-        // In a server, names show their style's font alone.
-        let in_server = name_style::in_server(state.selected.as_deref());
         let now = yapfast_core::clock::now_ms();
-        let members = match &state.members {
-            Some(Ok(members)) => members.as_slice(),
-            _ => &[],
-        };
-        // Discord shows the panel in a server's channels, but not its forums.
-        let in_channel = state
-            .selected_room()
-            .filter(|room| !room.direct && !room.forum);
-        update_model(
-            &self.models.roster_activity,
-            match in_channel {
-                Some(room) => activity_panel(state, &room.id, members, now),
-                None => Vec::new(),
-            },
-        );
         let owner = state
             .selected
             .as_deref()
             .and_then(|room| self.app.server_owner(room));
+        let shown = self.roster_shown.as_ref();
+        let list = !shown.is_some_and(|shown| shown.shows_list(state, &state.members, &owner, now));
+        let panel = !shown.is_some_and(|shown| shown.shows_panel(state, &state.members, now));
+        let members = match &state.members {
+            Some(Ok(members)) => members.as_slice(),
+            _ => &[],
+        };
+        let panel_second = if panel {
+            // Discord shows the panel in a server's channels, but not its forums.
+            let in_channel = state
+                .selected_room()
+                .filter(|room| !room.direct && !room.forum);
+            let rows = match in_channel {
+                Some(room) => activity_panel(state, &room.id, members, now),
+                None => Vec::new(),
+            };
+            let second = (!rows.is_empty()).then_some(now / 1000);
+            update_model(&self.models.roster_activity, rows);
+            second
+        } else {
+            shown.and_then(|shown| shown.panel_second)
+        };
+        if list {
+            self.show_roster(window, members, owner.as_deref(), now);
+        }
+        if list || panel {
+            self.roster_shown = Some(RosterShown {
+                members: state.members.clone(),
+                selection_version: state.selection_version,
+                owner,
+                cosmetics: state.cosmetics,
+                hide_nameplates: state.hide_nameplates,
+                timeout_ends: members
+                    .iter()
+                    .filter_map(|member| member.timed_out_until)
+                    .filter(|&until| until > now)
+                    .min(),
+                feed: state.activity_feed.clone(),
+                people: state.activity_people.clone(),
+                panel_second,
+            });
+        }
+        self.show_reactions_offered(window);
+        self.show_role(window);
+    }
+
+    /// The member list's rows.
+    fn show_roster(
+        &self,
+        window: &YapfastWindow,
+        members: &[yapfast_core::chat::ChatMember],
+        owner: Option<&str>,
+        now: u64,
+    ) {
+        let state = &self.app.state;
+        let cosmetics = state.cosmetics;
+        // In a server, names show their style's font alone.
+        let in_server = name_style::in_server(state.selected.as_deref());
         window.set_roster_note(
             match &state.members {
                 None => "Loading members...",
@@ -2102,7 +2205,7 @@ impl Adapter {
                         ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         bot: member.bot,
-                        owner: owner.as_deref() == Some(member.id.as_str()),
+                        owner: owner == Some(member.id.as_str()),
                         boosting: member
                             .boosting_since
                             .map(|since| {
@@ -2144,6 +2247,10 @@ impl Adapter {
                 })
                 .collect(),
         );
+    }
+
+    /// The reactions offered on messages, the most used first.
+    fn show_reactions_offered(&self, window: &YapfastWindow) {
         let scale = window.window().scale_factor();
         update_model(
             &self.models.bar_reactions,
@@ -2167,7 +2274,11 @@ impl Adapter {
                 scale,
             ),
         );
-        let role = state.role.as_ref();
+    }
+
+    /// A role's card, with the members known to have it.
+    fn show_role(&self, window: &YapfastWindow) {
+        let role = self.app.state.role.as_ref();
         window.set_role_open(role.is_some());
         if let Some(role) = role {
             window.set_role_name(role.name.clone().into());
@@ -3492,7 +3603,12 @@ impl Adapter {
         let slot = usize::from(aside);
         let sources = MentionSources {
             messages: Arc::as_ptr(&state.messages) as usize,
-            members: state.members.iter().flatten().map(Vec::len).sum(),
+            members: state
+                .members
+                .iter()
+                .flatten()
+                .map(|members| members.len())
+                .sum(),
             found: state.found_members.len(),
             groups: state.mention_groups.len(),
             color: theme::mention_color(),

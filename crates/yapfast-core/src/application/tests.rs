@@ -3825,7 +3825,7 @@ fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
     app.dispatch(Action::SelectRoom("discord:10:21".into()));
     assert!(app.state.room_ready);
     assert_eq!(app.state.messages[0].body, "kept");
-    assert_eq!(app.state.members, Some(Ok(vec![])));
+    assert_eq!(app.state.members, Some(Ok(Arc::new(vec![]))));
     app.apply(Event::Timeline {
         room: "discord:10:21".into(),
         messages: timeline(vec![]),
@@ -5410,7 +5410,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
             ..message("e:$ann", false)
         }]),
     });
-    app.state.members = Some(Ok(vec![ChatMember {
+    app.state.members = Some(Ok(Arc::new(vec![ChatMember {
         bot: false,
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
@@ -5418,7 +5418,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
             colors: Some([0x730bc8, 0x972fed]),
         }),
         ..member("@bob", "Bob")
-    }]));
+    }])));
     for url in ["ring.png", "bobs-ring.png", "plate.png"]
         .into_iter()
         .map(String::from)
@@ -5439,14 +5439,14 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
 #[test]
 fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
     let mut app = connected();
-    app.state.members = Some(Ok(vec![ChatMember {
+    app.state.members = Some(Ok(Arc::new(vec![ChatMember {
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
             colors: None,
         }),
         ..member("@bob", "Bob")
-    }]));
+    }])));
     app.dispatch(Action::HideNameplates(true));
     for url in ["bobs-ring.png", "plate.png"]
         .into_iter()

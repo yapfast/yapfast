@@ -70,7 +70,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{AccountCardShown, Reach, SidebarShown, SwitcherShown};
+use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -1926,6 +1926,8 @@ struct Adapter {
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
+    /// What the member list showed last, so it's built again only once that changes.
+    roster_shown: Option<RosterShown>,
     /// The account's own profile its card showed last, so the card is built
     /// again only once that or one of its pictures changes.
     account_profile_shown: Option<AccountCardShown>,
@@ -2283,6 +2285,7 @@ impl Adapter {
                 messages: Arc::new(Vec::new()),
                 rows: Vec::new(),
                 sidebar: None,
+                roster_shown: None,
                 account_profile_shown: None,
                 switcher: None,
                 places: Vec::new(),

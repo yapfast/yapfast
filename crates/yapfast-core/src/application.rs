@@ -610,7 +610,9 @@ pub struct AppState {
     pub room_ready: bool,
     pub messages: Arc<Vec<Arc<ChatMessage>>>,
     /// The selected room's joined members, by role and then name; `None` while loading.
-    pub members: Option<Result<Vec<ChatMember>, &'static str>>,
+    /// Shared, so a channel's kept view holds the same list, and a list that
+    /// came anew is one the UI can tell from the one it showed.
+    pub members: Option<Result<Arc<Vec<ChatMember>>, &'static str>>,
     /// A page of earlier history is on its way.
     pub loading_history: bool,
     /// The selected room's first message is loaded, so there's no earlier
@@ -1008,7 +1010,7 @@ impl AppState {
             .members
             .iter()
             .flatten()
-            .flatten()
+            .flat_map(|members| members.iter())
             .chain(&self.found_members)
             .chain(
                 self.role
@@ -1125,7 +1127,11 @@ impl AppState {
             .cloned()
             .collect();
         let mut candidates = Vec::new();
-        let listed = self.members.iter().flatten().flatten();
+        let listed = self
+            .members
+            .iter()
+            .flatten()
+            .flat_map(|members| members.iter());
         let people = listed.chain(&self.found_members).map(|member| {
             (
                 member.id.as_str(),
@@ -1363,7 +1369,7 @@ impl AppState {
                 self.members
                     .iter()
                     .flatten()
-                    .flatten()
+                    .flat_map(|members| members.iter())
                     .map(|member| member.id.as_str()),
             )
             .collect()
@@ -2326,7 +2332,7 @@ struct Seeking {
 struct Shown {
     room: String,
     messages: Arc<Vec<Arc<ChatMessage>>>,
-    members: Option<Result<Vec<ChatMember>, &'static str>>,
+    members: Option<Result<Arc<Vec<ChatMember>>, &'static str>>,
 }
 
 /// Discord channels whose last view is kept, as many as the Discord side
@@ -2632,7 +2638,7 @@ fn pictures_on_screen<'a>(
                 .iter()
                 .filter(move |_| list_avatars)
                 .flatten()
-                .flatten()
+                .flat_map(|members| members.iter())
                 .chain(&state.found_members)
                 .chain(
                     state
@@ -3977,7 +3983,7 @@ impl Application {
                 // A list that came stays when a later check finds none came.
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));
                 if self.state.selected.as_ref() == Some(&room) && !listed {
-                    self.state.members = Some(members);
+                    self.state.members = Some(members.map(Arc::new));
                 }
             }
             Event::People {

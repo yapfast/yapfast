@@ -2857,7 +2857,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     {
         let mut adapter = adapter.borrow_mut();
         let state = &mut adapter.app.state;
-        state.members = Some(Ok(vec![
+        state.members = Some(Ok(Arc::new(vec![
             ChatMember {
                 bot: false,
                 decoration: Some("ring.png".into()),
@@ -2877,7 +2877,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
                 }),
                 ..member("3", "Eve")
             },
-        ]));
+        ])));
         state.account_decoration = Some("mine.png".into());
         state.account_nameplate = Some(plate("mine-strip.png"));
         let window = window.clone_strong();
@@ -2919,6 +2919,93 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     assert!((0..3).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
     assert_eq!(roster.row_data(0).unwrap().decoration_url, "ring.png");
     assert!(look.get_nameplate_url().is_empty());
+    window.hide().unwrap();
+}
+
+#[test]
+fn the_member_list_is_built_again_only_once_what_it_shows_changes() {
+    use yapfast_core::chat::{ChatMember, Role};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    let now = yapfast_core::clock::now_ms();
+    let member = |id: &str, name: &str| ChatMember {
+        bot: false,
+        id: id.into(),
+        name: name.into(),
+        username: None,
+        role: Role::Member,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        boosting_since: None,
+        style: None,
+        tag: None,
+        group: None,
+        presence: None,
+        color: None,
+        activity: None,
+        activities: Default::default(),
+        roles: Default::default(),
+        timed_out_until: None,
+        group_icon: None,
+        role_icon: None,
+    };
+    let list = vec![
+        member("1", "Bob"),
+        ChatMember {
+            timed_out_until: Some(now + 500),
+            ..member("2", "Dave")
+        },
+    ];
+    let refresh = |change: &dyn Fn(&mut AppState)| {
+        let mut adapter = adapter.borrow_mut();
+        change(&mut adapter.app.state);
+        let window = window.clone_strong();
+        adapter.refresh(&window);
+    };
+    refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    let roster = window.get_roster();
+    assert_eq!(roster.row_data(0).unwrap().name, "Bob");
+    assert!(roster.row_data(1).unwrap().timed_out);
+    // A row set from elsewhere tells whether the list was built again.
+    let mark = || {
+        let row = MemberRow {
+            name: "marked".into(),
+            ..roster.row_data(0).unwrap()
+        };
+        adapter.borrow().models.roster.set_row_data(0, row);
+    };
+    mark();
+    // A refresh for anything else, such as a message, leaves the rows be.
+    refresh(&|state| state.picture_changes += 1);
+    assert_eq!(roster.row_data(0).unwrap().name, "marked");
+    // The same people, come again, are a new list.
+    refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    assert_eq!(roster.row_data(0).unwrap().name, "Bob");
+    mark();
+    refresh(&|state| state.hide_nameplates = true);
+    assert_eq!(
+        roster.row_data(0).unwrap().name,
+        "Bob",
+        "a setting it shows"
+    );
+    // Dave's timeout ending shows without a new list.
+    mark();
+    std::thread::sleep(std::time::Duration::from_millis(
+        (now + 500).saturating_sub(yapfast_core::clock::now_ms()) + 1,
+    ));
+    refresh(&|state| state.picture_changes += 1);
+    assert!(!roster.row_data(1).unwrap().timed_out);
     window.hide().unwrap();
 }
 

@@ -954,7 +954,7 @@ impl Application {
         if self.state.preview {
             if !voice_room {
                 self.state.messages = Arc::new(self.samples.get(&id).cloned().unwrap_or_default());
-                self.state.members = Some(Ok(preview_members(&id)));
+                self.state.members = Some(Ok(Arc::new(preview_members(&id))));
             }
         } else if voice_room {
             effects.push(Effect::Backend(Command::CloseRoom));
