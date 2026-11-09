@@ -229,6 +229,37 @@ fn activity_now() -> i32 {
     i32::try_from(now.saturating_sub(ACTIVITY_EPOCH)).unwrap_or(i32::MAX)
 }
 
+/// Discord's Unix milliseconds on ActivityClock; 0 when unknown.
+#[cfg(feature = "discord")]
+pub(super) fn activity_seconds(ms: Option<u64>) -> i32 {
+    ms.map_or(0, |ms| {
+        i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
+    })
+}
+
+/// Keeps ActivityClock current with `timer`, once a second, while `on`;
+/// stops it otherwise.
+pub(super) fn run_activity_clock(timer: &slint::Timer, window: &YapfastWindow, on: bool) {
+    if !on {
+        timer.stop();
+        return;
+    }
+    if timer.running() {
+        return;
+    }
+    window.global::<ActivityClock>().set_now(activity_now());
+    let window = window.as_weak();
+    timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_secs(1),
+        move || {
+            if let Some(window) = window.upgrade() {
+                window.global::<ActivityClock>().set_now(activity_now());
+            }
+        },
+    );
+}
+
 /// Someone's activities as their profile's cards show them.
 pub(super) fn activity_rows(activities: &yapfast_core::chat::Activities) -> ModelRc<ActivityRow> {
     if activities.is_empty() {
@@ -243,11 +274,6 @@ pub(super) fn activity_rows(activities: &yapfast_core::chat::Activities) -> Mode
 
 #[cfg(feature = "discord")]
 fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
-    let seconds = |ms: Option<u64>| {
-        ms.map_or(0, |ms| {
-            i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
-        })
-    };
     let text = |text: &Option<Box<str>>| SharedString::from(text.as_deref().unwrap_or_default());
     // A Hang status's emoji goes before its words, as a status's does.
     let name = match &activity.emoji {
@@ -288,8 +314,8 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         large_text: text(&activity.large_text),
         small_url: text(&activity.small_image),
         small_text: text(&activity.small_text),
-        start: seconds(activity.start),
-        end: seconds(activity.end),
+        start: activity_seconds(activity.start),
+        end: activity_seconds(activity.end),
         url: text(&activity.url),
         link: text(&activity.link),
     }
@@ -319,24 +345,7 @@ impl Adapter {
         };
         let shown = (self.app.state.profile.is_some() && timed(window.get_profile()))
             || (self.app.state.panel_profile.is_some() && timed(window.get_panel_profile()));
-        if !shown {
-            self.activity_clock.stop();
-            return;
-        }
-        if self.activity_clock.running() {
-            return;
-        }
-        window.global::<ActivityClock>().set_now(activity_now());
-        let window = window.as_weak();
-        self.activity_clock.start(
-            slint::TimerMode::Repeated,
-            std::time::Duration::from_secs(1),
-            move || {
-                if let Some(window) = window.upgrade() {
-                    window.global::<ActivityClock>().set_now(activity_now());
-                }
-            },
-        );
+        run_activity_clock(&self.activity_clock, window, shown);
     }
 }
 
