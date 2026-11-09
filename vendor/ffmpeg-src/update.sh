@@ -93,6 +93,10 @@ tar xf "$work/vpl.tar.gz" -C "$work/vpl" --strip-components=1
 src=$work/ffmpeg-$FFMPEG_VERSION
 make -s -C "$work/nv-codec-headers-$NVH_VERSION" PREFIX="$work/nvh" install
 libva=$(nix build --no-link --print-out-paths --inputs-from "path:$root/nix" nixpkgs#libva.dev)
+# libdrm is what `--enable-libdrm` reads: FFmpeg's DRM PRIME export hands a
+# VA-API picture over as a DMA-BUF, which is how a Linux decode reaches the
+# window without a copy. Its headers are a build input, not a run-time one.
+libdrm=$(nix build --no-link --print-out-paths --inputs-from "path:$root/nix" nixpkgs#libdrm)
 # configure's --enable-libvpl links a test against oneVPL, so each target needs
 # one to link: the Linux build's own for Linux, and for Windows an import
 # library for vpl.dll. Neither is shipped, and neither lands in config.h:
@@ -112,7 +116,7 @@ vpl_pc() {  # target, where that library is
 }
 vpl_pc linux "$work/vpl-build"
 vpl_pc windows "$work/vpl-win/lib"
-export PKG_CONFIG_PATH=$work/nvh/lib/pkgconfig:$libva/lib/pkgconfig:$work/vpl-pc-linux
+export PKG_CONFIG_PATH=$work/nvh/lib/pkgconfig:$libva/lib/pkgconfig:$libdrm/lib/pkgconfig:$work/vpl-pc-linux
 
 # One target: configure, build, and record what it compiled and generated.
 build() {  # target, nm, then configure's arguments

@@ -637,3 +637,51 @@ a cheaper one. A machine that can't be asked — no DXGI budget, or a platform
 with no sampler — is not a machine that is short, and keeps normal behaviour.
 The thresholds are policy, not measurements: they are named constants in
 `crates/yapfast-core/src/pressure.rs`.
+
+## What isn't verified here
+
+This tree is not a qualification of any machine. What the code does is
+described above; what has been run on hardware is this:
+
+- **Nothing on a graphics card.** d3d11va decode, the video processor pass,
+  the shared texture the window samples, NVENC reading a captured texture,
+  AMF and Quick Sync output, and the D3D11 fences are compiled and
+  unit-tested where a test can be without a device, and have not been
+  exercised on one from here. A stream the card can't take falls back to the
+  processor, and the log says why; whether a given machine's driver takes it
+  is that machine's to answer.
+- **Intel Quick Sync** is in the vendored build (oneVPL 2.14.0,
+  `--enable-libvpl`) and in the probe, and no Intel GPU has run it. It is fed
+  from the processor, like AMF, and says so.
+- **Linux's card paths are built but not wired.** The DMA-BUF descriptor
+  channel (`dmabuf.rs`), the VA-API decoder (`native/hwdec_vaapi.c`), the
+  portal/PipeWire capturer (`capture/portal.rs`, `capture/pipewire.rs`) and
+  the X11 DRI3 capturer (`capture/x11.rs`) exist with their own tests and
+  fallbacks; the stream worker does not call the decoders or the capturers
+  yet, so Linux still captures and decodes on the processor. The VA-API path
+  also waits on the vendored FFmpeg being rebuilt with `--enable-libdrm` and
+  the VA-API hwaccels, which `build.rs` checks for and says so when it isn't
+  there.
+- **Vulkan on Linux** is opt-in: the Skia Vulkan build (`nix build
+  path:./nix#skia-vulkan`) and the `skia-vulkan` feature, with OpenGL the
+  default and the fallback. No Vulkan device was available to run it here.
+- **Lip sync** is not measured. The 80 ms bound and the two skews are
+  computed as described, but a picture's presentation is its submission to
+  the frames file — the renderer's own fence is the window's to observe — so
+  the presentation skew is an estimate and the Stream tab says so by making
+  the record `estimated`.
+- **Window capture's transitions** — resize, minimise and restore, close,
+  capture exclusion, repeated switches — are implemented and every one a test
+  can decide without a window is decided; they have not been driven by a
+  window on Windows.
+- **Not measured on this branch's paths:** NVENC against x264, the receive
+  side's allocation rate, the per-frame mmap cost, and what a constrained
+  machine actually saves. `docs/measurements/README.md` says which numbers
+  exist and which do not.
+
+The optimisations a review proposed and this work did not take — a scaler
+separate from an encoder session, a pool for the receive path's packets, a
+byte budget for the reorder queues and resend history, memory tests beyond
+Rust's allocator, presentation demand from the tile rather than the window,
+fence waits off the UI thread, and per-source audio queue capacity — are
+still open, and none of them is a known defect.
