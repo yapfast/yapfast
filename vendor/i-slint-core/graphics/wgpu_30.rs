@@ -121,9 +121,17 @@ pub mod api {
         type Error = TextureImportError;
 
         fn try_from(texture: wgpu_30::Texture) -> Result<Self, Self::Error> {
-            if texture.format() != wgpu_30::TextureFormat::Rgba8Unorm
-                && texture.format() != wgpu_30::TextureFormat::Rgba8UnormSrgb
-            {
+            // BGRA is what a captured screen is drawn in, and what the DX12
+            // surface imports as `BGRA8888` (see the skia renderer's
+            // `import_dx12_texture`): a texture of the card's own bytes, shown
+            // without a swizzle anywhere.
+            if !matches!(
+                texture.format(),
+                wgpu_30::TextureFormat::Rgba8Unorm
+                    | wgpu_30::TextureFormat::Rgba8UnormSrgb
+                    | wgpu_30::TextureFormat::Bgra8Unorm
+                    | wgpu_30::TextureFormat::Bgra8UnormSrgb
+            ) {
                 return Err(Self::Error::InvalidFormat);
             }
             let usages = texture.usage();
@@ -143,7 +151,7 @@ pub mod api {
     /// This enum describes the possible errors that can occur when importing a WGPU texture,
     /// via [`Image::try_from()`](super::super::Image::try_from()).
     pub enum TextureImportError {
-        /// The texture format is not supported. The only supported format is Rgba8Unorm and Rgba8UnormSrgb.
+        /// The texture format is not supported. The supported formats are Rgba8Unorm, Rgba8UnormSrgb, Bgra8Unorm and Bgra8UnormSrgb.
         InvalidFormat,
         /// The texture usage must include TEXTURE_BINDING as well as RENDER_ATTACHMENT.
         InvalidUsage,

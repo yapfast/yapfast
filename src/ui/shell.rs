@@ -417,11 +417,19 @@ impl Adapter {
         // The window went, and with it the ticks that would tell a watched
         // stream's worker that no picture shows any more: without a window
         // none does, so it's told here, and goes on decoding with its sound
-        // while converting and writing nothing.
+        // while converting and writing nothing. The share's own preview is told
+        // the same, or the worker would go on scaling a card's picture into a
+        // tile nobody draws until sharing stops.
         if self.app.state.voice.watching.is_some() {
             let effects = self
                 .app
                 .dispatch(Action::Voice(voice::Command::WatchShown(false)));
+            self.execute(effects);
+        }
+        if self.app.state.voice.sharing.is_some() {
+            let effects = self
+                .app
+                .dispatch(Action::Voice(voice::Command::Preview(false)));
             self.execute(effects);
         }
         self.window = slint::Weak::default();

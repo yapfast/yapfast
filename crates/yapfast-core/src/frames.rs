@@ -30,6 +30,15 @@
 //! and goes on with pixels from its next frame: a picture that can't be shown
 //! is a slow stream, not a blank one.
 //!
+//! On Windows a picture crosses as a shared texture's handle, a number that
+//! names the same object in both processes, so the header carries it. On Linux
+//! it is a DMA-BUF, and a descriptor names a different object in every process:
+//! the header carries the shape of the picture and the number of the socket it
+//! is sent over instead, and the worker sends one message for each picture it
+//! publishes with the descriptors attached; see [`crate::dmabuf`]. The slot,
+//! generation, take and retirement protocol is the same on both, so a slot is
+//! never drawn into again while the window may still be sampling it.
+//!
 //! A GPU slot is the worker's to draw into again only once the UI says it has
 //! finished with the picture that was there, slot by slot and generation by
 //! generation. Taking a picture is not finishing with it: the window shows it
@@ -55,12 +64,22 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use memmap2::MmapMut;
 
+#[cfg(target_os = "linux")]
+use crate::dmabuf;
+
 const MAGIC: u32 = u32::from_le_bytes(*b"TKFR");
+
+/// The version of this header the window writes, which a reader of another
+/// version refuses the file for rather than reading its fields at another
+/// meaning (Linux). Windows leaves the field it is in zero, and reads it not at
+/// all.
+#[cfg(target_os = "linux")]
+const VERSION: u32 = 1;
 /// Where the slots start. It's well past what the header says, so a field
 /// added later lands in the room this one leaves rather than moving every
 /// slot in a file the other process has already mapped.
 const HEADER: usize = 256;
-const SLOTS: u32 = 3;
+pub(crate) const SLOTS: u32 = 3;
 /// Set beside the middle slot's index when the worker put a frame there that
 /// the UI hasn't taken.
 const FRESH: u32 = 4;
@@ -87,6 +106,13 @@ const UI_UNSET: u32 = 0;
 const UI_USABLE: u32 = 1;
 const UI_REFUSED: u32 = 2;
 
+/// What a slot's picture is on Linux, where the memory it is in is named by the
+/// descriptors that came over the socket rather than by anything in the file: a
+/// slot of pixels has zero in the field this marks, so the two can't be taken for
+/// each other, and the value itself means nothing.
+#[cfg(target_os = "linux")]
+const PICTURE: u64 = 1;
+
 /// The header at the start of the file; slots follow it.
 #[repr(C)]
 struct Header {
@@ -97,7 +123,13 @@ struct Header {
     capacity: AtomicU32,
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
+    /// Nothing on Windows. On Linux it is [`VERSION`], the version of this
+    /// header the window made it with, which a reader of another version
+    /// refuses the file for rather than reading its fields at another meaning.
+    #[cfg(not(target_os = "linux"))]
     _reserved: u32,
+    #[cfg(target_os = "linux")]
+    version: AtomicU32,
     /// Each slot's frame size, as width and height in pixels.
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
@@ -117,6 +149,12 @@ struct Header {
     ui_pid: AtomicU32,
     /// The adapter the UI draws on, when its answer is [`UI_USABLE`].
     ui_luid: AtomicU64,
+    /// The descriptor the worker's end of the socket its pictures travel on has
+    /// in the process the window started for it (Linux); zero while the stream
+    /// has no such socket, which a stream of pixels needs none of. Nothing on
+    /// Windows, where a picture crosses as a handle in a slot instead.
+    #[cfg(target_os = "linux")]
+    socket: AtomicU32,
 }
 
 /// One slot's picture, when the worker drew it on the GPU instead of writing
@@ -177,6 +215,12 @@ pub enum Frame<'a> {
     },
     /// A picture in a texture the worker shares, and how to know it's drawn.
     Gpu(Picture),
+    /// A picture in a DMA-BUF the worker shared as descriptors, which is how a
+    /// GPU picture crosses on Linux: the memory is the worker's, and the
+    /// descriptors that name this process's part of it are closed when the
+    /// picture is dropped, which is as the slot is retired.
+    #[cfg(target_os = "linux")]
+    Dmabuf(dmabuf::Picture),
 }
 
 /// A picture the worker drew on the GPU, as its slot's header describes it.
@@ -305,6 +349,11 @@ impl Mapping {
             complained: false,
         };
         ensure!(mapping.header().magic == MAGIC, "not a video frames file");
+        #[cfg(target_os = "linux")]
+        ensure!(
+            mapping.header().version.load(Ordering::Acquire) == VERSION,
+            "not this version of a video frames file"
+        );
         let capacity = mapping.capacity_now();
         ensure!(
             mapping.view().len() >= HEADER + SLOTS as usize * capacity,
@@ -527,6 +576,11 @@ impl<'a> Reading<'a> {
             "the video frames file is too short"
         );
         ensure!(reading.header().magic == MAGIC, "not a video frames file");
+        #[cfg(target_os = "linux")]
+        ensure!(
+            reading.header().version.load(Ordering::Acquire) == VERSION,
+            "not this version of a video frames file"
+        );
         reading.capacity = reading.capacity_now();
         ensure!(
             reading.view().len() >= HEADER + SLOTS as usize * reading.capacity,
@@ -566,6 +620,11 @@ impl Drop for Reading<'_> {
 
 /// The UI's side: it creates the file and shows the newest frame.
 pub struct Frames {
+    /// What this set of frames is known by, for as long as it lives: the UI
+    /// keeps what it opened for a stream beside it, and an address is handed
+    /// out again as soon as the process makes a new one — by the allocator
+    /// that just freed the old, typically at the same size.
+    id: u64,
     /// The file, mapped for the length of a take and let go after it: the
     /// worker shortens it only while nothing has it mapped, so a view held
     /// between takes would hold the file's room with it.
@@ -576,10 +635,17 @@ pub struct Frames {
     name: Mutex<Option<Name>>,
 }
 
+/// The next number a set of frames is known by: never one an earlier set had.
+static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// What the UI holds between takes: the slot it reads, and nothing of the file
 /// itself, which is mapped again for each take.
 struct Front {
     slot: u32,
+    /// The socket the worker's pictures arrive on, and the pictures taken out of
+    /// it that no take has asked for yet (Linux).
+    #[cfg(target_os = "linux")]
+    pictures: dmabuf::Reader,
 }
 
 /// What keeps the file's name until [`Frames::unlink`].
@@ -679,6 +745,10 @@ impl Frames {
             map[4..8].copy_from_slice(&u32::try_from(capacity)?.to_ne_bytes());
             // The worker starts with slot 0 and the UI with slot 2.
             map[8..12].copy_from_slice(&1u32.to_ne_bytes());
+            // The version of the header this writes, which a reader of another
+            // one refuses the file for.
+            #[cfg(target_os = "linux")]
+            map[12..16].copy_from_slice(&VERSION.to_ne_bytes());
         }
         let mapping = Mapping::open(&file)?;
         // The worker duplicates its shared handles into this process, and its
@@ -688,10 +758,62 @@ impl Frames {
             .ui_pid
             .store(std::process::id(), Ordering::Release);
         Ok(Self {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             file,
-            front: Mutex::new(Front { slot: 2 }),
+            front: Mutex::new(Front {
+                slot: 2,
+                #[cfg(target_os = "linux")]
+                pictures: dmabuf::Reader::default(),
+            }),
             name: Mutex::new(Some(name)),
         })
+    }
+
+    /// Makes the socket this stream's pictures travel on, on Linux: one end is
+    /// kept here, the other is given to the process about to be started for the
+    /// worker, and the header names the descriptor that end has so the worker
+    /// finds it there. Says which descriptor that is, which the spawn keeps
+    /// open across the `exec`; see [`crate::dmabuf`].
+    ///
+    /// A stream whose socket can't be made is a stream of pixels, which is what
+    /// Linux has been until now: nothing an error here costs more than the
+    /// pictures that would have crossed it.
+    #[cfg(target_os = "linux")]
+    pub fn open_pictures(&self) -> Result<u32> {
+        let fd = {
+            let mut front = self
+                .front
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            front
+                .pictures
+                .open()
+                .context("could not make the pictures socket")?
+        };
+        // The header names it before the process that inherits it starts, so a
+        // worker that finds no descriptor there is one whose window made none.
+        let reading = Reading::open(&self.file)?;
+        let fd = u32::try_from(fd)?;
+        reading.header().socket.store(fd, Ordering::Release);
+        Ok(fd)
+    }
+
+    /// Lets go of this process's copy of the worker's end of that socket, once
+    /// its process is running: from here the reading end sees the socket close
+    /// when the worker goes, and the frames after it are the frame before it.
+    #[cfg(target_os = "linux")]
+    pub fn pictures_spawned(&self) {
+        self.front
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pictures
+            .spawned();
+    }
+
+    /// What this set of frames is known by, for as long as it lives: unique
+    /// among the sets this process makes, including ones that have gone.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     /// Where the worker opens the file, until [`Self::unlink`].
@@ -724,6 +846,12 @@ impl Frames {
             .front
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // What the worker sent over the stream's socket since the last take,
+        // taken out of it here whatever this take goes on to show: a picture's
+        // descriptors arrive with the message that announces them, and a message
+        // nobody reads is memory the window holds for nothing.
+        #[cfg(target_os = "linux")]
+        front.pictures.drain();
         // The file is mapped for this take and not held between them: the worker
         // shortens it only while nothing has it mapped, and a view of a file that
         // shrank reads another frame's pixels.
@@ -753,13 +881,30 @@ impl Frames {
             return None;
         }
         let header = reading.header();
-        let [width, height] = &header.sizes[front.slot as usize];
+        let slot = front.slot;
+        let [width, height] = &header.sizes[slot as usize];
         let (width, height) = (
             width.load(Ordering::Relaxed),
             height.load(Ordering::Relaxed),
         );
-        let shared = &header.pictures[front.slot as usize];
+        let shared = &header.pictures[slot as usize];
         let texture = shared.texture.load(Ordering::Relaxed);
+        let generation = shared.generation.load(Ordering::Relaxed);
+        // The picture as the header describes it, which is what a slot holds on
+        // Windows, and on Linux what a slot holds when nothing describes its
+        // memory better: a picture published before there was a socket to send
+        // its descriptors on, which the window refuses for what it can't open.
+        let described = || Picture {
+            luid: header.luid.load(Ordering::Relaxed),
+            fence: header.fence.load(Ordering::Relaxed),
+            texture,
+            fence_value: shared.value.load(Ordering::Relaxed),
+            generation,
+            set: shared.set.load(Ordering::Relaxed),
+            slot,
+            width,
+            height,
+        };
         // A handle is what says a slot holds a picture instead of pixels, and
         // a slot the worker fills with pixels has none: the two can't be taken
         // for each other.
@@ -767,33 +912,32 @@ impl Frames {
             let length = capacity(width, height).min(held);
             // SAFETY: the worker no longer writes this slot: it's the UI's
             // front until the UI swaps it back.
-            let pixels = unsafe { std::slice::from_raw_parts(reading.slot(front.slot), length) };
+            let pixels = unsafe { std::slice::from_raw_parts(reading.slot(slot), length) };
             Frame::Pixels {
                 width,
                 height,
                 pixels,
             }
         } else {
-            Frame::Gpu(Picture {
-                luid: header.luid.load(Ordering::Relaxed),
-                fence: header.fence.load(Ordering::Relaxed),
-                texture,
-                fence_value: shared.value.load(Ordering::Relaxed),
-                generation: shared.generation.load(Ordering::Relaxed),
-                set: shared.set.load(Ordering::Relaxed),
-                slot: front.slot,
-                width,
-                height,
-            })
+            #[cfg(target_os = "linux")]
+            let frame = match front.pictures.take(slot, generation) {
+                Some(picture) => Frame::Dmabuf(picture),
+                // A picture whose descriptors were sent and haven't arrived, or
+                // whose socket has gone: the frame before it stays up rather
+                // than a slot taken for one nothing can show.
+                None if texture == PICTURE => return None,
+                None => Frame::Gpu(described()),
+            };
+            #[cfg(not(target_os = "linux"))]
+            let frame = Frame::Gpu(described());
+            frame
         };
         // The picture the reader took, slot by slot: a picture it never took
         // is one nobody showed and nothing can be sampling, so the worker may
         // draw over it, and one it did take is its own to keep until the
         // rendering queue says it is done with it.
         if texture != 0 {
-            shared
-                .took
-                .fetch_max(shared.generation.load(Ordering::Acquire), Ordering::AcqRel);
+            shared.took.fetch_max(generation, Ordering::AcqRel);
         }
         let time = header.times[front.slot as usize].load(Ordering::Relaxed);
         Some((show(frame), time))
@@ -811,6 +955,8 @@ impl Frames {
                 pixels,
             } => Some(show(width, height, pixels)),
             Frame::Gpu(_) => None,
+            #[cfg(target_os = "linux")]
+            Frame::Dmabuf(_) => None,
         })
         .flatten()
     }
@@ -824,6 +970,8 @@ impl Frames {
                 pixels,
             } => Some(show(width, height, pixels)),
             Frame::Gpu(_) => None,
+            #[cfg(target_os = "linux")]
+            Frame::Dmabuf(_) => None,
         })
         .and_then(|(shown, time)| shown.map(|shown| (shown, time)))
     }
@@ -901,6 +1049,10 @@ pub struct Writer {
     /// needs more room than it has and to shorten it once the frames need less.
     file: File,
     mapping: Mapping,
+    /// The socket this writer's pictures' descriptors go to the window on, as
+    /// this worker inherited it (Linux); nothing while the window made none.
+    #[cfg(target_os = "linux")]
+    pictures: dmabuf::Sender,
     back: u32,
     /// How many pictures this writer has published, which numbers them.
     published: u64,
@@ -926,9 +1078,21 @@ impl Writer {
             .write(true)
             .open(path)
             .context("could not open the video frames file")?;
+        let mapping = Mapping::open(&file)?;
+        // The socket the window made for this stream's pictures, as this
+        // process inherited it: the header names the descriptor, and a header
+        // that names none — or names one that isn't this stream's socket — is a
+        // stream whose pictures go out as pixels.
+        #[cfg(target_os = "linux")]
+        let pictures = dmabuf::Sender::adopt(
+            mapping.header().socket.load(Ordering::Acquire),
+            mapping.header().ui_pid.load(Ordering::Acquire),
+        );
         Ok(Self {
-            mapping: Mapping::open(&file)?,
+            mapping,
             file,
+            #[cfg(target_os = "linux")]
+            pictures,
             back: 0,
             published: 0,
             small: None,
@@ -1254,6 +1418,61 @@ impl Writer {
         self.back = header.middle.swap(slot | FRESH, Ordering::AcqRel) & !FRESH;
         true
     }
+
+    /// Publishes a picture the worker drew into a DMA-BUF into the slot
+    /// [`Self::claim`] answered, and says whether it did: `false` means the
+    /// window has said it can't show such pictures, the socket is gone, or the
+    /// descriptors didn't match the planes, and the caller writes the frame's
+    /// pixels instead.
+    ///
+    /// The worker must, before calling this:
+    /// * have the picture in memory that can be shared as file descriptors — a
+    ///   card's surface exported as a DMA-BUF, or a buffer a PipeWire stream
+    ///   filled — and keep it as long as the window may still be sampling it,
+    ///   which is until it retires the slot;
+    /// * have finished writing it. There is no fence on this path, unlike the
+    ///   shared texture's: the driver's own implicit fence travels with the
+    ///   descriptors, and is what an importer waits on;
+    /// * have given the same number of descriptors as planes, one per plane.
+    ///
+    /// The descriptors go to the window over the stream's socket, one message a
+    /// picture, before the header says the slot holds it: a reader takes a slot
+    /// for a picture only when it has that picture's message, and a message for
+    /// a generation the header hasn't announced waits for the take that asks
+    /// for it. The slot is the writer's own back, as on the shared texture's
+    /// path, and the reader's [`Frames::retire`] is what gives it back.
+    #[cfg(target_os = "linux")]
+    pub fn publish_dmabuf(&mut self, picture: &dmabuf::Descriptor<'_>) -> bool {
+        if !self.mapping.mapped(&self.file) {
+            return false;
+        }
+        let slot = self.back;
+        let header = self.mapping.header();
+        // Nothing said yet is not an answer — see [`Self::publish_into`] — but a
+        // refusal is, and it is the window saying it can't show these at all.
+        if header.ui.load(Ordering::Acquire) == UI_REFUSED {
+            return false;
+        }
+        self.published += 1;
+        if !self.pictures.send(slot, self.published, picture) {
+            return false;
+        }
+        let shared = &header.pictures[slot as usize];
+        // The fields a shared texture's handle and fence would be in say nothing
+        // on this path: the memory the picture is in is named by the descriptors
+        // that went over the socket.
+        shared.value.store(0, Ordering::Relaxed);
+        shared.set.store(0, Ordering::Relaxed);
+        shared.texture.store(PICTURE, Ordering::Relaxed);
+        shared.generation.store(self.published, Ordering::Relaxed);
+        let [w, h] = &header.sizes[slot as usize];
+        w.store(picture.width, Ordering::Relaxed);
+        h.store(picture.height, Ordering::Relaxed);
+        // A stream's pictures have no time in a file.
+        header.times[slot as usize].store(0, Ordering::Relaxed);
+        self.back = header.middle.swap(slot | FRESH, Ordering::AcqRel) & !FRESH;
+        true
+    }
 }
 
 #[cfg(test)]
@@ -1422,6 +1641,10 @@ mod tests {
                     assert!(width > 0 && height > 0, "a frame says its size");
                     None
                 }
+                // A DMA-BUF is the Linux picture path, and a test that looks
+                // for a shared texture's handle never publishes one.
+                #[cfg(target_os = "linux")]
+                Frame::Dmabuf(_) => None,
             })
             .flatten()
     }
@@ -1687,6 +1910,8 @@ mod tests {
                         pixels,
                     } => Some((width, height, pixels.to_vec())),
                     Frame::Gpu(_) => None,
+                    #[cfg(target_os = "linux")]
+                    Frame::Dmabuf(_) => None,
                 })
                 .flatten(),
             Some((2, 1, vec![7; 8])),
@@ -1965,5 +2190,320 @@ mod tests {
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A descriptor of this process's own naming `name`, which is the "picture"
+    /// these tests share: nothing about it is a card's, and its name is what
+    /// says how many of this process's descriptors name it.
+    #[cfg(target_os = "linux")]
+    use std::os::fd::AsRawFd;
+
+    #[cfg(target_os = "linux")]
+    fn memory(name: &str) -> std::os::fd::OwnedFd {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        let name = std::ffi::CString::new(name).unwrap();
+        // SAFETY: the name is this test's own string, and nothing is asked of
+        // the descriptor but that it be a fresh anonymous one.
+        let fd = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC) };
+        assert!(fd >= 0, "a memfd for the test");
+        // SAFETY: the call made the descriptor, and nothing else holds it.
+        unsafe { OwnedFd::from_raw_fd(fd) }
+    }
+
+    /// How many of this process's descriptors name the memfd `name`: one more
+    /// for each end a picture has crossed to, and one fewer for each end that
+    /// has closed it. It is what says a descriptor was handed over rather than
+    /// copied, and closed rather than leaked.
+    #[cfg(target_os = "linux")]
+    fn naming(name: &str) -> usize {
+        let Ok(entries) = std::fs::read_dir("/proc/self/fd") else {
+            panic!("the open descriptors are listed");
+        };
+        entries
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                std::fs::read_link(PathBuf::from("/proc/self/fd").join(entry.file_name()))
+                    .is_ok_and(|target| target.to_string_lossy().contains(name))
+            })
+            .count()
+    }
+
+    /// A stream whose two ends are both in this test, which a spawn makes two
+    /// processes: the window's end in the frames, the worker's in the writer.
+    #[cfg(target_os = "linux")]
+    fn socketed(frames: &Frames, path: &Path) -> Writer {
+        let (reader, sender) = dmabuf::Reader::paired();
+        *frames
+            .front
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Front {
+            slot: 2,
+            pictures: reader,
+        };
+        let mut writer = Writer::open(path).unwrap();
+        writer.pictures = sender;
+        writer
+    }
+
+    /// A picture on the Linux path, at the size it is named with.
+    #[cfg(target_os = "linux")]
+    fn described<'a>(
+        (width, height): (u32, u32),
+        planes: &'a [dmabuf::Plane],
+        fds: &'a [std::os::fd::RawFd],
+    ) -> dmabuf::Descriptor<'a> {
+        dmabuf::Descriptor {
+            width,
+            height,
+            fourcc: u32::from_le_bytes(*b"XR24"),
+            modifier: 0,
+            planes,
+            fds,
+        }
+    }
+
+    /// A picture's descriptor is what crosses on Linux, not a handle in the file:
+    /// it goes over the stream's socket, the window takes it with the picture it
+    /// names, and it is closed exactly once on each side — the window's as it
+    /// retires the slot, the worker's when it lets go of its own.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_picture_crosses_as_descriptors_and_is_closed_once_on_each_side() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = socketed(&frames, &path);
+        frames.unlink();
+
+        let name = "yapfast-test-frames-picture";
+        let memory = memory(name);
+        assert_eq!(naming(name), 1, "the worker's own");
+        let fds = [memory.as_raw_fd()];
+        let planes = [dmabuf::Plane {
+            offset: 0,
+            stride: 16,
+        }];
+        let drawn = described((4, 2), &planes, &fds);
+        assert_eq!(writer.claim(), Some(0), "a slot that never held a picture");
+        assert!(writer.publish_dmabuf(&drawn), "one message, one picture");
+        assert_eq!(naming(name), 1, "the sender keeps its own descriptor");
+
+        let picture = frames
+            .take_frame(|frame| match frame {
+                Frame::Dmabuf(picture) => Some(picture),
+                Frame::Pixels { .. } | Frame::Gpu(_) => None,
+            })
+            .flatten()
+            .expect("the picture the worker published");
+        assert_eq!((picture.width(), picture.height()), (4, 2));
+        assert_eq!(
+            (picture.fourcc(), picture.modifier()),
+            (u32::from_le_bytes(*b"XR24"), 0)
+        );
+        let held: Vec<_> = picture.planes().collect();
+        assert_eq!(held.len(), 1, "one plane, one descriptor");
+        assert_eq!(
+            held[0].0,
+            dmabuf::Plane {
+                offset: 0,
+                stride: 16
+            }
+        );
+        assert_eq!(naming(name), 2, "the window has its own now");
+        assert!(
+            frames.take(|_, _, _| ()).is_none(),
+            "a picture is not pixels"
+        );
+
+        // Retiring the slot and letting the picture go is one close, and the
+        // worker's own descriptor is still the worker's.
+        let (slot, generation) = (picture.slot(), picture.generation());
+        assert!(frames.retire(slot, generation), "off the screen");
+        drop(picture);
+        assert_eq!(naming(name), 1, "the window closed its own");
+        drop(memory);
+        assert_eq!(naming(name), 0, "and the worker its own");
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// The slot protocol is the same as a shared texture's: a picture the window
+    /// took is the worker's again only once the window says it has finished with
+    /// it, and then the slot is published into again — the same slot, a newer
+    /// picture of it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_retired_picture_slot_is_published_into_again() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = socketed(&frames, &path);
+        frames.unlink();
+        let take = |frames: &Frames| {
+            frames
+                .take_frame(|frame| match frame {
+                    Frame::Dmabuf(picture) => Some(picture),
+                    Frame::Pixels { .. } | Frame::Gpu(_) => None,
+                })
+                .flatten()
+                .expect("the picture published")
+        };
+
+        let name = "yapfast-test-frames-slot";
+        let memory = memory(name);
+        let fds = [memory.as_raw_fd()];
+        let planes = [dmabuf::Plane {
+            offset: 0,
+            stride: 16,
+        }];
+        let drawn = described((4, 2), &planes, &fds);
+
+        // One picture a slot, each taken and kept: the window holds one memory
+        // beside the worker's own.
+        assert_eq!(writer.claim(), Some(0), "a slot that never held a picture");
+        assert!(writer.publish_dmabuf(&drawn));
+        let first = take(&frames);
+        assert_eq!(writer.claim(), Some(1), "the next slot");
+        assert!(writer.publish_dmabuf(&drawn));
+        let second = take(&frames);
+        assert_eq!(writer.claim(), Some(2), "the third slot");
+        assert!(writer.publish_dmabuf(&drawn));
+        let third = take(&frames);
+        assert_eq!(
+            (first.slot(), second.slot(), third.slot()),
+            (0, 1, 2),
+            "a picture a slot"
+        );
+        assert_eq!(naming(name), 4, "the worker's own and the window's three");
+
+        // The writer's back has come round to the picture the window took first,
+        // which the window hasn't finished with: nothing is drawn there, and the
+        // frame's pixels are what the caller publishes instead.
+        assert_eq!(
+            writer.claim(),
+            None,
+            "the window may still be sampling that picture"
+        );
+
+        // Finished with, the slot is the writer's again, and the picture after
+        // it goes into the slot it came from.
+        assert!(
+            frames.retire(first.slot(), first.generation()),
+            "the window is done with the first picture"
+        );
+        assert_eq!(writer.claim(), Some(first.slot()), "the slot came back");
+        assert!(writer.publish_dmabuf(&drawn));
+        let again = take(&frames);
+        assert_eq!(again.slot(), first.slot(), "the same slot");
+        assert!(
+            again.generation() > first.generation(),
+            "a newer picture of it"
+        );
+
+        // Letting go of each picture closes the window's own descriptor of it,
+        // and the worker's is the worker's until the worker lets go.
+        drop((first, second, third, again));
+        assert_eq!(naming(name), 1);
+        drop(memory);
+        assert_eq!(naming(name), 0);
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A socket whose window's end has closed is no channel at all: the picture
+    /// isn't published, the frame goes out as pixels, and the stream carries on.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_picture_a_dead_socket_cannot_carry_comes_out_as_pixels() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = socketed(&frames, &path);
+        frames.unlink();
+        // The window that made the socket has gone, which is the socket closed
+        // at its end.
+        writer.pictures = {
+            let (reader, sender) = dmabuf::Reader::paired();
+            drop(reader);
+            sender
+        };
+
+        let name = "yapfast-test-frames-dead-socket";
+        let memory = memory(name);
+        let fds = [memory.as_raw_fd()];
+        let planes = [dmabuf::Plane {
+            offset: 0,
+            stride: 16,
+        }];
+        let drawn = described((4, 2), &planes, &fds);
+        assert_eq!(writer.claim(), Some(0));
+        assert!(!writer.publish_dmabuf(&drawn), "nowhere to send it");
+        assert!(
+            !writer.publish_dmabuf(&drawn),
+            "and it isn't tried again at frame rate"
+        );
+        assert_eq!(naming(name), 1, "a send that failed takes no reference");
+
+        // The frame after it is the frame's pixels, which need no socket.
+        writer.write(4, 2, |pixels| pixels.fill(9));
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((4, 2, vec![9; 32]))
+        );
+        drop(memory);
+        assert_eq!(naming(name), 0);
+
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A frames file says which version of the header it was made with, and a
+    /// reader of another version refuses it rather than reading its fields at
+    /// another meaning; a file that isn't one of these at all is refused by its
+    /// magic, as ever.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_file_of_another_version_or_magic_is_refused() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let writer = Writer::open(&path).unwrap();
+        frames.unlink();
+
+        writer
+            .mapping
+            .header()
+            .version
+            .store(VERSION + 1, Ordering::Release);
+        assert!(
+            Writer::open(&path).is_err(),
+            "another version of the header"
+        );
+        assert!(
+            frames.take(|_, _, _| ()).is_none(),
+            "the window refuses it too"
+        );
+
+        writer
+            .mapping
+            .header()
+            .version
+            .store(VERSION, Ordering::Release);
+        // SAFETY: the header is the first bytes of a view this test holds, page
+        // aligned, and its magic is a plain number at the front of it.
+        unsafe {
+            writer
+                .mapping
+                .view()
+                .as_ptr()
+                .cast_mut()
+                .cast::<u32>()
+                .write(u32::from_le_bytes(*b"XXXX"));
+        }
+        assert!(Writer::open(&path).is_err(), "not a video frames file");
+        assert!(
+            frames.take(|_, _, _| ()).is_none(),
+            "and not for the window"
+        );
+
+        drop((writer, frames));
     }
 }

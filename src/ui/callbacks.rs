@@ -3056,10 +3056,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // frames each reads: a stream replaced by another, or stopped and started
     // again, is one the cached hints say nothing about, even when nothing the
     // window can see has changed between two ticks.
-    let keys = std::cell::Cell::new((0usize, 0usize));
-    // And when the window last read the machine's memory, so it asks once a
-    // second rather than every tick.
-    let trimmed = std::cell::Cell::new(None::<std::time::Instant>);
+    let keys = std::cell::Cell::new((0u64, 0u64));
     window.on_stream_tick(move || {
         let Some(window) = weak.upgrade() else {
             return;
@@ -3070,28 +3067,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             identity(&voice.sharing, &voice.watching)
         };
         let (was_share, was_watch) = keys.replace((share_key, watch_key));
-        // A machine that is short of memory has the window give back what it
-        // opened and isn't showing: the share's own worker says so in its
-        // report, which the call's details read each second, and this is where
-        // the window acts on it instead of letting its caches grow to the
-        // process's end. Nothing in use is let go.
-        if trimmed
-            .get()
-            .is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(1))
-        {
-            trimmed.set(Some(std::time::Instant::now()));
-            let short = {
-                let adapter = state.borrow();
-                adapter.app.state.voice.link.as_ref().is_some_and(|link| {
-                    link.read()
-                        .stream
-                        .is_some_and(|stats| stats.memory.is_some())
-                })
-            };
-            if short {
-                gpu::trim();
-            }
-        }
         // What the window opened for a stream that has ended is let go of now,
         // rather than when another stream happens to draw a picture: a stopped
         // share is the last one as often as not.
@@ -3776,22 +3751,21 @@ const PIP_HEIGHT: f32 = 180.0;
 /// it: the grid's tile, small or large, or the corner it shows in while the
 /// call is off screen. None while no tile does, as while the call is hidden,
 /// which says nothing about the size.
-/// Which share and which viewed stream a window is showing, by the frames each
-/// reads: zero for neither. The address of a stream's frames is its identity
-/// while it lasts, and another stream's is another address, so a change says
-/// the window is showing something else even when nothing else has changed.
+/// Which share and which viewed stream a window is showing, by what each
+/// stream's frames are known by: zero for neither. A number no set of frames
+/// had before says the window is showing something else even when nothing else
+/// has changed — and, unlike an address, it can't be handed out again to the
+/// stream that replaces this one between two ticks.
 fn identity(
     sharing: &Option<voice::Sharing>,
     watching: &Option<Box<voice::Watching>>,
-) -> (usize, usize) {
+) -> (u64, u64) {
     (
-        sharing
-            .as_ref()
-            .map_or(0, |sharing| Arc::as_ptr(&sharing.frames) as usize),
+        sharing.as_ref().map_or(0, |sharing| sharing.frames.id()),
         watching
             .as_ref()
             .and_then(|watching| watching.frames.as_ref())
-            .map_or(0, |frames| Arc::as_ptr(frames) as usize),
+            .map_or(0, |frames| frames.id()),
     )
 }
 

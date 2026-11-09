@@ -20,6 +20,14 @@
 //! costs what it costs today, and a picture that can't be shown is a slow
 //! stream rather than a blank tile.
 //!
+//! On Linux a picture is a DMA-BUF rather than a shared texture, so it arrives
+//! as descriptors over the stream's socket (`yapfast_core::dmabuf`) instead of
+//! as a handle in the frames header. Importing one is the window's Vulkan
+//! device taking those descriptors as external memory, which is not here yet:
+//! the descriptors are taken, and closed as the slot is retired, so the channel
+//! works end to end and a stream that sends pictures is asked for pixels until
+//! the importer exists.
+//!
 //! A slot is the worker's to draw into again only when this process says it has
 //! finished with the picture that was there, one slot and generation at a time.
 //! Taking a picture is not finishing with it: the window shows it until the
@@ -80,18 +88,39 @@ pub fn taken(frames: &Arc<Frames>) -> Option<slint::Image> {
             present.housekeeping();
         }
     });
-    let shown: Option<std::result::Result<slint::Image, Picture>> =
-        frames.take_frame(|frame| match frame {
+    let shown = frames.take_frame(Taken::of);
+    match shown? {
+        Taken::Pixels(image) => Some(image),
+        Taken::Shared(picture) => shared(frames, picture),
+        #[cfg(target_os = "linux")]
+        Taken::Dmabuf(picture) => dmabuf(frames, picture),
+    }
+}
+
+/// What a take of a stream's frames gave: the picture the window shows, or the
+/// one it must be shown from, in the shape the platform hands it over in.
+enum Taken {
+    /// The worker's pixels, as Slint shows them.
+    Pixels(slint::Image),
+    /// A shared texture's handle, and the fence it is drawn behind.
+    Shared(Picture),
+    /// A DMA-BUF's descriptors, which are this process's from here.
+    #[cfg(target_os = "linux")]
+    Dmabuf(yapfast_core::dmabuf::Picture),
+}
+
+impl Taken {
+    fn of(frame: Frame<'_>) -> Self {
+        match frame {
             Frame::Pixels {
                 width,
                 height,
                 pixels,
-            } => Ok(copied(width, height, pixels)),
-            Frame::Gpu(picture) => Err(picture),
-        });
-    match shown? {
-        Ok(image) => Some(image),
-        Err(picture) => shared(frames, picture),
+            } => Self::Pixels(copied(width, height, pixels)),
+            Frame::Gpu(picture) => Self::Shared(picture),
+            #[cfg(target_os = "linux")]
+            Frame::Dmabuf(picture) => Self::Dmabuf(picture),
+        }
     }
 }
 
@@ -104,9 +133,16 @@ pub fn copied(width: u32, height: u32, pixels: &[u8]) -> slint::Image {
 
 /// A picture the worker drew, shown from its texture if this process can open
 /// it, and asked for as pixels if it can't.
+///
+/// A picture nothing shows is a slot the worker can have back at once: it is
+/// not on the screen, so nothing samples its texture, and waiting for a
+/// retirement that only a shown picture gets would leave the worker's slot
+/// held — and, held long enough, end the card's picture path for the rest of
+/// the stream.
 #[cfg(windows)]
 fn shared(frames: &Arc<Frames>, picture: Picture) -> Option<slint::Image> {
-    PRESENT.with_borrow_mut(|present| match present.as_mut() {
+    let (slot, generation) = (picture.slot, picture.generation);
+    let shown = PRESENT.with_borrow_mut(|present| match present.as_mut() {
         Some(present) => present.show(frames, picture),
         // Slint draws with software, or with a device it made for itself: a
         // texture another device made can't be shown by either, and a stream
@@ -119,16 +155,51 @@ fn shared(frames: &Arc<Frames>, picture: Picture) -> Option<slint::Image> {
             }
             None
         }
-    })
+    });
+    if shown.is_none() {
+        frames.retire(slot, generation);
+    }
+    shown
 }
 
 #[cfg(not(windows))]
-fn shared(frames: &Arc<Frames>, _picture: Picture) -> Option<slint::Image> {
+fn shared(frames: &Arc<Frames>, picture: Picture) -> Option<slint::Image> {
     if frames.refuse_gpu() {
         tracing::warn!(
             "a stream draws on a shared texture, which Yapfast can open only on Windows; showing its pixels"
         );
     }
+    // A picture this build can never show is one the worker's slot holds for
+    // nothing.
+    frames.retire(picture.slot, picture.generation);
+    None
+}
+
+/// A picture the worker drew into a DMA-BUF, as the window shows it: nothing
+/// yet.
+///
+/// This is where importing one goes, and what it gets is the picture itself: the
+/// descriptors, one for each of its planes, with the fourcc and modifier that say
+/// how the memory is laid out, which the window's Vulkan device takes as
+/// external memory (`VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT`) and hands
+/// to a texture. There is no such device here yet, so the picture is retired at
+/// once — nothing shows it, so nothing samples it — and the stream is asked for
+/// its pixels from the next frame: the frame before this one stays up rather
+/// than a blank tile.
+///
+/// Letting go of the picture is what closes its descriptors, so the memory the
+/// worker shared goes with the picture and no further.
+#[cfg(target_os = "linux")]
+fn dmabuf(frames: &Arc<Frames>, picture: yapfast_core::dmabuf::Picture) -> Option<slint::Image> {
+    if frames.refuse_gpu() {
+        tracing::warn!(
+            planes = picture.plane_count(),
+            fourcc = format!("{:08x}", picture.fourcc()),
+            modifier = format!("{:x}", picture.modifier()),
+            "a stream draws into a DMA-BUF, which this build has no importer for; showing its pixels"
+        );
+    }
+    frames.retire(picture.slot(), picture.generation());
     None
 }
 
@@ -195,52 +266,23 @@ pub fn install() -> Result<slint::wgpu_30::WGPUConfiguration> {
 /// the fence, and the slots the worker may have been holding for it. A stream
 /// that is only hidden keeps them, since it shows its pictures again next tick.
 ///
-/// `key` is the address of the frames the stream read, which is what the entry
-/// is keyed by; the entry says itself whether that address is still its own, so
-/// a key that outlived its frames removes nothing.
+/// `key` is what the stream's frames are known by — [`Frames::id`], not their
+/// address, which the allocator hands out again to the next stream of the same
+/// size.
 #[cfg(windows)]
-pub fn forget(key: usize) {
+pub fn forget(key: u64) {
     PRESENT.with_borrow_mut(|present| {
         let Some(present) = present.as_mut() else {
             return;
         };
         present.housekeeping();
-        if present
-            .streams
-            .get(&key)
-            .is_some_and(|stream| stream.frames.as_ptr() as usize == key)
-        {
-            present.streams.remove(&key);
-        }
+        present.streams.remove(&key);
     });
 }
 
 /// Without Direct3D there is nothing opened for a stream to let go of.
 #[cfg(not(windows))]
-pub fn forget(_key: usize) {}
-
-/// Gives back what the window has opened and isn't showing, for a machine short
-/// of memory: every texture it opened for a picture it has moved past, and each
-/// stream's fence, which are opened again when a picture needs them. Nothing in
-/// use is let go — the picture on the screen holds its own reference, and the
-/// worker keeps the slots the window hasn't finished with — so acting on a
-/// short machine costs one reopen per picture, not a tear.
-#[cfg(windows)]
-pub fn trim() {
-    PRESENT.with_borrow_mut(|present| {
-        let Some(present) = present.as_mut() else {
-            return;
-        };
-        present.housekeeping();
-        for stream in present.streams.values_mut() {
-            stream.trim();
-        }
-    });
-}
-
-/// Without Direct3D there is nothing opened to give back.
-#[cfg(not(windows))]
-pub fn trim() {}
+pub fn forget(_key: u64) {}
 
 /// Without Direct3D there is no shared texture to open, and a stream that
 /// publishes one is asked for pixels.
@@ -363,8 +405,9 @@ struct Present {
     /// One auto-reset event, reused: waiting for a picture's fence is a single
     /// call, and there is one window.
     event: HANDLE,
-    /// One entry per stream, by the address of the frames it reads them from.
-    streams: HashMap<usize, Stream>,
+    /// One entry per stream, by what its frames are known by: an address is
+    /// handed out again as soon as the allocator makes the next one.
+    streams: HashMap<u64, Stream>,
 }
 
 #[cfg(windows)]
@@ -448,16 +491,13 @@ impl Present {
             return None;
         }
         let (event, luid) = (self.event, self.luid);
-        // A stream the UI let go of leaves its address to the next one, which
-        // must not inherit what was opened for it.
+        // A stream the UI let go of has left an entry that nothing may inherit.
         self.housekeeping();
         let device = &self.device;
         let streams = &mut self.streams;
-        let key = Arc::as_ptr(frames) as usize;
-        let stream = streams.entry(key).or_insert_with(|| Stream::new(frames));
-        if !std::ptr::eq(stream.frames.as_ptr(), Arc::as_ptr(frames)) {
-            *stream = Stream::new(frames);
-        }
+        let stream = streams
+            .entry(frames.id())
+            .or_insert_with(|| Stream::new(frames));
         // A picture of a set this entry hasn't opened is the worker's textures
         // rebuilt: the three textures and the fence opened for the older set are
         // let go, and the new one is opened from this picture on. The number is
@@ -588,14 +628,6 @@ impl Stream {
     /// drawn a frame without it.
     fn reopen(&mut self, set: u64) {
         self.set = set;
-        self.textures.clear();
-        self.fence = None;
-    }
-
-    /// Lets go of the textures it opened and the fence, which are opened again
-    /// when the next picture needs them: a picture on the screen holds its own
-    /// reference, so what is showing isn't dropped.
-    fn trim(&mut self) {
         self.textures.clear();
         self.fence = None;
     }
