@@ -79,21 +79,251 @@ pub fn build_strike(
     glyphs: &[(char, Vec<u8>)],
     also: &[(u32, char)],
 ) -> Vec<u8> {
-    let count = u16::try_from(glyphs.len() + 1).expect("fewer than 65535 glyphs");
+    build_joined(strike, family, glyphs, also, &Joins::default())
+}
+
+/// What lets a font draw an emoji typed as several code points, such as 👨‍👩‍👧, a
+/// flag or a skin tone, as the one picture it is, wherever text shows it.
+#[derive(Default)]
+pub struct Joins {
+    /// Code points that draw nothing and take no room, such as the zero width
+    /// joiner and the variation selectors: each gets an empty glyph of its own,
+    /// after the pictures, so text that holds one keeps to this font.
+    pub empty: Vec<u32>,
+    /// Sequences of code points each drawn as one picture, by its glyph's code
+    /// point. A sequence whose code points the font can't all draw is left out.
+    pub sequences: Vec<(Vec<u32>, char)>,
+}
+
+/// [`build_strike`], with `joins`'s empty glyphs and its sequences joined into
+/// their pictures by the shaper, in a GSUB table of ligatures that text applies
+/// by default.
+pub fn build_joined(
+    strike: &Strike,
+    family: &str,
+    glyphs: &[(char, Vec<u8>)],
+    also: &[(u32, char)],
+    joins: &Joins,
+) -> Vec<u8> {
+    let count =
+        u16::try_from(glyphs.len() + 1 + joins.empty.len()).expect("fewer than 65535 glyphs");
     let advance = units(i32::from(strike.advance), strike);
-    let tables: [([u8; 4], Vec<u8>); 10] = [
+    // Each code point's glyph: a picture's, at its own place and at those `also`
+    // gives it, then the empty ones.
+    let mut glyph_of: std::collections::HashMap<u32, u16> = std::collections::HashMap::new();
+    for (index, (c, _)) in glyphs.iter().enumerate() {
+        glyph_of.insert(*c as u32, index as u16 + 1);
+    }
+    for (point, draws) in also {
+        if let Some(&glyph) = glyph_of.get(&(*draws as u32)) {
+            glyph_of.entry(*point).or_insert(glyph);
+        }
+    }
+    let first_empty = glyphs.len() as u16 + 1;
+    for (index, point) in joins.empty.iter().enumerate() {
+        glyph_of.entry(*point).or_insert(first_empty + index as u16);
+    }
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![
         (*b"CBDT", cbdt(strike, glyphs)),
         (*b"CBLC", cblc(strike, glyphs)),
+    ];
+    if !joins.sequences.is_empty() {
+        tables.push((*b"GSUB", gsub(&glyph_of, &joins.sequences)));
+    }
+    tables.extend([
         (*b"OS/2", os2(advance, glyphs)),
-        (*b"cmap", cmap(glyphs, also)),
+        (*b"cmap", cmap_of(&glyph_of)),
         (*b"head", head(strike, advance)),
         (*b"hhea", hhea(advance, count)),
-        (*b"hmtx", hmtx(strike, advance, count)),
+        (
+            *b"hmtx",
+            hmtx_with_empty(strike, advance, first_empty, count),
+        ),
         (*b"maxp", maxp(count)),
         (*b"name", name(family)),
         (*b"post", post()),
-    ];
+    ]);
     assemble(&tables)
+}
+
+/// Code points to glyphs as `glyph_of` maps them, in one format 12 subtable.
+fn cmap_of(glyph_of: &std::collections::HashMap<u32, u16>) -> Vec<u8> {
+    let mut groups: Vec<(u32, u32, u32)> = glyph_of
+        .iter()
+        .map(|(point, glyph)| (*point, *point, u32::from(*glyph)))
+        .collect();
+    groups.sort_unstable();
+    cmap_groups(&groups)
+}
+
+/// Each glyph's advance: the pictures' and `.notdef`'s, then none for the
+/// empty glyphs from `first_empty` on.
+fn hmtx_with_empty(strike: &Strike, advance: i16, first_empty: u16, count: u16) -> Vec<u8> {
+    let mut out = Vec::new();
+    let bearing = units(i32::from(strike.bearing_x), strike);
+    for glyph in 0..count {
+        if glyph < first_empty {
+            put16(&mut out, advance as u16);
+            put16(&mut out, bearing as u16);
+        } else {
+            put16(&mut out, 0);
+            put16(&mut out, 0);
+        }
+    }
+    out
+}
+
+/// The ligatures that start with one glyph: the glyphs after it, and the
+/// picture's glyph they join into.
+type LigatureSet = Vec<(Vec<u16>, u16)>;
+
+/// The most bytes a ligature subtable holds, as its offsets are 16 bits.
+const SUBTABLE_BYTES: usize = 60_000;
+
+/// A GSUB table that joins each of `sequences` into its picture's glyph, under
+/// the `ccmp` and `liga` features every shaper applies by default, for the
+/// default script, which emoji, of the Common script, shape under. The
+/// ligatures go in as many subtables as their 16-bit offsets need, each reached
+/// through an extension subtable's 32-bit offset.
+fn gsub(glyph_of: &std::collections::HashMap<u32, u16>, sequences: &[(Vec<u32>, char)]) -> Vec<u8> {
+    // Each ligature by its first glyph: the glyphs after it, and its picture.
+    let mut sets: std::collections::BTreeMap<u16, LigatureSet> = std::collections::BTreeMap::new();
+    for (points, picture) in sequences {
+        let (Some(&picture), Some(glyphs)) = (
+            glyph_of.get(&(*picture as u32)),
+            points
+                .iter()
+                .map(|point| glyph_of.get(point).copied())
+                .collect::<Option<Vec<u16>>>(),
+        ) else {
+            continue;
+        };
+        if glyphs.len() < 2 {
+            continue;
+        }
+        let set = sets.entry(glyphs[0]).or_default();
+        let rest = glyphs[1..].to_vec();
+        if !set.iter().any(|(known, _)| *known == rest) {
+            set.push((rest, picture));
+        }
+    }
+    // The longest first, so a sequence that starts another is tried after it.
+    for set in sets.values_mut() {
+        set.sort_by(|(left, _), (right, _)| right.len().cmp(&left.len()).then(left.cmp(right)));
+    }
+    // The sets, split into subtables that keep their offsets in 16 bits.
+    let mut subtables: Vec<Vec<u8>> = Vec::new();
+    let mut chunk: Vec<(u16, &LigatureSet)> = Vec::new();
+    let mut chunk_bytes = 0;
+    for (first, set) in &sets {
+        let bytes = 8 + set
+            .iter()
+            .map(|(rest, _)| 6 + 2 * rest.len())
+            .sum::<usize>();
+        if chunk_bytes + bytes > SUBTABLE_BYTES && !chunk.is_empty() {
+            subtables.push(ligature_subtable(&chunk));
+            chunk.clear();
+            chunk_bytes = 0;
+        }
+        chunk.push((*first, set));
+        chunk_bytes += bytes;
+    }
+    if !chunk.is_empty() {
+        subtables.push(ligature_subtable(&chunk));
+    }
+
+    let mut out = Vec::new();
+    // The header, then the script list at 10, the feature list at 32 and the
+    // lookup list at 58.
+    for value in [1, 0, 10, 32, 58] {
+        put16(&mut out, value);
+    }
+    // One script, DFLT, whose default language takes both features.
+    put16(&mut out, 1);
+    out.extend_from_slice(b"DFLT");
+    put16(&mut out, 8);
+    put16(&mut out, 4);
+    put16(&mut out, 0);
+    for value in [0, 0xFFFF, 2, 0, 1] {
+        put16(&mut out, value);
+    }
+    // ccmp and liga, each the one lookup.
+    put16(&mut out, 2);
+    out.extend_from_slice(b"ccmp");
+    put16(&mut out, 14);
+    out.extend_from_slice(b"liga");
+    put16(&mut out, 20);
+    for _ in 0..2 {
+        for value in [0, 1, 0] {
+            put16(&mut out, value);
+        }
+    }
+    debug_assert_eq!(out.len(), 58);
+    // The lookup: extension substitutions, each of a ligature subtable.
+    put16(&mut out, 1);
+    put16(&mut out, 4);
+    put16(&mut out, 7);
+    put16(&mut out, 0);
+    put16(&mut out, subtables.len() as u16);
+    let lookup = 6 + 2 * subtables.len();
+    for index in 0..subtables.len() {
+        put16(&mut out, (lookup + 8 * index) as u16);
+    }
+    let mut data_at = 8 * subtables.len();
+    for (index, subtable) in subtables.iter().enumerate() {
+        put16(&mut out, 1);
+        put16(&mut out, 4);
+        put32(&mut out, (data_at - 8 * index) as u32);
+        data_at += subtable.len();
+    }
+    for subtable in subtables {
+        out.extend(subtable);
+    }
+    out
+}
+
+/// A ligature substitution subtable, format 1, of `sets` in their first
+/// glyphs' order.
+fn ligature_subtable(sets: &[(u16, &LigatureSet)]) -> Vec<u8> {
+    let coverage = 6 + 2 * sets.len();
+    let mut out = Vec::new();
+    put16(&mut out, 1);
+    put16(&mut out, coverage as u16);
+    put16(&mut out, sets.len() as u16);
+    let mut set_at = coverage + 4 + 2 * sets.len();
+    let mut set_bytes = Vec::new();
+    for (_, set) in sets {
+        put16(&mut out, set_at as u16);
+        let mut bytes = Vec::new();
+        put16(&mut bytes, set.len() as u16);
+        let mut ligature_at = 2 + 2 * set.len();
+        for (rest, _) in set.iter() {
+            put16(&mut bytes, ligature_at as u16);
+            ligature_at += 4 + 2 * rest.len();
+        }
+        for (rest, picture) in set.iter() {
+            put16(&mut bytes, *picture);
+            put16(&mut bytes, rest.len() as u16 + 1);
+            for glyph in rest {
+                put16(&mut bytes, *glyph);
+            }
+        }
+        set_at += bytes.len();
+        set_bytes.push(bytes);
+    }
+    put16(&mut out, 1);
+    put16(&mut out, sets.len() as u16);
+    for (first, _) in sets {
+        put16(&mut out, *first);
+    }
+    for bytes in set_bytes {
+        out.extend(bytes);
+    }
+    assert!(
+        out.len() <= usize::from(u16::MAX),
+        "a ligature subtable fits 16-bit offsets"
+    );
+    out
 }
 
 /// A font of `tables`, which must be in the order of their tags.
@@ -270,8 +500,9 @@ fn os2(advance: i16, glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
     out
 }
 
-/// Code points to glyphs, for Unicode and for Windows, in one format 12 subtable.
-fn cmap(glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) -> Vec<u8> {
+/// A cmap table of one format 12 subtable of `groups`, for Unicode and for
+/// Windows.
+fn cmap_groups(groups: &[(u32, u32, u32)]) -> Vec<u8> {
     let mut out = Vec::new();
     put16(&mut out, 0);
     put16(&mut out, 2);
@@ -280,26 +511,12 @@ fn cmap(glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) -> Vec<u8> {
         put16(&mut out, encoding);
         put32(&mut out, 4 + 2 * 8);
     }
-    let mut groups: Vec<(u32, u32, u32)> = glyphs
-        .iter()
-        .enumerate()
-        .flat_map(|(index, (c, _))| {
-            let glyph = index as u32 + 1;
-            std::iter::once((*c as u32, *c as u32, glyph)).chain(
-                also.iter()
-                    .filter(move |(_, draws)| draws == c)
-                    .map(move |(point, _)| (*point, *point, glyph)),
-            )
-        })
-        .collect();
-    groups.sort_unstable();
-    groups.dedup();
     put16(&mut out, 12);
     put16(&mut out, 0);
     put32(&mut out, 16 + 12 * groups.len() as u32);
     put32(&mut out, 0);
     put32(&mut out, groups.len() as u32);
-    for (start, end, glyph) in groups {
+    for &(start, end, glyph) in groups {
         put32(&mut out, start);
         put32(&mut out, end);
         put32(&mut out, glyph);
@@ -349,16 +566,6 @@ fn hhea(advance: i16, count: u16) -> Vec<u8> {
     out.extend_from_slice(&[0; 8]);
     put16(&mut out, 0);
     put16(&mut out, count);
-    out
-}
-
-fn hmtx(strike: &Strike, advance: i16, count: u16) -> Vec<u8> {
-    let mut out = Vec::new();
-    let bearing = units(i32::from(strike.bearing_x), strike);
-    for _ in 0..count {
-        put16(&mut out, advance as u16);
-        put16(&mut out, bearing as u16);
-    }
     out
 }
 
@@ -501,11 +708,11 @@ mod tests {
             (*b"COLR", colr),
             (*b"CPAL", cpal),
             (*b"OS/2", os2(advance, &glyphs)),
-            (*b"cmap", cmap(&glyphs, &[])),
+            (*b"cmap", cmap_groups(&[(0x10_0000, 0x10_0000, 1)])),
             (*b"glyf", glyf),
             (*b"head", head(&STRIKE, advance)),
             (*b"hhea", hhea(advance, 3)),
-            (*b"hmtx", hmtx(&STRIKE, advance, 3)),
+            (*b"hmtx", hmtx_with_empty(&STRIKE, advance, 3, 3)),
             (*b"loca", loca),
             (*b"maxp", maxp),
             (*b"name", name("COLRv1 Square")),

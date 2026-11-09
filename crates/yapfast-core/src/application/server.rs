@@ -61,6 +61,8 @@ fn bits(permission: Permission) -> u64 {
         Permission::ViewAuditLog => permission::VIEW_AUDIT_LOG,
         Permission::ManageExpressions => permission::MANAGE_GUILD_EXPRESSIONS,
         Permission::CreateExpressions => permission::CREATE_GUILD_EXPRESSIONS,
+        Permission::UseExternalEmojis => permission::USE_EXTERNAL_EMOJIS,
+        Permission::UseExternalStickers => permission::USE_EXTERNAL_STICKERS,
     }
 }
 
@@ -133,6 +135,23 @@ impl Application {
         }
         let _ = (place, permission);
         false
+    }
+
+    /// Whether the open room lets this account use another server's emoji or
+    /// stickers, as `permission` names them: anywhere outside a server, as a
+    /// DM is, and in a server's channel as its roles and overwrites say,
+    /// which Discord's client asks even of Nitro. Until the server's roles
+    /// are known, it may.
+    pub(super) fn may_use_external(&self, permission: Permission) -> bool {
+        let Some(room) = self.state.selected.as_deref() else {
+            return true;
+        };
+        #[cfg(feature = "discord")]
+        if let Some((server, Some(_), _)) = self.discord_place(room) {
+            return server.roles.is_empty() || self.may(room, permission);
+        }
+        let _ = (room, permission);
+        true
     }
 
     /// Whether this account may do what `permission` names in the Discord

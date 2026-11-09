@@ -17,7 +17,7 @@ use yapfast_core::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
         ClearAfter, Compose, Cosmetics, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
         MenuChoice, Navigation, NewDm, PersonAsk, Place, ProfileText, ProfileView, Relation,
-        RoleInput, Search, TIMEOUT_TIMES,
+        RoleInput, Search, StickerUse, TIMEOUT_TIMES,
     },
     backend::Backend,
     chat::{
@@ -44,6 +44,7 @@ mod call_timer;
 mod callbacks;
 mod channel_settings;
 mod emoji_animation;
+mod emoji_grid;
 mod games;
 mod gifs;
 mod menus;
@@ -58,6 +59,7 @@ mod profile;
 mod refresh;
 mod server_settings;
 mod shell;
+mod stickers;
 mod theme;
 mod tiles;
 mod title_bar;
@@ -284,6 +286,9 @@ fn prepare(window: &YapfastWindow) {
     }
     window.set_emoji_font(emoji::family().into());
     emoji_text::register();
+    window
+        .global::<Twemoji>()
+        .on_text(|text| emoji_text::text(&text).into());
     copy_whole_messages(window);
     mark_autoscrolls(window);
     type_anywhere(window);
@@ -1019,6 +1024,66 @@ fn trim() {
         // SAFETY: malloc_trim only releases free memory held by the allocator.
         unsafe { malloc_trim(0) };
     }
+    // Windows keeps what a burst of allocations freed, ready for the next
+    // burst, in heaps the low-fragmentation heap makes for those sizes.
+    // `HeapCompact` joins freed blocks but returns none of the heaps;
+    // `HeapOptimizeResources` gives back what they hold, which is what lets a
+    // closed picker's memory go.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Memory::{HeapOptimizeResources, HeapSetInformation};
+        // HEAP_OPTIMIZE_RESOURCES_INFORMATION, which windows-sys doesn't name.
+        #[repr(C)]
+        struct OptimizeResources {
+            version: u32,
+            flags: u32,
+        }
+        // HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION.
+        const CURRENT_VERSION: u32 = 1;
+        let info = OptimizeResources {
+            version: CURRENT_VERSION,
+            flags: 0,
+        };
+        // SAFETY: the information is the one HeapOptimizeResources takes, a
+        // null heap handle means every heap of the process, and optimizing
+        // them moves nothing in use.
+        unsafe {
+            HeapSetInformation(
+                std::ptr::null_mut(),
+                HeapOptimizeResources,
+                std::ptr::from_ref(&info).cast(),
+                std::mem::size_of::<OptimizeResources>(),
+            );
+        }
+    }
+}
+
+/// A picker of many pictures closed: once the frame without it is drawn,
+/// Skia lets go of what it kept to draw them, and then the heap gives back
+/// what that and the picker freed. Without this the memory stays with the
+/// process until something else needs it.
+pub(super) fn let_go_after_picker(window: &YapfastWindow) {
+    let weak = window.as_weak();
+    slint::Timer::single_shot(Duration::from_secs(1), move || {
+        i_slint_renderer_skia::yapfast_let_go_of_caches();
+        if let Some(window) = weak.upgrade() {
+            window.window().request_redraw();
+        }
+        trim_over(&[500, 2_000, 5_000]);
+    });
+}
+
+/// Trim now, then again after each of `delays` milliseconds: the last
+/// downloads, decodes and animations of a closed picker free their memory as
+/// they finish, after the trim the close itself made.
+fn trim_over(delays: &'static [u64]) {
+    let Some((&delay, rest)) = delays.split_first() else {
+        return;
+    };
+    slint::Timer::single_shot(Duration::from_millis(delay), move || {
+        trim();
+        trim_over(rest);
+    });
 }
 
 /// Print the allocator's per-arena totals to standard error: memory held from
@@ -1036,6 +1101,29 @@ fn allocator_stats() {
 
 /// The layout a person chose, such as the sidebar width, kept beside the session.
 const LAYOUT: &str = "layout.json";
+
+/// A sticker this device kept, as `layout.json` keeps it.
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct KeptSticker {
+    id: String,
+    name: String,
+    /// Discord's `format_type`, which its picture's address takes.
+    format: u64,
+    /// Its picture at the picker's tile size.
+    picture: String,
+}
+
+/// A sticker this device sent, and how often, as `layout.json` keeps it.
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct KeptStickerUse {
+    id: String,
+    name: String,
+    /// Discord's `format_type`, which its picture's address takes.
+    format: u64,
+    /// Its picture at the picker's tile size.
+    picture: String,
+    uses: u32,
+}
 
 #[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -1064,6 +1152,10 @@ struct Layout {
     open_folders: std::collections::BTreeSet<String>,
     /// How often this device added each reaction, for the frequent reactions.
     reactions: HashMap<String, u32>,
+    /// The stickers this device sent, and how often, for Frequently Used.
+    sticker_uses: Vec<KeptStickerUse>,
+    /// The stickers this device keeps, for Favorites.
+    sticker_favorites: Vec<KeptSticker>,
     /// List Discord channels hidden from this account, locked.
     show_hidden_channels: bool,
     /// Reading in Yapfast marks Discord channels read on Discord; on unless turned off.
@@ -1602,6 +1694,10 @@ struct Models {
     bar_reactions: Rc<VecModel<EmojiCell>>,
     menu_reactions: Rc<VecModel<EmojiCell>>,
     emoji_rows: Rc<VecModel<EmojiRow>>,
+    /// What the picker's grid draws of `emoji_rows`: the emoji and headings
+    /// of the rows in sight and a row or two around them; see `emoji_grid`.
+    emoji_tiles: Rc<VecModel<EmojiTile>>,
+    emoji_headings: Rc<VecModel<EmojiRow>>,
     /// The picker's sidebar, built with the grid it jumps through.
     emoji_sections: Rc<VecModel<EmojiSection>>,
     emoji_suggestions: Rc<VecModel<EmojiCell>>,
@@ -1610,6 +1706,13 @@ struct Models {
     participants: Rc<VecModel<PersonRow>>,
     /// The GIF picker's tiles.
     gif_tiles: Rc<VecModel<GifTile>>,
+    /// The sticker picker's tiles: its stickers and their collections'
+    /// headings.
+    sticker_tiles: Rc<VecModel<StickerGridTile>>,
+    /// The collections down each picker's left, which its rail jumps to: the
+    /// emoji picker's and the sticker picker's, the same rail's.
+    sticker_sections: Rc<VecModel<RailSection>>,
+    emoji_rail: Rc<VecModel<RailSection>>,
     /// Who watches this account's stream, and the one it watches, as rows of
     /// `participants`.
     share_viewers: Rc<VecModel<PersonRow>>,
@@ -1671,12 +1774,17 @@ impl Models {
         window.set_bar_reactions(ModelRc::from(self.bar_reactions.clone()));
         window.set_menu_reactions(ModelRc::from(self.menu_reactions.clone()));
         window.set_emoji_rows(ModelRc::from(self.emoji_rows.clone()));
+        window.set_emoji_tiles(ModelRc::from(self.emoji_tiles.clone()));
+        window.set_emoji_headings(ModelRc::from(self.emoji_headings.clone()));
         window.set_emoji_sections(ModelRc::from(self.emoji_sections.clone()));
         window.set_emoji_suggestions(ModelRc::from(self.emoji_suggestions.clone()));
         window.set_forward_targets(ModelRc::from(self.forward_targets.clone()));
         window.set_switcher_places(ModelRc::from(self.switcher_places.clone()));
         window.set_participants(ModelRc::from(self.participants.clone()));
         window.set_gif_tiles(ModelRc::from(self.gif_tiles.clone()));
+        window.set_sticker_tiles(ModelRc::from(self.sticker_tiles.clone()));
+        window.set_sticker_sections(ModelRc::from(self.sticker_sections.clone()));
+        window.set_emoji_rail_sections(ModelRc::from(self.emoji_rail.clone()));
         window.set_share_viewers(ModelRc::from(self.share_viewers.clone()));
         window.set_watch_viewers(ModelRc::from(self.watch_viewers.clone()));
         window.set_participant_frames(ModelRc::from(self.participant_frames.clone()));
@@ -1788,6 +1896,9 @@ struct Adapter {
     /// The rows of the emoji picker's grid that may hold pictures it drew, first
     /// and last: see `fill_shown_glyphs`.
     emoji_rows_filled: (usize, usize),
+    /// Which of the picker's rows it shows, and which emoji each of its
+    /// buttons is showing.
+    emoji_grid: emoji_grid::EmojiGrid,
     app: Application,
     models: Models,
     icons: Icons,
@@ -1848,6 +1959,12 @@ struct Adapter {
     post_tags_shown: Option<(Vec<yapfast_core::chat::ForumTag>, Vec<String>)>,
     /// Shows pictures that arrived, together with those that follow them closely.
     pictures_due: slint::Timer,
+    /// A custom emoji's picture arrived for the emoji picker, shown with
+    /// those that come a few frames after it.
+    emoji_due: slint::Timer,
+    /// A layout change waiting to be written; see [`Adapter::write_layout_soon`].
+    layout_due: slint::Timer,
+    layout_dirty: bool,
     /// Writes the layout once the window holds still after moving or resizing.
     placement_due: slint::Timer,
     /// Stream ticks without a new picture of a video that isn't playing,
@@ -1861,6 +1978,11 @@ struct Adapter {
     /// The emoji the open card shows, so the card is built again as what
     /// Discord says of its server arrives.
     emoji_card: Option<emoji_text::Target>,
+    /// Pictures a picker's tiles draw, shown together once they settle.
+    picker_due: slint::Timer,
+    /// The sticker whose card is open, by its message's item and its
+    /// attachment's index.
+    sticker_card: Option<(String, usize)>,
     /// The animated emoji on screen: the frames they need and the clock they
     /// draw from, which stops while the window is unfocused, idle or minimised.
     animations: emoji_animation::Animations,
@@ -1968,6 +2090,8 @@ struct Adapter {
     link_code: Option<(String, slint::Image)>,
     /// What the GIF picker's grid shows.
     gifs: gifs::Shown,
+    /// What the sticker picker's grid shows.
+    stickers: stickers::Shown,
     /// A Discord link handed to this start before Discord is online.
     pending_link: Option<String>,
 }
@@ -2105,6 +2229,35 @@ impl Adapter {
         appearance::show_font(window, &ui_font, &font_note);
         let mut app = Application::default();
         app.remember_reaction_uses(layout.reactions.clone());
+        app.remember_sticker_favorites(
+            layout
+                .sticker_favorites
+                .iter()
+                .map(|kept| yapfast_core::chat::Sticker {
+                    id: kept.id.clone(),
+                    name: kept.name.clone(),
+                    format: kept.format,
+                    picture: kept.picture.clone(),
+                    usable: true,
+                })
+                .collect(),
+        );
+        app.remember_sticker_uses(
+            layout
+                .sticker_uses
+                .iter()
+                .map(|used| StickerUse {
+                    sticker: yapfast_core::chat::Sticker {
+                        id: used.id.clone(),
+                        name: used.name.clone(),
+                        format: used.format,
+                        picture: used.picture.clone(),
+                        usable: true,
+                    },
+                    uses: used.uses,
+                })
+                .collect(),
+        );
         app.dispatch(Action::ShowHiddenChannels(layout.show_hidden_channels));
         app.dispatch(Action::ShowProfilePanel(!layout.profile_panel_hidden));
         app.dispatch(Action::SyncDiscordReads(
@@ -2127,6 +2280,7 @@ impl Adapter {
                 root,
                 layout,
                 emoji_rows_filled: (0, 0),
+                emoji_grid: Default::default(),
                 app,
                 models,
                 icons,
@@ -2155,11 +2309,16 @@ impl Adapter {
                 guidelines_shown: None,
                 post_tags_shown: None,
                 pictures_due: slint::Timer::default(),
+                emoji_due: slint::Timer::default(),
+                layout_due: slint::Timer::default(),
+                layout_dirty: false,
                 placement_due: slint::Timer::default(),
                 video_quiet: Cell::new(0),
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
                 emoji_card: None,
+                picker_due: slint::Timer::default(),
+                sticker_card: None,
                 animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
                 jumped: None,
@@ -2213,6 +2372,7 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 link_code: None,
                 gifs: gifs::Shown::default(),
+                stickers: stickers::Shown::default(),
                 pending_link: None,
             })
         }))
@@ -2718,8 +2878,18 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
+        // Pictures asked for change nothing on screen until they come.
+        let quiet = matches!(
+            action,
+            Action::LoadPicturesFirst(_)
+                | Action::KeepEmojiPictures(_)
+                | Action::CacheEmojiPictures
+        );
         let effects = self.app.dispatch(action);
         self.execute(effects);
+        if quiet {
+            return;
+        }
         if channel_setting {
             self.show_channel_settings(window);
         } else if composing {
@@ -2755,8 +2925,37 @@ impl Adapter {
     }
 }
 
+/// How long a layout change waits for the next before `layout.json` is
+/// written, so changes that come together write the file once.
+const LAYOUT_WRITE: Duration = Duration::from_millis(1000);
+
+impl Adapter {
+    /// Writes the layout once changes to it have stopped for [`LAYOUT_WRITE`]:
+    /// each change starts the wait over. Dropping the adapter writes one
+    /// still waiting.
+    fn write_layout_soon(&mut self) {
+        self.layout_dirty = true;
+        let weak = self.weak.clone();
+        self.layout_due
+            .start(slint::TimerMode::SingleShot, LAYOUT_WRITE, move || {
+                if let Some(adapter) = weak.upgrade() {
+                    adapter.borrow_mut().flush_layout();
+                }
+            });
+    }
+
+    /// Writes a layout change still waiting, at once.
+    fn flush_layout(&mut self) {
+        self.layout_due.stop();
+        if std::mem::take(&mut self.layout_dirty) {
+            self.layout.write(&self.root);
+        }
+    }
+}
+
 impl Drop for Adapter {
     fn drop(&mut self) {
+        self.flush_layout();
         self.stop_backend();
     }
 }
@@ -3062,6 +3261,72 @@ fn update_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T
     }
     for row in rows.into_iter().skip(common) {
         model.push(row);
+    }
+}
+
+/// Shows `rows` on the model's rows as on slots, each named by its key: a row
+/// that a slot already shows stays in it, and is set only where it changed; one
+/// new takes the slot of one gone. `slots` names the key each slot shows. So a
+/// grid given the tiles in sight sets the slots of those that scrolled in, and
+/// its elements stay, where a model shifted along would set every row, and a
+/// list view would make the new ones and drop the old.
+fn update_model_by_slot<K: Copy + Eq + std::hash::Hash, T: Clone + PartialEq + 'static>(
+    model: &VecModel<T>,
+    slots: &mut Vec<K>,
+    rows: Vec<(K, T)>,
+) {
+    // A model set apart from the slots, as one emptied, starts them over.
+    if slots.len() != model.row_count() {
+        slots.clear();
+        model.set_vec(Vec::new());
+    }
+    let wanted: HashMap<K, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (key, _))| (*key, index))
+        .collect();
+    let mut placed = vec![false; rows.len()];
+    let mut free = Vec::new();
+    for (slot, key) in slots.iter().enumerate() {
+        match wanted.get(key) {
+            Some(&index) if !placed[index] => {
+                placed[index] = true;
+                if model.row_data(slot).as_ref() != Some(&rows[index].1) {
+                    model.set_row_data(slot, rows[index].1.clone());
+                }
+            }
+            _ => free.push(slot),
+        }
+    }
+    let mut free = free.into_iter();
+    for ((key, row), placed) in rows.into_iter().zip(placed) {
+        if placed {
+            continue;
+        }
+        if let Some(slot) = free.next() {
+            slots[slot] = key;
+            model.set_row_data(slot, row);
+        } else {
+            slots.push(key);
+            model.push(row);
+        }
+    }
+    // Slots left over go from the end, the last ones moving into those left
+    // empty before them.
+    let mut left: std::collections::VecDeque<usize> = free.collect();
+    while let Some(&hole) = left.front() {
+        let last = slots.len() - 1;
+        if left.back() == Some(&last) {
+            left.pop_back();
+        } else {
+            slots[hole] = slots[last];
+            if let Some(row) = model.row_data(last) {
+                model.set_row_data(hole, row);
+            }
+            left.pop_front();
+        }
+        slots.pop();
+        model.remove(last);
     }
 }
 

@@ -1037,10 +1037,14 @@ export component ProfileCard inherits Rectangle {
                         padding-left: root.pad; padding-right: root.pad; spacing: 12px;
                         VerticalLayout {
                             spacing: 2px;
-                            if root.data.name-style.length == 0: Text {
+                            // The name and username select, to copy, as in
+                            // Discord; the picture opens the full profile.
+                            if root.data.name-style.length == 0: TextInput {
                                 text: root.data.name; color: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 700;
-                                overflow: elide;
-                                if !root.large && !root.preview: TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
+                                read-only: true; single-line: true;
+                                selection-background-color: Theme.accent.with-alpha(0.35);
+                                selection-foreground-color: Theme.text;
+                                accessible-label: "Name";
                             }
                             if root.data.name-style.length > 0: StyledName {
                                 text: root.data.name; styles: root.data.name-style; ink: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 700;
@@ -1048,9 +1052,13 @@ export component ProfileCard inherits Rectangle {
                             }
                             if root.data.handle != "" || root.data.tag != "": HorizontalLayout {
                                 spacing: 6px; alignment: start;
-                                if root.data.handle != "": Text {
+                                if root.data.handle != "": TextInput {
                                     text: root.data.handle + (root.data.pronouns != "" ? " \u{2022} " + root.data.pronouns : "");
-                                    color: Theme.text; font-size: 14px; font-weight: 400; overflow: elide; vertical-alignment: center;
+                                    color: Theme.text; font-size: 14px; font-weight: 400; vertical-alignment: center;
+                                    read-only: true; single-line: true;
+                                    selection-background-color: Theme.accent.with-alpha(0.35);
+                                    selection-foreground-color: Theme.text;
+                                    accessible-label: "Username";
                                 }
                                 if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: #97979f1f; outline: #97979f0a; outline-width: 1px; } }
                             }
