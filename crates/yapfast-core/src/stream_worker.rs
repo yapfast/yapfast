@@ -1132,6 +1132,9 @@ impl Capture {
         let portal = portal_picks();
         let kind = match source {
             // The system's screen sharing dialog picks a screen or window.
+            // libwebrtc has the generic capturer only on Linux and macOS, and
+            // `portal_picks` is false elsewhere.
+            #[cfg(target_os = "linux")]
             _ if portal => DesktopCaptureSourceType::Generic,
             Source::Window(_) => DesktopCaptureSourceType::Window,
             _ => DesktopCaptureSourceType::Screen,
