@@ -101,6 +101,18 @@ fn kind_discriminants_are_the_wire_format() {
 }
 
 #[test]
+fn the_frame_sizes_are_pinned_to_the_protocol_numbers() {
+    // Literals from the protocol document, not merely each other: changing the
+    // header or the limit must break this test, not quietly change the wire.
+    assert_eq!(HEADER_LEN, 13);
+    assert_eq!(MAX_FRAME_LEN, 1_048_576);
+    assert_eq!(MAX_PAYLOAD_LEN, 1_048_563);
+    // The whole point of deriving the payload limit: header plus payload is
+    // exactly the frame limit.
+    assert_eq!(HEADER_LEN + MAX_PAYLOAD_LEN, MAX_FRAME_LEN);
+}
+
+#[test]
 fn wire_is_length_kind_id_payload() {
     let id = 0x0102_0304_0506_0708;
     let payload = br#"{"method":"shout"}"#;

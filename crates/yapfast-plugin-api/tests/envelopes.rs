@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use yapfast_plugin_api::{
-    Frame, FrameError, Kind, MAX_PAYLOAD_LEN, ProtocolError, Request, Response,
+    Frame, FrameError, Kind, MAX_PAYLOAD_LEN, Payload, ProtocolError, Request, Response,
 };
 
 /// An absolute module path, as `Load` requires.
@@ -26,7 +26,7 @@ fn request_kinds_map_to_frame_kinds() {
     let call = Request::Call {
         plugin: "echo".into(),
         method: "shout".into(),
-        payload: json!({ "text": "hi" }),
+        payload: json!({ "text": "hi" }).into(),
     };
     let unload = Request::Unload {
         plugin: "echo".into(),
@@ -43,7 +43,7 @@ fn response_kinds_map_to_frame_kinds() {
     assert_eq!(Response::Loaded.kind(), Kind::Loaded);
     assert_eq!(
         Response::Reply {
-            payload: Value::Null
+            payload: Payload::null()
         }
         .kind(),
         Kind::Reply
@@ -73,7 +73,7 @@ fn request_json_shapes_are_stable() {
         Request::Call {
             plugin: "echo".into(),
             method: "shout".into(),
-            payload: json!({ "text": "hi" }),
+            payload: json!({ "text": "hi" }).into(),
         }
         .to_value()
         .expect("JSON"),
@@ -110,7 +110,7 @@ fn response_json_shapes_are_stable() {
     );
     assert_eq!(
         Response::Reply {
-            payload: json!({ "text": "hi" })
+            payload: json!({ "text": "hi" }).into()
         }
         .to_value()
         .expect("JSON"),
@@ -140,12 +140,12 @@ fn requests_round_trip_through_frames() {
         Request::Call {
             plugin: "echo".into(),
             method: "shout".into(),
-            payload: json!({ "text": "Ærø ☃", "n": [1, 2] }),
+            payload: json!({ "text": "Ærø ☃", "n": [1, 2] }).into(),
         },
         Request::Call {
             plugin: "echo".into(),
             method: "noop".into(),
-            payload: Value::Null,
+            payload: Payload::null(),
         },
         Request::Unload {
             plugin: "echo".into(),
@@ -167,10 +167,10 @@ fn responses_round_trip_through_frames() {
         Response::Ready,
         Response::Loaded,
         Response::Reply {
-            payload: json!({ "text": "Ærø ☃", "ok": true }),
+            payload: json!({ "text": "Ærø ☃", "ok": true }).into(),
         },
         Response::Reply {
-            payload: Value::Null,
+            payload: Payload::null(),
         },
         Response::Unloaded,
         Response::Error {
@@ -192,7 +192,7 @@ fn a_call_without_a_payload_reads_as_null() {
         Request::Call {
             plugin: "echo".into(),
             method: "noop".into(),
-            payload: Value::Null,
+            payload: Payload::null(),
         }
     );
 }
@@ -261,7 +261,7 @@ fn a_frame_whose_kind_contradicts_its_json_is_refused() {
 
 #[test]
 fn a_frame_of_the_other_direction_is_refused() {
-    let ready = Frame::new(Kind::Ready, 1, br#"{"type":"ready"}"#.to_vec()).unwrap();
+    let ready = Frame::new(Kind::Ready, 0, br#"{"type":"ready"}"#.to_vec()).unwrap();
     assert!(matches!(
         Request::from_frame(&ready),
         Err(ProtocolError::NotRequest(Kind::Ready))
@@ -297,10 +297,162 @@ fn an_envelope_too_large_for_a_frame_is_refused() {
     let huge = Request::Call {
         plugin: "echo".into(),
         method: "shout".into(),
-        payload: Value::String("x".repeat(MAX_PAYLOAD_LEN)),
+        payload: Payload::from(Value::String("x".repeat(MAX_PAYLOAD_LEN))),
     };
     assert!(matches!(
         huge.to_frame(1),
         Err(ProtocolError::Frame(FrameError::TooLarge { .. }))
     ));
+}
+
+#[test]
+fn frame_id_zero_is_reserved_for_the_unsolicited_ready() {
+    // A request may not use it: nothing would answer, since it answers nothing.
+    for request in [
+        Request::Shutdown,
+        Request::Unload {
+            plugin: "echo".into(),
+        },
+        Request::Load {
+            plugin: "echo".into(),
+            module: module("echo.wasm"),
+        },
+        Request::Call {
+            plugin: "echo".into(),
+            method: "shout".into(),
+            payload: Payload::null(),
+        },
+    ] {
+        assert!(
+            matches!(
+                request.to_frame(0),
+                Err(ProtocolError::ReservedId(kind)) if kind == request.kind()
+            ),
+            "{request:?} was framed with id 0"
+        );
+
+        let valid = request.to_frame(1).expect("framing");
+        let zeroed = Frame::new(valid.kind(), 0, valid.payload().to_vec()).expect("frame");
+        assert!(
+            matches!(
+                Request::from_frame(&zeroed),
+                Err(ProtocolError::ReservedId(kind)) if kind == request.kind()
+            ),
+            "{request:?} was read from id 0"
+        );
+    }
+
+    let shutdown = Frame::new(Kind::Shutdown, 0, br#"{"type":"shutdown"}"#.to_vec()).unwrap();
+    assert!(matches!(
+        Request::from_frame(&shutdown),
+        Err(ProtocolError::ReservedId(Kind::Shutdown))
+    ));
+}
+
+#[test]
+fn ready_is_the_only_response_frame_with_id_zero() {
+    let ready = Response::Ready.to_frame(0).expect("framing");
+    assert_eq!(ready.id(), 0);
+    assert_eq!(Response::from_frame(&ready).expect("parsing"), Response::Ready);
+
+    assert!(matches!(
+        Response::Ready.to_frame(1),
+        Err(ProtocolError::ReadyWithId(1))
+    ));
+    let ready = Frame::new(Kind::Ready, 9, br#"{"type":"ready"}"#.to_vec()).unwrap();
+    assert!(matches!(
+        Response::from_frame(&ready),
+        Err(ProtocolError::ReadyWithId(9))
+    ));
+
+    for response in [
+        Response::Loaded,
+        Response::Unloaded,
+        Response::Reply {
+            payload: Payload::null(),
+        },
+        Response::Error {
+            message: "no".into(),
+        },
+    ] {
+        assert!(
+            matches!(
+                response.to_frame(0),
+                Err(ProtocolError::ReservedId(kind)) if kind == response.kind()
+            ),
+            "{response:?} was framed with id 0"
+        );
+
+        let valid = response.to_frame(1).expect("framing");
+        let zeroed = Frame::new(valid.kind(), 0, valid.payload().to_vec()).expect("frame");
+        assert!(
+            matches!(
+                Response::from_frame(&zeroed),
+                Err(ProtocolError::ReservedId(kind)) if kind == response.kind()
+            ),
+            "{response:?} was read from id 0"
+        );
+    }
+}
+
+#[test]
+fn an_error_is_a_response_in_either_direction() {
+    // The helper reports a call it could not answer; the parent reports a
+    // request it could not serve. Both are this one response envelope, paired
+    // with the id of the exchange that failed.
+    let frame = Frame::new(
+        Kind::Error,
+        7,
+        br#"{"type":"error","message":"the module trapped"}"#.to_vec(),
+    )
+    .expect("frame");
+
+    let response = Response::from_frame(&frame).expect("a response");
+    assert_eq!(
+        response,
+        Response::Error {
+            message: "the module trapped".into()
+        }
+    );
+    assert_eq!(
+        response.to_frame(7).expect("framing").payload(),
+        frame.payload()
+    );
+
+    // It is never a request, whichever side wrote it.
+    assert!(matches!(
+        Request::from_frame(&frame),
+        Err(ProtocolError::NotRequest(Kind::Error))
+    ));
+    assert!(matches!(
+        Response::from_frame(&Frame::new(
+            Kind::Error,
+            0,
+            br#"{"type":"error","message":"no"}"#.to_vec()
+        )
+        .unwrap()),
+        Err(ProtocolError::ReservedId(Kind::Error))
+    ));
+}
+
+#[test]
+fn shutdown_requires_its_documented_envelope() {
+    let request = Request::Shutdown.to_frame(1).expect("framing");
+    assert_eq!(request.kind(), Kind::Shutdown);
+    assert_eq!(request.payload(), br#"{"type":"shutdown"}"#);
+
+    // No bare frame, and no `{}` standing in for the envelope.
+    for payload in [&b""[..], &b"{}"[..], &b"null"[..]] {
+        let frame = Frame::new(Kind::Shutdown, 1, payload.to_vec()).expect("frame");
+        assert!(
+            matches!(Request::from_frame(&frame), Err(ProtocolError::Json(_))),
+            "{payload:?} was accepted as a shutdown"
+        );
+    }
+
+    let frame = Frame::new(Kind::Shutdown, 1, br#"{"type":"shutdown"}"#.to_vec()).unwrap();
+    assert_eq!(
+        Request::from_frame(&frame).expect("parsing"),
+        Request::Shutdown
+    );
 }
