@@ -499,7 +499,7 @@ pub enum Response {
     ///
     /// Unsolicited, so its frame uses id 0 and no other frame may.
     Ready,
-    /// The module is instantiated.
+    /// The module is compiled and linked; Extism instantiates it on its first call.
     Loaded,
     /// The answer to a [`Request::Call`]; `payload` is the plugin's JSON.
     Reply {
@@ -510,10 +510,8 @@ pub enum Response {
     Unloaded,
     /// A request that could not be served; `message` says why.
     ///
-    /// This envelope travels in either direction: the helper reports a call it
-    /// could not answer, and the parent reports a request it could not serve.
-    /// It is never a [`Request`], and its id pairs it with the exchange that
-    /// failed.
+    /// In M0 this envelope travels from the helper to the parent. It is never
+    /// a [`Request`], and its id pairs it with the exchange that failed.
     Error {
         /// A sentence for the other side's log.
         message: String,

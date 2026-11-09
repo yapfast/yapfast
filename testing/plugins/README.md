@@ -33,8 +33,8 @@ modules by the host crate's fixture example:
 cargo run --locked --profile fast -p yapfast-plugin-host --example build_fixtures
 ```
 
-That writes `target/plugin-fixtures/<name>.wasm` for both files; `scripts/check`
-runs it as its `fixtures-plugins` step.
+That writes `target/plugin-fixtures/<name>.wasm` for the echo and OOM fixtures;
+`scripts/check` runs it as its `fixtures-plugins` step.
 
 ## Fixtures
 
@@ -42,9 +42,10 @@ runs it as its `fixtures-plugins` step.
 | --- | --- | --- |
 | `echo.wat` | `yf_activate`, `yf_deactivate`, `echo` | Activation succeeds; `echo` returns the call input unchanged. Uses only Extism 1.41 kernel imports (`extism:host/env`), no WASI, no custom host functions. |
 | `oom.wat` | `yf_activate`, `yf_deactivate`, `eat_memory` | `eat_memory` calls the kernel `alloc` for 32 x 1 MiB and drops the handles, growing kernel memory past the 16 MiB (256-page) default until Extism's memory limiter fails the grow. Activation must not allocate. |
+| `wasi_stdout.wat` | `write_stdout` | Writes one short line through WASI `fd_write`. The process test sets `EXTISM_ENABLE_WASI_OUTPUT=1` and checks that guest text cannot enter the helper's framed stdout. |
 
-Both files assemble to modules well under the 8 MiB module cap (418 and 192
-bytes respectively).
+The echo and OOM sources assemble to modules well under the 8 MiB module cap
+(418 and 192 bytes respectively).
 
 ## Validation
 
