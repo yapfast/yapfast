@@ -39,6 +39,7 @@ against Extism 1.41.0 (wasmtime 49.0.5) and against this repository's code.
 | Default memory-page limit | **256 pages (16 MiB)** per instance, up to 1024 (64 MiB) with visible consent | [§6.2](#62-the-page-limit) |
 | Vencord-like APIs | Vencord's APIs mapped one by one, and its plugins surveyed for the abilities and permissions Yapfast's API should offer | [§10](#10-plugin-api), [§17](#17-abilities-the-api-needs) |
 | UI hooks | Fixed slots plus a precompiled widget set | [§11](#11-ui-hooks-without-a-slint-compiler) |
+| Changing built-in UI | Named changes only: edit rows, hide parts, restyle, replace a few parts | [§11.7](#117-changing-built-in-ui) |
 | Marketplace with images | A git registry with its icons inside it, loaded only while the page is open | [§8.6](#86-marketplace) |
 
 ### Budgets this plan commits to
@@ -333,6 +334,7 @@ with `notify`, only while a dev plugin is loaded, and reloads on save with a
 | Helper exits unexpectedly | Restart after 1, 5, 30 s. After three crashes in a minute, plugins stay off and a banner says so |
 | Helper binary missing | Plugins page says so. Everything else works |
 | Hook failure | Fail open: the message sends unchanged; [§10.3](#103-hooks-and-their-budgets) |
+| A plugin makes the interface unusable | Start with `--no-plugins`; [§11.7](#117-changing-built-in-ui) |
 
 ---
 
@@ -468,6 +470,7 @@ for a real need.
 | Storage | 1 MiB default, 16 MiB with a manifest request |
 | Timers | 16 per plugin, minimum interval 1 s |
 | UI tree | 64 nodes, 4 KiB of text per node, 10 updates a second |
+| Changes to built-in UI | 64 per plugin |
 | Asset | 256 KiB each, 2 MiB per plugin |
 | Git fetch | 64 MiB on disk, 120 s |
 
@@ -732,6 +735,7 @@ declared.
 | `microphone` | Record from the microphone | **Records your microphone** |
 | `notifications` | OS notifications | Shows notifications |
 | `clipboard.write` | Write on a user gesture | Writes to your clipboard |
+| `ui.modify` | Change, hide or replace named parts of the interface ([§11.7](#117-changing-built-in-ui)) | **Can change Yapfast's interface**, followed by each change |
 | `network` hosts | HTTPS to those hosts | Connects to *hosts* |
 | `network.local` | One exact loopback port | Connects to an app on this computer, on port *n* |
 | `open.app` | Listed URI schemes, each confirmed | Opens other apps |
@@ -1096,9 +1100,10 @@ code-token colours ([§17.2](#172-additions-to-the-api)), and those are adjusted
 for contrast against the theme.
 
 **What plugins can't do, by design:** absolute positioning, arbitrary sizes,
-drawing, covering built-in UI, or putting a widget outside a slot. Text in a
-plugin's slots and dialogs is always labelled with the plugin's name, so a
-plugin can't fake a Yapfast login dialog.
+drawing, or putting a widget outside a slot or a named part
+([§11.7](#117-changing-built-in-ui)). Text in a plugin's slots and dialogs is
+always labelled with the plugin's name, so a plugin can't fake a Yapfast login
+dialog.
 
 **Accessibility:** each interactive cell has a role, a label from its text,
 keyboard focus and Space/Enter, as `SettingsSwitch` shows.
@@ -1161,6 +1166,151 @@ is a Git LFS pointer; check in the file itself."*
 
 Advanced (footer of the page): Load folder; memory budget; idle eviction time.
 
+### 11.7 Changing built-in UI
+
+Plugins can also change what Yapfast already draws, but only at points Yapfast
+names. Compiled Slint has no runtime tree of elements to find and edit, and
+getting one would mean shipping the interpreter this plan rules out. So there
+are no selectors and no patches: **a plugin names a change, and Yapfast applies
+it where it already builds that part of the interface.**
+
+Four kinds of change exist, each with its own limits:
+
+| Change | Applies to | Mechanism | Cost when unused |
+| --- | --- | --- | --- |
+| **Edit a row** | Context menus and the settings list | Filter the rows after they're built | One `Option` check per menu |
+| **Hide a part** | A closed list of IDs | A property on one Slint global, behind an `if` | One bool per part |
+| **Restyle** | Named colours and a few named sizes | An overlay on the chosen theme and `ClientStyle` | None |
+| **Replace a part** | A very short list of IDs | The part draws a widget tree instead | One `if` and one empty model per part |
+
+Most of it fits in the manifest, so a plugin that only changes the interface
+needs no `wasm`, helper process or instance, like a setting point
+([§17.2](#172-additions-to-the-api)):
+
+```toml
+[permissions]
+capabilities = ["ui.modify"]
+
+[[ui.menu]]
+target = "message"
+row = "pin"
+hide = true
+
+[[ui.menu]]
+target = "user"
+row = "copy-id"
+label = "Copy user ID"
+before = "mention"
+
+[ui.parts]
+hide = ["sidebar.banner", "message.actions.react"]
+replace = ["account.identity"]       # needs wasm: filled by ui.set_slot
+
+[ui.colors]
+accent = "#7aa2ff"
+
+[ui.sizes]
+message-group-gap = 8                # logical pixels, clamped to the point's range
+```
+
+**Editing rows.**
+
+- **Menus** are already data. `menu()` in `src/ui/menus.rs` builds `MenuRow`s,
+  and the overrides run after it, before plugin rows are appended. A row is
+  addressed by its `target` from [§17.2](#172-additions-to-the-api) and its
+  `choice_id`. A row can be hidden, relabelled in plain text of up to 64
+  characters, or moved within its group with `before` or `after`, and `when`
+  from [§11.1](#111-two-kinds-of-contribution) applies.
+- **The settings list** is two literal arrays in `ui/settings.slint` today, and
+  Slint can't filter an array. Both move to a model built in Rust. Rows can be
+  hidden and reordered but not relabelled, because `page-title` is a separate
+  chain.
+- Hover-bar actions are fixed `IconButton`s in `ui/yapfast.slint`, not rows, so
+  they can only be hidden, as parts.
+
+**Hiding parts.** A new global, `UiParts`, holds one bool per ID, and the part
+sits behind an `if` on it, so a hidden part isn't created at all. Each ID has
+to be checked by hand, because many neighbours are placed with explicit `x`
+values and don't close the gap on their own. That's the reason the list is
+closed. This plan builds the mechanism and a few IDs to prove it (`sidebar.banner`,
+`timeline.typing`, and the hover-bar's reply, react and more buttons). Further
+IDs are added separately, as setting points are.
+
+**Restyling.**
+
+- **Colours** are an overlay applied on top of the chosen theme, through the
+  token names `src/ui/theme.rs` already resolves, and reapplied when the theme
+  changes. A text colour under 4.5:1 against the surfaces it's drawn on is
+  refused, and the plugin's page says why. `danger`, `danger-hover` and
+  `on-danger` can't be set.
+- **Sizes** are a closed list, starting with `text-size`, `sidebar-width`,
+  `members-width`, `channel-row-height`, `message-gap` and `message-group-gap`.
+  These are read-only values in `ClientStyle` today, computed from `enabled`,
+  so each gains one input and a range checked in Rust.
+- Corner radii and most font sizes can't be restyled. They're literals across
+  the `.slint` files (449 radii and 638 font sizes), and promoting one to a
+  named value is separate work, done when it's worth exposing.
+
+**Replacing parts** uses `ui.set_slot` with the part's ID and the renderer from
+[§11.4](#114-the-widget-set), with the usual caps and attribution. The built-in
+part shows until a tree arrives, and returns if the tree is dropped or the
+plugin is suspended, so an evicted instance leaves nothing blank. The first
+parts are `account.identity` (the name and status beside the avatar, not the
+microphone and deafen buttons next to it), `sidebar.banner` and
+`timeline.intro`. Each one is a promise that constrains later redesigns of that
+part, so the list grows slowly. A replacement receives no data beyond what its
+plugin's other capabilities allow.
+
+**What can't be changed.** Protection comes from having no ID to name, so a
+plugin has nothing to address:
+
+- permission and host dialogs, the install review, and link confirmation;
+- the Plugins page, its settings row, and anything attributing a change or
+  widget to a plugin;
+- account, login and security warnings, and logging out;
+- anything showing or controlling call state: mute, deafen, leave, and the
+  indicators that you're live. A plugin mustn't be able to show you as muted
+  when you aren't;
+- the composer's text field and send button;
+- another plugin's rows and widgets.
+
+Menu rows drawn in the `danger` tone can't be hidden, relabelled or moved out
+of the destructive group, so *Block* can't vanish and *Ban* can't be disguised
+as something harmless. Editable menu rows are an allow-list beside `CHOICES`, so a
+new built-in row is protected until someone opts it in.
+
+A colour overlay would reach protected dialogs, since `Theme` is one global, so
+Yapfast applies the unmodified theme whenever a protected dialog is open and
+restores the overlay when it closes.
+
+**Permission.** `ui.modify` covers all of this. The review dialog lists each
+change in words (*Hides: typing indicator. Replaces: your name in the account
+panel. Recolours the interface.*), and an update that changes the list counts as
+adding a permission ([§8.5](#85-installing-from-a-url)). A plugin's page lists
+the changes it's making.
+
+**Conflicts.** Two plugins hiding the same part agree. Any other overlap, or two
+different values for one colour or size, is a conflict: enabling the second
+plugin names the other plugin and the part, and you choose. The first plugin
+keeps it by default, the choice is stored in `grants.json`, and the plugin that
+loses stays enabled without that one change.
+
+**Undo.** Changes are never written into Yapfast's state. The parent derives one
+`Option<Arc<UiOverrides>>` from the enabled plugins' validated manifests, and
+it's `None` when nothing uses this. Enabling or disabling a plugin rebuilds it
+and refreshes through `Reach::plugins`, with no restart, and disabling restores
+the original interface.
+
+**Stability.** These IDs, including `choice_id` strings, become public API under
+`api = 1`. Renaming one needs an alias. An ID that no longer exists is ignored,
+and the plugin's page says *This part no longer exists* rather than the plugin
+failing. A test checks every published ID against the real tables.
+
+**Safe mode.** `yapfast --no-plugins` starts with no helper and applies no
+`[ui]` or `[tweaks]`, without changing which plugins are enabled. The Plugins
+page says it's in safe mode and can still disable or uninstall anything. It's
+the way back from an interface a plugin has made unusable.
+
 ---
 
 ## 12. Changes to existing code
@@ -1174,10 +1324,13 @@ Advanced (footer of the page): Load folder; memory budget; idle eviction time.
 | `crates/yapfast-core/src/discord_text*` | Event tap behind a mask | One relaxed load |
 | `src/ui.rs` | `Adapter::execute` handles the effect; `Models` gains `Option<Box<PluginModels>>` | 8 bytes |
 | `src/ui/refresh.rs` | `Reach.plugins`, `show_plugin_slots` | One bool check |
-| `src/ui/menus.rs` | Append rows; prefix in `choose` | One `Option` check per menu |
+| `src/main.rs` | `--no-plugins`, read with `flag_argument` beside `--background` | |
+| `src/ui/menus.rs` | Append rows; prefix in `choose`; apply row overrides | One `Option` check per menu |
+| `src/ui/theme.rs` | Colour overlay; unmodified theme while a protected dialog is open | One `Option` check per theme change |
 | `src/ui/callbacks.rs` | Bind slot and page callbacks | |
 | `ui/messages.slint` | `plugin: [PluginPart]` on `MessageRow` | One empty model per row |
-| `ui/settings.slint`, `ui/yapfast/settings-nav.slint`, `ui/yapfast.slint` | Section 9 and slots | |
+| `ui/settings.slint`, `ui/yapfast/settings-nav.slint`, `ui/yapfast.slint` | Section 9 and slots; settings rows become a model from Rust | |
+| `ui/yapfast/style.slint`, `ui/yapfast/parts.slint` (new) | One input per named size; the `UiParts` global | One value per named size or part |
 | `ui/composer.slint` | Command list and buttons | |
 | `packaging`, `nix/package.nix`, `docs/packaging.md` | Ship the helper | |
 | `README.md:205,356` | Remove "has no plugins yet" | |
@@ -1206,7 +1359,8 @@ Helper skeleton, framed pipe, one WAT fixture, `Wasm::file`, measured in-tree.
 ### M1: Runtime
 
 Manifest and validation, scheduler and lanes, deadlines, lazy activation,
-eviction, `yf_activate`/`yf_event`, loading from a folder, logging, Rust PDK.
+eviction, `yf_activate`/`yf_event`, loading from a folder, logging, Rust PDK,
+and `--no-plugins`.
 
 **Exit:** a Rust plugin receives `message_create` against
 `testing/fake_discord.ts`; disabling it ends the helper; budgets hold.
@@ -1276,6 +1430,8 @@ The rest of [§17.2](#172-additions-to-the-api), in this order:
 2. `identity.decorate`, `code_block.render`, providers.
 3. Retention, outbound gates, attachments, `media.get`, curated actions.
 4. Audio, local reach, input.
+5. Changes to built-in UI ([§11.7](#117-changing-built-in-ui)): row edits,
+   hidden parts and restyling first, replaceable parts last.
 
 It can start once M5 is in and run alongside M6–M8.
 
@@ -1303,7 +1459,10 @@ refused; Discord hosts refused; bare `*` rejected; path traversal and symlinks
 in a repository refused; oversized repository killed at its cap; guest stdout
 can't reach the pipe; a tampered `.wasm` fails its hash; prompt-bombing capped;
 a revoked host stops immediately; a plugin without `messages.read` receives no
-message event.
+message event; a `[ui]` entry naming a protected part or a `danger` row is
+refused; a low-contrast colour is refused; the unmodified theme shows while a
+consent dialog is open; disabling a plugin restores every changed part;
+`--no-plugins` starts no helper and applies no change.
 
 ---
 
@@ -1317,6 +1476,8 @@ message event.
 | Extism or wasmtime CVEs | Exact pin, helper process, sandbox, and a release process for bumping |
 | The compile cache is native code loaded from disk | Only the helper writes it, guests have no filesystem, and whoever can alter it already has the user's account |
 | Plugin ecosystem wants arbitrary UI | Widget set grows by request. A plugin that needs a new widget gets one for everyone |
+| Named parts make the interface harder to redesign | Hideable and replaceable lists stay short, IDs can be aliased, and a missing ID is ignored rather than breaking the plugin |
+| A plugin hides or disguises something important | Protected UI has no ID, `danger` rows are locked, every change is listed at review and on the plugin's page |
 | Row reflow from late decorations | Verified in M5; can be restricted to rows off screen if it's noticeable |
 | An unreviewed pin in a dependency chain | Dependencies are shown at review, and must be installed explicitly |
 
@@ -1337,6 +1498,8 @@ message event.
 | A hook that fails or runs late | The message sends unchanged; a plugin can opt in to blocking with a permission ([§10.3](#103-hooks-and-their-budgets)) |
 | Updates | Manual. A setting enables auto-update for marketplace plugins; URL installs always stay manual ([§8.5](#85-installing-from-a-url)) |
 | Installing from a URL | Open to everyone, with an *Unreviewed source* warning before anything runs ([§8.5](#85-installing-from-a-url)) |
+| Changing built-in UI | Named changes behind `ui.modify`, with no selectors or patches. Consent, plugin attribution and call state can't be changed ([§11.7](#117-changing-built-in-ui)) |
+| Recovering from a broken interface | `--no-plugins` turns everything off for one run ([§11.7](#117-changing-built-in-ui)) |
 
 ---
 
