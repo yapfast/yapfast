@@ -793,6 +793,9 @@ impl Discord {
         // Sharing waits for READY unless an earlier session's settings said.
         let (show_game, shown) = watch::channel(watcher.borrow().show_game);
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
+        // Nothing is known of a linked Spotify until READY.
+        let (spotify, accounts) = watch::channel(crate::spotify::Accounts::default());
+        let music = crate::spotify::start(api.clone(), accounts);
         tokio::spawn(cache::keep(watcher.clone(), names.clone()));
         tokio::spawn(session::run(
             token,
@@ -812,6 +815,8 @@ impl Discord {
                 presence,
                 activity,
                 show_game,
+                music,
+                spotify,
                 inactive: None,
                 viewing: None,
                 beside: None,

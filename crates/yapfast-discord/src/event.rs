@@ -130,6 +130,8 @@ events! {
     UserSettingsProtoUpdate = "USER_SETTINGS_PROTO_UPDATE",
     /// Notification settings, per server or for DMs.
     UserGuildSettingsUpdate = "USER_GUILD_SETTINGS_UPDATE",
+    /// This account's linked services changed; the event doesn't say how.
+    UserConnectionsUpdate = "USER_CONNECTIONS_UPDATE",
 }
 
 impl Event {
@@ -250,6 +252,7 @@ mod tests {
             ("USER_UPDATE", Event::UserUpdate),
             ("USER_SETTINGS_PROTO_UPDATE", Event::UserSettingsProtoUpdate),
             ("USER_GUILD_SETTINGS_UPDATE", Event::UserGuildSettingsUpdate),
+            ("USER_CONNECTIONS_UPDATE", Event::UserConnectionsUpdate),
         ];
         for (name, event) in handled {
             assert_eq!(Event::parse(name), event, "{name}");

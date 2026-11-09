@@ -695,10 +695,16 @@ mod tests {
         let custom = json!({"type":4,"name":"Custom Status","state":"Tea"});
         let mut presence = json!({"status":"dnd","since":123,"afk":true,
             "activities":[custom,{"type":0,"name":"Old game"}]});
-        merge(&mut presence, Some(&json!({"type":0,"name":"Game"})));
-        assert_eq!(presence["activities"].as_array().unwrap().len(), 2);
+        let song = json!({"type":2,"name":"Spotify"});
+        merge(
+            &mut presence,
+            Some(&json!({"type":0,"name":"Game"})),
+            Some(&song),
+        );
+        assert_eq!(presence["activities"].as_array().unwrap().len(), 3);
         assert_eq!(presence["activities"][1]["name"], "Game");
-        merge(&mut presence, None);
+        assert_eq!(presence["activities"][2], song, "the music goes last");
+        merge(&mut presence, None, None);
         assert_eq!(
             presence,
             json!({"status":"dnd","since":123,"afk":true,"activities":[custom]})
