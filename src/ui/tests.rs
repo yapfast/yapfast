@@ -9604,3 +9604,56 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     window.invoke_preferences_changed();
     assert!(adapter.borrow().layout.collapse_long);
 }
+
+#[test]
+fn holding_alt_over_a_channel_peeks_at_it_only_with_the_switch_on() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    settle(&window);
+    assert!(!window.get_peek_channels(), "off unless turned on");
+    // The pointer is over #games, as its row says.
+    window.set_peek_over("games".into());
+    // The timer that asks starts once its binding is read, then waits.
+    let wait = || {
+        for _ in 0..3 {
+            slint::platform::update_timers_and_animations();
+            let _ = window.get_peek_open();
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(100));
+        }
+        slint::platform::update_timers_and_animations();
+    };
+    window.set_alt_held(true);
+    wait();
+    assert!(
+        !window.get_peek_open(),
+        "with the switch off, Alt does nothing"
+    );
+
+    window.set_peek_channels(true);
+    wait();
+    assert!(window.get_peek_open());
+    assert_eq!(window.get_peek_name(), "#games");
+    assert!(window.get_peek_rows().row_count() > 0);
+    assert_eq!(window.get_room_name(), "general", "the open channel stays");
+    // Letting go of Alt closes it, and its rows go.
+    window.set_alt_held(false);
+    wait();
+    assert!(!window.get_peek_open());
+    assert_eq!(window.get_peek_rows().row_count(), 0);
+    // The switch is kept with the other preferences.
+    window.invoke_preferences_changed();
+    assert!(adapter.borrow().layout.peek_channels);
+}

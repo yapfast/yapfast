@@ -1505,6 +1505,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     {
         let (adapter, weak) = (adapter.clone(), window.as_weak());
+        window.on_peek(move |room| {
+            if let Some(window) = weak.upgrade() {
+                let room = (!room.is_empty()).then(|| room.to_string());
+                adapter.borrow_mut().action(&window, Action::Peek(room));
+            }
+        });
+    }
+    {
+        let (adapter, weak) = (adapter.clone(), window.as_weak());
         window.on_show_threads(move |shown| {
             if let Some(window) = weak.upgrade() {
                 adapter
@@ -2111,6 +2120,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.nameplates = Some(window.get_show_nameplates());
         layout.collapse_long = window.get_collapse_long();
+        layout.peek_channels = window.get_peek_channels();
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         layout.read_cosmetics(&window);

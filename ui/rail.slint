@@ -458,6 +458,8 @@ export component ChannelRow inherits Rectangle {
     property <bool> in-voice: root.voice-channel != "";
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
+    /// The pointer is over it.
+    out property <bool> hovered: pointer.has-hover;
     height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: 6px;
     background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
@@ -1016,6 +1018,21 @@ export component RoomList inherits Rectangle {
     /// Someone in a voice channel was clicked: their row, and where it is
     /// in the window, which their profile opens beside.
     callback open-voice-profile(PersonRow, length, length, length, length);
+    /// The room whose row the pointer is over, to peek at, by its id and
+    /// the row's right edge and top in the window; empty when it left them
+    /// all, or is over the selected room, a locked one or a voice channel
+    /// without a chat.
+    callback peek-over(string, length, length);
+    property <string> peeked;
+    function peek-row(id: string, was: string, x: length, y: length) {
+        if id != "" {
+            root.peeked = id;
+            root.peek-over(id, x, y);
+        } else if was != "" && root.peeked == was {
+            root.peeked = "";
+            root.peek-over("", 0px, 0px);
+        }
+    }
     /// A category's heading was clicked, by the row's category: collapse or
     /// open it.
     callback toggle-category(string);
@@ -1189,6 +1206,12 @@ export component RoomList inherits Rectangle {
                         selected: room.selected; unread: room.unread; badge: room.badge; muted: room.muted;
                         clicked => { root.select-room(room.id); }
                         context-menu(x, y) => { root.open-room-menu(room.id, x, y); }
+                        property <string> peek-id: self.hovered && !room.selected ? room.id : "";
+                        property <string> reported;
+                        changed peek-id => {
+                            root.peek-row(self.peek-id, self.reported, self.absolute-position.x + self.width, self.absolute-position.y);
+                            self.reported = self.peek-id;
+                        }
                     }
                 }
                 if !room.hidden && !room.thread: ChannelRow {
@@ -1220,6 +1243,14 @@ export component RoomList inherits Rectangle {
                     start-drag(y) => { return root.begin(room.place, room, false, y); }
                     dragged(y) => { root.drag-y = y; }
                     dropped => { root.finish(); }
+                    // Peeking needs messages: not the open room, nor one
+                    // that can't be read.
+                    property <string> peek-id: self.hovered && !room.selected && !room.locked && (!room.voice || room.chat) ? room.id : "";
+                    property <string> reported;
+                    changed peek-id => {
+                        root.peek-row(self.peek-id, self.reported, self.absolute-position.x + self.width, self.absolute-position.y);
+                        self.reported = self.peek-id;
+                    }
                     // Who is in a voice channel lists under it, as part of it.
                     property <length> people: !room.voice ? 0px
                         : room.id == root.voice-channel ? root.participants.length * 30px + 4px

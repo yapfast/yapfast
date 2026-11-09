@@ -20,6 +20,8 @@ pub const PREVIEW_HEIGHT: u32 = 400;
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
+/// How many of a channel's newest messages peeking at it shows.
+pub const PEEK_MESSAGES: usize = 6;
 /// The image viewer shows pictures up to this size, so a full-size photo
 /// costs at most about 9 MiB while it's open.
 pub const VIEW_WIDTH: u32 = 1920;
@@ -2589,6 +2591,13 @@ pub enum DiscordCommand {
     Pins {
         room: String,
     },
+    /// A Discord DM's or channel's newest [`PEEK_MESSAGES`], to peek at
+    /// without opening or reading it; [`Event::Peeked`] follows. A channel
+    /// kept in memory and up to date answers from there; any other is asked
+    /// for that many once, and nothing of them is kept.
+    Peek {
+        room: String,
+    },
     /// A page of a Discord server channel's threads, by its room id, as its
     /// list of threads shows them: the archived ones from the `offset`th,
     /// or with a `query`, those of any kind whose name it finds.
@@ -3876,6 +3885,12 @@ pub enum Event {
     JoinSoundSet(Result<(), String>),
     /// [`DiscordCommand::Unlink`] forgot the account.
     DiscordUnlinked,
+    /// [`DiscordCommand::Peek`]'s messages, oldest first, or why they didn't
+    /// come.
+    Peeked {
+        room: String,
+        result: Result<Vec<ChatMessage>, String>,
+    },
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
     /// they didn't come.
     Pins {

@@ -1048,6 +1048,16 @@ impl Discord {
             .collect()
     }
 
+    /// A channel's newest `limit` messages, oldest first, to peek at: a
+    /// server's channel, or with [`PRIVATE`] a DM. It reads nothing, and
+    /// keeps nothing of them but their authors' names.
+    pub async fn peek(&self, guild: &str, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        let values = self.api.newest(channel, limit).await?;
+        let mut messages = self.learn_authors(guild, &values).await;
+        messages.sort_by_key(Message::order);
+        Ok(messages)
+    }
+
     /// A channel's pinned messages, the latest pinned first: a server's
     /// channel, or with [`PRIVATE`] a DM.
     pub async fn pins(&self, guild: &str, channel: &str) -> Result<Vec<Message>> {

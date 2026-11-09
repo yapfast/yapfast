@@ -276,6 +276,17 @@ impl OpenChannel {
         })
     }
 
+    /// Its newest `count` messages, oldest first, while they're as Discord
+    /// has them: a channel that may have missed live events has none.
+    pub(super) fn newest(&self, count: usize) -> Option<Vec<Message>> {
+        if !self.synced {
+            return None;
+        }
+        let run = self.latest.as_ref().unwrap_or(&self.shown);
+        let skip = run.messages.len().saturating_sub(count);
+        Some(run.messages.values().skip(skip).cloned().collect())
+    }
+
     /// A window of older messages shows in place of the newest.
     pub fn detached(&self) -> bool {
         self.latest.is_some()

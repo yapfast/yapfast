@@ -53,6 +53,20 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   The arrow keys or Tab choose, and Enter or a click goes there: a server
   opens on its channel shown last. Unread places show bold, and mentions as
   a count.
+- Peek at a channel or DM without opening it, a Yapfast addition that
+  Discord doesn't have. With "Peek at channels" on in Settings > Messages
+  (`peek_channels` in `layout.json`, off by default), holding Alt alone over
+  a row of the channel list or the DM list shows its newest six messages
+  beside the row, as the pins show them, newest at the bottom. Letting go
+  of Alt, or leaving the row, closes it, and its rows go. A channel Yapfast
+  keeps in memory and that's up to date answers from there; any other asks
+  Discord once for six (`GET /channels/{id}/messages?limit=6`), which aren't
+  kept, and its pictures show only if they're kept already. Nothing is
+  opened and no read goes to Discord: the peek reads no channel, so it stays
+  unread with its mentions. Not over the open channel, a locked one, a
+  voice channel without a chat, a forum or a Matrix room. Alt is read from the
+  window's modifier keys wherever the focus is, and counts as let go when
+  the window loses the focus.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
@@ -599,7 +613,7 @@ The window follows Discord's arrangement:
   and whose channel line under them opens the call, as Discord's does (see
   [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
+  theme, audio devices, message text size, clock, link previews, folding long messages and peeking, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu (see [Persistent voice channels](voice.md)); the input menu
   shows a local level meter. While you speak in

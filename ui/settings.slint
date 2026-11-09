@@ -1094,6 +1094,7 @@ export component MessageSettings inherits VerticalLayout {
     in-out property <int> animate;
     in-out property <bool> reply-ping;
     in-out property <bool> strip-tracking;
+    in-out property <bool> peek-channels;
     /// The networks in use, which the descriptions name.
     in property <bool> matrix;
     in property <bool> discord;
@@ -1194,6 +1195,12 @@ export component MessageSettings inherits VerticalLayout {
         text: "Remove tracking from links you send";
         description: "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page.";
         checked <=> root.strip-tracking;
+        toggled => { root.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Peek at channels";
+        description: "Hold Alt over a channel or DM in the list to see its latest messages, without opening it or marking it read.";
+        checked <=> root.peek-channels;
         toggled => { root.preferences-changed(); }
     }
 }
