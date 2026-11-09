@@ -5,7 +5,7 @@ import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, Na
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
-/// A member of the open room. A heading starts each role's group.
+/// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
     id: string, name: string, initial: string, tint: color, picture: image, heading: string,
     /// Discord's presence: "online", "mobile" (online only on a phone), "idle",
@@ -45,7 +45,7 @@ export struct MemberRow {
 export component RoleIcon inherits Rectangle {
     in property <string> url;
     in property <length> size: 16px;
-    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision(root.url)) : @image-url("");
     function request() {
         if root.url != "" && root.picture.width == 0 {
             PictureStore.request(root.url);
@@ -64,7 +64,7 @@ component ActivityPicture inherits Rectangle {
     in property <string> url;
     in property <string> label;
     in property <length> size;
-    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision(root.url)) : @image-url("");
     function request() {
         if root.url != "" && root.picture.width == 0 {
             PictureStore.request(root.url);
@@ -247,7 +247,8 @@ export component MemberPanel inherits Rectangle {
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
                     Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                 }
-                Rectangle {
+                // A heading is a row of its own; see `show_roster`.
+                if member.id != "": Rectangle {
                   height: 42px; border-radius: 8px;
                   background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f : transparent;
                   if member.nameplate-url != "": Nameplate {
@@ -463,7 +464,7 @@ component ShowcasePicture inherits Rectangle {
     in property <string> label;
     in property <string> initial;
     in property <length> initial-size: 16px;
-    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision(root.url)) : @image-url("");
     function request() {
         if root.url != "" && root.picture.width == 0 {
             PictureStore.request(root.url);
@@ -538,8 +539,8 @@ export component ProfileHeading inherits Text {
 export component ProfileBadge inherits Rectangle {
     in property <ProfileBadgeRow> badge;
     callback open-link(string);
-    property <image> picture: root.badge.icon != "" ? PictureStore.picture(root.badge.icon, PictureStore.revision) : @image-url("");
-    property <image> level-picture: root.badge.picture != "" ? PictureStore.picture(root.badge.picture, PictureStore.revision) : @image-url("");
+    property <image> picture: root.badge.icon != "" ? PictureStore.picture(root.badge.icon, PictureStore.revision(root.badge.icon)) : @image-url("");
+    property <image> level-picture: root.badge.picture != "" ? PictureStore.picture(root.badge.picture, PictureStore.revision(root.badge.picture)) : @image-url("");
     function request() {
         if root.badge.icon != "" && root.picture.width == 0 {
             PictureStore.request(root.badge.icon);
@@ -603,7 +604,7 @@ export component ProfileBadge inherits Rectangle {
 // the sides and 16px above and below, the level's picture 64px high, then
 // the kind, the level in capitals and the progress 4px apart.
 export component BadgeTipCard inherits Rectangle {
-    property <image> level-picture: BadgeTip.picture-url != "" ? PictureStore.picture(BadgeTip.picture-url, PictureStore.revision) : @image-url("");
+    property <image> level-picture: BadgeTip.picture-url != "" ? PictureStore.picture(BadgeTip.picture-url, PictureStore.revision(BadgeTip.picture-url)) : @image-url("");
     // It pops up: fades in and grows from the caret, as Discord's does.
     property <bool> shown: false;
     opacity: root.shown ? 1 : 0;
@@ -1037,10 +1038,14 @@ export component ProfileCard inherits Rectangle {
                         padding-left: root.pad; padding-right: root.pad; spacing: 12px;
                         VerticalLayout {
                             spacing: 2px;
-                            if root.data.name-style.length == 0: Text {
+                            // The name and username select, to copy, as in
+                            // Discord; the picture opens the full profile.
+                            if root.data.name-style.length == 0: TextInput {
                                 text: root.data.name; color: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 700;
-                                overflow: elide;
-                                if !root.large && !root.preview: TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
+                                read-only: true; single-line: true;
+                                selection-background-color: Theme.accent.with-alpha(0.35);
+                                selection-foreground-color: Theme.text;
+                                accessible-label: "Name";
                             }
                             if root.data.name-style.length > 0: StyledName {
                                 text: root.data.name; styles: root.data.name-style; ink: Theme.text; font-size: root.large ? 26px : 20px; font-weight: 700;
@@ -1048,9 +1053,13 @@ export component ProfileCard inherits Rectangle {
                             }
                             if root.data.handle != "" || root.data.tag != "": HorizontalLayout {
                                 spacing: 6px; alignment: start;
-                                if root.data.handle != "": Text {
+                                if root.data.handle != "": TextInput {
                                     text: root.data.handle + (root.data.pronouns != "" ? " \u{2022} " + root.data.pronouns : "");
-                                    color: Theme.text; font-size: 14px; font-weight: 400; overflow: elide; vertical-alignment: center;
+                                    color: Theme.text; font-size: 14px; font-weight: 400; vertical-alignment: center;
+                                    read-only: true; single-line: true;
+                                    selection-background-color: Theme.accent.with-alpha(0.35);
+                                    selection-foreground-color: Theme.text;
+                                    accessible-label: "Username";
                                 }
                                 if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: #97979f1f; outline: #97979f0a; outline-width: 1px; } }
                             }

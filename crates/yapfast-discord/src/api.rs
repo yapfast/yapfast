@@ -354,11 +354,19 @@ impl Api {
 
     fn request(&self, method: Method, path: &str) -> RequestBuilder {
         // Only the API gets the client's description, as in the web client;
-        // it changes through a run, so each request makes it again.
+        // it changes through a run, so each request makes it again. The
+        // web client sends its language and time zone with every request
+        // too, and a request without them looks less like it.
         let request = self
             .http
             .request(method, format!("{}{path}", self.base))
-            .header("X-Super-Properties", client::super_properties());
+            .header("X-Super-Properties", client::super_properties())
+            .header(header::ACCEPT_LANGUAGE, client::ACCEPT_LANGUAGE)
+            .header("X-Discord-Locale", client::LOCALE);
+        let request = match client::timezone() {
+            Some(zone) => request.header("X-Discord-Timezone", zone),
+            None => request,
+        };
         // A request sent again once confirmed carries what confirmed it.
         let request = match mfa::token() {
             Some(confirmed) => request.header("X-Discord-MFA-Authorization", confirmed),
@@ -559,6 +567,16 @@ impl Api {
     pub async fn send_poll(&self, channel: &str, poll: &NewPoll, nonce: &str) -> Result<Value> {
         let mut body = message_body("", nonce);
         body["poll"] = poll.body();
+        let path = format!("/channels/{channel}/messages");
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Posts a sticker, a message with nothing else, as Discord's client
+    /// does when a sticker is clicked in its picker.
+    pub async fn send_sticker(&self, channel: &str, sticker: &str, nonce: &str) -> Result<Value> {
+        let mut body = message_body("", nonce);
+        body["sticker_ids"] = json!([sticker]);
         let path = format!("/channels/{channel}/messages");
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await
@@ -1557,6 +1575,12 @@ impl Api {
     pub async fn delete_emoji(&self, guild: &str, emoji: &str) -> Result<()> {
         let path = format!("/guilds/{guild}/emojis/{emoji}");
         self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// Discord's default sticker packs, as its own client offers them:
+    /// every account has them, so it takes no permission.
+    pub async fn sticker_packs(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/sticker-packs")).await
     }
 
     /// A server's stickers, each with who uploaded it.

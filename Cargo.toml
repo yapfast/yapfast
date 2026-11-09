@@ -92,6 +92,10 @@ windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], o
 # spins a core while it waits for the screen. See src/graphics.rs.
 i-slint-renderer-skia = { version = "=1.19.0", features = ["wgpu-30"], optional = true }
 
+# Slint's renderer, which a closed picker asks to let go of its caches.
+[target.'cfg(not(windows))'.dependencies]
+i-slint-renderer-skia = { version = "=1.19.0", optional = true }
+
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
 [build-dependencies]
 emojis = "0.9"
@@ -115,6 +119,8 @@ yapfast-core = { path = "crates/yapfast-core", default-features = false, feature
 # Builds a Discord server's snapshot for the menus' tests.
 yapfast-discord = { path = "crates/yapfast-discord" }
 tempfile.workspace = true
+# Shapes text with Twemoji's font, as Slint's text does, for its ligatures' test.
+harfrust = "0.12"
 
 # Types keys for the push-to-talk hook's test.
 [target.'cfg(windows)'.dev-dependencies]

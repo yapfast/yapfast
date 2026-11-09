@@ -30,6 +30,11 @@ pub(super) struct Reach {
     voice: bool,
     /// Pictures arrived, which can show anywhere.
     pictures: bool,
+    /// A picker's own picture arrived, which no row shows but its own.
+    picker: bool,
+    /// A custom emoji's picture arrived: the emoji picker shows it at once,
+    /// without laying the rest of the window out again.
+    emoji: bool,
     /// The video playing changed.
     video: bool,
     pub(super) everything: bool,
@@ -40,6 +45,8 @@ impl Reach {
         composer: true,
         voice: true,
         pictures: true,
+        picker: true,
+        emoji: true,
         video: true,
         everything: true,
     };
@@ -57,8 +64,18 @@ impl Reach {
                 voice: true,
                 ..Self::default()
             },
+            Event::Picture { url, .. } if url.contains("/emojis/") => Self {
+                emoji: true,
+                ..Self::default()
+            },
             Event::Picture { .. } => Self {
                 pictures: true,
+                ..Self::default()
+            },
+            // A GIF's or a sticker's picture shows in its picker alone, which
+            // lays out nothing else as it arrives.
+            Event::GifPicture { .. } | Event::StickerPicture { .. } => Self {
+                picker: true,
                 ..Self::default()
             },
             Event::Video(_) => Self {
@@ -74,6 +91,8 @@ impl Reach {
             composer: self.composer || other.composer,
             voice: self.voice || other.voice,
             pictures: self.pictures || other.pictures,
+            picker: self.picker || other.picker,
+            emoji: self.emoji || other.emoji,
             video: self.video || other.video,
             everything: self.everything || other.everything,
         }
@@ -83,6 +102,16 @@ impl Reach {
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// How long a member list stays as built while its people change: in a busy
+/// server someone comes, goes or changes what they're doing several times a
+/// second, and each change drew a frame. So the list shows at most two
+/// changes a second, the first at once and those in the pause after it
+/// together at its end.
+pub(super) const ROSTER_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// How long a custom emoji's picture waits for others before the emoji picker
+/// shows it: a few frames, as showing them costs little.
+const EMOJI_BATCH: std::time::Duration = std::time::Duration::from_millis(32);
 /// A server's Discord id, from Yapfast's id for it.
 fn discord_server_id(id: &str) -> &str {
     id.rsplit(':').next().unwrap_or(id)
@@ -250,6 +279,69 @@ impl SidebarShown {
     }
 }
 
+/// What the member list and its Activity panel were built from last, so each
+/// is built again only once that changed, not on every message and presence
+/// that refreshes the window.
+pub(super) struct RosterShown {
+    members: Members,
+    selection_version: u64,
+    owner: Option<String>,
+    cosmetics: yapfast_core::application::Cosmetics,
+    hide_nameplates: bool,
+    /// When the soonest timeout the list shows ends.
+    timeout_ends: Option<u64>,
+    feed: Arc<[yapfast_core::chat::FeedEntry]>,
+    people: Option<(String, Arc<[yapfast_core::chat::FeedPerson]>)>,
+    /// The second the panel's rows were worded in: they count the time
+    /// since, so a panel with rows is worded again each second.
+    panel_second: Option<u64>,
+}
+
+/// A conversation's member list, as `AppState::members` holds it.
+type Members = Option<Result<Arc<Vec<yapfast_core::chat::ChatMember>>, &'static str>>;
+
+impl RosterShown {
+    fn same_members(&self, state: &AppState, members: &Members) -> bool {
+        self.selection_version == state.selection_version
+            && match (&self.members, members) {
+                (Some(Ok(shown)), Some(Ok(members))) => Arc::ptr_eq(shown, members),
+                (shown, members) => {
+                    shown.is_none() && members.is_none()
+                        || matches!((shown, members), (Some(Err(a)), Some(Err(b))) if a == b)
+                }
+            }
+    }
+
+    /// Whether the list would show the same `members`.
+    fn shows_list(
+        &self,
+        state: &AppState,
+        members: &Members,
+        owner: &Option<String>,
+        now: u64,
+    ) -> bool {
+        self.same_members(state, members)
+            && self.owner == *owner
+            && self.cosmetics == state.cosmetics
+            && self.hide_nameplates == state.hide_nameplates
+            && self.timeout_ends.is_none_or(|ends| now < ends)
+    }
+
+    /// Whether the Activity panel would show the same of `members`.
+    fn shows_panel(&self, state: &AppState, members: &Members, now: u64) -> bool {
+        self.same_members(state, members)
+            && Arc::ptr_eq(&self.feed, &state.activity_feed)
+            && match (&self.people, &state.activity_people) {
+                (None, None) => true,
+                (Some((asked, people)), Some((room, known))) => {
+                    asked == room && Arc::ptr_eq(people, known)
+                }
+                _ => false,
+            }
+            && self.panel_second.is_none_or(|second| second == now / 1000)
+    }
+}
+
 impl Icons {
     /// A conversation's icon, as the sidebar shows it: a lock for one this
     /// account may not read.
@@ -330,14 +422,37 @@ impl Adapter {
             self.refresh(window);
             return;
         }
+        // A custom emoji's picture shows in the emoji picker alone while it is
+        // open, which needs nothing else laid out; otherwise it can show
+        // anywhere, as any picture can.
+        let picker_open = self.models.emoji_rows.row_count() > 0;
+        if reach.emoji && picker_open && !self.emoji_due.running() {
+            let (adapter, weak) = (self.weak.clone(), window.as_weak());
+            self.emoji_due
+                .start(slint::TimerMode::SingleShot, EMOJI_BATCH, move || {
+                    if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                        adapter.borrow_mut().show_emoji_pictures(&window);
+                    }
+                });
+        }
+        let pictures = reach.pictures || (reach.emoji && !picker_open);
         // Pictures arrive one at a time, hundreds when the emoji picker opens,
         // so those that come close together show in one refresh.
-        if reach.pictures && !self.pictures_due.running() {
+        if pictures && !self.pictures_due.running() {
             let (adapter, weak) = (self.weak.clone(), window.as_weak());
             self.pictures_due
                 .start(slint::TimerMode::SingleShot, PICTURE_BATCH, move || {
                     if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
                         adapter.borrow_mut().refresh(&window);
+                    }
+                });
+        }
+        if reach.picker && !self.picker_due.running() {
+            let (adapter, weak) = (self.weak.clone(), window.as_weak());
+            self.picker_due
+                .start(slint::TimerMode::SingleShot, PICTURE_BATCH, move || {
+                    if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                        adapter.borrow_mut().show_picker_pictures(&window);
                     }
                 });
         }
@@ -353,11 +468,44 @@ impl Adapter {
         }
     }
 
+    /// The custom emoji pictures that arrived for the emoji picker, shown in
+    /// it and nothing else: the window lays nothing out again, so a scroll
+    /// that brings pictures in stays smooth. One that a message on screen
+    /// shows too makes its glyph, which lays the messages out, as a full
+    /// refresh does.
+    fn show_emoji_pictures(&mut self, window: &YapfastWindow) {
+        // One a message on screen shows too gets its glyph, which lays the
+        // messages out again, as a full refresh does; `add` says so only for a
+        // glyph it made, so this happens once a picture.
+        let state = &self.app.state;
+        let in_messages = state
+            .messages
+            .iter()
+            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
+            .flat_map(|message| &message.emoji);
+        if custom_emoji::add(in_messages.filter_map(|emoji| arrived(state, emoji))) {
+            self.restyle = true;
+            self.refresh(window);
+            return;
+        }
+        if self.show_arrived_emoji() && self.emoji_word.is_some() {
+            self.show_emoji_suggestions(window);
+        }
+        super::callbacks::want_shown_animations(self, window);
+    }
+
+    /// The pictures a picker's tiles draw that arrived since, and nothing
+    /// else: they change no layout, so no row is built again.
+    fn show_picker_pictures(&mut self, window: &YapfastWindow) {
+        self.show_gifs(window);
+        self.show_stickers(window);
+    }
+
     pub(super) fn refresh(&mut self, window: &YapfastWindow) {
-        refresh_avatar_sources(&self.app.state);
-        window
-            .global::<PictureStore>()
-            .set_revision(self.app.state.picture_changes as i32);
+        if self.pictures_sourced != Some(self.app.state.picture_changes) {
+            self.pictures_sourced = Some(self.app.state.picture_changes);
+            bump_picture_slots(window, refresh_avatar_sources(&self.app.state));
+        }
         self.show_viewer(window);
         self.show_profile(window);
         window.set_can_go_back(self.app.state.can_go_back());
@@ -406,7 +554,9 @@ impl Adapter {
         self.show_reactions(window);
         self.show_gifs(window);
         self.show_emoji_card(window);
+        self.show_sticker_card(window);
         self.show_emoji_animations(window);
+        self.show_stickers(window);
         self.show_composer(window);
         self.show_messages(window, &changes);
         self.show_aside(window);
@@ -436,6 +586,58 @@ impl Adapter {
             self.layout.reactions = self.app.reaction_uses().clone();
             self.layout.write(&self.root);
         }
+        // The stickers sent and those kept, for Frequently Used and Favorites
+        // at the next start: compared in place, as this runs on every event,
+        // and copied only when they changed.
+        let kept = |kept: &KeptSticker, sticker: &yapfast_core::chat::Sticker| {
+            kept.id == sticker.id
+                && kept.name == sticker.name
+                && kept.format == sticker.format
+                && kept.picture == sticker.picture
+        };
+        let uses = self.app.sticker_uses();
+        let same_uses = uses.len() == self.layout.sticker_uses.len()
+            && uses
+                .iter()
+                .zip(&self.layout.sticker_uses)
+                .all(|(used, known)| {
+                    used.uses == known.uses
+                        && known.id == used.sticker.id
+                        && known.name == used.sticker.name
+                        && known.format == used.sticker.format
+                        && known.picture == used.sticker.picture
+                });
+        if !same_uses {
+            self.layout.sticker_uses = uses
+                .iter()
+                .map(|used| KeptStickerUse {
+                    id: used.sticker.id.clone(),
+                    name: used.sticker.name.clone(),
+                    format: used.sticker.format,
+                    picture: used.sticker.picture.clone(),
+                    uses: used.uses,
+                })
+                .collect();
+            self.layout.write(&self.root);
+        }
+        let favorites = self.app.sticker_favorites();
+        let same_favorites = favorites.len() == self.layout.sticker_favorites.len()
+            && favorites
+                .iter()
+                .zip(&self.layout.sticker_favorites)
+                .all(|(sticker, known)| kept(known, sticker));
+        if !same_favorites {
+            self.layout.sticker_favorites = favorites
+                .iter()
+                .map(|sticker| KeptSticker {
+                    id: sticker.id.clone(),
+                    name: sticker.name.clone(),
+                    format: sticker.format,
+                    picture: sticker.picture.clone(),
+                })
+                .collect();
+            self.layout.write(&self.root);
+        }
         if changes.selection && !state.preview && state.account.is_some() {
             let mut layout = self.layout.clone();
             layout.channels.extend(self.app.last_channels());
@@ -451,11 +653,9 @@ impl Adapter {
     /// something plays and the window is focused, used and not minimised.
     fn show_emoji_animations(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let mut shown: Vec<(String, Option<char>, String)> = state
-            .messages
-            .iter()
-            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
-            .flat_map(|message| &message.emoji)
+        let mut shown: Vec<(String, Option<char>, String)> = self
+            .app
+            .visible_message_emoji()
             .filter(|emoji| emoji.animated)
             .map(|emoji| {
                 (
@@ -492,10 +692,16 @@ impl Adapter {
                 }
             }
         }
-        for emoji in self.app.usable_emoji().iter().flat_map(|set| &set.emoji) {
-            let key = emoji::custom_key(emoji);
-            if emoji.animated && cells.contains(&key) {
-                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture.clone()));
+        // Made for those few by their ids, rather than every server's emoji at
+        // each refresh.
+        let ids: HashSet<&str> = cells
+            .iter()
+            .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
+            .collect();
+        for emoji in self.app.emoji_by_id(&ids) {
+            let key = emoji::custom_key(&emoji);
+            if emoji.usable && emoji.animated && cells.contains(&key) {
+                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture));
             }
         }
         for sound in state
@@ -509,13 +715,18 @@ impl Adapter {
                 shown.push((format!("sound:{picture}"), None, picture.clone()));
             }
         }
-        let pictures = &state.pictures;
+        self.animations.show(shown, &state.pictures);
+        self.run_emoji_animations(window);
+    }
+
+    /// Both full refreshes and quiet picker updates can introduce animation
+    /// work, including after the last close stopped the timer.
+    pub(super) fn run_emoji_animations(&mut self, window: &YapfastWindow) {
         // Idle holds the clock as an unfocused window does, whatever the Animate
         // setting says; a minimised window has lost focus, and `playing` is
         // already false for it.
         let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
-        self.animations.show(shown, pictures);
-        self.animations.run(window, pictures);
+        self.animations.run(window, &self.app.state.pictures);
         self.animations.sync(window, playing, self.weak.clone());
     }
 
@@ -531,6 +742,18 @@ impl Adapter {
         let Adapter { app, pictures, .. } = self;
         let card = messages::emoji_card_for(app, target, pictures);
         window.set_emoji_card(card);
+    }
+
+    /// The card a clicked sticker opened, as the message and the picker's
+    /// lists show it.
+    fn show_sticker_card(&mut self, window: &YapfastWindow) {
+        let Some((item, index)) = self.sticker_card.clone() else {
+            return;
+        };
+        if !window.get_sticker_card_open() {
+            return;
+        }
+        window.set_sticker_card(messages::sticker_card(&self.app, &item, index));
     }
 
     /// Whether Yapfast is signed in or previewing, what the account is doing, and
@@ -691,6 +914,14 @@ impl Adapter {
         );
         window.set_header_events(
             header_server.map_or(0, |server| i32::try_from(server.events.len()).unwrap_or(0)),
+        );
+        window.set_header_boosts(
+            header_server
+                .and_then(|server| server.boosts)
+                .map_or(-1, |boosts| i32::try_from(boosts).unwrap_or(i32::MAX)),
+        );
+        window.set_header_events_row(
+            header_server.is_some_and(|server| server.community || !server.events.is_empty()),
         );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {
@@ -1679,6 +1910,33 @@ impl Adapter {
             || self.icons.text.plain.clone(),
             |room| self.icons.channel(room),
         ));
+        // A forum post's bar: its first message is the post's, whose id is
+        // the thread's.
+        let post = room.filter(|room| {
+            room.network == Network::Discord && parent.is_some_and(|parent| parent.forum)
+        });
+        window.set_forum_post(post.is_some());
+        window.set_forum_post_item(
+            post.and_then(|room| {
+                let item = format!("d:{}", room.id.rsplit(':').next()?);
+                // Messages run oldest first, so the post is the first.
+                state
+                    .messages
+                    .first()
+                    .is_some_and(|message| message.item == item)
+                    .then_some(item)
+            })
+            .unwrap_or_default()
+            .into(),
+        );
+        window.set_forum_post_follow(post.map_or(0, |room| {
+            let choices = self.app.menu_choices(&room.id);
+            if choices.contains(&MenuChoice::LeaveThread) {
+                2
+            } else {
+                i32::from(choices.contains(&MenuChoice::JoinThread))
+            }
+        }));
         // Discord counts a channel's members only once its list comes.
         window.set_members(
             room.map_or(SharedString::default(), |room| match room.members {
@@ -1865,29 +2123,93 @@ impl Adapter {
     /// The member list, the reactions offered on messages, and a role's card.
     fn show_members(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let cosmetics = state.cosmetics;
-        // In a server, names show their style's font alone.
-        let in_server = name_style::in_server(state.selected.as_deref());
         let now = yapfast_core::clock::now_ms();
-        let members = match &state.members {
-            Some(Ok(members)) => members.as_slice(),
-            _ => &[],
-        };
-        // Discord shows the panel in a server's channels, but not its forums.
-        let in_channel = state
-            .selected_room()
-            .filter(|room| !room.direct && !room.forum);
-        update_model(
-            &self.models.roster_activity,
-            match in_channel {
-                Some(room) => activity_panel(state, &room.id, members, now),
-                None => Vec::new(),
-            },
-        );
         let owner = state
             .selected
             .as_deref()
             .and_then(|room| self.app.server_owner(room));
+        let shown = self.roster_shown.as_ref();
+        // The same conversation's people, changed within the pause after the
+        // list was built, wait for its end; see `ROSTER_PAUSE`.
+        let held = shown.filter(|shown| {
+            self.roster_due.running()
+                && shown.selection_version == state.selection_version
+                && matches!((&shown.members, &state.members), (Some(Ok(_)), Some(Ok(_))))
+                && !shown.same_members(state, &state.members)
+        });
+        self.roster_held |= held.is_some();
+        let shown_members = match held {
+            Some(shown) => shown.members.clone(),
+            None => state.members.clone(),
+        };
+        let list = !shown.is_some_and(|shown| shown.shows_list(state, &shown_members, &owner, now));
+        let panel = !shown.is_some_and(|shown| shown.shows_panel(state, &shown_members, now));
+        let members = match &shown_members {
+            Some(Ok(members)) => members.as_slice(),
+            _ => &[],
+        };
+        let panel_second = if panel {
+            // Discord shows the panel in a server's channels, but not its forums.
+            let in_channel = state
+                .selected_room()
+                .filter(|room| !room.direct && !room.forum);
+            let rows = match in_channel {
+                Some(room) => activity_panel(state, &room.id, members, now),
+                None => Vec::new(),
+            };
+            let second = (!rows.is_empty()).then_some(now / 1000);
+            update_model(&self.models.roster_activity, rows);
+            second
+        } else {
+            shown.and_then(|shown| shown.panel_second)
+        };
+        if list {
+            self.show_roster(window, members, owner.as_deref(), now);
+            self.roster_held = false;
+            let (adapter, weak) = (self.weak.clone(), window.as_weak());
+            self.roster_due
+                .start(slint::TimerMode::SingleShot, ROSTER_PAUSE, move || {
+                    if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                        let mut adapter = adapter.borrow_mut();
+                        if adapter.roster_held {
+                            adapter.show_members(&window);
+                        }
+                    }
+                });
+        }
+        if list || panel {
+            self.roster_shown = Some(RosterShown {
+                members: shown_members.clone(),
+                selection_version: state.selection_version,
+                owner,
+                cosmetics: state.cosmetics,
+                hide_nameplates: state.hide_nameplates,
+                timeout_ends: members
+                    .iter()
+                    .filter_map(|member| member.timed_out_until)
+                    .filter(|&until| until > now)
+                    .min(),
+                feed: state.activity_feed.clone(),
+                people: state.activity_people.clone(),
+                panel_second,
+            });
+        }
+        self.show_reactions_offered(window);
+        self.show_role(window);
+    }
+
+    /// The member list's rows.
+    fn show_roster(
+        &self,
+        window: &YapfastWindow,
+        members: &[yapfast_core::chat::ChatMember],
+        owner: Option<&str>,
+        now: u64,
+    ) {
+        let state = &self.app.state;
+        let cosmetics = state.cosmetics;
+        // In a server, names show their style's font alone.
+        let in_server = name_style::in_server(state.selected.as_deref());
         window.set_roster_note(
             match &state.members {
                 None => "Loading members...",
@@ -1902,12 +2224,40 @@ impl Adapter {
             members
                 .iter()
                 .enumerate()
-                .map(|(index, member)| {
+                .flat_map(|(index, member)| {
+                    // Discord names its groups; Matrix members group by role.
+                    // Each heading is a row of its own, so a count that
+                    // changes redraws only it, and the list keeps its height.
+                    let heading: SharedString = if let Some(group) = &member.group {
+                        if index == 0 || members[index - 1].group.as_ref() != Some(group) {
+                            group.as_str().into()
+                        } else {
+                            SharedString::default()
+                        }
+                    } else if index == 0 || members[index - 1].role != member.role {
+                        let count = members
+                            .iter()
+                            .filter(|other| other.role == member.role)
+                            .count();
+                        let role = match member.role {
+                            Role::Admin => "ADMINS",
+                            Role::Moderator => "MODERATORS",
+                            Role::Member => "MEMBERS",
+                        };
+                        format!("{role} — {count}").into()
+                    } else {
+                        SharedString::default()
+                    };
+                    let heading = (!heading.is_empty()).then(|| MemberRow {
+                        heading,
+                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
+                        ..MemberRow::default()
+                    });
                     let (activity_icon, activity_bullet, named) =
                         subline(&member.activities, member.activity.as_deref());
                     let (activity, activity_emoji) =
                         activity_line(named.as_deref().or(member.activity.as_deref()));
-                    MemberRow {
+                    let row = MemberRow {
                         activity_icon,
                         activity_bullet,
                         id: member.id.clone().into(),
@@ -1916,7 +2266,6 @@ impl Adapter {
                         tint: tint(&member.name),
                         picture: slint::Image::default(),
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
-                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
                         tag: tag_text(cosmetics.tag(member.tag.as_ref())),
                         tag_badge: tag_badge(cosmetics.tag(member.tag.as_ref())),
@@ -1949,7 +2298,7 @@ impl Adapter {
                         ),
                         timed_out: member.timed_out_until.is_some_and(|until| until > now),
                         bot: member.bot,
-                        owner: owner.as_deref() == Some(member.id.as_str()),
+                        owner: owner == Some(member.id.as_str()),
                         boosting: member
                             .boosting_since
                             .map(|since| {
@@ -1966,31 +2315,16 @@ impl Adapter {
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
-                        // Discord names its groups; Matrix members group by role.
-                        heading: if let Some(group) = &member.group {
-                            if index == 0 || members[index - 1].group.as_ref() != Some(group) {
-                                group.as_str().into()
-                            } else {
-                                SharedString::default()
-                            }
-                        } else if index == 0 || members[index - 1].role != member.role {
-                            let count = members
-                                .iter()
-                                .filter(|other| other.role == member.role)
-                                .count();
-                            let role = match member.role {
-                                Role::Admin => "ADMINS",
-                                Role::Moderator => "MODERATORS",
-                                Role::Member => "MEMBERS",
-                            };
-                            format!("{role} — {count}").into()
-                        } else {
-                            SharedString::default()
-                        },
-                    }
+                        ..MemberRow::default()
+                    };
+                    heading.into_iter().chain([row])
                 })
                 .collect(),
         );
+    }
+
+    /// The reactions offered on messages, the most used first.
+    fn show_reactions_offered(&self, window: &YapfastWindow) {
         let scale = window.window().scale_factor();
         update_model(
             &self.models.bar_reactions,
@@ -2014,7 +2348,11 @@ impl Adapter {
                 scale,
             ),
         );
-        let role = state.role.as_ref();
+    }
+
+    /// A role's card, with the members known to have it.
+    fn show_role(&self, window: &YapfastWindow) {
+        let role = self.app.state.role.as_ref();
         window.set_role_open(role.is_some());
         if let Some(role) = role {
             window.set_role_name(role.name.clone().into());
@@ -3339,7 +3677,12 @@ impl Adapter {
         let slot = usize::from(aside);
         let sources = MentionSources {
             messages: Arc::as_ptr(&state.messages) as usize,
-            members: state.members.iter().flatten().map(Vec::len).sum(),
+            members: state
+                .members
+                .iter()
+                .flatten()
+                .map(|members| members.len())
+                .sum(),
             found: state.found_members.len(),
             groups: state.mention_groups.len(),
             color: theme::mention_color(),
@@ -3586,7 +3929,9 @@ impl Adapter {
             if custom_emoji::add(in_messages().filter_map(|emoji| arrived(state, emoji))) {
                 self.restyle = true;
             }
-            let usable = if pictures_arrived {
+            // The suggestions build their cells from the pictures kept; the
+            // picker keeps its own as they come (`show_arrived_emoji`).
+            let usable = if pictures_arrived && self.emoji_word.is_some() {
                 self.app.emoji_sets()
             } else {
                 Vec::new()
@@ -3599,13 +3944,22 @@ impl Adapter {
                     .chain(state.messages.iter().flat_map(|message| &message.emoji))
                     .filter_map(|emoji| arrived(state, emoji)),
             );
-            if added {
-                if self.emoji_word.is_some() {
+            let picker = !window.get_react_item().is_empty() && self.show_arrived_emoji();
+            if added || picker {
+                if added && self.emoji_word.is_some() {
                     self.show_emoji_suggestions(window);
                 }
                 if !window.get_react_item().is_empty() {
-                    emoji::fill_pictures(&self.models.emoji_rows, &self.models.emoji_sections);
+                    self.fill_emoji_near_sight();
+                    // An animated one decodes from its picture, which has
+                    // come now.
+                    super::callbacks::want_shown_animations(self, window);
                 }
+            }
+            // A server's icon is no custom emoji, and the emoji picker's rail
+            // and headings draw it as it comes.
+            if pictures_arrived && !window.get_react_item().is_empty() {
+                super::callbacks::fill_picker_icons(self);
             }
         }
         let state = &self.app.state;

@@ -125,7 +125,7 @@ export component RailItem inherits Rectangle {
     /// The server's own icon, filling the item instead of the initial.
     in property <image> picture;
     in property <string> picture-url;
-    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision) : root.picture;
+    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision(root.picture-url)) : root.picture;
     function request-picture() {
         if root.picture-url != "" && root.shown-picture.width == 0 {
             PictureStore.request(root.picture-url);

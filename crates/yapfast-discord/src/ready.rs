@@ -64,10 +64,14 @@ pub mod permission {
     pub const MANAGE_WEBHOOKS: u64 = 1 << 29;
     /// Changing and deleting any of a server's emoji, stickers and sounds.
     pub const MANAGE_GUILD_EXPRESSIONS: u64 = 1 << 30;
+    /// Using another server's emoji, for those with Nitro.
+    pub const USE_EXTERNAL_EMOJIS: u64 = 1 << 18;
     /// Seeing every private thread, and sending in locked ones.
     pub const MANAGE_THREADS: u64 = 1 << 34;
     pub const CREATE_PUBLIC_THREADS: u64 = 1 << 35;
     pub const CREATE_PRIVATE_THREADS: u64 = 1 << 36;
+    /// Sending another server's stickers, for those with Nitro.
+    pub const USE_EXTERNAL_STICKERS: u64 = 1 << 37;
     pub const SEND_MESSAGES_IN_THREADS: u64 = 1 << 38;
     /// Timing members out.
     pub const MODERATE_MEMBERS: u64 = 1 << 40;
@@ -204,10 +208,20 @@ pub struct Server {
     pub mfa_level: u8,
     /// Its custom emoji, by name.
     pub emojis: Arc<Vec<Emoji>>,
+    /// Its stickers, as READY or GUILD_CREATE gives them, which the sticker
+    /// picker offers.
+    #[serde(default)]
+    pub stickers: Arc<Vec<crate::stickers::Sticker>>,
     /// Its scheduled events that haven't ended, soonest first, which its
     /// header counts; see [`ScheduledEvent`].
     #[serde(default)]
     pub events: Arc<Vec<ScheduledEvent>>,
+    /// How many boosts it has, and whether its owner shows the progress bar
+    /// toward the next goal at the top of its channel list.
+    #[serde(default)]
+    pub boosts: u32,
+    #[serde(default)]
+    pub boost_bar: bool,
     /// When this account joined it, as Discord's ISO 8601 time.
     pub joined_at: Option<String>,
     /// Out of reach in a Discord outage: still listed, with what was last
@@ -1400,7 +1414,16 @@ pub fn server(guild: &Value) -> Option<Server> {
             .or_else(|| guild["properties"]["mfa_level"].as_u64())
             .map_or(0, |level| u8::try_from(level).unwrap_or(1)),
         emojis: Arc::new(emojis(&guild["emojis"])),
+        stickers: Arc::new(crate::stickers::parse_all(&guild["stickers"])),
         events: Arc::new(scheduled_events(&guild["guild_scheduled_events"])),
+        boosts: guild["premium_subscription_count"]
+            .as_u64()
+            .or_else(|| guild["properties"]["premium_subscription_count"].as_u64())
+            .map_or(0, |count| u32::try_from(count).unwrap_or(u32::MAX)),
+        boost_bar: guild["premium_progress_bar_enabled"]
+            .as_bool()
+            .or_else(|| guild["properties"]["premium_progress_bar_enabled"].as_bool())
+            .unwrap_or(false),
         joined_at: guild["joined_at"].as_str().map(str::to_owned),
         default_level: Level::from(&guild["properties"]["default_message_notifications"])
             .or_else(|| Level::from(&guild["default_message_notifications"]))
@@ -1581,13 +1604,30 @@ pub(crate) fn media() -> &'static str {
 pub const STICKER_LOTTIE: u64 = 3;
 pub const STICKER_GIF: u64 = 4;
 
-/// A sticker's picture at the size Discord shows it. Animated GIF stickers come
-/// from the media proxy; Lottie stickers are JSON from the CDN.
+/// A sticker's picture at the size Discord shows it in a message. Animated
+/// GIF stickers come from the media proxy; Lottie stickers are JSON from the
+/// CDN.
 pub fn sticker(id: &str, format: u64) -> String {
+    sticker_at(id, format, crate::stickers::MESSAGE_SIZE)
+}
+
+/// Whether `url` is a sticker's, of any size, as [`sticker`] and
+/// [`sticker_at`] make them: Discord's CDN's or its media proxy's.
+pub fn is_sticker(url: &str) -> bool {
+    [cdn(), media()].iter().any(|base| {
+        url.strip_prefix(*base)
+            .and_then(|path| path.strip_prefix("/stickers/"))
+            .is_some()
+    })
+}
+
+/// A sticker's picture at `size` pixels: the message shows it at 160, and
+/// the picker's tiles at [`crate::stickers::TILE_SIZE`].
+pub fn sticker_at(id: &str, format: u64, size: u32) -> String {
     match format {
-        STICKER_GIF => format!("{}/stickers/{id}.gif?size=160", media()),
+        STICKER_GIF => format!("{}/stickers/{id}.gif?size={size}", media()),
         STICKER_LOTTIE => format!("{}/stickers/{id}.json", cdn()),
-        _ => format!("{}/stickers/{id}.png?size=160", cdn()),
+        _ => format!("{}/stickers/{id}.png?size={size}", cdn()),
     }
 }
 

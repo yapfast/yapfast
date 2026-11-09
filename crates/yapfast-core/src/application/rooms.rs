@@ -440,9 +440,12 @@ impl Application {
             return vec![];
         }
         self.state.navigation = navigation;
+        // A room restored records the screen it replaces in the history, so
+        // they go once it has.
+        let effects = self.restore_selection();
         self.state.dm_screen = None;
         self.state.browse = None;
-        self.restore_selection()
+        effects
     }
 
     /// Goes to wherever a conversation is listed and shows it; with `chat`,
@@ -460,10 +463,26 @@ impl Application {
                 .find(|server| server.channels.contains(&id))
                 .map(|server| Navigation::Server(server.id.clone()))
         };
+        // Crossing to another server or the direct messages restores a
+        // conversation there first, which is no stop of its own: the history
+        // notes the one that gives way to this conversation instead.
+        let crossing = !self.state.nav_walking
+            && navigation
+                .as_ref()
+                .is_some_and(|navigation| *navigation != self.state.navigation);
+        if crossing {
+            let previous = self.state.place();
+            self.state
+                .record_visit(previous, &HistoryPlace::Room(id.clone()));
+            self.state.nav_walking = true;
+        }
         let mut effects = navigation
             .map(|navigation| self.dispatch(Action::Navigate(navigation)))
             .unwrap_or_default();
         effects.extend(self.select_showing(id, chat));
+        if crossing {
+            self.state.nav_walking = false;
+        }
         effects
     }
 
@@ -774,6 +793,9 @@ impl Application {
             .into_iter()
             .filter(|url| self.requested_pictures.insert(url.clone()))
             .collect();
+        for url in &wanted {
+            self.let_go_emoji.remove(url);
+        }
         if wanted.is_empty() || self.state.preview {
             vec![]
         } else {
@@ -783,22 +805,41 @@ impl Application {
         }
     }
 
-    /// Steps back or forward through the conversations visited, to the next
-    /// one still there.
+    /// Asks for `urls` that aren't in memory, those already asked for too, so
+    /// the download of each moves ahead of what was asked for since.
+    pub(super) fn load_pictures_first(&mut self, urls: Vec<String>) -> Vec<Effect> {
+        let wanted: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.is_empty() && !self.state.pictures.contains_key(url))
+            .collect();
+        if wanted.is_empty() || self.state.preview {
+            return vec![];
+        }
+        for url in &wanted {
+            self.let_go_emoji.remove(url);
+        }
+        self.requested_pictures.extend(wanted.iter().cloned());
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+            wanted,
+        )))]
+    }
+
+    /// Steps back or forward through the places visited, to the next one
+    /// still there.
     pub(super) fn walk_history(&mut self, back: bool) -> Vec<Effect> {
         let state = &mut self.state;
-        let current = state.selected.clone();
+        let current = state.place();
         let target = loop {
             let stack = if back {
                 &mut state.nav_back
             } else {
                 &mut state.nav_forward
             };
-            let Some(id) = stack.pop() else {
+            let Some(place) = stack.pop() else {
                 return vec![];
             };
-            if Some(&id) != current.as_ref() && state.rooms.iter().any(|room| room.id == id) {
-                break id;
+            if Some(&place) != current.as_ref() && state.place_exists(&place) {
+                break place;
             }
         };
         if let Some(current) = current {
@@ -810,9 +851,26 @@ impl Application {
             other.push(current);
         }
         state.nav_walking = true;
-        let effects = self.open(target, false);
+        let effects = self.show_place(target);
         self.state.nav_walking = false;
         effects
+    }
+
+    /// Shows a place, going to the server or the direct messages it belongs to.
+    fn show_place(&mut self, place: HistoryPlace) -> Vec<Effect> {
+        match place {
+            HistoryPlace::Room(id) => self.open(id, false),
+            HistoryPlace::Dm(screen) => {
+                let mut effects = self.navigate(Navigation::DirectMessages);
+                effects.extend(self.open_dm_screen(screen));
+                effects
+            }
+            HistoryPlace::Browse(server) => {
+                let mut effects = self.navigate(Navigation::Server(server));
+                effects.extend(self.open_browse());
+                effects
+            }
+        }
     }
 
     pub(super) fn select(&mut self, id: String) -> Vec<Effect> {
@@ -855,6 +913,12 @@ impl Application {
             .flatten();
         // Messages after the last one read are new.
         let seen = room.last_read.clone();
+        // Where the history goes back to, before the room replaces a screen.
+        if !self.state.nav_walking {
+            let previous = self.state.place();
+            self.state
+                .record_visit(previous, &HistoryPlace::Room(id.clone()));
+        }
         self.remember_view();
         self.last_selected
             .insert(self.state.navigation.clone(), id.clone());
@@ -865,9 +929,6 @@ impl Application {
         // Discord's client counts each conversation opened.
         if self.state.selected.as_ref() != Some(&id) {
             self.state.places_used.visit(&id, crate::clock::now_ms());
-        }
-        if !self.state.nav_walking {
-            self.state.record_visit(&id);
         }
         self.state.selected = Some(id.clone());
         self.state.voice_chat = chat;
@@ -932,7 +993,7 @@ impl Application {
         if self.state.preview {
             if !voice_room {
                 self.state.messages = Arc::new(self.samples.get(&id).cloned().unwrap_or_default());
-                self.state.members = Some(Ok(preview_members(&id)));
+                self.state.members = Some(Ok(Arc::new(preview_members(&id))));
             }
         } else if voice_room {
             effects.push(Effect::Backend(Command::CloseRoom));

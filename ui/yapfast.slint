@@ -38,15 +38,16 @@ import "fonts/DisplayName-Journal.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
+import { StickerPicker, StickerGridTile } from "stickers.slint";
+import { ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
+import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { KeybindSettings } from "keybinds.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
@@ -66,15 +67,16 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
+export { BuildInfo } from "yapfast/build-info.slint";
 export { InboxRow } from "yapfast/inbox.slint";
-export { Theme, Badges, Popup, Looks } from "theme.slint";
+export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
 export { ServerTagRow } from "server.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
@@ -182,6 +184,12 @@ export component YapfastWindow inherits Window {
     in property <string> header-banner;
     /// How many scheduled events the server has; the "N Events" row opens them.
     in property <int> header-events;
+    /// Whether the header's server shows Discord's Events row, which a
+    /// Community server has without events.
+    in property <bool> header-events-row;
+    /// The boosts of the header's server, or -1 where the progress bar
+    /// above its channels is off.
+    in property <int> header-boosts: -1;
     // A Discord server's or channel's invite dialog: the link, and the
     // choices for another, as indices into each list it offers.
     in property <bool> invite-open;
@@ -355,6 +363,13 @@ export component YapfastWindow inherits Window {
     in property <string> room-parent-id;
     /// The thread's channel is a forum, and the thread one of its posts.
     in property <bool> room-parent-forum;
+    /// The open thread is a Discord forum post. Above its messages Discord
+    /// puts a bar to react to the post and to follow it; `forum-post-item`
+    /// is the post's first message once loaded, and `forum-post-follow` 0
+    /// when the post can't be followed, 1 to follow it, 2 when it is.
+    in property <bool> forum-post;
+    in property <string> forum-post-item;
+    in property <int> forum-post-follow;
     in property <image> room-icon;
     in property <bool> room-direct;
     in property <string> room-initial;
@@ -560,6 +575,34 @@ export component YapfastWindow inherits Window {
     callback insert-emoji(string);
     /// The GIF picker, in the picker above the composer; see GifPicker.
     in property <bool> can-pick-gifs;
+    /// The sticker picker beside it; see StickerPicker.
+    in property <bool> can-pick-stickers;
+    in property <[StickerGridTile]> sticker-tiles;
+    /// The collections down the picker's left, which its rail jumps to.
+    in property <[RailSection]> sticker-sections;
+    /// The collections down the emoji picker's left, which its rail jumps to.
+    in property <[RailSection]> emoji-rail-sections;
+    /// The sticker picker's search field.
+    in-out property <string> sticker-query;
+    /// The first sticker the search shows, which Enter picks.
+    in property <string> sticker-first-id;
+    callback sticker-search(string);
+    in property <length> sticker-grid-height;
+    in property <string> sticker-note;
+    /// The width the grid shows at: the picker's, less its rail and 12px
+    /// either side.
+    out property <length> sticker-grid-width: root.picker-shown - 72px;
+    // The grid's columns follow the width it shows at, as the GIFs' do, so a
+    // drag re-places its tiles.
+    changed sticker-grid-width => { root.sticker-reflow(); }
+    callback open-stickers;
+    callback close-stickers;
+    callback sticker-pick(string);
+    callback sticker-favorite(string);
+    /// An emoji's star was pressed: keep it among the favorites, or let it go.
+    callback emoji-favorite(string);
+    callback stickers-scrolled(length, length);
+    callback sticker-reflow;
     in property <int> gif-view;
     in-out property <string> gif-query;
     in property <[GifTile]> gif-tiles;
@@ -639,6 +682,11 @@ export component YapfastWindow inherits Window {
     in property <[EmojiCell]> menu-reactions;
     /// The emoji picker's grid for `emoji-query`, refreshed through emoji-search.
     in property <[EmojiRow]> emoji-rows;
+    /// What the grid draws of those rows: the emoji and headings of the rows
+    /// in sight and a row or two around them, and how tall they all are.
+    in property <[EmojiTile]> emoji-tiles;
+    in property <[EmojiRow]> emoji-headings;
+    in property <length> emoji-grid-height;
     /// The picker's sidebar: the grid's headings with no query.
     in property <[EmojiSection]> emoji-sections;
     /// The emoji a row of that grid was built for, which each of its cells then
@@ -729,6 +777,11 @@ export component YapfastWindow inherits Window {
     /// beside it until a click outside or Escape closes it.
     in-out property <bool> emoji-card-open;
     in property <EmojiCard> emoji-card;
+    /// A sticker's card, open over the window as an emoji's is.
+    in-out property <bool> sticker-card-open;
+    in property <MessageStickerCard> sticker-card;
+    /// A sticker in a message was clicked: its card opens.
+    callback open-sticker(string, int);
     /// Send someone a message in their DM from their card: who, and what.
     callback message-from-profile(string, string);
     /// Open the DM with this person, from the buttons of the full profile.
@@ -1177,6 +1230,10 @@ export component YapfastWindow inherits Window {
     }
     in-out property <int> noise-strength;
     in-out property <bool> dereverb;
+    /// Windows runs its microphone effects in Discord calls; the switch shows
+    /// on Windows only.
+    in-out property <bool> windows-effects;
+    in property <bool> windows-effects-choice;
     in-out property <int> sensitivity: -60;
     /// The Discord microphone as its voice gate hears it, in dBFS, and whether
     /// the gate is open, refreshed by gate-meter-tick while voice settings
@@ -2098,8 +2155,8 @@ export component YapfastWindow inherits Window {
         emoji-picker.close();
         expressions.close();
     }
-    // The picker above the composer: GIFs, and the emoji. Its GIFs let go of
-    // their pictures when it closes or shows the emoji.
+    // The picker above the composer: the GIFs, the emoji and the stickers.
+    // Each lets go of its pictures when it closes or another shows.
     property <int> expression-tab;
     function open-expressions(tab: int) {
         root.react-item = "yapfast:composer";
@@ -2109,24 +2166,27 @@ export component YapfastWindow inherits Window {
         root.emoji-panel-width = root.picker-shown;
         root.emoji-search("");
         if tab == 0 { root.open-gifs(); }
+        if tab == 2 { root.open-stickers(); }
         expressions.show();
     }
     function show-expression-tab(tab: int) {
         if tab == root.expression-tab { return; }
         root.expression-tab = tab;
-        // The emoji's columns follow the width the picker was dragged to while
-        // the GIFs showed.
-        if tab == 0 { root.open-gifs(); } else {
-            root.close-gifs();
+        // Every grid's columns follow the width the picker was dragged to
+        // while another tab showed.
+        if tab == 0 { root.open-gifs(); } else { root.close-gifs(); }
+        if tab == 1 {
             root.emoji-panel-width = root.picker-shown;
             root.emoji-reflow();
         }
+        if tab == 2 { root.open-stickers(); } else { root.close-stickers(); }
     }
     property <bool> expressions-open: expressions.is-open;
     changed expressions-open => {
         if !root.expressions-open {
             root.close-gifs();
             if !root.picker-open { root.emoji-picker-closed(); }
+            root.close-stickers();
             root.focus-composer();
             root.react-item = "";
         }
@@ -2164,6 +2224,7 @@ export component YapfastWindow inherits Window {
                     padding-left: 16px; spacing: 8px; alignment: start;
                     PickerTab { text: "GIFs"; selected: root.expression-tab == 0; clicked => { root.show-expression-tab(0); } }
                     PickerTab { text: "Emoji"; selected: root.expression-tab == 1; clicked => { root.show-expression-tab(1); } }
+                    PickerTab { text: "Stickers"; selected: root.expression-tab == 2; clicked => { root.show-expression-tab(2); } }
                 }
                 if root.expression-tab == 0: GifPicker {
                     view: root.gif-view; query <=> root.gif-query; tiles: root.gif-tiles;
@@ -2178,11 +2239,26 @@ export component YapfastWindow inherits Window {
                     resized => { root.gif-picker-resized(); }
                     close => { expressions.close(); }
                 }
+                if root.expression-tab == 2: StickerPicker {
+                    bare: true;
+                    tiles: root.sticker-tiles; sections: root.sticker-sections; font: root.emoji-font;
+                    grid-height: root.sticker-grid-height; note: root.sticker-note;
+                    query <=> root.sticker-query; first-id: root.sticker-first-id;
+                    search(text) => { root.sticker-search(text); }
+                    pick(id) => { root.sticker-pick(id); expressions.close(); }
+                    favorite(id) => { root.sticker-favorite(id); }
+                    unlock-nitro => { root.unlock-nitro(); }
+                    scrolled-to(top, height) => { root.stickers-scrolled(top, height); }
+                    close => { expressions.close(); }
+                }
                 if root.expression-tab == 1: EmojiPicker {
                     bare: true;
-                    emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+                    emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; rail-sections: root.emoji-rail-sections;
+                    emoji-tiles: root.emoji-tiles; emoji-headings: root.emoji-headings; grid-height: root.emoji-grid-height;
+                    emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
                     emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
                     emoji-search(text) => { root.emoji-search(text); }
+                    favorite(key) => { root.emoji-favorite(key); }
                     pick(cell) => { root.pick(cell); }
                     unlock-nitro => { root.unlock-nitro(); }
                     close-picker => { expressions.close(); }
@@ -2228,9 +2304,12 @@ export component YapfastWindow inherits Window {
             ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         EmojiPicker {
-            emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+            emoji-rows: root.emoji-rows; emoji-sections: root.emoji-sections; rail-sections: root.emoji-rail-sections;
+            emoji-query <=> root.emoji-query; emoji-hover <=> root.emoji-hover;
+            emoji-tiles: root.emoji-tiles; emoji-headings: root.emoji-headings; grid-height: root.emoji-grid-height;
             emoji-font: root.emoji-font; react-item: root.react-item; columns: root.emoji-columns;
             emoji-search(text) => { root.emoji-search(text); }
+            favorite(key) => { root.emoji-favorite(key); }
             pick(cell) => { root.pick(cell); }
             unlock-nitro => { root.unlock-nitro(); }
             close-picker => { emoji-picker.close(); }
@@ -2314,7 +2393,12 @@ export component YapfastWindow inherits Window {
             start-forward(item) => { root.start-forward(item); message-menu.close(); }
             copy-text(text) => { root.copy-text(text); message-menu.close(); }
             pin-message(item) => { root.pin-message(item); message-menu.close(); }
-            request-delete(item) => { root.request-delete(item); message-menu.close(); }
+            // Shift and a click deletes at once, as Discord's menu does; a
+            // plain click asks first.
+            request-delete(item) => {
+                if root.shift-held { root.delete-now(item); } else { root.request-delete(item); }
+                message-menu.close();
+            }
             end-poll(item) => { Polls.ask-end(item); message-menu.close(); }
             media-index: root.menu-media; media-video: root.menu-video; link: root.menu-link;
             copy-image(item, index) => { root.copy-attachment(item, index); message-menu.close(); }
@@ -2375,7 +2459,7 @@ export component YapfastWindow inherits Window {
                                 height: ClientStyle.header-height + (header-box.banner ? 81px : 0px);
                                 if header-box.banner: Image {
                                     x: 0px; y: 0px; width: parent.width; height: parent.height;
-                                    source: PictureStore.picture(root.header-banner, PictureStore.revision);
+                                    source: PictureStore.picture(root.header-banner, PictureStore.revision(root.header-banner));
                                     image-fit: cover; accessible-role: none;
                                     init => { PictureStore.request(root.header-banner); }
                                 }
@@ -2413,13 +2497,48 @@ export component YapfastWindow inherits Window {
                                 }
                                 if !header-box.banner: Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
                             }
+                            // Discord's boost goal bar under the server's name: a pill 26px
+                            // tall, its fill the share of the goal the boosts reach.
+                            if ClientStyle.enabled && root.header-server != "" && root.header-boosts >= 0: boost-bar := Rectangle {
+                                height: 39px;
+                                property <float> share: min(1.0, root.header-boosts / 33.0);
+                                pill := Rectangle {
+                                    x: 12px; y: 4px; width: parent.width - 16px; height: 26px;
+                                    background: Theme.hover;
+                                    border-radius: 13px;
+                                    if boost-bar.share > 0: Rectangle {
+                                        x: 2px; y: 2px; height: parent.height - 4px;
+                                        width: (parent.width - 4px) * boost-bar.share;
+                                        border-radius: 11px;
+                                        background: @linear-gradient(270deg, #ff73fa66, #ff73fa1a);
+                                    }
+                                    Text {
+                                        x: 8px; width: parent.width - 40px; height: parent.height;
+                                        text: "Boost Goal"; font-size: 14px; font-weight: 600; color: Theme.text;
+                                        vertical-alignment: center; overflow: elide;
+                                    }
+                                    Text {
+                                        x: parent.width - self.width - 26px; width: self.preferred-width; height: parent.height;
+                                        text: root.header-boosts + "/33 Boosts"; font-size: 14px; font-weight: 500;
+                                        color: Theme.text.transparentize(0.3);
+                                        vertical-alignment: center;
+                                    }
+                                    Image {
+                                        x: parent.width - 8px - self.width; y: (parent.height - self.height) / 2; width: 16px; height: 16px;
+                                        source: @image-url("icons/chevron-right.svg"); colorize: Theme.muted; accessible-role: none;
+                                    }
+                                }
+                                Rectangle { x: 8px; y: parent.height - 1px; width: parent.width - 8px; height: 1px; background: Theme.outline; }
+                                accessible-role: text;
+                                accessible-label: "Boost Goal, " + root.header-boosts + " of 33 boosts";
+                            }
                             // Discord's "N Events" row under the server's name.
-                            if ClientStyle.enabled && root.header-server != "" && root.header-events > 0: events-row := Rectangle {
+                            if ClientStyle.enabled && root.header-server != "" && root.header-events-row: events-row := Rectangle {
                                 height: 60px;
                                 Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/calendar.svg"); colorize: Theme.muted; accessible-role: none; }
                                 Text {
                                     x: 44px; width: parent.width - 60px; height: parent.height;
-                                    text: root.header-events == 1 ? "1 Event" : root.header-events + " Events";
+                                    text: root.header-events == 0 ? "Events" : root.header-events == 1 ? "1 Event" : root.header-events + " Events";
                                     font-size: 14px; font-weight: 500; color: Theme.muted;
                                     vertical-alignment: center; overflow: elide;
                                 }
@@ -2951,6 +3070,66 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                         }
+                        // A forum post's bar, as Discord shows it: react to the post, and
+                        // follow it or copy its link.
+                        if ClientStyle.enabled && root.forum-post && !root.voice-panel && !root.room-forum: Rectangle {
+                            height: 45px; vertical-stretch: 0;
+                            background: Theme.chat;
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.outline-chat; }
+                            if root.forum-post-item != "": react-pill := Rectangle {
+                                x: 16px; y: 7px; height: 31px; width: react-row.preferred-width + 24px;
+                                border-radius: 8px;
+                                background: react-touch.has-hover ? Theme.field : Theme.raised;
+                                react-row := HorizontalLayout {
+                                    x: 12px; spacing: 8px; alignment: start;
+                                    Middle { Image { source: @image-url("icons/smile.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                    Text { text: "React to post"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                                }
+                                react-touch := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        root.anchor(react-pill.absolute-position.x, react-pill.absolute-position.y, react-pill.width, react-pill.height, false);
+                                        root.open-picker(root.forum-post-item);
+                                    }
+                                }
+                                accessible-role: button; accessible-label: "React to post";
+                                accessible-action-default => {
+                                    root.anchor(react-pill.absolute-position.x, react-pill.absolute-position.y, react-pill.width, react-pill.height, false);
+                                    root.open-picker(root.forum-post-item);
+                                }
+                            }
+                            HorizontalLayout {
+                                alignment: end; padding-right: 16px; padding-top: 7px; padding-bottom: 7px; spacing: 4px;
+                                if root.forum-post-follow > 0: Rectangle {
+                                    width: follow-row.preferred-width + 24px;
+                                    border-radius: 8px;
+                                    background: follow-touch.has-hover ? Theme.field : Theme.raised;
+                                    follow-row := HorizontalLayout {
+                                        x: 12px; spacing: 6px; alignment: start;
+                                        if root.forum-post-follow == 2: Middle { Image { source: @image-url("icons/check.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                        if root.forum-post-follow == 1: Middle { Image { source: @image-url("icons/plus.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                        Text { text: root.forum-post-follow == 2 ? "Following" : "Follow"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                                    }
+                                    follow-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.choose-menu(root.room-id, false, root.forum-post-follow == 2 ? "leave-thread" : "join-thread"); }
+                                    }
+                                    accessible-role: button; accessible-label: root.forum-post-follow == 2 ? "Following" : "Follow";
+                                    accessible-action-default => { root.choose-menu(root.room-id, false, root.forum-post-follow == 2 ? "leave-thread" : "join-thread"); }
+                                }
+                                Rectangle {
+                                    width: 32px; border-radius: 8px;
+                                    background: link-touch.has-hover ? Theme.field : Theme.raised;
+                                    Image { source: @image-url("icons/link.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; }
+                                    link-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.choose-menu(root.room-id, false, "copy-link"); }
+                                    }
+                                    accessible-role: button; accessible-label: "Copy link";
+                                    accessible-action-default => { root.choose-menu(root.room-id, false, "copy-link"); }
+                                }
+                            }
+                        }
                         // A forum's posts, in place of its messages.
                         if root.room-forum && !root.voice-panel: ForumPanel {
                             vertical-stretch: 1;
@@ -3217,6 +3396,10 @@ export component YapfastWindow inherits Window {
                                                         cancel-send(item) => { root.cancel-send(item); }
                                                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                                         view-image(id, index) => { root.view-image(id, index); }
+                                                        open-sticker(item, index, x, y, width, height) => {
+                                                            root.anchor(x, y, width, height, false);
+                                                            root.open-sticker(item, index);
+                                                        }
                                                         save-attachment(id, index) => { root.save-attachment(id, index); }
                                                         // A right click on a picture opens the message's menu with it.
                                                         media-menu(id, index, video, x, y) => {
@@ -3378,7 +3561,9 @@ export component YapfastWindow inherits Window {
                             // Who else is typing, just above the composer in the room the
                             // last message leaves under it, so the timeline doesn't move.
                             // Its text lines up with the messages' (16px, a 40px avatar
-                            // and 16px in), and it breathes gently while they type.
+                            // and 16px in), and it breathes gently while they type, as
+                            // animations play: `animation-tick()` repaints every frame, so
+                            // with them held still it holds still too.
                             if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
                                 x: 72px - 4px; y: parent.height - self.height;
                                 width: min(parent.width - 72px - 12px, typing-text.preferred-width + 8px); height: 20px;
@@ -3387,16 +3572,17 @@ export component YapfastWindow inherits Window {
                                     x: 4px; width: parent.width - 8px;
                                     text: root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
                                     vertical-alignment: center; overflow: elide;
-                                    opacity: 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg);
+                                    opacity: Motion.playing ? 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg) : 1;
                                 }
                             }
-                            // Under the avatars, three dots rise and brighten in turn.
+                            // Under the avatars, three dots rise and brighten in turn, or
+                            // sit still in a row while animations don't play.
                             if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
                                 x: 36px - self.width / 2; y: parent.height - self.height;
                                 width: 32px; height: 20px;
                                 background: Theme.chat;
                                 for dot in 3: Rectangle {
-                                    property <float> wave: sin(animation-tick() / 1ms * 0.3deg - dot * 70deg);
+                                    property <float> wave: Motion.playing ? sin(animation-tick() / 1ms * 0.3deg - dot * 70deg) : 0;
                                     x: 4px + dot * 9px; y: (parent.height - self.height) / 2 - 1.5px * self.wave;
                                     width: 6px; height: 6px; border-radius: 3px;
                                     background: Theme.muted;
@@ -3524,7 +3710,8 @@ export component YapfastWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        // As Discord's: the GIFs, then the emoji, in one picker.
+                                        // As Discord's: the GIFs, the stickers, then the emoji,
+                                        // in one picker.
                                         if root.can-pick-gifs: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             gif-button := IconButton {
@@ -3534,6 +3721,18 @@ export component YapfastWindow inherits Window {
                                                 clicked => {
                                                     root.anchor(emoji-button.absolute-position.x, emoji-button.absolute-position.y, emoji-button.width, emoji-button.height, false);
                                                     root.open-expressions(0);
+                                                }
+                                            }
+                                        }
+                                        if root.can-pick-stickers: VerticalLayout {
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
+                                            sticker-button := IconButton {
+                                                icon: @image-url("icons/sticker.svg"); label: "Open sticker picker";
+                                                glyph: 22px; enabled: root.composer-enabled;
+                                                tint: root.expressions-open && root.expression-tab == 2 ? Theme.text : Theme.secondary;
+                                                clicked => {
+                                                    root.anchor(emoji-button.absolute-position.x, emoji-button.absolute-position.y, emoji-button.width, emoji-button.height, false);
+                                                    root.open-expressions(2);
                                                 }
                                             }
                                         }
@@ -3680,6 +3879,10 @@ export component YapfastWindow inherits Window {
                         cancel-send(item) => { root.cancel-send(item); }
                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                         view-image(id, index) => { root.view-image(id, index); }
+                        open-sticker(item, index, x, y, width, height) => {
+                            root.anchor(x, y, width, height, false);
+                            root.open-sticker(item, index);
+                        }
                         save-attachment(id, index) => { root.save-attachment(id, index); }
                         collapse-long: root.collapse-long;
                         fold(item, whole) => { root.fold-message(item, whole); }
@@ -3881,6 +4084,7 @@ export component YapfastWindow inherits Window {
         discord-build: root.discord-build; preview: root.preview;
         close => { root.settings-open = false; }
         refresh-devices => { root.refresh-devices(); }
+        copy-text(text) => { root.copy-text(text); }
         if root.settings-section == 0: AccountSettings {
             account-name: root.account-name; account-status: root.account-status; account-status-emoji: root.account-status-emoji;
             account-initial: root.account-initial; account-tint: root.account-tint; account-picture: root.account-picture;
@@ -3918,6 +4122,7 @@ export component YapfastWindow inherits Window {
             camera-testing <=> root.camera-testing; camera-preview: root.camera-preview; camera-note: root.camera-note;
             unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
+            windows-effects <=> root.windows-effects; windows-effects-choice: root.windows-effects-choice;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
@@ -4275,6 +4480,30 @@ export component YapfastWindow inherits Window {
             }
         }
     }
+    // A sticker's card, under the sticker a message was clicked on, as an
+    // emoji's opens. A click outside or Escape closes it.
+    sticker-card-motion := PopupMotion { open: root.sticker-card-open; }
+    if sticker-card-motion.shown: Rectangle {
+        TouchArea { clicked => { root.sticker-card-open = false; } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.sticker-card-open = false; return accept; }
+                return reject;
+            }
+        }
+        MessageStickerCardView {
+            opacity: Popup.opacity(sticker-card-motion.amount); transform-scale: Popup.scale(sticker-card-motion.amount);
+            x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
+            y: root.anchor-y + root.anchor-height + 4px + self.height <= root.height - 8px
+                ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
+            card: root.sticker-card;
+            open-server(server) => {
+                root.sticker-card-open = false;
+                root.navigate-server(server);
+            }
+        }
+    }
     // An image shown large over everything; see ImageViewer.
     if root.viewer-open: ImageViewer {
         y: root.title-height; height: root.height - root.title-height;
@@ -4529,7 +4758,7 @@ export component YapfastWindow inherits Window {
         accessible-action-default => { root.view-reactions(ReactionHover.item, ReactionHover.key); }
         Text {
             x: 16px; y: (parent.height - 32px) / 2; width: 32px; height: 32px;
-            text: root.reaction-tip-emoji; font-family: root.emoji-font; font-size: 26px;
+            text: Twemoji.text(root.reaction-tip-emoji); font-family: root.emoji-font; font-size: 26px;
             horizontal-alignment: center; vertical-alignment: center;
         }
         reaction-words := Text {

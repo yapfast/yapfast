@@ -92,6 +92,11 @@ Yapfast follows the rules Discord documents for every client:
   readable only by the user, in `discord-cookies.json` in the data directory,
   so Yapfast stays the same device across restarts. Yapfast can't pass a Cloudflare
   challenge or captcha, so it never has a `cf_clearance` cookie.
+- **Headers.** Every API request carries what the web client's carry:
+  `X-Super-Properties`, the same description of the client as the gateway's
+  identify, `X-Discord-Locale` and `Accept-Language` for English, and
+  `X-Discord-Timezone` with this machine's time zone. `X-Debug-Options`
+  stays off, as it does in the web client until a debug option is on.
 - **Downloads.** Pictures and files from Discord's CDN download eight at a
   time, over one HTTP/2 connection, as a browser's requests to one host go.
   Avatars, server icons, banners, emoji and stickers have eight turns of
@@ -99,6 +104,8 @@ Yapfast follows the rules Discord documents for every client:
   other. Their newest batch goes first, in its order: rows on screen now
   come before rows scrolled past, and opening the emoji picker queues its
   pictures in the picker's order instead of asking for hundreds at once.
+  A start fetches the sticker picker's pictures ahead into the disk cache,
+  which decodes none of them and holds none.
   One kept on disk shows without waiting for a turn. A file someone asked
   for, such as the image the viewer shows or one they save or copy, skips
   the queue. A
