@@ -119,6 +119,10 @@ FORWARD(mfxStatus, MFXVideoENCODE_EncodeFrameAsync,
 /* hwcontext_qsv copies between the device's frames with VPP. */
 FORWARD(mfxStatus, MFXVideoVPP_Init, (mfxSession session, mfxVideoParam *par), (session, par),
         FAILED)
+FORWARD(mfxStatus, MFXVideoVPP_Query, (mfxSession session, mfxVideoParam *in, mfxVideoParam *out),
+        (session, in, out), FAILED)
+FORWARD(mfxStatus, MFXVideoVPP_Reset, (mfxSession session, mfxVideoParam *par), (session, par),
+        FAILED)
 FORWARD(mfxStatus, MFXVideoVPP_RunFrameVPPAsync,
         (mfxSession session, mfxFrameSurface1 *in, mfxFrameSurface1 *out, mfxExtVppAuxData *aux,
          mfxSyncPoint *syncp),

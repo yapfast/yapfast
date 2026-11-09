@@ -7,8 +7,19 @@ and AV1; and the H264, HEVC, AV1 and VP9 decoders and parsers a watched
 stream comes from, on both targets, with their x86-64 assembly. On Windows it
 also carries Direct3D 11's hwaccel for all four (`--enable-d3d11va`,
 `--enable-hwaccel=…`), so a picture is decoded into a texture on the device
-the window and the encoder hold. Nothing else of FFmpeg is built: no formats
-or filters.
+the window and the encoder hold. On Linux it carries libavfilter and
+libswscale as well, with the filters that scale and convert a picture on the
+card: `scale_vaapi`, VA-API's video processor, which does both in one pass,
+and `vpp_qsv`, oneVPL's; `hwmap`, which brings a captured DMA-BUF
+(`AV_PIX_FMT_DRM_PRIME`) into a graph, `hwupload` and `hwdownload`, which
+move a picture between system memory and a device's, and `buffer`,
+`buffersink`, `format`, `scale` and `null` around them. Those are what turn a
+captured BGRA DMA-BUF into NV12 without the processor touching a pixel.
+`--enable-avfilter --enable-swscale` and `--enable-filter=` for each of them
+are the Linux target's alone; every other filter is off. Windows keeps both
+libraries disabled, as it did before, because its capture path already
+converts in Direct3D 11's video processor, in its own code. Nothing else of
+FFmpeg is built: no formats, and no filters beyond that list.
 `crates/yapfast-core/native/hwenc.c` drives the encoders, `native/hevc.c` the
 software HEVC decoder, and `native/hwdec.c` Direct3D 11's decode of all four.
 
@@ -34,6 +45,11 @@ library for `vpl.dll` made from its headers for Windows, and neither is kept.
   C files to compile and the assembly to assemble (`sources.txt`,
   `asm.txt`), and configure's defines, include folders, NASM flags and
   system libraries, which `build.rs` uses as configure's makefiles would.
+  It also holds what configure and make generated that the build reads
+  without compiling: the codec, parser, bsf and filter registries
+  (`libavcodec/*_list.c`, `libavfilter/filter_list.c`), and
+  `libswscale/x86/uops_macros.gen.asm`, which NASM includes and the C
+  compiler never sees.
 - `gen/rename.h`: a `#define` giving each of FFmpeg's symbols, and the libva
   and oneVPL functions it calls, a `yf_` prefix. Not clang-cl's constants or
   the UCRT's inline stdio functions, which every Windows library defines
@@ -83,4 +99,9 @@ Direct3D 11's.
 
 Change the versions and hashes at the top of `update.sh`, run it, and build:
 it fails when FFmpeg starts calling a libva or oneVPL function `src/va.c` or
-`src/vpl.c` lacks, or when a patch no longer applies.
+`src/vpl.c` lacks, when libswscale's assembly exports a kernel under a name
+`SWSCALE_SYMBOLS` doesn't describe, or when a patch no longer applies. The
+filters' VA-API and VPP code is what added `vaQueryVideoProcPipelineCaps` and
+`MFXVideoVPP_Query`/`MFXVideoVPP_Reset` to those two files; libswscale names
+its conversion kernels without a prefix, which is why the check lets those
+through.

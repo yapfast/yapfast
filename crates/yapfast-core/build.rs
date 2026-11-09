@@ -73,6 +73,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(dmabufenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     println!("cargo::rustc-check-cfg=cfg(vaapidec)");
+    println!("cargo::rustc-check-cfg=cfg(vaapivpp)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
     println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
@@ -307,6 +308,14 @@ fn main() {
             .includes(std::env::split_paths(&folders))
             .warnings(true);
         let rename = std::env::var("DEP_FFMPEG_RENAME").expect("ffmpeg-src's renames");
+        // The card's video processor is FFmpeg's filter library, which a build
+        // configured without it doesn't compile this file against: asked before
+        // the compiler so that a build without it gets the encoder alone, which
+        // is what this file was before the conversion existed.
+        let vpp = vaapi_vpp(&folders);
+        if vpp.is_ok() {
+            vaapi.define("YAPFAST_VPP", None);
+        }
         vaapi.flag("-std=c17").flag("-include").flag(&rename);
         vaapi.compile("yapfast_hwdec_vaapi");
         match vaapi_decode(&folders) {
@@ -324,6 +333,12 @@ fn main() {
             Ok(()) => println!("cargo::rustc-cfg=dmabufenc"),
             Err(missing) => println!(
                 "cargo:warning=this FFmpeg wasn't configured to encode a picture the card holds through VA-API ({missing}), so a DMA-BUF is copied back to the processor before it is encoded"
+            ),
+        }
+        match vpp {
+            Ok(()) => println!("cargo::rustc-cfg=vaapivpp"),
+            Err(missing) => println!(
+                "cargo:warning=this FFmpeg has no VA-API video processor ({missing}), so a picture the encoder can't read where it lies is converted on the processor"
             ),
         }
     }
@@ -416,6 +431,39 @@ fn vaapi_import(folders: &std::ffi::OsStr) -> Result<(), String> {
     // out of the build, and av_hwframe_map answers that it can't.
     if !config.contains("#define CONFIG_LIBDRM 1") {
         missing.push("no --enable-libdrm for the DRM PRIME import");
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing.join(", "))
+    }
+}
+
+// Whether the FFmpeg this crate links carries the card's video processor: its
+// filter library (`--enable-avfilter`) and `scale_vaapi` in it, which is what
+// turns a picture the encoder can't read as it arrived into the NV12 surface it
+// reads, on the card. Ok when both are there, and the reason naming what isn't
+// when either is not. A build configured with them but without VA-API has
+// nothing to convert on, which `vaapi_import` refuses before this is asked.
+fn vaapi_vpp(folders: &std::ffi::OsStr) -> Result<(), String> {
+    let (mut config, mut components) = (None, None);
+    for folder in std::env::split_paths(folders) {
+        config = config.or_else(|| std::fs::read_to_string(folder.join("config.h")).ok());
+        components =
+            components.or_else(|| std::fs::read_to_string(folder.join("config_components.h")).ok());
+    }
+    let Some(config) = config else {
+        return Err("configure's output isn't there".to_owned());
+    };
+    let mut missing = vec![];
+    if !config.contains("#define CONFIG_AVFILTER 1") {
+        missing.push("no --enable-avfilter");
+    }
+    if !components
+        .unwrap_or_default()
+        .contains("#define CONFIG_SCALE_VAAPI_FILTER 1")
+    {
+        missing.push("no --enable-filter=scale_vaapi");
     }
     if missing.is_empty() {
         Ok(())

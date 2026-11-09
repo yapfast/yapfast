@@ -24,12 +24,26 @@
  * hold this one to what the stream was measured with without a GPU in the
  * shape of the question.
  *
- * What this file can't take is a picture that isn't one NV12 picture in one
- * buffer: that is decided in Rust, before the card is asked
- * (`Encoder::importable`), since nothing here could import it as the same
- * picture. A machine whose VA-API encoder won't open says why through
- * `yapfast_hwenc_dmabuf_error`, and the stream falls back to the path fed from
- * the processor with one line in the log rather than a silent copy. */
+ * A picture the encoder can't read as it arrived — the BGRA a compositor draws a
+ * desktop in, which is what Linux capture hands over, of the screen's size
+ * rather than the stream's — is not a picture for the processor here: this file
+ * also carries the card's video processor, an AVFilterGraph of a VA-API buffer
+ * source, `scale_vaapi` and a buffer sink, which maps the picture to a surface
+ * on the same display, has the processor scale and convert it to NV12 at the
+ * stream's size, and hands the surface that comes out to the encoder. No pixel
+ * of it comes back to the processor either, which is the whole difference from
+ * reading it back and converting it there. `YAPFAST_VPP` is what a build with
+ * FFmpeg's filters and `scale_vaapi` defines, and a build without them answers
+ * `yapfast_hwenc_dmabuf_converts` with 0 so that Rust knows before a picture is
+ * looked at.
+ *
+ * What this file can't take at all is a picture that is neither one NV12 picture
+ * in one buffer nor one the video processor can make one of: that is decided in
+ * Rust, before the card is asked (`Encoder::importable`, `convertible`), since
+ * nothing here could import it as the same picture. A machine whose VA-API
+ * encoder won't open says why through `yapfast_hwenc_dmabuf_error`, and the
+ * stream falls back to the path fed from the processor with one line in the log
+ * rather than a silent copy. */
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -47,6 +61,15 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 
+/* The card's video processor, which is FFmpeg's filter library: a build
+ * configured without it has no `scale_vaapi` to compile against, so this source
+ * stays FFmpeg's encoders' alone and Rust's `vaapivpp` says so. */
+#ifdef YAPFAST_VPP
+#include "libavfilter/avfilter.h"
+#include "libavfilter/buffersink.h"
+#include "libavfilter/buffersrc.h"
+#endif
+
 /* The codecs, as Rust numbers them, and the picture in a DMA-BUF as Rust maps
  * it: native/hwenc.c's numbers and Rust's `DmabufPicture`. */
 struct yapfast_dmabuf_picture {
@@ -56,18 +79,27 @@ struct yapfast_dmabuf_picture {
   int fd;
   uint64_t size;
   uint64_t modifier;
-  /* NV12's two planes, in that object: where each starts and how many bytes
-   * apart its rows are. */
+  /* The format the object holds, as DRM names it, and how many planes of it
+   * this descriptor names: NV12's two, or the one plane of a 32-bit picture a
+   * compositor drew a desktop into. */
+  uint32_t fourcc;
+  uint32_t planes;
+  /* Each plane, in that object: where it starts and how many bytes apart its
+   * rows are. */
   uint32_t offset[2];
   uint32_t pitch[2];
 };
 
 /* DRM's fourcc, as the kernel and the descriptor name a format: NV12 is the
- * one picture a VA-API surface is made of without a conversion, and libdrm's
- * header isn't read here — this needs the one name. */
+ * one picture a VA-API surface is made of without a conversion, and the two
+ * 32-bit orders below are the ones a compositor draws a desktop in, which the
+ * card's video processor converts. libdrm's header isn't read here — this needs
+ * the names. */
 #define YAPFAST_FOURCC(a, b, c, d)                                                 \
   ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
 #define YAPFAST_DRM_FORMAT_NV12 YAPFAST_FOURCC('N', 'V', '1', '2')
+#define YAPFAST_DRM_FORMAT_ARGB8888 YAPFAST_FOURCC('A', 'R', '2', '4')
+#define YAPFAST_DRM_FORMAT_ABGR8888 YAPFAST_FOURCC('A', 'B', '2', '4')
 
 struct yapfast_hwenc_dmabuf {
   AVCodecContext *codec;
@@ -85,6 +117,27 @@ struct yapfast_hwenc_dmabuf {
    * the picture is encoded. */
   AVFrame *surface;
   AVPacket *packet;
+#ifdef YAPFAST_VPP
+  /* The conversion of a picture the encoder can't read as it arrived: a filter
+   * graph of a VA-API buffer source, the card's video processor and a buffer
+   * sink, the surface the picture is imported as for it, and the surface that
+   * comes out — which is what the encoder is given instead. Made on the first
+   * picture that needs one and kept while its shape and the stream's stay the
+   * same, since a filter graph is per shape and not per picture. */
+  AVFilterGraph *graph;
+  AVFilterContext *filter_in;
+  AVFilterContext *processor;
+  AVFilterContext *filter_out;
+  /* The frames context the arrived picture is mapped into, of the format it
+   * arrived in, on the same device as the encoder's. */
+  AVBufferRef *convert_frames;
+  AVFrame *processed;
+  /* The shape the graph above was built for, and the processor's own arguments:
+   * a picture of another one needs a graph of its own. */
+  enum AVPixelFormat convert_format;
+  unsigned convert_width, convert_height;
+  char convert_args[128];
+#endif
   /* Pictures handed back for an earlier picture than the one given: a driver
    * holding one back, whose time has gone by, so it is dropped rather than sent
    * under the next picture's time. */
@@ -213,6 +266,15 @@ static int set_options(struct yapfast_hwenc_dmabuf *h) {
 }
 
 static void close_encoder(struct yapfast_hwenc_dmabuf *h) {
+#ifdef YAPFAST_VPP
+  avfilter_graph_free(&h->graph);
+  h->filter_in = h->processor = h->filter_out = NULL;
+  av_buffer_unref(&h->convert_frames);
+  av_frame_free(&h->processed);
+  h->convert_format = AV_PIX_FMT_NONE;
+  h->convert_width = h->convert_height = 0;
+  h->convert_args[0] = 0;
+#endif
   avcodec_free_context(&h->codec);
   av_frame_free(&h->surface);
   av_frame_free(&h->drm);
@@ -360,6 +422,17 @@ struct yapfast_hwenc_dmabuf *yapfast_hwenc_dmabuf_new(unsigned codec_id, unsigne
     fail_text(h, "the encoder's memory wasn't there");
     goto failed;
   }
+#ifdef YAPFAST_VPP
+  /* The surface the video processor makes of a picture the encoder can't read
+   * as it arrived, and the format the graph above it is built for: nothing
+   * until a picture needs one. */
+  h->processed = av_frame_alloc();
+  h->convert_format = AV_PIX_FMT_NONE;
+  if (!h->processed) {
+    fail_text(h, "the encoder's memory wasn't there");
+    goto failed;
+  }
+#endif
   /* Frames are timed by the stream's clock in 90 kHz units, rescaled into this
    * time base, which has to exist to rescale into. */
   if (codec->time_base.num <= 0 || codec->time_base.den <= 0) {
@@ -404,8 +477,9 @@ failed:
 }
 
 /* One picture, as the card holds it: the DRM object the caller's descriptor
- * names, with NV12's two planes in it, which is the one shape FFmpeg imports as
- * a VA-API surface without a conversion. */
+ * names, with the format's planes in it — NV12's two, which is the one shape
+ * FFmpeg imports as a VA-API surface without a conversion, or the one plane of
+ * the 32-bit picture the video processor converts. */
 static void describe_picture(struct yapfast_hwenc_dmabuf *h,
                              const struct yapfast_dmabuf_picture *picture) {
   AVDRMFrameDescriptor *desc = &h->desc;
@@ -415,9 +489,9 @@ static void describe_picture(struct yapfast_hwenc_dmabuf *h,
   desc->objects[0].size = picture->size;
   desc->objects[0].format_modifier = picture->modifier;
   desc->nb_layers = 1;
-  desc->layers[0].format = YAPFAST_DRM_FORMAT_NV12;
-  desc->layers[0].nb_planes = 2;
-  for (int plane = 0; plane < 2; plane++) {
+  desc->layers[0].format = picture->fourcc;
+  desc->layers[0].nb_planes = (int)picture->planes;
+  for (uint32_t plane = 0; plane < picture->planes; plane++) {
     desc->layers[0].planes[plane].object_index = 0;
     desc->layers[0].planes[plane].offset = picture->offset[plane];
     desc->layers[0].planes[plane].pitch = picture->pitch[plane];
@@ -428,53 +502,153 @@ static void describe_picture(struct yapfast_hwenc_dmabuf *h,
   h->drm->data[0] = (uint8_t *)desc;
 }
 
-/* Encodes one picture the card holds, whose time is `pts` in 90 kHz units: the
- * stream's own clock, which Rust also labels the picture's packets with. The
- * descriptor is imported as a VA-API surface on this encoder's display and the
- * encoder is given that surface, so no pixel of the picture is copied; what it
- * produced is kept for `yapfast_hwenc_dmabuf_drain` to copy the bitstream out
- * of. Returns the size produced, 0 when the encoder gave no picture, or a
- * negative number on failure, which `yapfast_hwenc_dmabuf_error` explains. */
-long yapfast_hwenc_dmabuf_encode(struct yapfast_hwenc_dmabuf *h,
-                                 const struct yapfast_dmabuf_picture *picture, long long pts,
-                                 int keyframe, int *is_key) {
-  if (!h || !h->codec || !picture) return -1;
-  h->error[0] = 0;
-  const int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
-  /* The picture as it arrived, then that picture wrapped: the map waits for
-   * nothing and copies nothing, since the surface is the buffer it names. A
-   * mapping that would have to copy is one this refuses, as MAP_DIRECT says. */
+#ifdef YAPFAST_VPP
+/* The format the card's video processor is handed a picture in, as FFmpeg names
+ * it, or AV_PIX_FMT_NONE for one it can't be given. Rust's `vpp_format` names the
+ * same list and decides which pictures are offered here, so the two change
+ * together, as the VA-API settings above are held together. */
+static enum AVPixelFormat source_format(uint32_t fourcc) {
+  switch (fourcc) {
+    case YAPFAST_DRM_FORMAT_ARGB8888:
+      return AV_PIX_FMT_BGRA;
+    case YAPFAST_DRM_FORMAT_ABGR8888:
+      return AV_PIX_FMT_RGBA;
+    case YAPFAST_DRM_FORMAT_NV12:
+      return AV_PIX_FMT_NV12;
+    default:
+      return AV_PIX_FMT_NONE;
+  }
+}
+
+/* Gives up the conversion graph, and the frames context the picture was mapped
+ * into: both are made again for a picture of another shape. */
+static void close_graph(struct yapfast_hwenc_dmabuf *h) {
+  avfilter_graph_free(&h->graph);
+  h->filter_in = h->processor = h->filter_out = NULL;
+  av_buffer_unref(&h->convert_frames);
+  h->convert_format = AV_PIX_FMT_NONE;
+  h->convert_width = h->convert_height = 0;
+  h->convert_args[0] = 0;
+}
+
+/* The graph that turns a picture of `format`, `width` by `height`, into the NV12
+ * surface the encoder reads: a VA-API buffer source the picture is added to as
+ * the surface it was mapped as, the card's video processor scaling and
+ * converting it — `args` are its own, built in Rust where they are held to the
+ * size the stream sends — and a buffer sink the encoder's surface comes back
+ * from. All three are on the one VA-API display this encoder's device is, so
+ * what comes out is a surface the encoder reads without a copy. Kept while the
+ * picture's shape and the processor's arguments stay the same. */
+static int open_graph(struct yapfast_hwenc_dmabuf *h, enum AVPixelFormat format, unsigned width,
+                      unsigned height, const char *args) {
+  if (h->graph && h->convert_format == format && h->convert_width == width &&
+      h->convert_height == height && !strcmp(h->convert_args, args))
+    return 0;
+  close_graph(h);
+  int ret = 0;
+  const AVFilter *buffersrc = avfilter_get_by_name("buffer");
+  const AVFilter *processor = avfilter_get_by_name("scale_vaapi");
+  const AVFilter *buffersink = avfilter_get_by_name("buffersink");
+  if (!buffersrc || !processor || !buffersink) {
+    fail_text(h, "this FFmpeg has no VA-API video processor to convert a picture with");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  /* The surfaces the arrived picture is imported as: its own format, of its own
+   * size, on the encoder's display. Nothing is taken from a pool here — each
+   * picture is mapped from its buffer — so the pool has none. */
+  h->convert_frames = av_hwframe_ctx_alloc(h->device);
+  if (!h->convert_frames) return AVERROR(ENOMEM);
+  AVHWFramesContext *pool = (AVHWFramesContext *)h->convert_frames->data;
+  pool->format = AV_PIX_FMT_VAAPI;
+  pool->sw_format = format;
+  pool->width = (int)width;
+  pool->height = (int)height;
+  pool->initial_pool_size = 0;
+  if ((ret = av_hwframe_ctx_init(h->convert_frames)) < 0) goto failed;
+  h->graph = avfilter_graph_alloc();
+  if (!h->graph) {
+    ret = AVERROR(ENOMEM);
+    goto failed;
+  }
+  h->filter_in = avfilter_graph_alloc_filter(h->graph, buffersrc, "in");
+  h->processor = avfilter_graph_alloc_filter(h->graph, processor, "vpp");
+  h->filter_out = avfilter_graph_alloc_filter(h->graph, buffersink, "out");
+  if (!h->filter_in || !h->processor || !h->filter_out) {
+    ret = AVERROR(ENOMEM);
+    goto failed;
+  }
+  char value[64];
+  snprintf(value, sizeof value, "%ux%u", width, height);
+  if ((ret = av_opt_set(h->filter_in, "video_size", value, AV_OPT_SEARCH_CHILDREN)) < 0)
+    goto failed;
+  if ((ret = av_opt_set(h->filter_in, "pix_fmt", "vaapi", AV_OPT_SEARCH_CHILDREN)) < 0)
+    goto failed;
+  /* The encoder's own clock, so that a picture's time crosses the graph as the
+   * time it will be encoded at. */
+  snprintf(value, sizeof value, "%d/%d", h->codec->time_base.num, h->codec->time_base.den);
+  if ((ret = av_opt_set(h->filter_in, "time_base", value, AV_OPT_SEARCH_CHILDREN)) < 0)
+    goto failed;
+  if ((ret = av_opt_set(h->filter_in, "pixel_aspect", "1/1", AV_OPT_SEARCH_CHILDREN)) < 0)
+    goto failed;
+  /* The frames the source describes, which is what makes its pictures surfaces
+   * rather than frames in memory. Set on the source's own options, before it is
+   * initialised, as FFmpeg's own filter graphs that take hw frames do. */
+  if ((ret = av_opt_set_bin(h->filter_in->priv, "hw_frames_ctx",
+                            (uint8_t *)&h->convert_frames, sizeof h->convert_frames, 0)) < 0)
+    goto failed;
+  if ((ret = avfilter_init_str(h->filter_in, NULL)) < 0) goto failed;
+  if ((ret = avfilter_init_str(h->processor, args)) < 0) goto failed;
+  if ((ret = avfilter_init_str(h->filter_out, NULL)) < 0) goto failed;
+  if ((ret = avfilter_link(h->filter_in, 0, h->processor, 0)) < 0) goto failed;
+  if ((ret = avfilter_link(h->processor, 0, h->filter_out, 0)) < 0) goto failed;
+  if ((ret = avfilter_graph_config(h->graph, NULL)) < 0) goto failed;
+  h->convert_format = format;
+  h->convert_width = width;
+  h->convert_height = height;
+  snprintf(h->convert_args, sizeof h->convert_args, "%s", args);
+  return 0;
+failed:
+  if (!h->error[0])
+    fail_code(h, "the card's video processor wasn't opened to convert the picture with", ret);
+  close_graph(h);
+  return ret;
+}
+
+/* The picture mapped as a VA-API surface of the format it arrived in: what the
+ * video processor reads. The map is the wrap and copies nothing, as the
+ * encoder's own import of an NV12 picture is. */
+static int map_surface(struct yapfast_hwenc_dmabuf *h,
+                       const struct yapfast_dmabuf_picture *picture) {
   av_frame_unref(h->drm);
   describe_picture(h, picture);
   av_frame_unref(h->surface);
   h->surface->format = AV_PIX_FMT_VAAPI;
-  h->surface->hw_frames_ctx = av_buffer_ref(h->codec->hw_frames_ctx);
-  if (!h->surface->hw_frames_ctx) {
-    fail_text(h, "the picture had no surfaces to be imported into");
-    return -1;
-  }
-  const int level = hush();
-  g_reason[0] = 0;
-  int ret = av_hwframe_map(h->surface, h->drm, AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT);
-  unhush(level);
-  if (ret < 0) {
-    fail_code(h, "the picture wasn't imported as a surface on the card", ret);
-    return -1;
-  }
-  h->surface->pts = at;
+  h->surface->hw_frames_ctx = av_buffer_ref(h->convert_frames);
+  if (!h->surface->hw_frames_ctx) return AVERROR(ENOMEM);
+  return av_hwframe_map(h->surface, h->drm, AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT);
+}
+#endif /* YAPFAST_VPP */
+
+/* Gives the encoder `frame`, a surface on this encoder's display — the picture
+ * imported where it lay, or the one the card's video processor made of it — and
+ * keeps the access unit it produced for `yapfast_hwenc_dmabuf_drain` to copy
+ * out. Returns its size, 0 when the encoder gave no picture for it, or -1 with
+ * the reason in `h->error`, `refusal` saying what was refused. */
+static long send_and_collect(struct yapfast_hwenc_dmabuf *h, AVFrame *frame, int64_t at,
+                             int keyframe, const char *refusal, int *is_key) {
+  frame->pts = at;
   /* A dropped picture is one the pictures after it are built on, so the next
    * picture starts a new sequence: asked for as a keyframe, a viewer has a
    * picture to decode again instead of waiting out the interval on pictures
    * whose reference it never received. */
-  h->surface->pict_type =
-      keyframe || h->recover ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+  frame->pict_type = keyframe || h->recover ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
   h->recover = 0;
   const int sent = hush();
   g_reason[0] = 0;
-  ret = avcodec_send_frame(h->codec, h->surface);
+  int ret = avcodec_send_frame(h->codec, frame);
   unhush(sent);
   if (ret < 0) {
-    fail_code(h, "the card's encoder wouldn't take the picture where it lies", ret);
+    fail_code(h, refusal, ret);
     return -1;
   }
   size_t size = 0;
@@ -510,6 +684,106 @@ long yapfast_hwenc_dmabuf_encode(struct yapfast_hwenc_dmabuf *h,
   }
   h->staged_size = size;
   return (long)size;
+}
+
+/* Encodes one picture the card holds, whose time is `pts` in 90 kHz units: the
+ * stream's own clock, which Rust also labels the picture's packets with. The
+ * descriptor is imported as a VA-API surface on this encoder's display and the
+ * encoder is given that surface, so no pixel of the picture is copied; what it
+ * produced is kept for `yapfast_hwenc_dmabuf_drain` to copy the bitstream out
+ * of. Returns the size produced, 0 when the encoder gave no picture, or a
+ * negative number on failure, which `yapfast_hwenc_dmabuf_error` explains. */
+long yapfast_hwenc_dmabuf_encode(struct yapfast_hwenc_dmabuf *h,
+                                 const struct yapfast_dmabuf_picture *picture, long long pts,
+                                 int keyframe, int *is_key) {
+  if (!h || !h->codec || !picture) return -1;
+  h->error[0] = 0;
+  const int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
+  /* The picture as it arrived, then that picture wrapped: the map waits for
+   * nothing and copies nothing, since the surface is the buffer it names. A
+   * mapping that would have to copy is one this refuses, as MAP_DIRECT says. */
+  av_frame_unref(h->drm);
+  describe_picture(h, picture);
+  av_frame_unref(h->surface);
+  h->surface->format = AV_PIX_FMT_VAAPI;
+  h->surface->hw_frames_ctx = av_buffer_ref(h->codec->hw_frames_ctx);
+  if (!h->surface->hw_frames_ctx) {
+    fail_text(h, "the picture had no surfaces to be imported into");
+    return -1;
+  }
+  const int level = hush();
+  g_reason[0] = 0;
+  int ret = av_hwframe_map(h->surface, h->drm, AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT);
+  unhush(level);
+  if (ret < 0) {
+    fail_code(h, "the picture wasn't imported as a surface on the card", ret);
+    return -1;
+  }
+  return send_and_collect(h, h->surface, at, keyframe,
+                          "the card's encoder wouldn't take the picture where it lies", is_key);
+}
+
+/* Whether this shim can turn a picture the encoder can't read as it arrived into
+ * the NV12 surface it reads, on the card: FFmpeg's filter library and its VA-API
+ * video processor, which only a build configured with them has. It is a fact
+ * about the build, so Rust asks it before a picture is looked at and without a
+ * session to ask through: a build without it never opens one for a screen. */
+int yapfast_hwenc_dmabuf_converts(void) {
+#ifdef YAPFAST_VPP
+  return 1;
+#else
+  return 0;
+#endif
+}
+
+/* Encodes one picture the card holds but its encoder can't read as it arrived —
+ * the BGRA a compositor drew a desktop in, of the screen's size — by the card's
+ * video processor making the NV12 surface the encoder reads out of it: mapped,
+ * scaled to the stream's size, converted and encoded, with no pixel of it
+ * reaching system memory. `args` are the processor's own, built in Rust. Returns
+ * what yapfast_hwenc_dmabuf_encode returns, with the same meaning: the size
+ * produced, 0 when the encoder gave no picture, or -1 with the reason in
+ * `yapfast_hwenc_dmabuf_error`. */
+long yapfast_hwenc_dmabuf_convert(struct yapfast_hwenc_dmabuf *h,
+                                  const struct yapfast_dmabuf_picture *picture, long long pts,
+                                  int keyframe, int *is_key, const char *args) {
+  if (!h || !h->codec || !picture || !args) return -1;
+  h->error[0] = 0;
+#ifndef YAPFAST_VPP
+  (void)pts;
+  (void)keyframe;
+  (void)is_key;
+  fail_text(h, "this FFmpeg has no video processor to convert the picture with");
+  return -1;
+#else
+  const enum AVPixelFormat format = source_format(picture->fourcc);
+  if (format == AV_PIX_FMT_NONE || picture->planes < 1 || picture->planes > 2) {
+    fail_text(h, "the picture isn't one the card's video processor takes");
+    return -1;
+  }
+  const int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
+  const int level = hush();
+  g_reason[0] = 0;
+  int ret = open_graph(h, format, (unsigned)picture->width, (unsigned)picture->height, args);
+  if (ret >= 0) ret = map_surface(h, picture);
+  if (ret >= 0) {
+    h->surface->pts = at;
+    /* Pushed through the graph now rather than left to a later picture, since
+     * one picture is converted at a time: the source keeps its own reference to
+     * the surface, so this file's is still its own to release. */
+    ret = av_buffersrc_add_frame_flags(h->filter_in, h->surface,
+                                       AV_BUFFERSRC_FLAG_KEEP_REF | AV_BUFFERSRC_FLAG_PUSH);
+  }
+  av_frame_unref(h->processed);
+  if (ret >= 0) ret = av_buffersink_get_frame(h->filter_out, h->processed);
+  unhush(level);
+  if (ret < 0) {
+    fail_code(h, "the card's video processor didn't make the encoder's surface", ret);
+    return -1;
+  }
+  return send_and_collect(h, h->processed, at, keyframe,
+                          "the card's encoder wouldn't take the converted picture", is_key);
+#endif
 }
 
 /* Copies the access unit the last picture produced into `out`, which holds it,

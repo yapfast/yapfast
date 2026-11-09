@@ -10,6 +10,8 @@
 #include <va/va.h>
 #include <va/va_drm.h>
 #include <va/va_str.h>
+/* VAProcPipelineCaps, which the filters' video processing asks about. */
+#include <va/va_vpp.h>
 
 static void *libva, *libva_drm;
 static pthread_once_t loaded = PTHREAD_ONCE_INIT;
@@ -121,6 +123,10 @@ FORWARD(VAStatus, vaQueryImageFormats, (VADisplay dpy, VAImageFormat *formats, i
 FORWARD(VAStatus, vaQuerySurfaceAttributes,
         (VADisplay dpy, VAConfigID config, VASurfaceAttrib *attribs, unsigned int *count),
         (dpy, config, attribs, count), FAILED)
+FORWARD(VAStatus, vaQueryVideoProcPipelineCaps,
+        (VADisplay dpy, VAContextID context, VABufferID *filters, unsigned int num_filters,
+         VAProcPipelineCaps *pipeline_caps),
+        (dpy, context, filters, num_filters, pipeline_caps), FAILED)
 FORWARD(const char *, vaQueryVendorString, (VADisplay dpy), (dpy), "")
 FORWARD(VAStatus, vaRenderPicture,
         (VADisplay dpy, VAContextID context, VABufferID *buffers, int count),

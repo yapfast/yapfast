@@ -330,14 +330,23 @@ What the encoder is given is the descriptor itself, through
 `stream_worker::Encoding::encode_dmabuf`: a VA-API session imports it and no pixel
 of the picture comes back to the processor ([Encoding on the
 GPU](#encoding-on-the-gpu) says what a descriptor can hold there). A screen's
-DMA-BUF is BGRA, which is not the NV12 a VA-API surface is made of, so a screen
-still costs one copy: the picture is mapped read-only with `mmap`
-(`capture::linear`), converted to I420 in a buffer kept for it, and encoded from
-there — said once in the log and in the share's report, while the window goes on
-drawing the descriptor itself. A picture a driver tiled can't be read that way and isn't read
-wrongly: the share goes on from the processor's capturer instead, which is the
-one thing that always has pixels. Discord's still is made from the same map, is
-the one picture this path copies, and is made only when it is due.
+DMA-BUF is BGRA, which is not the NV12 a VA-API surface is made of, and it is
+the screen's size where the stream sends a smaller one. Where this build has
+FFmpeg's `scale_vaapi` (`cfg(vaapivpp)`) and the driver's video processor
+answers, the card makes the surface the encoder reads: the picture is mapped as
+a surface of the format it arrived in, scaled to the stream's size and converted
+to NV12 on the card, and the encoder reads that — said once in the log and on the
+Stream tab's encoder line ("…, scaling and converting DMA-BUFs on the card").
+Without that path — an FFmpeg built without those filters, a driver with no video
+processor, a picture whose format it doesn't take — a screen still costs one
+copy: the picture is mapped read-only with `mmap` (`capture::linear`), converted
+to I420 in a buffer kept for it, and encoded from there — said once in the log
+and in the share's report, while the window goes on drawing the descriptor
+itself. A picture a driver tiled can't be read back that way and isn't read
+wrongly: it is the video processor's, which takes the modifier, and where there
+is no processor the share goes on from the processor's capturer instead, which
+is the one thing that always has pixels. Discord's still is made from the same
+map, is the one picture this path copies, and is made only when it is due.
 
 A share that stops lets go of its capture, which closes the portal's session and
 undoes the X server's redirection; a capture that ends — the person stopped
@@ -559,7 +568,9 @@ descriptor's buffer as a VA-API surface — `av_hwframe_map` on a DRM PRIME fram
 which wraps the buffer instead of copying it — and gives that surface to
 FFmpeg's VA-API encoder. No pixel of such a picture comes back to the processor,
 and the Stream tab's line says so once one has been encoded that way ("…,
-encoding DMA-BUFs where they lie"), as does the log at the open. The encoder is
+encoding DMA-BUFs where they lie" — or "…, scaling and converting DMA-BUFs on
+the card" for a picture the video processor had to make a surface of first), as
+does the log at the open. The encoder is
 opened on the GPU the stream's encoder opened on, whose render node and libva
 driver are read back out of its report, and with the same settings as the
 session fed from memory: `native/hwenc_dmabuf.c` keeps them in one place and a
@@ -571,17 +582,37 @@ first picture that has to come through memory.
 
 What a descriptor can hold here is an NV12 picture in one buffer: that is what
 a picture the card decoded is, and what a VA-API surface is made of without
-converting it. A screen capture's DMA-BUF is BGRA —
-PipeWire's frames the compositor drew — so those pictures still come back
-through memory and are converted, the one copy that path allows. Every encoder
-here that reads its frames from memory — NVENC, Quick Sync, AMF and x264 —
-answers a DMA-BUF with a typed refusal (`encode::Refused`) rather than taking it
-and uploading it, and so does a VA-API encoder given a picture that isn't NV12:
-the caller logs one line and hands the same picture to the path fed from the
-processor, and nothing is copied on the way to that answer. `Encoder::copied`
-counts the pictures the processor moved, which is every picture of that path and
-none of the card's own, and `Encoder::encoded_in_place` counts the ones encoded
-where they lay.
+converting it. A screen capture's DMA-BUF is BGRA — PipeWire's frames the
+compositor drew — of the screen's size where the stream sends a smaller one, and
+the same descriptor is given to the card's video processor rather than read back:
+`native/hwenc_dmabuf.c` carries an `AVFilterGraph` of a VA-API buffer source —
+the picture mapped as a surface of the format it arrived in — `scale_vaapi` set
+to the stream's width, height and `nv12`, and a buffer sink, and the encoder is
+handed the surface that comes out. The graph, its source's frames and its
+surface all live on the one VA-API display the encoder opened on, so the picture
+never reaches system memory and the whole conversion is the driver's video
+processor. The arguments the processor is given are `encode::vpp_filter`'s, made
+once per stream rather than per picture; a 32-bit picture is converted with
+BT.601's limited range, which is what libyuv made of the same picture and what
+the stream declares, and an NV12 picture of another size is only scaled. Which
+build has this is a `cfg`: `vaapivpp`, set by `build.rs` where the vendored
+FFmpeg was configured with `CONFIG_AVFILTER` and `CONFIG_SCALE_VAAPI_FILTER`, so
+a build without them compiles the file without the graph and answers every
+picture as it did before. A driver whose video processor is missing or refuses a
+picture says so once through the shim's error, and that stream's pictures go the
+processor's way from then on.
+
+Every encoder here that reads its frames from memory — NVENC, Quick Sync, AMF
+and x264 — answers a DMA-BUF with a typed refusal (`encode::Refused`) rather than
+taking it and uploading it, and so does a VA-API encoder given a picture that
+neither the import nor the video processor takes: the caller logs one line and
+hands the same picture to the path fed from the processor, and nothing is copied
+on the way to that answer. The order is the import first, then the video
+processor, then the processor's own copy: `Encoder::copied` counts the pictures
+that last one moved, which is every picture of that path and none of the card's
+own, and `Encoder::encoded_in_place` counts the ones the card made into the
+encoder's frames, imported where they lay or converted by its video processor
+first.
 The setting lives in `layout.json` and reaches the worker with each
 `Job::Share`; the camera stays on x264. When the GPU's H264 encoder fails
 during a stream, x264 takes over from that frame with a keyframe, and the log
@@ -762,15 +793,21 @@ described above; what has been run on hardware is this:
   from the processor, like AMF, and says so.
 - **Linux's card paths are wired, and none of them has been seen working.**
   The portal/PipeWire capturer, the X11 DRI3 capturer, the DMA-BUF picture
-  channel, the VA-API decoder and the VA-API encode-from-a-DMA-BUF are
-  called from the stream worker now, each with its own refusal that falls
-  back to the processor's path and says why. This machine has no portal, no
-  compositor, no DRI3 and no VA-API driver, so every one of them was exercised
-  only through its refusal: what a working session does is what the code says,
-  not what anyone saw. The Vulkan import of a DMA-BUF is behind the
-  `skia-vulkan` feature (below), so a build without it asks for pixels once and
-  stays on the processor's path; a build with it imports the picture on the
-  window's Vulkan device and samples it there.
+  channel, the VA-API decoder, the VA-API encode-from-a-DMA-BUF and the VA-API
+  video processor that scales and converts a screen's picture into the surface
+  the encoder reads are called from the stream worker now, each with its own
+  refusal that falls back to the processor's path and says why. This machine
+  has no portal, no compositor, no DRI3 and no VA-API driver, so every one of
+  them was exercised only through its refusal: what a working session does is
+  what the code says, not what anyone saw. The video processor is the one of
+  them whose arguments, formats and fallback order are unit-tested without a
+  device; whether a driver converts BGRA to NV12, at what cost, and whether its
+  picture matches the processor's copy is unmeasured here — and on NVIDIA's
+  linux driver, which has no video processor, a screen's pictures take the
+  processor's copy, which is what the log says. The Vulkan import of a DMA-BUF
+  is behind the `skia-vulkan` feature (below), so a build without it asks for
+  pixels once and stays on the processor's path; a build with it imports the
+  picture on the window's Vulkan device and samples it there.
 - **Vulkan on Linux** is opt-in: the Skia Vulkan build (`nix build
   path:./nix#skia-vulkan`) and the `skia-vulkan` feature, with OpenGL the
   default and the fallback. No Vulkan device was available to run it here.

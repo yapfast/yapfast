@@ -9,8 +9,12 @@
 //! card that made it: [`Encoder::encode_dmabuf`] wraps it into a VA-API surface
 //! with FFmpeg's `av_hwframe_map` and the VA-API encoder reads that surface,
 //! through native/hwenc_dmabuf.c. No pixel of such a picture comes back to the
-//! processor; every other encoder here reads its frames from memory, says so,
-//! and is handed the picture through the plane path instead.
+//! processor. A picture the import can't take — the BGRA a compositor drew a
+//! desktop in — is offered to the card's video processor instead, which scales
+//! and converts it into the surface the encoder reads (`cfg(vaapivpp)`, and
+//! [`vpp_filter`] is what the processor is asked for); every other encoder here
+//! reads its frames from memory, says so, and is handed the picture through the
+//! plane path instead.
 
 use std::{
     ffi::{c_char, c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
@@ -185,6 +189,25 @@ unsafe extern "C" {
         is_key: *mut c_int,
     ) -> c_long;
     fn yapfast_hwenc_dmabuf_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
+    /// Whether the card's encoder's shim has a video processor at all — FFmpeg's
+    /// filters and its `scale_vaapi` — which is a fact about the build, asked
+    /// before a picture is looked at: a build without one never opens a session
+    /// for a screen.
+    #[cfg(vaapivpp)]
+    fn yapfast_hwenc_dmabuf_converts() -> c_int;
+    /// Encodes a picture the encoder can't read as it arrived, by the card's
+    /// video processor making the NV12 surface it reads out of it first:
+    /// mapped, scaled to the stream's size, converted, and handed over as that
+    /// surface. `args` are the processor's own, from [`vpp_filter`].
+    #[cfg(vaapivpp)]
+    fn yapfast_hwenc_dmabuf_convert(
+        encoder: *mut Raw,
+        picture: *const DmabufPicture,
+        pts: c_longlong,
+        keyframe: c_int,
+        is_key: *mut c_int,
+        args: *const c_char,
+    ) -> c_long;
     fn yapfast_hwenc_dmabuf_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_hwenc_dmabuf_late(encoder: *mut Raw) -> c_uint;
     fn yapfast_hwenc_dmabuf_config(encoder: *mut Raw, config: *mut c_char, config_size: usize);
@@ -238,17 +261,31 @@ struct DmabufPicture {
     size: u64,
     /// The DRM modifier the driver laid the buffer out with.
     modifier: u64,
-    /// Where each of NV12's two planes starts in that buffer, and how many
-    /// bytes apart its rows are.
+    /// The buffer's format, as DRM names it, and how many planes of it this
+    /// names: NV12's two, or the one of a 32-bit picture.
+    fourcc: u32,
+    planes: u32,
+    /// Where each plane starts in that buffer, and how many bytes apart its
+    /// rows are.
     offset: [u32; 2],
     pitch: [u32; 2],
 }
 
 /// DRM's fourcc for NV12, as a descriptor names its format: the one picture a
 /// VA-API surface can be made of without converting it, and so the one a
-/// descriptor can be encoded in.
+/// descriptor can be encoded in as it lies.
 #[cfg(target_os = "linux")]
 const NV12: u32 = u32::from_le_bytes(*b"NV12");
+
+/// DRM's fourcc for the two orders a compositor draws a desktop in: `AR24`,
+/// which is B, G, R and a byte nothing reads, and `AB24`, the same with red and
+/// blue the other way round. They are `capture/linear.rs`'s `Order::fourcc`,
+/// which is what a screen's descriptor carries, and neither is a VA-API surface:
+/// they are what the card's video processor is asked to make one of.
+#[cfg(target_os = "linux")]
+const AR24: u32 = u32::from_le_bytes(*b"AR24");
+#[cfg(target_os = "linux")]
+const AB24: u32 = u32::from_le_bytes(*b"AB24");
 
 /// Why a picture didn't go to the encoder where it lay, and so is a picture for
 /// the plane path: the caller logs one line with [`Encoder::engine`] and hands
@@ -274,6 +311,13 @@ pub enum Refused {
     /// The card's VA-API encoder wouldn't take the picture, which it said in
     /// the log when it tried.
     Failed,
+    /// The encoder can't read the picture as it arrived, but the card's video
+    /// processor can make the surface it reads out of it: the picture is scaled
+    /// and converted to NV12 there, and the encoder reads that. It is the one
+    /// conversion of a picture that costs the processor no pixel, which is what
+    /// separates it from the copy [`Self::Uploads`] and [`Self::Unimportable`]
+    /// send a picture to.
+    Converted,
 }
 
 #[cfg(target_os = "linux")]
@@ -284,6 +328,10 @@ impl std::fmt::Display for Refused {
             Self::NotBuilt => f.write_str("this build has no VA-API path for a DMA-BUF"),
             Self::Unimportable(why) => f.write_str(why),
             Self::Failed => f.write_str("the card's encoder wouldn't take the picture"),
+            Self::Converted => f.write_str(
+                "the card's video processor scaled and converted it to NV12 before the encoder \
+                 read it",
+            ),
         }
     }
 }
@@ -441,13 +489,31 @@ pub struct Encoder {
     /// `tried` so that reopening for a picture in memory doesn't read the name
     /// of the encoder it is about to try.
     engine_name: String,
-    /// How many pictures went to the encoder where they lay, in the DMA-BUF they
-    /// arrived in, and so cost the processor no pixel.
+    /// How many pictures went to the encoder that reads the card's own without
+    /// the processor moving a pixel: the DMA-BUF wrapped as a surface where it
+    /// lay, and the surface the card's video processor made of one it couldn't.
     in_place: u64,
     /// Which encoder runs and how its pictures reach it, for the report while a
     /// stream's pictures are the card's own: empty until the first one is
     /// encoded, so the line is the open's own until there is something to add.
     in_place_engine: String,
+    /// How many pictures the card's video processor converted before the encoder
+    /// read them, which is the count of the ones not read where they lay. Zero on
+    /// every build without the processor, and on every stream that has never
+    /// handed one over.
+    #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+    converted: u64,
+    /// Whether this stream's pictures are still offered to the card's video
+    /// processor: this build's answer while none has failed, and given up for the
+    /// stream once one has — no driver that can't convert a picture converts the
+    /// next.
+    #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+    converts: bool,
+    /// The card's video processor's arguments for this stream's pictures, and the
+    /// shape they were made for: `None` until a picture needs a conversion, and
+    /// made again when the pictures' shape changes.
+    #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+    vpp: Option<Vpp>,
     /// How many pictures the processor moved into the encoder's own memory,
     /// which is every picture the plane path hands over.
     moved: u64,
@@ -508,6 +574,50 @@ struct Dmabuf {
     /// next picture's time, as last read, so that a driver falling behind is
     /// warned about once for each.
     late: u32,
+}
+
+/// The card's video processor's arguments for a stream's pictures, and the shape
+/// they were made for. A screen doesn't change size or format under a stream, so
+/// the text is made once and kept rather than for each picture; it is C text
+/// because that is how it crosses to native/hwenc_dmabuf.c.
+#[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+struct Vpp {
+    /// The arrived picture's format, width and height the arguments were made
+    /// for: a picture of another shape is a graph of its own.
+    from: (u32, u32, u32),
+    /// The processor's own options, `scale_vaapi`'s.
+    args: std::ffi::CString,
+}
+
+/// What the card's video processor takes of the pictures a descriptor can name:
+/// how many planes the format has in the one buffer, and what it is called in a
+/// log. `None` for a picture of a format no processor here converts, which is a
+/// picture for the processor's path. native/hwenc_dmabuf.c's `source_format`
+/// names the same list, so the two change together, as its VA-API settings are
+/// held together.
+#[cfg(all(target_os = "linux", vaapivpp))]
+fn vpp_format(fourcc: u32) -> Option<(usize, &'static str)> {
+    match fourcc {
+        AR24 => Some((1, "BGRA")),
+        AB24 => Some((1, "RGBA")),
+        NV12 => Some((2, "NV12")),
+        _ => None,
+    }
+}
+
+/// The card's video processor's own arguments for making the surface the encoder
+/// reads out of a picture `fourcc` names, for a stream sending `(width,
+/// height)`: the size it scales to and the format it makes, and — for a picture
+/// that arrives as 32-bit colour rather than as luma and chroma — the colour the
+/// conversion makes of it, which is the BT.601 limited range that libyuv made of
+/// the same picture and that the encoder declares it receives.
+#[cfg(all(target_os = "linux", vaapivpp))]
+fn vpp_filter(fourcc: u32, (width, height): (u32, u32)) -> String {
+    let mut args = format!("w={width}:h={height}:format=nv12");
+    if fourcc != NV12 {
+        args.push_str(":colour_matrix=smpte170m:range=limited");
+    }
+    args
 }
 
 #[cfg(dmabufenc)]
@@ -631,6 +741,14 @@ impl Encoder {
             engine_name,
             in_place: 0,
             in_place_engine: String::new(),
+            #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+            converted: 0,
+            #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+            // SAFETY: the shim answers whether it was built with the video
+            // processor without touching an encoder or a device.
+            converts: unsafe { yapfast_hwenc_dmabuf_converts() != 0 },
+            #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+            vpp: None,
             moved: 0,
             #[cfg(test)]
             submitted: 0,
@@ -679,11 +797,12 @@ impl Encoder {
         self.moved
     }
 
-    /// How many pictures were encoded where they lay, in the DMA-BUF they
-    /// arrived in: no pixel of one of these came back to the processor. Zero
-    /// while every picture is a picture in memory, which is every stream on an
-    /// encoder with no path from a descriptor, and every stream that has never
-    /// handed one over.
+    /// How many pictures were made into the encoder's own frames on the card: no
+    /// pixel of one of these came back to the processor. A picture is one of them
+    /// whether the encoder read the DMA-BUF where it lay or the card's video
+    /// processor made the surface of it first. Zero while every picture is a
+    /// picture in memory, which is every stream on an encoder with no path from a
+    /// descriptor, and every stream that has never handed one over.
     pub fn encoded_in_place(&self) -> u64 {
         self.in_place
     }
@@ -880,6 +999,13 @@ impl Encoder {
     /// `av_hwframe_map` and encodes that surface (native/hwenc_dmabuf.c), so no
     /// pixel of the picture comes back to the processor.
     ///
+    /// A picture the encoder can't read as it arrived — the BGRA a compositor
+    /// draws a desktop in, of the screen's size rather than the stream's — is not
+    /// a picture for the processor either: where this build carries the card's
+    /// video processor, it scales and converts the picture into the NV12 surface
+    /// the encoder reads, on the card (native/hwenc_dmabuf.c), so no pixel of it
+    /// comes back to the processor.
+    ///
     /// Every other encoder here — NVENC, Quick Sync, AMF, x264 — reads its
     /// pictures from memory, and answers [`Refused`] rather than copying a
     /// DMA-BUF into one. Any outer `Err` is one line in the log and then the same
@@ -901,12 +1027,24 @@ impl Encoder {
         if !takes_dmabuf(self.ffmpeg_name()) {
             return Err(Refused::Uploads);
         }
-        let picture = self.importable(picture)?;
-        self.encode_in_place(&picture, at, keyframe)
+        let refused = match self.importable(picture) {
+            Ok(picture) => return self.encode_in_place(&picture, at, keyframe),
+            Err(refused) => refused,
+        };
+        // The one NV12 picture a surface is made of is not what a screen hands
+        // over, so the card's video processor makes the surface instead: only
+        // where this build has one, and only for a picture whose format it takes.
+        // Everything else is the processor's copy, and `refused` is why.
+        #[cfg(vaapivpp)]
+        if let Some(picture) = self.convertible(picture) {
+            return self.encode_converted(&picture, at, keyframe);
+        }
+        Err(refused)
     }
 
-    /// `picture`, as native/hwenc_dmabuf.c reads it: one DRM object holding an
-    /// NV12 picture, which is the shape a VA-API surface is made of without a
+    /// `picture`, as native/hwenc_dmabuf.c reads it, when the encoder can take it
+    /// where it lies: one DRM object holding an NV12 picture of the encoder's
+    /// size, which is the shape a VA-API surface is made of without a
     /// conversion. These checks are this side's, so a descriptor that can't be a
     /// surface is answered before the card is asked, and a picture the encoder
     /// would have to convert is never taken for one it can encode.
@@ -925,43 +1063,162 @@ impl Encoder {
                 "a picture that isn't NV12, which a VA-API surface is made of",
             ));
         }
-        if picture.planes.len() != 2 || picture.fds.len() != 2 {
-            return Err(Refused::Unimportable(
-                "a picture that isn't NV12's two planes in one buffer",
-            ));
+        Self::described(picture, NV12, 2)
+    }
+
+    /// `picture` as the descriptor hands it to the card whichever way it goes
+    /// there: the one DRM object it is in, the `planes` planes of `fourcc`'s
+    /// format in that object, and how much of the buffer the picture needs. These
+    /// checks are this side's, so a descriptor no import could name is answered
+    /// before the card is asked, and both the encoder's import and the video
+    /// processor's conversion read the same picture.
+    #[cfg(target_os = "linux")]
+    fn described(
+        picture: &crate::dmabuf::Descriptor<'_>,
+        fourcc: u32,
+        planes: usize,
+    ) -> Result<DmabufPicture, Refused> {
+        if picture.planes.len() != planes || picture.fds.len() != planes {
+            return Err(Refused::Unimportable(match planes {
+                2 => "a picture that isn't NV12's two planes in one buffer",
+                _ => "a picture that isn't one 32-bit plane in one buffer",
+            }));
         }
-        let (luma, chroma) = (picture.planes[0], picture.planes[1]);
-        let (fd, beside) = (picture.fds[0], picture.fds[1]);
-        if fd < 0 || beside < 0 {
+        if picture.fds.iter().any(|fd| *fd < 0) {
             return Err(Refused::Unimportable("a plane with no buffer"));
         }
         // One DRM object is what FFmpeg imports as a surface; two buffers would
         // have to be one, and this won't pretend they are.
-        if fd != beside {
+        if picture.fds.iter().any(|fd| *fd != picture.fds[0]) {
             return Err(Refused::Unimportable(
                 "planes in two buffers, which one surface can't be made of",
             ));
         }
-        let (width, height) = (u64::from(self.width), u64::from(self.height));
-        if u64::from(luma.stride) < width || u64::from(chroma.stride) < width {
+        let width = u64::from(picture.width);
+        if picture
+            .planes
+            .iter()
+            .any(|plane| u64::from(plane.stride) < width)
+        {
             return Err(Refused::Unimportable("a pitch narrower than the picture"));
         }
         // Where the picture ends in the buffer, which is the size the import is
         // told: a descriptor carries the offset and pitch of each plane and no
-        // size of its own, and a plane's last row has to fit.
-        let size = std::cmp::max(
-            u64::from(luma.offset) + u64::from(luma.stride) * height,
-            u64::from(chroma.offset) + u64::from(chroma.stride) * height.div_ceil(2),
-        );
+        // size of its own, and a plane's last row has to fit. The planes after
+        // the first are subsampled by two in each direction, which is NV12's
+        // chroma.
+        let (mut offset, mut pitch, mut size) = ([0; 2], [0; 2], 0u64);
+        for (index, plane) in picture.planes.iter().enumerate() {
+            offset[index] = plane.offset;
+            pitch[index] = plane.stride;
+            let rows = if index == 0 {
+                u64::from(picture.height)
+            } else {
+                u64::from(picture.height).div_ceil(2)
+            };
+            size = size.max(u64::from(plane.offset) + u64::from(plane.stride) * rows);
+        }
         Ok(DmabufPicture {
-            width: self.width as c_int,
-            height: self.height as c_int,
-            fd,
+            width: picture.width as c_int,
+            height: picture.height as c_int,
+            fd: picture.fds[0],
             size,
             modifier: picture.modifier,
-            offset: [luma.offset, chroma.offset],
-            pitch: [luma.stride, chroma.stride],
+            fourcc,
+            planes: planes as u32,
+            offset,
+            pitch,
         })
+    }
+
+    /// `picture` as the card's video processor reads it, when this build carries
+    /// one and it takes the picture's format: `None` when there is no such path,
+    /// and then the picture is the processor's — read back and converted with
+    /// libyuv, which is the copy this one saves.
+    #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+    fn convertible(&mut self, picture: &crate::dmabuf::Descriptor<'_>) -> Option<DmabufPicture> {
+        let (planes, _) = vpp_format(picture.fourcc)?;
+        let described = Self::described(picture, picture.fourcc, planes).ok()?;
+        // Whether there is a processor to convert it on is this build's answer,
+        // and whether this stream still offers it its pictures is a session's: a
+        // build without one never opens a session for a screen, and a stream
+        // whose conversion failed has stopped asking.
+        if !self.converts {
+            return None;
+        }
+        self.descriptor_encoder().ok()?;
+        Some(described)
+    }
+
+    /// Encodes `picture` on the card by the card's video processor: the picture
+    /// is mapped as a surface of the format it arrived in, scaled to the stream's
+    /// size and converted to NV12 there, and the encoder is handed that surface,
+    /// so no pixel of it comes back to the processor.
+    #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+    fn encode_converted(
+        &mut self,
+        picture: &DmabufPicture,
+        at: u64,
+        keyframe: bool,
+    ) -> std::result::Result<Result<Option<Frame>>, Refused> {
+        let raw = self.descriptor_encoder()?;
+        let args = self.vpp_args(picture);
+        let mut is_key: c_int = 0;
+        // SAFETY: raw is the descriptor encoder's and is open, the picture is one
+        // of this encoder's planes, and the arguments outlive the call.
+        let written = unsafe {
+            yapfast_hwenc_dmabuf_convert(
+                raw,
+                picture,
+                at as c_longlong,
+                c_int::from(keyframe),
+                &mut is_key,
+                args.as_ptr(),
+            )
+        };
+        let (size, keyframe) = match written {
+            ..0 => {
+                // The processor couldn't make the surface of this picture, so it
+                // goes the processor's way — and the stream stops offering its
+                // pictures, since a driver that can't convert one won't convert
+                // the next.
+                self.converts = false;
+                tracing::warn!(
+                    engine = self.engine(),
+                    why = self.descriptor_error().as_str(),
+                    "the card's video processor wouldn't make the picture's surface; it goes \
+                     through the processor instead"
+                );
+                return Err(Refused::Failed);
+            }
+            0 => return Ok(Ok(None)),
+            size => (size as usize, is_key != 0),
+        };
+        // The picture was encoded on the card, so a failure here is the copy of
+        // its bitstream, not a picture for the fallback.
+        let frame = match self.collect(size, keyframe, at, raw, yapfast_hwenc_dmabuf_drain) {
+            Ok(frame) => frame,
+            Err(error) => return Ok(Err(error)),
+        };
+        if self.converted == 0 {
+            // Said once, as the processor's own copy is: which way a stream's
+            // pictures are converted does not change under it. The engine's own
+            // line grows the note, so a reader of the report sees it there too.
+            tracing::info!(
+                engine = self.configuration.engine.as_str(),
+                why = %Refused::Converted,
+                "converting on the card: the video processor scales every picture to the \
+                 stream's size and turns it into NV12, and the encoder reads that surface"
+            );
+            self.in_place_engine = format!(
+                "{}, scaling and converting DMA-BUFs on the card",
+                self.configuration.engine
+            );
+        }
+        self.converted += 1;
+        self.note_dmabuf_late();
+        self.in_place += 1;
+        Ok(Ok(Some(frame)))
     }
 
     /// Encodes a picture that is on the card, where it lies, and gives the
@@ -1110,6 +1367,21 @@ impl Encoder {
         );
         self.dmabuf = Some(Dmabuf { raw, late: 0 });
         Ok(raw)
+    }
+
+    /// The card's video processor's arguments for `picture`, made once for a
+    /// shape and kept while it stays that: a stream's pictures arrive the same
+    /// size and format, so a frame builds no string.
+    #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
+    fn vpp_args(&mut self, picture: &DmabufPicture) -> &std::ffi::CStr {
+        let from = (picture.fourcc, picture.width as u32, picture.height as u32);
+        if self.vpp.as_ref().is_none_or(|vpp| vpp.from != from) {
+            let args = vpp_filter(from.0, (self.width, self.height));
+            // The text is this file's own, and has no zero in it.
+            let args = std::ffi::CString::new(args).expect("the arguments carry no nul");
+            self.vpp = Some(Vpp { from, args });
+        }
+        &self.vpp.as_ref().expect("made for this picture").args
     }
 
     /// The card's encoder's own last word about a picture, or about not opening
@@ -2646,6 +2918,8 @@ mod tests {
                 // told instead.
                 size: 108_288,
                 modifier: 0x0100_0000_0000_0002,
+                fourcc: NV12,
+                planes: 2,
                 offset: [0, 73_728],
                 pitch: [384, 384],
             })
@@ -2830,6 +3104,109 @@ mod tests {
         assert_eq!(
             Refused::Failed.to_string(),
             "the card's encoder wouldn't take the picture"
+        );
+        assert_eq!(
+            Refused::Converted.to_string(),
+            "the card's video processor scaled and converted it to NV12 before the encoder read it"
+        );
+    }
+
+    /// The card's video processor takes the two orders a compositor draws a
+    /// desktop in, and NV12 itself, which it only scales: a picture of any other
+    /// format is one no processor here converts, and so one for the processor's
+    /// own copy.
+    #[cfg(all(target_os = "linux", vaapivpp))]
+    #[test]
+    fn the_video_processor_takes_a_desktop_and_nv12() {
+        assert_eq!(vpp_format(AR24), Some((1, "BGRA")));
+        assert_eq!(vpp_format(AB24), Some((1, "RGBA")));
+        assert_eq!(vpp_format(NV12), Some((2, "NV12")));
+        // XRGB8888 is another order a compositor could draw a desktop in, and
+        // P010 is a picture of a depth this build converts nothing from.
+        for fourcc in [
+            u32::from_le_bytes(*b"XR24"),
+            u32::from_le_bytes(*b"P010"),
+            0,
+        ] {
+            assert_eq!(vpp_format(fourcc), None, "{fourcc:#x}");
+        }
+    }
+
+    /// The conversion is asked for the stream's size and NV12, and — only where
+    /// the picture arrives as 32-bit colour — the BT.601 limited range that the
+    /// processor's copy of the same picture was made with. The arguments are
+    /// `scale_vaapi`'s own options, so the test reads them as the text the shim
+    /// is handed.
+    #[cfg(all(target_os = "linux", vaapivpp))]
+    #[test]
+    fn the_conversions_arguments_are_the_streams_size_and_nv12() {
+        assert_eq!(
+            vpp_filter(AR24, (1280, 720)),
+            "w=1280:h=720:format=nv12:colour_matrix=smpte170m:range=limited"
+        );
+        assert_eq!(
+            vpp_filter(AB24, (640, 360)),
+            "w=640:h=360:format=nv12:colour_matrix=smpte170m:range=limited"
+        );
+        // NV12 is already luma and chroma: the processor scales it and leaves
+        // its colour alone.
+        assert_eq!(vpp_filter(NV12, (1280, 720)), "w=1280:h=720:format=nv12");
+    }
+
+    /// A screen's picture is one 32-bit plane of the compositor's buffer, which
+    /// the encoder can't import where it lies and the video processor can take:
+    /// the same descriptor that is refused by name is read as one plane of the
+    /// screen's size for the conversion, which is what the processor scales to
+    /// the stream's.
+    #[cfg(all(target_os = "linux", vaapivpp))]
+    #[test]
+    fn a_screens_picture_is_the_video_processors_not_the_imports() {
+        let encoder = Encoder::new(Codec::H264, 320, 180, 30, 500, Effort::Light, false).unwrap();
+        let planes = [dmabuf::Plane {
+            offset: 0,
+            stride: 2560,
+        }];
+        let fds = [7];
+        let picture = dmabuf::Descriptor {
+            width: 640,
+            height: 360,
+            fourcc: AR24,
+            modifier: 0,
+            planes: &planes,
+            fds: &fds,
+        };
+        // The import takes one NV12 picture of the encoder's size and nothing
+        // else: this is a screen's size, in a format no surface is made of.
+        assert_eq!(
+            encoder.importable(&picture),
+            Err(Refused::Unimportable(
+                "a picture of another size than the encoder's"
+            ))
+        );
+        // The conversion reads the same descriptor, and its size is the
+        // picture's own: the processor is what scales it.
+        assert_eq!(
+            Encoder::described(&picture, AR24, 1),
+            Ok(DmabufPicture {
+                width: 640,
+                height: 360,
+                fd: 7,
+                // The one plane's last row ends at 2560 × 360.
+                size: 921_600,
+                modifier: 0,
+                fourcc: AR24,
+                planes: 1,
+                offset: [0, 0],
+                pitch: [2560, 0],
+            })
+        );
+        // It is still one plane in one buffer: NV12's two are not there, so an
+        // import of it would show something else.
+        assert_eq!(
+            Encoder::described(&picture, NV12, 2),
+            Err(Refused::Unimportable(
+                "a picture that isn't NV12's two planes in one buffer"
+            ))
         );
     }
 

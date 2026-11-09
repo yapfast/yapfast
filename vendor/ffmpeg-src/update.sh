@@ -47,9 +47,18 @@ WINDOWS_HWACCELS=h264_d3d11va,hevc_d3d11va,av1_d3d11va,vp9_d3d11va
 # VA surface, and libdrm is what lets av_hwframe_map hand it over as a
 # DMA-BUF (`AV_PIX_FMT_DRM_PRIME`) instead of copying it back.
 LINUX_HWACCELS=h264_vaapi,hevc_vaapi,av1_vaapi,vp9_vaapi
+# Linux goes the other way: a captured picture is scaled and turned into NV12
+# on the card, so the build carries libavfilter and libswscale there alone.
+# `scale_vaapi` asks VA-API's video processor for both at once; `vpp_qsv` is
+# the same through oneVPL for Intel's; `hwmap` is what brings a captured
+# DMA-BUF (AV_PIX_FMT_DRM_PRIME) into the graph, and `hwupload`, `hwdownload`,
+# `buffer`, `buffersink`, `null`, `format` and `scale` are the rest of such a
+# graph without which those two can't be reached. Every other filter stays
+# disabled, as does libswresample.
+LINUX_FILTERS=buffer,buffersink,format,null,scale,hwmap,hwupload,hwdownload,scale_vaapi,vpp_qsv
 COMMON=(--disable-everything --disable-programs --disable-doc --disable-network
-  --disable-autodetect --disable-avformat --disable-avdevice --disable-swscale
-  --disable-swresample --disable-avfilter --disable-iconv
+  --disable-autodetect --disable-avformat --disable-avdevice
+  --disable-swresample --disable-iconv
   --disable-debug --enable-pic --enable-static --disable-shared)
 
 if [[ -z "${YAPFAST_FFMPEG_UPDATE:-}" ]]; then
@@ -126,15 +135,36 @@ build() {  # target, nm, then configure's arguments
   (cd "$out" && bash "$src/configure" "${COMMON[@]}" "$@" >/dev/null)
   make -s -C "$out" -j"$(nproc)" >/dev/null
   local gen=$work/gen/$target
-  mkdir -p "$gen/libavutil" "$gen/libavcodec"
+  # libavfilter and libswscale exist on Linux alone.
+  local libs=(libavcodec libavutil) folder
+  for folder in libavfilter libswscale; do
+    if [[ -d "$out/$folder" ]]; then libs+=("$folder"); fi
+  done
+  for folder in "${libs[@]}"; do mkdir -p "$gen/$folder"; done
   # config_components.asm holds the codecs' switches for the assembly that
   # asks, which the h264 asm does.
   cp "$out/config.h" "$out/config_components.h" "$out/config.asm" \
     "$out/config_components.asm" "$gen/"
   cp "$out/libavutil/avconfig.h" "$out/libavutil/ffversion.h" "$gen/libavutil/"
   cp "$out"/libavcodec/{codec,parser,bsf}_list.c "$gen/libavcodec/"
+  # The filter registry, which configure writes out: it names the filters of
+  # --enable-filter= that are still there, and their objects, which come from
+  # libavfilter as the codecs' do from libavcodec.
+  if [[ -f "$out/libavfilter/filter_list.c" ]]; then
+    cp "$out/libavfilter/filter_list.c" "$gen/libavfilter/"
+  fi
+  # libswscale's x86 ops assemble through a file make generates from its own
+  # headers (`uops_macros.gen.asm`), which read.txt can't see: NASM opens it,
+  # not the C compiler. It goes where build.rs's include folder for gen/
+  # finds it, which is where make's `-I` found it in the build.
+  local generated rel
+  while read -r generated; do
+    rel=${generated#"$out"/}
+    mkdir -p "$gen/$(dirname "$rel")"
+    cp "$generated" "$gen/$rel"
+  done < <(find "$out" -name '*.gen.asm')
   # Each object came from C or from NASM's assembly.
-  (cd "$out" && find libavcodec libavutil -name '*.o' | sed 's/\.o$//') > "$work/objects.txt"
+  (cd "$out" && find "${libs[@]}" -name '*.o' | sed 's/\.o$//') > "$work/objects.txt"
   local object
   while read -r object; do
     if [[ -f "$src/$object.asm" ]]; then echo "$object.asm"; fi
@@ -148,7 +178,7 @@ build() {  # target, nm, then configure's arguments
   # Every file the compiler read, as the .d files name them, and the files
   # it compiled, which clang-cl's leave out; clang-cl's give the full path
   # of a header found beside the file including it.
-  find "$out/libavcodec" "$out/libavutil" -name '*.d' -exec cat {} + | tr ' \\' '\n\n' |
+  find "${libs[@]/#/$out/}" -name '*.d' -exec cat {} + | tr ' \\' '\n\n' |
     grep -v ':$' | grep . | sed "s|^$src/|src/|" >> "$work/read.txt"
   sed 's|^|src/|' "$gen/sources.txt" "$gen/asm.txt" >> "$work/read.txt"
   # What build.rs adds to compile and link as configure would: its defines,
@@ -162,12 +192,14 @@ build() {  # target, nm, then configure's arguments
   # nor libatomic, which x86-64 doesn't need and which would be one more
   # library to install; nor clang-cl's -libpath: to the import library that
   # only configure's test linked, which is no folder of this machine.
-  sed -n 's/^EXTRALIBS\(-avcodec\|-avutil\)\{0,1\}=//p' "$out/ffbuild/config.mak" | tr ' ' '\n' |
+  sed -n 's/^EXTRALIBS\(-avcodec\|-avutil\|-avfilter\|-swscale\|-swresample\)\{0,1\}=//p' \
+    "$out/ffbuild/config.mak" | tr ' ' '\n' |
     sed -n -e '/^-[Ll]ibpath:/d' -e 's/^-l//p' -e 's/\.lib$//p' -e 's/^-pthread$/pthread/p' |
     grep -vxE 'va|va-drm|vpl|atomic' | sort -u > "$gen/libs.txt"
   # Archives as on Linux, libraries as on Windows.
   local libraries=() library
-  for library in libavcodec/libavcodec.a libavutil/libavutil.a libavcodec/avcodec.lib libavutil/avutil.lib; do
+  for library in libavcodec/libavcodec.a libavutil/libavutil.a libavfilter/libavfilter.a \
+    libswscale/libswscale.a libavcodec/avcodec.lib libavutil/avutil.lib; do
     if [[ -f "$out/$library" ]]; then libraries+=("$out/$library"); fi
   done
   "$nm" --defined-only -g "${libraries[@]}" | awk 'NF == 3 {print $3}' >> "$work/defined.txt"
@@ -175,6 +207,7 @@ build() {  # target, nm, then configure's arguments
 }
 build linux-x86_64 nm --cc=clang \
   --enable-ffnvcodec --enable-nvenc --enable-vaapi --enable-libvpl --enable-libdrm \
+  --enable-avfilter --enable-swscale --enable-filter="$LINUX_FILTERS" \
   --enable-hwaccel="$LINUX_HWACCELS" \
   --enable-encoder="$LINUX_ENCODERS" \
   --enable-decoder="$DECODERS" --enable-parser="$PARSERS"
@@ -209,6 +242,7 @@ chmod +x "$work/bin/lib"
   build windows-x86_64 llvm-nm --toolchain=msvc --cc="$windows" --cxx="$windows" --ld=lld-link \
     --ar=lib --nm=llvm-nm --target-os=win64 --arch=x86_64 --enable-cross-compile \
     --enable-ffnvcodec --enable-nvenc --enable-amf --enable-libvpl \
+    --disable-avfilter --disable-swscale \
     --enable-encoder="$WINDOWS_ENCODERS" \
     --enable-d3d11va --enable-hwaccel="$WINDOWS_HWACCELS" \
     --enable-decoder="$DECODERS" --enable-parser="$PARSERS"
@@ -271,8 +305,16 @@ sort -u "$work/defined.txt" | grep -vxE 'av_log2(_16bit)?' |
   grep -vE '^(\?\?_C@|__(xmm|ymm|real)@|__local_stdio_)|^_?v?[sf]?n?w?(printf|scanf)(_s)?$|_GUID$|^(GUID|IID|CLSID|LIBID|FMTID|WKPDID|D3D|D3D11|D3D12|DXGI|DXVA|DXVA2)_' > "$work/defined.sorted"
 mv "$work/defined.sorted" "$work/defined.txt"
 # Renamed too, though named otherwise: the GUIDs the AMF headers define in
-# each file that includes them, and a table hwcontext_amf.c leaves global.
-grep -Ev '^(av|ff|avpriv|avcodec|avutil|avsubtitle)_|^(AMF[A-Za-z]*GUID|format_map)$' \
+# each file that includes them, a table hwcontext_amf.c leaves global, and
+# libswscale's own conversion kernels, which FFmpeg names without a prefix —
+# the rgb ones it does in C (`rgb24tobgr32`, `rgb12to15`, `interleaveBytes`)
+# and in x86 assembly (`shuffle_bytes_2103`, `x2rgb10to64_bswap`), the YUV
+# ones (`uyvytoyuv420`, `yv12toyuy2`) and `planar2x`. They are FFmpeg's, so
+# build.rs's prefixing covers them as it does everything else; this is what
+# lets them past the check. A newer FFmpeg whose swscale adds a kernel of a
+# new shape fails here, which is the point.
+SWSCALE_SYMBOLS='backend_[a-z0-9]+|deinterleaveBytes|interleaveBytes|planar2x|rgb2rgb_init_x86|rgb[0-9]+(to(bgr)?[0-9]+)?(_(no)?bswap)?|shuffle_bytes_[0-9]+|x2rgb10to(bgr)?[0-9]+_(no)?bswap|(uyvytoyuv|yuyvtoyuv|yv[0-9]+to|yuv[0-9]+pto)[a-z0-9]+'
+grep -Ev "^(av|ff|avpriv|avcodec|avutil|avsubtitle|avfilter|swscale|sws|swresample)_|^($SWSCALE_SYMBOLS|AMF[A-Za-z]*GUID|format_map)$" \
   "$work/defined.txt" && {
   echo "update.sh: a symbol without FFmpeg's prefixes" >&2
   exit 1
