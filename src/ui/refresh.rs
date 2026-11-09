@@ -4280,7 +4280,7 @@ impl Adapter {
         window.set_dm_friend(dm_person.map_or(0, |person| match state.relation(person) {
             // The header offers no "sent", which the profile card shows.
             Relation::Outgoing => 0,
-            relation => friend_offer(relation),
+            _ => friend_offer(state, person),
         }));
         window.set_can_call(dm_call.is_some_and(|room| !room.request) && !voice_here);
         window.set_call_going(!present.is_empty());

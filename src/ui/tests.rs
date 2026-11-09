@@ -1531,6 +1531,7 @@ fn a_servers_icon_draws_on_its_heading_and_rail_button() {
             verified: false,
             events: Vec::new(),
             tag: None,
+            boosts: None,
         })];
         state.stickers.open = true;
         state.stickers.server_for = Some("10".into());
@@ -9652,4 +9653,60 @@ fn the_mouse_side_buttons_go_back_and_forward() {
     ] {
         assert!(side_button_action(other).is_none(), "{other:?}");
     }
+}
+
+#[test]
+fn a_profiles_more_menu_blocks_from_the_profile() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Alice, "1", has #general open; Dave, "4", is her friend there.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    let texts = |window: &YapfastWindow| -> Vec<String> {
+        window
+            .get_menu_rows()
+            .iter()
+            .map(|row| row.text.to_string())
+            .collect()
+    };
+    // The profile's More button opens the person's own menu.
+    window.invoke_prepare_menu("profile-more:4".into(), true);
+    let from_profile = texts(&window);
+    window.invoke_prepare_menu("4".into(), true);
+    assert_eq!(from_profile, texts(&window));
+    assert!(from_profile.iter().any(|text| text == "Block"));
+    // Alice's own profile offers no Block.
+    window.invoke_prepare_menu("profile-more:1".into(), true);
+    assert!(!texts(&window).iter().any(|text| text == "Block"));
+
+    // Block asks first, and the dialog remembers it came from the profile.
+    window.invoke_choose_menu("profile-more:4".into(), true, "block".into());
+    let dialog = adapter.borrow().app.state.person_dialog.clone().unwrap();
+    assert_eq!(
+        (dialog.user.as_str(), dialog.ask, dialog.location),
+        ("4", PersonAsk::Block, "user profile overflow menu")
+    );
+    // A right click's says it came from a menu.
+    adapter.borrow_mut().app.state.person_dialog = None;
+    window.invoke_choose_menu("4".into(), true, "block".into());
+    let dialog = adapter.borrow().app.state.person_dialog.clone().unwrap();
+    assert_eq!(dialog.location, "ContextMenu");
+    adapter.borrow_mut().app.state.person_dialog = None;
+    // Its changes to a relationship, Unblock included, name the same place.
+    assert_eq!(
+        menus::relationship_place("profile-more:4"),
+        ("4", "user profile overflow menu")
+    );
+    assert_eq!(menus::relationship_place("4"), ("4", "ContextMenu"));
+    // The rest of the menu acts on the person, not on the prefixed target.
+    window.invoke_choose_menu("profile-more:4".into(), true, "profile".into());
+    let shown = adapter.borrow().app.state.profile.clone();
+    assert_eq!(shown.map(|view| view.profile.id), Some("4".into()));
 }

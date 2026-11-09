@@ -2200,16 +2200,18 @@ impl Discord {
     }
 
     /// Ends a friendship. The lists change when Discord confirms it.
-    pub async fn unfriend(&self, user: &str) -> Result<()> {
-        self.api.remove_relationship(user, "ContextMenu").await
+    /// `location` is where in Discord's client it happens, such as
+    /// "ContextMenu".
+    pub async fn unfriend(&self, user: &str, location: &str) -> Result<()> {
+        self.api.remove_relationship(user, location).await
     }
 
-    /// Blocks someone, or unblocks them.
-    pub async fn block(&self, user: &str, block: bool) -> Result<()> {
+    /// Blocks someone, or unblocks them, from `location` in Discord's client.
+    pub async fn block(&self, user: &str, block: bool, location: &str) -> Result<()> {
         if block {
-            self.api.block(user, "ContextMenu").await
+            self.api.block(user, location).await
         } else {
-            self.api.remove_relationship(user, "ContextMenu").await
+            self.api.remove_relationship(user, location).await
         }
     }
 

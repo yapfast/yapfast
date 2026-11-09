@@ -173,8 +173,8 @@ they do in Discord.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
-  people from their menu, hide what blocked people write, and unblock them from
-  a list in Settings.
+  people from their menu, block and unblock them from their profile, hide what
+  blocked people write, and unblock them from a list in Settings.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.

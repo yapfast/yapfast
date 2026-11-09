@@ -174,8 +174,9 @@ impl AppState {
     }
 
     /// What someone's menu offers, by Discord user id or Matrix ID: their
-    /// profile when Yapfast knows them, a DM, and Discord friendship; in their
-    /// DM, what the DM's menu offers.
+    /// profile when Yapfast knows them, a DM, Discord friendship and
+    /// blocking, never for this account; in their DM, what the DM's menu
+    /// offers.
     pub fn person_choices(&self, user: &str) -> Vec<MenuChoice> {
         // In their own DM, someone's menu is the DM's, less what's about it
         // as a conversation in the list; its ID is theirs.
@@ -202,12 +203,20 @@ impl AppState {
         }
         // Matrix IDs start with `@`; Discord user ids are numbers.
         if !me && !self.preview && !user.starts_with('@') && self.discord_user.is_some() {
+            let blocked = self.is_blocked(user);
             match self.relation(user) {
-                Relation::Stranger => choices.push(MenuChoice::AddFriend),
+                // Discord takes no request to someone blocked.
+                Relation::Stranger if !blocked => choices.push(MenuChoice::AddFriend),
                 Relation::Incoming => choices.push(MenuChoice::AcceptFriend),
                 Relation::Outgoing => choices.push(MenuChoice::CancelFriendRequest),
-                Relation::Friend | Relation::Me | Relation::Bot => {}
+                Relation::Stranger | Relation::Friend | Relation::Me | Relation::Bot => {}
             }
+            // As a profile's More menu offers it in Discord's client.
+            choices.push(if blocked {
+                MenuChoice::Unblock
+            } else {
+                MenuChoice::Block
+            });
         }
         if !self.preview {
             choices.push(MenuChoice::CopyId);

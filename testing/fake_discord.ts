@@ -199,8 +199,11 @@
 // it answers 80013.
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
-// stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, GET /_control/note-reads counts the
+// stop, and PATCH gives a friend a nickname. GET
+// /_control/relationship-changes lists each PUT and DELETE on
+// /users/@me/relationships/{id}, oldest first: its method, the user, the
+// body's type or null, and the location its X-Context-Properties named.
+// GET and PUT /users/@me/notes/{id} read and write Alice's note on someone, GET /_control/note-reads counts the
 // reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
 // another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
@@ -2279,6 +2282,11 @@ const channelEdits = new Map<string, Partial<GuildChannel>>();
 const deletedChannels = new Set<string>();
 // Each body of PATCH /guilds/{id}/channels, for GET /_control/channel-moves.
 const channelMoves: unknown[] = [];
+
+// Each PUT and DELETE on /users/@me/relationships/{id}, with the type its
+// body gave and the location its X-Context-Properties named, for GET
+// /_control/relationship-changes.
+const relationshipChanges: { method: string; user: string; type: number | null; location: string }[] = [];
 
 // Each group DM Alice left, with the `silent` query DELETE /channels/{id}
 // sent, or null, for GET /_control/group-leaves.
@@ -6512,9 +6520,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const id = m[1]!;
     const user = userById.get(id);
     if (!user || id === ALICE) return notFound("Unknown User", 10013);
-    if (!where()) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    const location = where();
+    if (!location) return json({ message: "Invalid Form Body", code: 50035 }, 400);
     const before = relationships.get(id);
     if (method === "DELETE") {
+      relationshipChanges.push({ method, user: id, type: null, location });
       if (before === undefined) return notFound("Unknown Relationship", 10011);
       relationships.delete(id);
       nicknames.delete(id);
@@ -6522,6 +6532,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       return empty();
     }
     const body: any = await req.json().catch(() => ({}));
+    relationshipChanges.push({ method, user: id, type: typeof body.type === "number" ? body.type : null, location });
     if (body.type === 2) {
       nicknames.delete(id);
       befriend(user, 2);
@@ -8893,6 +8904,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/group-leaves") {
       return Response.json(groupLeaves);
+    }
+    if (req.method === "GET" && path === "/_control/relationship-changes") {
+      return Response.json(relationshipChanges);
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);

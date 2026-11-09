@@ -2556,11 +2556,14 @@ pub enum DiscordCommand {
     AddFriend {
         username: String,
     },
-    /// Change how this account stands with a Discord user. The lists change
-    /// when Discord confirms it; a failure comes back as [`Event::Error`].
+    /// Change how this account stands with a Discord user, from `location`
+    /// in Discord's client, such as "ContextMenu"; ignoring sends none. The
+    /// lists change when Discord confirms it; a failure comes back as
+    /// [`Event::Error`].
     Relationship {
         user: String,
         change: RelationshipChange,
+        location: &'static str,
     },
     /// Fetch this account's note on a Discord user; [`Event::Note`] follows.
     Note {

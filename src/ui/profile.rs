@@ -186,9 +186,10 @@ fn mutual_count(count: usize, what: &str, shared: bool) -> String {
 /// does not deliver every message of a room that isn't open.
 /// "Ann is", "Ann and Bob are", or "Ann, Bob and 3 others are".
 /// What a profile or DM offers for a Discord friendship, as in
-/// ProfileData.friend.
-pub(super) fn friend_offer(relation: Relation) -> i32 {
-    match relation {
+/// ProfileData.friend; no request to someone blocked, which Discord refuses.
+pub(super) fn friend_offer(state: &AppState, user: &str) -> i32 {
+    match state.relation(user) {
+        Relation::Stranger if state.is_blocked(user) => 0,
         Relation::Stranger => 1,
         Relation::Outgoing => 2,
         Relation::Incoming => 3,
@@ -671,7 +672,7 @@ pub(super) fn profile_data(
         } else {
             match state.relation(&profile.id) {
                 Relation::Friend => 4,
-                relation => friend_offer(relation),
+                _ => friend_offer(state, &profile.id),
             }
         },
         connections: ModelRc::new(VecModel::from(

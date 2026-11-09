@@ -128,6 +128,8 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Remove friend is `DELETE /users/@me/relationships/{id}`, and Block is `PUT`
   on the same path with `{"type": 2}`, each after the person confirms, with
   `{"location":"ContextMenu"}` as the context. Unblock is the same `DELETE`.
+  From a profile's More button all three send
+  `{"location":"user profile overflow menu"}`; see [profiles](#profiles).
 - Ignore is `PUT /users/@me/relationships/{id}/ignore`, and `DELETE` stops it.
   Discord marks the relationship `user_ignored`, which Yapfast tracks to offer
   the opposite.
@@ -262,7 +264,17 @@ list, since the profile doesn't carry them. Their custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
 Discord's: two lines at most, and all of it while pointed at. One's
 own card, small or full, has Edit Profile in place of the friend and
-message buttons, which opens the [editor](#editing-ones-main-profile). When Discord refuses, the card
+message buttons, which opens the [editor](#editing-ones-main-profile).
+The More button of a card, a full profile and a DM's profile panel opens
+the person's menu, as a right click on them does: a member's in a server, a
+DM's in their DM, and elsewhere Message, the friend request, Block, or
+Unblock for someone blocked, and Copy ID. One's own profile has no Block, as
+in Discord. Block asks first, as from a DM's menu, and unfriending, blocking
+and unblocking from there send `{"location":"user profile overflow menu"}`,
+as Discord's client does from its profile's menu, in place of
+`{"location":"ContextMenu"}`. Blocking ends a friendship or a friend request,
+as Discord does, and neither a profile nor a DM's header offers a friend
+request to someone blocked. When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
 
