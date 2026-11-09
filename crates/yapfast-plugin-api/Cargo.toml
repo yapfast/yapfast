@@ -12,4 +12,6 @@ doctest = false
 
 [dependencies]
 serde.workspace = true
-serde_json.workspace = true
+# `raw_value` is what lets a call or reply payload keep the exact bytes it
+# arrived as; without it, decoding and forwarding would rewrite the JSON.
+serde_json = { workspace = true, features = ["raw_value"] }

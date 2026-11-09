@@ -12,7 +12,8 @@ use yapfast_plugin_api::{Frame, Kind, Payload, ProtocolError, Request, Response}
 const ODD: &str = "{\n    \"z\": 1E+400,\n    \"a\": 123456789012345678901234567890,\n    \"m\": {\"b\": -0.0, \"a\": true},\n    \"n\": 1.0\n  }";
 
 fn call_frame(inner: &str, id: u64) -> Frame {
-    let payload = format!(r#"{{"type":"call","plugin":"echo","method":"shout","payload":{inner}}}"#);
+    let payload =
+        format!(r#"{{"type":"call","plugin":"echo","method":"shout","payload":{inner}}}"#);
     Frame::new(Kind::Call, id, payload.into_bytes()).expect("frame")
 }
 
@@ -110,13 +111,19 @@ fn a_payload_from_a_value_is_that_values_json() {
     // own serialisation, and the docs say so.
     let payload = Payload::from(json!({ "a": 1, "b": [true, null] }));
     assert_eq!(payload.as_str(), r#"{"a":1,"b":[true,null]}"#);
-    assert_eq!(payload.to_value().expect("JSON"), json!({ "a": 1, "b": [true, null] }));
+    assert_eq!(
+        payload.to_value().expect("JSON"),
+        json!({ "a": 1, "b": [true, null] })
+    );
     assert_eq!(Payload::default().as_str(), "null");
 }
 
 #[test]
 fn a_payload_that_is_not_json_is_refused() {
-    assert!(matches!(Payload::new("not json"), Err(ProtocolError::Json(_))));
+    assert!(matches!(
+        Payload::new("not json"),
+        Err(ProtocolError::Json(_))
+    ));
     assert!(matches!(Payload::new(""), Err(ProtocolError::Json(_))));
     assert!(matches!(
         Payload::from_bytes(b"{\"a\":"),

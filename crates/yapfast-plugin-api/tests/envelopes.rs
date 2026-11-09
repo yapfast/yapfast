@@ -353,7 +353,10 @@ fn frame_id_zero_is_reserved_for_the_unsolicited_ready() {
 fn ready_is_the_only_response_frame_with_id_zero() {
     let ready = Response::Ready.to_frame(0).expect("framing");
     assert_eq!(ready.id(), 0);
-    assert_eq!(Response::from_frame(&ready).expect("parsing"), Response::Ready);
+    assert_eq!(
+        Response::from_frame(&ready).expect("parsing"),
+        Response::Ready
+    );
 
     assert!(matches!(
         Response::Ready.to_frame(1),
@@ -425,12 +428,14 @@ fn an_error_is_a_response_in_either_direction() {
         Err(ProtocolError::NotRequest(Kind::Error))
     ));
     assert!(matches!(
-        Response::from_frame(&Frame::new(
-            Kind::Error,
-            0,
-            br#"{"type":"error","message":"no"}"#.to_vec()
-        )
-        .unwrap()),
+        Response::from_frame(
+            &Frame::new(
+                Kind::Error,
+                0,
+                br#"{"type":"error","message":"no"}"#.to_vec()
+            )
+            .unwrap()
+        ),
         Err(ProtocolError::ReservedId(Kind::Error))
     ));
 }
