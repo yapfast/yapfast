@@ -618,6 +618,11 @@ read, which acknowledges its newest message, as Discord's client does; a
 forum's newest message is its newest post, so a post made since makes it
 unread (THREAD_CREATE with `newly_created`).
 
+Above an open post's messages a 45px bar has "React to post", which opens the
+emoji picker for the post's first message (once it's loaded), and on the right
+"Follow" or "Following", which joins or leaves the thread as its menu does, and
+a button that copies the post's link.
+
 New Post, beside the search, opens the form for a post in place of the
 list, as Discord's client opens it at the top of a forum
 (`application/new_post.rs`, `NewPostForm`). Discord's client offers it

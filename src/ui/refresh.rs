@@ -1910,6 +1910,33 @@ impl Adapter {
             || self.icons.text.plain.clone(),
             |room| self.icons.channel(room),
         ));
+        // A forum post's bar: its first message is the post's, whose id is
+        // the thread's.
+        let post = room.filter(|room| {
+            room.network == Network::Discord && parent.is_some_and(|parent| parent.forum)
+        });
+        window.set_forum_post(post.is_some());
+        window.set_forum_post_item(
+            post.and_then(|room| {
+                let item = format!("d:{}", room.id.rsplit(':').next()?);
+                // Messages run oldest first, so the post is the first.
+                state
+                    .messages
+                    .first()
+                    .is_some_and(|message| message.item == item)
+                    .then_some(item)
+            })
+            .unwrap_or_default()
+            .into(),
+        );
+        window.set_forum_post_follow(post.map_or(0, |room| {
+            let choices = self.app.menu_choices(&room.id);
+            if choices.contains(&MenuChoice::LeaveThread) {
+                2
+            } else {
+                i32::from(choices.contains(&MenuChoice::JoinThread))
+            }
+        }));
         // Discord counts a channel's members only once its list comes.
         window.set_members(
             room.map_or(SharedString::default(), |room| match room.members {
