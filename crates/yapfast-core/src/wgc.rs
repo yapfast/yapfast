@@ -217,8 +217,8 @@ impl Target {
 pub struct Capture {
     raw: *mut Raw,
     /// The texture the last [`Arrival::Frame`] delivered, which the shim keeps
-    /// until the next [`Capture::frame`]: held here so that asking for it again
-    /// doesn't have to disturb the capture, and null between frames.
+    /// until the next frame: held here so that asking for it again doesn't have
+    /// to disturb the capture. Null until one comes, and after the capture ends.
     texture: *mut c_void,
 }
 
@@ -318,8 +318,10 @@ impl Capture {
     /// For a window that also covers the moment it is minimised, when the
     /// compositor has nothing of it to give.
     ///
-    /// A frame the previous call delivered is let go here, so its texture must
-    /// not be read after this returns.
+    /// A frame the previous call delivered stays the caller's until another
+    /// frame comes: a still desktop answers [`Arrival::Idle`] and keeps the
+    /// picture it last made, which is what a viewer joining or a preview coming
+    /// back is served from.
     pub fn frame(&mut self) -> Result<Arrival> {
         let mut why = [0u8; 256];
         let mut texture = std::ptr::null_mut();
@@ -328,18 +330,30 @@ impl Capture {
         let found = unsafe {
             yapfast_wgc_frame(self.raw, &mut texture, why.as_mut_ptr().cast(), why.len())
         };
-        self.texture = std::ptr::null_mut();
-        let arrival = arrival(found, &why)?;
-        if arrival == Arrival::Frame {
-            self.texture = texture;
+        // A call that failed hands back no texture: whatever the last frame
+        // left here was released by the shim when it went looking for this
+        // one, so it must not be handed out as if it were still alive.
+        let arrival = match arrival(found, &why) {
+            Ok(arrival) => arrival,
+            Err(error) => {
+                self.texture = std::ptr::null_mut();
+                return Err(error);
+            }
+        };
+        match arrival {
+            Arrival::Frame => self.texture = texture,
+            // Nothing new: the shim keeps the last frame's own texture until
+            // one is, so the picture it holds is still this capture's.
+            Arrival::Idle => {}
+            _ => self.texture = std::ptr::null_mut(),
         }
         Ok(arrival)
     }
 
-    /// The picture [`Arrival::Frame`] brought: an `ID3D11Texture2D` on
+    /// The picture the last [`Arrival::Frame`] brought: an `ID3D11Texture2D` on
     /// [`Capture::device`], in BGRA, **borrowed** — the pool's, valid until the
-    /// next [`Capture::frame`] or this capture being dropped, and never to be
-    /// released by the caller. Null when the last answer was not a frame.
+    /// next frame or this capture being dropped, and never to be released by the
+    /// caller. Null until a frame comes, and once the capture has ended.
     ///
     /// A caller that has to hold one longer AddRefs the texture and Releases that
     /// reference itself, which is also the only way to feed an encoder that keeps

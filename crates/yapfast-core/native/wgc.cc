@@ -1039,20 +1039,13 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
     return YAPFAST_WGC_FAILED;
   }
   *texture = NULL;
-  /* The frame handed out last time is the caller's until this call, and this is
-   * where it goes back: the pool reuses its buffer for the frame made next, and
-   * this is the only place the shim lets go of one. The texture goes with it:
-   * `GetInterface` hands out a reference of its own, so the frame holding the
-   * surface does not cover it — a release per frame never given back left the
-   * pool's buffer climbing and stranded a texture set on every resize. */
-  if (capture->texture) {
-    capture->texture->Release();
-    capture->texture = NULL;
-  }
-  if (capture->frame) {
-    capture->frame->Release();
-    capture->frame = NULL;
-  }
+  /* The frame handed out last time stays the caller's until a new one comes, not
+   * merely until this call: a desktop that hasn't changed has no frame to hand
+   * over, and a caller with a viewer joining, a decoder that lost its place or a
+   * preview coming back still has to send that picture. Its buffer stays out of
+   * the pool while the frame is held, which is one of the two the pool was asked
+   * for. It is let go below, when `TryGetNextFrame` has answered with a frame of
+   * its own. */
   if (ended(capture)) {
     snprintf(capture->ending, sizeof capture->ending, "%s",
              capture->is_window ? "the window closed" : "the display capture ended");
@@ -1093,6 +1086,20 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
     return YAPFAST_WGC_FAILED;
   }
   if (!frame) return YAPFAST_WGC_IDLE;
+  /* A frame came, so the one handed out last time goes back: the pool reuses its
+   * buffer for the frame after this one, and this is the only place the shim
+   * lets go of one. The texture goes with it: `GetInterface` hands out a
+   * reference of its own, so the frame holding the surface does not cover it — a
+   * release per frame never given back left the pool's buffer climbing and
+   * stranded a texture set on every resize. */
+  if (capture->texture) {
+    capture->texture->Release();
+    capture->texture = NULL;
+  }
+  if (capture->frame) {
+    capture->frame->Release();
+    capture->frame = NULL;
+  }
   status = frame->get_ContentSize(&content);
   if (FAILED(status)) {
     frame->Release();
@@ -1154,8 +1161,8 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
   }
   /* Kept together: the frame owns the surface, which owns the texture, so the
    * texture is only valid while both are held — and the caller borrows it until
-   * the next call. The reference `GetInterface` gave here is the one released at
-   * the top of this function and in `yapfast_wgc_close`. */
+   * the next frame. The reference `GetInterface` gave here is the one released
+   * when the next frame comes and in `yapfast_wgc_close`. */
   capture->frame = frame;
   capture->texture = found;
   *texture = found;

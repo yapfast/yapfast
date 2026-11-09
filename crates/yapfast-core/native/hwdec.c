@@ -1,16 +1,16 @@
 /* Decoding a watched stream on the graphics card with FFmpeg's own Direct3D
- * 11 decoder, from vendor/ffmpeg-src, in place of Media Foundation's MFTs:
- * the same access units in, and a picture left in an array texture on the
- * device the caller brought, which native/d3d11dec.cc's video processor pass
- * turns into the tile. No picture comes back to the processor here.
+ * 11 decoder, from vendor/ffmpeg-src, the card's one decoder: the same access
+ * units in, and a picture left in an array texture on the device the caller
+ * brought, which native/d3d11dec.cc's video processor pass turns into the
+ * tile. No picture comes back to the processor here.
  *
  * The device is the caller's — the one the encoder and the window already
  * share — so a decoded picture is never copied to another device. The
  * surfaces are allocated once, when the first frame says how large the
  * picture is, so a stream allocates no textures per frame.
  *
- * C, because it reads nothing but FFmpeg's and D3D11's C headers; the COM and
- * the processor stay in d3d11dec.cc. */
+ * C, because it reads nothing but FFmpeg's and D3D11's C headers; the video
+ * processor and its Direct3D interfaces stay in d3d11dec.cc. */
 
 // Windows-only, like the SDK headers it reads: elsewhere this file is an
 // empty unit, and build.rs defines the macro on the one target it builds
@@ -320,6 +320,10 @@ static int take_newest(struct yapfast_ffdec *decoder) {
   }
 }
 
+/* How many pictures a decoder may hold before it takes a frame: a reorder queue
+ * is a handful deep, and a drain that never ends is a loop that never ends. */
+#define kMostHeld 8
+
 /* Sends this frame's packet and takes the pictures it gives. 1 says the decoder
  * holds a picture, 0 that it kept the frame for the pictures after it, -1 that
  * it failed, which the error says. */
@@ -327,15 +331,19 @@ static int push(struct yapfast_ffdec *decoder) {
   const int level = hush();
   int held = 0;
   int result = avcodec_send_packet(decoder->context, decoder->packet);
-  if (result == AVERROR(EAGAIN)) {
-    /* A picture from one of the frames before this one is still waiting: take
-     * it, so that this frame goes in now it is out of the way. Only the newest
-     * picture is shown, here as everywhere. */
-    held = take_newest(decoder);
-    if (held < 0) {
+  /* A picture from one of the frames before this one is still waiting: take
+   * it, so that this frame goes in now it is out of the way. Only the newest
+   * picture is shown, here as everywhere. A decoder that reorders by more than
+   * one picture answers EAGAIN again the first time, so its output is drained
+   * until it takes the frame — as many times as a reorder queue can hold one,
+   * which the drain's own end bounds. */
+  for (int drained = 0; result == AVERROR(EAGAIN) && drained < kMostHeld; drained++) {
+    const int taken = take_newest(decoder);
+    if (taken < 0) {
       unhush(level);
-      return held;
+      return taken;
     }
+    held = held || taken;
     result = avcodec_send_packet(decoder->context, decoder->packet);
   }
   if (result < 0) {
