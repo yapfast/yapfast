@@ -80,6 +80,13 @@ while True:
 '''
 
 
+# The protocol allows the helper to exit when the last instance is unloaded.
+EXIT_ON_UNLOAD_HELPER = FAKE_HELPER.replace(
+    '        write_frame(7, frame_id, {"type": "unloaded"})',
+    '        write_frame(7, frame_id, {"type": "unloaded"})\n        break',
+)
+
+
 SILENT_HELPER = r'''
 import struct
 import sys
@@ -120,6 +127,38 @@ header = read_exact(HEADER.size)
 length, kind, frame_id = HEADER.unpack(header)
 read_exact(length)
 write_frame(5, frame_id + 1, {"type": "reply", "payload": None})
+'''
+
+
+WRONG_TYPE_HELPER = r'''
+import json
+import struct
+import sys
+
+HEADER = struct.Struct("<IBQ")
+
+
+def read_exact(count):
+    data = b""
+    while len(data) < count:
+        chunk = sys.stdin.buffer.read(count - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+
+def write_frame(kind, frame_id, body):
+    payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
+    sys.stdout.buffer.write(HEADER.pack(len(payload), kind, frame_id) + payload)
+    sys.stdout.buffer.flush()
+
+
+write_frame(1, 0, {"type": "ready"})
+header = read_exact(HEADER.size)
+length, kind, frame_id = HEADER.unpack(header)
+read_exact(length)
+write_frame(5, frame_id, {"type": "ready"})
 '''
 
 
@@ -366,6 +405,15 @@ class HelperProcessTest(unittest.TestCase):
         with self.assertRaises(mp.ProtocolViolation):
             process.wait_for(10, mp.Kind.REPLY, timeout=5.0)
 
+    def test_a_response_whose_json_type_contradicts_its_kind_is_refused(self):
+        process = mp.HelperProcess(self.helper(WRONG_TYPE_HELPER), timeout=10.0)
+        self.addCleanup(process.kill)
+        process.start()
+        process.first_response()
+        process.send(mp.Kind.CALL, 12, {"type": "call", "plugin": "p", "method": "m"})
+        with self.assertRaises(mp.ProtocolViolation):
+            process.wait_for(12, mp.Kind.REPLY, timeout=5.0)
+
     def test_a_silent_helper_times_out(self):
         process = mp.HelperProcess(self.helper(SILENT_HELPER), timeout=10.0)
         self.addCleanup(process.kill)
@@ -431,9 +479,16 @@ class ReportTest(unittest.TestCase):
         memory = report["memory"]
         self.assertEqual(memory["metric"], report["metric"]["name"])
         self.assertEqual(memory["unit"], report["metric"]["unit"])
-        self.assertGreaterEqual(memory["sample_count"], 1)
+        self.assertGreaterEqual(memory["sample_count"], 2)
         self.assertEqual(report["helper_exit"]["exit_code"], 0)
         self.assertTrue(report["helper_exit"]["clean_eof"])
+
+    def test_a_helper_that_exits_after_the_last_unload_still_reports(self):
+        self.fake.write_text(EXIT_ON_UNLOAD_HELPER, encoding="utf-8")
+        report = self.measure()
+        self.assertEqual(report["helper_exit"]["exit_code"], 0)
+        self.assertTrue(report["helper_exit"]["clean_eof"])
+        self.assertEqual(len(report["latency"]["round_trip_ns"]["samples"]), 4)
 
     def test_report_makes_no_budget_verdict(self):
         report = self.measure()
