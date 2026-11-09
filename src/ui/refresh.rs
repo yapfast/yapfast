@@ -495,10 +495,10 @@ impl Adapter {
     }
 
     pub(super) fn refresh(&mut self, window: &YapfastWindow) {
-        refresh_avatar_sources(&self.app.state);
-        window
-            .global::<PictureStore>()
-            .set_revision(self.app.state.picture_changes as i32);
+        if self.pictures_sourced != Some(self.app.state.picture_changes) {
+            self.pictures_sourced = Some(self.app.state.picture_changes);
+            bump_picture_slots(window, refresh_avatar_sources(&self.app.state));
+        }
         self.show_viewer(window);
         self.show_profile(window);
         window.set_can_go_back(self.app.state.can_go_back());

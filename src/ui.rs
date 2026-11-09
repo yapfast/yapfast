@@ -1986,6 +1986,9 @@ struct Adapter {
     animations: emoji_animation::Animations,
     /// `AppState::picture_changes` when the message rows were last built.
     pictures_seen: u64,
+    /// `AppState::picture_changes` when `PictureStore` last caught up with
+    /// it; none before the first refresh.
+    pictures_sourced: Option<u64>,
     /// The last jump to a message the timeline made; see `AppState::jump`.
     jumped: Option<(String, u64)>,
     /// `AppState::unread_jump` when the timeline last brought the first
@@ -2310,6 +2313,7 @@ impl Adapter {
                 sticker_card: None,
                 animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
+                pictures_sourced: None,
                 jumped: None,
                 unread_jumped: 0,
                 latest_due: false,

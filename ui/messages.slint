@@ -863,7 +863,7 @@ export component MessageStickerCardView inherits Rectangle {
     callback open-server(string);
     /// Its picture, at the 48px the card draws it, asked for as it shows.
     property <image> sticker-picture: root.card.picture-url != ""
-        ? PictureStore.picture(root.card.picture-url, PictureStore.revision)
+        ? PictureStore.picture(root.card.picture-url, PictureStore.revision(root.card.picture-url))
         : @image-url("");
     function request-sticker-picture() {
         if root.card.picture-url != "" && root.sticker-picture.width == 0 {
@@ -872,7 +872,7 @@ export component MessageStickerCardView inherits Rectangle {
     }
     changed sticker-picture => { root.request-sticker-picture(); }
     /// The server's icon, asked for as it shows.
-    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision);
+    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision(root.card.server-picture-url));
     function request-server-picture() {
         if root.card.server-picture-url != "" && root.server-picture.width == 0 {
             PictureStore.request(root.card.server-picture-url);
@@ -984,7 +984,7 @@ export component EmojiCardView inherits Rectangle {
     callback open-server(string);
     /// Its picture, asked for as the card shows it, as `Avatar` asks for one.
     property <image> emoji-picture: root.card.picture-url != ""
-        ? PictureStore.picture(root.card.picture-url, PictureStore.revision)
+        ? PictureStore.picture(root.card.picture-url, PictureStore.revision(root.card.picture-url))
         : root.card.picture;
     function request-emoji-picture() {
         if root.card.picture-url != "" && root.emoji-picture.width == 0 {
@@ -998,7 +998,7 @@ export component EmojiCardView inherits Rectangle {
         ? @image-url("")
         : EmojiAnimations.frame(root.card.picture-key, EmojiAnimations.revision);
     /// The server's icon, asked for as it shows, as `Avatar` asks for one.
-    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision);
+    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision(root.card.server-picture-url));
     function request-server-picture() {
         if root.card.server-picture-url != "" && root.server-picture.width == 0 {
             PictureStore.request(root.card.server-picture-url);

@@ -2422,7 +2422,7 @@ export component YapfastWindow inherits Window {
                                 height: ClientStyle.header-height + (header-box.banner ? 81px : 0px);
                                 if header-box.banner: Image {
                                     x: 0px; y: 0px; width: parent.width; height: parent.height;
-                                    source: PictureStore.picture(root.header-banner, PictureStore.revision);
+                                    source: PictureStore.picture(root.header-banner, PictureStore.revision(root.header-banner));
                                     image-fit: cover; accessible-role: none;
                                     init => { PictureStore.request(root.header-banner); }
                                 }

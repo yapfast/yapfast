@@ -41,7 +41,7 @@ export struct PostRow {
 // shows.
 component StoredImage inherits Image {
     in property <string> url;
-    source: PictureStore.picture(root.url, PictureStore.revision);
+    source: PictureStore.picture(root.url, PictureStore.revision(root.url));
     function request() {
         if root.url != "" && self.source.width == 0 { PictureStore.request(root.url); }
     }

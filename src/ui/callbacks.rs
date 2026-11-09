@@ -619,6 +619,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window
         .global::<PictureStore>()
+        .on_slot(|url| picture_slot(url.as_str()) as i32);
+    window
+        .global::<PictureStore>()
         .on_picture(|url, _revision| avatar_picture(url.as_str()));
     // An animated emoji's frame, by the name the picker knows it by; a still
     // one has none and keeps its picture.
