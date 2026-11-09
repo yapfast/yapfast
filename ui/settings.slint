@@ -9,6 +9,7 @@ import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
 import { BuildInfo, Updates, UpdateStatus } from "yapfast/build-info.slint";
+import { NewTag, NewTags } from "yapfast/new-tags.slint";
 
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
@@ -29,6 +30,8 @@ export component SettingsSwitch inherits Rectangle {
     in property <bool> enabled: true;
     /// Why it can't change, shown while the pointer is on the switch.
     in property <string> locked-tip;
+    /// A setting this person hasn't seen yet: a NEW tag follows its name.
+    in property <bool> fresh;
     /// Its owner sets `checked`, from what a flip asks for: the switch only
     /// says it was flipped, so a binding to it stays.
     in property <bool> controlled;
@@ -57,6 +60,7 @@ export component SettingsSwitch inherits Rectangle {
                     text: root.text; color: root.enabled ? Theme.text : Theme.muted; font-size: 15px;
                     vertical-alignment: center; wrap: word-wrap;
                 }
+                if root.fresh: Middle { NewTag { } }
                 // Discord's lock after the title, with why on hover.
                 if !root.enabled && root.locked-tip != "": Middle {
                     Image {
@@ -1377,7 +1381,8 @@ export component AdvancedSettings inherits VerticalLayout {
 }
 
 // Settings: which build this is, and whether a newer release is out. The check
-// is a switch, off until it's turned on; nothing here installs a release.
+// is a switch, off until it's turned on; a release installs only when Update
+// and restart is pressed.
 export component AboutSettings inherits VerticalLayout {
     callback copy-text(string);
     property <bool> copied;
@@ -1424,10 +1429,49 @@ export component AboutSettings inherits VerticalLayout {
         text: root.status-text;
         color: Updates.status == UpdateStatus.available ? Theme.accent : Updates.status == UpdateStatus.failed ? Theme.danger-text : Theme.muted;
     }
-    HorizontalLayout {
+    if Updates.installing: VerticalLayout {
+        spacing: 8px;
+        Label { text: Updates.install-text; color: Theme.text; }
+        Rectangle {
+            height: 6px; border-radius: 3px; background: Theme.sidebar;
+            Rectangle {
+                x: 0px; width: parent.width * max(Updates.install-progress, 0); height: parent.height; border-radius: 3px; background: Theme.accent;
+                animate width { duration: 200ms; easing: linear; }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            if Updates.can-cancel: ActionButton { text: "Cancel"; clicked => { Updates.cancel-install(); } }
+        }
+    }
+    if !Updates.installing && Updates.install-error != "": Label {
+        text: "The update failed: " + Updates.install-error; color: Theme.danger-text;
+    }
+    if !Updates.installing && Updates.status == UpdateStatus.available && Updates.install-note != "": Label {
+        text: Updates.install-note;
+    }
+    if Updates.notes != "" && (Updates.status == UpdateStatus.available || Updates.status == UpdateStatus.skipped): VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "WHAT'S NEW IN " + Updates.latest.to-uppercase(); }
+        Rectangle {
+            background: Theme.sidebar; border-radius: 8px; height: min(notes-text.preferred-height + 24px, 220px);
+            ScrollView {
+                content-height: notes-text.preferred-height + 24px;
+                notes-text := Text {
+                    x: 12px; y: 12px; width: parent.width - 24px;
+                    text: Updates.notes; color: Theme.secondary; font-size: 13px; wrap: word-wrap;
+                }
+            }
+        }
+    }
+    if !Updates.installing: HorizontalLayout {
         spacing: 8px; alignment: start;
+        if Updates.status == UpdateStatus.available && Updates.can-install: ActionButton {
+            text: "Update and restart"; icon: @image-url("icons/download.svg"); primary: true;
+            clicked => { Updates.install(); }
+        }
         if Updates.status == UpdateStatus.available || Updates.status == UpdateStatus.skipped: ActionButton {
-            text: "View release"; icon: @image-url("icons/download.svg"); primary: Updates.status == UpdateStatus.available;
+            text: "View release"; icon: @image-url("icons/external-link.svg"); primary: Updates.status == UpdateStatus.available && !Updates.can-install;
             clicked => { Updates.view(); }
         }
         if Updates.status == UpdateStatus.available: ActionButton {
@@ -1442,21 +1486,23 @@ export component AboutSettings inherits VerticalLayout {
     SettingsSwitch {
         text: "Check for updates";
         description: "Looks for a new version when Yapfast starts and every few hours after. Only the version number goes to GitHub.";
+        fresh: NewTags.check;
         checked <=> Updates.check;
         toggled => { Updates.preferences-changed(); }
     }
     SettingsSwitch {
         text: "Include nightly builds";
         description: "Early builds that may be rough. Off, you only hear about releases.";
+        fresh: NewTags.nightlies;
         checked <=> Updates.nightlies;
         enabled: Updates.check;
         toggled => { Updates.preferences-changed(); }
     }
-    // Not available: nothing turns it on. The code to install a release exists
-    // behind the self-update feature; see docs/packaging.md.
+    // Not available: the project decides whether Yapfast may update without
+    // being asked, and until it does, nothing turns this on.
     SettingsSwitch {
         text: "Install updates automatically";
-        description: "Not available yet.";
+        description: "Off. Yapfast installs a release only when you press Update and restart.";
         checked: false;
         enabled: false;
     }

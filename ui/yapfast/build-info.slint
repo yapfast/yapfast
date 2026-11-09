@@ -29,8 +29,8 @@ export enum UpdateStatus {
 }
 
 // What Settings' About page knows about newer releases, set by src/ui/updates.rs.
-// The check is off until a person turns it on, and nothing here installs: the
-// buttons open the release's page.
+// The check is off until a person turns it on, and a release installs only when
+// they press Update and restart.
 export global Updates {
     in-out property <bool> check;
     in-out property <bool> nightlies;
@@ -41,9 +41,27 @@ export global Updates {
     in property <string> manager;
     /// Why a look failed.
     in property <string> error;
+    /// What's new in the newest release, as plain lines, or empty.
+    in property <string> notes;
+    /// This copy can replace itself with the newest release; otherwise
+    /// `install-note` says why not.
+    in property <bool> can-install;
+    in property <string> install-note;
+    /// Why the last update failed.
+    in property <string> install-error;
+    /// An update is being downloaded, checked or finished.
+    in property <bool> installing;
+    in property <string> install-text;
+    /// How much is downloaded, 0 to 1, or -1 when it isn't known.
+    in property <float> install-progress;
+    /// The download can still be stopped.
+    in property <bool> can-cancel;
     callback preferences-changed();
     callback check-now();
     callback skip();
+    /// Downloads the newest release, checks it, and restarts Yapfast into it.
+    callback install();
+    callback cancel-install();
     /// Opens the newest release's page in the browser.
     callback view();
     callback open-website();

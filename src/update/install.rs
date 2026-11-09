@@ -1,49 +1,158 @@
-//! Downloads a release and puts it in place of the running program.
+//! Downloads a release and puts it in place of the running program, when a
+//! person presses Update and restart in Settings' About page.
 //!
-//! Nothing calls this. It is built only with the `self-update` feature, which
-//! no default or packaging build turns on, and no setting, button or command
-//! line flag reaches it: the project hasn't decided whether Yapfast updates
-//! itself, and a person's answer would have to come before any of it runs.
-//! It is here so that deciding yes is a matter of wiring a button, and the
-//! download, the check against the release's SHA256SUMS.txt and the
-//! replacement are tested meanwhile.
+//! Only two installs replace themselves, because only they own their files:
 //!
-//! A release file is streamed to disk in chunks, never held whole in memory,
-//! and replaces the program only after its SHA-256 matches the sum the release
-//! published. The AppImage is renamed over the old file, which is atomic on one
-//! filesystem, so a failed update leaves the old program running; Windows
-//! runs the release's installer, which replaces the program itself.
-#![allow(
-    dead_code,
-    reason = "no setting or button reaches self-update until the project decides on it"
-)]
+//! - **A Linux AppImage** is one file the person can write to. The release's
+//!   AppImage is downloaded next to it, checked against the release's
+//!   `SHA256SUMS.txt`, started once with `--smoke-test` to see that it runs on
+//!   this computer, and renamed over the old file, which is atomic on one
+//!   filesystem. The running copy keeps working from the file it has open.
+//! - **Windows' installer** put the program in a folder with its uninstaller
+//!   beside it. The release's installer is downloaded to the temporary folder
+//!   and checked; after Yapfast has quit, a hidden `cmd` runs it silently,
+//!   waits, and starts the program again, as a silent Inno Setup run starts
+//!   nothing itself.
+//!
+//! Every other copy (a package manager's, Flatpak, a portable ZIP, a build from
+//! source) is left alone, with the reason. A release file is streamed to disk in
+//! chunks, hashed as it arrives, and used only when its SHA-256 matches the sum
+//! the release published; a failure at any step leaves the old program
+//! running and the downloaded file removed.
 
 use std::{
     collections::HashMap,
-    io::{self, Read, Write},
+    io::Write,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU8, AtomicU64, Ordering},
+    },
 };
 
 use sha2::{Digest, Sha256};
+use yapfast_core::runtime::BackgroundRuntime;
 
 use super::{Asset, Release, Source};
 
-/// The release's file for this install: the AppImage for an AppImage, the
-/// installer for a Windows install. Other installs aren't updated from here.
-pub fn asset_for(release: &Release, source: Source) -> Option<&Asset> {
+/// What an update will replace, and with which of the release's files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// The AppImage at this path.
+    AppImage { asset: Asset, current: PathBuf },
+    /// The installed program at this path.
+    Installer { asset: Asset, program: PathBuf },
+}
+
+impl Target {
+    pub fn asset(&self) -> &Asset {
+        match self {
+            Target::AppImage { asset, .. } | Target::Installer { asset, .. } => asset,
+        }
+    }
+
+    /// Where the download goes until it is checked: beside the AppImage, so the
+    /// rename stays on one filesystem; in the temporary folder for the installer.
+    pub fn part(&self) -> PathBuf {
+        match self {
+            Target::AppImage { current, .. } => current.with_file_name(".yapfast-update.part"),
+            Target::Installer { asset, .. } => std::env::temp_dir()
+                .join("yapfast-update")
+                .join(&asset.name),
+        }
+    }
+}
+
+/// The release's file for this install. The reason it has none is the text
+/// About shows beside Update and restart's absence.
+pub fn target_for(
+    release: &Release,
+    source: Source,
+    program: &Path,
+    appimage: Option<&Path>,
+) -> Result<Target, String> {
     let suffix = match source {
-        Source::AppImage => "-x86_64.AppImage",
-        Source::Installer => "-windows-x64-setup.exe",
-        Source::Manager(_) | Source::Other => return None,
+        Source::AppImage if cfg!(target_arch = "x86_64") => "-x86_64.AppImage",
+        Source::Installer if cfg!(target_arch = "x86_64") => "-windows-x64-setup.exe",
+        Source::AppImage | Source::Installer => {
+            return Err("Releases carry no file for this kind of computer.".into());
+        }
+        Source::Manager(name) => return Err(format!("{name} updates this copy.")),
+        Source::Other => {
+            return Err(
+                "This copy isn't one Yapfast installed, so it can't replace itself.".into(),
+            );
+        }
     };
-    release
+    let asset = release
         .assets
         .iter()
         .find(|asset| asset.name.ends_with(suffix))
+        .ok_or_else(|| match source {
+            Source::Installer => "This release has no Windows installer.".to_owned(),
+            _ => "This release has no AppImage.".to_owned(),
+        })?
+        .clone();
+    sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
+    match source {
+        Source::AppImage => {
+            let current = appimage
+                .ok_or("The AppImage's own path isn't known.")?
+                .to_path_buf();
+            let folder = current.parent().ok_or("The AppImage has no folder.")?;
+            if !writable(folder) {
+                return Err("The AppImage's folder can't be written to.".into());
+            }
+            Ok(Target::AppImage { asset, current })
+        }
+        _ => {
+            let folder = program.parent().ok_or("Yapfast has no folder.")?;
+            // The installer left its uninstaller there; a folder without one
+            // was unpacked by hand or installed by something else.
+            if !folder.join("unins000.exe").is_file() {
+                return Err(
+                    "Only a copy installed by Yapfast's installer can be updated here.".into(),
+                );
+            }
+            if !writable(folder) {
+                return Err("Yapfast's folder can't be written to.".into());
+            }
+            Ok(Target::Installer {
+                asset,
+                program: program.to_path_buf(),
+            })
+        }
+    }
+}
+
+/// [`target_for`] for the running program.
+pub fn target(release: &Release) -> Result<Target, String> {
+    let program = std::env::current_exe().map_err(|error| error.to_string())?;
+    let appimage = std::env::var_os("APPIMAGE").map(PathBuf::from);
+    let mut source = super::source();
+    // An install the person put in a folder of their choosing is still the
+    // installer's, which its uninstaller beside the program shows.
+    if cfg!(windows)
+        && source == Source::Other
+        && program
+            .parent()
+            .is_some_and(|folder| folder.join("unins000.exe").is_file())
+    {
+        source = Source::Installer;
+    }
+    target_for(release, source, &program, appimage.as_deref())
+}
+
+/// Whether a file can be made in `folder`.
+fn writable(folder: &Path) -> bool {
+    tempfile::Builder::new()
+        .prefix(".yapfast-write-test")
+        .tempfile_in(folder)
+        .is_ok()
 }
 
 /// The sums the release published for its files.
-pub fn sums_of(release: &Release) -> Option<&Asset> {
+fn sums_of(release: &Release) -> Option<&Asset> {
     release
         .assets
         .iter()
@@ -52,29 +161,117 @@ pub fn sums_of(release: &Release) -> Option<&Asset> {
 
 /// Reads `sha256sum`'s output: a hash, then the file's name, which a `*`
 /// marks as read in binary mode.
-pub fn parse_sums(text: &str) -> HashMap<String, String> {
+fn parse_sums(text: &str) -> HashMap<String, String> {
     text.lines()
         .filter_map(|line| {
             let (hash, name) = line.split_once(char::is_whitespace)?;
             let name = name.trim_start().trim_start_matches('*');
-            (hash.len() == 64 && !name.is_empty())
+            (hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) && !name.is_empty())
                 .then(|| (name.to_owned(), hash.to_ascii_lowercase()))
         })
         .collect()
 }
 
-/// The SHA-256 of a file, read through a buffer.
-pub fn sha256_of(path: &Path) -> io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
+/// Where an update has got to, for About's progress line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    Starting,
+    Downloading,
+    Testing,
+    Installing,
+}
+
+/// Progress the update task writes and About reads on a timer, so no event
+/// loop call comes from the download.
+#[derive(Default)]
+pub struct Progress {
+    stage: AtomicU8,
+    done: AtomicU64,
+    total: AtomicU64,
+}
+
+impl Progress {
+    fn stage(&self, stage: Stage) {
+        self.stage.store(stage as u8, Ordering::Relaxed);
     }
+
+    /// The stage now, and how much of the download is done (0 to 1), or
+    /// nothing when it isn't known.
+    pub fn read(&self) -> (Stage, Option<f32>) {
+        let stage = match self.stage.load(Ordering::Relaxed) {
+            1 => Stage::Downloading,
+            2 => Stage::Testing,
+            3 => Stage::Installing,
+            _ => Stage::Starting,
+        };
+        let total = self.total.load(Ordering::Relaxed);
+        let done = self.done.load(Ordering::Relaxed);
+        let fraction = (total > 0).then(|| (done as f64 / total as f64).min(1.0) as f32);
+        (stage, fraction)
+    }
+}
+
+/// Reads the sums file's text, small enough to hold.
+async fn fetch_sums(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<HashMap<String, String>, String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| error.without_url().to_string())?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > 1 << 20)
+    {
+        return Err("The release's sums are too large to be right.".into());
+    }
+    let text = response
+        .text()
+        .await
+        .map_err(|error| error.without_url().to_string())?;
+    Ok(parse_sums(&text))
+}
+
+/// Downloads `url` to `to` a chunk at a time, hashing as it goes; returns the
+/// SHA-256 as lower-case hex.
+async fn download(
+    client: &reqwest::Client,
+    url: &str,
+    to: &Path,
+    expected_size: u64,
+    progress: &Progress,
+) -> Result<String, String> {
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| error.without_url().to_string())?;
+    progress.total.store(
+        response.content_length().unwrap_or(expected_size),
+        Ordering::Relaxed,
+    );
+    progress.done.store(0, Ordering::Relaxed);
+    if let Some(folder) = to.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    }
+    let mut file = std::fs::File::create(to).map_err(|error| error.to_string())?;
+    let mut hasher = Sha256::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| error.without_url().to_string())?
+    {
+        hasher.update(&chunk);
+        file.write_all(&chunk).map_err(|error| error.to_string())?;
+        progress
+            .done
+            .fetch_add(chunk.len() as u64, Ordering::Relaxed);
+    }
+    file.sync_all().map_err(|error| error.to_string())?;
     Ok(hasher
         .finalize()
         .iter()
@@ -82,113 +279,181 @@ pub fn sha256_of(path: &Path) -> io::Result<String> {
         .collect())
 }
 
-/// Whether the file at `path` is the one the release published as `name`.
-pub fn verify(path: &Path, name: &str, sums: &HashMap<String, String>) -> Result<(), String> {
-    let expected = sums
-        .get(name)
-        .ok_or_else(|| format!("The release publishes no sum for {name}."))?;
-    let actual = sha256_of(path).map_err(|error| error.to_string())?;
-    if &actual == expected {
-        Ok(())
-    } else {
-        Err(format!(
-            "{name} doesn't match the sum the release published."
-        ))
-    }
-}
-
-/// Downloads `url` to `to`, a chunk at a time.
-pub async fn download(client: &reqwest::Client, url: &str, to: &Path) -> Result<(), String> {
-    let mut response = client
-        .get(url)
-        .send()
-        .await
-        .and_then(|response| response.error_for_status())
-        .map_err(|error| error.without_url().to_string())?;
-    let mut file = std::fs::File::create(to).map_err(|error| error.to_string())?;
-    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-        file.write_all(&chunk).map_err(|error| error.to_string())?;
-    }
-    file.sync_all().map_err(|error| error.to_string())
-}
-
-/// Puts `new` where the running AppImage is, keeping the program's name and
-/// making the file runnable. `new` must be on the same filesystem, so the
-/// rename is atomic.
+/// Runs the downloaded AppImage's `--smoke-test` to see that it starts here,
+/// giving up after a minute.
 #[cfg(unix)]
-pub fn replace_appimage(new: &Path, current: &Path) -> io::Result<()> {
+fn smoke_test(program: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(new, std::fs::Permissions::from_mode(0o755))?;
-    std::fs::rename(new, current)
-}
-
-/// Runs a downloaded installer, which replaces the program once this one quits.
-pub fn run_installer(installer: &Path) -> io::Result<()> {
-    std::process::Command::new(installer).spawn().map(drop)
-}
-
-/// What [`apply`] did.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Applied {
-    /// The AppImage was replaced; the new one runs from the next start.
-    Replaced(PathBuf),
-    /// The installer is running; Yapfast should quit.
-    Installer,
-}
-
-/// Downloads `release`'s file for this install into `folder`, checks it
-/// against the release's sums, and installs it. `folder` must be on the
-/// filesystem the AppImage is on, such as the AppImage's own folder.
-pub async fn apply(release: &Release, source: Source, folder: &Path) -> Result<Applied, String> {
-    let asset = asset_for(release, source).ok_or("This install isn't updated by Yapfast.")?;
-    let sums = sums_of(release).ok_or("The release publishes no SHA256SUMS.txt.")?;
-    let client = super::client()?;
-    let sums = client
-        .get(&sums.url)
-        .send()
-        .await
-        .and_then(|response| response.error_for_status())
-        .map_err(|error| error.without_url().to_string())?
-        .text()
-        .await
+    std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755))
         .map_err(|error| error.to_string())?;
-    let sums = parse_sums(&sums);
-    let part = folder.join(format!("{}.part", asset.name));
-    let result = async {
-        download(&client, &asset.url, &part).await?;
-        verify(&part, &asset.name, &sums)
+    let mut child = std::process::Command::new(program)
+        .arg("--smoke-test")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| format!("The new version wouldn't start: {error}."))?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(_)) => return Err("The new version didn't pass its start-up check.".into()),
+            Ok(None) if started.elapsed() > std::time::Duration::from_secs(60) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("The new version's start-up check took too long.".into());
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+            Err(error) => return Err(error.to_string()),
+        }
     }
-    .await;
-    if let Err(error) = result {
+}
+
+/// What [`prepare`] left ready, for the program to finish once it has quit.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Prepared {
+    /// The AppImage was replaced; start this file.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Replaced(PathBuf),
+    /// The installer is checked and waiting; running it replaces the program.
+    Installer {
+        installer: PathBuf,
+        program: PathBuf,
+    },
+}
+
+/// Downloads `target`'s file, checks it against the release's sums, and gets
+/// it ready: an AppImage is tested and put in place, an installer waits. On a
+/// failure the downloaded file is removed.
+pub async fn prepare(
+    runtime: &BackgroundRuntime,
+    client: &reqwest::Client,
+    release: &Release,
+    target: &Target,
+    progress: Arc<Progress>,
+) -> Result<Prepared, String> {
+    let part = target.part();
+    let result = prepare_in(runtime, client, release, target, &part, &progress).await;
+    if result.is_err() {
         let _ = std::fs::remove_file(&part);
-        return Err(error);
     }
-    match source {
-        #[cfg(unix)]
-        Source::AppImage => {
-            let current = PathBuf::from(
-                std::env::var_os("APPIMAGE").ok_or("The AppImage's path isn't known.")?,
-            );
-            replace_appimage(&part, &current).map_err(|error| error.to_string())?;
-            Ok(Applied::Replaced(current))
+    result
+}
+
+async fn prepare_in(
+    runtime: &BackgroundRuntime,
+    client: &reqwest::Client,
+    release: &Release,
+    target: &Target,
+    part: &Path,
+    progress: &Arc<Progress>,
+) -> Result<Prepared, String> {
+    let asset = target.asset();
+    progress.stage(Stage::Starting);
+    let sums = sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
+    let sums = fetch_sums(client, &sums.url).await?;
+    let expected = sums
+        .get(&asset.name)
+        .ok_or_else(|| format!("The release publishes no sum for {}.", asset.name))?;
+    progress.stage(Stage::Downloading);
+    let actual = download(client, &asset.url, part, asset.size, progress).await?;
+    if &actual != expected {
+        return Err(format!(
+            "{} doesn't match the sum the release published.",
+            asset.name
+        ));
+    }
+    match target {
+        Target::AppImage { current, .. } => {
+            progress.stage(Stage::Testing);
+            #[cfg(unix)]
+            {
+                let (new, to) = (part.to_path_buf(), current.clone());
+                runtime
+                    .spawn_blocking(move || {
+                        smoke_test(&new)?;
+                        // The same folder, so the rename is atomic: the old
+                        // program is there or the new one, never half of either.
+                        std::fs::rename(&new, &to).map_err(|error| error.to_string())
+                    })
+                    .await
+                    .map_err(|_| "The update was cut short.".to_owned())??;
+                progress.stage(Stage::Installing);
+                Ok(Prepared::Replaced(current.clone()))
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = (runtime, current);
+                Err("AppImages are for Linux.".into())
+            }
         }
-        Source::Installer => {
-            let installer = folder.join(&asset.name);
-            std::fs::rename(&part, &installer).map_err(|error| error.to_string())?;
-            run_installer(&installer).map_err(|error| error.to_string())?;
-            Ok(Applied::Installer)
-        }
-        _ => {
-            let _ = std::fs::remove_file(&part);
-            Err("This install isn't updated by Yapfast.".into())
+        Target::Installer { asset, program } => {
+            let installer = part.with_file_name(&asset.name);
+            std::fs::rename(part, &installer).map_err(|error| error.to_string())?;
+            progress.stage(Stage::Installing);
+            Ok(Prepared::Installer {
+                installer,
+                program: program.clone(),
+            })
         }
     }
+}
+
+/// The command line `cmd` runs on Windows: the installer, silent and waited
+/// for, then the program again, then the installer's file removed. `None` when
+/// a path holds a character `cmd` would read as more than a name (`"` can't
+/// be in a Windows path; `%` would expand a variable).
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only Windows runs an installer")
+)]
+pub fn windows_command(installer: &Path, program: &Path, log: &Path) -> Option<String> {
+    let quoted = |path: &Path| {
+        let text = path.to_str()?;
+        (!text.contains(['"', '%', '\r', '\n'])).then(|| format!("\"{text}\""))
+    };
+    let (installer, program, log) = (quoted(installer)?, quoted(program)?, quoted(log)?);
+    // Inno Setup's own switches: no pages, no message boxes, no restart, and
+    // the running program closed (it has quit already, so it's belt and braces).
+    let log_switch = format!("/LOG={log}");
+    Some(format!(
+        "start \"\" /wait {installer} /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS {log_switch} & start \"\" {program} & del /q {installer}"
+    ))
+}
+
+/// Runs the installer once Yapfast has quit, then starts the program again.
+/// The caller returns right after, so the files can be replaced.
+#[cfg(windows)]
+pub fn run_installer(installer: &Path, program: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let log = installer.with_extension("log");
+    let line = windows_command(installer, program, &log)
+        .ok_or("The update's path has a character the installer can't be started with.")?;
+    // `/S` makes `cmd` strip the outer quotes only, leaving the inner ones.
+    std::process::Command::new("cmd.exe")
+        .args(["/D", "/S", "/C"])
+        .raw_arg(format!("\"{line}\""))
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(drop)
+        .map_err(|error| error.to_string())
+}
+
+/// Only Windows has an installer to run.
+#[cfg(not(windows))]
+pub fn run_installer(_: &Path, _: &Path) -> Result<(), String> {
+    Err("Installers are for Windows.".into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::update::Version;
+    use yapfast_core::runtime::BackgroundRuntime;
 
     fn asset(name: &str) -> Asset {
         Asset {
@@ -203,6 +468,7 @@ mod tests {
             version: Version::parse("0.4.1").unwrap(),
             tag: "v0.4.1".into(),
             page: String::new(),
+            notes: String::new(),
             assets: vec![
                 asset("Yapfast-0.4.1-x86_64.AppImage"),
                 asset("Yapfast-0.4.1-x86_64.AppImage.zsync"),
@@ -214,22 +480,71 @@ mod tests {
     }
 
     #[test]
-    fn each_install_takes_its_own_file() {
+    fn only_the_installs_that_own_their_files_are_updated() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = folder.path().join("Yapfast.AppImage");
+        let program = folder.path().join("yapfast.exe");
         let release = release();
-        let name = |source| asset_for(&release, source).map(|asset| asset.name.as_str());
-        assert_eq!(
-            name(Source::AppImage),
-            Some("Yapfast-0.4.1-x86_64.AppImage")
+        let reason = |source| {
+            target_for(&release, source, &program, Some(&app)).expect_err("not updated here")
+        };
+        assert!(reason(Source::Manager("Scoop")).contains("Scoop"));
+        assert!(reason(Source::Other).contains("can't replace itself"));
+        if !cfg!(target_arch = "x86_64") {
+            return;
+        }
+        // An AppImage in a folder that can be written to.
+        let target = target_for(&release, Source::AppImage, &program, Some(&app)).unwrap();
+        assert_eq!(target.asset().name, "Yapfast-0.4.1-x86_64.AppImage");
+        assert_eq!(target.part(), folder.path().join(".yapfast-update.part"));
+        assert!(
+            target_for(&release, Source::AppImage, &program, None)
+                .unwrap_err()
+                .contains("path")
         );
-        assert_eq!(
-            name(Source::Installer),
-            Some("Yapfast-0.4.1-windows-x64-setup.exe")
+        // An installed program needs the installer's uninstaller beside it.
+        assert!(
+            reason(Source::Installer).contains("installed by Yapfast's installer"),
+            "no uninstaller"
         );
-        assert_eq!(name(Source::Manager("Scoop")), None);
-        assert_eq!(name(Source::Other), None);
-        assert_eq!(
-            sums_of(&release).map(|asset| asset.name.as_str()),
-            Some("SHA256SUMS.txt")
+        std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
+        let target = target_for(&release, Source::Installer, &program, None).unwrap();
+        assert_eq!(target.asset().name, "Yapfast-0.4.1-windows-x64-setup.exe");
+        assert!(
+            target
+                .part()
+                .ends_with("yapfast-update/Yapfast-0.4.1-windows-x64-setup.exe")
+                || target
+                    .part()
+                    .ends_with(r"yapfast-update\Yapfast-0.4.1-windows-x64-setup.exe")
+        );
+    }
+
+    #[test]
+    fn a_release_without_its_file_or_sums_is_not_installed() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = folder.path().join("Yapfast.AppImage");
+        let program = folder.path().join("yapfast.exe");
+        std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
+        if !cfg!(target_arch = "x86_64") {
+            return;
+        }
+        let mut release = release();
+        release
+            .assets
+            .retain(|asset| !asset.name.ends_with("-setup.exe"));
+        assert!(
+            target_for(&release, Source::Installer, &program, None)
+                .unwrap_err()
+                .contains("no Windows installer")
+        );
+        release
+            .assets
+            .retain(|asset| asset.name != "SHA256SUMS.txt");
+        assert!(
+            target_for(&release, Source::AppImage, &program, Some(&app))
+                .unwrap_err()
+                .contains("SHA256SUMS")
         );
     }
 
@@ -237,8 +552,9 @@ mod tests {
     fn sums_are_read_as_sha256sum_writes_them() {
         let hash = "a".repeat(64);
         let text = format!(
-            "{hash}  Yapfast-1.AppImage\n{hash} *binary.exe\nnot a sum line\n{} short\n",
-            "b".repeat(8)
+            "{hash}  Yapfast-1.AppImage\n{hash} *binary.exe\nnot a sum line\n{} short\n{} nothex.bin\n",
+            "b".repeat(8),
+            "z".repeat(64),
         );
         let sums = parse_sums(&text);
         assert_eq!(sums.len(), 2);
@@ -247,35 +563,242 @@ mod tests {
     }
 
     #[test]
-    fn a_download_must_match_its_published_sum() {
+    fn the_windows_command_quotes_every_path_and_refuses_odd_ones() {
+        let line = windows_command(
+            Path::new(r"C:\Temp\yapfast-update\Setup.exe"),
+            Path::new(r"C:\Users\Jörg Müller\AppData\Local\Programs\Yapfast\yapfast.exe"),
+            Path::new(r"C:\Temp\yapfast-update\Setup.log"),
+        )
+        .unwrap();
+        assert_eq!(
+            line,
+            "start \"\" /wait \"C:\\Temp\\yapfast-update\\Setup.exe\" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /LOG=\"C:\\Temp\\yapfast-update\\Setup.log\" & start \"\" \"C:\\Users\\Jörg Müller\\AppData\\Local\\Programs\\Yapfast\\yapfast.exe\" & del /q \"C:\\Temp\\yapfast-update\\Setup.exe\""
+        );
+        for odd in [r"C:\100%\yapfast.exe", "C:\\a\"b\\yapfast.exe"] {
+            assert_eq!(
+                windows_command(Path::new("s.exe"), Path::new(odd), Path::new("s.log")),
+                None
+            );
+        }
+    }
+
+    /// A small HTTP server on this computer that answers each request from `files`.
+    fn serve(files: Vec<(&'static str, Vec<u8>)>) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut request = [0u8; 2048];
+                let read = stream.read(&mut request).unwrap_or(0);
+                let request = String::from_utf8_lossy(&request[..read]);
+                let path = request
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("/")
+                    .trim_start_matches('/')
+                    .to_owned();
+                match files.iter().find(|(name, _)| *name == path) {
+                    Some((_, body)) => {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = stream.write_all(body);
+                    }
+                    None => {
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        );
+                    }
+                }
+            }
+        });
+        format!("http://{address}")
+    }
+
+    /// The installer's download folder is shared, so the tests that use it
+    /// take turns.
+    static INSTALLER_FOLDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn client() -> reqwest::Client {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        reqwest::Client::new()
+    }
+
+    fn sha(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// A release whose AppImage and sums are served from `base`.
+    fn served_release(base: &str) -> Release {
+        let mut release = release();
+        for asset in &mut release.assets {
+            asset.url = format!("{base}/{}", asset.name);
+        }
+        release
+    }
+
+    #[test]
+    fn a_download_that_matches_its_sum_is_installed() {
+        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
+        let runtime = BackgroundRuntime::new().unwrap();
+        runtime.block_on(matching_download(&runtime));
+    }
+
+    async fn matching_download(runtime: &BackgroundRuntime) {
+        let new = b"#!/bin/sh\nexit 0\n".to_vec();
+        let name = "Yapfast-0.4.1-windows-x64-setup.exe";
+        let sums = format!("{}  {name}\n", sha(&new)).into_bytes();
+        let base = serve(vec![
+            ("Yapfast-0.4.1-windows-x64-setup.exe", new.clone()),
+            ("SHA256SUMS.txt", sums),
+        ]);
+        let release = served_release(&base);
         let folder = tempfile::tempdir().unwrap();
-        let file = folder.path().join("update.bin");
-        std::fs::write(&file, b"hello\n").unwrap();
-        // sha256 of "hello\n"
-        let good = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03";
-        assert_eq!(sha256_of(&file).unwrap(), good);
-        let sums = HashMap::from([("update.bin".to_owned(), good.to_owned())]);
-        assert_eq!(verify(&file, "update.bin", &sums), Ok(()));
-        std::fs::write(&file, b"hello!\n").unwrap();
-        assert!(verify(&file, "update.bin", &sums).is_err());
-        assert!(verify(&file, "other.bin", &sums).is_err());
+        let program = folder.path().join("yapfast.exe");
+        let target = Target::Installer {
+            asset: release
+                .assets
+                .iter()
+                .find(|asset| asset.name == name)
+                .unwrap()
+                .clone(),
+            program: program.clone(),
+        };
+        let progress = Arc::new(Progress::default());
+        let prepared = prepare(runtime, &client(), &release, &target, progress.clone())
+            .await
+            .unwrap();
+        let Prepared::Installer { installer, .. } = prepared else {
+            panic!("an installer was expected");
+        };
+        assert_eq!(std::fs::read(&installer).unwrap(), new);
+        let (stage, fraction) = progress.read();
+        assert_eq!(stage, Stage::Installing);
+        assert_eq!(fraction, Some(1.0));
+        let _ = std::fs::remove_dir_all(installer.parent().unwrap());
+    }
+
+    #[test]
+    fn a_download_that_does_not_match_leaves_nothing_behind() {
+        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
+        let runtime = BackgroundRuntime::new().unwrap();
+        runtime.block_on(mismatched_download(&runtime));
+    }
+
+    async fn mismatched_download(runtime: &BackgroundRuntime) {
+        let name = "Yapfast-0.4.1-windows-x64-setup.exe";
+        let sums = format!("{}  {name}\n", sha(b"what was published")).into_bytes();
+        let base = serve(vec![
+            (
+                "Yapfast-0.4.1-windows-x64-setup.exe",
+                b"something else".to_vec(),
+            ),
+            ("SHA256SUMS.txt", sums),
+        ]);
+        let release = served_release(&base);
+        let folder = tempfile::tempdir().unwrap();
+        let target = Target::Installer {
+            asset: release
+                .assets
+                .iter()
+                .find(|a| a.name == name)
+                .unwrap()
+                .clone(),
+            program: folder.path().join("yapfast.exe"),
+        };
+        let error = prepare(
+            runtime,
+            &client(),
+            &release,
+            &target,
+            Arc::new(Progress::default()),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("doesn't match"), "{error}");
+        assert!(!target.part().exists());
+        // A release that publishes no sum for the file isn't trusted either.
+        let base = serve(vec![
+            ("Yapfast-0.4.1-windows-x64-setup.exe", b"x".to_vec()),
+            ("SHA256SUMS.txt", b"".to_vec()),
+        ]);
+        let release = served_release(&base);
+        let error = prepare(
+            runtime,
+            &client(),
+            &release,
+            &target,
+            Arc::new(Progress::default()),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("publishes no sum"), "{error}");
     }
 
     #[cfg(unix)]
     #[test]
-    fn replacing_the_appimage_keeps_it_runnable() {
+    fn an_appimage_that_runs_replaces_the_old_one_and_one_that_does_not_is_dropped() {
+        let runtime = BackgroundRuntime::new().unwrap();
+        runtime.block_on(appimage_download(&runtime));
+    }
+
+    #[cfg(unix)]
+    async fn appimage_download(runtime: &BackgroundRuntime) {
         use std::os::unix::fs::PermissionsExt;
+        if !cfg!(target_arch = "x86_64") {
+            return;
+        }
+        let name = "Yapfast-0.4.1-x86_64.AppImage";
         let folder = tempfile::tempdir().unwrap();
         let current = folder.path().join("Yapfast.AppImage");
-        let new = folder.path().join("Yapfast-new.AppImage.part");
         std::fs::write(&current, b"old").unwrap();
-        std::fs::write(&new, b"new").unwrap();
-        replace_appimage(&new, &current).unwrap();
-        assert_eq!(std::fs::read(&current).unwrap(), b"new");
-        assert!(!new.exists());
-        assert_eq!(
-            std::fs::metadata(&current).unwrap().permissions().mode() & 0o111,
-            0o111
-        );
+        for (script, works) in [
+            (&b"#!/bin/sh\nexit 0\n"[..], true),
+            (&b"#!/bin/sh\nexit 3\n"[..], false),
+        ] {
+            let sums = format!("{}  {name}\n", sha(script)).into_bytes();
+            let base = serve(vec![
+                ("Yapfast-0.4.1-x86_64.AppImage", script.to_vec()),
+                ("SHA256SUMS.txt", sums),
+            ]);
+            let release = served_release(&base);
+            let target = Target::AppImage {
+                asset: release
+                    .assets
+                    .iter()
+                    .find(|a| a.name == name)
+                    .unwrap()
+                    .clone(),
+                current: current.clone(),
+            };
+            let result = prepare(
+                runtime,
+                &client(),
+                &release,
+                &target,
+                Arc::new(Progress::default()),
+            )
+            .await;
+            assert!(!target.part().exists());
+            if works {
+                assert_eq!(result, Ok(Prepared::Replaced(current.clone())));
+                assert_eq!(std::fs::read(&current).unwrap(), script);
+                assert_eq!(
+                    std::fs::metadata(&current).unwrap().permissions().mode() & 0o111,
+                    0o111
+                );
+            } else {
+                assert!(result.unwrap_err().contains("start-up check"));
+                // The program that works is still there.
+                assert_ne!(std::fs::read(&current).unwrap(), script);
+            }
+        }
     }
 }

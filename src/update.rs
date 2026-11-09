@@ -1,19 +1,19 @@
 //! Whether a newer Yapfast has been released, and how this one was installed.
 //!
-//! Settings' About page can look the releases up on GitHub, and says what it
-//! found; it never installs anything. The decisions are pure functions of the
-//! release list, this build and where its program sits, so tests cover them
-//! without a network. [`check`] is the only code that talks to GitHub, one
-//! small request when a person turns the check on or presses Check now.
+//! Settings' About page can look the releases up on GitHub, say what it found
+//! and, when a person presses Update and restart, install it ([`install`]).
+//! The decisions are pure functions of the release list, this build and where
+//! its program sits, so tests cover them without a network. [`check`] is the
+//! one small request when a person turns the check on or presses Check now.
 //!
 //! The check is off until it's turned on: Yapfast makes no request of its own
-//! to GitHub otherwise. See docs/packaging.md.
+//! to GitHub otherwise, and it installs only what a person asked for. See
+//! docs/packaging.md.
 
 use std::cmp::Ordering;
 
 use crate::build_info::Channel;
 
-#[cfg(feature = "self-update")]
 pub mod install;
 
 /// Where Yapfast's releases are listed. Thirty reach the newest stable release
@@ -131,6 +131,10 @@ pub struct Release {
     /// The release's page, where its notes and files are.
     pub page: String,
     pub assets: Vec<Asset>,
+    /// What's new, as plain lines ([`notes_of`]). Only the newest stable
+    /// release and the newest nightly keep theirs, so the thirty listed don't
+    /// stay in memory for hours.
+    pub notes: String,
 }
 
 /// Reads GitHub's list of releases (`GET /repos/{owner}/{repo}/releases`),
@@ -144,6 +148,8 @@ pub fn parse_releases(json: &[u8]) -> Result<Vec<Release>, serde_json::Error> {
         #[serde(default)]
         html_url: String,
         #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
         assets: Vec<ListedAsset>,
     }
     #[derive(serde::Deserialize)]
@@ -154,7 +160,7 @@ pub fn parse_releases(json: &[u8]) -> Result<Vec<Release>, serde_json::Error> {
         size: u64,
     }
     let listed: Vec<Listed> = serde_json::from_slice(json)?;
-    Ok(listed
+    let mut releases: Vec<Release> = listed
         .into_iter()
         .filter(|release| !release.draft)
         .filter_map(|release| {
@@ -178,9 +184,150 @@ pub fn parse_releases(json: &[u8]) -> Result<Vec<Release>, serde_json::Error> {
                         size: asset.size,
                     })
                     .collect(),
+                notes: release.body.as_deref().map(notes_of).unwrap_or_default(),
             })
         })
-        .collect())
+        .collect();
+    // Keep the notes of the two releases an update can offer: the newest of
+    // each kind.
+    let newest = |releases: &[Release], nightly: bool| {
+        releases
+            .iter()
+            .enumerate()
+            .filter(|(_, release)| release.version.is_nightly() == nightly)
+            .max_by(|(_, a), (_, b)| a.version.cmp(&b.version))
+            .map(|(at, _)| at)
+    };
+    let keep = [newest(&releases, false), newest(&releases, true)];
+    for (at, release) in releases.iter_mut().enumerate() {
+        if !keep.contains(&Some(at)) {
+            release.notes = String::new();
+        }
+    }
+    Ok(releases)
+}
+
+/// The longest notes kept, in characters; the release's page has the rest.
+const NOTES_LIMIT: usize = 4000;
+
+/// A release's description as plain lines for About: without the install
+/// instructions, the commit list's folded part, links and the footer, and
+/// with a changelog line's `feat(scope): ` before and ` by @name in <sha>`
+/// after it taken off. Headings of the release's own sections stay as lines.
+pub fn notes_of(body: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut install = false;
+    let mut folded = false;
+    // The last line pushed was a heading, which its list follows closely.
+    let mut heading = false;
+    for line in body.lines().map(str::trim) {
+        if line.starts_with("All changes:") {
+            break;
+        }
+        if line.starts_with("<details") {
+            folded = true;
+            continue;
+        }
+        if line.starts_with("</details") {
+            folded = false;
+            continue;
+        }
+        if folded {
+            continue;
+        }
+        if line.starts_with('#') {
+            let level = line.chars().take_while(|c| *c == '#').count();
+            let title = line.trim_start_matches('#').trim();
+            if level <= 2 {
+                // The page names its own sections: "What's new" is its title.
+                install = title.eq_ignore_ascii_case("install");
+                continue;
+            }
+            if !install && !title.is_empty() {
+                if lines.last().is_some_and(|last| !last.is_empty()) {
+                    lines.push(String::new());
+                }
+                lines.push(title.to_owned());
+                heading = true;
+            }
+            continue;
+        }
+        if install || line.starts_with("A nightly build of ") {
+            continue;
+        }
+        let line = line.replace("**", "").replace('`', "");
+        let line = match line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+            Some(item) => format!("\u{2022} {}", entry(item)),
+            None => line,
+        };
+        if line.is_empty() && (heading || lines.last().is_none_or(String::is_empty)) {
+            continue;
+        }
+        heading = false;
+        lines.push(line);
+    }
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    while lines.first().is_some_and(String::is_empty) {
+        lines.remove(0);
+    }
+    let mut notes = lines.join("\n");
+    if notes.chars().count() > NOTES_LIMIT {
+        let end = notes
+            .char_indices()
+            .nth(NOTES_LIMIT)
+            .map_or(notes.len(), |(at, _)| at);
+        // Cut at a line's end, not in the middle of a sentence.
+        notes.truncate(notes[..end].rfind('\n').unwrap_or(end));
+    }
+    notes
+}
+
+/// Whether `kind` is a Conventional Commits prefix such as `fix` or `feat(ui)!`.
+fn is_commit_kind(kind: &str) -> bool {
+    const TYPES: [&str; 11] = [
+        "feat", "fix", "perf", "refactor", "docs", "test", "build", "ci", "chore", "style",
+        "revert",
+    ];
+    let kind = kind.strip_suffix('!').unwrap_or(kind);
+    let word = match kind.split_once('(') {
+        Some((word, scope)) if scope.ends_with(')') && !scope.contains(' ') => word,
+        Some(_) => return false,
+        None => kind,
+    };
+    TYPES.contains(&word)
+}
+
+/// A changelog entry as the release's page writes it, such as
+/// `fix(ui): keep a link underlined by @name in 0a1b2c3`, without the type,
+/// the scope and the credit.
+fn entry(item: &str) -> String {
+    let mut text = item;
+    if let Some((kind, rest)) = text.split_once(": ")
+        && is_commit_kind(kind)
+    {
+        text = rest;
+    }
+    if let Some((before, credit)) = text.rsplit_once(" by ") {
+        let mut words = credit.split(' ');
+        let who = words.next().unwrap_or_default();
+        let commit_ok = match (words.next(), words.next(), words.next()) {
+            (None, ..) => true,
+            (Some("in"), Some(sha), None) => {
+                (7..=40).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit())
+            }
+            _ => false,
+        };
+        if commit_ok && !who.is_empty() {
+            text = before;
+        }
+    }
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 /// What a look at the releases found.
@@ -294,12 +441,15 @@ pub fn source() -> Source {
 }
 
 /// The client every request here uses: the program's name and version, no
-/// cookies, and the same process-wide TLS provider the other connections install.
+/// cookies, HTTPS only, and the same process-wide TLS provider the other
+/// connections install. A download that stops for a minute is given up.
 pub(crate) fn client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     reqwest::Client::builder()
         .user_agent(concat!("Yapfast/", env!("CARGO_PKG_VERSION")))
+        .https_only(true)
         .connect_timeout(std::time::Duration::from_secs(20))
+        .read_timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|error| error.to_string())
 }
@@ -333,7 +483,56 @@ mod tests {
             tag: tag.into(),
             page: format!("https://github.com/yapfast/yapfast/releases/tag/{tag}"),
             assets: Vec::new(),
+            notes: String::new(),
         }
+    }
+
+    #[test]
+    fn notes_keep_what_changed_and_drop_the_rest() {
+        let body = "A nightly build of main at abc, for testing.\n\n\
+            ## Changes since v0.4.0-nightly.1\n\n### Features\n\n\
+            - feat(ui): fold long messages with Show more by @6gah in f86b16852652dd9cad668958d3e66b4dceb50c0c\n\
+            - feat: add Developer Mode by mistycalpi in ae6749c58741d437eb35003c42510dd6bc8163ad\n\n\
+            ### Fixes\n\n- fix(voice)!: keep the call: all of it by @a in 1234567\n\
+            - Add navigation, calls and extras by @Fayberr in 1eb921958c4e5b3b2e87d9f2d4330dbaedc9fb0b\n\n\
+            <details><summary>Other changes (1)</summary>\n\n- docs: hidden by @a in 1234567\n\n</details>\n\n\
+            All changes: https://github.com/yapfast/yapfast/compare/a...b\n\nOn Arch Linux, install it.";
+        assert_eq!(
+            notes_of(body),
+            "Features\n\u{2022} Fold long messages with Show more\n\u{2022} Add Developer Mode\n\n\
+             Fixes\n\u{2022} Keep the call: all of it\n\u{2022} Add navigation, calls and extras"
+        );
+    }
+
+    #[test]
+    fn a_stable_releases_notes_skip_the_install_instructions() {
+        let body = "Go Live on your **graphics card**.\n\n## Install\n\nRun `setup.exe`.\n\n\
+            ### Linux\n\nDownload it.\n\n## What's new\n\nGo Live\n- Streams go out on `NVENC`.\n\
+            - the soundboard: hear it\n";
+        assert_eq!(
+            notes_of(body),
+            "Go Live on your graphics card.\n\nGo Live\n\u{2022} Streams go out on NVENC.\n\u{2022} The soundboard: hear it"
+        );
+        assert_eq!(notes_of(""), "");
+        let long = format!("- {}\n", "word ".repeat(50)).repeat(40);
+        assert!(notes_of(&long).chars().count() <= NOTES_LIMIT);
+        assert!(!notes_of(&long).ends_with(' '));
+    }
+
+    #[test]
+    fn only_the_releases_an_update_can_offer_keep_their_notes() {
+        let json = br#"[
+            {"tag_name": "v0.3.0", "body": "old"},
+            {"tag_name": "v0.2.0", "body": "older"},
+            {"tag_name": "v0.4.0-nightly.1", "body": "first nightly"},
+            {"tag_name": "v0.4.0-nightly.2", "body": "second nightly"}
+        ]"#;
+        let notes: Vec<_> = parse_releases(json)
+            .unwrap()
+            .into_iter()
+            .map(|release| release.notes)
+            .collect();
+        assert_eq!(notes, ["old", "", "", "second nightly"]);
     }
 
     #[test]
