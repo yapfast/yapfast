@@ -1313,6 +1313,13 @@ impl Adapter {
                             .collect();
                         ModelRc::new(VecModel::from(people))
                     },
+                    voice_summary: if room.voice && !room.direct {
+                        yapfast_core::voice_roster::Roster::of(&room.people)
+                            .summary()
+                            .into()
+                    } else {
+                        SharedString::default()
+                    },
                     call: room.direct && !room.people.is_empty(),
                     // Discord sends the presence of friends and of those
                     // sharing a server; anyone else in a one-to-one DM shows
@@ -1402,7 +1409,18 @@ impl Adapter {
                 }
                 row
             })
-            .collect();
+            .collect::<Vec<_>>();
+        // The voice card goes with its row, which can go without the
+        // pointer leaving it: its channel deleted, emptied or filtered out
+        // by the channel search.
+        let card = window.global::<VoiceCard>();
+        if card.get_people().row_count() > 0
+            && !rows.iter().any(|row| {
+                row.id == card.get_channel() && !row.hidden && row.people.row_count() > 0
+            })
+        {
+            card.set_people(ModelRc::default());
+        }
         update_model(&self.models.rooms, rows);
         self.places = places;
         // What's being dragged keeps going, at its new place.
