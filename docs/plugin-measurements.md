@@ -6,6 +6,11 @@ speaks the framed JSON protocol in [`docs/plugin-protocol.md`](plugin-protocol.m
 and writes one JSON record. It has no budgets: a record contains observations,
 and the plan's budgets are applied to those observations elsewhere.
 
+The one budget it cannot answer is the 50 µs p99 for an event: Python writes and
+reads every frame, and that work is larger than the budget itself. That number
+is [the Rust latency probe's](#the-rust-latency-probe), which times the same
+exchange with no interpreter in the loop.
+
 ## What it measures
 
 | Field | Meaning |
@@ -191,13 +196,114 @@ so the result is always one observed value, never an interpolation. `p50` of
 ten samples is the fifth smallest; `p99` of ten is the largest. An empty sample
 has no percentile and is reported as `null`.
 
+## The Rust latency probe
+
+[`crates/yapfast-plugin-host/examples/latency.rs`](../crates/yapfast-plugin-host/examples/latency.rs)
+is the probe for the plan's 50 µs p99 budget for one event to a subscribed
+plugin. It speaks the same protocol over the same pipes with the parent's own
+types and `std::time::Instant`, so a measured span holds the pipe, the helper
+and the probe's read of the reply, and nothing else of the probe's.
+
+[§14](../PLAN.md#14-testing) names a Criterion benchmark for hook round trips.
+M0 has no hooks yet, so this times the exchange a hook will sit on: one `call`
+frame out, one `reply` frame back, with the same 1 KiB JSON payload the Python
+harness sends.
+
+It spawns the helper, reads `ready`, loads one module under one id, makes
+`--warmup` uncounted round trips and then `--requests` counted ones, unloads the
+one instance, and requires the helper to stop cleanly: its stdout ends and it
+exits with 0. The helper's stderr is captured as text and reported; nothing the
+helper writes to stdout is reprinted, because those bytes are frames.
+
+| Field | Meaning |
+| --- | --- |
+| `latency.spawn_to_ready_ns` | From immediately before the spawn to the `ready` frame at id 0. |
+| `latency.spawn_to_first_call_ns` | The same clock through `ready`, the `load` and the first call's `reply`. The first call is the first warmup call, or the first counted one with `--warmup 0`. |
+| `latency.load_ns` | Write the `load` frame and read the `loaded` frame carrying that id; `by_plugin` holds the one sample under the plugin id. |
+| `latency.round_trip_ns` | Write the `call` frame, flush, and read the `reply` with that id. Warmup calls are not sampled. |
+| `budget` | `latency.round_trip_ns.percentiles.p99` against 50,000 ns, with `verdict` `pass` or `fail`. |
+
+The first two spans include the process start and Extism's instantiation, so
+they are not comparable with the round trip: only the round trip is a candidate
+for the 50 µs budget.
+
+### Usage
+
+The helper must already be built, as for the Python harness; this example does
+not run cargo either. A `measure`-profile helper is what the budget is about:
+
+```sh
+cargo build --profile measure -p yapfast-plugin-host --bin yapfast-plugins --features host
+
+cargo run --profile measure -p yapfast-plugin-host --example latency -- \
+    --helper target/measure/yapfast-plugins \
+    --module "$PWD/target/plugin-fixtures/echo.wasm" \
+    --helper-arg --no-cache \
+    --run-label warm-1 \
+    --json-out target/plugin-measurements/latency-warm-1.json
+```
+
+On Windows pass `target/measure/yapfast-plugins.exe`, and a drive-letter module
+path: an MSYS `/c/...` path from Git Bash is not absolute to the probe either.
+The example links neither Extism nor wasmtime, so it builds without the crate's
+`host` feature: it only speaks the protocol.
+
+The helper's own flags go through `--helper-arg`, one argument at a time, as the
+Python harness takes them, so a flag that needs a value takes two:
+
+```sh
+    --helper-arg --cache-dir --helper-arg "C:/yapfast/target/plugin-cache/warm-1"
+```
+
+| Argument | Default | Purpose |
+| --- | --- | --- |
+| `--helper PATH` | required | The helper binary to spawn. |
+| `--module PATH` | required | Absolute `.wasm` to load under `--plugin`; a relative path is refused. |
+| `--plugin ID` | `measure` | The id of the one instance. |
+| `--method NAME` | `echo` | The guest export every call names. |
+| `--warmup N` | 200 | Uncounted round trips before the counted ones. |
+| `--requests N` | 2000 | Counted round trips. |
+| `--payload-bytes N` | 1024 | Bytes in the call payload's `data` string. |
+| `--helper-arg ARG` | none | One helper argument; repeatable, passed in order. |
+| `--timeout SECONDS` | 10 | Limit for any one exchange; a helper that outlives it is killed. |
+| `--json-out PATH` | stdout | Where to write the record. |
+| `--run-label NAME` | none | The record's `scenario.name`. |
+
+Exit status is `0` when a record was written, `2` for a usage error, `3` when
+the helper or the module is missing or the module path is not absolute, and `1`
+when the protocol, a timeout or the helper's exit failed. A failed run writes no
+record.
+
+### The record
+
+`schema` is `yapfast-plugin-latency/1` and `clock` is `std::time::Instant`.
+Every span is in nanoseconds, and percentiles use the nearest-rank method above.
+Beside `latency` the record carries `platform`, `build` (the helper's path, its
+size and the full `argv`), `scenario` (module, plugin, method, counts, payload
+sizes, timeout) and `helper_exit` (`exit_code`, `stdout_eof`, `ended_by`, which
+is `last_unload`, and the stderr tail).
+
+### What the number is, and is not
+
+- The round trip is the floor of the 50 µs budget, not all of it: an event also
+  carries the parent's dispatch and whatever the guest does with the payload.
+  `budget.verdict` compares the observed p99 with 50,000 ns; it does not claim
+  the whole event path, which M0 has no hooks for yet.
+- The reply is decoded as the parent decodes it, frame then envelope JSON, and
+  its payload bytes are compared with the call's. The `call` frame is encoded
+  once and only its id changes, so no JSON encoding of the request sits in the
+  span.
+- One instance, one helper, one method. Instance counts and memory sampling stay
+  the Python harness's. There is no `--os-tag`: a WSL2 run is labelled in
+  `--run-label` instead, and is still not a bare-metal budget.
+
 ## Limits
 
 - Python writes and reads the frames, so `round_trip_ns`, `load_ns` and
   `spawn_to_first_call_ns` include interpreter and JSON work that the helper
   does not pay. Use them to compare runs and find gross regressions. The 50 µs
-  event budget needs the Rust latency example, which times the same exchange
-  without Python in the loop.
+  event budget needs [the Rust latency probe](#the-rust-latency-probe), which
+  times the same exchange without Python in the loop.
 - `spawn_to_first_call_ns` contains Extism's instantiation of every instance
   plus the first call, so it is deliberately not comparable with
   `round_trip_ns`.
@@ -231,3 +337,15 @@ unloads, memory parsing, thread counting and JSON labels are testable before
 the real host exists. The Windows thread count is tested against a fake Win32
 API at the ctypes boundary, so its error paths run on any OS. A real helper
 run remains an integration step.
+
+The Rust probe needs no helper for its own logic:
+
+```sh
+cargo test --profile fast -p yapfast-plugin-host --example latency
+```
+
+Those tests pin the nearest-rank percentiles and the budget verdict, the
+argument parser, the id a frame header carries, a response that answers another
+id, a helper's error sentence, a stream that ended early, echo returning the
+call's exact bytes, the timing block and the bounded stderr tail. A real helper
+run is the measurement, not a test.
