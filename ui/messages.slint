@@ -1430,10 +1430,15 @@ export component MessageGallery inherits HorizontalLayout {
     /// index, whether it's a video, and where in the window.
     callback media-menu(string, int, bool, length, length);
     padding-top: 4px;
+    // As laid out when there's room; narrower, it shrinks to the width it gets,
+    // keeping its shape, so a narrow timeline doesn't cut it off.
     Rectangle {
-        width: root.gallery-width * 1px; height: root.gallery-height * 1px;
+        property <float> scale: self.width / max(1px, root.gallery-width * 1px);
+        min-width: 0px; preferred-width: root.gallery-width * 1px; max-width: root.gallery-width * 1px;
+        height: root.gallery-height * 1px * self.scale;
         for cell in root.images: Rectangle {
-            x: cell.x * 1px; y: cell.y * 1px; width: cell.width * 1px; height: cell.height * 1px;
+            x: cell.x * 1px * parent.scale; y: cell.y * 1px * parent.scale;
+            width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
             border-radius: 8px; clip: true;
             // Discord draws a transparent picture straight on the message background.
             background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
@@ -1700,11 +1705,15 @@ export component EmbedView inherits HorizontalLayout {
                     }
                 }
                 // A video's poster opens the video; other pictures open in the viewer.
+                // Shrinking to fit as a message's gallery does.
                 if root.embed.images.length > 0: HorizontalLayout {
                     Rectangle {
-                        width: root.embed.gallery-width * 1px; height: root.embed.gallery-height * 1px;
+                        property <float> scale: self.width / max(1px, root.embed.gallery-width * 1px);
+                        min-width: 0px; preferred-width: root.embed.gallery-width * 1px; max-width: root.embed.gallery-width * 1px;
+                        height: root.embed.gallery-height * 1px * self.scale;
                         for cell in root.embed.images: Rectangle {
-                            x: cell.x * 1px; y: cell.y * 1px; width: cell.width * 1px; height: cell.height * 1px;
+                            x: cell.x * 1px * parent.scale; y: cell.y * 1px * parent.scale;
+                            width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
                             border-radius: 4px; clip: true; background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
                             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
                             if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
