@@ -48,6 +48,21 @@ pub fn raise_thread_priority() {
     platform::raise_priority();
 }
 
+static WINDOWS_EFFECTS: AtomicBool = AtomicBool::new(false);
+
+/// Lets Windows run its microphone effects, a driver's noise suppression or
+/// beamforming, on microphones that open from now on, and on a call's within
+/// a couple of seconds. Off, microphones open in raw mode, which skips them,
+/// where the device offers it. Elsewhere it changes nothing.
+pub fn set_windows_effects(on: bool) {
+    WINDOWS_EFFECTS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(any(windows, feature = "discord"))]
+fn windows_effects() -> bool {
+    WINDOWS_EFFECTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Whether this system has sound here.
 pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
 

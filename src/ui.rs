@@ -1253,6 +1253,9 @@ struct Layout {
     noise_strength: yapfast_core::noise::Strength,
     /// Discord calls take the room's reverb out of the microphone.
     reduce_room_echo: bool,
+    /// Windows runs its microphone effects on Discord calls' microphone;
+    /// off, Yapfast skips them. See [`yapfast_core::set_windows_effects`].
+    windows_microphone_effects: bool,
     /// The quietest speech Discord calls send, in dBFS; -60 unless changed.
     input_sensitivity: Option<i32>,
     /// Whether calls send the voice the gate hears or only while a key is
@@ -1567,6 +1570,9 @@ impl Layout {
         yapfast_core::noise::set_strength(self.noise_strength);
         window.set_dereverb(self.reduce_room_echo);
         yapfast_core::noise::set_dereverb(self.reduce_room_echo);
+        window.set_windows_effects_choice(cfg!(windows));
+        window.set_windows_effects(self.windows_microphone_effects);
+        yapfast_core::set_windows_effects(self.windows_microphone_effects);
         let sensitivity = self.sensitivity();
         window.set_sensitivity(sensitivity);
         yapfast_core::noise::set_sensitivity(sensitivity as f32);

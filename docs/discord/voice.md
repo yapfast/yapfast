@@ -431,7 +431,8 @@ runs, in 10 ms blocks: WebRTC's echo cancellation and high-pass filter; if
 asked, taking the room's echo out; a noise suppressor, which also tells the
 gate which blocks are speech; WebRTC's gain control on what's left; then
 Yapfast's leveling and the microphone's volume, from
-[Settings](../voice.md#sounds).
+[Settings](../voice.md#sounds). On Windows the microphone skips the system's
+own effects unless asked; see [Windows](../windows-beta.md#discord-voice-on-windows).
 
 The suppressor is DeepFilterNet 3, through libDF, its Rust implementation on
 tract (crate `deep_filter`; the code and the model's weights are MIT or

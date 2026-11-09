@@ -499,6 +499,10 @@ export component VoiceSettings inherits VerticalLayout {
     in-out property <int> noise-strength;
     /// Discord calls take the room's reverb out of the microphone.
     in-out property <bool> dereverb;
+    /// Windows runs its microphone effects in Discord calls; the switch shows
+    /// where there are any, on Windows.
+    in-out property <bool> windows-effects;
+    in property <bool> windows-effects-choice;
     /// The quietest speech Discord calls send, in dBFS; and the microphone as
     /// the voice gate hears it, refreshed while this shows.
     in-out property <int> sensitivity: -60;
@@ -708,6 +712,12 @@ export component VoiceSettings inherits VerticalLayout {
         text: "Take out your room's echo in Discord calls";
         description: "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.";
         checked <=> root.dereverb;
+        toggled => { root.preferences-changed(); }
+    }
+    if root.discord && root.windows-effects-choice: SettingsSwitch {
+        text: "Let Windows process your microphone in Discord calls";
+        description: "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.";
+        checked <=> root.windows-effects;
         toggled => { root.preferences-changed(); }
     }
     VerticalLayout {

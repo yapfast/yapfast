@@ -1222,6 +1222,10 @@ export component YapfastWindow inherits Window {
     }
     in-out property <int> noise-strength;
     in-out property <bool> dereverb;
+    /// Windows runs its microphone effects in Discord calls; the switch shows
+    /// on Windows only.
+    in-out property <bool> windows-effects;
+    in property <bool> windows-effects-choice;
     in-out property <int> sensitivity: -60;
     /// The Discord microphone as its voice gate hears it, in dBFS, and whether
     /// the gate is open, refreshed by gate-meter-tick while voice settings
@@ -4097,6 +4101,7 @@ export component YapfastWindow inherits Window {
             camera-testing <=> root.camera-testing; camera-preview: root.camera-preview; camera-note: root.camera-note;
             unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
+            windows-effects <=> root.windows-effects; windows-effects-choice: root.windows-effects-choice;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
