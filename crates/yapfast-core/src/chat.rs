@@ -142,6 +142,9 @@ pub struct ChatRoom {
     pub empty: bool,
     /// A Discord message request's latest message, when it's known.
     pub preview: Option<Box<RequestPreview>>,
+    /// When the session of a Discord voice channel with people in it
+    /// started, in Unix seconds, as Discord says; its row counts from it.
+    pub voice_started: Option<u64>,
 }
 
 impl ChatRoom {

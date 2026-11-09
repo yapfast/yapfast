@@ -115,6 +115,11 @@ events! {
     StreamServerUpdate = "STREAM_SERVER_UPDATE",
     /// Someone sent a soundboard sound or an emoji into this account's call.
     VoiceChannelEffectSend = "VOICE_CHANNEL_EFFECT_SEND",
+    /// A voice channel's session started, as its first person joined, or
+    /// ended, as its last left.
+    VoiceChannelStartTimeUpdate = "VOICE_CHANNEL_START_TIME_UPDATE",
+    /// A server's channels' extra fields, asked for with op 43.
+    ChannelInfo = "CHANNEL_INFO",
     /// A server's soundboard sounds, asked for with op 31.
     SoundboardSounds = "SOUNDBOARD_SOUNDS",
     GuildSoundboardSoundCreate = "GUILD_SOUNDBOARD_SOUND_CREATE",
@@ -227,6 +232,11 @@ mod tests {
             ("STREAM_DELETE", Event::StreamDelete),
             ("STREAM_SERVER_UPDATE", Event::StreamServerUpdate),
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
+            (
+                "VOICE_CHANNEL_START_TIME_UPDATE",
+                Event::VoiceChannelStartTimeUpdate,
+            ),
+            ("CHANNEL_INFO", Event::ChannelInfo),
             ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
             (
                 "GUILD_SOUNDBOARD_SOUND_CREATE",

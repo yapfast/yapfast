@@ -347,6 +347,11 @@ pub struct Snapshot {
     /// Who is in each voice channel, by channel id and then by name.
     #[serde(skip)]
     pub voice: HashMap<String, Vec<VoiceMember>>,
+    /// When each busy server voice channel's session started, in Unix
+    /// seconds, by channel id, as Discord says: the time its first person
+    /// joined, which a channel's row counts from.
+    #[serde(skip)]
+    pub voice_started: Arc<HashMap<String, u64>>,
     /// The channel whose member list is on screen, and how many people can
     /// read it.
     #[serde(skip)]

@@ -5392,6 +5392,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         official: false,
         empty: false,
         preview: None,
+        voice_started: None,
     };
     let mut state = AppState::default();
     state.rooms = [
@@ -8090,6 +8091,7 @@ fn requests_list_someone_once_with_their_message() {
             text: format!("Hi from {person}"),
             at: 1_700_000_000_000,
         })),
+        voice_started: None,
     };
     let mut state = AppState::default();
     state.friend_requests = vec![
@@ -10267,4 +10269,27 @@ fn a_profiles_more_menu_blocks_from_the_profile() {
     window.invoke_choose_menu("profile-more:4".into(), true, "profile".into());
     let shown = adapter.borrow().app.state.profile.clone();
     assert_eq!(shown.map(|view| view.profile.id), Some("4".into()));
+}
+
+#[test]
+fn a_voice_channels_time_reads_on_the_activity_clock() {
+    // 2020 began at ActivityClock's 0, which stands for none, so the
+    // clock's seconds start at 1.
+    assert_eq!(profile::activity_seconds(0), 1);
+    assert_eq!(profile::activity_seconds(1_577_836_800 + 90), 90);
+    let started = profile::activity_seconds(1_767_225_600);
+    assert_eq!(profile::activity_lasted(started, started + 3_900), "1h 05m");
+    // A start after the clock's minute, within it, has only begun.
+    assert_eq!(profile::activity_lasted(started, started - 30), "<1m");
+    assert_eq!(profile::activity_lasted(started, -5), "<1m");
+    // One clock for both: a profile's activity ticks it each second, busy
+    // voice channels alone every 15, and nothing stops it.
+    let second = Some(Duration::from_secs(1));
+    assert_eq!(profile::clock_interval(true, true), second);
+    assert_eq!(profile::clock_interval(true, false), second);
+    assert_eq!(
+        profile::clock_interval(false, true),
+        Some(Duration::from_secs(15))
+    );
+    assert_eq!(profile::clock_interval(false, false), None);
 }
