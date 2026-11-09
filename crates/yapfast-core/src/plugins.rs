@@ -1,0 +1,244 @@
+//! Plugins, as far as Yapfast knows them without running any: each one's
+//! manifest, and what its `ui` section changes in the interface
+//! ([`ui`]). Nothing here starts a process or loads WebAssembly; a plugin
+//! that only changes the interface needs neither. See `docs/plugins.md`.
+
+pub mod ui;
+
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+use serde::Deserialize;
+
+/// The plugin API version this Yapfast speaks; a manifest names it as `api`.
+pub const API: u32 = 1;
+
+/// What a plugin's folder names its manifest.
+pub const MANIFEST: &str = "yapfast-plugin.json";
+
+/// The variable naming a folder of plugins to load as they are, one
+/// subfolder each, for writing and trying a plugin.
+pub const FOLDER_VARIABLE: &str = "YAPFAST_PLUGINS_DIR";
+
+/// Started with `--no-plugins`: no plugin's `ui` section applies.
+static SAFE_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Starts without plugins, as `--no-plugins` asks: the way back from an
+/// interface a plugin made unusable. Which plugins are enabled stays.
+pub fn set_safe_mode(on: bool) {
+    SAFE_MODE.store(on, Ordering::Relaxed);
+}
+
+pub fn safe_mode() -> bool {
+    SAFE_MODE.load(Ordering::Relaxed)
+}
+
+/// What the person did with something a plugin put in the interface, for
+/// the plugin runtime to deliver to that plugin.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Input {
+    /// Chose the plugin's menu row `action`, in the menu of `target`: a
+    /// person's, conversation's or server's id, as the menu names it.
+    Menu {
+        plugin: String,
+        action: String,
+        target: String,
+    },
+    /// Clicked or changed the widget `id` the plugin drew in `slot`: a
+    /// toggle's `true` or `false`, a select's option, an input's text, a
+    /// slider's number; empty for a button or link.
+    Widget {
+        plugin: String,
+        slot: String,
+        id: String,
+        value: String,
+    },
+}
+
+/// The plugin runtime, as the interface reaches it. The runtime implements
+/// it; until one is attached, input goes nowhere.
+pub trait Runtime {
+    fn input(&self, input: Input);
+}
+
+/// The parts of a plugin's manifest the interface reads. The file is strict
+/// JSON; fields this struct doesn't name belong to the runtime and are
+/// skipped here, but the `ui` section and its menu rows take no field they
+/// don't know.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Manifest {
+    pub api: u32,
+    /// Reverse-DNS, stable forever, as `com.example.word-filter`.
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub version: String,
+    /// The module, if the plugin runs code; a plugin without one only changes
+    /// what its manifest names.
+    #[serde(default)]
+    pub wasm: Option<String>,
+    #[serde(default)]
+    pub permissions: Permissions,
+    /// Rows the plugin adds to menus.
+    #[serde(default)]
+    pub menus: Vec<ui::MenuItem>,
+    /// Changes to Yapfast's own interface.
+    #[serde(default)]
+    pub ui: Option<ui::Ui>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Permissions {
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub network: Vec<String>,
+}
+
+impl Manifest {
+    /// A manifest from its file's text, refused with the reason when it
+    /// isn't one this Yapfast can use.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let manifest: Self = serde_json::from_str(text).map_err(|error| error.to_string())?;
+        if manifest.api != API {
+            return Err(format!(
+                "it needs plugin API {}, and this Yapfast has {API}",
+                manifest.api
+            ));
+        }
+        let id_ok = manifest.id.len() <= 128
+            && manifest.id.contains('.')
+            && manifest.id.split('.').all(|part| {
+                !part.is_empty()
+                    && part.bytes().all(|byte| {
+                        byte.is_ascii_lowercase()
+                            || byte.is_ascii_digit()
+                            || byte == b'-'
+                            || byte == b'_'
+                    })
+            });
+        if !id_ok {
+            return Err(format!(
+                "its id, {:?}, isn't reverse-DNS such as com.example.name",
+                manifest.id
+            ));
+        }
+        if manifest.name.trim().is_empty() || manifest.name.chars().count() > ui::LABEL_CHARS {
+            return Err(format!(
+                "its name must have 1 to {} characters",
+                ui::LABEL_CHARS
+            ));
+        }
+        Ok(manifest)
+    }
+
+    pub fn has(&self, capability: &str) -> bool {
+        self.permissions
+            .capabilities
+            .iter()
+            .any(|declared| declared == capability)
+    }
+}
+
+/// A plugin found on disk, with its manifest read.
+#[derive(Clone, Debug)]
+pub struct Found {
+    pub folder: PathBuf,
+    pub manifest: Manifest,
+}
+
+/// The plugins in a folder: each subfolder holding a manifest, in the order
+/// of their names, which is the order their changes win in. A folder whose
+/// manifest can't be used is skipped and logged, as is a second plugin with
+/// an id already found.
+pub fn load_folder(folder: &Path) -> Vec<Found> {
+    let mut folders: Vec<PathBuf> = match std::fs::read_dir(folder) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.join(MANIFEST).is_file())
+            .collect(),
+        Err(error) => {
+            tracing::warn!(folder = %folder.display(), %error, "could not read the plugins folder");
+            return Vec::new();
+        }
+    };
+    folders.sort();
+    let mut found: Vec<Found> = Vec::new();
+    for folder in folders {
+        let path = folder.join(MANIFEST);
+        let read = std::fs::read_to_string(&path).map_err(|error| error.to_string());
+        match read.and_then(|text| Manifest::parse(&text)) {
+            Ok(manifest) if found.iter().any(|other| other.manifest.id == manifest.id) => {
+                tracing::warn!(plugin = %manifest.id, folder = %folder.display(), "skipped a second plugin with this id");
+            }
+            Ok(manifest) => found.push(Found { folder, manifest }),
+            Err(reason) => {
+                tracing::warn!(manifest = %path.display(), reason, "skipped a plugin");
+            }
+        }
+    }
+    found
+}
+
+/// The plugins in the folder [`FOLDER_VARIABLE`] names: none when it names
+/// none, or in safe mode.
+pub fn load_from_environment() -> Vec<Found> {
+    if safe_mode() {
+        return Vec::new();
+    }
+    match std::env::var_os(FOLDER_VARIABLE) {
+        Some(folder) if !folder.is_empty() => load_folder(Path::new(&folder)),
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_manifest_is_strict_json_with_the_api_this_yapfast_speaks() {
+        let good = r#"{ "api": 1, "id": "com.example.quiet", "name": "Quiet", "activation": {} }"#;
+        let manifest = Manifest::parse(good).unwrap();
+        assert_eq!(manifest.name, "Quiet");
+        assert!(manifest.ui.is_none());
+        // Comments and trailing commas are refused, as JSON refuses them.
+        assert!(Manifest::parse(r#"{ "api": 1, "id": "a.b", "name": "x", }"#).is_err());
+        assert!(Manifest::parse("{ // no\n \"api\": 1 }").is_err());
+        assert!(
+            Manifest::parse(r#"{ "api": 2, "id": "a.b", "name": "x" }"#)
+                .unwrap_err()
+                .contains("API 2")
+        );
+        assert!(Manifest::parse(r#"{ "api": 1, "id": "Quiet", "name": "x" }"#).is_err());
+        assert!(Manifest::parse(r#"{ "api": 1, "id": "a.b", "name": " " }"#).is_err());
+    }
+
+    #[test]
+    fn a_folder_loads_each_plugin_once_in_name_order() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/test-plugins-folder");
+        let _ = std::fs::remove_dir_all(&root);
+        let write = |folder: &str, text: &str| {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+            std::fs::write(root.join(folder).join(MANIFEST), text).unwrap();
+        };
+        write("b", r#"{ "api": 1, "id": "com.example.b", "name": "B" }"#);
+        write("a", r#"{ "api": 1, "id": "com.example.a", "name": "A" }"#);
+        write(
+            "c",
+            r#"{ "api": 1, "id": "com.example.a", "name": "Again" }"#,
+        );
+        write("d", "not json");
+        let found = load_folder(&root);
+        let names: Vec<_> = found
+            .iter()
+            .map(|found| found.manifest.name.as_str())
+            .collect();
+        assert_eq!(names, ["A", "B"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+}
