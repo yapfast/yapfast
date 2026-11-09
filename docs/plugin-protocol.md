@@ -51,22 +51,27 @@ the next free byte.
 | Byte | Kind | Direction | Meaning |
 | --- | --- | --- | --- |
 | 1 | `ready` | helper → parent | The helper is up and takes requests |
-| 2 | `load` | parent → helper | Instantiate a module |
-| 3 | `loaded` | helper → parent | The module is instantiated |
+| 2 | `load` | parent → helper | Compile and link a module |
+| 3 | `loaded` | helper → parent | The module is compiled and linked |
 | 4 | `call` | parent → helper | Call an export on a loaded plugin |
 | 5 | `reply` | helper → parent | The export's answer |
 | 6 | `unload` | parent → helper | Drop an instance |
 | 7 | `unloaded` | helper → parent | The instance is gone |
 | 8 | `shutdown` | parent → helper | The helper should exit |
-| 9 | `error` | either → other | A request that could not be served |
+| 9 | `error` | helper → parent in M0 | A request that could not be served |
 
 `shutdown` has no success answer: the helper closes the stream and exits. Its
 payload is still the JSON envelope `{"type": "shutdown"}`; a bare frame with no
 envelope is not a shutdown.
 
-`error` is a response envelope in either direction: the helper reports a call it
-could not answer, and the parent reports a request it could not serve. It is
+`error` is a response envelope. In M0 it travels one way only, from the helper to
+the parent: the app-side half of this protocol, which is what would answer with an
+`error` of its own, arrives with the app-side `plugins` feature. An `error` is
 never a request, so it carries the id of the exchange that failed.
+
+`loaded` is not proof that a module runs. Extism builds the instance lazily, on
+the first `call`, so a fault that only instantiating can show is answered as that
+call's `error`, not as the `loaded`'s.
 
 ## Reading and writing
 
@@ -99,8 +104,11 @@ bytes: decoding a frame fills it, and `to_frame` writes those same bytes back.
 {"type": "shutdown"}
 ```
 
-`module` is always an absolute path: the helper does not resolve paths of its
-own, so the file the parent checked is the file the helper loads.
+`module` is always an absolute path: the helper resolves no paths of its own, so a
+load names the path the parent checked rather than one the helper invents. The
+helper checks the file at that path and wasmtime opens it a moment later; a file
+replaced between the two is M0's window, and hashing the bytes that actually run
+is M2's.
 
 `method` is the guest export M0 calls, and `payload` is that export's argument
 bytes. M0 has no guest-side method envelope: one call is one export call. Later
@@ -128,8 +136,18 @@ A call without `payload` reads as `null`.
 
 `reply.payload` is the export's answer JSON, verbatim, with the same byte rule
 as a call's payload; an export that answers nothing uses `null`.
-`error.message` is one sentence for the other side's log and whatever the user
-is shown; it is not parsed.
+
+An answer that does not fit a frame is not sent as `reply` and does not end the
+helper: it is answered with `error` at the call's id, and the helper reads the
+next request. `error.message` is one sentence for the other side's log and
+whatever the user is shown; it is not parsed. The helper bounds its own error
+text to 4 KiB, cut on a character boundary and marked `[truncated]`, because a
+message comes from a guest through Extism and a message larger than a frame would
+end the helper exactly as an oversize reply would.
+
+An M0 export returns an `i32`, zero for success. A non-zero return becomes the
+call's `error`, and the message is the guest's `error_set` text if it set one;
+without it, Extism's own "Returned non-zero exit code" is what arrives.
 
 ## Errors
 
@@ -149,6 +167,11 @@ Encoding, decoding and framing fail with one of three errors:
 | `ProtocolError::ReadyWithId` | A `ready` used an id other than 0 |
 | `ProtocolError::KindMismatch` | The frame's kind and its JSON's `type` disagree |
 | `ProtocolError::Frame` | The envelope does not fit a frame |
+
+Of these, `ProtocolError::Frame` is the one a well-formed exchange can reach: a
+`reply` too large for a frame is answered with `error` rather than raised, and an
+error's message is bounded so it cannot reach it either. The rest describe bytes
+the helper will not guess past.
 
 ## Not here yet
 

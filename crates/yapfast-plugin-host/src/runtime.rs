@@ -79,6 +79,10 @@ pub enum CacheError {
     RelativeDirectory(PathBuf),
     /// The config file was named by a relative path.
     RelativeFile(PathBuf),
+    /// The directory is not valid UTF-8, and wasmtime's config file is TOML
+    /// text: writing it lossily would cache under a path the helper never
+    /// named.
+    NonUtf8Directory(PathBuf),
     /// A path cannot be written into the TOML the config file holds.
     Unrepresentable(PathBuf),
     /// The config file could not be written.
@@ -96,6 +100,10 @@ impl fmt::Display for CacheError {
             Self::RelativeFile(path) => {
                 write!(f, "cache config file {} is not absolute", path.display())
             }
+            Self::NonUtf8Directory(path) => write!(
+                f,
+                "cache directory {path:?} is not valid UTF-8, so it cannot be written into the TOML config"
+            ),
             Self::Unrepresentable(path) => write!(
                 f,
                 "cache path {} cannot be written into the TOML config",
@@ -165,8 +173,18 @@ impl CacheConfig {
     /// The shape is wasmtime's: a `[cache]` table whose `directory` key names
     /// the absolute path. Writing it here rather than handing Extism a
     /// directory is the whole point: `with_cache_config` reads a *file*.
+    ///
+    /// A write whose bytes are already on disk does nothing. Two helpers share
+    /// one cache directory, so they write this same file; truncating it to put
+    /// identical bytes back would let the other read an empty config and lose
+    /// the cache. A directory that is not UTF-8 is refused rather than written
+    /// lossily: a cache under a path the helper never named is worse than no
+    /// cache.
     pub fn write(&self) -> Result<(), CacheError> {
-        let directory = self.directory.display().to_string();
+        let directory = self
+            .directory
+            .to_str()
+            .ok_or_else(|| CacheError::NonUtf8Directory(self.directory.clone()))?;
         let mut escaped = String::with_capacity(directory.len());
         for character in directory.chars() {
             match character {
@@ -179,10 +197,14 @@ impl CacheConfig {
             }
         }
 
+        let contents = format!("[cache]\ndirectory = \"{escaped}\"\n");
+        if std::fs::read(&self.file).is_ok_and(|existing| existing == contents.as_bytes()) {
+            return Ok(());
+        }
         if let Some(parent) = self.file.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&self.file, format!("[cache]\ndirectory = \"{escaped}\"\n"))?;
+        std::fs::write(&self.file, contents)?;
         Ok(())
     }
 }
@@ -243,8 +265,12 @@ impl Backend for Runtime {
         let compiled = builder
             .compile()
             .map_err(|error| format!("compiling {}: {error}", module.display()))?;
+        // Linking, not instantiation: Extism keeps the instance in an
+        // `Option` that the first call fills, so `loaded` is a promise that the
+        // module is compiled and linked, not that it runs. A reactor module's
+        // `_initialize` does run here, while Extism links.
         let instance = Plugin::new_from_compiled(&compiled)
-            .map_err(|error| format!("instancing {}: {error}", module.display()))?;
+            .map_err(|error| format!("linking {}: {error}", module.display()))?;
         self.plugins.insert(plugin.to_owned(), instance);
         Ok(())
     }

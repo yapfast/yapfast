@@ -9,6 +9,7 @@ use std::io::{self, BufReader, BufWriter};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use yapfast_plugin_host::environment;
 use yapfast_plugin_host::protocol;
 use yapfast_plugin_host::runtime::{Cache, CacheConfig, Config, Runtime};
 
@@ -27,6 +28,18 @@ The helper reads requests on stdin and writes responses on stdout.
 ";
 
 fn main() -> ExitCode {
+    // The parent spawns the helper with a cleared environment, which is what
+    // stops every `EXTISM_*` switch ([PLAN.md](../PLAN.md#34-extism-configuration)).
+    // The measurement harness and a person at a terminal do not, so drop them
+    // here as well: `EXTISM_ENABLE_WASI_OUTPUT` would send a guest's stdout
+    // into the frame stream, and `EXTISM_CACHE_CONFIG` would move the compile
+    // cache out from under `--cache-dir`.
+    //
+    // Safety: `main` has not started a thread yet, and this runs before
+    // `Runtime::new`, so before Extism, wasmtime and rayon exist. The only later
+    // change is `RAYON_NUM_THREADS` below, still before any thread starts.
+    unsafe { environment::clear_extism_variables() };
+
     // Wasmtime compiles on rayon. Two threads are the plan's setting: a cold
     // compile stays at 70-90 ms, and the pool is 4 threads rather than 30.
     // Safety: this runs before any thread exists, and nothing in the helper

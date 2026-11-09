@@ -8,12 +8,13 @@ When the last instance is unloaded the helper exits, and the parent spawns a
 fresh one on the next trigger, so a wasmtime bug or a compile pool's memory
 cannot outlive the plugins ([PLAN.md](../PLAN.md#31-why-a-separate-process)).
 
-The code lives in `crates/yapfast-plugin-host`, in three layers:
+The code lives in `crates/yapfast-plugin-host`, in four modules:
 
 | Module | What it is |
 | --- | --- |
 | `protocol` | The loop over the framed protocol: read a request, ask the backend, write the response. Knows no WebAssembly. |
 | `module` | The checks a file passes before Extism sees it: absolute path, 8 MiB, `\0asm` magic, version 1. |
+| `environment` | What `main` drops from the helper's own environment before Extism reads it. |
 | `runtime` | Extism behind the protocol: load, call, unload, and the plan's settings. Behind the `host` feature. |
 
 The wire format itself, including the frame layout and the JSON envelopes, is
@@ -56,11 +57,15 @@ usage: yapfast-plugins [--cache-dir <dir> | --no-cache] [--wasi]
 
 `--cache-dir` and `--no-cache` are alternatives: giving both is a usage error.
 
-The parent spawns the helper with a cleared environment, which is what blocks
-every `EXTISM_*` switch, including `EXTISM_ENABLE_WASI_OUTPUT`
-([PLAN.md](../PLAN.md#34-extism-configuration)). M0's helper does not clear its
-own environment, so it relies on the parent's `env_clear()`; nothing else in the
-helper reads the environment except `RAYON_NUM_THREADS`, below.
+The parent spawns the helper with a cleared environment, which is what keeps
+every `EXTISM_*` switch away from it
+([PLAN.md](../PLAN.md#34-extism-configuration)). The helper does not rely on that
+alone: `main` removes every `EXTISM_*` variable before the runtime starts, so a
+helper started by the measurement harness or by hand behaves like one started by
+Yapfast. `EXTISM_ENABLE_WASI_OUTPUT` would send a guest's stdout to the helper's
+own stdout, which is the frame stream, and `EXTISM_CACHE_CONFIG` would move the
+compile cache out from under `--cache-dir`; neither can take effect. The one
+variable the helper reads is `RAYON_NUM_THREADS`, below.
 
 The helper sets `RAYON_NUM_THREADS=2` if the parent has not, which is the plan's
 setting: wasmtime compiles on rayon, and two threads keep the compile pool at
@@ -82,6 +87,9 @@ A malformed wire or envelope ends the stream: both sides then exit rather than
 guess where the next frame starts. A request the helper understands but cannot
 serve — an unknown export, a module that is not WebAssembly, an unload of
 something not loaded — is answered with `error`, and the helper keeps serving.
+In M0 `error` travels one way only, from the helper to the parent: the app-side
+half of the protocol, which is what the parent would answer with, arrives with the
+app-side `plugins` feature.
 
 A clean end of stdout is how the parent learns the helper has stopped; it should
 not depend on the exit code alone, and M1 restarts the helper after an
@@ -89,11 +97,14 @@ unexpected exit ([PLAN.md](../PLAN.md#44-failure)).
 
 ## What a load does
 
-`load` instantiates the module at the request's `module` path as the request's
-`plugin` id, and answers `loaded` or `error`. In order:
+`load` compiles and links the module at the request's `module` path as the
+request's `plugin` id, and answers `loaded` or `error`. In order:
 
-1. The path must be absolute. The helper resolves no paths of its own, so the
-   file the parent checked is the file the helper loads.
+1. The path must be absolute. The helper resolves no paths of its own, so it
+   names the path the parent checked and checks that path. The check reads the
+   file's header, and wasmtime opens the same path a moment later: a file
+   replaced in that window is not noticed. Pinning the bytes that actually run —
+   a content hash at load time — is M2's.
 2. The file must be at most 8 MiB.
 3. The first eight bytes must be the WebAssembly magic and version 1.
 4. Extism gets the module as `Wasm::file`, so each instance's manifest copy is a
@@ -107,7 +118,14 @@ unexpected exit ([PLAN.md](../PLAN.md#44-failure)).
 
 The magic check is load-bearing, not a formality: Extism and wasmtime compile
 WAT from a file just as readily as a binary, so a `.wasm` that really holds
-`(module …)` would otherwise load.
+`(module …)` would otherwise load. What the check promises is that a text module
+at the path the parent checked never reaches wasmtime.
+
+`loaded` means compiled and linked, not running. Extism builds the module's
+instance lazily, on the first `call`, so a fault that only building the instance
+can show — an unsatisfied import, a `start` function that traps — arrives as that
+call's `error`, not as the `load`'s. (A reactor module's `_initialize` runs while
+Extism links, so a fault there is still reported at `load`.)
 
 `call` invokes the export named by the request's `method`, with the request's
 JSON payload as the export's argument bytes, exactly as it arrived. M0 has no
@@ -115,6 +133,16 @@ guest method envelope: one call is one export call. The export's output is
 parsed as JSON and returned as `reply`; an export that sets no output answers
 `null`. An answer that is not JSON is an `error`, because the protocol's
 `reply.payload` is JSON.
+
+An M0 export returns an `i32`: zero for success. A non-zero return is a guest
+failure and becomes the call's `error`; the guest sets that message with the
+kernel's `error_set`, and without it Extism's own `Returned non-zero exit code`
+is all the parent sees. `yf_activate` and `yf_deactivate` follow the same rule.
+
+A guest cannot end the helper by answering too much. An answer too large for a
+1 MiB frame is answered with `error` at the call's own id, and so is an error
+message too large for one: the helper cuts its own error text to 4 KiB on a
+character boundary. Every other loaded instance keeps answering.
 
 `unload` drops the instance and answers `unloaded`. The unload of the last
 instance ends the helper, after that answer has been written and flushed.
@@ -131,10 +159,13 @@ directory = "C:\\Users\\you\\AppData\\Local\\yapfast\\plugins\\modules"
 ```
 
 `CacheConfig` writes that file, and refuses a relative directory or a relative
-config file, because wasmtime refuses them too. Without a configured cache,
-wasmtime falls back to `EXTISM_CACHE_CONFIG` and then to its own default path, a
-location Yapfast does not control — so the parent passes `--cache-dir` rather
-than relying on either.
+config file, because wasmtime refuses them too, and a directory that is not
+UTF-8, because the TOML is text: writing the path lossily would cache under a
+directory the helper never named. Without a configured cache, wasmtime falls back
+to `EXTISM_CACHE_CONFIG` and then to its own default path, a location Yapfast
+does not control — and `main` has already removed that variable, so the fallback
+is wasmtime's own default only. The parent passes `--cache-dir` rather than
+relying on either.
 
 `--cache-dir <dir>` uses one layout: the config file at
 `<dir>/wasmtime-cache.toml`, the cache itself in `<dir>/cache`. The config file
@@ -143,12 +174,17 @@ deletes files it does not recognise from its cache directory — a config file
 placed there is gone after the first load. `CacheConfig::under` is that layout,
 and a test pins it.
 
+Two helpers can share one cache directory, so `CacheConfig::write` leaves a
+config file alone when its bytes are already right: truncating it to write
+identical content would let the other helper read an empty file. Only a changed
+config is written.
+
 ## M0's limits
 
 M0 is the helper skeleton and the numbers. It has no manifest parsing, no
 scheduler, no lanes or deadlines of its own, no guest imports, no storage, no
 hot reload, and no OS sandbox. `timeout_ms` bounds the export call but **not**
-instantiation or `_initialize`, so a module that spins in `start` hangs the
-helper; fuel is the only lever there and arrives in a later milestone. Each
-compiled plugin means its own wasmtime `Engine` and its own cache worker thread
-([PLAN.md](../PLAN.md#5-threading-and-scheduling)).
+instantiation — which happens on the first call — or `_initialize`, so a module
+that spins there hangs the helper; fuel is the only lever there and arrives in a
+later milestone. Each compiled plugin means its own wasmtime `Engine` and its own
+cache worker thread ([PLAN.md](../PLAN.md#5-threading-and-scheduling)).

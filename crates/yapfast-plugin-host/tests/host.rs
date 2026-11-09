@@ -410,14 +410,14 @@ fn writing_an_identical_cache_config_leaves_the_file_alone() {
     let cache = CacheConfig::under(data.path()).expect("cache config");
     cache.write().expect("the first write creates the file");
     let file = cache.file().to_path_buf();
-    let mut permissions = std::fs::metadata(&file).expect("metadata").permissions();
-    permissions.set_readonly(true);
-    std::fs::set_permissions(&file, permissions.clone()).expect("make the file read-only");
+    let original = std::fs::metadata(&file).expect("metadata").permissions();
+    let mut read_only = original.clone();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&file, read_only).expect("make the file read-only");
 
     let second = cache.write();
 
-    permissions.set_readonly(false);
-    std::fs::set_permissions(&file, permissions).expect("make the file writable again");
+    std::fs::set_permissions(&file, original).expect("restore the file's permissions");
     second.expect("an identical config is not rewritten");
 }
 

@@ -10,7 +10,10 @@
 //!   workspace build links neither Extism nor wasmtime.
 //!
 //! [`module`] holds the checks a module file has to pass before Extism sees it.
+//! [`environment`] is what the helper drops from its own environment before
+//! Extism can read it.
 
+pub mod environment;
 pub mod module;
 pub mod protocol;
 #[cfg(feature = "host")]

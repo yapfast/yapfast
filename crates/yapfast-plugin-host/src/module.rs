@@ -6,6 +6,12 @@
 //! therefore load, so the magic and version below are the only thing that
 //! rejects a text module. They are checked here, on the file's own bytes,
 //! before [`extism::Wasm::file`] ever names it.
+//!
+//! The check names a path, not a file: the header is read from `path`, and
+//! wasmtime opens that same path a moment later, so a file replaced in between
+//! is the one that loads. Pinning the bytes that actually run — a content hash at
+//! load time — is M2's. What this check promises is that a text module at the
+//! path the parent checked does not reach wasmtime.
 
 use std::fmt;
 use std::io::{self, Read};
@@ -23,8 +29,9 @@ pub const VERSION: [u8; 4] = [0x01, 0x00, 0x00, 0x00];
 /// Why a module file cannot be loaded.
 #[derive(Debug)]
 pub enum ModuleError {
-    /// The path is not absolute. The helper resolves no paths of its own, so
-    /// the file the parent checked is the file the helper loads.
+    /// The path is not absolute. The helper resolves no paths of its own, so a
+    /// load names the path the parent checked rather than one the helper
+    /// invents.
     Relative(PathBuf),
     /// The file is larger than [`MAX_MODULE_BYTES`].
     TooLarge {

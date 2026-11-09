@@ -18,10 +18,23 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
-use yapfast_plugin_api::{Frame, Payload, ProtocolError, ReadError, Request, Response};
+use yapfast_plugin_api::{
+    Frame, MAX_FRAME_LEN, Payload, ProtocolError, ReadError, Request, Response,
+};
 
 /// The id of the unsolicited `ready` frame: the protocol reserves 0 for it.
 const READY_ID: u64 = 0;
+
+/// The longest error sentence the helper sends, in bytes.
+///
+/// An error's text can come from a guest through Extism, and a message that does
+/// not fit a frame would end the helper as surely as an oversize reply. Every
+/// error is cut to this before it is framed: more than any diagnostic needs, and
+/// far inside the frame limit.
+pub const MAX_ERROR_MESSAGE_LEN: usize = 4096;
+
+/// Marks where [`MAX_ERROR_MESSAGE_LEN`] cut a message.
+const TRUNCATED: &str = " [truncated]";
 
 /// Why the helper stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +52,10 @@ pub enum Outcome {
 /// Failures are sentences for the parent, since the protocol's [`Response::Error`]
 /// carries one: the parent logs it and may show it to the user.
 pub trait Backend {
-    /// Instantiates the module at `module` as `plugin`.
+    /// Compiles and links the module at `module` as `plugin`.
+    ///
+    /// Extism instantiates lazily, on the first call, so this promises a module
+    /// that is ready to be called, not a running instance.
     fn load(&mut self, plugin: &str, module: &Path) -> Result<(), String>;
 
     /// Calls the export `method` on a loaded plugin, with `payload` as its
@@ -153,7 +169,27 @@ pub fn serve(
                 // guest receives the payload the parent sent, not a re-encoding
                 // of it.
                 match backend.call(&plugin, &method, payload.as_bytes()) {
-                    Ok(output_bytes) => respond(output, id, reply_payload(&method, output_bytes))?,
+                    Ok(output_bytes) => {
+                        let len = output_bytes.len();
+                        match respond(output, id, reply_payload(&method, output_bytes)) {
+                            // A guest's answer too large for a frame is the
+                            // guest's fault, not a reason to stop serving: the
+                            // call is answered with an error at its own id, and
+                            // every other instance stays callable. Nothing of
+                            // the oversize frame was written, so the stream is
+                            // still where the parent left it.
+                            Err(ServeError::Encode(ProtocolError::Frame(_))) => respond(
+                                output,
+                                id,
+                                Response::Error {
+                                    message: format!(
+                                        "{method} answered {len} bytes of JSON, which does not fit a {MAX_FRAME_LEN}-byte frame"
+                                    ),
+                                },
+                            )?,
+                            other => other?,
+                        }
+                    }
                     Err(message) => respond(output, id, Response::Error { message })?,
                 }
             }
@@ -174,9 +210,34 @@ pub fn serve(
 }
 
 /// Writes one response frame, with the id of the request it answers.
+///
+/// An error's message is cut to [`MAX_ERROR_MESSAGE_LEN`] first: its text can
+/// come from a guest, and a message too large for a frame would end the helper.
 fn respond(output: &mut impl Write, id: u64, response: Response) -> Result<(), ServeError> {
+    let response = match response {
+        Response::Error { message } => Response::Error {
+            message: bounded(message),
+        },
+        other => other,
+    };
     response.to_frame(id)?.write_to(output)?;
     Ok(())
+}
+
+/// Cuts `message` to [`MAX_ERROR_MESSAGE_LEN`] bytes without splitting a
+/// character, and marks the cut.
+fn bounded(message: String) -> String {
+    if message.len() <= MAX_ERROR_MESSAGE_LEN {
+        return message;
+    }
+    let mut end = MAX_ERROR_MESSAGE_LEN;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut bounded = message;
+    bounded.truncate(end);
+    bounded.push_str(TRUNCATED);
+    bounded
 }
 
 /// Parses a call's JSON answer, where an empty answer is the protocol's `null`.
