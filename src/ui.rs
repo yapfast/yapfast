@@ -64,6 +64,7 @@ mod stickers;
 mod theme;
 mod tiles;
 mod title_bar;
+mod vulkan;
 mod yapfast;
 
 use callbacks::bind_callbacks;
@@ -126,7 +127,8 @@ pub fn run(
     pictures::make_frames_in_slint_buffers();
     // Request the graphics API explicitly so Slint cannot silently replace a
     // failed GPU surface; Yapfast owns the fallback and tells the user about it.
-    // Windows draws the GPU setting with Direct3D 12; see [`graphics`].
+    // Windows draws the GPU setting with Direct3D 12, and Linux with Vulkan
+    // where the build and the machine have it; see [`graphics`].
     let selector = slint::BackendSelector::new().backend_name("winit".into());
     let (selector, renderer) = match plan.renderer {
         graphics::Renderer::Gpu if cfg!(windows) => {
@@ -154,7 +156,33 @@ pub fn run(
                 }
             }
         }
-        graphics::Renderer::Gpu => (selector.renderer_name("skia-opengl".into()), "skia-opengl"),
+        graphics::Renderer::Gpu => {
+            // Skia draws the window on a Vulkan device Yapfast makes where this
+            // build carries Skia's Vulkan and one opens here, which is the only
+            // device a stream's own texture can later be shown from; see
+            // [`vulkan`]. Everywhere else the window draws through OpenGL, as
+            // Linux always did, and a device that won't open costs the picture
+            // path rather than the window.
+            let carried = vulkan::carried();
+            let device = vulkan::install();
+            match (graphics::presentation(carried, device.is_ok()), device) {
+                (graphics::Presentation::Vulkan, Ok(configuration)) => (
+                    selector
+                        .renderer_name("skia".into())
+                        .require_wgpu_30(configuration),
+                    "skia-vulkan",
+                ),
+                (_, device) => {
+                    if carried && let Err(error) = device {
+                        tracing::warn!(
+                            error = format!("{error:#}"),
+                            "no Vulkan device to draw Yapfast's window with; drawing with Skia on OpenGL"
+                        );
+                    }
+                    (selector.renderer_name("skia-opengl".into()), "skia-opengl")
+                }
+            }
+        }
         graphics::Renderer::Software => (
             selector.renderer_name("skia-software".into()),
             "skia-software",

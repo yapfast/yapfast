@@ -1,0 +1,17 @@
+# Builds the pinned Skia for Linux from source, with Vulkan beside OpenGL, and
+# exports it as the archive `SKIA_BINARIES_URL` points at; see
+# nix/prepare-linux-skia.py and nix/native.nix. Not shipped.
+[package]
+name = "yapfast-skia-linux-builder"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# The features name the archive's key: ftembed-ganesh-gl-jpegd-jpege-pdf-
+# textlayout-vulkan. They must match what Yapfast's Cargo features ask
+# skia-safe for, or `no-compile` links an archive built for another key; see
+# `skia-vulkan` in Cargo.toml.
+skia-bindings = { version = "=0.157.0", default-features = false, features = ["binary-cache", "embed-freetype", "ganesh", "gl", "jpeg-decode", "jpeg-encode", "pdf", "textlayout", "vulkan"] }

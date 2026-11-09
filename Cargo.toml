@@ -27,6 +27,11 @@ desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memma
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
+# Skia's Vulkan beside its OpenGL, so the interface can be drawn through the
+# device a stream's texture is on, without copying it; Linux only for now.
+# Opt-in: it links an archive built with Vulkan (nix/skia-linux-vulkan.nix),
+# which SKIA_BINARIES_URL must point at. See docs/building.md.
+skia-vulkan = ["desktop", "yapfast-ui/skia-vulkan", "i-slint-renderer-skia/vulkan", "i-slint-renderer-skia/unstable-wgpu-30", "skia-safe/vulkan"]
 
 [dependencies]
 anyhow.workspace = true

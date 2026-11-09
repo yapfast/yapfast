@@ -7,8 +7,11 @@
 //! turns the setting off. Slint picks one renderer per process and never unloads
 //! the graphics driver, so a changed setting applies when Yapfast restarts.
 //!
-//! Skia GPU draws through OpenGL on Linux and through Direct3D 12 on Windows.
-//! There, NVIDIA's OpenGL driver kept a core busy while Yapfast drew with it.
+//! Skia GPU draws through Vulkan on Linux where the build carries Skia's Vulkan
+//! and a device opens, and through OpenGL otherwise; on Windows through
+//! Direct3D 12. There, NVIDIA's OpenGL driver kept a core busy while Yapfast
+//! drew with it. The Vulkan device is the one a stream's picture can be shown
+//! from without a copy; see `src/ui/vulkan.rs` and `src/ui/gpu.rs`.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Renderer {
@@ -43,6 +46,31 @@ pub fn plan(requested: Option<Renderer>, saved_gpu: bool, relaunch_reason: Optio
 /// The technical reason stays in the log; the notice is for people.
 const NOTICE: &str = "GPU rendering failed to start, so Yapfast is using software rendering.";
 
+/// What a window whose GPU setting is on came up drawing through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Presentation {
+    /// Skia on Vulkan, through wgpu 30: the device a stream's own picture can
+    /// be shown from, without a copy through the CPU.
+    Vulkan,
+    /// Skia on OpenGL, which is what Linux drew with before Vulkan, and what
+    /// it keeps where the build or the machine has no Vulkan.
+    OpenGl,
+}
+
+/// Which of the two the window draws with.
+///
+/// `carried` is whether this build carries Skia's Vulkan, and `opened` whether
+/// a Vulkan device opened here. Either one missing keeps OpenGL: a device that
+/// won't open is a fallback and never a startup failure, and what it costs is
+/// the picture path rather than the window. Windows draws with Direct3D 12 and
+/// asks neither.
+pub fn presentation(carried: bool, opened: bool) -> Presentation {
+    match carried && opened {
+        true => Presentation::Vulkan,
+        false => Presentation::OpenGl,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +102,17 @@ mod tests {
             Renderer::Gpu
         );
         assert!(!plan(None, true, None).forget_gpu);
+    }
+
+    /// Vulkan needs both halves: a build with Skia's Vulkan, and a device that
+    /// opens here. Either one missing is the OpenGL path Yapfast had before.
+    #[test]
+    fn vulkan_needs_the_build_and_a_device() {
+        use super::Presentation::{OpenGl, Vulkan};
+        assert_eq!(presentation(true, true), Vulkan);
+        assert_eq!(presentation(true, false), OpenGl);
+        assert_eq!(presentation(false, true), OpenGl);
+        assert_eq!(presentation(false, false), OpenGl);
     }
 
     #[test]

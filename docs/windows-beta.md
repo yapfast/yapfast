@@ -47,9 +47,11 @@ device verification and recovery are being tested.
 
 Yapfast renders with Skia Software unless "Render with the GPU" in Settings →
 Advanced is on. On Windows that setting asks Slint for Skia with Direct3D
-required, which draws through wgpu's Direct3D 12; Linux uses OpenGL. NVIDIA's
+required, which draws through wgpu's Direct3D 12; on Linux for Skia on Vulkan
+where the build carries Skia's Vulkan and a device opens, and for Skia on
+OpenGL otherwise (`src/ui/vulkan.rs`, `src/ui.rs`). NVIDIA's
 OpenGL driver on Windows kept about one core busy while it waited for the
-screen, which is why Windows doesn't. If the GPU can't start, Yapfast restarts
+screen, which is why Windows doesn't use it. If the GPU can't start, Yapfast restarts
 itself with Skia Software, says so in the window and turns the setting off
 (`src/graphics.rs`, `src/ui.rs`).
 
@@ -143,8 +145,11 @@ logs why, as it does on Linux without a PulseAudio server.
 The stream's H264 goes to NVIDIA's NVENC, then AMD's AMF, through FFmpeg in
 `crates/yapfast-core/native/hwenc.c`, while "Encode streams with the GPU" is
 on, and to x264 when neither opens or the setting is off. Intel graphics
-encode with x264 on Windows. Where the card encodes AV1 or H265, the stream
-offers those first, in the same way. The camera always uses x264. AMF has
+encode through Quick Sync, FFmpeg's `h264_qsv`, where this build carries it
+(through oneVPL), and with x264 where it doesn't: either way every frame is
+uploaded from the processor, and the encoder has not been measured on Intel
+hardware here. Where the card encodes AV1 or H265, the stream offers those
+first, in the same way. The camera always uses x264. AMF has
 run on AMD hardware only in a test of `native/hwenc.c` on its own, on an
 RX 7900 XTX. [Encoding on the GPU](discord/go-live.md#encoding-on-the-gpu) has
 the rest.
@@ -154,7 +159,7 @@ sharing a window that's minimized, moved to another screen or closed while
 shared, screens on mixed-DPI setups, Windows Graphics Capture's yellow
 border, process loopback hearing other applications and leaving out Yapfast's
 own voices, AMF on an AMD card in a whole Yapfast (AV1 on an RX 7000 or
-newer), and the worker's start-up time from a
+newer), Quick Sync on an Intel one, and the worker's start-up time from a
 packaged build.
 
 ## Cameras on Windows

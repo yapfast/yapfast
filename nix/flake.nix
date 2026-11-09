@@ -45,6 +45,14 @@
       # the Windows build draws text through DirectWrite.
       linuxSkiaDependencies = [
         (skiaDependency "freetype" "https://chromium.googlesource.com/chromium/src/third_party/freetype2/+archive/37515cf56ba3349656049edbed89ffc6f6466f2d.tar.gz" "sha256-Mcmb67mYYs6c8yQv39iIq5gxUGBZmWQXkMGSOw6jt14=")
+        # Skia's Vulkan backend, which a GL-only prebuilt has no use for; see
+        # native.nix's skiaVulkan and the `vulkan` gn arg in
+        # nix/skia-linux-builder.
+        (skiaDependency "vulkanmemoryallocator" "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/+archive/eb744ea7a2b17040121b4bbb4d6f9e8a77e3cae7.tar.gz" "sha256-LBZJcom7G7maF9wpUVeVEJQAJwGy6365INk3VD0/0PM=")
+        # Layout and ICU, which Skia builds its own copies of: the `textlayout`
+        # feature turns both on, and Skia's bundled harfbuzz.
+        (skiaDependency "harfbuzz" "https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz/+archive/12ee77ee00514c442bcd28f9aa9d56b708c37382.tar.gz" "sha256-TPWKUApcxKnbFZmx0XjZeXEqVYWKWruF/MPYydKjKDQ=")
+        (skiaDependency "icu" "https://chromium.googlesource.com/chromium/deps/icu/+archive/2a51536dfb3b448bdf3dae70c782ea2879c90904.tar.gz" "sha256-jMH5pspG5VdIjZDBtE4cVgsta4vWKIdzS3O0iTnPTyU=")
       ];
       windowsSkiaSource = pkgs.runCommand "talk-skia-0.157.0-windows-source" {} ''
         mkdir -p "$out"
@@ -54,20 +62,37 @@
           cp -r ${dep.source}/. "$out/third_party/externals/${dep.name}/"
         '') windowsSkiaDependencies}
       '';
-    in {
-      # scripts/package-linux.py copies the notices of Skia's third-party
-      # code from here; the prebuilt Linux archive carries only Skia's own.
-      packages.${system}.skia-source = pkgs.symlinkJoin {
-        name = "yapfast-skia-0.157.0-linux-source";
-        paths = [ windowsSkiaSource ] ++ map (dep: pkgs.runCommand "yapfast-skia-${dep.name}" {} ''
+      # The Windows tree with the Linux-only externals, as real directories: a
+      # Skia built from source writes its gn and ninja output into its own tree.
+      linuxSkiaSource = pkgs.runCommand "talk-skia-0.157.0-linux-source" {} ''
+        mkdir -p "$out"
+        cp -r --no-preserve=mode ${windowsSkiaSource}/. "$out/"
+        ${pkgs.lib.concatMapStringsSep "\n" (dep: ''
           mkdir -p "$out/third_party/externals/${dep.name}"
-          cp -r ${dep.source}/. "$out/third_party/externals/${dep.name}/"
-        '') linuxSkiaDependencies;
+          cp -r --no-preserve=mode ${dep.source}/. "$out/third_party/externals/${dep.name}/"
+        '') linuxSkiaDependencies}
+      '';
+      # Linux's Skia with Vulkan; see nix/skia-linux-vulkan.nix.
+      skiaVulkan = import ./skia-linux-vulkan.nix { inherit pkgs; skiaSource = linuxSkiaSource; };
+    in {
+      packages.${system} = {
+        # scripts/package-linux.py copies the notices of Skia's third-party
+        # code from here; the prebuilt Linux archive carries only Skia's own.
+        skia-source = linuxSkiaSource;
+        skia = skia;
+        # Linux's Skia with Vulkan in it, for `SKIA_BINARIES_URL`; building it
+        # takes a few minutes of Skia, once per change to
+        # nix/skia-linux-vulkan.nix.
+        skia-vulkan = skiaVulkan.prepared;
+        skia-vulkan-raw = skiaVulkan.raw;
       };
       devShells.${system} = {
         default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             rustup pkg-config cmake ninja llvmPackages_21.clang llvmPackages_21.libclang
+            # Builds the Skia source a Vulkan build needs, with ninja; see
+            # nix/prepare-linux-skia.py.
+            gn
             protobuf curl jq docker-compose python3 llvmPackages_21.llvm
             # pasta, nftables and iproute2 isolate one voice test participant's network.
             passt nftables iproute2
@@ -85,6 +110,12 @@
           # webrtc-sys must not download binaries from inside a Nix build sandbox.
           LK_CUSTOM_WEBRTC = "${webrtc}";
           SKIA_BINARIES_URL = "file://${skia}/${skiaPackage}";
+          # Skia's archive with Vulkan in it, for the renderer that shows a GPU
+          # texture without copying it: `nix build path:./nix#skia-vulkan`
+          # once, then `SKIA_BINARIES_URL=$SKIA_VULKAN_BINARIES_URL cargo
+          # check --profile fast --features skia-vulkan`. Unset, the OpenGL
+          # archive above is the one a build uses.
+          SKIA_VULKAN_BINARIES_URL = "file://${skiaVulkan.prepared}/${skiaVulkan.package}";
           shellHook = ''
             export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
             # Only people see the greeting; commands run through the shell don't.

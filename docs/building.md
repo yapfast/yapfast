@@ -40,12 +40,25 @@ camera, made at its tile's size. On Linux it takes rust-skia's
 prebuilt Skia with Skia's own FreeType: the one built for the system's FreeType
 lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build of Noto
 Color Emoji, the only one Fedora installs. Rust-skia builds that Skia only with
-its text layout, which the linker leaves out, and without Vulkan, so the
-renderer goes without wgpu, whose Vulkan surface needs it. On Linux Yapfast
-asks for Skia OpenGL or Skia Software by name; the wgpu renderers the winit
-backend still names make surfaces that fail to start. Windows turns wgpu back
+its text layout, which the linker leaves out, and without Vulkan. A build that
+wants Vulkan links Skia built from source instead, `nix/skia-linux-vulkan.nix`:
+same features, its own FreeType kept, OpenGL kept for the fallback, Vulkan
+added; see [Skia with Vulkan](#skia-with-vulkan). Without that archive the
+renderer goes without wgpu, whose Vulkan surface needs it, and on Linux Yapfast
+asks for Skia OpenGL or Skia Software by name. Windows turns wgpu back
 on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on Direct3D
-12 (see `src/graphics.rs`). Each change is marked `Yapfast:` in
+12 (see `src/graphics.rs`).
+
+The GPU setting asks for Skia on Vulkan on Linux too, where the build has it:
+the build's `vulkan` feature is `i-slint-renderer-skia/vulkan`, which needs a
+Skia built with Vulkan, and `src/ui/vulkan.rs` then makes the device with wgpu
+30 for Slint to take through `WGPUConfiguration::Manual`, as `src/ui/gpu.rs`
+does with Direct3D 12 on Windows. That device is what a stream's picture could
+later be wrapped from as a Skia image, without the copy through the CPU that
+OpenGL needs. Anywhere else — a build without that feature, or a machine whose
+driver opens no Vulkan device — the window draws with Skia on OpenGL as it
+always did, and a device that won't open is one `warn` line in the log rather
+than a failed start. Each change is marked `Yapfast:` in
 `itemrenderer.rs`, `cached_image.rs`, `lib.rs`, `font_cache.rs` or
 `Cargo.toml`. Copy the matching release over it, and reapply them, when
 upgrading Slint.
@@ -286,6 +299,33 @@ dependency; its checkout is `~/.cargo/git/checkouts/matrix-rust-sdk-*/c6ad52e/`,
 the short form of the revision pinned in Cargo.toml. libDF's is
 `~/.cargo/git/checkouts/deepfilternet-*/d375b2d/libDF/`. libwebrtc's headers are in
 `$LK_CUSTOM_WEBRTC/include` inside the development shell.
+
+### Skia with Vulkan
+
+Linux's Skia for the OpenGL and Software renderers is rust-skia's prebuilt
+archive, which `nix/native.nix` fetches and `nix/prepare-skia-native.py`
+renames one JPEG table in, so it can link beside libwebrtc's libjpeg-turbo.
+Vulkan is not in that archive, so `nix/skia-linux-vulkan.nix` builds the same
+Skia from the pinned source with `skia_use_vulkan=true` beside
+`skia_use_gl` and `skia_use_ganesh`, and pins the archive it exports by
+SHA-256: a build that stops producing those bytes fails instead of linking
+them. It is opt-in, since it takes a few minutes of compilation:
+
+```sh
+nix build path:./nix#skia-vulkan
+SKIA_BINARIES_URL=$SKIA_VULKAN_BINARIES_URL \
+  nix develop path:./nix --command cargo check --profile fast --features skia-vulkan
+```
+
+The dev shell sets `SKIA_VULKAN_BINARIES_URL` to that archive and
+`SKIA_BINARIES_URL` to the OpenGL one, so an unset `SKIA_BINARIES_URL` keeps
+the default build on OpenGL. `--features skia-vulkan` turns on
+`yapfast-ui/skia-vulkan`, `i-slint-renderer-skia/vulkan` and `skia-safe/vulkan`;
+without it `skia-safe` links the OpenGL archive, and linking one built with
+Vulkan while asking for OpenGL fails at the key in the archive. Nothing in it
+needs a Vulkan SDK: Skia carries its own headers, and takes the device from
+wgpu at run time. `nix/skia-linux-builder` names the features the archive is
+keyed by, `nix/prepare-linux-skia.py` builds it outside Nix for debugging.
 
 ### Media libraries
 

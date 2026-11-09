@@ -22,9 +22,31 @@
 //! The choice is made once per share, before the capture opens, and costs
 //! nothing a frame. It is the same shape as [`crate::gpu`] and
 //! [`crate::noise`]: a process-wide value the UI sets from `layout.json`.
+//!
+//! What is left of this module is the ways a Linux session captures a screen
+//! without that setting, each handing a share a picture the GPU made rather
+//! than one the processor assembled. Today that is [`x11`]: a window or the
+//! screen redirected through the X Composite extension, and its storage
+//! exported as a DMA-BUF.
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
+
+/// A window or the screen on X11, as a DMA-BUF, for a session whose X server
+/// is what captures: one with no screen sharing portal, as XFCE has.
+#[cfg(target_os = "linux")]
+pub mod x11;
+
+/// The desktop's screen sharing portal, as far as a capture asks it for a screen:
+/// a session, what to share, and the PipeWire node the desktop exported.
+#[cfg(screencast)]
+mod portal;
+
+/// A screen or a window on Linux as the DMA-BUF buffers a PipeWire node carries,
+/// for a session whose desktop shares its screen through the portal; see
+/// [`pipewire`].
+#[cfg(screencast)]
+pub mod pipewire;
 
 /// Which way a share captures a screen.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

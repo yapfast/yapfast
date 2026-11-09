@@ -19,6 +19,12 @@ test = false
 # Loads ui/ at runtime and reloads it on each save, for UI work; see
 # docs/building.md.
 live-preview = ["slint/live-preview"]
+# Skia's Vulkan beside its OpenGL: Slint then prefers Vulkan and can wrap a
+# stream's GPU texture without a CPU copy. Opt-in, and Linux only for now: it
+# needs the Skia archive built with Vulkan (nix/skia-linux-vulkan.nix), which
+# SKIA_BINARIES_URL must point at instead of the OpenGL one. See
+# docs/building.md.
+skia-vulkan = ["slint/renderer-skia-vulkan"]
 
 [dependencies]
 # Outside the workspace (see the root Cargo.toml), so it can't inherit Slint:

@@ -49,6 +49,10 @@ pub mod discord_text;
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+/// The socket a stream's picture descriptors travel on, which a DMA-BUF needs
+/// and a shared texture's handle doesn't; see src/dmabuf.rs.
+#[cfg(target_os = "linux")]
+pub mod dmabuf;
 /// Desktop Duplication: the compositor's own surface, turned upright and
 /// converted on the GPU, with the pointer drawn in; see src/dup.rs.
 #[cfg(dup)]

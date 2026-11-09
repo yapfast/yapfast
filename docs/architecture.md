@@ -51,7 +51,14 @@ or a window is captured by `wgc.rs` (Windows Graphics Capture) or `dup.rs`
 (Desktop Duplication) where the card can take it, and by libwebrtc's capturer in
 memory otherwise. `frames.rs` is the file the worker and the window both map: a
 stream's pictures, and the slots a card-drawn preview is handed over in, which
-`src/ui/gpu.rs` opens on the window's own device. `stream_audio.rs` is a
+`src/ui/gpu.rs` opens on the window's own device. On Linux a card's picture is
+not a handle the file can carry but a DMA-BUF, a file descriptor that means
+different things in two processes, so its layout and numbers go in the file and
+the descriptors themselves go over a socket pair the window makes before it
+starts the worker (`dmabuf.rs`, `frames::Frames::open_pictures`,
+`dmabuf::inheriting`), one `sendmsg` a picture with the descriptors attached
+through `SCM_RIGHTS`, and the window closes them as it retires the slot.
+`stream_audio.rs` is a
 stream's sound both ways: what other applications play for a share, and the
 player that puts the sound coming the other way in order.
 `pressure.rs` reads how much memory the machine and the card have left, once a
@@ -95,7 +102,12 @@ composer, `aside` shows a Discord thread beside the open channel, and
 The Slint adapter in [`src/ui.rs`](../src/ui.rs) and [`src/ui/`](../src/ui), with
 the interface in [`ui/*.slint`](../ui), owns input widgets, password masking,
 focus, filtering, scroll position, list virtualization, device selectors, window
-state, theme and icons. `Adapter::refresh`, in
+state, theme and icons. Its renderer is chosen there too: the GPU setting draws
+with Skia on Vulkan through a wgpu 30 device
+[`src/ui/vulkan.rs`](../src/ui/vulkan.rs) makes, on Windows the Direct3D 12
+device [`src/ui/gpu.rs`](../src/ui/gpu.rs) makes, and with Skia on OpenGL
+wherever neither is there; [`src/graphics.rs`](../src/graphics.rs) holds the
+setting, the restart after a failed GPU start, and the choice between the two. `Adapter::refresh`, in
 [`src/ui/refresh.rs`](../src/ui/refresh.rs), shows the application's state one
 area at a time. `ui/yapfast.slint` holds the window and imports its parts
 from the files beside it. The adapter updates widgets after model changes. A

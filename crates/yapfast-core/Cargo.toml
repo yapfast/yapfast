@@ -19,6 +19,13 @@ default = ["discord"]
 matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord/README.md.
 discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
+# Capturing a screen or a window on the GPU on Linux: the desktop's screen
+# sharing portal names a PipeWire node whose frames are DMA-BUFs, and
+# src/capture/pipewire.rs reads them without a copy through the processor. Off by
+# default; nothing else in the crate uses it yet, and a build without it is
+# exactly the build it was before. It also needs libpipewire's headers and
+# library, which build.rs looks for.
+screencast = ["dep:zbus"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
@@ -92,12 +99,31 @@ cc = "1"
 webrtc-sys-build = "0.3.18"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# Real-time priority for the audio threads.
+# Real-time priority for the audio threads, and one duplicate of a fd.
 libc = "0.2"
 # The input meter reads the microphone locally through PulseAudio, the sound
 # server WebRTC already uses on Linux, without involving a call.
 libpulse-binding = { version = "2", default-features = false }
 libpulse-simple-binding = { version = "2", default-features = false }
+# The screen sharing portal, asked for a screen over the session bus; see
+# src/capture/portal.rs. The `screencast` feature is what turns it on. Not
+# `workspace = true`: the root package declares its own zbus, behind that
+# package's `desktop` feature, and this crate asks for the blocking API the
+# portal's request-and-response dance reads as a function, not as a future.
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+# X11's own screen capture, for a session with no screen sharing portal: a
+# window redirected through Composite, its storage exported through DRI3 as a
+# DMA-BUF; see src/capture/x11.rs. Pure Rust, the version already in the tree
+# through the desktop crate, which asks for XInput from the same crate.
+x11rb = { version = "0.13.2", default-features = false, features = [
+    "composite",
+    # Redirection says nothing about when a frame was drawn, so a share would
+    # re-encode a still desktop forever without it.
+    "damage",
+    "dri3",
+    # The monitors of a screen, as the share menu lists them.
+    "randr",
+] }
 
 [target.'cfg(windows)'.dependencies]
 # Yapfast's own sound goes through WASAPI. Slint's wgpu already builds this
