@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Measure the plugin helper's pipe latency and process memory.
+"""Measure the plugin helper's first call, load times, memory and threads.
 
 The harness spawns a helper binary, speaks the framed JSON protocol from
-`docs/plugin-protocol.md`, times the first response and synchronous call round
-trips with `time.monotonic_ns`, samples the helper's memory from the operating
-system, and writes one machine-readable JSON record. It judges nothing: there
-are no budget constants and no verdicts here, and a run with no data reports
-that rather than inventing samples.
+`docs/plugin-protocol.md`, times the spawn-to-ready handshake, the spawn
+through the first guest call (module load included), each per-instance load
+and synchronous call round trips with `time.monotonic_ns`, samples the
+helper's memory and thread count from the operating system, and writes one
+machine-readable JSON record. It judges nothing: there are no budget
+constants and no verdicts here, and a run with no data reports that rather
+than inventing samples.
 
 Run it against a real helper only after `crates/yapfast-plugin-host` builds:
 
     python3 testing/measure_plugins.py \
         --helper target/measure/yapfast-plugins \
         --module /absolute/path/to/echo.wasm \
-        --method echo --requests 200 --warmup 20 \
+        --method echo --requests 200 --warmup 20 --instances 1 \
         --profile measure --json-out target/plugin-measurements/results.json
 
 See `docs/plugin-measurements.md` for the metric definitions, the JSON shape
@@ -36,7 +38,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "yapfast-plugin-measurement/1"
+SCHEMA = "yapfast-plugin-measurement/2"
 
 HEADER_LEN = 4 + 1 + 8
 MAX_FRAME_LEN = 1024 * 1024
@@ -131,6 +133,10 @@ class MemoryReadError(RuntimeError):
     """The operating system would not give a memory sample for the process."""
 
 
+class ThreadCountError(RuntimeError):
+    """The operating system would not give a thread count for the process."""
+
+
 def encode_frame(kind: Kind, frame_id: int, payload: bytes) -> bytes:
     """Encode one frame: u32 LE payload length, kind byte, u64 LE id, payload."""
     payload = bytes(payload)
@@ -193,6 +199,35 @@ def _read_exact(stream: Any, count: int, *, clean_eof: bool) -> bytes | None:
     return b"".join(chunks)
 
 
+def validate_frame_id(kind: Kind, frame_id: int) -> None:
+    """Refuse an id the protocol reserves or a frame that misuses id 0.
+
+    Id 0 belongs to the unsolicited `ready` frame alone. A `ready` away from
+    id 0 and any other frame at id 0 pair with nothing, so either is a
+    violation rather than something to skip.
+    """
+    if kind is Kind.READY:
+        if frame_id != 0:
+            raise ProtocolViolation(f"ready carries id {frame_id}, but ready is the frame at id 0")
+        return
+    if frame_id == 0:
+        raise ProtocolViolation(f"{kind.name} carries id 0, which is reserved for ready")
+
+
+def instance_ids(plugin: str, instances: int) -> list[str]:
+    """The plugin ids to load from one module.
+
+    One instance keeps the configured id verbatim, so a single-instance run is
+    interchangeable with an earlier one. More than one instance needs distinct
+    ids, so they are suffixed `-0`, `-1`, and so on.
+    """
+    if instances < 1:
+        raise ValueError("instances must be at least one")
+    if instances == 1:
+        return [plugin]
+    return [f"{plugin}-{index}" for index in range(instances)]
+
+
 def nearest_rank(values: list[int], percent: float) -> int:
     """The nearest-rank percentile: sort, then take index ceil(p/100 * n) - 1.
 
@@ -237,6 +272,43 @@ def memory_metric() -> dict[str, str]:
             ),
         }
     raise MemoryReadError(f"no memory metric for platform {sys.platform!r}")
+
+
+def threads_metric(platform_name: str | None = None) -> dict[str, str]:
+    """Where a thread count comes from on this platform, and how it compares."""
+    name = sys.platform if platform_name is None else platform_name
+    if name == "win32":
+        return {
+            "name": "threads",
+            "unit": "threads",
+            "source": (
+                "Toolhelp32 snapshot: CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0), "
+                "then Thread32First/Thread32Next"
+            ),
+            "comparison": (
+                "The count includes every thread the process owns, engine and "
+                "compile-pool threads alike; it is not a count of busy threads."
+            ),
+        }
+    if name.startswith("linux"):
+        return {
+            "name": "threads",
+            "unit": "threads",
+            "source": "/proc/<pid>/status: Threads",
+            "comparison": (
+                "The count includes every thread the process owns, engine and "
+                "compile-pool threads alike; it is not a count of busy threads."
+            ),
+        }
+    raise ThreadCountError(f"no thread count for platform {name!r}")
+
+
+def safe_threads_metric() -> dict[str, Any]:
+    """`threads_metric`, or a named gap on a platform the harness cannot sample."""
+    try:
+        return threads_metric()
+    except ThreadCountError as error:
+        return {"name": None, "unit": None, "source": None, "comparison": None, "error": str(error)}
 
 
 def safe_memory_metric() -> dict[str, Any]:
@@ -353,15 +425,135 @@ def _read_windows_memory(pid: int) -> dict[str, int]:
         api["CloseHandle"](handle)
 
 
-class MemorySampler:
-    """Samples one live process on a background thread."""
+TH32CS_SNAPTHREAD = 0x00000004
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value or -1
 
-    def __init__(self, pid: int, interval_ms: int, reader=read_memory) -> None:
+
+class _ThreadEntry32(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", ctypes.c_ulong),
+        ("cntUsage", ctypes.c_ulong),
+        ("th32ThreadID", ctypes.c_ulong),
+        ("th32OwnerProcessID", ctypes.c_ulong),
+        ("tpBasePri", ctypes.c_long),
+        ("tpDeltaPri", ctypes.c_long),
+        ("dwFlags", ctypes.c_ulong),
+    ]
+
+
+_WINDOWS_THREAD_API: dict[str, Any] | None = None
+
+
+def _windows_thread_api() -> dict[str, Any]:
+    """The Win32 thread-snapshot calls, with the structure marshalling done here.
+
+    The dictionary is the boundary tests replace: its `Thread32First` and
+    `Thread32Next` take the entry object itself, so a fake need not build
+    ctypes pointers.
+    """
+    global _WINDOWS_THREAD_API
+    if _WINDOWS_THREAD_API is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateToolhelp32Snapshot.argtypes = [ctypes.c_ulong, ctypes.c_ulong]
+        kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+        kernel32.Thread32First.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ThreadEntry32)]
+        kernel32.Thread32First.restype = ctypes.c_int
+        kernel32.Thread32Next.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ThreadEntry32)]
+        kernel32.Thread32Next.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+
+        def first(handle: Any, entry: _ThreadEntry32) -> bool:
+            return bool(kernel32.Thread32First(handle, ctypes.byref(entry)))
+
+        def next_entry(handle: Any, entry: _ThreadEntry32) -> bool:
+            return bool(kernel32.Thread32Next(handle, ctypes.byref(entry)))
+
+        _WINDOWS_THREAD_API = {
+            "CreateToolhelp32Snapshot": kernel32.CreateToolhelp32Snapshot,
+            "ThreadEntry": _ThreadEntry32,
+            "Thread32First": first,
+            "Thread32Next": next_entry,
+            "CloseHandle": kernel32.CloseHandle,
+            "last_error": ctypes.get_last_error,
+            "win_error": ctypes.WinError,
+        }
+    return _WINDOWS_THREAD_API
+
+
+def thread_count_from_toolhelp(pid: int, api: dict[str, Any]) -> int:
+    """Count one process's threads from a Toolhelp32 snapshot.
+
+    A refused snapshot, and a snapshot that lists no thread for the process,
+    are errors: zero would read like a measurement, and a live process always
+    has at least one thread.
+    """
+    snapshot = api["CreateToolhelp32Snapshot"](TH32CS_SNAPTHREAD, 0)
+    if snapshot in (0, None, INVALID_HANDLE_VALUE, -1):
+        raise ThreadCountError(f"CreateToolhelp32Snapshot failed: {api['win_error']()}")
+    try:
+        entry = api["ThreadEntry"]()
+        if isinstance(entry, ctypes.Structure):
+            entry.dwSize = ctypes.sizeof(entry)
+        count = 0
+        more = api["Thread32First"](snapshot, entry)
+        while more:
+            if int(entry.th32OwnerProcessID) == pid:
+                count += 1
+            more = api["Thread32Next"](snapshot, entry)
+        if count == 0:
+            raise ThreadCountError(
+                f"the thread snapshot lists no thread owned by process {pid} "
+                f"(GetLastError {api['last_error']()})"
+            )
+        return count
+    finally:
+        api["CloseHandle"](snapshot)
+
+
+def read_thread_count(pid: int, platform_name: str | None = None) -> int:
+    """One process's thread count in the metric this platform reports."""
+    name = sys.platform if platform_name is None else platform_name
+    if name.startswith("linux"):
+        try:
+            text = Path(f"/proc/{pid}/status").read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            raise ThreadCountError(f"cannot read /proc/{pid}/status: {error}") from error
+        for line in text.splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key == "Threads":
+                parts = value.split()
+                if parts:
+                    return int(parts[0])
+        raise ThreadCountError(f"/proc/{pid}/status has no Threads field")
+    if name == "win32":
+        return thread_count_from_toolhelp(pid, _windows_thread_api())
+    raise ThreadCountError(f"no thread count for platform {name!r}")
+
+
+class MemorySampler:
+    """Samples one live process on a background thread.
+
+    Memory is the platform's metric. A thread count is sampled beside it when
+    the platform's reader does not already return one, as Linux's `/proc`
+    status does; a thread-count failure is reported beside the samples rather
+    than turned into a zero.
+    """
+
+    def __init__(
+        self,
+        pid: int,
+        interval_ms: int,
+        reader=read_memory,
+        thread_reader=read_thread_count,
+    ) -> None:
         self.pid = pid
         self.interval = interval_ms / 1000
         self.reader = reader
+        self.thread_reader = thread_reader
         self.samples: list[dict[str, int]] = []
         self.errors: list[str] = []
+        self.thread_errors: list[str] = []
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -376,7 +568,13 @@ class MemorySampler:
             except MemoryReadError as error:
                 self.errors.append(str(error))
                 return
-            self.samples.append({"t_ns": time.monotonic_ns(), **sample})
+            entry = {"t_ns": time.monotonic_ns(), **sample}
+            if "threads" not in entry and self.thread_reader is not None:
+                try:
+                    entry["threads"] = self.thread_reader(self.pid)
+                except ThreadCountError as error:
+                    self.thread_errors.append(str(error))
+            self.samples.append(entry)
             self._stop.wait(self.interval)
 
     def stop(self) -> None:
@@ -480,10 +678,27 @@ class HelperProcess:
                 pass
         raise HelperExited(exit_code, self.stderr_tail())
 
+    def elapsed_ns(self) -> int:
+        """Nanoseconds since the spawn, for a sample taken after some exchange."""
+        if self.process is None:
+            raise HelperError("the helper has not been started")
+        return time.monotonic_ns() - self._spawn_ns
+
     def first_response(self, timeout: float | None = None) -> tuple[Frame, int]:
-        """The first frame from the helper, and ns from just before spawn to it."""
+        """The `ready` frame, and ns from just before spawn to it.
+
+        `ready` is the handshake: it is the first frame, it carries id 0, and
+        anything else is a peer speaking something this harness cannot pair
+        requests with.
+        """
         frame = self._next(timeout)
-        return frame, time.monotonic_ns() - self._spawn_ns
+        elapsed = time.monotonic_ns() - self._spawn_ns
+        if frame.kind is not Kind.READY:
+            raise ProtocolViolation(
+                f"expected ready as the first frame, got {frame.kind.name}"
+            )
+        validate_frame_id(frame.kind, frame.id)
+        return frame, elapsed
 
     def send(self, kind: Kind, frame_id: int, body: Any) -> None:
         if self.process is None or self.process.stdin is None:
@@ -503,8 +718,10 @@ class HelperProcess:
             if remaining <= 0:
                 raise TimeoutError(f"no response with id {frame_id} before the deadline")
             frame = self._next(remaining)
-            if frame.kind is Kind.READY and frame.id == 0:
+            if frame.kind is Kind.READY:
+                validate_frame_id(frame.kind, frame.id)
                 continue
+            validate_frame_id(frame.kind, frame.id)
             if frame.id != frame_id:
                 raise ProtocolViolation(
                     f"expected a frame with id {frame_id}, got id {frame.id} ({frame.kind.name})"
@@ -626,12 +843,23 @@ def build_labels(argv: list[str], profile: str | None) -> dict[str, Any]:
     }
 
 
+def timing(values: list[int], definition: str) -> dict[str, Any]:
+    """One latency block: the definition, the observed samples and percentiles."""
+    return {
+        "unit": "nanoseconds",
+        "definition": definition,
+        "samples": list(values),
+        "percentiles": percentiles(values) if values else None,
+    }
+
+
 def measure(
     *,
     helper: list[str],
     module: Path | str | None,
     method: str = "echo",
     plugin: str = "measure",
+    instances: int = 1,
     requests: int = 200,
     warmup: int = 20,
     payload_bytes: int = 1024,
@@ -642,7 +870,13 @@ def measure(
     os_tag: str | None = None,
     run_label: str | None = None,
 ) -> dict[str, Any]:
-    """Run one spawn, round-trip and memory measurement, without judging it."""
+    """Run one spawn, load, round-trip and memory measurement, without judging it.
+
+    With a module, the measurement covers the spawn through the first call's
+    reply, so module load is inside it. `--instances` loads the module under
+    that many distinct plugin ids, samples memory once every load has answered,
+    and calls round-robin over the instances before unloading each one.
+    """
     argv = [str(argument) for argument in helper]
     module_path: Path | None = None
     if module is not None:
@@ -652,40 +886,56 @@ def measure(
         if not module_path.is_file():
             raise PrerequisiteError(f"module not found: {module_path}")
 
+    plugin_ids = instance_ids(plugin, instances)
+    thread_metric = safe_threads_metric()
+    thread_reader = read_thread_count if thread_metric.get("source") else None
+
     process = HelperProcess(argv, timeout=timeout)
     sampler: MemorySampler | None = None
     round_trips: list[int] = []
+    load_ns: dict[str, int] = {}
+    load_completed_ns: int | None = None
+    spawn_to_first_call_ns: int | None = None
     try:
         process.start()
         _, spawn_ns = process.first_response(timeout=timeout)
 
-        sampler = MemorySampler(process.pid, interval_ms)
-        sampler.start()
-
         next_id = 1
         if module_path is not None:
-            process.request(
-                Kind.LOAD,
-                next_id,
-                {"type": "load", "plugin": plugin, "module": str(module_path)},
-                Kind.LOADED,
-                timeout=timeout,
-            )
-            next_id += 1
-
-            call = {
-                "type": "call",
-                "plugin": plugin,
-                "method": method,
-                "payload": {"data": "x" * payload_bytes},
-            }
-            for _ in range(warmup):
-                process.request(Kind.CALL, next_id, call, Kind.REPLY, timeout=timeout)
-                next_id += 1
-            for _ in range(requests):
+            for plugin_id in plugin_ids:
                 started = time.monotonic_ns()
+                process.request(
+                    Kind.LOAD,
+                    next_id,
+                    {"type": "load", "plugin": plugin_id, "module": str(module_path)},
+                    Kind.LOADED,
+                    timeout=timeout,
+                )
+                load_ns[plugin_id] = time.monotonic_ns() - started
+                next_id += 1
+            load_completed_ns = time.monotonic_ns()
+
+        sampler = MemorySampler(process.pid, interval_ms, thread_reader=thread_reader)
+        sampler.start()
+
+        if module_path is not None:
+            calls = 0
+            for _ in range(warmup + requests):
+                plugin_id = plugin_ids[calls % len(plugin_ids)]
+                call = {
+                    "type": "call",
+                    "plugin": plugin_id,
+                    "method": method,
+                    "payload": {"data": "x" * payload_bytes},
+                }
+                measured = calls >= warmup
+                started = time.monotonic_ns() if measured else 0
                 process.request(Kind.CALL, next_id, call, Kind.REPLY, timeout=timeout)
-                round_trips.append(time.monotonic_ns() - started)
+                if spawn_to_first_call_ns is None:
+                    spawn_to_first_call_ns = process.elapsed_ns()
+                if measured:
+                    round_trips.append(time.monotonic_ns() - started)
+                calls += 1
                 next_id += 1
 
         # Let the sampler collect the requested count while the helper is still
@@ -702,21 +952,23 @@ def measure(
         sampler.stop()
         memory_samples = list(sampler.samples)
         memory_errors = list(sampler.errors)
+        thread_errors = list(sampler.thread_errors)
         memory_peak = sampler.peak()
         sampler = None
 
         if module_path is not None:
-            process.request(
-                Kind.UNLOAD,
-                next_id,
-                {"type": "unload", "plugin": plugin},
-                Kind.UNLOADED,
-                timeout=timeout,
-            )
-            next_id += 1
+            for plugin_id in plugin_ids:
+                process.request(
+                    Kind.UNLOAD,
+                    next_id,
+                    {"type": "unload", "plugin": plugin_id},
+                    Kind.UNLOADED,
+                    timeout=timeout,
+                )
+                next_id += 1
 
         try:
-            ending = process.shutdown(timeout=timeout)
+            ending = process.shutdown(timeout=timeout, frame_id=next_id)
         except HelperExited:
             # A helper may exit as soon as its last instance is unloaded, before a
             # shutdown frame can be written. Its measured data is still valid.
@@ -726,6 +978,8 @@ def measure(
             sampler.stop()
         process.kill()
 
+    thread_values = [sample["threads"] for sample in memory_samples if "threads" in sample]
+    loaded = module_path is not None
     return {
         "schema": SCHEMA,
         "platform": platform_labels(os_tag),
@@ -733,29 +987,43 @@ def measure(
         "build": build_labels(argv, profile),
         "scenario": {
             "name": run_label,
-            "module": str(module_path) if module_path is not None else None,
-            "method": method if module_path is not None else None,
-            "plugin": plugin if module_path is not None else None,
-            "requests": requests if module_path is not None else 0,
-            "warmup": warmup if module_path is not None else 0,
+            "module": str(module_path) if loaded else None,
+            "method": method if loaded else None,
+            "plugin": plugin if loaded else None,
+            "instances": len(plugin_ids) if loaded else 0,
+            "plugin_ids": plugin_ids if loaded else [],
+            "requests": requests if loaded else 0,
+            "warmup": warmup if loaded else 0,
             "payload_bytes": payload_bytes,
             "samples": samples,
             "interval_ms": interval_ms,
         },
         "latency": {
             "clock": "time.monotonic_ns",
-            "spawn_to_first_response_ns": {
+            "spawn_to_ready_ns": timing(
+                [spawn_ns],
+                "from immediately before spawn to the ready frame at id 0",
+            ),
+            "spawn_to_first_call_ns": timing(
+                [spawn_to_first_call_ns] if spawn_to_first_call_ns is not None else [],
+                "from immediately before spawn through ready, every load, and the "
+                "first call's reply",
+            ),
+            "load_ns": {
                 "unit": "nanoseconds",
-                "definition": "from immediately before spawn to the first frame read from stdout",
-                "samples": [spawn_ns],
-                "percentiles": percentiles([spawn_ns]),
+                "definition": (
+                    "around one load request: write the load frame and read the "
+                    "loaded frame carrying that id"
+                ),
+                "samples": list(load_ns.values()),
+                "percentiles": percentiles(list(load_ns.values())) if load_ns else None,
+                "by_plugin": load_ns,
+                "completed_ns": load_completed_ns,
             },
-            "round_trip_ns": {
-                "unit": "nanoseconds",
-                "definition": "write a call frame, flush it, and read the reply frame with its id",
-                "samples": round_trips,
-                "percentiles": percentiles(round_trips) if round_trips else None,
-            },
+            "round_trip_ns": timing(
+                round_trips,
+                "write a call frame, flush it, and read the reply frame with its id",
+            ),
         },
         "memory": {
             "metric": memory_metric()["name"],
@@ -764,6 +1032,15 @@ def measure(
             "sample_count": len(memory_samples),
             "peak": memory_peak,
             "errors": memory_errors,
+            "first_sample_ns": memory_samples[0]["t_ns"] if memory_samples else None,
+            "threads": {
+                "unit": thread_metric["unit"],
+                "source": thread_metric["source"],
+                "samples": thread_values,
+                "peak": max(thread_values) if thread_values else None,
+                "errors": thread_errors,
+                "error": thread_metric.get("error"),
+            },
         },
         "helper_exit": ending,
     }
@@ -808,6 +1085,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--module", help="an absolute .wasm path to load before calling")
     parser.add_argument("--method", default="echo", help="the method each call names")
     parser.add_argument("--plugin", default="measure", help="the plugin id used on the wire")
+    parser.add_argument(
+        "--instances",
+        type=_positive_int,
+        default=1,
+        help=(
+            "load the module under this many plugin ids; 1 keeps `--plugin` "
+            "verbatim, more use `<plugin>-0` .. `<plugin>-(N-1)`"
+        ),
+    )
     parser.add_argument("--requests", type=_positive_int, default=200, help="measured round trips")
     parser.add_argument("--warmup", type=_non_negative_int, default=20, help="uncounted round trips")
     parser.add_argument(
@@ -857,6 +1143,7 @@ def main(argv: list[str] | None = None) -> int:
             module=module,
             method=arguments.method,
             plugin=arguments.plugin,
+            instances=arguments.instances,
             requests=arguments.requests,
             warmup=arguments.warmup,
             payload_bytes=arguments.payload_bytes,
