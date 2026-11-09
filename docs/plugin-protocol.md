@@ -151,7 +151,7 @@ without it, Extism's own "Returned non-zero exit code" is what arrives.
 
 ## Errors
 
-Encoding, decoding and framing fail with one of three errors:
+Encoding, decoding and framing fail with one of these errors:
 
 | Error | Cause |
 | --- | --- |
