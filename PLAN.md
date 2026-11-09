@@ -4,7 +4,9 @@ A proposal built on `SKELETON_PLUGIN_DRAFT.md`. It answers each question the
 draft raises, and backs the memory and speed decisions with numbers measured
 against Extism 1.41.0 (wasmtime 49.0.5) and against this repository's code.
 
-**Status:** proposal; nothing here is implemented.
+**Status:** M0 implementation in progress: the protocol, helper, fixtures and
+measurement harness have landed. M0 has not exited: its latency budget is not
+met by the current Windows measurements, and Linux and Go/Rust checks remain.
 
 ---
 

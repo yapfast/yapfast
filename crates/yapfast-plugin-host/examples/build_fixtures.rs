@@ -9,8 +9,8 @@
 //! cargo run --profile fast -p yapfast-plugin-host --example build_fixtures
 //! ```
 //!
-//! It writes `target/plugin-fixtures/echo.wasm` and `oom.wasm`, the paths
-//! `docs/plugin-measurements.md` passes as `--module`. Given a directory as its
+//! It writes `target/plugin-fixtures/echo.wasm`, `bulk_echo.wasm` and `oom.wasm`,
+//! the paths `docs/plugin-measurements.md` passes as `--module`. Given a directory
 //! argument, it writes there instead.
 //!
 //! This is a harness step, not part of the helper: production reads WebAssembly
@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 /// The fixtures the harness runs.
-const FIXTURES: [&str; 2] = ["echo", "oom"];
+const FIXTURES: [&str; 3] = ["echo", "bulk_echo", "oom"];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
