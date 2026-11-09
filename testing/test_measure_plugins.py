@@ -132,6 +132,7 @@ while True:
     if frame is None:
         break
     kind, frame_id, payload = frame
+    record(kind, frame_id, payload)
     request = json.loads(payload) if payload else None
     request_type = request.get("type") if isinstance(request, dict) else None
     if request_type == "load":
@@ -761,7 +762,7 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(report["scenario"]["instances"], 1)
         self.assertEqual(report["scenario"]["plugin_ids"], ["measure"])
         self.assertEqual(list(report["latency"]["load_ns"]["by_plugin"]), ["measure"])
-        for kind in (2, 4, 7):
+        for kind in (2, 4, 6):
             self.assertEqual(
                 [frame["body"]["plugin"] for frame in frames if frame["kind"] == kind],
                 ["measure"],
