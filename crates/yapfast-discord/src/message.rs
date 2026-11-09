@@ -65,7 +65,7 @@ const FORWARDABLE_FLAGS: u64 = 1 << 0
 /// Missing sticker formats default to PNG.
 const STICKER_PNG: u64 = 1;
 /// The size Discord shows stickers at.
-const STICKER_SIZE: u32 = 160;
+use crate::stickers::MESSAGE_SIZE as STICKER_SIZE;
 
 /// The attachment flag that marks a spoiler.
 pub(crate) const IS_SPOILER: u64 = 1 << 3;
@@ -419,7 +419,10 @@ impl Message {
         self.id.parse().unwrap_or_default()
     }
 
-    /// Adds or removes this account's or someone else's reaction.
+    /// Adds or removes this account's or someone else's reaction. This
+    /// account's reaction counts once: adding it again, or removing it when
+    /// it isn't there, changes nothing, as clicks faster than the gateway
+    /// can bring such events.
     pub fn react(&mut self, key: &str, emoji: &str, me: bool, added: bool) {
         match self
             .reactions
@@ -428,6 +431,9 @@ impl Message {
         {
             Some(index) => {
                 let reaction = &mut self.reactions[index];
+                if me && reaction.me == added {
+                    return;
+                }
                 if added {
                     reaction.count += 1;
                     reaction.me |= me;
@@ -2284,6 +2290,24 @@ mod tests {
         message.react("pog", "pog:5", false, false);
         message.react(":pog:", "pog:5", false, false);
         assert_eq!(message.reactions.len(), 1);
+
+        // This account's reaction counts once, however often the gateway
+        // says it was added or removed.
+        message.react("👍", "👍", true, true);
+        message.react("👍", "👍", true, true);
+        assert_eq!(
+            (message.reactions[0].count, message.reactions[0].me),
+            (2, true)
+        );
+        message.react("👍", "👍", true, false);
+        message.react("👍", "👍", true, false);
+        assert_eq!(
+            (message.reactions[0].count, message.reactions[0].me),
+            (1, false)
+        );
+        // Others' still count each time.
+        message.react("👍", "👍", false, true);
+        assert_eq!(message.reactions[0].count, 2);
 
         assert!(parse(&json!({"id": "1", "type": 8, "author": {"id": "1"}})).is_none());
         let deleted = parse(

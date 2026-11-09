@@ -1460,6 +1460,19 @@ impl WindowInner {
         internal_key_event.key_event.modifiers =
             self.context().modifiers().get().modifiers_for(&internal_key_event);
 
+        // Yapfast: on a Cyrillic layout the key under A types "ф", so Ctrl+A
+        // came as Ctrl+ф and neither Slint's shortcuts nor Yapfast's matched.
+        // With Ctrl or Cmd held, and not AltGr (Ctrl+Alt on Windows), which
+        // types characters, a letter of the Russian or Ukrainian layout
+        // becomes the Latin letter on the same key.
+        let modifiers = internal_key_event.key_event.modifiers;
+        if (modifiers.control || modifiers.meta) && !modifiers.alt {
+            if let Some(latin) = crate::input::latin_on_same_key(&internal_key_event.key_event.text)
+            {
+                internal_key_event.key_event.text = latin.into();
+            }
+        }
+
         // Yapfast: copies or clears a selection of text; see `crate::yapfast_selection`. Escape still
         // goes on to the focused item.
         if internal_key_event.event_type == KeyEventType::KeyPressed {

@@ -8,6 +8,8 @@ use super::Format;
 
 const UNSUPPORTED: &str = "Yapfast has no sound on this system yet.";
 
+pub fn raise_priority() {}
+
 pub struct Output;
 
 impl Output {
