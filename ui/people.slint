@@ -5,7 +5,7 @@ import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, Na
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
-/// A member of the open room. A heading starts each role's group.
+/// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
     id: string, name: string, initial: string, tint: color, picture: image, heading: string,
     /// Discord's presence: "online", "mobile" (online only on a phone), "idle",
@@ -247,7 +247,8 @@ export component MemberPanel inherits Rectangle {
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
                     Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                 }
-                Rectangle {
+                // A heading is a row of its own; see `show_roster`.
+                if member.id != "": Rectangle {
                   height: 42px; border-radius: 8px;
                   background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f : transparent;
                   if member.nameplate-url != "": Nameplate {

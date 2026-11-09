@@ -2885,8 +2885,9 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     }
     // The preview's people were shown just before, so these wait out the pause.
     i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
+    // Row 0 is their group's heading.
     let roster = window.get_roster();
-    let (bob, dave) = (roster.row_data(0).unwrap(), roster.row_data(1).unwrap());
+    let (bob, dave) = (roster.row_data(1).unwrap(), roster.row_data(2).unwrap());
     assert_eq!(bob.decoration_url, "ring.png");
     assert_eq!(bob.nameplate_url, "strip.png");
     assert_eq!(
@@ -2899,7 +2900,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     );
     assert!(dave.decoration_url.is_empty() && dave.nameplate_url.is_empty());
     // A palette Yapfast doesn't know leaves the picture without a colour.
-    let eve = roster.row_data(2).unwrap();
+    let eve = roster.row_data(3).unwrap();
     assert_eq!(eve.nameplate_url, "bare.png");
     assert_eq!(eve.nameplate_color.alpha(), 0);
     // Bob's name is drawn neon in Mainframe; Dave's has no style.
@@ -2918,8 +2919,8 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         adapter.refresh(&window);
     }
     let roster = window.get_roster();
-    assert!((0..3).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
-    assert_eq!(roster.row_data(0).unwrap().decoration_url, "ring.png");
+    assert!((1..4).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
+    assert_eq!(roster.row_data(1).unwrap().decoration_url, "ring.png");
     assert!(look.get_nameplate_url().is_empty());
     window.hide().unwrap();
 }
@@ -2979,30 +2980,32 @@ fn the_member_list_is_built_again_only_once_what_it_shows_changes() {
     // The preview's people were shown just before, so these wait out the pause.
     i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
     let roster = window.get_roster();
-    assert_eq!(roster.row_data(0).unwrap().name, "Bob");
-    assert!(roster.row_data(1).unwrap().timed_out);
+    // Their group's heading is a row of its own.
+    assert_eq!(roster.row_data(0).unwrap().heading, "MEMBERS — 2");
+    assert_eq!(roster.row_data(1).unwrap().name, "Bob");
+    assert!(roster.row_data(2).unwrap().timed_out);
     // A row set from elsewhere tells whether the list was built again.
     let mark = || {
         let row = MemberRow {
             name: "marked".into(),
-            ..roster.row_data(0).unwrap()
+            ..roster.row_data(1).unwrap()
         };
-        adapter.borrow().models.roster.set_row_data(0, row);
+        adapter.borrow().models.roster.set_row_data(1, row);
     };
     mark();
     // A refresh for anything else, such as a message, leaves the rows be.
     refresh(&|state| state.picture_changes += 1);
-    assert_eq!(roster.row_data(0).unwrap().name, "marked");
+    assert_eq!(roster.row_data(1).unwrap().name, "marked");
     // The same people, come again, are a new list, which waits out the pause
     // after the list was built.
     refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
-    assert_eq!(roster.row_data(0).unwrap().name, "marked");
+    assert_eq!(roster.row_data(1).unwrap().name, "marked");
     i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
-    assert_eq!(roster.row_data(0).unwrap().name, "Bob");
+    assert_eq!(roster.row_data(1).unwrap().name, "Bob");
     mark();
     refresh(&|state| state.hide_nameplates = true);
     assert_eq!(
-        roster.row_data(0).unwrap().name,
+        roster.row_data(1).unwrap().name,
         "Bob",
         "a setting it shows"
     );
@@ -3012,7 +3015,7 @@ fn the_member_list_is_built_again_only_once_what_it_shows_changes() {
         (now + 500).saturating_sub(yapfast_core::clock::now_ms()) + 1,
     ));
     refresh(&|state| state.picture_changes += 1);
-    assert!(!roster.row_data(1).unwrap().timed_out);
+    assert!(!roster.row_data(2).unwrap().timed_out);
     window.hide().unwrap();
 }
 
@@ -3127,11 +3130,23 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
         .window()
         .set_size(slint::LogicalSize::new(1120., 760.));
     assert!(window.get_members_available() && window.get_member_list());
-    let roster = window.get_roster();
-    assert_eq!(roster.row_count(), 4);
-    assert_eq!(roster.row_data(0).unwrap().heading, "ADMINS — 1");
-    assert_eq!(roster.row_data(2).unwrap().heading, "MEMBERS — 2");
-    assert!(roster.row_data(3).unwrap().heading.is_empty());
+    // Each group's heading is a row of its own, before its people.
+    let roster: Vec<MemberRow> = window.get_roster().iter().collect();
+    let shown: Vec<&str> = roster
+        .iter()
+        .map(|row| match row.id.is_empty() {
+            true => row.heading.as_str(),
+            false => "member",
+        })
+        .collect();
+    assert_eq!(shown.iter().filter(|row| **row == "member").count(), 4);
+    assert_eq!(shown[0], "ADMINS — 1");
+    assert!(shown.contains(&"MEMBERS — 2"));
+    assert!(
+        roster
+            .iter()
+            .all(|row| row.id.is_empty() != row.heading.is_empty())
+    );
     let click = |x, y| {
         let position = slint::LogicalPosition::new(x, y);
         let button = slint::platform::PointerEventButton::Left;
@@ -3155,7 +3170,12 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
     assert!(!window.get_members_available());
     window.invoke_select_room("party".into());
     assert!(window.get_members_available());
-    assert_eq!(window.get_roster().row_count(), 3);
+    let people = window
+        .get_roster()
+        .iter()
+        .filter(|row| !row.id.is_empty())
+        .count();
+    assert_eq!(people, 3);
     window.hide().unwrap();
 }
 

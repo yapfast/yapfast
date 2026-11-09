@@ -2189,12 +2189,40 @@ impl Adapter {
             members
                 .iter()
                 .enumerate()
-                .map(|(index, member)| {
+                .flat_map(|(index, member)| {
+                    // Discord names its groups; Matrix members group by role.
+                    // Each heading is a row of its own, so a count that
+                    // changes redraws only it, and the list keeps its height.
+                    let heading: SharedString = if let Some(group) = &member.group {
+                        if index == 0 || members[index - 1].group.as_ref() != Some(group) {
+                            group.as_str().into()
+                        } else {
+                            SharedString::default()
+                        }
+                    } else if index == 0 || members[index - 1].role != member.role {
+                        let count = members
+                            .iter()
+                            .filter(|other| other.role == member.role)
+                            .count();
+                        let role = match member.role {
+                            Role::Admin => "ADMINS",
+                            Role::Moderator => "MODERATORS",
+                            Role::Member => "MEMBERS",
+                        };
+                        format!("{role} — {count}").into()
+                    } else {
+                        SharedString::default()
+                    };
+                    let heading = (!heading.is_empty()).then(|| MemberRow {
+                        heading,
+                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
+                        ..MemberRow::default()
+                    });
                     let (activity_icon, activity_bullet, named) =
                         subline(&member.activities, member.activity.as_deref());
                     let (activity, activity_emoji) =
                         activity_line(named.as_deref().or(member.activity.as_deref()));
-                    MemberRow {
+                    let row = MemberRow {
                         activity_icon,
                         activity_bullet,
                         id: member.id.clone().into(),
@@ -2203,7 +2231,6 @@ impl Adapter {
                         tint: tint(&member.name),
                         picture: slint::Image::default(),
                         picture_url: member.avatar.as_deref().unwrap_or_default().into(),
-                        group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
                         tag: tag_text(cosmetics.tag(member.tag.as_ref())),
                         tag_badge: tag_badge(cosmetics.tag(member.tag.as_ref())),
@@ -2253,28 +2280,9 @@ impl Adapter {
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
-                        // Discord names its groups; Matrix members group by role.
-                        heading: if let Some(group) = &member.group {
-                            if index == 0 || members[index - 1].group.as_ref() != Some(group) {
-                                group.as_str().into()
-                            } else {
-                                SharedString::default()
-                            }
-                        } else if index == 0 || members[index - 1].role != member.role {
-                            let count = members
-                                .iter()
-                                .filter(|other| other.role == member.role)
-                                .count();
-                            let role = match member.role {
-                                Role::Admin => "ADMINS",
-                                Role::Moderator => "MODERATORS",
-                                Role::Member => "MEMBERS",
-                            };
-                            format!("{role} — {count}").into()
-                        } else {
-                            SharedString::default()
-                        },
-                    }
+                        ..MemberRow::default()
+                    };
+                    heading.into_iter().chain([row])
                 })
                 .collect(),
         );
