@@ -1508,6 +1508,9 @@ export component ProfileEditorDialog inherits Rectangle {
     property <color> ink2: root.themed ? ProfileTheme.ink2(root.theme-light) : Theme.secondary;
     property <color> ink3: root.themed ? ProfileTheme.ink3(root.theme-light) : Theme.muted;
     property <color> plate: root.themed ? root.card-top : Theme.sidebar;
+    /// The status thought, white on a light theme as on the card.
+    property <color> bubble: !root.themed ? Theme.raised : root.theme-light ? #ffffff : #232427;
+    property <color> bubble-edge: !root.themed ? Theme.edge : root.theme-light ? #00000026 : #404044;
     callback copy-id;
     callback open-wishlist;
     callback choose-tag(string);
@@ -1693,28 +1696,28 @@ export component ProfileEditorDialog inherits Rectangle {
                                     // What you're up to, a thought beside the picture.
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 14px; y: 38px; width: 10px; height: 10px; border-radius: 5px;
-                                        background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+                                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                     }
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 28px; y: 45px; width: 20px; height: 20px; border-radius: 10px;
-                                        background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+                                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                     }
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 18px; y: 53px;
                                         width: min(180px, thought.preferred-width + 26px);
                                         height: thought.preferred-width > 154px ? 54px : 36px;
-                                        border-radius: 16px; background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+                                        border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                         accessible-role: button;
                                         accessible-label: root.has-status ? "Change custom status" : "Set a custom status";
                                         // The bump joins the bubble with no line between them.
-                                        Rectangle { x: 11px; y: 0px; width: 18px; height: 2px; background: Theme.raised; }
+                                        Rectangle { x: 11px; y: 0px; width: 18px; height: 2px; background: root.bubble; }
                                         VerticalLayout {
                                             alignment: center;
                                             padding-left: 13px; padding-right: 13px;
                                             thought := StatusText {
                                                 text: root.has-status ? root.status-text : "Set a custom status";
                                                 emoji-url: root.has-status ? root.status-emoji : "";
-                                                color: root.has-status ? Theme.text : Theme.secondary; font-size: 14px; wrap: word-wrap; max-height: 40px;
+                                                color: root.has-status ? root.ink : root.ink2; font-size: 14px; wrap: word-wrap; max-height: 40px;
                                             }
                                         }
                                         TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.edit-status(); } }
