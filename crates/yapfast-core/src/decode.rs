@@ -5,18 +5,20 @@
 //!
 //! A watched stream first asks the card's decoder, which leaves every picture
 //! in a graphics card texture and scales it to the tile on the card through
-//! native/d3d11dec.cc. Two decoders can be that one, and [`BACKENDS`] is the
-//! order [`Hardware::new`] tries them in: FFmpeg's own Direct3D 11 decoder
-//! (native/hwdec.c), which handles H264, HEVC and AV1 on any vendor's card, and
-//! Media Foundation's MFTs, kept beside it until a measured comparison says
-//! which wins. The software decoders above are what reads a stream the card's
-//! can't, so the picture a viewer sees is made either way.
+//! native/d3d11dec.cc: FFmpeg's own Direct3D 11 decoder (native/hwdec.c), which
+//! handles H264, HEVC and AV1 on any vendor's card. The software decoders above
+//! are what reads a stream the card's can't, so the picture a viewer sees is
+//! made either way.
+//!
+//! On Linux the card's decoder is FFmpeg's VA-API one (native/hwdec_vaapi.c),
+//! which leaves each picture in a surface on the card and exports it as a
+//! DMA-BUF the tile pass imports: the same pictures on the card, handed over
+//! the way Linux's window systems take them, and no copy on the way.
 //!
 //! Which decoder a stream gets is this module's to say, not the native
-//! shim's: [`Hardware::new`] opens the first backend that takes the codec,
-//! [`Live`] falls back to the software decoder when none does, and the
-//! keyframe wait and the software fallback after a card's failure are the same
-//! whichever backend ran.
+//! shim's: [`Hardware::new`] opens the card's decoder for the codec, [`Live`]
+//! falls back to the software decoder when it can't, and the keyframe wait and
+//! the software fallback after the card's failure are the same either way.
 
 use std::{
     ffi::{c_int, c_uchar, c_uint, c_void},
@@ -359,19 +361,8 @@ impl Drop for Decoder {
     }
 }
 
-/// The card's decoders, in the order [`Hardware::new`] tries them: FFmpeg's
-/// own Direct3D 11 decoder first, then Media Foundation's MFTs.
-///
-/// FFmpeg's comes first because it is the one path that decodes H264, HEVC and
-/// AV1 on any vendor's card, and because AV1 hardware
-/// decode through it needs no Microsoft AV1 Video Extension, which Media
-/// Foundation does and Windows 10 often lacks. Media Foundation stays beside
-/// it until a measured comparison at 1080p and 4K, a time to first picture
-/// and a driver reset say which is the winner; flipping the two is this line.
-#[cfg(d3d11dec)]
-const BACKENDS: [c_int; 2] = [1, 0];
-
-/// The card's decoder for a watched stream, which leaves every picture
+/// The card's decoder for a watched stream — FFmpeg's own Direct3D 11
+/// decoder, the one card decoder this build has — which leaves every picture
 /// in a texture on the graphics card and scales it to the tile there, through
 /// native/d3d11dec.cc.
 #[cfg(d3d11dec)]
@@ -382,14 +373,12 @@ pub struct Hardware {
 
 #[cfg(d3d11dec)]
 unsafe extern "C" {
-    /// A decoder from `backend` — 0 Media Foundation, 1 FFmpeg's d3d11va — for
-    /// `codec` (0 H264, 1 HEVC, 2 AV1), which opens around the size
-    /// given and settles the stream's own on its first frame; null when this
-    /// build or this machine has no such decoder. `device` is the
+    /// A decoder for `codec` (0 H264, 1 HEVC, 2 AV1), which opens around the
+    /// size given and settles the stream's own on its first frame; null when
+    /// this build or this machine has no such decoder. `device` is the
     /// `ID3D11Device` the pictures should live on, which the caller keeps
     /// alive, or null for one made here.
     fn yapfast_hwdec_new(
-        backend: c_int,
         codec: c_int,
         hint_width: c_int,
         hint_height: c_int,
@@ -426,60 +415,57 @@ unsafe extern "C" {
 
 #[cfg(d3d11dec)]
 impl Hardware {
-    /// The card's decoder for a stream of `codec`: the first backend in
-    /// [`BACKENDS`] that opens one, on any vendor's card. VP8 never has one —
-    /// no hardware decoder takes it — and the software decoder reads the rest.
+    /// The card's decoder for a stream of `codec`, on any vendor's card. VP8
+    /// never has one — no hardware decoder takes it — and the software decoder
+    /// reads the rest.
     pub fn new(codec: Codec) -> Result<Self> {
-        Self::new_on(std::ptr::null_mut(), codec)
+        // SAFETY: a null device asks for one of the decoder's own, which it
+        // makes and keeps.
+        unsafe { Self::open(std::ptr::null_mut(), codec) }
     }
 
     /// The card's decoder for a stream of `codec`, on `device` when the caller
     /// holds the `ID3D11Device` the encoder and the window already share, so a
     /// decoded picture is never copied between devices. Null asks for a device
     /// of the decoder's own.
-    pub fn new_on(device: *mut c_void, codec: Codec) -> Result<Self> {
+    ///
+    /// # Safety
+    /// `device`, when it isn't null, must be an `ID3D11Device` that outlives
+    /// every decoder opened from it.
+    pub unsafe fn new_on(device: *mut c_void, codec: Codec) -> Result<Self> {
+        // SAFETY: as the caller promised.
+        unsafe { Self::open(device, codec) }
+    }
+
+    /// The card's decoder for `codec` (0 H264, 1 HEVC, 2 AV1), decoding into a
+    /// texture on `device`. Only a stream the card takes no codec for — or one
+    /// its driver refuses, or one whose pictures the tile pass can't show —
+    /// comes back as the reason it couldn't, and it is the processor's then.
+    ///
+    /// # Safety
+    /// `device`, when it isn't null, must be an `ID3D11Device` that outlives
+    /// this decoder.
+    unsafe fn open(device: *mut c_void, codec: Codec) -> Result<Self> {
         let (which, what) = match codec {
             Codec::H264 => (0, "H264"),
             Codec::H265 => (1, "H265"),
             Codec::Av1 => (2, "AV1"),
             Codec::Vp8 => bail!("the graphics card has no VP8 decoder"),
         };
-        Self::open(device, which, what)
-    }
-
-    /// The first backend that opens a decoder for `which` (0 H264, 1 HEVC,
-    /// 2 AV1), all of them decoding into textures on `device`. `what` names the
-    /// codec in the error, whose reason is every backend's: the first says
-    /// what its decode would have needed — 10-bit pictures, a codec the build
-    /// has no decoder for — and Media Foundation's, after it, usually only
-    /// that the machine has no such MFT.
-    fn open(device: *mut c_void, which: c_int, what: &str) -> Result<Self> {
-        let mut reasons: Vec<String> = Vec::new();
-        for backend in BACKENDS {
-            // SAFETY: plain values; null means this backend or this machine
-            // has no decoder for the codec, and the reason is the shim's last
-            // error.
-            let raw = unsafe { yapfast_hwdec_new(backend, which, 0, 0, device) };
-            if !raw.is_null() {
-                return Ok(Self { raw, size: (0, 0) });
-            }
-            // SAFETY: the null decoder is what `error` reads the reason off.
-            let reason = unsafe { message(yapfast_hwdec_error(std::ptr::null())) };
-            // A backend that failed before it could say why is no reason to
-            // quote an empty one.
-            let reason = if reason.is_empty() {
-                "the machine gave no reason".to_owned()
-            } else {
-                reason
-            };
-            if !reasons.contains(&reason) {
-                reasons.push(reason);
-            }
+        // SAFETY: plain values; null means this build or this machine has no
+        // decoder for the codec, and the reason is the shim's last error.
+        let raw = unsafe { yapfast_hwdec_new(which, 0, 0, device) };
+        if !raw.is_null() {
+            return Ok(Self { raw, size: (0, 0) });
         }
-        if reasons.is_empty() {
+        // SAFETY: the null decoder is what `error` reads the reason off.
+        let reason = unsafe { message(yapfast_hwdec_error(std::ptr::null())) };
+        // A decoder that failed before it could say why is no reason to quote
+        // an empty one.
+        if reason.is_empty() {
             bail!("no {what} hardware decoder: the machine gave no reason")
         }
-        bail!("no {what} hardware decoder: {}", reasons.join("; "))
+        bail!("no {what} hardware decoder: {reason}")
     }
 
     /// The size of the newest picture, as the decoder made it.
@@ -582,8 +568,8 @@ impl Hardware {
 ///
 /// # Safety
 /// `text` must be null or a C string the shim keeps alive for the call that
-/// asked for it, as `yapfast_hwdec_error`'s is.
-#[cfg(d3d11dec)]
+/// asked for it, as `yapfast_hwdec_error`'s and `yapfast_vadec_error`'s are.
+#[cfg(any(d3d11dec, vaapidec, test))]
 unsafe fn message(text: *const c_uchar) -> String {
     if text.is_null() {
         return "the machine gave no reason".into();
@@ -622,13 +608,560 @@ pub struct Planes {
     pub v: Vec<u8>,
 }
 
+/// The card's decoder on Linux, the twin of the Direct3D 11 one above:
+/// FFmpeg's VA-API decoder, through native/hwdec_vaapi.c, which leaves each
+/// picture in a surface on the card and exports it as a DMA-BUF that the tile
+/// pass imports.
+///
+/// Compiled where this build's FFmpeg was configured to decode on the card —
+/// `cfg(vaapidec)`, which build.rs reads out of that FFmpeg's configure — and
+/// in a test build anywhere, where everything that needs no driver is tried: a
+/// codec the card has no decoder for, and the descriptor a picture is exported
+/// as.
+#[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, test)))]
+mod vaapi {
+    use std::{
+        ffi::{c_int, c_uchar, c_void},
+        os::fd::RawFd,
+        ptr,
+    };
+
+    use anyhow::{Result, bail};
+    use yapfast_discord::rtp::Codec;
+
+    use crate::dmabuf::{Descriptor, MAX_PLANES, Plane};
+
+    use super::message;
+
+    #[repr(C)]
+    pub(super) struct Raw {
+        _private: [u8; 0],
+    }
+
+    /// One plane of a picture's DMA-BUF, as native/hwdec_vaapi.h describes it:
+    /// the buffer holding it, where the plane starts in it, how far apart its
+    /// rows are, and the buffer's size.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(super) struct RawPlane {
+        /// The buffer's descriptor, which the decoder keeps open until its next
+        /// picture, its release, or its drop.
+        pub fd: c_int,
+        pub offset: u32,
+        pub stride: u32,
+        pub size: u64,
+        pub modifier: u64,
+    }
+
+    /// The picture a decoder exported, as native/hwdec_vaapi.h describes it: C
+    /// values, so that the shim is in no Rust type's debt.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default)]
+    pub(super) struct RawPicture {
+        pub width: c_int,
+        pub height: c_int,
+        pub fourcc: u32,
+        pub nb_planes: u32,
+        pub plane: [RawPlane; MAX_PLANES],
+    }
+
+    unsafe extern "C" {
+        /// A decoder for `codec` (0 H264, 1 HEVC, 2 AV1), on `device` — a
+        /// render node — or, for null, the device FFmpeg finds; null when this
+        /// build or this machine has no such decoder, and the reason is
+        /// `yapfast_vadec_error(NULL)`.
+        fn yapfast_vadec_new(
+            codec: c_int,
+            hint_width: c_int,
+            hint_height: c_int,
+            device: *const c_uchar,
+        ) -> *mut Raw;
+        /// 1 a picture is ready and exported, 0 the frame was kept for the
+        /// pictures after it, -2 the stream's pictures aren't ones the tile
+        /// pass shows, and any other negative number that it wasn't decoded.
+        fn yapfast_vadec_decode(
+            decoder: *mut Raw,
+            data: *const c_uchar,
+            size: usize,
+            keyframe: c_int,
+        ) -> c_int;
+        fn yapfast_vadec_picture(decoder: *mut Raw, picture: *mut RawPicture) -> c_int;
+        fn yapfast_vadec_release(decoder: *mut Raw);
+        fn yapfast_vadec_error(decoder: *const Raw) -> *const c_uchar;
+        fn yapfast_vadec_free(decoder: *mut Raw);
+        /// [`Hardware::decode`]'s descriptor reading, without a decoder: `drm`
+        /// is the `AVDRMFrameDescriptor` a DRM PRIME frame's `data[0]` points
+        /// at, which a test builds.
+        fn yapfast_vadec_describe(
+            drm: *const c_void,
+            picture: *mut RawPicture,
+            error: *mut c_uchar,
+            error_size: usize,
+        ) -> c_int;
+    }
+
+    /// The newest picture, in the arrays a [`Descriptor`] borrows: its places
+    /// and the descriptor holding each, which are the decoder's until it lets
+    /// go of the picture.
+    #[derive(Clone, Copy, Debug)]
+    struct Picture {
+        width: u32,
+        height: u32,
+        fourcc: u32,
+        modifier: u64,
+        nb_planes: usize,
+        planes: [Plane; MAX_PLANES],
+        fds: [RawFd; MAX_PLANES],
+    }
+
+    impl Picture {
+        /// The shim's picture, in the shape the frames channel speaks: one
+        /// modifier for the buffer, since a picture whose planes would be
+        /// separate buffers is refused before it gets here.
+        fn of(raw: &RawPicture) -> Self {
+            let nb_planes = (raw.nb_planes as usize).min(MAX_PLANES);
+            let mut planes = [Plane::default(); MAX_PLANES];
+            let mut fds = [0; MAX_PLANES];
+            for (index, plane) in raw.plane.iter().take(nb_planes).enumerate() {
+                planes[index] = Plane {
+                    offset: plane.offset,
+                    stride: plane.stride,
+                };
+                fds[index] = plane.fd;
+            }
+            Self {
+                width: raw.width as u32,
+                height: raw.height as u32,
+                fourcc: raw.fourcc,
+                modifier: raw.plane.first().map_or(0, |plane| plane.modifier),
+                nb_planes,
+                planes,
+                fds,
+            }
+        }
+
+        fn descriptor(&self) -> Descriptor<'_> {
+            Descriptor {
+                width: self.width,
+                height: self.height,
+                fourcc: self.fourcc,
+                modifier: self.modifier,
+                planes: &self.planes[..self.nb_planes],
+                fds: &self.fds[..self.nb_planes],
+            }
+        }
+    }
+
+    /// The card's VA-API decoder for one watched stream: a picture in a surface
+    /// on the card, exported as a DMA-BUF and never read by the processor.
+    pub struct Hardware {
+        raw: *mut Raw,
+        /// The newest picture, while the decoder holds it: none until the
+        /// stream's first picture, and none after it is released.
+        picture: Option<Picture>,
+    }
+
+    // SAFETY: one thread uses a decoder at a time, since `Frame::Hardware`
+    // holds it mutably, so moving one between threads is sound and using one
+    // from two at once is not.
+    unsafe impl Send for Hardware {}
+
+    impl Hardware {
+        /// The card's decoder for `codec`, on the VA-API device the machine
+        /// has: FFmpeg tries each render node for one whose libva driver
+        /// initialises, with the driver `LIBVA_DRIVER_NAME` names if it names
+        /// one. VP8 never has one — no hardware decoder takes it — and the
+        /// software decoder reads the rest.
+        pub fn new(codec: Codec) -> Result<Self> {
+            let (which, what) = match codec {
+                Codec::H264 => (0, "H264"),
+                Codec::H265 => (1, "H265"),
+                Codec::Av1 => (2, "AV1"),
+                Codec::Vp8 => bail!("the graphics card has no VP8 decoder"),
+            };
+            // SAFETY: plain values, and the null device is one FFmpeg finds and
+            // keeps for the decoder.
+            let raw = unsafe { yapfast_vadec_new(which, 0, 0, ptr::null()) };
+            if raw.is_null() {
+                // SAFETY: the null decoder is what `error` reads the reason off.
+                let reason = unsafe { message(yapfast_vadec_error(ptr::null())) };
+                // A decoder that failed before it could say why is no reason to
+                // quote an empty one.
+                if reason.is_empty() {
+                    bail!("no {what} hardware decoder: the machine gave no reason")
+                }
+                bail!("no {what} hardware decoder: {reason}")
+            }
+            Ok(Self { raw, picture: None })
+        }
+
+        /// The newest picture's size, as the decoder made it: (0, 0) until the
+        /// stream's first picture.
+        pub fn size(&self) -> (u32, u32) {
+            self.picture
+                .map_or((0, 0), |picture| (picture.width, picture.height))
+        }
+
+        /// Feeds one whole frame and exports the newest picture, which
+        /// [`Self::dmabuf`] hands over. True says there is one, false that the
+        /// decoder kept the frame for the pictures after it. A picture the tile
+        /// pass can't show — a 10-bit one, or a layout no NV12 export has — is
+        /// refused here, before any surface is made of it, with the reason.
+        pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<bool> {
+            // The picture from the call before goes back to the card as the new
+            // one is made: the caller has had it.
+            self.picture = None;
+            // SAFETY: the frame outlives the call, and one thread uses the
+            // decoder at a time.
+            let decoded = unsafe {
+                yapfast_vadec_decode(self.raw, frame.as_ptr(), frame.len(), keyframe as c_int)
+            };
+            if decoded < 0 {
+                // SAFETY: the decoder is this one's, alive for as long as it is.
+                bail!("the graphics card wouldn't decode a frame: {}", unsafe {
+                    message(yapfast_vadec_error(self.raw))
+                });
+            }
+            if decoded == 0 {
+                return Ok(false);
+            }
+            let mut raw = RawPicture::default();
+            // SAFETY: the decoder holds the picture its last decode exported,
+            // and one thread uses the decoder at a time.
+            if unsafe { yapfast_vadec_picture(self.raw, &mut raw) } != 0 {
+                // SAFETY: the decoder is this one's, alive for as long as it is.
+                bail!("the picture wasn't readable as a DMA-BUF: {}", unsafe {
+                    message(yapfast_vadec_error(self.raw))
+                });
+            }
+            if raw.width <= 0 || raw.height <= 0 {
+                bail!("the graphics card gave a picture with no size");
+            }
+            self.picture = Some(Picture::of(&raw));
+            Ok(true)
+        }
+
+        /// The newest picture as the DMA-BUF descriptor the frames channel
+        /// carries, while the decoder holds it: after [`Self::release`], the
+        /// next picture or the decoder's drop, its descriptors are closed.
+        pub fn dmabuf(&self) -> Option<Descriptor<'_>> {
+            self.picture.as_ref().map(Picture::descriptor)
+        }
+
+        /// Says the caller is done with the newest picture: its descriptors are
+        /// closed and its surface goes back to the card, once. Asking again
+        /// asks about a picture that is already gone, and closes nothing twice.
+        pub fn release(&mut self) {
+            self.picture = None;
+            // SAFETY: the decoder is this one's, and releasing a picture that is
+            // already gone releases nothing.
+            unsafe { yapfast_vadec_release(self.raw) };
+        }
+    }
+
+    impl Drop for Hardware {
+        fn drop(&mut self) {
+            // SAFETY: raw came from the constructor `free` belongs with, and is
+            // freed once.
+            unsafe { yapfast_vadec_free(self.raw) };
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// FFmpeg's AVDRMFrameDescriptor, exactly as libavutil/hwcontext_drm.h
+        /// declares it: what a DRM PRIME frame's `data[0]` points at, built here
+        /// so that the shapes a driver exports are tried without a driver.
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct Object {
+            fd: c_int,
+            size: u64,
+            format_modifier: u64,
+        }
+
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct PlaneDescriptor {
+            object_index: c_int,
+            offset: isize,
+            pitch: isize,
+        }
+
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct Layer {
+            format: u32,
+            nb_planes: c_int,
+            planes: [PlaneDescriptor; MAX_PLANES],
+        }
+
+        #[repr(C)]
+        struct Drim {
+            nb_objects: c_int,
+            objects: [Object; MAX_PLANES],
+            nb_layers: c_int,
+            layers: [Layer; MAX_PLANES],
+        }
+
+        /// DRM's fourcc for the format a picture is exported as, and for the
+        /// layers libva splits it into.
+        const NV12: u32 = 0x3231_564e;
+        const R8: u32 = 0x2020_3852;
+        const GR88: u32 = 0x3838_5247;
+        const P010: u32 = 0x3031_3050;
+        /// The modifier a buffer a driver exports without one has: linear.
+        const LINEAR: u64 = 0;
+        /// The one buffer of a 1080p NV12 picture, its size and its descriptor
+        /// as the kernel hands it over.
+        const FD: c_int = 7;
+        const SIZE: u64 = 1_382_400;
+        const LUMA_STRIDE: isize = 1920;
+        const CHROMA_OFFSET: isize = 2_073_600;
+
+        fn place(object_index: c_int, offset: isize, pitch: isize) -> PlaneDescriptor {
+            PlaneDescriptor {
+                object_index,
+                offset,
+                pitch,
+            }
+        }
+
+        fn layer(format: u32, nb_planes: c_int, planes: [PlaneDescriptor; MAX_PLANES]) -> Layer {
+            Layer {
+                format,
+                nb_planes,
+                planes,
+            }
+        }
+
+        /// One NV12 layer of two planes, which is what Mesa's drivers export.
+        fn nv12_layer() -> Drim {
+            Drim {
+                nb_objects: 1,
+                objects: [
+                    Object {
+                        fd: FD,
+                        size: SIZE,
+                        format_modifier: LINEAR,
+                    },
+                    Object {
+                        fd: -1,
+                        size: 0,
+                        format_modifier: 0,
+                    },
+                    Object {
+                        fd: -1,
+                        size: 0,
+                        format_modifier: 0,
+                    },
+                    Object {
+                        fd: -1,
+                        size: 0,
+                        format_modifier: 0,
+                    },
+                ],
+                nb_layers: 1,
+                layers: [
+                    layer(
+                        NV12,
+                        2,
+                        [
+                            place(0, 0, LUMA_STRIDE),
+                            place(0, CHROMA_OFFSET, LUMA_STRIDE),
+                            place(0, 0, 0),
+                            place(0, 0, 0),
+                        ],
+                    ),
+                    layer(NV12, 0, [place(0, 0, 0); MAX_PLANES]),
+                    layer(NV12, 0, [place(0, 0, 0); MAX_PLANES]),
+                    layer(NV12, 0, [place(0, 0, 0); MAX_PLANES]),
+                ],
+            }
+        }
+
+        /// What the shim makes of a descriptor a driver could hand over, and
+        /// why, when it makes nothing of it.
+        fn describe(drm: &Drim) -> Result<Picture, String> {
+            let mut raw = RawPicture::default();
+            let mut error = [0 as c_uchar; 256];
+            // SAFETY: `drm` is laid out as FFmpeg's AVDRMFrameDescriptor, which
+            // is what the shim reads, and the error buffer is one C string wide.
+            let described = unsafe {
+                yapfast_vadec_describe(
+                    drm as *const Drim as *const c_void,
+                    &mut raw,
+                    error.as_mut_ptr(),
+                    error.len(),
+                )
+            };
+            if described != 0 {
+                let text = String::from_utf8_lossy(&error);
+                return Err(text.trim_end_matches('\0').to_owned());
+            }
+            Ok(Picture::of(&raw))
+        }
+
+        /// A picture libva exports as one NV12 layer of two planes is the
+        /// buffer the tile pass imports, its planes' offsets and strides taken
+        /// as they were exported, and both of them the one descriptor.
+        #[test]
+        fn a_picture_is_the_buffer_the_tile_pass_imports() {
+            let picture = describe(&nv12_layer()).expect("one NV12 layer of two planes");
+            assert_eq!(picture.fourcc, NV12);
+            assert_eq!(picture.nb_planes, 2, "luma and chroma");
+            assert_eq!(
+                (picture.width, picture.height),
+                (0, 0),
+                "the shim says the size"
+            );
+            assert_eq!(
+                (picture.planes[0].offset, picture.planes[0].stride),
+                (0, LUMA_STRIDE as u32)
+            );
+            assert_eq!(
+                (picture.planes[1].offset, picture.planes[1].stride),
+                (CHROMA_OFFSET as u32, LUMA_STRIDE as u32)
+            );
+            assert_eq!(
+                picture.fds[..2],
+                [FD, FD],
+                "both planes are one buffer, which the frames channel carries as one modifier"
+            );
+            assert_eq!(picture.modifier, LINEAR);
+            let descriptor = picture.descriptor();
+            assert_eq!(descriptor.planes.len(), 2);
+            assert_eq!(descriptor.fds.len(), 2);
+            assert_eq!(descriptor.fourcc, NV12);
+        }
+
+        /// libva's other export of the same picture: an R8 layer and a GR88
+        /// one, a plane each. Both are the one NV12 the tile pass shows, and a
+        /// reader that knew only the first shape would refuse a working card.
+        #[test]
+        fn separate_plane_layers_are_one_picture() {
+            let mut drm = nv12_layer();
+            drm.nb_layers = 2;
+            drm.layers[0] = layer(R8, 1, [place(0, 0, LUMA_STRIDE); MAX_PLANES]);
+            drm.layers[1] = layer(GR88, 1, [place(0, CHROMA_OFFSET, LUMA_STRIDE); MAX_PLANES]);
+            let picture = describe(&drm).expect("an R8 layer and a GR88 one");
+            assert_eq!(picture.fourcc, NV12);
+            assert_eq!(picture.nb_planes, 2);
+            assert_eq!(
+                (picture.planes[0].offset, picture.planes[1].offset),
+                (0, CHROMA_OFFSET as u32)
+            );
+            assert_eq!(picture.fds[..2], [FD, FD]);
+        }
+
+        /// A picture the tile pass can't show is refused with the reason,
+        /// before anything is imported: a 10-bit stream's P010 surface, a 4:4:4
+        /// one's three layers, and a picture in two buffers, which the frames
+        /// channel has one modifier's room for.
+        #[test]
+        fn a_picture_the_tile_pass_can_t_show_is_refused() {
+            let mut ten_bit = nv12_layer();
+            ten_bit.layers[0].format = P010;
+            let reason = describe(&ten_bit).expect_err("P010 isn't NV12");
+            assert!(
+                reason.contains("P010"),
+                "the reason names the format: {reason}"
+            );
+
+            let mut four_four_four = nv12_layer();
+            four_four_four.nb_layers = 3;
+            for index in 0..3 {
+                four_four_four.layers[index] = layer(R8, 1, [place(0, 0, LUMA_STRIDE); MAX_PLANES]);
+            }
+            let reason = describe(&four_four_four).expect_err("three layers aren't NV12");
+            assert!(
+                reason.contains("3 layers"),
+                "the reason says what it was: {reason}"
+            );
+
+            let mut two_buffers = nv12_layer();
+            two_buffers.nb_objects = 2;
+            two_buffers.objects[1] = Object {
+                fd: 8,
+                size: SIZE,
+                format_modifier: LINEAR,
+            };
+            two_buffers.layers[0].planes[1] = place(1, 0, LUMA_STRIDE);
+            let reason = describe(&two_buffers).expect_err("two buffers, one modifier");
+            assert!(
+                reason.contains("different buffers"),
+                "the reason says what it was: {reason}"
+            );
+
+            let mut nothing = nv12_layer();
+            nothing.nb_layers = 0;
+            assert!(describe(&nothing).is_err(), "a picture with nothing in it");
+        }
+
+        /// A codec the card has no decoder for — VP8, which no hardware decoder
+        /// takes — is a reason and not a watch that ends.
+        #[test]
+        fn a_codec_the_card_has_no_decoder_for_says_so() {
+            let Err(reason) = Hardware::new(Codec::Vp8) else {
+                panic!("no card decodes VP8")
+            };
+            assert_eq!(
+                format!("{reason:#}"),
+                "the graphics card has no VP8 decoder"
+            );
+        }
+
+        /// Opening the card's decoder either gives one — a machine whose driver
+        /// takes a session — or says why it didn't, in the shim's words, so that
+        /// a stream read on the processor is never one nobody explained.
+        #[test]
+        fn the_card_decoder_is_opened_or_the_reason_is_said() {
+            for (codec, what) in [
+                (Codec::H264, "H264"),
+                (Codec::H265, "H265"),
+                (Codec::Av1, "AV1"),
+            ] {
+                match Hardware::new(codec) {
+                    Ok(mut hardware) => {
+                        eprintln!("this machine's card decodes {what}");
+                        assert_eq!(hardware.size(), (0, 0), "no picture before a frame");
+                        assert!(hardware.dmabuf().is_none());
+                        hardware.release();
+                    }
+                    Err(reason) => {
+                        let reason = format!("{reason:#}");
+                        assert!(
+                            reason.starts_with(&format!("no {what} hardware decoder: ")),
+                            "a refusal says which decoder and why: {reason}"
+                        );
+                        assert!(
+                            !reason.ends_with("the machine gave no reason"),
+                            "the shim says why: {reason}"
+                        );
+                        eprintln!("{codec:?} isn't decoded on this machine's card: {reason}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The card's decoder, as [`Live`] and [`Frame`] name it: the Direct3D 11 one
+/// on Windows and the VA-API one on Linux, which are never in one build. A
+/// build with neither names neither.
+#[cfg(all(target_os = "linux", not(d3d11dec), vaapidec))]
+pub use vaapi::Hardware;
+
 /// A picture decoded for a watched stream, and where it lies: in the software
-/// decoder's planes, which the processor reads and converts, or in the texture
-/// the machine's decoder left it in, which the graphics card scales into the
-/// tile.
+/// decoder's planes, which the processor reads and converts, or on the
+/// graphics card — in the texture the Direct3D 11 decoder left it in, which the
+/// card scales into the tile, or, on Linux, in the DMA-BUF the VA-API decoder
+/// exported it as, which the tile pass imports.
 pub enum Frame<'a> {
     Software(Picture<'a>),
-    #[cfg(d3d11dec)]
+    #[cfg(any(d3d11dec, vaapidec))]
     Hardware(&'a mut Hardware),
 }
 
@@ -637,7 +1170,7 @@ impl Frame<'_> {
     pub fn size(&self) -> (u32, u32) {
         match self {
             Frame::Software(picture) => (picture.width, picture.height),
-            #[cfg(d3d11dec)]
+            #[cfg(any(d3d11dec, vaapidec))]
             Frame::Hardware(hardware) => hardware.size(),
         }
     }
@@ -650,7 +1183,7 @@ impl Frame<'_> {
 /// and the stream is shown the same way either way.
 pub struct Live {
     codec: Codec,
-    #[cfg(d3d11dec)]
+    #[cfg(any(d3d11dec, vaapidec))]
     hardware: Option<Hardware>,
     software: Option<Decoder>,
 }
@@ -660,32 +1193,56 @@ impl Live {
     /// machine has one that takes the codec and this build's fallback where it
     /// hasn't.
     pub fn new(codec: Codec) -> Result<Self> {
-        Self::new_on(std::ptr::null_mut(), codec)
+        Self::on_codec(std::ptr::null_mut(), codec)
     }
 
     /// A decoder for a newly watched stream, on `device` when the caller holds
     /// the `ID3D11Device` the encoder and the window already share: the same
-    /// pictures the watch shows, decoded where they are shown. The first
-    /// backend in [`BACKENDS`] that takes the codec is the one that reads the
-    /// stream, and the software decoder is the fallback when none does.
-    pub fn new_on(device: *mut c_void, codec: Codec) -> Result<Self> {
-        // Only the card's path reads the device; without one this is the
-        // software decoder alone.
+    /// pictures the watch shows, decoded where they are shown. The card's
+    /// decoder is what reads the stream when it takes the codec, and the
+    /// software decoder is the fallback when it doesn't.
+    ///
+    /// # Safety
+    /// `device`, when it isn't null, must be an `ID3D11Device` that outlives
+    /// this decoder.
+    pub unsafe fn new_on(device: *mut c_void, codec: Codec) -> Result<Self> {
+        Self::on_codec(device, codec)
+    }
+
+    /// [`Self::new_on`], without the safety the caller carries from here on.
+    fn on_codec(device: *mut c_void, codec: Codec) -> Result<Self> {
+        #[cfg(not(any(d3d11dec, vaapidec)))]
         let _ = device;
-        #[cfg(d3d11dec)]
-        match Hardware::new_on(device, codec) {
-            Ok(hardware) => {
-                return Ok(Self {
-                    codec,
-                    hardware: Some(hardware),
-                    software: None,
-                });
+        #[cfg(any(d3d11dec, vaapidec))]
+        {
+            // SAFETY: the device outlives every decoder made from it, as
+            // `new_on` promises and `Live::new` has none.
+            #[cfg(d3d11dec)]
+            let opened = unsafe { Hardware::open(device, codec) };
+            // Linux's decoder opens the VA-API device itself — the render node
+            // the machine has, whose driver `LIBVA_DRIVER_NAME` names if it
+            // names one — and exports the surfaces it decodes into, so it takes
+            // no device of the caller's: a picture is imported by whoever shows
+            // it rather than made on the window's own.
+            #[cfg(not(d3d11dec))]
+            let opened = {
+                let _ = device;
+                Hardware::new(codec)
+            };
+            match opened {
+                Ok(hardware) => {
+                    return Ok(Self {
+                        codec,
+                        hardware: Some(hardware),
+                        software: None,
+                    });
+                }
+                Err(error) => tracing::info!(
+                    error = format!("{error:#}"),
+                    codec = ?codec,
+                    "watching this stream with the software decoder"
+                ),
             }
-            Err(error) => tracing::info!(
-                error = format!("{error:#}"),
-                codec = ?codec,
-                "watching this stream with the software decoder"
-            ),
         }
         Self::software(codec)
     }
@@ -695,7 +1252,7 @@ impl Live {
     pub fn software(codec: Codec) -> Result<Self> {
         Ok(Self {
             codec,
-            #[cfg(d3d11dec)]
+            #[cfg(any(d3d11dec, vaapidec))]
             hardware: None,
             software: Some(Decoder::new(codec)?),
         })
@@ -707,14 +1264,14 @@ impl Live {
 
     /// Whether the machine's decoder is the one reading this stream, rather
     /// than the software one.
-    #[cfg(d3d11dec)]
+    #[cfg(any(d3d11dec, vaapidec))]
     pub fn on_the_card(&self) -> bool {
         self.hardware.is_some()
     }
 
     /// Whether the machine's decoder is the one reading this stream, rather
     /// than the software one.
-    #[cfg(not(d3d11dec))]
+    #[cfg(not(any(d3d11dec, vaapidec)))]
     pub fn on_the_card(&self) -> bool {
         false
     }
@@ -726,9 +1283,9 @@ impl Live {
     /// says so: the caller waits for a keyframe, and the software decoder takes
     /// the stream from there.
     // `keyframe` is what a machine decoder is told; software doesn't need it.
-    #[cfg_attr(not(d3d11dec), allow(unused_variables))]
+    #[cfg_attr(not(any(d3d11dec, vaapidec)), allow(unused_variables))]
     pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<Option<Frame<'_>>> {
-        #[cfg(d3d11dec)]
+        #[cfg(any(d3d11dec, vaapidec))]
         if let Some(mut hardware) = self.hardware.take() {
             match hardware.decode(frame, keyframe) {
                 Ok(true) => {
@@ -745,6 +1302,10 @@ impl Live {
                         codec = ?self.codec,
                         "the graphics card gave up on a stream"
                     );
+                    // The card's decoder is dropped rather than asked again:
+                    // it read the stream as far as it could, and the error
+                    // tells the caller to wait for a keyframe, at which the
+                    // software decoder starts on the stream.
                     self.hardware = None;
                     return Err(error);
                 }
@@ -924,6 +1485,52 @@ mod tests {
             }
             _ => panic!("the card decoded a keyframe and gave no picture"),
         }
+    }
+
+    /// A stream the card can decode is decoded there, and its newest picture
+    /// exported as the DMA-BUF the tile pass would import: the path a viewer's
+    /// frame takes where the driver takes a session. A machine whose driver or
+    /// whose FFmpeg can't says so, and the stream stays with the software
+    /// decoder either way.
+    #[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, test)))]
+    #[test]
+    fn a_stream_the_card_can_decode_is_a_buffer_on_the_card() {
+        let mut hardware = match vaapi::Hardware::new(Codec::H264) {
+            Ok(hardware) => hardware,
+            Err(reason) => {
+                eprintln!("this machine's card didn't decode H264: {reason:#}");
+                return;
+            }
+        };
+        let stream = fixture("stream-h264.h264");
+        let unit = first_unit(&stream, 9);
+        // A keyframe's picture is there once the decoder has read the unit, and
+        // the same unit read again is the same picture for a decoder that held
+        // the first one.
+        let ready = matches!(hardware.decode(unit, true), Ok(true))
+            || matches!(hardware.decode(unit, true), Ok(true));
+        if !ready {
+            eprintln!("the card wasn't given a keyframe this decoder shows");
+            return;
+        }
+        assert_eq!(
+            hardware.size(),
+            (320, 180),
+            "the stream's own size, without the padded surface"
+        );
+        let buffer = hardware.dmabuf().expect("a picture was exported");
+        assert_eq!((buffer.width, buffer.height), (320, 180));
+        assert_eq!(buffer.fourcc, 0x3231_564e, "'NV12', as DRM names it");
+        assert_eq!(buffer.planes.len(), 2, "luma and chroma");
+        assert!(buffer.planes.iter().all(|plane| plane.stride >= 320));
+        assert!(
+            buffer.fds.iter().all(|fd| *fd >= 0),
+            "the picture's own descriptors"
+        );
+        // The caller says it is done: the descriptors are the decoder's from
+        // then, and no picture is handed out until the next one.
+        hardware.release();
+        assert!(hardware.dmabuf().is_none());
     }
 
     /// The process's own kernel and user time, in milliseconds, as the

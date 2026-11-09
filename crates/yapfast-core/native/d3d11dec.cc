@@ -1,19 +1,19 @@
-// Guilding a watched stream's frames on the graphics card: a decoder that
-// leaves every picture in a D3D11 texture, and a video processor pass that
-// does the colour matrix, the range and the scale to the tile in one go, so
-// only the tile is ordered back to the processor. See `decode.rs` for how a
-// stream falls back to the software decoders when any of this isn't there.
+// Shading a watched stream's frames on the graphics card: FFmpeg's own
+// Direct3D 11 decoder (native/hwdec.c) leaves every picture in a D3D11
+// texture on the device the encoder and the window share, and a video
+// processor pass does the colour matrix, the range and the scale to the tile
+// in one go, so only the tile is ordered back to the processor. FFmpeg's
+// decoder is the card's one decoder here, and the codecs it takes are the
+// ones Discord's streams are coded with. See `decode.rs` for how a stream
+// falls back to the software decoders when any of this isn't there.
 //
-// Two decoders leave pictures here, chosen by the `backend` decode.rs opens
-// with: FFmpeg's own Direct3D 11 decoder (native/hwdec.c), which handles H264,
-// HEVC, AV1 and VP9 on any vendor's card, and Media Foundation's MFTs, kept
-// beside it until a measured comparison says which is the winner. Both decode
-// into a texture on the same device, and everything below the decode — the
-// device, the video processor, the tile slots and their readback — is theirs
-// in common.
+// Everything below the decode — the device, the video processor, the tile
+// slots and their readback — reads the picture FFmpeg's decoder leaves, and
+// none of it wants a COM apartment or Media Foundation started: the decoder
+// is handed the device and reads the access unit, as native/hwdec.c does.
 //
-// C++, because Media Foundation's interfaces are handed over through COM's
-// C++ vtables here while the rest of native/ is C.
+// C++, because the Direct3D 11 interfaces below are used through their C++
+// vtables here while the rest of native/ is C.
 
 // This file is compiled only for Windows, where the SDK headers below
 // exist; built anywhere else it is an empty unit rather than a file no
@@ -25,9 +25,6 @@
 #include <d3d11.h>
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
-#include <mfapi.h>
-#include <mferror.h>
-#include <mfidl.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -39,53 +36,26 @@ extern "C" {
 #include "hwdec.h"
 }
 
-// The video processor's content and colour-space descriptions, and the
-// decoder's output type, are made for one picture and one tile; a stream that
-// changes either makes them again.
+// The video processor's content and colour-space descriptions are made for one
+// picture and one tile; a stream that changes either makes them again.
 //
-// The frame size a decoder is opened with is only a hint: the first frame's
-// sequence header says the real one, and the decoder answers with a stream
-// change, which is how a tile smaller than the stream still decodes it whole
-// and scales it down on the card.
+// The frame size a decoder is opened with is only a hint: the stream's first
+// frame says the real one, and the surfaces are made for that, which is how a
+// tile smaller than the stream still decodes it whole and scales it down on
+// the card.
 namespace {
 
-constexpr int kH264 = 0;
-constexpr int kHevc = 1;
-constexpr int kAv1 = 2;
-
-// The decoders this file can open a stream with, as decode.rs numbers them:
-// Media Foundation is 0, which is what any backend that isn't FFmpeg's is.
-constexpr int kFfmpeg = 1;
-
-// A decoder opened at the size it's likely to be: the tile showing the stream,
-// never smaller than a stream is encoded at. Only the first frames are made at
-// this size — the stream's own sequence header replaces it before anything is
-// shown.
-constexpr UINT32 kMinHintWidth = 320;
-constexpr UINT32 kMinHintHeight = 180;
-
 struct Decoder {
-    int codec = kH264;
-    // This decoder initialized COM on the thread that calls it, and started
-    // Media Foundation, whose half of this file is the only part that wants
-    // either.
-    bool com = false;
-    bool media_foundation = false;
-
     ID3D11Device *device = nullptr;
     ID3D11DeviceContext *context = nullptr;
     ID3D11VideoDevice *video_device = nullptr;
     ID3D11VideoContext *video_context = nullptr;
     ID3D11VideoContext1 *video_context1 = nullptr;
-    IMFDXGIDeviceManager *manager = nullptr;
 
     // FFmpeg's own Direct3D 11 decoder, where this build has one: it decodes
     // into a texture on `device`, and the pass below turns a slice of it into
-    // the tile exactly as it turns Media Foundation's picture.
+    // the tile.
     struct yapfast_ffdec *ffdec = nullptr;
-
-    IMFTransform *decoder = nullptr;
-    IMFMediaType *output_type = nullptr;
 
     // The newest picture the decoder made, and what it is: a texture may hold
     // several pictures, one per subresource.
@@ -132,7 +102,6 @@ struct Decoder {
     // are R, G, B, A.
     bool swizzle = false;
 
-    int64_t time = 0;
     char error[256] = {0};
 };
 
@@ -160,128 +129,11 @@ void release_all(Decoder *decoder) {
     if (decoder->processor) decoder->processor->Release();
     if (decoder->enumerator) decoder->enumerator->Release();
     if (decoder->picture) decoder->picture->Release();
-    if (decoder->output_type) decoder->output_type->Release();
-    if (decoder->decoder) decoder->decoder->Release();
-    if (decoder->manager) decoder->manager->Release();
     if (decoder->video_context1) decoder->video_context1->Release();
     if (decoder->video_context) decoder->video_context->Release();
     if (decoder->video_device) decoder->video_device->Release();
     if (decoder->context) decoder->context->Release();
     if (decoder->device) decoder->device->Release();
-}
-
-const GUID &subtype_of(int codec) {
-    switch (codec) {
-        case kHevc:
-            return MFVideoFormat_HEVC;
-        case kAv1:
-            return MFVideoFormat_AV1;
-        default:
-            return MFVideoFormat_H264;
-    }
-}
-
-// The machine's decoder for this codec, chosen by what it says it takes: a
-// decoder that runs on the machine's own thread of events rather than
-// answering when asked is passed over, since a watched stream asks for its
-// picture as soon as the frame arrives and waits for none.
-IMFTransform *find_decoder(int codec) {
-    IMFActivate **activates = nullptr;
-    UINT32 count = 0;
-    if (FAILED(MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG_ALL, nullptr, nullptr, &activates, &count)))
-        return nullptr;
-    const GUID &wanted = subtype_of(codec);
-    IMFTransform *chosen = nullptr;
-    for (UINT32 i = 0; i < count && !chosen; ++i) {
-        UINT32 is_async = 0;
-        activates[i]->GetUINT32(MF_TRANSFORM_ASYNC, &is_async);
-        if (is_async) continue;
-        activates[i]->SetUINT32(MF_TRANSFORM_ASYNC_UNLOCK, TRUE);
-        IMFTransform *transform = nullptr;
-        if (FAILED(activates[i]->ActivateObject(IID_IMFTransform, reinterpret_cast<void **>(&transform))) || !transform)
-            continue;
-        for (DWORD k = 0;; ++k) {
-            IMFMediaType *type = nullptr;
-            if (FAILED(transform->GetInputAvailableType(0, k, &type))) break;
-            GUID subtype = {};
-            type->GetGUID(MF_MT_SUBTYPE, &subtype);
-            type->Release();
-            if (IsEqualGUID(subtype, wanted)) {
-                chosen = transform;
-                break;
-            }
-        }
-        if (!chosen) transform->Release();
-    }
-    for (UINT32 i = 0; i < count; ++i) activates[i]->Release();
-    CoTaskMemFree(activates);
-    return chosen;
-}
-
-// What the stream's own metadata says its pictures are, read off the type the
-// decoder settled on. Untagged 8-bit content is BT.601 limited, which is what
-// libyuv's conversion of the software path assumes and what the stream is
-// usually shown with today.
-void read_colour(Decoder *decoder, IMFMediaType *type) {
-    UINT32 matrix = 0;
-    if (SUCCEEDED(type->GetUINT32(MF_MT_YUV_MATRIX, &matrix))) {
-        decoder->bt709 = matrix == MFVideoTransferMatrix_BT709;
-        decoder->bt2020 = matrix == MFVideoTransferMatrix_BT2020_10 || matrix == MFVideoTransferMatrix_BT2020_12;
-    }
-    UINT32 range = 0;
-    if (SUCCEEDED(type->GetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, &range)))
-        decoder->full_range = range == MFNominalRange_0_255;
-    UINT32 transfer = 0;
-    if (SUCCEEDED(type->GetUINT32(MF_MT_TRANSFER_FUNCTION, &transfer)))
-        decoder->pq = transfer == MFVideoTransFunc_2084;
-}
-
-// Takes the type the decoder offers for a picture, which must be 8-bit NV12:
-// a 10- or 12-bit picture (P010) would have to be tonemapped to 8-bit SDR
-// before it could be shown, and this pass has no curve, so such a stream stays
-// on the software decoders, which already hand back SDR.
-bool settle_output(Decoder *decoder) {
-    IMFMediaType *type = nullptr;
-    HRESULT result = decoder->decoder->GetOutputAvailableType(0, 0, &type);
-    if (FAILED(result)) {
-        fail(decoder, "the decoder offered no picture type", result);
-        return false;
-    }
-    GUID subtype = {};
-    type->GetGUID(MF_MT_SUBTYPE, &subtype);
-    if (!IsEqualGUID(subtype, MFVideoFormat_NV12)) {
-        type->Release();
-        fail_text(decoder, "the decoder's picture is not 8-bit NV12");
-        return false;
-    }
-    result = decoder->decoder->SetOutputType(0, type, 0);
-    if (FAILED(result)) {
-        type->Release();
-        fail(decoder, "the decoder wouldn't take its own picture type", result);
-        return false;
-    }
-    if (decoder->output_type) decoder->output_type->Release();
-    decoder->output_type = type;
-    read_colour(decoder, type);
-    UINT32 width = 0;
-    UINT32 height = 0;
-    MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &width, &height);
-    decoder->width = static_cast<int>(width);
-    decoder->height = static_cast<int>(height);
-    // What of that surface is the picture: a decoder codes 180 lines in a 192
-    // line surface, and the rest is padding the picture is not. The decoder
-    // says which part, in the aperture its output type carries; a type that
-    // says nothing is taken whole.
-    decoder->visible = {0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
-    MFVideoArea area = {};
-    UINT32 got = 0;
-    if (SUCCEEDED(type->GetBlob(MF_MT_MINIMUM_DISPLAY_APERTURE, reinterpret_cast<UINT8 *>(&area), sizeof area, &got)) &&
-        area.Area.cx > 0 && area.Area.cy > 0) {
-        decoder->visible = {static_cast<LONG>(area.OffsetX.value), static_cast<LONG>(area.OffsetY.value),
-                            static_cast<LONG>(area.OffsetX.value) + static_cast<LONG>(area.Area.cx),
-                            static_cast<LONG>(area.OffsetY.value) + static_cast<LONG>(area.Area.cy)};
-    }
-    return true;
 }
 
 // The reason a decoder that never got made wasn't: there is no decoder to keep
@@ -294,8 +146,6 @@ Decoder *abandon(Decoder *decoder) {
     std::snprintf(g_error, sizeof g_error, "%s", decoder->error);
     if (decoder->ffdec) yapfast_ffdec_free(decoder->ffdec);
     release_all(decoder);
-    if (decoder->media_foundation) MFShutdown();
-    if (decoder->com) CoUninitialize();
     delete decoder;
     return nullptr;
 }
@@ -307,12 +157,12 @@ extern "C" {
 typedef Decoder yf_hwdec;
 
 // The machine's decoder for `codec` (0 H.264, 1 HEVC, 2 AV1), on the
-// graphics card, from `backend` (0 Media Foundation, 1 FFmpeg's d3d11va), on
-// `device` where the caller brought one — an ID3D11Device it keeps alive, the
-// encoder's and the window's, so nothing is copied between them — and on a
-// device made here where it didn't. Null when that decoder isn't on this
-// machine, and the reason is yapfast_hwdec_error(null).
-yf_hwdec *yapfast_hwdec_new(int backend, int codec, int hint_width, int hint_height, void *device);
+// graphics card, through FFmpeg's Direct3D 11 decoder, on `device` where the
+// caller brought one — an ID3D11Device it keeps alive, the encoder's and the
+// window's, so nothing is copied between them — and on a device made here
+// where it didn't. Null when that decoder isn't on this machine, and the
+// reason is yapfast_hwdec_error(null).
+yf_hwdec *yapfast_hwdec_new(int codec, int hint_width, int hint_height, void *device);
 // Feeds one whole frame. 1 says a picture is ready, 0 that the decoder kept
 // the frame for the pictures after it, -2 that the stream's pictures are ones
 // the tile pass can't show rather than a failure of the decoder, and -1 that it
@@ -472,64 +322,6 @@ bool build_processor(Decoder *decoder, int width, int height, int tile_width, in
     return true;
 }
 
-// Empty the decoder's queue, keeping the newest picture and dropping the ones
-// a live stream has no time to show.
-bool drain(Decoder *decoder, bool *produced) {
-    for (int guard = 0; guard < 32; ++guard) {
-        MFT_OUTPUT_DATA_BUFFER buffer = {};
-        DWORD status = 0;
-        HRESULT result = decoder->decoder->ProcessOutput(0, 1, &buffer, &status);
-        // The output buffer's event collection, if the decoder set one, is the
-        // caller's to release however the call answered: a stream change or a
-        // picture-less answer must not leave it behind, and the need-more-input
-        // return must not either.
-        if (buffer.pEvents) buffer.pEvents->Release();
-        if (result == MF_E_TRANSFORM_NEED_MORE_INPUT) return true;
-        if (result == MF_E_TRANSFORM_STREAM_CHANGE || result == MF_E_TRANSFORM_TYPE_NOT_SET) {
-            // The stream's sequence header says a size or a kind of picture
-            // other than the one it was opened with.
-            if (!settle_output(decoder)) return false;
-            if (decoder->processor) {
-                decoder->processor_width = 0;
-                decoder->processor_height = 0;
-            }
-            continue;
-        }
-        if (FAILED(result)) {
-            fail(decoder, "the decoder couldn't give its picture", result);
-            return false;
-        }
-        if (!buffer.pSample) continue;
-        IMFMediaBuffer *media = nullptr;
-        IMFDXGIBuffer *surface = nullptr;
-        if (SUCCEEDED(buffer.pSample->GetBufferByIndex(0, &media))) media->QueryInterface(IID_PPV_ARGS(&surface));
-        if (surface) {
-            IUnknown *resource = nullptr;
-            if (SUCCEEDED(surface->GetResource(__uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&resource)))) {
-                ID3D11Texture2D *texture = static_cast<ID3D11Texture2D *>(resource);
-                UINT slice = 0;
-                surface->GetSubresourceIndex(&slice);
-                if (decoder->picture != texture || decoder->picture_slice != slice) {
-                    if (decoder->picture) decoder->picture->Release();
-                    decoder->picture = texture;
-                    decoder->picture_slice = slice;
-                } else {
-                    texture->Release();
-                }
-                D3D11_TEXTURE2D_DESC description = {};
-                decoder->picture->GetDesc(&description);
-                decoder->width = static_cast<int>(description.Width);
-                decoder->height = static_cast<int>(description.Height);
-                *produced = true;
-            }
-            surface->Release();
-        }
-        if (media) media->Release();
-        buffer.pSample->Release();
-    }
-    return true;
-}
-
 }  // namespace
 
 namespace {
@@ -537,8 +329,10 @@ namespace {
 // The card the pictures are decoded and shown on: the caller's device where it
 // brought one — the encoder's and the window's, so a decoded picture is never
 // copied between devices — and one made here where it didn't, with the video
-// features the decoder and the processor both need.
-bool take_device(Decoder *decoder, void *given) {
+// features the decoder and the processor both need. A build with no FFmpeg
+// decoder still compiles the pass and has no decoder to hand a device to, so
+// this one helper goes uncalled there.
+[[maybe_unused]] bool take_device(Decoder *decoder, void *given) {
     HRESULT result;
     if (given) {
         // Borrowed for this decoder's life, which the caller keeps it for; the
@@ -566,8 +360,8 @@ bool take_device(Decoder *decoder, void *given) {
 }
 
 // FFmpeg's decoder's newest picture, adopted as this file's: the texture is one
-// slice of the array texture FFmpeg's surfaces live in, and the tile pass reads
-// it as it reads Media Foundation's, the same picture lying in the same way.
+// slice of the array texture FFmpeg's surfaces live in, and the tile pass below
+// reads that slice and nothing else.
 int adopt_ffmpeg(Decoder *decoder, const unsigned char *data, size_t size, int keyframe) {
     decoder->error[0] = 0;
     const int decoded = yapfast_ffdec_decode(decoder->ffdec, data, size, keyframe);
@@ -610,148 +404,29 @@ int adopt_ffmpeg(Decoder *decoder, const unsigned char *data, size_t size, int k
 
 }  // namespace
 
-extern "C" yf_hwdec *yapfast_hwdec_new(int backend, int codec, int hint_width, int hint_height, void *device) {
+extern "C" yf_hwdec *yapfast_hwdec_new(int codec, int hint_width, int hint_height, void *device) {
     auto *decoder = new Decoder();
-    decoder->codec = codec;
-    if (backend == kFfmpeg) {
 #ifdef YAPFAST_FFDEC
-        if (!take_device(decoder, device)) return abandon(decoder);
-        decoder->ffdec = yapfast_ffdec_new(codec, hint_width, hint_height, decoder->device);
-        if (!decoder->ffdec) {
-            fail_text(decoder, yapfast_ffdec_error(nullptr));
-            return abandon(decoder);
-        }
-        return decoder;
-#else
-        fail_text(decoder, "this build has no FFmpeg hardware decoder");
-        return abandon(decoder);
-#endif
-    }
-    // Media Foundation has H264, HEVC and AV1.
-    HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (result == RPC_E_CHANGED_MODE) {
-        fail_text(decoder, "this thread's COM apartment isn't the one Media Foundation needs");
-        return abandon(decoder);
-    }
-    decoder->com = true;
-    if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) {
-        fail_text(decoder, "Media Foundation wouldn't start");
-        return abandon(decoder);
-    }
-    decoder->media_foundation = true;
     if (!take_device(decoder, device)) return abandon(decoder);
-    UINT token = 0;
-    result = MFCreateDXGIDeviceManager(&token, &decoder->manager);
-    if (SUCCEEDED(result)) result = decoder->manager->ResetDevice(decoder->device, token);
-    if (FAILED(result)) {
-        fail(decoder, "the card's device manager wasn't made", result);
+    decoder->ffdec = yapfast_ffdec_new(codec, hint_width, hint_height, decoder->device);
+    if (!decoder->ffdec) {
+        fail_text(decoder, yapfast_ffdec_error(nullptr));
         return abandon(decoder);
     }
-
-    decoder->decoder = find_decoder(codec);
-    if (!decoder->decoder) {
-        fail_text(decoder, "this machine has no hardware decoder for the codec");
-        return abandon(decoder);
-    }
-    IMFAttributes *attributes = nullptr;
-    if (SUCCEEDED(decoder->decoder->GetAttributes(&attributes)) && attributes) {
-        // The picture stays on the card, and the decoder doesn't hold frames
-        // back to reorder them: a watched stream shows the newest, now.
-        attributes->SetUINT32(MF_SA_D3D11_AWARE, TRUE);
-        attributes->SetUINT32(MF_LOW_LATENCY, TRUE);
-        attributes->Release();
-    }
-    result = decoder->decoder->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, reinterpret_cast<ULONG_PTR>(decoder->manager));
-    if (FAILED(result)) {
-        fail(decoder, "the decoder wouldn't take the graphics card", result);
-        return abandon(decoder);
-    }
-
-    // The size the stream is likely to be only shapes the first surfaces: the
-    // first frame's sequence header settles the real one, and a change
-    // renegotiates through the stream change `drain` answers.
-    UINT32 width = static_cast<UINT32>(hint_width) < kMinHintWidth ? kMinHintWidth : static_cast<UINT32>(hint_width);
-    UINT32 height = static_cast<UINT32>(hint_height) < kMinHintHeight ? kMinHintHeight : static_cast<UINT32>(hint_height);
-    IMFMediaType *input = nullptr;
-    result = MFCreateMediaType(&input);
-    if (SUCCEEDED(result)) result = input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-    if (SUCCEEDED(result)) result = input->SetGUID(MF_MT_SUBTYPE, subtype_of(codec));
-    if (SUCCEEDED(result)) result = MFSetAttributeSize(input, MF_MT_FRAME_SIZE, width, height);
-    if (SUCCEEDED(result)) result = MFSetAttributeRatio(input, MF_MT_FRAME_RATE, 30, 1);
-    if (SUCCEEDED(result)) result = MFSetAttributeRatio(input, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-    if (SUCCEEDED(result)) result = input->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-    if (SUCCEEDED(result)) result = decoder->decoder->SetInputType(0, input, 0);
-    if (input) input->Release();
-    if (FAILED(result)) {
-        fail(decoder, "the decoder wouldn't take the stream's format", result);
-        return abandon(decoder);
-    }
-    // The picture type is settled before the first frame: the machine's decoders
-    // answer what they would produce at this size, and the first frame that
-    // says otherwise comes back as a stream change.
-    if (!settle_output(decoder)) {
-        return abandon(decoder);
-    }
-    decoder->decoder->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
-    decoder->decoder->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
     return decoder;
+#else
+    (void)codec;
+    (void)hint_width;
+    (void)hint_height;
+    (void)device;
+    fail_text(decoder, "this build has no FFmpeg hardware decoder");
+    return abandon(decoder);
+#endif
 }
 
 extern "C" int yapfast_hwdec_decode(yf_hwdec *decoder, const unsigned char *data, size_t size, int keyframe) {
-    if (!decoder) return -1;
-    if (decoder->ffdec) return adopt_ffmpeg(decoder, data, size, keyframe);
-    if (!decoder->decoder) return -1;
-    decoder->error[0] = 0;
-    IMFSample *sample = nullptr;
-    IMFMediaBuffer *buffer = nullptr;
-    HRESULT result = MFCreateSample(&sample);
-    if (SUCCEEDED(result)) result = MFCreateMemoryBuffer(static_cast<DWORD>(size), &buffer);
-    if (SUCCEEDED(result)) {
-        BYTE *pixels = nullptr;
-        result = buffer->Lock(&pixels, nullptr, nullptr);
-        if (SUCCEEDED(result)) {
-            std::memcpy(pixels, data, size);
-            buffer->Unlock();
-            result = buffer->SetCurrentLength(static_cast<DWORD>(size));
-        }
-    }
-    if (SUCCEEDED(result)) result = sample->AddBuffer(buffer);
-    if (buffer) buffer->Release();
-    if (FAILED(result)) {
-        if (sample) sample->Release();
-        fail(decoder, "the frame wouldn't be handed over", result);
-        return -1;
-    }
-    // A time for every sample, uneven by a frame's worth, since a decoder
-    // ordering pictures needs them in time order; the value itself is never
-    // shown, and a live stream has no clock to keep.
-    sample->SetSampleTime(decoder->time);
-    sample->SetSampleDuration(333333);
-    decoder->time += 333333;
-    if (keyframe) sample->SetUINT32(MFSampleExtension_CleanPoint, TRUE);
-
-    bool produced = false;
-    // Nothing waits for a picture here: a decoder that wants room first gets
-    // what it has taken so far taken off it.
-    if (!drain(decoder, &produced)) {
-        sample->Release();
-        return -1;
-    }
-    result = decoder->decoder->ProcessInput(0, sample, 0);
-    if (result == MF_E_NOTACCEPTING) {
-        if (!drain(decoder, &produced)) {
-            sample->Release();
-            return -1;
-        }
-        result = decoder->decoder->ProcessInput(0, sample, 0);
-    }
-    sample->Release();
-    if (FAILED(result)) {
-        fail(decoder, "the decoder refused a frame", result);
-        return -1;
-    }
-    if (!drain(decoder, &produced)) return -1;
-    return produced ? 1 : 0;
+    if (!decoder || !decoder->ffdec) return -1;
+    return adopt_ffmpeg(decoder, data, size, keyframe);
 }
 
 extern "C" int yapfast_hwdec_size(const yf_hwdec *decoder, int *width, int *height) {
@@ -899,11 +574,8 @@ extern "C" const char *yapfast_hwdec_error(const yf_hwdec *decoder) {
 
 extern "C" void yapfast_hwdec_free(yf_hwdec *decoder) {
     if (!decoder) return;
-    if (decoder->decoder) decoder->decoder->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
     if (decoder->ffdec) yapfast_ffdec_free(decoder->ffdec);
     release_all(decoder);
-    if (decoder->media_foundation) MFShutdown();
-    if (decoder->com) CoUninitialize();
     delete decoder;
 }
 

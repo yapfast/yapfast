@@ -275,16 +275,22 @@ measured and shipped instead, and the numbers are in the sections above:
   border and breaks on HDR frames.
 - **Hardware decode** was expected to wait for an FFmpeg with `d3d11va`, which
   the vendored one has neither hwaccel nor a single parser for. It shipped
-  another way: `native/d3d11dec.cc` decodes H264, HEVC and AV1 with the machine's
-  own decoder through Media Foundation on a Direct3D 11 device, leaves each
-  picture in a texture, and scales it to the tile in the video processor's pass,
-  so only the tile is ordered back to the processor. A stream the machine has no
-  decoder for, a codec the card's pass can't take, and a session the card gives
-  up on all decode in software, as before. No measurement of the card's decoder
+  another way: `native/d3d11dec.cc` decodes H264, HEVC and AV1 with FFmpeg's
+  Direct3D 11 decoder on a Direct3D 11 device, leaves each picture in a texture,
+  and scales it to the tile in the video processor's pass, so only the tile is
+  ordered back to the processor. A stream the machine has no decoder for, a
+  codec the card's pass can't take, and a session the card gives up on all
+  decode in software, as before. No measurement of the card's decoder
   is recorded here.
-- **Intel QSV** is not built: it needs oneVPL headers the vendor lacks, and
-  additionally `--enable-d3d11va` on Windows; on this machine's UHD 770 it would
-  buy H.264 and HEVC encode and, more usefully, AV1 decode — but no AV1 encode.
+- **Intel QSV** is built now, for H.264, HEVC and AV1 encode, on Linux and
+  Windows: `update.sh` pins oneVPL 2.14.0 and configures FFmpeg with
+  `--enable-libvpl`, and `src/vpl.c` loads the dispatcher when an encoder first
+  runs, so the binary still starts on a machine without it. Nothing of it is
+  measured: this machine has no Intel card, so whether a UHD 770's or an Arc's
+  encoder runs here, and how fast, is untested; AV1 encode also needs a driver
+  that has it. QSV's decoders are not in the build — pictures keep coming from
+  the software decoders and Direct3D 11's — so the AV1 decode this bullet
+  expected is still not there.
 - GPU conversion and the Linux surface paths gain nothing further on their own.
 
 ### Encoder preset, colour claim, and Opus complexity

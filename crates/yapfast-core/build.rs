@@ -21,8 +21,11 @@ fn main() {
         "d3d11dec.cc",
         "hwdec.c",
         "hwdec.h",
+        "hwdec_vaapi.c",
+        "hwdec_vaapi.h",
         "wgc.cc",
         "dup.cc",
+        "pipewire_capture.c",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -67,10 +70,12 @@ fn main() {
     }
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
+    println!("cargo::rustc-check-cfg=cfg(vaapidec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
     println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
     println!("cargo::rustc-check-cfg=cfg(dup)");
+    println!("cargo::rustc-check-cfg=cfg(screencast)");
     // Windows' own capture path can hand NVENC its frames as D3D11 textures,
     // so d3d11enc.c encodes from the GPU without a frame's pixels being
     // converted or uploaded; see native/d3d11enc.c. It needs no library of
@@ -159,20 +164,65 @@ fn main() {
         }
         println!("cargo::rustc-cfg=dup");
     }
-    // The other end of a watched stream: the machine's own H.264, HEVC and AV1
-    // decoders hand back a D3D11 texture, and a video processor pass scales it
+    // Linux's own end of the same idea: the desktop's screen sharing portal names
+    // a PipeWire node whose frames are DMA-BUFs, and native/pipewire_capture.c
+    // hands one buffer at a time to an encoder that reads it on the card; see
+    // src/capture/pipewire.rs. Built where the `screencast` feature asks for it
+    // and PipeWire's headers and library are found. A machine without them builds
+    // the libwebrtc capturer and nothing here, which is what this crate did
+    // before: a probe that finds nothing costs nothing, and a build that fails on
+    // a machine without the headers costs everything. It sits above the return
+    // below so that a build without Discord's Go Live still has it, since the
+    // screen is shared by more than a stream.
+    if target_os == "linux" && std::env::var_os("CARGO_FEATURE_SCREENCAST").is_some() {
+        match pipewire() {
+            Some(pipewire) => {
+                let mut capture = cc::Build::new();
+                capture
+                    .file("native/pipewire_capture.c")
+                    // gnu17 and not c17: PipeWire's headers read POSIX's
+                    // `locale_t` and `ssize_t`, which a strict ISO C translation
+                    // unit has no declaration for. `locale.h` and `sys/types.h`
+                    // are put in front of the file for the same reason: it reads
+                    // neither, and PipeWire's `spa/utils/string.h` uses both
+                    // without including either.
+                    .std("gnu17")
+                    .flag("-include")
+                    .flag("locale.h")
+                    .flag("-include")
+                    .flag("sys/types.h")
+                    .warnings(true);
+                for include in &pipewire.includes {
+                    capture.include(include);
+                }
+                for flag in &pipewire.cflags {
+                    capture.flag(flag);
+                }
+                capture.compile("yapfast_pipewire_capture");
+                for folder in &pipewire.folders {
+                    println!("cargo:rustc-link-search=native={}", folder.display());
+                }
+                println!("cargo:rustc-link-lib=dylib=pipewire-0.3");
+                println!("cargo::rustc-cfg=screencast");
+            }
+            None => println!(
+                "cargo:warning=PipeWire's development files were not found, so screen capture on the GPU isn't built: install pipewire's headers and libpipewire-0.3"
+            ),
+        }
+    }
+    // The other end of a watched stream: FFmpeg's Direct3D 11 decoder leaves
+    // each picture in a D3D11 texture, and a video processor pass scales it
     // into the tile on the card; see native/d3d11dec.cc. Built with Discord's
     // Go Live, where a stream is watched at all, and only on Windows, whose
-    // Media Foundation is what decodes it: native/d3d11dec.cc needs the
-    // mfplat and mfuuid libraries beside the d3d11 ones above.
+    // Direct3D 11 is what decodes it.
     if target_os == "windows" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
         // FFmpeg's own Direct3D 11 decoder, where ffmpeg-src was built for this
         // target at all — which is what its `encoders` metadata says, since a
         // target it configured nothing for has no sources to build: its
         // native/hwdec.c decodes into a texture on the device the pass below
-        // reads, and d3d11dec.cc calls it as one of its two decoders. A build
-        // without ffmpeg-src's sources still compiles d3d11dec.cc, with Media
-        // Foundation's decoder alone.
+        // reads, and d3d11dec.cc calls it. A build without ffmpeg-src's
+        // sources still compiles d3d11dec.cc, whose constructor then answers
+        // that this build has no card decoder.
         let ffmpeg_built = std::env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1");
         let mut d3d11dec = cc::Build::new();
         d3d11dec
@@ -204,11 +254,10 @@ fn main() {
             }
             hwdec.compile("yapfast_hwdec");
         }
-        // Media Foundation's platform and its interface ids, and ole32 for the
-        // apartment and the strings the interface list hands back.
-        for library in ["mfplat", "mfuuid", "ole32"] {
-            println!("cargo:rustc-link-lib=dylib={library}");
-        }
+        // ole32, for the apartment and the strings the capture paths' COM
+        // interface lists hand back. Nothing here starts an apartment of its
+        // own: FFmpeg's decoder takes the device it is given.
+        println!("cargo:rustc-link-lib=dylib=ole32");
         println!("cargo::rustc-cfg=d3d11dec");
     }
     if std::env::var_os("CARGO_FEATURE_DISCORD").is_none() {
@@ -236,6 +285,33 @@ fn main() {
         ffmpeg.compile("yapfast_hwenc");
         println!("cargo:rustc-cfg=hwenc");
         println!("cargo:rustc-cfg=hevcdec");
+    }
+    // The other end of a watched stream on Linux, where Direct3D 11's is on
+    // Windows: FFmpeg's VA-API decoder leaves each picture in a surface on the
+    // card and exports it as a DMA-BUF, which the tile pass imports; see
+    // native/hwdec_vaapi.c. Built wherever this FFmpeg is, so that a machine
+    // whose driver won't open a session is told so by the decoder's own open
+    // and the stream falls to the software decoder. The crate decodes on the
+    // card only where the FFmpeg it links was configured for it — its VA-API
+    // decoders, and the DRM PRIME export a picture is handed over as — which
+    // `vaapidec` says, so a build without them doesn't compile a path that
+    // could only fail.
+    if target_os == "linux" && std::env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1") {
+        let folders = std::env::var_os("DEP_FFMPEG_INCLUDE").expect("ffmpeg-src's headers");
+        let mut vaapi = cc::Build::new();
+        vaapi
+            .file("native/hwdec_vaapi.c")
+            .includes(std::env::split_paths(&folders))
+            .warnings(true);
+        let rename = std::env::var("DEP_FFMPEG_RENAME").expect("ffmpeg-src's renames");
+        vaapi.flag("-std=c17").flag("-include").flag(&rename);
+        vaapi.compile("yapfast_hwdec_vaapi");
+        match vaapi_decode(&folders) {
+            Ok(()) => println!("cargo:rustc-cfg=vaapidec"),
+            Err(missing) => println!(
+                "cargo:warning=this FFmpeg wasn't configured to decode on the card through VA-API ({missing}), so watched streams decode in software"
+            ),
+        }
     }
     let os = match target_os.as_str() {
         "windows" => "win",
@@ -265,6 +341,44 @@ fn main() {
         .warnings(true);
     use_clang_cl(&mut codecs);
     codecs.compile("yapfast_codecs");
+}
+
+// Whether the FFmpeg this crate links was configured to decode on the card
+// through VA-API: its VA-API decoders, which ffmpeg-src's configure enables
+// with a `--enable-hwaccel=` per codec, and the DRM PRIME export
+// av_hwframe_map needs to hand a picture over as a DMA-BUF, which is
+// `--enable-libdrm` in the same configure. Ok when both are there, and the
+// reason naming what isn't when either is not.
+fn vaapi_decode(folders: &std::ffi::OsStr) -> Result<(), String> {
+    let (mut config, mut components) = (None, None);
+    for folder in std::env::split_paths(folders) {
+        config = config.or_else(|| std::fs::read_to_string(folder.join("config.h")).ok());
+        components =
+            components.or_else(|| std::fs::read_to_string(folder.join("config_components.h")).ok());
+    }
+    // configure's output is what the library was built from, so a build
+    // without it has no decoders to ask about either.
+    let Some(config) = config else {
+        return Err("configure's output isn't there".to_owned());
+    };
+    let mut missing = vec![];
+    if !config.contains("#define CONFIG_VAAPI 1") {
+        missing.push("no --enable-vaapi");
+    }
+    // Without libdrm, hwcontext_vaapi leaves the export of a surface as a
+    // DMA-BUF out of the build, and av_hwframe_map answers that it can't.
+    if !config.contains("#define CONFIG_LIBDRM 1") {
+        missing.push("no --enable-libdrm for the DRM PRIME export");
+    }
+    let components = components.unwrap_or_default();
+    if !components.contains("#define CONFIG_H264_VAAPI_HWACCEL 1") {
+        missing.push("no --enable-hwaccel=h264_vaapi");
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing.join(", "))
+    }
 }
 
 // Whether the Windows SDK's WinRT headers on this machine carry Windows Graphics
@@ -332,6 +446,45 @@ fn has_explicit_compiler() -> bool {
         env::var_os(format!("{variable}_{target}")).is_some()
             || env::var_os(format!("{variable}_{underscored_target}")).is_some()
     })
+}
+
+/// Where PipeWire's headers and library are, as its own `pkg-config` file names
+/// them.
+struct Pipewire {
+    includes: Vec<PathBuf>,
+    folders: Vec<PathBuf>,
+    cflags: Vec<String>,
+}
+
+/// Asks pkg-config for libpipewire, which is what says where its headers and its
+/// library are. `None` when there is no pkg-config, no such package, or a
+/// pkg-config whose answer names no include directory — every one of which is a
+/// build that has no PipeWire to compile against.
+fn pipewire() -> Option<Pipewire> {
+    let output = Command::new("pkg-config")
+        .args(["--cflags", "--libs", "libpipewire-0.3"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let answer = String::from_utf8_lossy(&output.stdout);
+    let mut found = Pipewire {
+        includes: Vec::new(),
+        folders: Vec::new(),
+        cflags: Vec::new(),
+    };
+    for word in answer.split_whitespace() {
+        if let Some(folder) = word.strip_prefix("-I") {
+            found.includes.push(PathBuf::from(folder));
+        } else if let Some(folder) = word.strip_prefix("-L") {
+            found.folders.push(PathBuf::from(folder));
+        } else if !word.starts_with("-l") {
+            // `-D_REENTRANT` and the like; the library is linked by name below.
+            found.cflags.push(word.to_owned());
+        }
+    }
+    (!found.includes.is_empty()).then_some(found)
 }
 
 fn find_clang_cl() -> Option<PathBuf> {

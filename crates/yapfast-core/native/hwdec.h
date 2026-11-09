@@ -2,8 +2,8 @@
  * that native/d3d11dec.cc doesn't own: a picture arrives in an array texture
  * on the device the caller hands over, and the tile pass in d3d11dec.cc turns
  * a slice of it into the tile. Plain C values cross here, so that the decoder
- * needs none of d3d11dec.cc's COM, and d3d11dec.cc needs none of FFmpeg's
- * headers.
+ * needs none of d3d11dec.cc's Direct3D types, and d3d11dec.cc needs none of
+ * FFmpeg's headers.
  *
  * Included plainly by hwdec.c, and inside `extern "C"` by d3d11dec.cc: the
  * one C++ file that includes it, which is why the declarations below carry no

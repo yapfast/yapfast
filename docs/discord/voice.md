@@ -193,15 +193,14 @@ that would give a bitrate, a keyframe count or a send queue's losses stay away
 rather than showing a share's numbers.
 
 The card's decoder is FFmpeg's own Direct3D 11 decoder where this build has
-it — H264, HEVC, AV1 and VP9 on any vendor's card, with AV1 hardware decode
-needing no Microsoft AV1 Video Extension, which Media Foundation does — and
-Media Foundation's decoders beside it; `decode.rs` tries them in that order and
-falls back to the software decoders when neither opens. Both decode into the
-texture on the device the encoder and the window share, so a decoded picture is
-never copied between devices, and each stream's surfaces are allocated once
-rather than per frame. The picture is then scaled into the tile by the card's
-video processor in the pass that also does its colour matrix and range, so only
-the tile crosses to the processor.
+it — H264, HEVC and AV1 on any vendor's card, with AV1 hardware decode needing
+no Microsoft AV1 Video Extension — and `decode.rs` falls back to the software
+decoders when it doesn't open. It decodes into the texture on the device the
+encoder and the window share, so a decoded picture is never copied between
+devices, and each stream's surfaces are allocated once rather than per frame.
+The picture is then scaled into the tile by the card's video processor in the
+pass that also does its colour matrix and range, so only the tile crosses to
+the processor.
 
 Matrix calls don't have these yet. LiveKit's SDK measures its signal
 connection's round trip but doesn't expose it, and `Room::get_stats`
