@@ -1,8 +1,10 @@
 //! Plugins, as far as Yapfast knows them without running any: each one's
-//! manifest, and what its `ui` section changes in the interface
-//! ([`ui`]). Nothing here starts a process or loads WebAssembly; a plugin
-//! that only changes the interface needs neither. See `docs/plugins.md`.
+//! manifest, what its `ui` section changes in the interface ([`ui`]), and
+//! what the Plugins page in settings shows ([`page`]). Nothing here starts a
+//! process or loads WebAssembly; a plugin that only changes the interface
+//! needs neither. See `docs/plugins.md` and `docs/plugin-settings.md`.
 
+pub mod page;
 pub mod slots;
 pub mod ui;
 

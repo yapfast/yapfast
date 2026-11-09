@@ -3,8 +3,10 @@
 Plugins are behind the `plugins` Cargo feature, off by default:
 `cargo build --profile fast --features plugins`. The plan for the whole
 system is [`PLAN.md`](../PLAN.md). What exists so far is the interface's
-side of it: reading what a plugin's manifest changes in Yapfast's own
-interface, and checking it. Nothing runs a plugin's WebAssembly yet.
+side of it: reading and checking what a plugin's manifest changes in
+Yapfast's own interface, and the Plugins page in settings
+([`plugin-settings.md`](plugin-settings.md)). Nothing runs a plugin's
+WebAssembly yet.
 
 ## Trying a plugin
 

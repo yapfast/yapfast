@@ -23,6 +23,8 @@ export component SettingsHeading inherits Text {
 // either, or Space or Enter with the keyboard, toggles it.
 export component SettingsSwitch inherits Rectangle {
     in property <string> text;
+    /// What a screen reader calls it, for a switch without text beside it.
+    in property <string> label: root.text;
     in property <string> description;
     in-out property <bool> checked;
     in property <bool> enabled: true;
@@ -86,7 +88,7 @@ export component SettingsSwitch inherits Rectangle {
         x: 0px; y: 0px; width: root.width; height: row.height;
         enabled: root.enabled;
         accessible-role: switch;
-        accessible-label: root.text;
+        accessible-label: root.label;
         accessible-description: root.description;
         accessible-checkable: true;
         accessible-checked: root.checked;
@@ -228,6 +230,8 @@ export component SettingsFrame inherits Rectangle {
     in property <color> account-tint;
     in property <image> account-picture;
     in property <bool> with-discord;
+    /// Settings list Plugins; see PluginPage.
+    in property <bool> with-plugins;
     in property <bool> may-edit-profile;
     callback edit-profile;
     /// Room below the section, for a bar over its bottom.
@@ -255,7 +259,7 @@ export component SettingsFrame inherits Rectangle {
         }
         HorizontalLayout {
             if root.discord-layout: SettingsNavigation {
-                selected: root.selected; with-discord: root.with-discord;
+                selected: root.selected; with-discord: root.with-discord; with-plugins: root.with-plugins;
                 account-name: root.account-name; account-initial: root.account-initial;
                 account-tint: root.account-tint; account-picture: root.account-picture;
                 may-edit-profile: root.may-edit-profile;
@@ -277,7 +281,7 @@ export component SettingsFrame inherits Rectangle {
                                 padding-left: 8px; padding-right: 8px; padding-top: 12px; padding-bottom: 12px;
                                 Rectangle { height: 1px; background: Theme.line; }
                             }
-                            if !row.heading: ChannelRow {
+                            if !row.heading && (row.id != 9 || root.with-plugins): ChannelRow {
                                 text: row.text; icon: row.icon; danger: row.danger;
                                 selected: root.selected == row.id; clicked => { root.chose(row.id); }
                             }
@@ -356,9 +360,11 @@ export component SettingsCard inherits Rectangle {
 export component SettingsScreen inherits Rectangle {
     /// The section showing: 0 account, 1 voice and video, 2 messages,
     /// 3 notifications, 4 Discord, 5 sounds, 6 advanced, 7 appearance,
-    /// 8 game activity.
+    /// 8 game activity, 9 plugins.
     in-out property <int> settings-section;
     in property <bool> discord-build;
+    /// This build has plugins, so Plugins is listed.
+    in property <bool> with-plugins;
     in property <bool> preview;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
@@ -370,6 +376,9 @@ export component SettingsScreen inherits Rectangle {
     callback close;
     callback edit-profile;
     callback refresh-devices;
+    /// Plugins was left for another section; see PluginSettings.
+    callback plugins-closed;
+    changed settings-section => { if self.settings-section != 9 { root.plugins-closed(); } }
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
@@ -380,6 +389,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
+        { text: "Plugins", icon: @image-url("icons/plugins.svg"), id: 9 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     property <[SettingsRow]> without-discord: [
@@ -390,6 +400,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
+        { text: "Plugins", icon: @image-url("icons/plugins.svg"), id: 9 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     SettingsCard {
@@ -401,10 +412,15 @@ export component SettingsScreen inherits Rectangle {
             page-title: root.settings-section == 0 ? "My Account" : root.settings-section == 1 ? "Voice & Video"
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
-                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance" : "Game Activity";
+                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
+                : root.settings-section == 9 ? "Plugins" : "Game Activity";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
+            with-plugins: root.with-plugins;
+            // The page scrolls its own parts, and the marketplace makes only
+            // the rows in sight.
+            fill: root.settings-section == 9;
             may-edit-profile: root.may-edit-profile;
             edit-profile => { root.edit-profile(); }
             rows: root.discord-build && !root.preview ? root.with-discord : root.without-discord;

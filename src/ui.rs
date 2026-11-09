@@ -55,6 +55,8 @@ mod name_style;
 mod pictures;
 mod placement;
 #[cfg(feature = "plugins")]
+mod plugin_settings;
+#[cfg(feature = "plugins")]
 mod plugins;
 mod polls;
 mod profile;

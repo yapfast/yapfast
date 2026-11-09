@@ -50,6 +50,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, St
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
+import { PluginSettings, PluginPage } from "plugin_settings.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -84,6 +85,7 @@ export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
+export { PluginPage, PluginLine, InstalledRow, PluginSettingRow, PluginLogRow, PluginDetail, ListingRow, PluginReview } from "plugin_settings.slint";
 
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
@@ -3980,6 +3982,8 @@ export component YapfastWindow inherits Window {
         edit-profile => { root.settings-open = false; root.edit-profile(); }
         settings-section <=> root.settings-section;
         discord-build: root.discord-build; preview: root.preview;
+        with-plugins: PluginPage.available;
+        plugins-closed => { PluginPage.closed(); }
         close => { root.settings-open = false; }
         refresh-devices => { root.refresh-devices(); }
         if root.settings-section == 0: AccountSettings {
@@ -4072,6 +4076,7 @@ export component YapfastWindow inherits Window {
             preferences-changed => { root.preferences-changed(); }
             restart => { root.restart(); }
         }
+        if root.settings-section == 9 && PluginPage.available: PluginSettings { open: root.settings-open; }
         if root.settings-section == 8: GameActivitySettings {
             shown: root.show-game; linked: root.discord-linked; executables: root.game-executables;
             toggled(shown) => { root.show-game-toggled(shown); }
