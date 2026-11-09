@@ -60,12 +60,23 @@ pub enum Kind {
 impl Kind {
     /// This kind's byte on the wire.
     pub const fn as_u8(self) -> u8 {
-        todo!()
+        self as u8
     }
 
     /// The kind a wire byte names, or `None` if it names none.
     pub const fn from_u8(byte: u8) -> Option<Self> {
-        todo!()
+        Some(match byte {
+            1 => Self::Ready,
+            2 => Self::Load,
+            3 => Self::Loaded,
+            4 => Self::Call,
+            5 => Self::Reply,
+            6 => Self::Unload,
+            7 => Self::Unloaded,
+            8 => Self::Shutdown,
+            9 => Self::Error,
+            _ => return None,
+        })
     }
 }
 
@@ -80,22 +91,25 @@ pub struct Frame {
 impl Frame {
     /// Builds a frame, refusing a payload that would make the frame too large.
     pub fn new(kind: Kind, id: u64, payload: Vec<u8>) -> Result<Self, FrameError> {
-        todo!()
+        if payload.len() > MAX_PAYLOAD_LEN {
+            return Err(FrameError::TooLarge { len: payload.len() });
+        }
+        Ok(Self { kind, id, payload })
     }
 
     /// The kind of frame.
     pub fn kind(&self) -> Kind {
-        todo!()
+        self.kind
     }
 
     /// The id pairing this frame with its counterpart.
     pub fn id(&self) -> u64 {
-        todo!()
+        self.id
     }
 
     /// The payload bytes, the JSON of a request or response.
     pub fn payload(&self) -> &[u8] {
-        todo!()
+        &self.payload
     }
 
     /// Writes the frame and flushes the writer.
@@ -103,7 +117,16 @@ impl Frame {
     /// A pipe has no autoflush; without the flush the parent would wait for a
     /// frame the helper has written but not sent.
     pub fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        todo!()
+        // Checked by `new`, so the length always fits the field.
+        let len = u32::try_from(self.payload.len()).expect("a frame's payload fits a u32");
+        let mut header = [0u8; HEADER_LEN];
+        header[..4].copy_from_slice(&len.to_le_bytes());
+        header[4] = self.kind.as_u8();
+        header[5..].copy_from_slice(&self.id.to_le_bytes());
+
+        writer.write_all(&header)?;
+        writer.write_all(&self.payload)?;
+        writer.flush()
     }
 
     /// Reads one frame, or `None` at a clean end of stream.
@@ -112,8 +135,50 @@ impl Frame {
     /// partway through a header or payload is [`ReadError::UnexpectedEof`]: the
     /// peer died mid-frame, and the stream cannot be resynchronised.
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Option<Frame>, ReadError> {
-        todo!()
+        let mut header = [0u8; HEADER_LEN];
+        if !read_exact(reader, &mut header, true)? {
+            return Ok(None);
+        }
+
+        let len = u32::from_le_bytes(header[..4].try_into().expect("four bytes"));
+        // Refuse an oversize frame from its header, before its payload buffer
+        // exists: a peer must not be able to make us allocate what we would
+        // then refuse to read.
+        if len as usize > MAX_PAYLOAD_LEN {
+            return Err(ReadError::FrameTooLarge { len });
+        }
+        let kind = Kind::from_u8(header[4]).ok_or(ReadError::UnknownKind(header[4]))?;
+        let id = u64::from_le_bytes(header[5..].try_into().expect("eight bytes"));
+
+        let mut payload = vec![0u8; len as usize];
+        read_exact(reader, &mut payload, false)?;
+        Ok(Some(Frame { kind, id, payload }))
     }
+}
+
+/// Fills `buf` from `reader`, reporting whether a clean end of stream came
+/// before its first byte.
+fn read_exact<R: Read>(
+    reader: &mut R,
+    buf: &mut [u8],
+    eof_at_start_is_clean: bool,
+) -> Result<bool, ReadError> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) if filled == 0 && eof_at_start_is_clean => return Ok(false),
+            Ok(0) => {
+                return Err(ReadError::UnexpectedEof {
+                    expected: buf.len(),
+                    got: filled,
+                });
+            }
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(ReadError::Io(error)),
+        }
+    }
+    Ok(true)
 }
 
 /// Why a frame could not be built.
@@ -130,7 +195,10 @@ impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooLarge { len } => {
-                write!(f, "payload of {len} bytes exceeds the limit of {MAX_PAYLOAD_LEN}")
+                write!(
+                    f,
+                    "payload of {len} bytes exceeds the limit of {MAX_PAYLOAD_LEN}"
+                )
             }
         }
     }
@@ -170,7 +238,9 @@ impl fmt::Display for ReadError {
                 f,
                 "frame of {len} payload bytes exceeds the limit of {MAX_PAYLOAD_LEN}"
             ),
-            Self::UnknownKind(byte) => write!(f, "frame kind {byte} is not one this protocol defines"),
+            Self::UnknownKind(byte) => {
+                write!(f, "frame kind {byte} is not one this protocol defines")
+            }
             Self::UnexpectedEof { expected, got } => {
                 write!(f, "stream ended after {got} of {expected} bytes")
             }

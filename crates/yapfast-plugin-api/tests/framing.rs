@@ -3,7 +3,7 @@
 use std::io::{self, Read, Write};
 
 use yapfast_plugin_api::{
-    Frame, FrameError, Kind, ReadError, HEADER_LEN, MAX_FRAME_LEN, MAX_PAYLOAD_LEN,
+    Frame, FrameError, HEADER_LEN, Kind, MAX_FRAME_LEN, MAX_PAYLOAD_LEN, ReadError,
 };
 
 /// A reader that hands back at most `step` bytes per call, as a pipe may.
@@ -123,7 +123,9 @@ fn round_trips_json_including_empty_and_non_ascii() {
     ];
     for &payload in payloads {
         let sent = frame(Kind::Reply, 42, payload);
-        let received = read(&wire(&sent)).expect("a whole frame").expect("one frame");
+        let received = read(&wire(&sent))
+            .expect("a whole frame")
+            .expect("one frame");
         assert_eq!(received, sent, "{:?}", String::from_utf8_lossy(payload));
         assert_eq!(received.payload(), payload);
     }
@@ -136,12 +138,18 @@ fn reads_frames_delivered_a_byte_at_a_time() {
     let mut bytes = wire(&first);
     bytes.extend_from_slice(&wire(&second));
 
-    let mut reader = Trickle { bytes: &bytes, step: 1 };
+    let mut reader = Trickle {
+        bytes: &bytes,
+        step: 1,
+    };
     assert_eq!(Frame::read_from(&mut reader).unwrap(), Some(first));
     assert_eq!(Frame::read_from(&mut reader).unwrap(), Some(second));
     assert_eq!(Frame::read_from(&mut reader).unwrap(), None);
 
-    let mut reader = Trickle { bytes: &bytes, step: 3 };
+    let mut reader = Trickle {
+        bytes: &bytes,
+        step: 3,
+    };
     assert_eq!(Frame::read_from(&mut reader).unwrap().unwrap().id(), 1);
     assert_eq!(Frame::read_from(&mut reader).unwrap().unwrap().id(), 2);
 }
@@ -273,13 +281,19 @@ fn a_failed_flush_fails_the_write() {
 #[test]
 fn short_writes_still_send_the_whole_frame() {
     let sent = frame(Kind::Reply, 3, br#"{"ok":true}"#);
-    let mut dribble = Dribble { bytes: Vec::new(), step: 2 };
+    let mut dribble = Dribble {
+        bytes: Vec::new(),
+        step: 2,
+    };
     sent.write_to(&mut dribble).expect("writing");
     assert_eq!(dribble.bytes, wire(&sent));
 }
 
 impl Recorder {
     fn flushed(&self) -> usize {
-        self.events.iter().filter(|event| **event == "flush").count()
+        self.events
+            .iter()
+            .filter(|event| **event == "flush")
+            .count()
     }
 }
