@@ -1414,6 +1414,12 @@ export component YapfastWindow inherits Window {
     callback start-arranging(int) -> bool;
     callback arrange-room(int);
     callback stop-arranging;
+    /// Dragging someone from a voice channel onto another; see RoomList.
+    in property <bool> person-moving;
+    in property <[bool]> person-droppable;
+    callback start-moving-person(string, string) -> bool;
+    callback move-person(string);
+    callback stop-moving-person;
     // Someone's volumes, from a right click on them in a call, as percentages.
     callback volume-of(string, bool) -> int;
     /// A person, whether it's their stream, the volume, and whether it's
@@ -2565,6 +2571,10 @@ export component YapfastWindow inherits Window {
                                 start-arranging(place) => { return root.start-arranging(place); }
                                 arrange(place) => { root.arrange-room(place); }
                                 stop-arranging => { root.stop-arranging(); }
+                                moving: root.person-moving; move-droppable: root.person-droppable;
+                                start-moving(room, user) => { return root.start-moving-person(room, user); }
+                                move-person(room) => { root.move-person(room); }
+                                stop-moving => { root.stop-moving-person(); }
                                 toggle-category(category) => { root.toggle-category(category); }
                                 may-create(id) => { return root.may-create-channel(root.category-of(id)); }
                                 create-channel(id) => {

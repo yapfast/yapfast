@@ -1531,6 +1531,7 @@ fn a_servers_icon_draws_on_its_heading_and_rail_button() {
             verified: false,
             events: Vec::new(),
             tag: None,
+            boosts: None,
         })];
         state.stickers.open = true;
         state.stickers.server_for = Some("10".into());
@@ -2405,6 +2406,82 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
         [("invite-to:discord:50".to_owned(), "Club".to_owned())],
         "not the server she's shown in, nor one that doesn't let Alice invite"
     );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
+    const LOUNGE: &str = "discord:10:12";
+    const DEN: &str = "discord:10:13";
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Alice is Staff, who may move members; Dave and she, on another
+    // client, are in Lounge.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    adapter.borrow_mut().refresh(&window);
+    let droppable = || -> Vec<String> {
+        window
+            .get_rooms()
+            .iter()
+            .zip(window.get_person_droppable().iter())
+            .filter(|(_, droppable)| *droppable)
+            .map(|(row, _)| row.name.to_string())
+            .collect()
+    };
+    let stopped = || {
+        !window.get_person_moving()
+            && window.get_person_droppable().row_count() == 0
+            && adapter.borrow().moving_person.is_none()
+    };
+
+    // Dave may be dragged onto Den, the one other channel his menu's Move
+    // to offers; Lounge, where he is, Vault and #general dim.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    assert!(window.get_person_moving());
+    assert_eq!(droppable(), ["Den"]);
+    // Let go anywhere else, nothing is sent.
+    window.invoke_move_person("discord:10:11".into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.notice.is_none());
+    // Escape, or letting go outside the list, stops it; winit's Escape,
+    // which this backend doesn't send, calls the same stop.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    window.invoke_stop_moving_person();
+    assert!(stopped());
+    // Dropped on Den, the move goes out, as from his menu; here, with no
+    // Discord connection, it fails.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    window.invoke_move_person(DEN.into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.notice.is_some());
+    // Another list showing, with nowhere to drop him, stops it.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    let navigate = |to| adapter.borrow_mut().action(&window, Action::Navigate(to));
+    navigate(Navigation::DirectMessages);
+    assert!(stopped());
+    navigate(Navigation::Server("discord:10".into()));
+
+    // Alice, on another client, joins Den from here.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "1".into()));
+    assert_eq!(droppable(), ["Den"]);
+    window.invoke_move_person(DEN.into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.voice.error.is_some());
+
+    // Without Move Members, Dave stays put; Cara isn't in voice.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["20"]);
+    adapter.borrow_mut().refresh(&window);
+    assert!(!window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    assert!(!window.invoke_start_moving_person(LOUNGE.into(), "3".into()));
+    assert!(stopped());
 }
 
 #[test]
