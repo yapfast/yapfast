@@ -26,10 +26,15 @@ send in are read-only. Reacting follows Add Reactions instead, as in Discord's
 client: a channel the account can't send in, such as an announcement channel,
 still takes reactions, and without Add Reactions it can add to a reaction
 already on a message or take its own back. A timeout, or an archived thread
-it couldn't open again, takes reacting away. Bots and webhooks have an APP tag after their name. An
+it couldn't open again, takes reacting away. A click on a reaction waits for
+the one before it on the same reaction to reach Discord, and the account's own
+reaction counts once however its events arrive, so clicking fast can't push a
+count past the real one. Bots and webhooks have an APP tag after their name. An
 author's name takes their highest coloured role's colour, once their roles are
 known: live messages carry them, and for history Yapfast asks Discord for the
-authors' member profiles.
+authors' member profiles. A profile that's opened and a member list that
+arrives teach them too, and the open channel and the thread beside it
+re-render with the colours.
 
 Yapfast keeps the open channel's messages in memory, and those of the 40
 channels open before it, so going back to one shows it at once. A closed

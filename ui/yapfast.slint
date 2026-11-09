@@ -2375,7 +2375,12 @@ export component YapfastWindow inherits Window {
             start-forward(item) => { root.start-forward(item); message-menu.close(); }
             copy-text(text) => { root.copy-text(text); message-menu.close(); }
             pin-message(item) => { root.pin-message(item); message-menu.close(); }
-            request-delete(item) => { root.request-delete(item); message-menu.close(); }
+            // Shift and a click deletes at once, as Discord's menu does; a
+            // plain click asks first.
+            request-delete(item) => {
+                if root.shift-held { root.delete-now(item); } else { root.request-delete(item); }
+                message-menu.close();
+            }
             end-poll(item) => { Polls.ask-end(item); message-menu.close(); }
             media-index: root.menu-media; media-video: root.menu-video; link: root.menu-link;
             copy-image(item, index) => { root.copy-attachment(item, index); message-menu.close(); }
@@ -3605,7 +3610,7 @@ export component YapfastWindow inherits Window {
                                             }
                                         }
                                         if root.can-pick-stickers: VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                            alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             sticker-button := IconButton {
                                                 icon: @image-url("icons/sticker.svg"); label: "Open sticker picker";
                                                 glyph: 22px; enabled: root.composer-enabled;

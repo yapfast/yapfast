@@ -3847,6 +3847,83 @@ fn message_actions_reach_the_shared_application_in_the_preview() {
 }
 
 #[test]
+fn shift_and_a_click_on_the_menus_delete_deletes_without_asking() {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    use slint::platform::{Key, PointerEventButton, WindowEvent};
+    use std::ops::ControlFlow;
+    let window = showing(vec![ChatMessage {
+        author: "Me".into(),
+        body: "Mine".into(),
+        own: true,
+        can_delete: true,
+        ..Default::default()
+    }]);
+    let asked = Rc::new(Cell::new(0));
+    let count = asked.clone();
+    window.on_request_delete(move |_| count.set(count.get() + 1));
+    let deleted = Rc::new(Cell::new(0));
+    let count = deleted.clone();
+    window.on_delete_now(move |_| count.set(count.get() + 1));
+    let key = |text: SharedString, pressed: bool| {
+        window.window().dispatch_event(if pressed {
+            WindowEvent::KeyPressed { text }
+        } else {
+            WindowEvent::KeyReleased { text }
+        });
+    };
+    let press = |text: SharedString| {
+        key(text.clone(), true);
+        key(text, false);
+    };
+    // Alt+Up from the composer reaches the message, and Enter opens its
+    // menu; then a click on Delete message.
+    let delete_from_menu = || {
+        window.invoke_focus_composer();
+        key(Key::Alt.into(), true);
+        press(Key::UpArrow.into());
+        key(Key::Alt.into(), false);
+        press(Key::Return.into());
+        settle(&window);
+        // The menu is a popup, a child window with items of its own.
+        let position = {
+            let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+            let popups = inner.active_popups();
+            let popup = popups.last().expect("the message's menu is open");
+            let i_slint_core::window::PopupWindowLocation::ChildWindow(place) = popup.location
+            else {
+                panic!("not a child window");
+            };
+            let item = ItemRc::new_root(popup.component.clone())
+                .visit_descendants(|item| {
+                    let label = item.accessible_string_property(AccessibleStringProperty::Label);
+                    if label.as_deref() == Some("Delete message") {
+                        ControlFlow::Break(item.clone())
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                })
+                .expect("the message's menu offers Delete message");
+            let at = item.map_to_item_tree(item.geometry().center(), &popup.component);
+            slint::LogicalPosition::new(place.x + at.x, place.y + at.y)
+        };
+        let button = PointerEventButton::Left;
+        let native = window.window();
+        native.dispatch_event(WindowEvent::PointerMoved { position });
+        native.dispatch_event(WindowEvent::PointerPressed { position, button });
+        native.dispatch_event(WindowEvent::PointerReleased { position, button });
+        settle(&window);
+    };
+    // A plain click asks first.
+    delete_from_menu();
+    assert_eq!((asked.get(), deleted.get()), (1, 0));
+    // Shift and a click deletes at once, as Discord's menu does.
+    window.set_shift_held(true);
+    delete_from_menu();
+    window.set_shift_held(false);
+    assert_eq!((asked.get(), deleted.get()), (1, 1));
+}
+
+#[test]
 fn a_discord_channel_without_sending_still_takes_reactions() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

@@ -2837,7 +2837,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     #[cfg(feature = "discord")]
-    window.set_share_lists(yapfast_core::stream_worker::LISTS_SOURCES);
+    window.set_share_lists(!yapfast_core::stream_worker::portal_picks());
     #[cfg(feature = "discord")]
     let weak = window.as_weak();
     #[cfg(feature = "discord")]
@@ -2890,8 +2890,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 window.set_share_cameras(titles(&cameras));
                 // Where the system's dialog picks a screen or window, the
                 // menu's first choice asks it, before the cameras.
-                let dialog =
-                    (!yapfast_core::stream_worker::LISTS_SOURCES).then_some(Source::Screen);
+                let dialog = yapfast_core::stream_worker::portal_picks().then_some(Source::Screen);
                 SHAREABLE.with_borrow_mut(|shareable| {
                     *shareable = screens
                         .into_iter()

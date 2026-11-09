@@ -11716,6 +11716,7 @@ dependencies = [
  "gif",
  "image",
  "keyring",
+ "libc",
  "libpulse-binding",
  "libpulse-simple-binding",
  "livekit",

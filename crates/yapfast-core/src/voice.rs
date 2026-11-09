@@ -447,7 +447,7 @@ pub enum Command {
     /// which is remembered for next time.
     GoLive(StreamQuality),
     /// Share the screen or window picked last in place of the one shared,
-    /// keeping the stream; on Linux, what the system's dialog picks.
+    /// keeping the stream; in a Wayland session, what the system's dialog picks.
     SwitchLive,
     /// Show the preview of the shared screen in the UI, or stop: the worker
     /// makes one only while the UI displays it.

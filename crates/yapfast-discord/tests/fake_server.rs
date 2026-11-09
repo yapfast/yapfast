@@ -2608,6 +2608,19 @@ async fn shows_profiles() {
     // Bob's profile: in the server, his server bio wins over his own; from
     // a DM, his own shows.
     let mut in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    // The profile's member teaches Names his roles, which colour his name in
+    // messages.
+    let snapshot = discord.snapshots().borrow().clone();
+    let shared = snapshot
+        .servers
+        .iter()
+        .find(|shared| shared.id == guild)
+        .unwrap();
+    assert_eq!(
+        discord.color(shared, &bob),
+        Some(0x3498db),
+        "Bob's name takes the Mods role's blue"
+    );
     assert_eq!(in_server.name, "Bob");
     assert_eq!(in_server.pronouns.as_deref(), Some("he/him"));
     assert_eq!(in_server.bio.as_deref(), Some("Keeps #general tidy."));

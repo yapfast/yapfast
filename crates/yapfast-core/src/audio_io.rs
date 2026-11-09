@@ -39,6 +39,16 @@ mod lasting;
 #[cfg(feature = "discord")]
 pub use lasting::{LastingInput, LastingOutput};
 
+/// Raises the calling thread to the priority audio threads run at, so a
+/// busy machine, such as one running a game, doesn't hold up what plays:
+/// MMCSS's "Pro Audio" task on Windows, which Discord's and browsers' audio
+/// threads take, and real-time scheduling on Linux where the user's limits
+/// allow it. Otherwise the thread carries on as it was. It lasts until the
+/// thread ends.
+pub fn raise_thread_priority() {
+    platform::raise_priority();
+}
+
 /// Whether this system has sound here.
 pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
 

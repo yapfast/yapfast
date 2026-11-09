@@ -237,9 +237,25 @@ pub enum Source {
     TestPattern,
 }
 
-/// Whether Yapfast lists screens and windows to share itself, where the system
-/// has no dialog to pick one: everywhere but Linux.
-pub const LISTS_SOURCES: bool = cfg!(not(target_os = "linux"));
+/// Whether the system's dialog, the screen sharing portal, picks the screen or
+/// window to share, rather than Yapfast listing them: in a Wayland session.
+/// libwebrtc captures through the portal only there, and through X11 in any
+/// other Linux session, as it decides by the same variables; its X11
+/// capturers list what there is, as Windows' do. XFCE, for one, has no
+/// screen sharing portal on X11.
+pub fn portal_picks() -> bool {
+    cfg!(target_os = "linux")
+        && wayland_session(
+            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+            std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        )
+}
+
+/// Whether a session of this `kind`, in `XDG_SESSION_TYPE`, with a Wayland
+/// display named or not, is one libwebrtc captures through the portal in.
+fn wayland_session(kind: Option<&str>, wayland_display: bool) -> bool {
+    kind.is_some_and(|kind| kind.starts_with("wayland")) && wayland_display
+}
 
 /// A screen, window or camera [`shareable`] lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -248,9 +264,9 @@ pub struct Shareable {
     pub title: String,
 }
 
-/// What Yapfast can share: the screens, then the windows, when
-/// [`LISTS_SOURCES`], then the cameras. Yapfast's own windows aren't among
-/// them, nor its console's.
+/// What Yapfast can share: the screens, then the windows, unless
+/// [`portal_picks`], then the cameras. On Windows, Yapfast's own windows
+/// aren't among them, nor its console's.
 pub fn shareable() -> Vec<Shareable> {
     let mut listed = screens_and_windows();
     listed.extend(crate::camera::list().into_iter().map(|device| Shareable {
@@ -261,47 +277,42 @@ pub fn shareable() -> Vec<Shareable> {
 }
 
 fn screens_and_windows() -> Vec<Shareable> {
-    #[cfg(target_os = "linux")]
-    {
-        Vec::new()
+    if portal_picks() {
+        return Vec::new();
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
-        let screens = sources(DesktopCaptureSourceType::Screen);
-        let count = screens.len();
-        let screens = screens
-            .into_iter()
-            .enumerate()
-            .map(|(index, screen)| Shareable {
-                source: Source::Display(screen.id()),
-                title: if count == 1 {
-                    "Entire screen".to_owned()
-                } else {
-                    format!("Screen {}", index + 1)
-                },
-            });
-        // The console belongs to its host, so libwebrtc lists it as another
-        // application's window.
-        #[cfg(windows)]
-        // SAFETY: no arguments; it only reads this process's console.
-        let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
-        #[cfg(not(windows))]
-        let console = 0;
-        let windows = sources(DesktopCaptureSourceType::Window)
-            .into_iter()
-            .filter_map(|window| {
-                let title = window.title();
-                (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
-                    source: Source::Window(window.id()),
-                    title,
-                })
-            });
-        screens.chain(windows).collect()
-    }
+    use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
+    let screens = sources(DesktopCaptureSourceType::Screen);
+    let count = screens.len();
+    let screens = screens
+        .into_iter()
+        .enumerate()
+        .map(|(index, screen)| Shareable {
+            source: Source::Display(screen.id()),
+            title: if count == 1 {
+                "Entire screen".to_owned()
+            } else {
+                format!("Screen {}", index + 1)
+            },
+        });
+    // The console belongs to its host, so libwebrtc lists it as another
+    // application's window.
+    #[cfg(windows)]
+    // SAFETY: no arguments; it only reads this process's console.
+    let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
+    #[cfg(not(windows))]
+    let console = 0;
+    let windows = sources(DesktopCaptureSourceType::Window)
+        .into_iter()
+        .filter_map(|window| {
+            let title = window.title();
+            (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
+                source: Source::Window(window.id()),
+                title,
+            })
+        });
+    screens.chain(windows).collect()
 }
 
-#[cfg(not(target_os = "linux"))]
 fn sources(
     kind: livekit::webrtc::desktop_capturer::DesktopCaptureSourceType,
 ) -> Vec<livekit::webrtc::desktop_capturer::CaptureSource> {
@@ -313,8 +324,8 @@ fn sources(
 }
 
 /// What [`Source::Screen`] shares: the pick from [`shareable`] in the share
-/// menu, until another. On Linux the pick may be [`Source::Screen`] itself,
-/// which the system's dialog picks.
+/// menu, until another. Where [`portal_picks`], the pick may be
+/// [`Source::Screen`] itself, which the system's dialog picks.
 static PICKED: Mutex<Source> = Mutex::new(Source::Screen);
 
 /// Shares `source` from now on where [`Source::Screen`] is asked for.
@@ -342,8 +353,9 @@ pub enum Control {
     /// Send the video to the server Discord started the stream on.
     Send(StreamServer),
     /// Share this screen or window in place of the one shared, once it gives
-    /// a picture; on Linux, what the system's dialog picks. The stream goes
-    /// on with the one shared until then, and when the dialog is cancelled.
+    /// a picture; where [`portal_picks`], what the system's dialog picks. The
+    /// stream goes on with the one shared until then, and when the dialog is
+    /// cancelled.
     Switch(Source),
     /// Play a watched stream's sound, or not, as being deafened changes.
     Hear(bool),
@@ -2343,7 +2355,7 @@ fn capture_screen(
             (seen.size, seen.failed.clone())
         };
         if let Some(failure) = failure {
-            bail!(if reported.is_none() {
+            bail!(if reported.is_none() && portal_picks() {
                 "Screen sharing was cancelled, or this desktop has no screen sharing dialog."
                     .to_owned()
             } else {
@@ -3395,38 +3407,31 @@ struct Capture {
     captured: Arc<Mutex<Captured>>,
 }
 
-/// Whether the processor's capturer is asked for a window of its own, on a
-/// platform that takes the kind from the caller: a window is shared as that
-/// window — the same one the card's rungs refused, when they did — and every
-/// other source as a screen. Linux asks its own dialog instead, which picks
-/// either, so this is not what it is told.
-#[cfg(any(not(target_os = "linux"), test))]
+/// Whether the processor's capturer is asked for a window of its own: a window
+/// is shared as that window — the same one the card's rungs refused, when they
+/// did — and every other source as a screen. Where [`portal_picks`], the
+/// system's own dialog picks either, so this is not what it is told.
 fn capturer_takes_a_window(source: &Source) -> bool {
     matches!(source, Source::Window(_))
 }
 
-/// The kind of source the processor's capturer is asked for. On Linux the
-/// system's own screen sharing dialog picks a screen or a window, and the kind
-/// only says what the dialog offers first.
+/// The kind of source the processor's capturer is asked for. Where
+/// [`portal_picks`], the system's own screen sharing dialog picks a screen or a
+/// window, and the kind only says what the dialog offers first.
 fn capturer_kind(source: &Source) -> livekit::webrtc::desktop_capturer::DesktopCaptureSourceType {
-    #[cfg(target_os = "linux")]
-    {
-        let _ = source;
+    if portal_picks() {
         livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        if capturer_takes_a_window(source) {
-            livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Window
-        } else {
-            livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Screen
-        }
+    } else if capturer_takes_a_window(source) {
+        livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Window
+    } else {
+        livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Screen
     }
 }
 
 impl Capture {
     /// Starts capturing `source`, fitting its frames in `max_width` by
-    /// `max_height`; on Linux, a screen or window the system's dialog picks.
+    /// `max_height`; where [`portal_picks`], a screen or window the system's
+    /// dialog picks.
     fn start(
         source: Source,
         sink: &Arc<Mutex<Sink>>,
@@ -3454,13 +3459,9 @@ impl Capture {
         // shows doesn't change under a share, and the frames say nothing of it
         // themselves.
         let tone = tone_of(&source);
-        #[cfg(target_os = "linux")]
-        let source = {
-            let _ = source;
+        let source = if portal_picks() {
             None
-        };
-        #[cfg(not(target_os = "linux"))]
-        let source = {
+        } else {
             let mut listed = capturer.get_source_list().into_iter();
             let found = match source {
                 Source::Display(id) | Source::Window(id) => listed.find(|listed| listed.id() == id),
@@ -3721,7 +3722,6 @@ fn previewed(scratch: &[u8], width: u32, height: u32) -> I420<'_> {
 
 /// How long [`glance`] waits for a picture of a screen that isn't black,
 /// before showing the last it took, or none.
-#[cfg(not(target_os = "linux"))]
 const GLANCE_WAIT: Duration = Duration::from_millis(1500);
 
 /// Takes a picture of each of `screens`, as [`Job::Glance`] asks. A screen
@@ -3733,22 +3733,16 @@ fn glance(
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) {
-    // On Linux the system's dialog shows what there is to share.
-    #[cfg(target_os = "linux")]
-    let _ = (screens, max_width, max_height, stop, report);
-    #[cfg(not(target_os = "linux"))]
     for &id in screens {
         if stop.load(Ordering::Relaxed) {
             return;
         }
         match glance_at(id, stop) {
-            Ok(Some(mut picture)) => {
+            Ok(Some(picture)) => {
                 let (width, height) = fit(picture.width(), picture.height(), max_width, max_height);
-                if (width, height) != (picture.width(), picture.height()) {
-                    picture = picture.scale(width as i32, height as i32);
-                }
                 let mut rgba = vec![0; (width * height * 4) as usize];
-                to_rgba(&picture, &mut rgba);
+                let mut scratch = Vec::new();
+                planes(&picture).to_rgba(&mut scratch, &mut rgba, width, height);
                 report(Report::Screen {
                     id,
                     width,
@@ -3763,7 +3757,6 @@ fn glance(
 }
 
 /// A picture of the screen listed by `id`, at its own size.
-#[cfg(not(target_os = "linux"))]
 fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
     use livekit::webrtc::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
@@ -3786,7 +3779,17 @@ fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
     capturer.start_capture(Some(source), move |result| {
         let mut taken = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         match result {
-            Ok(frame) => taken.0 = Some(picture_of(&frame, &tone)),
+            Ok(frame) => {
+                let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
+                // The last picture is the buffer for this one, unless the
+                // screen changed size under it.
+                let mut picture = taken.0.take().unwrap_or_else(|| I420Buffer::new(width, height));
+                if (picture.width(), picture.height()) != (width, height) {
+                    picture = I420Buffer::new(width, height);
+                }
+                convert(&mut picture, frame.data(), frame.stride(), &tone);
+                taken.0 = Some(picture);
+            }
             Err(CaptureError::Temporary) => {}
             Err(CaptureError::Permanent) => taken.1 = true,
         }
@@ -4503,7 +4506,6 @@ mod tests {
     /// take is the processor's, and the processor's capturer is asked for a
     /// window of its own rather than for a screen — the same window, by the same
     /// handle, and never the display it sits on.
-    #[cfg(any(not(target_os = "linux"), test))]
     #[test]
     fn a_window_the_card_cannot_take_goes_on_as_that_window() {
         for source in [
@@ -4523,13 +4525,24 @@ mod tests {
         // window reaches the processor only where the card has no way to take
         // one — and there it arrives as the window it was.
         assert_eq!(on_the_card(&Source::Window(0x1234)), cfg!(wgc));
-        // On Linux there is no kind to ask for: the system's own dialog picks a
-        // screen or a window, and what it picks is what the fallback shares.
-        #[cfg(target_os = "linux")]
-        assert_eq!(
-            capturer_kind(&Source::Window(0x1234)),
-            livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic
-        );
+        // Where the system's own dialog picks, there is no kind to ask for: it
+        // picks a screen or a window, and what it picks is what the fallback
+        // shares. Everywhere else the kind carries the choice.
+        if portal_picks() {
+            assert_eq!(
+                capturer_kind(&Source::Window(0x1234)),
+                livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic
+            );
+        } else {
+            assert_eq!(
+                capturer_kind(&Source::Window(0x1234)),
+                livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Window
+            );
+            assert_eq!(
+                capturer_kind(&Source::Display(2)),
+                livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Screen
+            );
+        }
     }
 
     /// A duplication asked for a window says so rather than capturing the
@@ -6120,6 +6133,19 @@ root.mainloop()
         assert_eq!(reports.recv().unwrap(), Report::Ended { error: None });
     }
 
+    /// The portal picks where libwebrtc captures through it: in a Wayland
+    /// session, and not on X11, as on XFCE, nor where no Wayland display is
+    /// named, where libwebrtc captures through X11.
+    #[test]
+    fn the_portal_picks_only_in_a_wayland_session() {
+        assert!(wayland_session(Some("wayland"), true));
+        assert!(!wayland_session(Some("x11"), false));
+        assert!(!wayland_session(Some("x11"), true));
+        assert!(!wayland_session(Some("tty"), false));
+        assert!(!wayland_session(None, true));
+        assert!(!wayland_session(Some("wayland"), false));
+    }
+
     #[test]
     fn a_screen_picture_survives_its_report_line() {
         let report = Report::Screen {
@@ -6134,6 +6160,9 @@ root.mainloop()
     }
 
     /// Takes a picture of each listed screen, as the share menu shows them.
+    /// On Linux, X11 lists them: a private X server, as from `env -u
+    /// WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run`, with a window as the
+    /// next test says.
     #[test]
     #[ignore = "needs a desktop where Yapfast lists what to share"]
     fn glances_at_the_listed_screens() {
@@ -6177,8 +6206,12 @@ root.mainloop()
         assert_eq!(reports.last(), Some(&Report::Ended { error: None }));
     }
 
-    /// Lists what there is to share, and shares the first screen and the
-    /// first window for a moment each.
+    /// Lists what there is to share, shares the first screen and the first
+    /// window for a moment each, then switches from the screen to the window.
+    /// Under Xvfb, as above, it needs a window with a title, and the
+    /// `WM_STATE` and `_NET_WM_WINDOW_TYPE` a window manager would give it:
+    /// without them libwebrtc's X11 capturer lists no window, or asks for a
+    /// property X doesn't know and Xlib ends the process.
     #[test]
     #[ignore = "needs a desktop where Yapfast lists what to share"]
     fn shares_a_listed_screen_and_window() {
@@ -6194,7 +6227,7 @@ root.mainloop()
             first(false).expect("no screen"),
             first(true).expect("no window"),
         ];
-        for source in sources {
+        for source in sources.clone() {
             let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
             let job = Job::Share {
                 source: source.clone(),
@@ -6247,6 +6280,43 @@ root.mainloop()
                 .find(|report| !matches!(report, Report::Sharing { .. }));
             assert_eq!(ended, Some(Report::Ended { error: None }));
         }
+        // Switching to the window while the screen is shared.
+        let [screen, window] = sources;
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let job = Job::Share {
+            source: screen,
+            frames: frames.path().unwrap(),
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_HEIGHT,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            capture: crate::capture::Preference::Auto,
+        };
+        let (input, mut feed) = std::io::pipe().unwrap();
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        let (sender, reports) = std::sync::mpsc::channel();
+        let serving = std::thread::spawn(move || {
+            serve(Box::new(BufReader::new(input)), &mut |report| {
+                sender.send(report).unwrap();
+            });
+        });
+        assert_eq!(reports.recv().unwrap(), Report::Ready);
+        let shared = reports.recv_timeout(Duration::from_secs(10)).unwrap();
+        let switch = Control::Switch(window.clone());
+        writeln!(feed, "{}", serde_json::to_string(&switch).unwrap()).unwrap();
+        // The screen's size may still settle first.
+        let switched = loop {
+            let report = reports.recv_timeout(Duration::from_secs(10)).unwrap();
+            if report != shared {
+                break report;
+            }
+        };
+        eprintln!("{shared:?}, then {window:?}: {switched:?}");
+        assert!(matches!(switched, Report::Sharing { .. }), "{switched:?}");
+        assert_ne!(switched, shared);
+        writeln!(feed, "stop").unwrap();
+        serving.join().unwrap();
         // A window closed since it was listed.
         let frames = Frames::create(16, 16).unwrap();
         let gone = Job::Share {

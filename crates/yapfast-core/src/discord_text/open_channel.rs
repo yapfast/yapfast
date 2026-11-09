@@ -7,6 +7,8 @@ use yapfast_discord::{
     ready::Deletes,
 };
 
+use std::sync::Mutex;
+
 use crate::chat::SendOptions;
 
 use super::{
@@ -158,6 +160,10 @@ pub struct OpenChannel {
     /// Messages deleted while the channel is open. A page asked for before
     /// Discord deleted one can still carry it, and mustn't bring it back.
     deleted: HashSet<u64>,
+    /// This account's reactions on their way to Discord, by message and
+    /// emoji: another click on one waits for it, as Discord's client does,
+    /// so a burst of clicks can't race.
+    reacting: Arc<Mutex<HashSet<(String, String)>>>,
     /// A page of earlier history is on its way.
     pub(super) loading_earlier: bool,
     /// A page after the window is on its way.
@@ -250,6 +256,7 @@ impl OpenChannel {
             pending: Vec::new(),
             sent: HashSet::new(),
             deleted: HashSet::new(),
+            reacting: Arc::default(),
             loading_earlier: false,
             loading_later: false,
             focusing: false,
@@ -617,6 +624,14 @@ impl OpenChannel {
         changed
     }
 
+    /// Whether a name, avatar or role its messages show changed since they
+    /// were rendered, as a member list teaches them; it's dirty if so.
+    pub(super) fn names_changed(&mut self, discord: &Discord) -> bool {
+        let changed = discord.names_version() != self.rendered_with.names;
+        self.dirty |= changed;
+        changed
+    }
+
     fn apply_live(&mut self, event: &Live) -> bool {
         match event {
             // A window of older messages takes no new ones.
@@ -941,10 +956,16 @@ impl OpenChannel {
             .map_or(key, |reaction| reaction.emoji.as_str())
             .to_owned();
         let add = !known.is_some_and(|reaction| reaction.me);
-        let (discord, done) = (discord.clone(), done.clone());
+        let pending = (message.id.clone(), emoji.clone());
+        if !self.reacting.lock().unwrap().insert(pending.clone()) {
+            return;
+        }
+        let (discord, done, reacting) = (discord.clone(), done.clone(), self.reacting.clone());
         let (room, channel, id) = (self.room.clone(), self.channel.clone(), message.id.clone());
         tokio::spawn(async move {
-            if let Err(error) = discord.react(&channel, &id, &emoji, add).await {
+            let result = discord.react(&channel, &id, &emoji, add).await;
+            reacting.lock().unwrap().remove(&pending);
+            if let Err(error) = result {
                 let _ = done.send(Done::Failed {
                     room,
                     message: error.to_string(),

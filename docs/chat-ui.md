@@ -182,8 +182,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   client: the reactions give way to Pin or Unpin, Create Thread, and on your
   own message Reply, before Add reaction and Edit or Reply; Forward follows;
   and More gives way to Delete where you may delete, which deletes at once
-  without asking. The thread beside a channel does the same, without Create
-  Thread. Shift is read from the window's modifier keys wherever the focus
+  without asking. Shift and a click on Delete message in the message's menu
+  deletes at once too, where a plain click asks. The thread beside a channel
+  does the same, without Create Thread. Shift is read from the window's modifier keys wherever the focus
   is, and counts as let go when the window loses the focus, so it can't stick
   on after being let go elsewhere. It leaves a bar alone while its picker or
   menu is open. A pointer that stays put is told what's under it as the
@@ -538,7 +539,8 @@ The window follows Discord's arrangement:
   "Connected on another client". Every row takes the hover tone, and clicking
   someone opens their profile card beside the row, as Discord's popout does;
   someone listed only in a voice channel gets one from the name and avatar the
-  channel gives, which their Discord profile fills in. Clicking someone's LIVE
+  channel gives, which their Discord profile fills in. A profile's name and
+  username select, to copy; its picture opens the full profile. Clicking someone's LIVE
   tag opens their channel's call and watches them. Outside that call it asks
   first, "Join <channel> to watch <name>'s stream?", or in another call the
   switch prompt asks, and the stream opens once the call connects and shows
