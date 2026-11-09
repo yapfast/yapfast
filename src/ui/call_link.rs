@@ -158,7 +158,9 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
         );
         link.set_sound_waiting(
             if sharing {
-                format!("{} ms", stream.sound_held_ms)
+                stream
+                    .sound_held_ms
+                    .map_or_else(|| "unknown".to_owned(), |held| format!("{held} ms"))
             } else {
                 String::new()
             }
@@ -166,11 +168,25 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
         );
         link.set_sound_dropped(
             if sharing {
-                format!("{} ms", stream.sound_dropped_ms)
+                stream
+                    .sound_dropped_ms
+                    .map_or_else(|| "unknown".to_owned(), |dropped| format!("{dropped} ms"))
             } else {
                 String::new()
             }
             .into(),
+        );
+        // A watched stream's picture against its sound, both as it came and as
+        // the window was handed it, and the pictures the sound had passed: a
+        // watch that stutters or drifts says which here.
+        let skew = |skew: Option<i64>| skew.map_or_else(String::new, |skew| format!("{skew:+} ms"));
+        link.set_arrival_skew(skew(stream.arrival_skew_ms).into());
+        link.set_presentation_skew(skew(stream.presentation_skew_ms).into());
+        link.set_late_pictures(
+            stream
+                .late_pictures
+                .map_or_else(String::new, |late| late.to_string())
+                .into(),
         );
         link.set_presentation(
             stream
@@ -283,6 +299,22 @@ fn diagnostics(stream: &voice::StreamStats) -> String {
         stream.fallback.as_deref().map(shared_only).into(),
     );
     put("memory", stream.memory.as_deref().into());
+    // Signed, and as text: which way the picture runs from the sound is the
+    // whole point of the number.
+    put(
+        "arrival_skew_ms",
+        stream
+            .arrival_skew_ms
+            .map_or_else(String::new, |skew| format!("{skew:+}"))
+            .into(),
+    );
+    put(
+        "presentation_skew_ms",
+        stream
+            .presentation_skew_ms
+            .map_or_else(String::new, |skew| format!("{skew:+}"))
+            .into(),
+    );
     put("preview_shown", stream.preview.into());
     put("width", stream.width.into());
     put("height", stream.height.into());
@@ -292,9 +324,10 @@ fn diagnostics(stream: &voice::StreamStats) -> String {
     put("keyframe_requests", stream.keyframe_requests.into());
     put("resent", stream.resent.into());
     put("skipped", stream.skipped.into());
-    put("sound_held_ms", stream.sound_held_ms.into());
-    put("sound_dropped_ms", stream.sound_dropped_ms.into());
     for (key, value) in [
+        ("sound_held_ms", stream.sound_held_ms.map(u64::from)),
+        ("sound_dropped_ms", stream.sound_dropped_ms),
+        ("late_pictures", stream.late_pictures),
         ("queue_delay_ms", stream.queue_delay_ms.map(u64::from)),
         ("pool_live_bytes", stream.pool_live),
         ("pool_peak_bytes", stream.pool_peak),

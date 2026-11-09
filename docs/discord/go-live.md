@@ -37,7 +37,9 @@ back. On Linux it starts `/proc/self/exe`, the running Yapfast, since Yapfast's 
 names a deleted file once a rebuild or update replaces it. Frames reach the UI through `frames`, a triple buffer in a memory-mapped
 file in the runtime directory. The file is unlinked once the worker opens it.
 Windows won't delete a mapped file, so there it's a temporary file that
-Windows deletes once both processes close it.
+Windows deletes once both processes close it. The file holds pixels, and a
+slot's numbers; a picture the worker drew on the card is not in it, and the
+two ways one crosses are [below](#encoding-on-the-gpu).
 The worker's standard error goes to Yapfast's log file. If its output ends
 without an `ended` report, as when it crashes, the popup says "Screen sharing
 stopped unexpectedly." and Yapfast logs a warning, "the stream worker ended
@@ -214,11 +216,45 @@ it knows. So a picture a person is looking at is never written over, and neither
 is one the renderer hasn't finished reading: a window that falls behind costs
 preview frames, never a torn picture, and the
 stream itself is untouched, since it encodes the capture's texture and not the
-tile. A picture crosses to the window as a shared texture it opens once, shown
+tile. A window that stops saying it has finished with a slot for a whole second
+— a render queue that has stopped, rather than one that is behind — costs the
+share the card's picture path: the frames after that are written as pixels,
+which still reach the window, and the share stays on them for the rest of the
+stream. That is the way out of a ring that has stopped turning; it is one way on
+purpose, since the thing that would have to come back is the window's answer,
+which is what stopped. A picture crosses to the window as a shared texture it opens once, shown
 where the card drew it every frame, with a fence saying when the drawing
-finished. Where the two adapters can't share a texture, or the window draws in
-software, the tile is read back into one staging texture at 1280×720 at most
-instead, ten times a second while the UI shows a preview. Everything else — Linux, a window or a camera, the processor setting,
+finished. A shared texture's handle is a number that names the same object in
+both processes, so it goes in the frames file's slot; on Linux a picture is a
+DMA-BUF instead, and a file descriptor names a different object in every
+process, so it can't: the window makes a `SOCK_SEQPACKET` socket pair before it
+starts the worker (`frames::Frames::open_pictures`), keeps one end, writes the
+descriptor of the other in the frames header, and starts the worker in
+`dmabuf::inheriting`, which keeps that descriptor open across the spawn so the
+worker inherits it at the number the header names. The worker adopts it on the
+other side of the `exec` (`dmabuf::Sender::adopt`, checked against the socket's
+type and the window's process id) and, from then on, sends one message for each
+picture it publishes: its slot and generation, the fourcc, the DRM modifier and
+the offset and stride of each plane, with one descriptor for each plane
+attached as `SCM_RIGHTS`, which is the kernel taking a reference to the memory
+for the window. One `sendmsg` a picture, one drain a take, and no allocation in
+either.
+The window takes a slot for a picture only when the picture's message is
+waiting for that generation (`dmabuf::Reader::take`), and the descriptors it
+took are closed when it lets go of the picture, which is as it retires the slot:
+the memory a picture is in belongs to the worker until the window has finished
+sampling it, and no descriptor outlives that. A message that can't be read —
+another version, or one whose planes and descriptors disagree — is closed as it
+is read, and one it displaces is closed then too, so a window that stopped
+taking pictures holds one per slot and no more. The device a picture has to be
+opened on is the window's own: Skia on Vulkan through a wgpu 30 device Yapfast
+makes where the build carries Skia's Vulkan — the opt-in `skia-vulkan` feature
+and the Skia archive built with it, see
+[building.md](../building.md#skia-with-vulkan) — and a Vulkan device opens, and
+Skia on OpenGL otherwise (`src/ui/vulkan.rs`). Where the two adapters can't share a
+texture, or the window draws in software, the tile is read back into one
+staging texture at 1280×720 at most instead, ten times a second while the UI
+shows a preview. Everything else — Linux, a window or a camera, the processor setting,
 or a card that won't open on the capture's device — takes the libyuv path above,
 and one log line says which ran and why. Where Windows Graphics Capture is missing or won't open, DXGI's Desktop
 Duplication fills the same kind of texture — upright, in BGRA, with the pointer
@@ -359,8 +395,9 @@ player with each frame's RTP sequence number, timestamp, SSRC and arrival time
 give up on what no longer matters. The streamer's sender reports are kept beside it
 (`stream_connection::StreamClock`): each SSRC's RTP timestamp against the middle
 32 bits of its NTP time, plus the newest picture timestamp that arrived. The
-worker reports two skews from them (`av_timing::Timeline`), both `None` while
-a mapping is missing or older than five seconds: the *arrival* skew carries each
+worker reports two skews from them (`av_timing::Timeline`) in its debug log and
+in the call's Stream tab, both unknown while a mapping is missing or older than
+five seconds: the *arrival* skew carries each
 clock to now from its own report and so compares what arrived of each stream,
 before any device buffer, and the *presentation* skew compares the sound the
 device says it has played against the picture last handed to the window. A
@@ -430,7 +467,14 @@ a stream's H264 goes to the graphics card's encoder where it has one:
 `native/hwenc.c` opens FFmpeg's NVENC encoder, then on Windows its AMF one
 (AMD) and on Linux its VA-API one (AMD and Intel), and x264 when none opens.
 It's on by default because it takes almost no processor time and looks better
-than x264 at low bitrates. Intel graphics encode with x264 on Windows so far.
+than x264 at low bitrates. Intel graphics encode through Quick Sync — FFmpeg's
+`h264_qsv`, `hevc_qsv` and `av1_qsv`, through oneVPL — wherever one of those
+opens, and with x264 where none does: `vendor/ffmpeg-src` is configured with
+them on both targets, and a build without oneVPL never tries them, saying "not
+in this FFmpeg" for each. Quick Sync is fed from the processor the way AMF is:
+every frame is uploaded to it as NV12, and nothing on that path is zero-copy. It
+has not been measured on Intel hardware here, so what is known of it is that it
+opens and encodes, not that its picture beats x264's.
 The setting lives in `layout.json` and reaches the worker with each
 `Job::Share`; the camera stays on x264. When the GPU's H264 encoder fails
 during a stream, x264 takes over from that frame with a keyframe, and the log
@@ -460,11 +504,15 @@ own VA-API encoder into libwebrtc. The AppImage takes the system's libva,
 and the Arch package lists it as optional.
 
 The settings match x264's where they can: low-latency tuning (NVENC's p4
-preset, `ll`; AMF's `lowlatency` usage and balanced preset), no B-frames, a
-frame out for each frame in, Main profile, keyframes every 3 seconds and when
-asked, and variable bitrate capped at the target over half a second, which
-leaves a calm screen below the cap rather than padding it. `native/hwenc.c`
-sorts them into what the stream needs and what only improves it: a needed
+preset, `ll`; AMF's `lowlatency` usage and balanced preset; Quick Sync's medium
+preset, one frame in flight and no look-ahead), no B-frames, a frame out for
+each frame in, Main profile, keyframes every 3 seconds and when asked, and
+variable bitrate capped at the target over half a second, which
+leaves a calm screen below the cap rather than padding it. Quick Sync's rate is
+MFX's VBR with the cap at the target and the average a kbit/s under it, because
+FFmpeg's Quick Sync reads a target level with the cap as its constant bitrate,
+which fills a calm screen out to the cap. `native/hwenc.c` sorts them into what
+the stream needs and what only improves it: a needed
 setting this FFmpeg doesn't have, or the driver refuses, fails that encoder's
 open, and the worker logs it by name ("no GPU encoder opened"); an optional
 one the driver drops is logged too ("the GPU's encoder dropped optional
@@ -497,7 +545,10 @@ stream actually got is logged at open. The default is unchanged: a preset has to
 earn its place with a measured comparison, not a guess.
 NVENC, AMF and VA-API change their bitrate as they run, without the IDR frame
 FFmpeg would insert, with a patch to FFmpeg for each (AMF's sets the target,
-peak and buffer on the running encoder). "Higher quality" changes nothing on
+peak and buffer on the running encoder). Quick Sync needs no patch: FFmpeg
+applies a new target, cap and buffer to its running session itself, and
+`native/hwenc.c` hands it the same cap-and-target pair it opened with. "Higher
+quality" changes nothing on
 the GPU: NVENC's slowest preset looked no better than p4.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
@@ -520,7 +571,9 @@ checked yet.
 AV1 encodes on NVIDIA's RTX 40 series and newer (`av1_nvenc`), on AMD's
 RX 7000 series and newer and the Radeon 700M graphics, through AMF on
 Windows (`av1_amf`) and through Mesa's radeonsi on Linux (`av1_vaapi`), and
-on Intel's Arc and Core Ultra graphics through VA-API (iHD) on Linux. GPUs
+on Intel's Arc and Core Ultra graphics through VA-API (iHD) on Linux, and
+through Quick Sync (`av1_qsv`) on either target where this build carries it,
+which no Intel machine here has encoded. GPUs
 before those have no AV1 encoder, so the stream offers H265 and H264. On an
 RX 7900 XTX with AMD's driver 32.0.31041.1004 on Windows, `native/hwenc.c`,
 built on its own with FFmpeg's Windows build, encoded with `av1_amf`,
@@ -547,7 +600,10 @@ The call's Stream tab shows how a share goes out and what makes it: the
 encoder and codec, what captured it and what that captured, the size and frame
 rate, the bitrate sent and aimed for, the keyframes viewers asked for, the
 packets resent, the frames a full queue skipped, and the shared sound waiting
-or dropped. Beside those it says how the pictures reach the window — the
+or dropped. A watched stream's tab adds how far its picture runs from its sound
+on the streamer's timeline, as it arrived and as the window was handed it, and
+the pictures the audible sound had already passed by — the bound that keeps a
+viewer from falling further behind. Beside those it says how the pictures reach the window — the
 worker's own texture, or a copy of every frame — and the adapter the window
 draws on, the wait a frame had between the capture having it and the encoder
 being given it, which only the card's own capture times (the processor's

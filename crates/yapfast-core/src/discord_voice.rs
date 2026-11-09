@@ -384,6 +384,10 @@ impl Watch {
     }
 }
 
+// One of these crosses a channel per event a watched stream has, a few a
+// second, so the largest variant — a report, which carries the stream's
+// statistics — being much bigger than the other costs nothing.
+#[allow(clippy::large_enum_variant)]
 enum WatchEvent {
     Opened(Result<StreamServer>),
     Report(Option<Report>),

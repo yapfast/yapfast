@@ -132,6 +132,14 @@ export global CallLink {
     /// milliseconds played and the milliseconds still queued.
     in property <string> heard;
     in property <string> sound-queued;
+    /// How far a watched stream's picture runs from its sound on the
+    /// streamer's own timeline, as what arrived and as what reached the
+    /// window, and the pictures the sound had passed by before they could be
+    /// shown: the bound that keeps latency from growing. Empty while nothing
+    /// times them.
+    in property <string> arrival-skew;
+    in property <string> presentation-skew;
+    in property <string> late-pictures;
     /// How the pictures reach the window ("the worker's own texture" or
     /// "copied to the processor"), and the adapter the window draws on: a
     /// share that copies every frame says here whether the two adapters are
@@ -292,6 +300,9 @@ export component CallLinkCard inherits Rectangle {
             if CallLink.sound-dropped != "": LinkRow { label: "Shared sound dropped:"; value: CallLink.sound-dropped; }
             if CallLink.heard != "": LinkRow { label: "Sound played:"; value: CallLink.heard; }
             if CallLink.sound-queued != "": LinkRow { label: "Sound queued in the device:"; value: CallLink.sound-queued; }
+            if CallLink.arrival-skew != "": LinkRow { label: "Picture against the sound, as it arrived:"; value: CallLink.arrival-skew; }
+            if CallLink.presentation-skew != "": LinkRow { label: "Picture against the sound, shown:"; value: CallLink.presentation-skew; }
+            if CallLink.late-pictures != "": LinkRow { label: "Pictures the sound had passed:"; value: CallLink.late-pictures; }
             LinkRow { label: "Shown by:"; value: CallLink.presentation; }
             if CallLink.presented-on != "": LinkRow { label: "The window draws on:"; value: CallLink.presented-on; }
             LinkRow { label: "Frame wait before encoding:"; value: CallLink.queue-delay; }

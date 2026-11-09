@@ -51,6 +51,8 @@ use crate::capture;
 use crate::d3d11;
 #[cfg(dup)]
 use crate::dup;
+#[cfg(any(wgc, dup))]
+use crate::frames::Drawn;
 #[cfg(wgc)]
 use crate::wgc;
 use crate::{
@@ -845,12 +847,9 @@ impl Video {
         let milliseconds = since.elapsed().as_millis().max(1) as u64;
         self.measured = (Instant::now(), sent.video_bytes);
         // The sound shared with the screen, while there is one: what waits to
-        // be mixed is delay a viewer hears before the picture it came with.
-        let sound = self
-            .sound
-            .as_ref()
-            .map(stream_audio::Capture::stats)
-            .unwrap_or_default();
+        // be mixed is delay a viewer hears before the picture it came with. A
+        // share with no sound says unknown rather than nothing waited.
+        let sound = self.sound.as_ref().map(stream_audio::Capture::stats);
         StreamStats {
             fps,
             target_kbps: self.encoder.as_ref().map_or(0, Encoding::bitrate),
@@ -858,8 +857,8 @@ impl Video {
             keyframe_requests: sent.keyframe_requests,
             resent: sent.resent,
             skipped: self.skipped,
-            sound_held_ms: sound.held_ms,
-            sound_dropped_ms: sound.dropped_ms,
+            sound_held_ms: sound.map(|sound| sound.held_ms),
+            sound_dropped_ms: sound.map(|sound| sound.dropped_ms),
             ..self
                 .encoder
                 .as_ref()
@@ -1275,6 +1274,21 @@ impl Sink {
     #[cfg(any(wgc, dup))]
     fn preview_wanted(&self) -> bool {
         self.preview_shown || self.preview_due.is_some_and(|due| due <= Instant::now())
+    }
+
+    /// Whether Discord's still of the stream is due, which is made from the
+    /// tile's pixels: the one reason a frame is read back into memory while the
+    /// window shows the card's own picture.
+    #[cfg(any(wgc, dup))]
+    fn still_wanted(&self) -> bool {
+        self.preview_due.is_some_and(|due| due <= Instant::now())
+    }
+
+    /// Whether a machine short of memory has this share giving back what it can
+    /// spare: a smaller preview, and buffers it will never use again.
+    #[cfg(any(wgc, dup))]
+    fn constrained(&self) -> bool {
+        self.diagnosis.memory.constrained().is_some()
     }
 
     /// Whether the stream needs a picture now, whatever the screen is doing: a
@@ -1833,13 +1847,12 @@ fn watch(
             // are `None` while a mapping is missing or older than five
             // seconds, and the device's buffer is only in the second.
             let held = Duration::from_millis(u64::from(queued.unwrap_or(0)));
+            let arrival_skew = timeline.arrival_ms(now);
+            let presentation_skew =
+                timeline.presentation_ms(now, held, presented.map(|presented| presented.time_ms));
             tracing::debug!(
-                arrival_skew_ms = ?timeline.arrival_ms(now),
-                presentation_skew_ms = ?timeline.presentation_ms(
-                    now,
-                    held,
-                    presented.map(|presented| presented.time_ms)
-                ),
+                arrival_skew_ms = ?arrival_skew,
+                presentation_skew_ms = ?presentation_skew,
                 dropped,
                 "watched stream A/V timing"
             );
@@ -1855,6 +1868,9 @@ fn watch(
                 preview: visible,
                 sound_heard_ms: heard,
                 sound_queued_ms: queued,
+                arrival_skew_ms: arrival_skew,
+                presentation_skew_ms: presentation_skew,
+                late_pictures: Some(dropped),
                 ..StreamStats::default()
             }));
         }
@@ -2329,6 +2345,10 @@ fn capture_screen(
         }
     };
     sink.capture = "the processor's capturer".to_owned();
+    // Every picture this path makes is a copy: the capturer hands over memory
+    // the processor wrote, and the window is shown those pixels, whichever
+    // process wrote them.
+    sink.diagnosis.presentation = Some(Presentation::Copy);
     let mut fps = sink.fps;
     let sink = Arc::new(Mutex::new(sink));
     let mut capture = Capture::start(source, &sink, max_width, max_height)?;
@@ -3119,7 +3139,10 @@ fn capture_textures(
             // in the capture's own texture, and only while one of those asks for
             // it. A desktop that is neither moving nor wanted encodes nothing.
             Arrival::Still => {
-                if saw_picture && sink.picture_needed() {
+                // A still is answered from the capture's own texture only when
+                // the capture answered with nothing new: a call that failed
+                // hands back no texture, and its error is the one to keep.
+                if taken.is_ok() && saw_picture && sink.picture_needed() {
                     let content = capture.content_size();
                     let sent = fit(content.0, content.1, max_width, max_height);
                     taken = sink.textured(
@@ -3417,11 +3440,14 @@ fn capturer_takes_a_window(source: &Source) -> bool {
 
 /// The kind of source the processor's capturer is asked for. Where
 /// [`portal_picks`], the system's own screen sharing dialog picks a screen or a
-/// window, and the kind only says what the dialog offers first.
+/// window, and the kind only says what the dialog offers first — and the generic
+/// kind is one only libwebrtc's Linux and macOS builds make.
 fn capturer_kind(source: &Source) -> livekit::webrtc::desktop_capturer::DesktopCaptureSourceType {
+    #[cfg(target_os = "linux")]
     if portal_picks() {
-        livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic
-    } else if capturer_takes_a_window(source) {
+        return livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic;
+    }
+    if capturer_takes_a_window(source) {
         livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Window
     } else {
         livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Screen
@@ -3783,7 +3809,10 @@ fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
                 let (width, height) = (frame.width().max(1) as u32, frame.height().max(1) as u32);
                 // The last picture is the buffer for this one, unless the
                 // screen changed size under it.
-                let mut picture = taken.0.take().unwrap_or_else(|| I420Buffer::new(width, height));
+                let mut picture = taken
+                    .0
+                    .take()
+                    .unwrap_or_else(|| I420Buffer::new(width, height));
                 if (picture.width(), picture.height()) != (width, height) {
                     picture = I420Buffer::new(width, height);
                 }
@@ -3934,7 +3963,7 @@ impl Worker {
             hardware: HARDWARE.load(Ordering::Relaxed),
             capture: crate::capture::preference(),
         };
-        let (worker, reports) = Self::start(&job)?;
+        let (worker, reports) = Self::start(&job, Some(&frames))?;
         Ok((worker, frames, reports))
     }
 
@@ -3946,11 +3975,14 @@ impl Worker {
         width: u32,
         height: u32,
     ) -> Result<(Self, mpsc::Receiver<Report>)> {
-        Self::start(&Job::Glance {
-            screens,
-            width,
-            height,
-        })
+        Self::start(
+            &Job::Glance {
+                screens,
+                width,
+                height,
+            },
+            None,
+        )
     }
 
     /// Starts watching the stream at `server`, with pictures for the UI in a
@@ -3971,7 +4003,7 @@ impl Worker {
             deafened,
             volume,
         };
-        let (worker, reports) = Self::start(&job)?;
+        let (worker, reports) = Self::start(&job, Some(&frames))?;
         Ok((worker, frames, reports))
     }
 
@@ -3995,7 +4027,7 @@ impl Worker {
             speakers,
             volume,
         };
-        let (worker, reports) = Self::start(&job)?;
+        let (worker, reports) = Self::start(&job, Some(&frames))?;
         Ok((worker, frames, reports))
     }
 
@@ -4052,7 +4084,10 @@ impl Worker {
         Ok(())
     }
 
-    fn start(job: &Job) -> Result<(Self, mpsc::Receiver<Report>)> {
+    /// Starts the worker for `job`, whose frames file `frames` is when it has
+    /// one: a stream's pictures travel over a socket this makes before the spawn,
+    /// so that the worker inherits its end; see [`crate::dmabuf`].
+    fn start(job: &Job, frames: Option<&Frames>) -> Result<(Self, mpsc::Receiver<Report>)> {
         // Tests run from their own binary, so they name Yapfast's.
         let program = match std::env::var_os("YAPFAST_STREAM_WORKER") {
             Some(program) => PathBuf::from(program),
@@ -4069,12 +4104,51 @@ impl Worker {
         if let Some(place) = &place {
             command.env(THREADS, place.threads.to_string());
         }
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(crate::logging::for_worker())
-            .spawn()
-            .context("could not start the stream worker")?;
+        // The socket this stream's pictures' descriptors travel on: the frames
+        // header names the descriptor the worker's end has, and the spawn below
+        // keeps it open across the exec. A stream whose socket can't be made is a
+        // stream of pixels, which is what it would have been anyway.
+        #[cfg(target_os = "linux")]
+        let pictures = frames
+            .and_then(|frames| {
+                frames
+                    .open_pictures()
+                    .inspect_err(|error| {
+                        tracing::warn!(
+                            error = format!("{error:#}"),
+                            "a stream whose pictures can't be shared as descriptors shows its pixels"
+                        )
+                    })
+                    .ok()
+            })
+            .map(|fd| fd as std::os::fd::RawFd);
+        #[cfg(not(target_os = "linux"))]
+        let _ = frames;
+        let spawning = || {
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(crate::logging::for_worker())
+                .spawn()
+        };
+        let mut child = {
+            #[cfg(target_os = "linux")]
+            {
+                crate::dmabuf::inheriting(pictures, spawning)
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                spawning()
+            }
+        }
+        .context("could not start the stream worker")?;
+        // This process's copy of the worker's end goes now that the worker has
+        // its own: from here the window's end sees the socket close when the
+        // worker goes, which is how a stream's pictures end.
+        #[cfg(target_os = "linux")]
+        if let Some(frames) = frames {
+            frames.pictures_spawned();
+        }
         let mut stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let line = serde_json::to_string(job)?;
@@ -4184,10 +4258,11 @@ impl Last {
         }
     }
 
-    /// Warns that the worker ended without a [`Report::Ended`], and how.
-    /// What it wrote to standard error before that is already in the log,
-    /// through [`crate::logging::for_worker`].
-    fn log(&self, exit: String) {
+    /// What the log says about a worker that ended without a
+    /// [`Report::Ended`]: the job it had, what encoded it and how big the
+    /// pictures were, and how it went. The same words the warning carries, so a
+    /// test can read them without a logger to catch it through.
+    fn said(&self, exit: &str) -> String {
         let (width, height) = self.size;
         let (engine, codec) = self
             .encoder
@@ -4200,14 +4275,18 @@ impl Last {
         } else {
             format!("up to {width}x{height}")
         };
-        tracing::warn!(
-            job = self.job,
-            engine,
-            codec,
-            size,
-            exit,
-            "the stream worker ended without saying why"
-        );
+        format!(
+            "the stream worker ended without saying why: job=\"{}\" engine=\"{}\" codec=\"{}\" \
+             size=\"{}\" exit=\"{}\"",
+            self.job, engine, codec, size, exit
+        )
+    }
+
+    /// Warns that the worker ended without a [`Report::Ended`], and how: the
+    /// one sentence [`Self::said`] writes, so a test reads what the log says
+    /// rather than a second copy of it.
+    fn log(&self, exit: String) {
+        tracing::warn!("{}", self.said(&exit));
     }
 }
 
@@ -4324,9 +4403,11 @@ impl Drop for Worker {
 mod tests {
     use super::*;
 
-    /// A worker that dies without a [`Report::Ended`] logs a warning with
-    /// how it ended and the job it had, and the UI still gets the popup's
-    /// error.
+    /// A worker that dies without a [`Report::Ended`] is one the UI hears about
+    /// anyway, with the job it had and how it went — and the warning that says
+    /// so is the same sentence, which is checked here without a logger to catch
+    /// it through: a scoped logger is hearsay under a test binary whose other
+    /// tests may have started the logging first.
     #[cfg(unix)]
     #[test]
     fn a_worker_that_dies_says_how() {
@@ -4336,20 +4417,16 @@ mod tests {
             let worker = directory.path().join("worker");
             std::fs::write(&worker, format!("#!/bin/sh\nread job\n{script}\n")).unwrap();
             std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
-            let logged = Arc::new(Mutex::new(Vec::new()));
-            let writer = logged.clone();
-            let logger = tracing_subscriber::fmt()
-                .with_ansi(false)
-                .with_writer(move || Logged(writer.clone()))
-                .finish();
-            let _logging = tracing::subscriber::set_default(logger);
             // Only this test starts a worker.
             unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
-            let (worker, mut reports) = Worker::start(&Job::Glance {
-                screens: vec![],
-                width: 320,
-                height: 180,
-            })
+            let (worker, mut reports) = Worker::start(
+                &Job::Glance {
+                    screens: vec![],
+                    width: 320,
+                    height: 180,
+                },
+                None,
+            )
             .unwrap();
             assert_eq!(
                 reports.blocking_recv(),
@@ -4357,40 +4434,31 @@ mod tests {
                     error: Some("Screen sharing stopped unexpectedly.".into())
                 })
             );
+            // The image the popup shows, and the exit the warning carries.
+            let exit = exited(&worker.child);
             drop(worker);
-            String::from_utf8(logged.lock().unwrap().clone()).unwrap()
+            (
+                exit,
+                Last::new(&Job::Glance {
+                    screens: vec![],
+                    width: 320,
+                    height: 180,
+                }),
+            )
         };
 
         // No core file: the shell's would be in the way.
-        let log = died("ulimit -c 0; kill -SEGV $$");
-        assert!(log.contains("WARN"), "{log}");
-        assert!(
-            log.contains("the stream worker ended without saying why"),
-            "{log}"
-        );
-        assert!(log.contains("exit=\"signal=11 (SIGSEGV"), "{log}");
+        let (exit, last) = died("ulimit -c 0; kill -SEGV $$");
+        assert!(exit.contains("signal=11 (SIGSEGV"), "{exit}");
+        let log = last.said(&exit);
+        assert!(log.contains("ended without saying why"), "{log}");
         assert!(log.contains("job=\"glance\""), "{log}");
         assert!(log.contains("size=\"up to 320x180\""), "{log}");
         assert!(log.contains("engine=\"unknown\""), "{log}");
 
-        let log = died("exit 3");
-        assert!(log.contains("exit=\"code=3\""), "{log}");
-    }
-
-    /// Collects a test's log.
-    #[cfg(unix)]
-    struct Logged(Arc<Mutex<Vec<u8>>>);
-
-    #[cfg(unix)]
-    impl Write for Logged {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
+        let (exit, last) = died("exit 3");
+        assert!(exit.contains("code=3"), "{exit}");
+        assert!(last.said(&exit).contains("exit=\"code=3\""), "{exit}");
     }
 
     #[cfg(unix)]

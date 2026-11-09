@@ -183,11 +183,12 @@ pub struct StreamStats {
     /// the encode that would have been thrown away was skipped instead.
     pub skipped: u64,
     /// The most any application's shared sound waited to be mixed, in
-    /// milliseconds: delay before viewers hear it.
-    pub sound_held_ms: u32,
+    /// milliseconds: delay before viewers hear it. Unknown while no sound is
+    /// shared with the screen, or while the sound couldn't be captured.
+    pub sound_held_ms: Option<u32>,
     /// Shared sound a full backlog dropped since the stream started, in
-    /// milliseconds.
-    pub sound_dropped_ms: u64,
+    /// milliseconds. Unknown where `sound_held_ms` is.
+    pub sound_dropped_ms: Option<u64>,
     /// What decodes the stream, as it names itself, when this account is
     /// watching one: "h265 (d3d11va)" is the card's decoder, "libvpx" the
     /// processor's. Unknown while nothing decodes.
@@ -198,8 +199,11 @@ pub struct StreamStats {
     /// The adapter the capture ran on, the one the encoder ran on and the one
     /// the window draws on, as their DXGI LUIDs: a picture is shared only
     /// between the last two when they are the same, so a share that copies
-    /// every frame says here whether that is why. Unknown where the machine
-    /// wasn't asked.
+    /// every frame says here whether that is why. The capture's and the
+    /// encoder's are one device on the card's paths, and are known once a
+    /// picture has been shared with the window — the share's own register names
+    /// it. Unknown where nothing has, and on the processor's path, which asks
+    /// the card nothing.
     pub capture_luid: Option<u64>,
     pub encode_luid: Option<u64>,
     pub present_luid: Option<u64>,
@@ -227,6 +231,19 @@ pub struct StreamStats {
     /// still holds queued. Unknown while nothing plays or no device can say.
     pub sound_heard_ms: Option<u32>,
     pub sound_queued_ms: Option<u32>,
+    /// How far a watched stream's picture runs from its sound on the
+    /// streamer's own timeline, in milliseconds, positive for the picture
+    /// ahead: `arrival` compares what arrived of each, before any device
+    /// buffer, and `presentation` compares the sound the device says it has
+    /// played against the picture last handed to the window — a submission, so
+    /// that one is an estimate. Unknown while a mapping is missing or older
+    /// than five seconds, and for a share, which nothing times against anything.
+    pub arrival_skew_ms: Option<i64>,
+    pub presentation_skew_ms: Option<i64>,
+    /// Pictures the audible sound had already passed by more than the 80 ms
+    /// bound, dropped rather than shown late since the watch started. Unknown
+    /// for a share.
+    pub late_pictures: Option<u64>,
 }
 
 /// How a stream's pictures reach the window.
