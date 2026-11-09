@@ -1463,8 +1463,9 @@ export component AboutSettings inherits VerticalLayout {
     SettingsHeading { text: "LINKS"; }
     HorizontalLayout {
         spacing: 8px; alignment: start;
-        ActionButton { text: "Website"; clicked => { Updates.open-website(); } }
-        ActionButton { text: "GitHub"; clicked => { Updates.open-github(); } }
+        ActionButton { text: "Website"; icon: @image-url("icons/logo.svg"); clicked => { Updates.open-website(); } }
+        ActionButton { text: "GitHub"; icon: @image-url("icons/github.svg"); clicked => { Updates.open-github(); } }
+        ActionButton { text: "Discord"; icon: @image-url("icons/discord.svg"); clicked => { Updates.open-discord(); } }
     }
 }
 

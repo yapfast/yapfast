@@ -20,6 +20,8 @@ const EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 /// The project's pages, which About's buttons open.
 const WEBSITE: &str = "https://yapfast.com";
 const GITHUB: &str = "https://github.com/yapfast/yapfast";
+/// The address the website sends to the project's Discord server, as the README's badge does.
+const DISCORD: &str = "https://yapfast.com/discord-invite";
 
 /// What the last look at the releases found.
 #[derive(Default)]
@@ -225,4 +227,5 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     });
     shown.on_open_website(|| browser::open(WEBSITE));
     shown.on_open_github(|| browser::open(GITHUB));
+    shown.on_open_discord(|| browser::open(DISCORD));
 }

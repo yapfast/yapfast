@@ -144,7 +144,7 @@ says whether a newer release is out. A line under the sections tells too:
 "Update available" with the release's tag, and a click opens About. About
 offers View release, which opens the release's page in the browser, and Skip
 this update, which hides that release until a newer one comes. It also links
-to the website and the GitHub project. Yapfast installs nothing.
+to the website, the GitHub project and the Discord server, each button with its mark. Yapfast installs nothing.
 
 The look is off until a person turns on Check for updates, so a fresh install
 makes no request to GitHub. On, Yapfast looks when it starts and every six
