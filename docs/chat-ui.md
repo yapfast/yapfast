@@ -180,7 +180,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   frequently used emoji and every category of the `emojis` crate up to
   Unicode 15.0, which Noto Color
   Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
-  reaction adds or removes yours.
+  reaction adds or removes yours. A message's reactions wrap onto as many
+  lines as its width needs, as in Discord's client.
 - Holding Shift turns the toolbar into quick actions, as in Discord's
   client: the reactions give way to Pin or Unpin, Create Thread, and on your
   own message Reply, before Add reaction and Edit or Reply; Forward follows;
