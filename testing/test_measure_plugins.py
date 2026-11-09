@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -77,6 +78,114 @@ while True:
         break
     else:
         write_frame(9, frame_id, {"type": "error", "message": "unknown request"})
+'''
+
+
+RECORDING_HELPER = r'''
+import json
+import struct
+import sys
+
+HEADER = struct.Struct("<IBQ")
+LOG = sys.argv[1]
+
+
+def record(kind, frame_id, payload):
+    with open(LOG, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"kind": kind, "id": frame_id, "payload": payload.hex()}) + "\n")
+
+
+def read_exact(count, clean_eof=False):
+    data = b""
+    while len(data) < count:
+        chunk = sys.stdin.buffer.read(count - len(data))
+        if not chunk:
+            if clean_eof and not data:
+                return None
+            raise EOFError("stream ended mid-frame")
+        data += chunk
+    return data
+
+
+def read_frame():
+    header = read_exact(HEADER.size, clean_eof=True)
+    if header is None:
+        return None
+    length, kind, frame_id = HEADER.unpack(header)
+    payload = read_exact(length) if length else b""
+    return kind, frame_id, payload
+
+
+def write_raw(kind, frame_id, payload):
+    sys.stdout.buffer.write(HEADER.pack(len(payload), kind, frame_id) + payload)
+    sys.stdout.buffer.flush()
+    record(kind, frame_id, payload)
+
+
+def write(kind, frame_id, body):
+    write_raw(kind, frame_id, json.dumps(body, separators=(",", ":")).encode("utf-8"))
+
+
+write(1, 0, {"type": "ready"})
+while True:
+    frame = read_frame()
+    if frame is None:
+        break
+    kind, frame_id, payload = frame
+    request = json.loads(payload) if payload else None
+    request_type = request.get("type") if isinstance(request, dict) else None
+    if request_type == "load":
+        write(3, frame_id, {"type": "loaded"})
+    elif request_type == "call":
+        write_raw(5, frame_id, b'{"type":"reply","payload":' + payload + b"}")
+    elif request_type == "unload":
+        write(7, frame_id, {"type": "unloaded"})
+    elif request_type == "shutdown":
+        break
+    else:
+        write(9, frame_id, {"type": "error", "message": "unknown request"})
+'''
+
+
+READY_WITH_ID_HELPER = r'''
+import json
+import struct
+import sys
+
+sys.stdout.buffer.write(struct.pack("<IBQ", 15, 1, 7) + b'{"type":"ready"}')
+sys.stdout.buffer.flush()
+'''
+
+
+ZERO_ID_REPLY_HELPER = r'''
+import json
+import struct
+import sys
+
+HEADER = struct.Struct("<IBQ")
+
+
+def read_exact(count):
+    data = b""
+    while len(data) < count:
+        chunk = sys.stdin.buffer.read(count - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+
+def write_frame(kind, frame_id, body):
+    payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
+    sys.stdout.buffer.write(HEADER.pack(len(payload), kind, frame_id) + payload)
+    sys.stdout.buffer.flush()
+
+
+write_frame(1, 0, {"type": "ready"})
+header = read_exact(HEADER.size)
+length, kind, frame_id = HEADER.unpack(header)
+read_exact(length)
+write_frame(5, 0, {"type": "reply", "payload": None})
 '''
 
 
@@ -267,6 +376,27 @@ class FrameCodecTest(unittest.TestCase):
             mp.encode_frame(mp.Kind.CALL, 0, b"x" * (mp.MAX_PAYLOAD_LEN + 1))
 
 
+class FrameIdConformanceTest(unittest.TestCase):
+    def test_ready_is_the_only_frame_at_id_zero(self):
+        mp.validate_frame_id(mp.Kind.READY, 0)
+        for kind in (
+            mp.Kind.LOAD,
+            mp.Kind.LOADED,
+            mp.Kind.CALL,
+            mp.Kind.REPLY,
+            mp.Kind.UNLOAD,
+            mp.Kind.UNLOADED,
+            mp.Kind.SHUTDOWN,
+            mp.Kind.ERROR,
+        ):
+            with self.assertRaises(mp.ProtocolViolation):
+                mp.validate_frame_id(kind, 0)
+
+    def test_a_ready_away_from_id_zero_is_refused(self):
+        with self.assertRaises(mp.ProtocolViolation):
+            mp.validate_frame_id(mp.Kind.READY, 1)
+
+
 class PercentileTest(unittest.TestCase):
     def test_nearest_rank_uses_the_element_at_ceil_p_over_100_n(self):
         values = list(range(1, 11))
@@ -336,6 +466,75 @@ class MemoryMetricTest(unittest.TestCase):
         self.assertEqual(metric["unit"], "KiB")
 
 
+class ThreadCountTest(unittest.TestCase):
+    """The Windows count is mocked at the ctypes boundary: a fake Win32 API."""
+
+    PID = 4321
+
+    def fake_api(self, owners, *, snapshot=1, last_error=0):
+        state = {"owners": list(owners), "position": -1, "closed": [], "last_error": last_error}
+        entry = types.SimpleNamespace(dwSize=0, th32OwnerProcessID=0)
+
+        def advance():
+            if state["position"] >= len(state["owners"]):
+                return False
+            entry.th32OwnerProcessID = state["owners"][state["position"]]
+            return True
+
+        def first(handle, target):
+            state["position"] = 0
+            return advance()
+
+        def next_(handle, target):
+            state["position"] += 1
+            return advance()
+
+        api = {
+            "CreateToolhelp32Snapshot": lambda flags, pid: snapshot,
+            "ThreadEntry": lambda: entry,
+            "Thread32First": first,
+            "Thread32Next": next_,
+            "CloseHandle": lambda handle: state["closed"].append(handle),
+            "last_error": lambda: state["last_error"],
+            "win_error": lambda: OSError("fake GetLastError"),
+        }
+        return api, state
+
+    def test_counts_only_threads_owned_by_the_process(self):
+        api, state = self.fake_api([self.PID, self.PID + 1, self.PID, 99])
+        self.assertEqual(mp.thread_count_from_toolhelp(self.PID, api), 2)
+        self.assertEqual(state["closed"], [1])
+
+    def test_a_snapshot_without_a_matching_thread_is_an_error_not_zero(self):
+        api, _ = self.fake_api([12, 13])
+        with self.assertRaises(mp.ThreadCountError) as raised:
+            mp.thread_count_from_toolhelp(self.PID, api)
+        self.assertIn(str(self.PID), str(raised.exception))
+
+    def test_a_refused_snapshot_is_an_error(self):
+        for snapshot in (0, -1):
+            api, state = self.fake_api([], snapshot=snapshot)
+            with self.assertRaises(mp.ThreadCountError):
+                mp.thread_count_from_toolhelp(self.PID, api)
+            self.assertEqual(state["closed"], [])
+
+    def test_an_unsupported_platform_raises_instead_of_reporting_zero(self):
+        with self.assertRaises(mp.ThreadCountError):
+            mp.threads_metric("darwin")
+        with self.assertRaises(mp.ThreadCountError):
+            mp.read_thread_count(self.PID, platform_name="darwin")
+
+    def test_the_metric_names_its_source(self):
+        self.assertIn("Toolhelp32", mp.threads_metric("win32")["source"])
+        self.assertIn("/proc", mp.threads_metric("linux")["source"])
+        self.assertEqual(mp.threads_metric("win32")["unit"], "threads")
+
+    def test_windows_reads_the_count_of_this_process(self):
+        if sys.platform != "win32":
+            self.skipTest("Windows only")
+        self.assertGreaterEqual(mp.read_thread_count(os.getpid(), platform_name="win32"), 1)
+
+
 class HelperProcessTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -396,6 +595,22 @@ class HelperProcessTest(unittest.TestCase):
             process.first_response(timeout=10.0)
         self.assertEqual(raised.exception.exit_code, 0)
 
+    def test_a_ready_away_from_id_zero_is_a_protocol_violation(self):
+        process = mp.HelperProcess(self.helper(READY_WITH_ID_HELPER), timeout=10.0)
+        self.addCleanup(process.kill)
+        process.start()
+        with self.assertRaises(mp.ProtocolViolation):
+            process.first_response(timeout=5.0)
+
+    def test_a_response_at_the_reserved_id_zero_is_a_protocol_violation(self):
+        process = mp.HelperProcess(self.helper(ZERO_ID_REPLY_HELPER), timeout=10.0)
+        self.addCleanup(process.kill)
+        process.start()
+        process.first_response()
+        process.send(mp.Kind.CALL, 13, {"type": "call", "plugin": "p", "method": "m"})
+        with self.assertRaises(mp.ProtocolViolation):
+            process.wait_for(13, mp.Kind.REPLY, timeout=5.0)
+
     def test_a_reply_paired_with_another_id_is_a_protocol_violation(self):
         process = mp.HelperProcess(self.helper(WRONG_ID_HELPER), timeout=10.0)
         self.addCleanup(process.kill)
@@ -433,23 +648,46 @@ class ReportTest(unittest.TestCase):
         self.fake.write_text(FAKE_HELPER, encoding="utf-8")
         self.module = self.root / "fake.wasm"
         self.module.write_bytes(b"\0asm")
+        self.log = self.root / "frames.jsonl"
 
-    def measure(self):
-        return mp.measure(
-            helper=[sys.executable, str(self.fake)],
-            module=self.module,
-            method="echo",
-            plugin="measure",
-            requests=4,
-            warmup=1,
-            payload_bytes=64,
-            samples=2,
-            interval_ms=10,
-            timeout=10.0,
-            profile="measure",
-            os_tag="unit-test",
-            run_label="round-trip",
-        )
+    def measure(self, **overrides):
+        settings = {
+            "helper": [sys.executable, str(self.fake)],
+            "module": self.module,
+            "method": "echo",
+            "plugin": "measure",
+            "requests": 4,
+            "warmup": 1,
+            "payload_bytes": 64,
+            "samples": 2,
+            "interval_ms": 10,
+            "timeout": 10.0,
+            "profile": "measure",
+            "os_tag": "unit-test",
+            "run_label": "round-trip",
+        }
+        settings.update(overrides)
+        return mp.measure(**settings)
+
+    def recording_measure(self, **overrides):
+        recording = self.root / "recording_helper.py"
+        recording.write_text(RECORDING_HELPER, encoding="utf-8")
+        if self.log.exists():
+            self.log.unlink()
+        settings = {"helper": [sys.executable, str(recording), str(self.log)]}
+        settings.update(overrides)
+        return self.measure(**settings), self.frames()
+
+    def frames(self):
+        if not self.log.exists():
+            return []
+        entries = []
+        for line in self.log.read_text(encoding="utf-8").splitlines():
+            entry = json.loads(line)
+            entry["raw"] = bytes.fromhex(entry["payload"])
+            entry["body"] = json.loads(entry["raw"]) if entry["raw"] else None
+            entries.append(entry)
+        return entries
 
     def test_report_carries_explicit_platform_metric_and_build_labels(self):
         report = self.measure()
@@ -467,10 +705,10 @@ class ReportTest(unittest.TestCase):
 
         latency = report["latency"]
         self.assertEqual(latency["clock"], "time.monotonic_ns")
-        self.assertEqual(latency["spawn_to_first_response_ns"]["unit"], "nanoseconds")
+        self.assertEqual(latency["spawn_to_ready_ns"]["unit"], "nanoseconds")
         self.assertEqual(latency["round_trip_ns"]["unit"], "nanoseconds")
         self.assertEqual(len(latency["round_trip_ns"]["samples"]), 4)
-        self.assertGreaterEqual(latency["spawn_to_first_response_ns"]["samples"][0], 0)
+        self.assertGreaterEqual(latency["spawn_to_ready_ns"]["samples"][0], 0)
         for sample in latency["round_trip_ns"]["samples"]:
             self.assertIsInstance(sample, int)
             self.assertGreater(sample, 0)
@@ -482,6 +720,116 @@ class ReportTest(unittest.TestCase):
         self.assertGreaterEqual(memory["sample_count"], 2)
         self.assertEqual(report["helper_exit"]["exit_code"], 0)
         self.assertTrue(report["helper_exit"]["clean_eof"])
+
+    def test_spawn_to_ready_and_spawn_to_first_call_are_separate_samples(self):
+        latency = self.measure()["latency"]
+        ready = latency["spawn_to_ready_ns"]
+        first_call = latency["spawn_to_first_call_ns"]
+
+        self.assertEqual(len(ready["samples"]), 1)
+        self.assertEqual(len(first_call["samples"]), 1)
+        self.assertGreaterEqual(first_call["samples"][0], ready["samples"][0])
+        self.assertIn("ready", ready["definition"])
+        self.assertIn("load", first_call["definition"])
+
+    def test_without_a_module_the_first_call_has_no_sample(self):
+        report = self.measure(module=None, requests=0)
+        latency = report["latency"]
+
+        self.assertEqual(len(latency["spawn_to_ready_ns"]["samples"]), 1)
+        self.assertEqual(latency["spawn_to_first_call_ns"]["samples"], [])
+        self.assertIsNone(latency["spawn_to_first_call_ns"]["percentiles"])
+        self.assertEqual(latency["load_ns"]["samples"], [])
+        self.assertIsNone(latency["load_ns"]["percentiles"])
+        self.assertIsNone(latency["load_ns"]["completed_ns"])
+        self.assertEqual(report["scenario"]["instances"], 0)
+        self.assertEqual(report["scenario"]["plugin_ids"], [])
+        self.assertEqual(latency["round_trip_ns"]["samples"], [])
+        self.assertIsNone(latency["round_trip_ns"]["percentiles"])
+
+    def test_request_ids_start_at_one_and_never_use_zero(self):
+        _, frames = self.recording_measure(instances=2, requests=2, warmup=1)
+        requests = [frame for frame in frames if frame["kind"] in (2, 4, 6, 8)]
+
+        self.assertTrue(requests)
+        self.assertEqual([frame["id"] for frame in requests], list(range(1, len(requests) + 1)))
+        self.assertNotIn(0, [frame["id"] for frame in frames if frame["kind"] != 1])
+
+    def test_one_instance_keeps_the_configured_plugin_id(self):
+        report, frames = self.recording_measure(instances=1, requests=1, warmup=0)
+
+        self.assertEqual(report["scenario"]["instances"], 1)
+        self.assertEqual(report["scenario"]["plugin_ids"], ["measure"])
+        self.assertEqual(list(report["latency"]["load_ns"]["by_plugin"]), ["measure"])
+        for kind in (2, 4, 7):
+            self.assertEqual(
+                [frame["body"]["plugin"] for frame in frames if frame["kind"] == kind],
+                ["measure"],
+            )
+        self.assertEqual(len(report["latency"]["round_trip_ns"]["samples"]), 1)
+
+    def test_many_instances_load_distinct_ids_from_one_module_and_unload_each(self):
+        report, frames = self.recording_measure(instances=3, requests=2, warmup=0)
+        plugin_ids = ["measure-0", "measure-1", "measure-2"]
+
+        self.assertEqual(report["scenario"]["instances"], 3)
+        self.assertEqual(report["scenario"]["plugin_ids"], plugin_ids)
+        self.assertEqual(report["scenario"]["module"], str(self.module))
+
+        loads = [frame["body"] for frame in frames if frame["kind"] == 2]
+        self.assertEqual([load["plugin"] for load in loads], plugin_ids)
+        self.assertEqual({load["module"] for load in loads}, {str(self.module)})
+        self.assertEqual(
+            [frame["body"]["plugin"] for frame in frames if frame["kind"] == 4],
+            plugin_ids[:2],
+        )
+        self.assertEqual(
+            [frame["body"]["plugin"] for frame in frames if frame["kind"] == 6],
+            plugin_ids,
+        )
+
+        load_ns = report["latency"]["load_ns"]
+        self.assertEqual(len(load_ns["samples"]), 3)
+        self.assertEqual(list(load_ns["by_plugin"]), plugin_ids)
+        self.assertEqual(set(load_ns["percentiles"]), {"p50", "p95", "p99"})
+        self.assertGreater(load_ns["completed_ns"], 0)
+
+    def test_memory_sampling_starts_after_every_instance_is_loaded(self):
+        report = self.measure(instances=3, requests=1, warmup=0)
+        memory = report["memory"]
+        loads = report["latency"]["load_ns"]
+
+        self.assertGreaterEqual(memory["first_sample_ns"], loads["completed_ns"])
+        self.assertGreater(memory["sample_count"], 0)
+        self.assertEqual(len(report["latency"]["round_trip_ns"]["samples"]), 1)
+
+    def test_call_and_reply_payload_bytes_are_not_reencoded(self):
+        _, frames = self.recording_measure(requests=1, warmup=0, payload_bytes=32)
+        call = next(frame for frame in frames if frame["kind"] == 4)
+        expected = json.dumps(
+            {
+                "type": "call",
+                "plugin": "measure",
+                "method": "echo",
+                "payload": {"data": "x" * 32},
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        self.assertEqual(call["raw"], expected)
+        reply = next(frame for frame in frames if frame["kind"] == 5)
+        self.assertEqual(reply["raw"], b'{"type":"reply","payload":' + expected + b"}")
+
+    def test_thread_counts_are_reported_with_their_source(self):
+        report = self.measure()
+        threads = report["memory"]["threads"]
+
+        self.assertEqual(threads["unit"], "threads")
+        self.assertTrue(threads["source"])
+        if sys.platform == "win32" or sys.platform.startswith("linux"):
+            self.assertGreaterEqual(len(threads["samples"]), report["memory"]["sample_count"])
+            self.assertIsNotNone(threads["peak"])
+            self.assertNotIn(0, threads["samples"])
 
     def test_a_helper_that_exits_after_the_last_unload_still_reports(self):
         self.fake.write_text(EXIT_ON_UNLOAD_HELPER, encoding="utf-8")
@@ -522,6 +870,7 @@ class CommandLineTest(unittest.TestCase):
             "--helper", sys.executable,
             "--helper-arg", str(self.fake),
             "--module", str(self.module),
+            "--instances", "3",
             "--requests", "3",
             "--warmup", "0",
             "--payload-bytes", "128",
@@ -534,8 +883,19 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(self.output.read_text(encoding="utf-8"))
         self.assertEqual(report["platform"]["tag"], "cli-test")
+        self.assertEqual(report["scenario"]["plugin_ids"], ["measure-0", "measure-1", "measure-2"])
         self.assertEqual(len(report["latency"]["round_trip_ns"]["samples"]), 3)
-        self.assertIn("spawn_to_first_response_ns", report["latency"])
+        self.assertIn("spawn_to_ready_ns", report["latency"])
+        self.assertIn("spawn_to_first_call_ns", report["latency"])
+
+    def test_instances_must_be_positive(self):
+        result = self.run_cli(
+            "--helper", sys.executable,
+            "--helper-arg", str(self.fake),
+            "--module", str(self.module),
+            "--instances", "0",
+        )
+        self.assertEqual(result.returncode, 2)
 
     def test_missing_helper_is_a_prerequisite_failure_with_a_reason(self):
         missing = self.root / "no-such-helper"
