@@ -6,6 +6,24 @@ system is [`PLAN.md`](../PLAN.md). What exists so far is the interface's
 side of it: reading what a plugin's manifest changes in Yapfast's own
 interface, and checking it. Nothing runs a plugin's WebAssembly yet.
 
+## Trying a plugin
+
+Git install isn't built yet. Until it is, a build with plugins loads every
+plugin in the folder `YAPFAST_PLUGINS_DIR` names, one subfolder each with
+its `yapfast-plugin.json`, in the order of the subfolders' names, which is
+the order their changes win in. A manifest that can't be used is skipped and
+logged, and so is each change refused; run with `YAPFAST_LOG=info` to see
+them. [`testing/plugins`](../testing/plugins) has an example:
+
+```sh
+YAPFAST_PLUGINS_DIR=testing/plugins cargo run --profile fast --features plugins -- --preview
+```
+
+`yapfast --no-plugins` starts in safe mode: no plugin's changes apply, and
+which plugins are enabled stays as it was. It's the way back from an
+interface a plugin made unusable. A restart, such as after the GPU fails,
+keeps it.
+
 ## The manifest's interface changes
 
 [`crates/yapfast-core/src/plugins.rs`](../crates/yapfast-core/src/plugins.rs)
@@ -80,6 +98,46 @@ hiding the same part, or setting a colour or size to the same value, agree.
 Any other overlap is a `Conflict`: the first plugin keeps the change unless
 the choices passed in name the other, and the plugin that loses keeps its
 other changes. Nothing stores those choices yet; `grants.json` will.
+
+## In the window
+
+[`src/ui/plugins.rs`](../src/ui/plugins.rs) loads the plugins as the window
+is made, before the theme applies, and keeps them in the adapter as
+`Option<Box<Plugins>>`: `None` without any, so no model, timer or thread
+exists for them. Each change applies where Yapfast already builds that part:
+
+- **Menus.** `menu` in [`src/ui/menus.rs`](../src/ui/menus.rs) builds its
+  rows, then `edit_menu` hides, relabels and moves rows, skipping any drawn
+  in the danger tone, and a row moves only within its group. Plugins' own
+  rows follow, under a line, after the built-in rows and before a last
+  group holding a danger row. Each shows its plugin's name under its label,
+  so no plugin's row passes for Yapfast's own, and its id is
+  `plugin/<index>/<action>`, by the plugin's place in `UiOverrides`. A
+  server's menu is `server`, its header's dropdown `server_header`; a
+  person's, someone's in a call, and a one-to-one DM's menu are `user`; a
+  group DM's is `group_dm`, a thread's `thread`, and any other channel's
+  `channel`. The message menu is drawn in Slint and takes no changes yet.
+- **Choosing a plugin's row.** `choose` checks for the `plugin/` prefix
+  before anything else, and sends `Action::Plugin(Input::Menu)`, which the
+  application returns as `Effect::Plugin`. The adapter hands it to the
+  `Runtime` it holds, which is `None` until the runtime exists.
+- **Parts.** The `UiParts` global in
+  [`ui/yapfast/parts.slint`](../ui/yapfast/parts.slint) holds one switch per
+  part that can be hidden, and each part sits behind an `if` on it: the
+  server banner over the channel list, who's typing, and the hover bar's
+  Reply, reactions and More, in the channel and the thread beside it.
+  Shift's Delete takes More's place whether or not More is hidden.
+- **Sizes.** `ClientStyle` in
+  [`ui/yapfast/style.slint`](../ui/yapfast/style.slint) takes one input per
+  size, `text-size-plugin` and the rest, used in place of Yapfast's own
+  value when it isn't negative. `sidebar-width` is the sidebar's width
+  before the person drags it, and what a double click returns it to.
+- **Colours.** `theme::set_overlay` keeps the plugins' colours, and
+  `Theme::apply` lays them over whichever theme is shown, so they follow
+  every change of theme, and the theme editor's preview. While a dialog no
+  plugin may restyle is open, `theme::protect` shows the theme without
+  them; today that's the question before following a link whose text shows
+  another address.
 
 ### Colours
 

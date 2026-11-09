@@ -54,6 +54,8 @@ mod move_loop;
 mod name_style;
 mod pictures;
 mod placement;
+#[cfg(feature = "plugins")]
+mod plugins;
 mod polls;
 mod profile;
 mod refresh;
@@ -2085,6 +2087,9 @@ struct Adapter {
     stickers: stickers::Shown,
     /// A Discord link handed to this start before Discord is online.
     pending_link: Option<String>,
+    /// The enabled plugins; `None` without any.
+    #[cfg(feature = "plugins")]
+    plugins: Option<Box<plugins::Plugins>>,
 }
 
 impl Adapter {
@@ -2211,6 +2216,11 @@ impl Adapter {
         };
         let models = Models::default();
         models.attach(window);
+        // Before the theme applies, so plugins' colours show in the first frame.
+        #[cfg(feature = "plugins")]
+        let plugins = plugins::Plugins::load();
+        #[cfg(feature = "plugins")]
+        plugins::show(window, plugins.as_deref());
         let layout = Layout::read(&root);
         layout.apply(window);
         let mut app = Application::default();
@@ -2358,6 +2368,8 @@ impl Adapter {
                 gifs: gifs::Shown::default(),
                 stickers: stickers::Shown::default(),
                 pending_link: None,
+                #[cfg(feature = "plugins")]
+                plugins,
             })
         }))
     }
@@ -2411,6 +2423,8 @@ impl Adapter {
     /// Present the existing models and state in a new window.
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
+        #[cfg(feature = "plugins")]
+        plugins::show(window, self.plugins.as_deref());
         self.layout.apply(window);
         self.watch_talk_key(window);
         self.show_protocol(window);
@@ -2642,6 +2656,8 @@ impl Adapter {
                         }
                     }
                 }
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(input) => self.plugin_input(input),
                 Effect::PreviewCamera(filming) => {
                     self.preview_camera = None;
                     if let Some((camera, feed)) = filming {

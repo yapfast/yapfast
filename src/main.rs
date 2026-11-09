@@ -87,6 +87,13 @@ fn main() -> Result<()> {
     let handed = handed_link(&mut arguments);
     let renderer = renderer_argument(&mut arguments)?;
     let background = flag_argument(&mut arguments, "--background");
+    // Safe mode: no plugin changes the interface. A build without plugins
+    // takes the flag too, and starts without any as it always does.
+    let no_plugins = flag_argument(&mut arguments, NO_PLUGINS);
+    #[cfg(feature = "plugins")]
+    yapfast_core::plugins::set_safe_mode(no_plugins);
+    #[cfg(not(feature = "plugins"))]
+    let _ = no_plugins;
     let mut links: Vec<String> = handed.clone().ok().flatten().into_iter().collect();
     if !arguments
         .first()
@@ -179,7 +186,7 @@ fn main() -> Result<()> {
         }
         [argument] if argument == "--help" || argument == "-h" => {
             println!(
-                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n       yapfast [--smoke-test | --help | --release-discord-links]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\nLINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n--release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
+                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [--no-plugins] [LINK]\n       yapfast [--smoke-test | --help | --release-discord-links]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\n--no-plugins starts without plugins' changes to the interface, keeping which are enabled.\nLINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n--release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
             );
             Ok(())
         }
@@ -274,6 +281,10 @@ fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>)
         std::env::current_exe().context("could not find Yapfast to restart it")?,
     );
     command.args(arguments);
+    #[cfg(feature = "plugins")]
+    if yapfast_core::plugins::safe_mode() {
+        command.arg(NO_PLUGINS);
+    }
     match gpu_failure {
         Some(reason) => command
             .args(["--renderer", "software"])
@@ -309,6 +320,9 @@ fn flag_argument(arguments: &mut Vec<String>, flag: &str) -> bool {
     arguments.retain(|argument| argument != flag);
     arguments.len() != before
 }
+
+/// Starts in safe mode, without plugins.
+const NO_PLUGINS: &str = "--no-plugins";
 
 /// Comes before the link a desktop hands Yapfast, as its registrations
 /// write it: `yapfast --open-link LINK`.

@@ -1,0 +1,551 @@
+//! Plugins in the window: the changes their manifests make to Yapfast's own
+//! interface, applied where Yapfast builds each part. With no plugin, the
+//! adapter holds `None` and none of this runs. See `docs/plugins.md`.
+
+use std::{collections::BTreeMap, sync::Arc};
+
+use yapfast_core::plugins::{
+    self,
+    ui::{Checked, Part, Place, ROW_PREFIX, Size, Subject, Target, UiOverrides},
+};
+
+use super::*;
+
+/// The enabled plugins as the window uses them.
+pub(super) struct Plugins {
+    pub(super) overrides: Option<Arc<UiOverrides>>,
+    /// Where what the person does with plugins' rows and widgets goes: the
+    /// plugin runtime, once one is attached.
+    pub(super) runtime: Option<Box<dyn plugins::Runtime>>,
+}
+
+impl Plugins {
+    /// The plugins in the folder `YAPFAST_PLUGINS_DIR` names, with their
+    /// colours laid over the theme; `None` without any, or with
+    /// `--no-plugins`.
+    pub(super) fn load() -> Option<Box<Self>> {
+        let found = plugins::load_from_environment();
+        if found.is_empty() {
+            return None;
+        }
+        let checked: Vec<Checked> = found
+            .iter()
+            .map(|found| plugins::ui::check(&found.manifest))
+            .collect();
+        for plugin in &checked {
+            for refusal in &plugin.refused {
+                tracing::warn!(plugin = %plugin.id, what = %refusal.what, why = %refusal.why, "a plugin's change was refused");
+            }
+        }
+        // Until choices are kept with grants, the first plugin keeps a
+        // change two make.
+        let (overrides, conflicts) = plugins::ui::derive(&checked, &BTreeMap::new());
+        for conflict in conflicts {
+            tracing::warn!(kept = %conflict.kept, lost = %conflict.lost, key = ?conflict.key, "two plugins change the same thing");
+        }
+        let colours = overrides.as_ref().map_or_else(Vec::new, |overrides| {
+            overrides
+                .colours
+                .iter()
+                .map(|&(token, colour, _)| (token, colour))
+                .collect()
+        });
+        theme::set_overlay(colours);
+        tracing::info!(plugins = checked.len(), "loaded plugins");
+        Some(Box::new(Self {
+            overrides,
+            runtime: None,
+        }))
+    }
+}
+
+/// Shows or hides each part a plugin can hide, and sets the sizes plugins
+/// chose; without plugins, every part shows at Yapfast's own sizes.
+pub(super) fn show(window: &YapfastWindow, plugins: Option<&Plugins>) {
+    let overrides = plugins.and_then(|plugins| plugins.overrides.as_deref());
+    let hides = |part| overrides.is_some_and(|overrides| overrides.hides(part));
+    let parts = window.global::<yapfast_ui::UiParts>();
+    parts.set_sidebar_banner(!hides(Part::SidebarBanner));
+    parts.set_timeline_typing(!hides(Part::TimelineTyping));
+    parts.set_message_reply(!hides(Part::MessageReply));
+    parts.set_message_react(!hides(Part::MessageReact));
+    parts.set_message_more(!hides(Part::MessageMore));
+    let style = window.global::<ClientStyle>();
+    // A negative size leaves Yapfast's own.
+    let size = |size| {
+        overrides
+            .and_then(|overrides| overrides.size(size))
+            .unwrap_or(-1.0)
+    };
+    style.set_text_size_plugin(size(Size::TextSize));
+    style.set_sidebar_width_plugin(size(Size::SidebarWidth));
+    style.set_members_width_plugin(size(Size::MembersWidth));
+    style.set_channel_row_height_plugin(size(Size::ChannelRowHeight));
+    style.set_message_gap_plugin(size(Size::MessageGap));
+    style.set_message_group_gap_plugin(size(Size::MessageGroupGap));
+}
+
+impl Adapter {
+    pub(super) fn ui_overrides(&self) -> Option<&UiOverrides> {
+        self.plugins.as_ref()?.overrides.as_deref()
+    }
+
+    /// Hands what the person did to the plugin runtime.
+    pub(super) fn plugin_input(&self, input: plugins::Input) {
+        match self
+            .plugins
+            .as_ref()
+            .and_then(|plugins| plugins.runtime.as_deref())
+        {
+            Some(runtime) => runtime.input(input),
+            None => tracing::info!(?input, "no plugin runtime is attached to take this"),
+        }
+    }
+}
+
+/// Which of `menu`'s menus is open, beside the id it's about.
+pub(super) struct Shape {
+    pub(super) person: bool,
+    /// Someone's menu in a voice channel.
+    pub(super) voice: bool,
+    /// A thread header's More menu.
+    pub(super) thread: bool,
+    /// A server header's dropdown.
+    pub(super) header: bool,
+}
+
+/// The menu a target names, as plugins address it, and what it's about;
+/// `None` for a menu plugins can't change.
+pub(super) fn menu_target(adapter: &Adapter, id: &str, shape: Shape) -> Option<(Target, String)> {
+    let state = &adapter.app.state;
+    if shape.voice || shape.person {
+        return Some((Target::User, id.to_owned()));
+    }
+    if shape.thread {
+        return Some((Target::Thread, id.to_owned()));
+    }
+    if shape.header {
+        return Some((Target::ServerHeader, id.to_owned()));
+    }
+    if state.servers.iter().any(|server| server.id == id) {
+        return Some((Target::Server, id.to_owned()));
+    }
+    let room = state.rooms.iter().find(|room| room.id == id)?;
+    let target = match (room.direct, &room.person) {
+        // A one-to-one DM's menu is its person's, as in Discord.
+        (true, Some(_)) => Target::User,
+        (true, None) => Target::GroupDm,
+        _ if room.parent.is_some() => Target::Thread,
+        _ => Target::Channel,
+    };
+    Some((target, id.to_owned()))
+}
+
+/// Applies plugins' changes to a menu's rows: built-in rows hidden,
+/// relabelled or moved within their group, then plugins' own rows, under a
+/// line after the built-in ones and before the destructive group. No row in
+/// the danger tone changes.
+pub(super) fn edit_menu(
+    adapter: &Adapter,
+    overrides: &UiOverrides,
+    (target, about): (Target, String),
+    rows: &mut Vec<MenuRow>,
+) {
+    let state = &adapter.app.state;
+    let room = state.rooms.iter().find(|room| room.id == about);
+    let member = matches!(target, Target::User)
+        .then(|| state.person(&about))
+        .flatten();
+    let roles: &[String] = member.as_ref().map_or(&[], |member| &member.roles[..]);
+    let subject = Subject {
+        network: yapfast_core::network::Network::of(&about),
+        own: state.discord_user.as_deref() == Some(about.as_str()),
+        dm: room.is_some_and(|room| room.direct && room.person.is_some())
+            || (target == Target::User
+                && state
+                    .rooms
+                    .iter()
+                    .any(|room| room.direct && room.person.as_deref() == Some(&about))),
+        has_attachment: false,
+        is_bot: member.as_ref().is_some_and(|member| member.bot),
+        roles,
+    };
+    // Each row's group, by the lines between them.
+    let mut groups: Vec<usize> = rows
+        .iter()
+        .scan(0, |group, row| {
+            *group += usize::from(row.separated);
+            Some(*group)
+        })
+        .collect();
+    for (change, _) in &overrides.rows {
+        if change.target != target || !change.when.matches(&subject) {
+            continue;
+        }
+        let Some(index) = rows
+            .iter()
+            .position(|row| row.id == change.row.as_str() && !row.danger)
+        else {
+            continue;
+        };
+        if change.hide {
+            rows.remove(index);
+            groups.remove(index);
+            continue;
+        }
+        if let Some(label) = &change.label {
+            rows[index].text = label.as_str().into();
+        }
+        let Some(place) = &change.place else {
+            continue;
+        };
+        let (Place::Before(anchor) | Place::After(anchor)) = place;
+        let Some(to) = rows.iter().position(|row| row.id == anchor.as_str()) else {
+            continue;
+        };
+        if groups[to] != groups[index] || rows[to].danger || to == index {
+            continue;
+        }
+        let row = rows.remove(index);
+        let group = groups.remove(index);
+        let to = if to > index { to - 1 } else { to };
+        let to = match place {
+            Place::Before(_) => to,
+            Place::After(_) => to + 1,
+        };
+        rows.insert(to, row);
+        groups.insert(to, group);
+    }
+    // Plugins' rows go before a last group with a danger row in it.
+    let destructive = groups.last().copied().filter(|&last| {
+        rows.iter()
+            .zip(&groups)
+            .any(|(row, &group)| group == last && row.danger)
+    });
+    let at = destructive.map_or(rows.len(), |last| {
+        groups
+            .iter()
+            .position(|&group| group == last)
+            .unwrap_or(rows.len())
+    });
+    let plain = rows.first().is_some_and(|row| row.plain);
+    let added: Vec<MenuRow> = overrides
+        .added
+        .iter()
+        .filter(|(row, _)| row.target == target && row.when.matches(&subject))
+        .map(|(row, plugin)| MenuRow {
+            id: UiOverrides::row_id(*plugin, &row.action).into(),
+            text: row.label.as_str().into(),
+            // Who added it, so no plugin's row passes for Yapfast's own.
+            subtitle: overrides.plugins[*plugin].name.as_str().into(),
+            plain,
+            ..Default::default()
+        })
+        .collect();
+    let count = added.len();
+    let group = usize::MAX;
+    rows.splice(at..at, added);
+    groups.splice(at..at, std::iter::repeat_n(group, count));
+    for index in 0..rows.len() {
+        rows[index].separated = index > 0 && groups[index] != groups[index - 1];
+    }
+}
+
+/// Carries out a plugin's menu row: tells the plugin which action, on
+/// what. False for an id that isn't a plugin's.
+pub(super) fn choose(
+    adapter: &mut Adapter,
+    window: &YapfastWindow,
+    target: &str,
+    id: &str,
+) -> bool {
+    if !id.starts_with(ROW_PREFIX) {
+        return false;
+    }
+    let Some((plugin, action)) = adapter
+        .ui_overrides()
+        .and_then(|overrides| overrides.chosen(id))
+        .map(|(plugin, action)| (plugin.id.clone(), action.to_owned()))
+    else {
+        return true;
+    };
+    adapter.action(
+        window,
+        Action::Plugin(plugins::Input::Menu {
+            plugin,
+            action,
+            target: target.to_owned(),
+        }),
+    );
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use yapfast_core::plugins::{Input, Manifest};
+
+    use super::*;
+
+    /// The overrides of manifests with these `ui` sections and rows, each
+    /// plugin declaring `ui.modify`.
+    fn overrides(plugins: &[(&str, &str)]) -> Arc<UiOverrides> {
+        let checked: Vec<Checked> = plugins
+            .iter()
+            .enumerate()
+            .map(|(index, (ui, menus))| {
+                let manifest = Manifest::parse(&format!(
+                    r#"{{ "api": 1, "id": "com.example.p{index}", "name": "Plugin {index}",
+                        "permissions": {{ "capabilities": ["ui.modify"] }},
+                        "ui": {ui}, "menus": {menus} }}"#
+                ))
+                .unwrap();
+                plugins::ui::check(&manifest)
+            })
+            .collect();
+        plugins::ui::derive(&checked, &BTreeMap::new()).0.unwrap()
+    }
+
+    fn adapter(window: &YapfastWindow) -> Rc<RefCell<Adapter>> {
+        Adapter::new(
+            Arc::new(BackgroundRuntime::new().unwrap()),
+            tempfile::tempdir().unwrap().keep(),
+            window,
+        )
+        .unwrap()
+    }
+
+    fn row(id: &str, separated: bool, danger: bool) -> MenuRow {
+        MenuRow {
+            id: id.into(),
+            text: id.into(),
+            separated,
+            danger,
+            ..Default::default()
+        }
+    }
+
+    /// A person's menu: what to do, notes, copying, then the danger group.
+    fn person_rows() -> Vec<MenuRow> {
+        vec![
+            row("profile", false, false),
+            row("mention", false, false),
+            row("message", false, false),
+            row("add-note", true, false),
+            row("copy-id", true, false),
+            row("ignore", true, false),
+            row("block", false, true),
+        ]
+    }
+
+    fn shown(rows: &[MenuRow]) -> Vec<String> {
+        rows.iter()
+            .map(|row| {
+                let line = if row.separated { "| " } else { "" };
+                format!("{line}{}", row.text)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn menus_hide_relabel_and_move_rows_within_their_group() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let adapter = adapter(&window);
+        let overrides = overrides(&[(
+            r#"{ "menu": [
+                { "target": "user", "row": "add-note", "hide": true },
+                { "target": "user", "row": "message", "before": "profile" },
+                { "target": "user", "row": "copy-id", "label": "Copy user ID" },
+                { "target": "user", "row": "mention", "after": "copy-id" },
+                { "target": "server", "row": "profile", "hide": true },
+                { "target": "user", "row": "ignore", "hide": true, "when": { "network": "discord" } }
+            ] }"#,
+            "[]",
+        )]);
+        let mut rows = person_rows();
+        edit_menu(
+            &adapter.borrow(),
+            &overrides,
+            (Target::User, "@ada:example.org".into()),
+            &mut rows,
+        );
+        // Mention stays in its group, as Copy ID is in another; Ignore
+        // stays, as a Matrix person's menu isn't Discord's.
+        assert_eq!(
+            shown(&rows),
+            [
+                "message",
+                "profile",
+                "mention",
+                "| Copy user ID",
+                "| ignore",
+                "block"
+            ]
+        );
+    }
+
+    #[test]
+    fn plugins_rows_come_before_the_destructive_group_and_name_their_plugin() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let adapter = adapter(&window);
+        let overrides = overrides(&[
+            (
+                "{}",
+                r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
+            ),
+            (
+                "{}",
+                r#"[{ "target": "user", "label": "Bots only", "action": "b", "when": { "is_bot": true } },
+                    { "target": "server", "label": "Elsewhere", "action": "c" },
+                    { "target": "user", "label": "Hug", "action": "hug" }]"#,
+            ),
+        ]);
+        let mut rows = person_rows();
+        // The danger group starts with a line of its own.
+        rows[6].separated = true;
+        edit_menu(
+            &adapter.borrow(),
+            &overrides,
+            (Target::User, "someone".into()),
+            &mut rows,
+        );
+        assert_eq!(shown(&rows)[5..], ["| ignore", "| Wave", "Hug", "| block"]);
+        assert_eq!(rows[6].id, "plugin/0/wave");
+        assert_eq!(rows[6].subtitle, "Plugin 0");
+        assert_eq!(rows[7].id, "plugin/1/hug");
+        // Without a destructive group, they go last.
+        let mut rows = vec![row("profile", false, false)];
+        edit_menu(
+            &adapter.borrow(),
+            &overrides,
+            (Target::User, "someone".into()),
+            &mut rows,
+        );
+        assert_eq!(shown(&rows), ["profile", "| Wave", "Hug"]);
+    }
+
+    #[test]
+    fn a_danger_row_stays_even_if_the_overrides_name_it() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let adapter = adapter(&window);
+        // `check` refuses this; the menu holds the line too.
+        let mut overrides = (*overrides(&[(
+            r#"{ "menu": [{ "target": "user", "row": "profile", "hide": true }] }"#,
+            "[]",
+        )]))
+        .clone();
+        overrides.rows[0].0.row = "block".into();
+        let mut rows = person_rows();
+        edit_menu(
+            &adapter.borrow(),
+            &overrides,
+            (Target::User, "someone".into()),
+            &mut rows,
+        );
+        assert_eq!(rows.len(), 7);
+    }
+
+    #[test]
+    fn a_plugins_row_goes_to_the_runtime() {
+        struct Recorder(Rc<RefCell<Vec<Input>>>);
+        impl plugins::Runtime for Recorder {
+            fn input(&self, input: Input) {
+                self.0.borrow_mut().push(input);
+            }
+        }
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let adapter = adapter(&window);
+        let received = Rc::new(RefCell::new(Vec::new()));
+        adapter.borrow_mut().plugins = Some(Box::new(Plugins {
+            overrides: Some(overrides(&[(
+                "{}",
+                r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
+            )])),
+            runtime: Some(Box::new(Recorder(received.clone()))),
+        }));
+        menus::choose(
+            &mut adapter.borrow_mut(),
+            &window,
+            "someone".into(),
+            true,
+            "plugin/0/wave",
+        );
+        // An index no plugin has goes nowhere, and isn't a built-in row.
+        menus::choose(
+            &mut adapter.borrow_mut(),
+            &window,
+            "someone".into(),
+            true,
+            "plugin/7/wave",
+        );
+        assert_eq!(
+            *received.borrow(),
+            [Input::Menu {
+                plugin: "com.example.p0".into(),
+                action: "wave".into(),
+                target: "someone".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn parts_and_sizes_show_as_plugins_set_them_and_return_without() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let plugins = Plugins {
+            overrides: Some(overrides(&[(
+                r#"{ "parts": { "hide": ["timeline.typing", "message.actions.more"] },
+                     "sizes": { "message-group-gap": 4, "text-size": 18 } }"#,
+                "[]",
+            )])),
+            runtime: None,
+        };
+        show(&window, Some(&plugins));
+        let parts = window.global::<yapfast_ui::UiParts>();
+        let style = window.global::<ClientStyle>();
+        assert!(!parts.get_timeline_typing());
+        assert!(!parts.get_message_more());
+        assert!(parts.get_message_reply() && parts.get_sidebar_banner());
+        assert_eq!(style.get_message_group_gap(), 4.0);
+        assert_eq!(style.get_text_size(), 18.0);
+        assert_eq!(style.get_message_gap(), 0.0, "Yapfast's own");
+        show(&window, None);
+        assert!(parts.get_timeline_typing() && parts.get_message_more());
+        assert_eq!(style.get_message_group_gap(), 16.0);
+        assert_eq!(style.get_text_size(), 15.0);
+    }
+
+    #[test]
+    fn the_colours_plugins_can_name_are_the_themes_own() {
+        let names: Vec<String> = theme::Theme::NAMES
+            .iter()
+            .map(|name| name.replace('_', "-"))
+            .collect();
+        assert_eq!(names, plugins::ui::COLOURS);
+    }
+
+    #[test]
+    fn colours_lay_over_the_theme_but_not_over_a_protected_dialog() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let blue = slint::Color::from_rgb_u8(0x7a, 0xa2, 0xff);
+        // Black text on Yap's dark surfaces is refused.
+        theme::set_overlay(vec![("accent", 0xff7a_a2ff), ("text", 0xff00_0000)]);
+        theme::YAP.apply(&window);
+        let shown = theme::Theme::shown(&window);
+        assert_eq!(shown.accent, blue);
+        assert_eq!(shown.text, theme::YAP.text);
+        theme::protect(&window, true);
+        assert_eq!(theme::Theme::shown(&window), theme::YAP);
+        theme::protect(&window, false);
+        assert_eq!(theme::Theme::shown(&window).accent, blue);
+        theme::set_overlay(Vec::new());
+        theme::YAP.apply(&window);
+        assert_eq!(theme::Theme::shown(&window), theme::YAP);
+    }
+}

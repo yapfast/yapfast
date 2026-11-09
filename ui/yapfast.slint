@@ -1,5 +1,6 @@
 import { AccountPopover } from "yapfast/account-popover.slint";
 import { ClientStyle } from "yapfast/style.slint";
+import { UiParts } from "yapfast/parts.slint";
 import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
 import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
@@ -66,6 +67,7 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
+export { UiParts } from "yapfast/parts.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
@@ -2418,7 +2420,7 @@ export component YapfastWindow inherits Window {
                         VerticalLayout {
                             spacing: 0px;
                             header-box := Rectangle {
-                                property <bool> banner: ClientStyle.enabled && root.header-server != "" && root.header-banner != "";
+                                property <bool> banner: ClientStyle.enabled && root.header-server != "" && root.header-banner != "" && UiParts.sidebar-banner;
                                 height: ClientStyle.header-height + (header-box.banner ? 81px : 0px);
                                 if header-box.banner: Image {
                                     x: 0px; y: 0px; width: parent.width; height: parent.height;
@@ -3321,11 +3323,11 @@ export component YapfastWindow inherits Window {
                                                             icon: @image-url("icons/thread.svg"); label: "Create Thread";
                                                             clicked => { root.new-thread(message.item, "message"); }
                                                         }
-                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
+                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton {
                                                             icon: @image-url("icons/reply.svg"); label: "Reply";
                                                             clicked => { root.reply(message.item); root.focus-composer(); }
                                                         }
-                                                        if message.can-react && root.new-reactions-enabled: HorizontalLayout {
+                                                        if message.can-react && root.new-reactions-enabled && UiParts.message-react: HorizontalLayout {
                                                             spacing: 0px;
                                                             if !message-bar.quick: HorizontalLayout {
                                                                 spacing: 0px;
@@ -3348,7 +3350,7 @@ export component YapfastWindow inherits Window {
                                                             }
                                                         }
                                                         if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
-                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                                         // Beside Reply, as in Discord, whether or not Shift is held.
                                                         if message.can-forward && root.forward-allowed: IconButton {
                                                             icon: @image-url("icons/forward.svg"); label: "Forward";
@@ -3358,7 +3360,7 @@ export component YapfastWindow inherits Window {
                                                             icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
                                                             clicked => { root.delete-now(message.item); }
                                                         }
-                                                        if !message-bar.deletes: IconButton {
+                                                        if !message-bar.deletes && UiParts.message-more: IconButton {
                                                             icon: @image-url("icons/ellipsis.svg"); label: "More";
                                                             clicked => {
                                                                 root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
@@ -3430,7 +3432,7 @@ export component YapfastWindow inherits Window {
                             // last message leaves under it, so the timeline doesn't move.
                             // Its text lines up with the messages' (16px, a 40px avatar
                             // and 16px in), and it breathes gently while they type.
-                            if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
+                            if root.typing != "" && root.room-selected && !root.voice-panel && UiParts.timeline-typing: Rectangle {
                                 x: 72px - 4px; y: parent.height - self.height;
                                 width: min(parent.width - 72px - 12px, typing-text.preferred-width + 8px); height: 20px;
                                 background: Theme.chat;
@@ -3442,7 +3444,7 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             // Under the avatars, three dots rise and brighten in turn.
-                            if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
+                            if root.typing != "" && root.room-selected && !root.voice-panel && UiParts.timeline-typing: Rectangle {
                                 x: 36px - self.width / 2; y: parent.height - self.height;
                                 width: 32px; height: 20px;
                                 background: Theme.chat;

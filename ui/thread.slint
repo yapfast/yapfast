@@ -1,3 +1,4 @@
+import { UiParts } from "yapfast/parts.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Middle } from "theme.slint";
 import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } from "controls.slint";
@@ -291,11 +292,11 @@ export component ThreadPanel inherits Rectangle {
                                     label: message.pinned ? "Unpin" : "Pin";
                                     clicked => { root.pin-message(message.item); }
                                 }
-                                if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
+                                if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton {
                                     icon: @image-url("icons/reply.svg"); label: "Reply";
                                     clicked => { root.reply(message.item); root.focus-composer(); }
                                 }
-                                if message.can-react && root.new-reactions-enabled: HorizontalLayout {
+                                if message.can-react && root.new-reactions-enabled && UiParts.message-react: HorizontalLayout {
                                     spacing: 0px;
                                     for cell[slot] in root.bar-reactions: EmojiButton {
                                         animation-key: cell.key;
@@ -309,7 +310,7 @@ export component ThreadPanel inherits Rectangle {
                                     }
                                 }
                                 if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
-                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                 // Beside Reply, as in Discord, whether or not Shift is held.
                                 if message.can-forward && root.forward-allowed: IconButton {
                                     icon: @image-url("icons/forward.svg"); label: "Forward";
@@ -319,7 +320,7 @@ export component ThreadPanel inherits Rectangle {
                                     icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
                                     clicked => { root.delete-now(message.item); }
                                 }
-                                if !message-bar.deletes: IconButton {
+                                if !message-bar.deletes && UiParts.message-more: IconButton {
                                     icon: @image-url("icons/ellipsis.svg"); label: "More";
                                     clicked => { root.open-menu(message, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 }

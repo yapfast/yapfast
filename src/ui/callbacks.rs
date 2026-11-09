@@ -1997,6 +1997,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             if let Some(window) = weak.upgrade() {
                 window.set_leaving_site(links::host(masked).into());
                 window.set_leaving_link(masked.into());
+                theme::protect(&window, true);
             }
             return;
         }
@@ -2007,11 +2008,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let Some(window) = weak.upgrade() else { return };
         open_web_page(&window.get_leaving_link());
         window.set_leaving_link(SharedString::default());
+        theme::protect(&window, false);
     });
     let weak = window.as_weak();
     window.on_close_leaving_link(move || {
         if let Some(window) = weak.upgrade() {
             window.set_leaving_link(SharedString::default());
+            theme::protect(&window, false);
         }
     });
     let state = adapter.clone();

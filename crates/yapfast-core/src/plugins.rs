@@ -218,6 +218,17 @@ mod tests {
     }
 
     #[test]
+    fn the_example_plugins_apply_whole() {
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing/plugins");
+        let found = load_folder(&folder);
+        assert!(!found.is_empty());
+        for plugin in found {
+            let checked = ui::check(&plugin.manifest);
+            assert!(checked.refused.is_empty(), "{:?}", checked.refused);
+        }
+    }
+
+    #[test]
     fn a_folder_loads_each_plugin_once_in_name_order() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/test-plugins-folder");

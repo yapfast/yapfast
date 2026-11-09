@@ -2168,6 +2168,9 @@ pub enum Action {
     /// Show the members of a role mentioned in a message, or stop.
     ShowRole(String),
     CloseRole,
+    /// The person used a plugin's menu row or widget.
+    #[cfg(feature = "plugins")]
+    Plugin(crate::plugins::Input),
 }
 
 /// An adapter executes these effects with the shared backend, then applies its events.
@@ -2194,6 +2197,9 @@ pub enum Effect {
     /// Film for a preview call with the camera with this id, or the first,
     /// into this feed; or stop filming.
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),
+    /// Hand what the person did to the plugin runtime.
+    #[cfg(feature = "plugins")]
+    Plugin(crate::plugins::Input),
 }
 
 /// A timeline as the app state holds it, sharing its messages.
@@ -3027,6 +3033,8 @@ impl Application {
                 })]
             }
             Action::Navigate(navigation) => self.navigate(navigation),
+            #[cfg(feature = "plugins")]
+            Action::Plugin(input) => vec![Effect::Plugin(input)],
             Action::OpenDmScreen(screen) => self.open_dm_screen(screen),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
