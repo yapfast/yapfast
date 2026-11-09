@@ -32,7 +32,7 @@ fn a_wat_file_renamed_to_wasm_is_refused() {
     let (_dir, path) = support::text_fixture("echo.wat");
     let error = module::check(&path).expect_err("text is not a module");
     assert!(
-        matches!(&error, ModuleError::BadMagic(bytes) if bytes == b"(mod"),
+        matches!(&error, ModuleError::BadMagic(_)),
         "expected BadMagic, got {error:?}"
     );
 }

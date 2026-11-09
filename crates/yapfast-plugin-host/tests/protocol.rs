@@ -63,7 +63,7 @@ impl Backend for Fake {
 
 /// The module path a `load` names. The fake only checks that it is absolute.
 fn module() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/echo.wat")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing/plugins/echo.wat")
 }
 
 fn load(plugin: &str, id: u64) -> Vec<u8> {
@@ -77,14 +77,7 @@ fn load(plugin: &str, id: u64) -> Vec<u8> {
 }
 
 fn call(plugin: &str, method: &str, payload: Value, id: u64) -> Vec<u8> {
-    request(
-        &Request::Call {
-            plugin: plugin.to_owned(),
-            method: method.to_owned(),
-            payload,
-        },
-        id,
-    )
+    request(&Request::call(plugin, method, payload), id)
 }
 
 fn unload(plugin: &str, id: u64) -> Vec<u8> {
@@ -100,6 +93,14 @@ fn shutdown(id: u64) -> Vec<u8> {
     request(&Request::Shutdown, id)
 }
 
+/// A reply's JSON, for comparing what a guest answered rather than its bytes.
+fn reply_json(response: &Response) -> Value {
+    match response {
+        Response::Reply { payload } => payload.to_value().expect("the reply is JSON"),
+        other => panic!("expected a reply, got {other:?}"),
+    }
+}
+
 fn request(request: &Request, id: u64) -> Vec<u8> {
     let mut bytes = Vec::new();
     request
@@ -110,7 +111,10 @@ fn request(request: &Request, id: u64) -> Vec<u8> {
     bytes
 }
 
-fn run(requests: Vec<Vec<u8>>) -> (Result<Outcome, ServeError>, Vec<(Kind, u64, Response)>) {
+/// What the helper answered, in order: kind, id, envelope.
+type Answers = Vec<(Kind, u64, Response)>;
+
+fn run(requests: Vec<Vec<u8>>) -> (Result<Outcome, ServeError>, Answers) {
     let mut backend = Fake::default();
     let mut input = Cursor::new(requests.concat());
     let mut output = Vec::new();
@@ -119,7 +123,7 @@ fn run(requests: Vec<Vec<u8>>) -> (Result<Outcome, ServeError>, Vec<(Kind, u64, 
 }
 
 /// Every response the helper wrote, in order.
-fn answers(bytes: &[u8]) -> Vec<(Kind, u64, Response)> {
+fn answers(bytes: &[u8]) -> Answers {
     let mut reader = Cursor::new(bytes);
     let mut answers = Vec::new();
     while let Some(frame) = Frame::read_from(&mut reader).expect("a readable frame") {
@@ -162,21 +166,25 @@ fn load_call_and_unload_round_trip() {
         Outcome::Idle
     );
     assert_eq!(
-        answers,
-        vec![
-            (Kind::Ready, 0, Response::Ready),
-            (Kind::Loaded, 1, Response::Loaded),
-            (Kind::Reply, 2, Response::Reply { payload }),
-            (Kind::Unloaded, 3, Response::Unloaded),
-        ]
+        answers.len(),
+        4,
+        "ready, loaded, reply, unloaded: {answers:?}"
     );
+    assert_eq!(answers[0], (Kind::Ready, 0, Response::Ready));
+    assert_eq!(answers[1], (Kind::Loaded, 1, Response::Loaded));
+    assert_eq!((answers[2].0, answers[2].1), (Kind::Reply, 2));
+    assert_eq!(reply_json(&answers[2].2), payload);
+    assert_eq!(answers[3], (Kind::Unloaded, 3, Response::Unloaded));
 }
 
 #[test]
 fn the_last_unload_alone_ends_the_helper() {
     let (outcome, answers) = run(vec![load("echo", 1), unload("echo", 2)]);
 
-    assert_eq!(outcome.expect("idle after the last instance"), Outcome::Idle);
+    assert_eq!(
+        outcome.expect("idle after the last instance"),
+        Outcome::Idle
+    );
     assert_eq!(answers.len(), 3, "ready, loaded, unloaded: {answers:?}");
 }
 
@@ -191,15 +199,10 @@ fn unloading_one_of_two_plugins_does_not_end_the_helper() {
     ]);
 
     assert_eq!(outcome.expect("idle after b"), Outcome::Idle);
+    assert_eq!((answers[4].0, answers[4].1), (Kind::Reply, 4));
     assert_eq!(
-        answers[3],
-        (
-            Kind::Reply,
-            4,
-            Response::Reply {
-                payload: json!("still here")
-            }
-        ),
+        reply_json(&answers[4].2),
+        json!("still here"),
         "b still answers after a is unloaded: {answers:?}"
     );
 }
@@ -229,22 +232,28 @@ fn an_export_that_answers_nothing_replies_null() {
         unload("echo", 3),
     ]);
 
-    assert_eq!(answers[2].2, Response::Reply { payload: Value::Null });
+    assert_eq!(reply_json(&answers[2].2), Value::Null);
 }
 
 #[test]
-fn a_frame_whose_json_is_not_its_kind_is_an_error_and_the_stream_continues() {
-    // A call frame carrying a shutdown envelope: the frame's end is known, so
-    // the helper can answer and read on.
+fn a_frame_whose_json_is_not_its_kind_ends_the_helper() {
+    // A call frame carrying a shutdown envelope. The frame's end is known, but
+    // the protocol calls a malformed envelope fatal: both sides exit rather
+    // than guess past a disagreement about the wire.
     let mismatched = Frame::new(Kind::Call, 4, br#"{"type":"shutdown"}"#.to_vec()).expect("frame");
     let mut bytes = Vec::new();
     mismatched.write_to(&mut bytes).expect("write");
 
     let (outcome, answers) = run(vec![bytes, shutdown(5)]);
 
-    assert_eq!(answers[1].0, Kind::Error);
-    assert_eq!(answers[1].1, 4);
-    assert_eq!(outcome.expect("shutdown"), Outcome::Shutdown);
+    assert!(
+        matches!(
+            outcome.expect_err("a malformed envelope is fatal"),
+            ServeError::Protocol(_)
+        ),
+        "expected a protocol error"
+    );
+    assert_eq!(answers.len(), 1, "ready is all that was written");
 }
 
 #[test]

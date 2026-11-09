@@ -23,8 +23,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use extism::Plugin;
+use extism::{Manifest, Plugin, PluginBuilder, Wasm};
 
+use crate::module;
 use crate::protocol::Backend;
 
 /// The page limit when the caller names none: 256 pages, 16 MiB (§6.2).
@@ -42,7 +43,21 @@ pub struct Config {
     /// no WASI cannot use a clock or randomness through it.
     pub wasi: bool,
     /// The compile cache, when one is configured.
-    pub cache: Option<CacheConfig>,
+    pub cache: Cache,
+}
+
+/// Where wasmtime's compile cache goes.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Cache {
+    /// Extism's own fallback: `EXTISM_CACHE_CONFIG`, then wasmtime's default
+    /// path. The parent passes a cache explicitly rather than relying on this.
+    #[default]
+    Fallback,
+    /// No on-disk cache: every load compiles. The measurement harness asks for
+    /// this to time a cold compile.
+    Disabled,
+    /// A config file the helper writes and wasmtime reads.
+    File(CacheConfig),
 }
 
 /// A wasmtime compile cache, as wasmtime wants it: a TOML file naming an
@@ -72,28 +87,67 @@ pub enum CacheError {
 
 impl fmt::Display for CacheError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        match self {
+            Self::RelativeDirectory(path) => write!(
+                f,
+                "cache directory {} is not absolute, and wasmtime refuses a relative one",
+                path.display()
+            ),
+            Self::RelativeFile(path) => {
+                write!(f, "cache config file {} is not absolute", path.display())
+            }
+            Self::Unrepresentable(path) => write!(
+                f,
+                "cache path {} cannot be written into the TOML config",
+                path.display()
+            ),
+            Self::Io(error) => write!(f, "writing the cache config: {error}"),
+        }
     }
 }
 
 impl std::error::Error for CacheError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        todo!()
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
     }
 }
 
 impl From<io::Error> for CacheError {
     fn from(error: io::Error) -> Self {
-        todo!()
+        Self::Io(error)
     }
 }
 
 impl CacheConfig {
     /// Points the cache at `directory` and keeps wasmtime's config file at
     /// `file`. Both must be absolute.
-    pub fn new(directory: impl Into<PathBuf>, file: impl Into<PathBuf>) -> Result<Self, CacheError> {
-        let _ = (directory, file);
-        todo!()
+    pub fn new(
+        directory: impl Into<PathBuf>,
+        file: impl Into<PathBuf>,
+    ) -> Result<Self, CacheError> {
+        let directory = directory.into();
+        if !directory.is_absolute() {
+            return Err(CacheError::RelativeDirectory(directory));
+        }
+        let file = file.into();
+        if !file.is_absolute() {
+            return Err(CacheError::RelativeFile(file));
+        }
+        Ok(Self { directory, file })
+    }
+
+    /// The helper's layout under `root`: wasmtime's config file at
+    /// `root/wasmtime-cache.toml`, and the cache itself in `root/cache`.
+    ///
+    /// The config file is deliberately outside the cache directory: wasmtime's
+    /// own cleanup deletes files it does not recognise from the cache
+    /// directory, a config file placed there included.
+    pub fn under(root: impl Into<PathBuf>) -> Result<Self, CacheError> {
+        let root = root.into();
+        Self::new(root.join("cache"), root.join("wasmtime-cache.toml"))
     }
 
     /// The directory wasmtime writes compiled modules into.
@@ -107,8 +161,29 @@ impl CacheConfig {
     }
 
     /// Writes the TOML file, creating its parent directory.
+    ///
+    /// The shape is wasmtime's: a `[cache]` table whose `directory` key names
+    /// the absolute path. Writing it here rather than handing Extism a
+    /// directory is the whole point: `with_cache_config` reads a *file*.
     pub fn write(&self) -> Result<(), CacheError> {
-        todo!()
+        let directory = self.directory.display().to_string();
+        let mut escaped = String::with_capacity(directory.len());
+        for character in directory.chars() {
+            match character {
+                '\\' => escaped.push_str("\\\\"),
+                '"' => escaped.push_str("\\\""),
+                control if control.is_control() => {
+                    return Err(CacheError::Unrepresentable(self.directory.clone()));
+                }
+                other => escaped.push(other),
+            }
+        }
+
+        if let Some(parent) = self.file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&self.file, format!("[cache]\ndirectory = \"{escaped}\"\n"))?;
+        Ok(())
     }
 }
 
@@ -122,33 +197,81 @@ pub struct Runtime {
 impl Runtime {
     /// Builds a runtime, writing the cache config file if one is configured.
     pub fn new(config: Config) -> Result<Self, CacheError> {
-        let _ = config;
-        todo!()
+        if let Cache::File(cache) = &config.cache {
+            cache.write()?;
+        }
+        Ok(Self {
+            config,
+            plugins: HashMap::new(),
+        })
     }
 
     /// The settings this runtime applies.
     pub fn config(&self) -> &Config {
         &self.config
     }
+
+    /// The manifest for a module: the plan's table, applied in one place.
+    fn manifest(&self, module: &Path) -> Manifest {
+        let mut manifest = Manifest::new([Wasm::file(module)]);
+        // Our default, not Extism's: `None` here would install no limiter at
+        // all, and the whole store counts against the limit, input included.
+        manifest.memory.max_pages = Some(self.config.max_pages.unwrap_or(DEFAULT_MAX_PAGES));
+        // `Some(0)`, because `None` means Extism's own one megabyte of vars.
+        manifest.memory.max_var_bytes = Some(0);
+        manifest.allowed_hosts = Some(Vec::new());
+        manifest.timeout_ms = Some(DEFAULT_TIMEOUT.as_millis() as u64);
+        manifest
+    }
 }
 
 impl Backend for Runtime {
     fn load(&mut self, plugin: &str, module: &Path) -> Result<(), String> {
-        let _ = (plugin, module);
-        todo!()
+        if self.plugins.contains_key(plugin) {
+            return Err(format!("plugin {plugin} is already loaded"));
+        }
+        // The magic check runs on the file's bytes and before Extism names it,
+        // because wasmtime would compile a WAT file just as happily.
+        module::check(module).map_err(|error| error.to_string())?;
+
+        let mut builder = PluginBuilder::new(self.manifest(module)).with_wasi(self.config.wasi);
+        builder = match &self.config.cache {
+            Cache::Fallback => builder,
+            Cache::Disabled => builder.with_cache_disabled(),
+            Cache::File(cache) => builder.with_cache_config(cache.file()),
+        };
+        let compiled = builder
+            .compile()
+            .map_err(|error| format!("compiling {}: {error}", module.display()))?;
+        let instance = Plugin::new_from_compiled(&compiled)
+            .map_err(|error| format!("instancing {}: {error}", module.display()))?;
+        self.plugins.insert(plugin.to_owned(), instance);
+        Ok(())
     }
 
     fn call(&mut self, plugin: &str, method: &str, payload: &[u8]) -> Result<Vec<u8>, String> {
-        let _ = (plugin, method, payload);
-        todo!()
+        let instance = self
+            .plugins
+            .get_mut(plugin)
+            .ok_or_else(|| format!("plugin {plugin} is not loaded"))?;
+        // Copied into a `Vec`, since a borrowed answer points into guest memory
+        // that the next call invalidates.
+        instance
+            .call::<&[u8], Vec<u8>>(method, payload)
+            .map_err(|error| format!("{plugin}.{method}: {error}"))
     }
 
     fn unload(&mut self, plugin: &str) -> Result<(), String> {
-        let _ = plugin;
-        todo!()
+        match self.plugins.remove(plugin) {
+            Some(instance) => {
+                drop(instance);
+                Ok(())
+            }
+            None => Err(format!("plugin {plugin} is not loaded")),
+        }
     }
 
     fn instances(&self) -> usize {
-        todo!()
+        self.plugins.len()
     }
 }

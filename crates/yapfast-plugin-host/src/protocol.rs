@@ -18,7 +18,10 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
-use yapfast_plugin_api::{Frame, ReadError, Request, Response};
+use yapfast_plugin_api::{Frame, Payload, ProtocolError, ReadError, Request, Response};
+
+/// The id of the unsolicited `ready` frame: the protocol reserves 0 for it.
+const READY_ID: u64 = 0;
 
 /// Why the helper stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,23 +62,53 @@ pub enum ServeError {
     Read(ReadError),
     /// A frame could not be written, as when the parent has gone.
     Write(io::Error),
+    /// A response could not be encoded or did not fit a frame. This is a bug on
+    /// the helper's side, not a request to answer.
+    Encode(ProtocolError),
+    /// A frame's envelope is not the JSON its kind promises.
+    ///
+    /// The frame's end is known, so the helper could answer and read on; the
+    /// protocol says not to. An envelope the two sides disagree about is a
+    /// version or bug mismatch, and guessing past it hides the cause.
+    Protocol(ProtocolError),
 }
 
 impl fmt::Display for ServeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        match self {
+            Self::Read(error) => write!(f, "reading a request: {error}"),
+            Self::Write(error) => write!(f, "writing a response: {error}"),
+            Self::Encode(error) => write!(f, "encoding a response: {error}"),
+            Self::Protocol(error) => {
+                write!(
+                    f,
+                    "a request is not the envelope its frame promises: {error}"
+                )
+            }
+        }
     }
 }
 
 impl std::error::Error for ServeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        todo!()
+        match self {
+            Self::Read(error) => Some(error),
+            Self::Write(error) => Some(error),
+            Self::Encode(error) => Some(error),
+            Self::Protocol(error) => Some(error),
+        }
     }
 }
 
 impl From<io::Error> for ServeError {
     fn from(error: io::Error) -> Self {
-        todo!()
+        Self::Write(error)
+    }
+}
+
+impl From<ProtocolError> for ServeError {
+    fn from(error: ProtocolError) -> Self {
+        Self::Encode(error)
     }
 }
 
@@ -90,18 +123,71 @@ pub fn serve(
     output: &mut impl Write,
     backend: &mut impl Backend,
 ) -> Result<Outcome, ServeError> {
-    let _ = (input, output, backend);
-    todo!()
+    respond(output, READY_ID, Response::Ready)?;
+
+    loop {
+        let frame = match Frame::read_from(input) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => return Ok(Outcome::EndOfStream),
+            Err(error) => return Err(ServeError::Read(error)),
+        };
+        let id = frame.id();
+
+        // A malformed wire or envelope ends the stream: both sides then exit
+        // rather than guess where the next frame starts. A request the helper
+        // understands but cannot serve (an unknown export, a module that is not
+        // WebAssembly) is an `error` answer, and the helper keeps serving.
+        let request = Request::from_frame(&frame).map_err(ServeError::Protocol)?;
+
+        match request {
+            Request::Load { plugin, module } => match backend.load(&plugin, &module) {
+                Ok(()) => respond(output, id, Response::Loaded)?,
+                Err(message) => respond(output, id, Response::Error { message })?,
+            },
+            Request::Call {
+                plugin,
+                method,
+                payload,
+            } => {
+                // The call's JSON is the export's input, byte for byte: the
+                // guest receives the payload the parent sent, not a re-encoding
+                // of it.
+                match backend.call(&plugin, &method, payload.as_bytes()) {
+                    Ok(output_bytes) => respond(output, id, reply_payload(&method, output_bytes))?,
+                    Err(message) => respond(output, id, Response::Error { message })?,
+                }
+            }
+            Request::Unload { plugin } => match backend.unload(&plugin) {
+                Ok(()) => {
+                    respond(output, id, Response::Unloaded)?;
+                    // The helper is disposable: with nothing left to serve it
+                    // stops, and the parent spawns a fresh one when needed.
+                    if backend.instances() == 0 {
+                        return Ok(Outcome::Idle);
+                    }
+                }
+                Err(message) => respond(output, id, Response::Error { message })?,
+            },
+            Request::Shutdown => return Ok(Outcome::Shutdown),
+        }
+    }
 }
 
 /// Writes one response frame, with the id of the request it answers.
 fn respond(output: &mut impl Write, id: u64, response: Response) -> Result<(), ServeError> {
-    let _ = (output, id, response);
-    todo!()
+    response.to_frame(id)?.write_to(output)?;
+    Ok(())
 }
 
 /// Parses a call's JSON answer, where an empty answer is the protocol's `null`.
 fn reply_payload(method: &str, output: Vec<u8>) -> Response {
-    let _ = (method, output);
-    todo!()
+    if output.is_empty() {
+        return Response::reply(Payload::null());
+    }
+    match Payload::from_bytes(&output) {
+        Ok(payload) => Response::reply(payload),
+        Err(error) => Response::Error {
+            message: format!("{method} answered with JSON that could not be read: {error}"),
+        },
+    }
 }

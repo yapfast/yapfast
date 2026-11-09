@@ -80,14 +80,7 @@ fn the_helper_loads_calls_and_exits_after_its_last_unload() {
             },
             1,
         ),
-        request(
-            &Request::Call {
-                plugin: "echo".to_owned(),
-                method: "echo".to_owned(),
-                payload: payload.clone(),
-            },
-            2,
-        ),
+        request(&Request::call("echo", "echo", payload.clone()), 2),
         request(
             &Request::Unload {
                 plugin: "echo".to_owned(),
@@ -101,18 +94,21 @@ fn the_helper_loads_calls_and_exits_after_its_last_unload() {
     stdin.flush().expect("flush");
 
     assert_eq!(read_response(&mut stdout), Response::Loaded);
-    assert_eq!(
-        read_response(&mut stdout),
-        Response::Reply {
-            payload: payload.clone()
+    let reply = read_response(&mut stdout);
+    match &reply {
+        Response::Reply { payload: answered } => {
+            assert_eq!(answered.to_value().expect("the reply is JSON"), payload)
         }
-    );
+        other => panic!("expected a reply, got {other:?}"),
+    }
     assert_eq!(read_response(&mut stdout), Response::Unloaded);
 
     // The last unload was the helper's last work: the stream ends, and the
     // process exits cleanly, whether or not the parent closes stdin first.
     assert!(
-        Frame::read_from(&mut stdout).expect("end of stream").is_none(),
+        Frame::read_from(&mut stdout)
+            .expect("end of stream")
+            .is_none(),
         "the helper wrote nothing after its last unload"
     );
     let status = wait(&mut child);
@@ -143,7 +139,9 @@ fn shutdown_ends_the_helper_without_an_answer() {
         .expect("write shutdown");
 
     assert!(
-        Frame::read_from(&mut stdout).expect("end of stream").is_none(),
+        Frame::read_from(&mut stdout)
+            .expect("end of stream")
+            .is_none(),
         "shutdown has no answer"
     );
     let status = wait(&mut child);
