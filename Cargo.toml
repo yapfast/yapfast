@@ -7,7 +7,7 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord"]
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-plugin-api"]
 default-members = ["."]
 # crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
 # every workspace member it compiles, even one --exclude leaves out, and
