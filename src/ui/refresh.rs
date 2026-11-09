@@ -30,6 +30,11 @@ pub(super) struct Reach {
     voice: bool,
     /// Pictures arrived, which can show anywhere.
     pictures: bool,
+    /// A picker's own picture arrived, which no row shows but its own.
+    picker: bool,
+    /// A custom emoji's picture arrived: the emoji picker shows it at once,
+    /// without laying the rest of the window out again.
+    emoji: bool,
     /// The video playing changed.
     video: bool,
     pub(super) everything: bool,
@@ -40,6 +45,8 @@ impl Reach {
         composer: true,
         voice: true,
         pictures: true,
+        picker: true,
+        emoji: true,
         video: true,
         everything: true,
     };
@@ -57,8 +64,18 @@ impl Reach {
                 voice: true,
                 ..Self::default()
             },
+            Event::Picture { url, .. } if url.contains("/emojis/") => Self {
+                emoji: true,
+                ..Self::default()
+            },
             Event::Picture { .. } => Self {
                 pictures: true,
+                ..Self::default()
+            },
+            // A GIF's or a sticker's picture shows in its picker alone, which
+            // lays out nothing else as it arrives.
+            Event::GifPicture { .. } | Event::StickerPicture { .. } => Self {
+                picker: true,
                 ..Self::default()
             },
             Event::Video(_) => Self {
@@ -74,6 +91,8 @@ impl Reach {
             composer: self.composer || other.composer,
             voice: self.voice || other.voice,
             pictures: self.pictures || other.pictures,
+            picker: self.picker || other.picker,
+            emoji: self.emoji || other.emoji,
             video: self.video || other.video,
             everything: self.everything || other.everything,
         }
@@ -83,6 +102,9 @@ impl Reach {
 /// How long a picture that arrived waits for others to show with it.
 const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// How long a custom emoji's picture waits for others before the emoji picker
+/// shows it: a few frames, as showing them costs little.
+const EMOJI_BATCH: std::time::Duration = std::time::Duration::from_millis(32);
 /// A server's Discord id, from Yapfast's id for it.
 fn discord_server_id(id: &str) -> &str {
     id.rsplit(':').next().unwrap_or(id)
@@ -330,14 +352,37 @@ impl Adapter {
             self.refresh(window);
             return;
         }
+        // A custom emoji's picture shows in the emoji picker alone while it is
+        // open, which needs nothing else laid out; otherwise it can show
+        // anywhere, as any picture can.
+        let picker_open = self.models.emoji_rows.row_count() > 0;
+        if reach.emoji && picker_open && !self.emoji_due.running() {
+            let (adapter, weak) = (self.weak.clone(), window.as_weak());
+            self.emoji_due
+                .start(slint::TimerMode::SingleShot, EMOJI_BATCH, move || {
+                    if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                        adapter.borrow_mut().show_emoji_pictures(&window);
+                    }
+                });
+        }
+        let pictures = reach.pictures || (reach.emoji && !picker_open);
         // Pictures arrive one at a time, hundreds when the emoji picker opens,
         // so those that come close together show in one refresh.
-        if reach.pictures && !self.pictures_due.running() {
+        if pictures && !self.pictures_due.running() {
             let (adapter, weak) = (self.weak.clone(), window.as_weak());
             self.pictures_due
                 .start(slint::TimerMode::SingleShot, PICTURE_BATCH, move || {
                     if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
                         adapter.borrow_mut().refresh(&window);
+                    }
+                });
+        }
+        if reach.picker && !self.picker_due.running() {
+            let (adapter, weak) = (self.weak.clone(), window.as_weak());
+            self.picker_due
+                .start(slint::TimerMode::SingleShot, PICTURE_BATCH, move || {
+                    if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                        adapter.borrow_mut().show_picker_pictures(&window);
                     }
                 });
         }
@@ -351,6 +396,39 @@ impl Adapter {
         if reach.video {
             self.show_video(window);
         }
+    }
+
+    /// The custom emoji pictures that arrived for the emoji picker, shown in
+    /// it and nothing else: the window lays nothing out again, so a scroll
+    /// that brings pictures in stays smooth. One that a message on screen
+    /// shows too makes its glyph, which lays the messages out, as a full
+    /// refresh does.
+    fn show_emoji_pictures(&mut self, window: &YapfastWindow) {
+        // One a message on screen shows too gets its glyph, which lays the
+        // messages out again, as a full refresh does; `add` says so only for a
+        // glyph it made, so this happens once a picture.
+        let state = &self.app.state;
+        let in_messages = state
+            .messages
+            .iter()
+            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
+            .flat_map(|message| &message.emoji);
+        if custom_emoji::add(in_messages.filter_map(|emoji| arrived(state, emoji))) {
+            self.restyle = true;
+            self.refresh(window);
+            return;
+        }
+        if self.show_arrived_emoji() && self.emoji_word.is_some() {
+            self.show_emoji_suggestions(window);
+        }
+        super::callbacks::want_shown_animations(self, window);
+    }
+
+    /// The pictures a picker's tiles draw that arrived since, and nothing
+    /// else: they change no layout, so no row is built again.
+    fn show_picker_pictures(&mut self, window: &YapfastWindow) {
+        self.show_gifs(window);
+        self.show_stickers(window);
     }
 
     pub(super) fn refresh(&mut self, window: &YapfastWindow) {
@@ -406,7 +484,9 @@ impl Adapter {
         self.show_reactions(window);
         self.show_gifs(window);
         self.show_emoji_card(window);
+        self.show_sticker_card(window);
         self.show_emoji_animations(window);
+        self.show_stickers(window);
         self.show_composer(window);
         self.show_messages(window, &changes);
         self.show_aside(window);
@@ -436,6 +516,58 @@ impl Adapter {
             self.layout.reactions = self.app.reaction_uses().clone();
             self.layout.write(&self.root);
         }
+        // The stickers sent and those kept, for Frequently Used and Favorites
+        // at the next start: compared in place, as this runs on every event,
+        // and copied only when they changed.
+        let kept = |kept: &KeptSticker, sticker: &yapfast_core::chat::Sticker| {
+            kept.id == sticker.id
+                && kept.name == sticker.name
+                && kept.format == sticker.format
+                && kept.picture == sticker.picture
+        };
+        let uses = self.app.sticker_uses();
+        let same_uses = uses.len() == self.layout.sticker_uses.len()
+            && uses
+                .iter()
+                .zip(&self.layout.sticker_uses)
+                .all(|(used, known)| {
+                    used.uses == known.uses
+                        && known.id == used.sticker.id
+                        && known.name == used.sticker.name
+                        && known.format == used.sticker.format
+                        && known.picture == used.sticker.picture
+                });
+        if !same_uses {
+            self.layout.sticker_uses = uses
+                .iter()
+                .map(|used| KeptStickerUse {
+                    id: used.sticker.id.clone(),
+                    name: used.sticker.name.clone(),
+                    format: used.sticker.format,
+                    picture: used.sticker.picture.clone(),
+                    uses: used.uses,
+                })
+                .collect();
+            self.layout.write(&self.root);
+        }
+        let favorites = self.app.sticker_favorites();
+        let same_favorites = favorites.len() == self.layout.sticker_favorites.len()
+            && favorites
+                .iter()
+                .zip(&self.layout.sticker_favorites)
+                .all(|(sticker, known)| kept(known, sticker));
+        if !same_favorites {
+            self.layout.sticker_favorites = favorites
+                .iter()
+                .map(|sticker| KeptSticker {
+                    id: sticker.id.clone(),
+                    name: sticker.name.clone(),
+                    format: sticker.format,
+                    picture: sticker.picture.clone(),
+                })
+                .collect();
+            self.layout.write(&self.root);
+        }
         if changes.selection && !state.preview && state.account.is_some() {
             let mut layout = self.layout.clone();
             layout.channels.extend(self.app.last_channels());
@@ -451,11 +583,9 @@ impl Adapter {
     /// something plays and the window is focused, used and not minimised.
     fn show_emoji_animations(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let mut shown: Vec<(String, Option<char>, String)> = state
-            .messages
-            .iter()
-            .chain(state.aside.iter().flat_map(|aside| aside.messages.iter()))
-            .flat_map(|message| &message.emoji)
+        let mut shown: Vec<(String, Option<char>, String)> = self
+            .app
+            .visible_message_emoji()
             .filter(|emoji| emoji.animated)
             .map(|emoji| {
                 (
@@ -492,10 +622,16 @@ impl Adapter {
                 }
             }
         }
-        for emoji in self.app.usable_emoji().iter().flat_map(|set| &set.emoji) {
-            let key = emoji::custom_key(emoji);
-            if emoji.animated && cells.contains(&key) {
-                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture.clone()));
+        // Made for those few by their ids, rather than every server's emoji at
+        // each refresh.
+        let ids: HashSet<&str> = cells
+            .iter()
+            .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
+            .collect();
+        for emoji in self.app.emoji_by_id(&ids) {
+            let key = emoji::custom_key(&emoji);
+            if emoji.usable && emoji.animated && cells.contains(&key) {
+                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture));
             }
         }
         for sound in state
@@ -509,13 +645,18 @@ impl Adapter {
                 shown.push((format!("sound:{picture}"), None, picture.clone()));
             }
         }
-        let pictures = &state.pictures;
+        self.animations.show(shown, &state.pictures);
+        self.run_emoji_animations(window);
+    }
+
+    /// Both full refreshes and quiet picker updates can introduce animation
+    /// work, including after the last close stopped the timer.
+    pub(super) fn run_emoji_animations(&mut self, window: &YapfastWindow) {
         // Idle holds the clock as an unfocused window does, whatever the Animate
         // setting says; a minimised window has lost focus, and `playing` is
         // already false for it.
         let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
-        self.animations.show(shown, pictures);
-        self.animations.run(window, pictures);
+        self.animations.run(window, &self.app.state.pictures);
         self.animations.sync(window, playing, self.weak.clone());
     }
 
@@ -531,6 +672,18 @@ impl Adapter {
         let Adapter { app, pictures, .. } = self;
         let card = messages::emoji_card_for(app, target, pictures);
         window.set_emoji_card(card);
+    }
+
+    /// The card a clicked sticker opened, as the message and the picker's
+    /// lists show it.
+    fn show_sticker_card(&mut self, window: &YapfastWindow) {
+        let Some((item, index)) = self.sticker_card.clone() else {
+            return;
+        };
+        if !window.get_sticker_card_open() {
+            return;
+        }
+        window.set_sticker_card(messages::sticker_card(&self.app, &item, index));
     }
 
     /// Whether Yapfast is signed in or previewing, what the account is doing, and
@@ -3624,7 +3777,9 @@ impl Adapter {
             if custom_emoji::add(in_messages().filter_map(|emoji| arrived(state, emoji))) {
                 self.restyle = true;
             }
-            let usable = if pictures_arrived {
+            // The suggestions build their cells from the pictures kept; the
+            // picker keeps its own as they come (`show_arrived_emoji`).
+            let usable = if pictures_arrived && self.emoji_word.is_some() {
                 self.app.emoji_sets()
             } else {
                 Vec::new()
@@ -3637,13 +3792,22 @@ impl Adapter {
                     .chain(state.messages.iter().flat_map(|message| &message.emoji))
                     .filter_map(|emoji| arrived(state, emoji)),
             );
-            if added {
-                if self.emoji_word.is_some() {
+            let picker = !window.get_react_item().is_empty() && self.show_arrived_emoji();
+            if added || picker {
+                if added && self.emoji_word.is_some() {
                     self.show_emoji_suggestions(window);
                 }
                 if !window.get_react_item().is_empty() {
-                    emoji::fill_pictures(&self.models.emoji_rows, &self.models.emoji_sections);
+                    self.fill_emoji_near_sight();
+                    // An animated one decodes from its picture, which has
+                    // come now.
+                    super::callbacks::want_shown_animations(self, window);
                 }
+            }
+            // A server's icon is no custom emoji, and the emoji picker's rail
+            // and headings draw it as it comes.
+            if pictures_arrived && !window.get_react_item().is_empty() {
+                super::callbacks::fill_picker_icons(self);
             }
         }
         let state = &self.app.state;
