@@ -29,7 +29,8 @@ Message, Call for anyone but oneself, an app or someone blocked, which asks
 first, as Discord's does, until "Don't ask again" is ticked, Add note and the
 friend nickname; Change nickname, [Invite to
 server](#invite-to-server), friendship, Ignore and Block; Roles; in red,
-Time out, Kick and Ban, each naming them; then Copy ID, last as in
+Open in Mod View, then Time out, Kick and Ban, each naming them; then Copy
+ID, last as in
 Discord's `GuildChannelUserContextMenu`. In a voice channel it has more; see
 [Someone's menu in a voice channel](#someones-menu-in-a-voice-channel).
 What shows depends on this account's permissions and on its
@@ -117,8 +118,76 @@ while it runs. A member who leaves is forgotten. A nickname,
 timeout, kick or ban that fails says why in its dialog; a role says so in a
 notice.
 
-Discord's menu also has Invite to listen (Spotify), Apps and Open in
-moderator view, which Yapfast leaves out for now.
+Discord's menu also has Invite to listen (Spotify) and Apps, which Yapfast
+leaves out for now.
+
+## Mod View
+
+Open in Mod View, in a member's menu in a server channel, opens Discord's
+Mod View about them beside the channel, in place of the member list, the
+profile panel or a thread beside it; search results cover it while they
+show, and it closes when a channel of another server opens. Discord's
+client offers it, first of its moderation items and also on one's own
+entry, to anyone with Administrator, Manage Server, Kick, Ban or Time Out
+Members, Manage Roles or Manage Nicknames in the server, without channel
+overwrites (`Application::may_mod_view`). It isn't offered from Members in the server's
+settings, which covers the channel.
+
+Its heading has Refresh, which asks Discord again, and Close. Under the
+member's avatar and name are Discord's actions: Message, then Kick, Ban and
+Timeout, each enabled as the member's menu offers it, opening the same
+dialogs, with Remove in place of Timeout while they're timed out, and Copy
+ID. Then Discord's sections, in its order:
+
+- **Signals**, only with one: Unusual DM Activity, and Timed Out with the
+  time left, counting down each second.
+- **Server Activity**: how many messages they sent in the server, with
+  links, and with media, from `POST /guilds/{id}/messages/search/tabs` with
+  Discord's three tabs (`author_id`; `has: ["link"]`; its twelve
+  `attachment_extension`s), a message each, `track_exact_total_hits` and
+  `include_nsfw`, asking again while Discord indexes the server as Members
+  does. Messages and Links open the search panel on `from:` them, and
+  `has:link`; Media doesn't, as Yapfast's search has no way to ask for
+  Discord's list of file types. Audit Log counts the rows of what moderators
+  did to them, from `GET /guilds/{id}/audit-logs?target_id=`, and opens them
+  as Moderator Action Log, in Audit Log's rows; without View Audit Log it
+  isn't asked for, and reads "This is Awkward", as Discord's refusal does.
+- **Permissions**: their moderation permissions, as Discord picks them
+  (Administrator, Manage Server, Kick and Ban Members, Manage Channels,
+  Roles, Messages, Threads, Webhooks and Expressions, Create Expressions,
+  Manage and Create Events, Time Out Members, Mention @everyone and those
+  moderators need two-factor authentication for), the latter marked
+  Elevated, or "No Mod Permissions"; All (n) opens All Granted Permissions,
+  each permission they hold in the order of a role's Permissions tab, with
+  its group, description and the roles that give it, or Server Owner. A
+  timeout doesn't take them away there, as in Discord's.
+- **Roles**: their roles, highest first, each with an X when this account
+  may take it away, and Add Role, listing those it may give them; each is
+  the member menu's `PUT` or `DELETE /guilds/{id}/members/{user}/roles/{role}`.
+- **Account**: Discord Join Date, from their id; Server Join Date; Join
+  Method as Members words it, with Invited by when Yapfast knows the
+  inviter's name.
+
+How they joined, when, their timeout and unusual DMs come from `POST
+/guilds/{id}/members-search` with `and_query.user_id`, which carries the
+same `join_source_type`, `source_invite_code` and `inviter_id` as the
+`members/supplemental` Discord's client asks for, and the signal, and takes
+any moderation permission, where the supplemental takes Manage Server. The
+view holds what those answers say about one member and its log's rows; the
+rest it reads from the service's names and the server the snapshot shares
+as it shows.
+
+Discord's Passed Verification Level and Agreed to Rules, which need
+member flags and pending state Yapfast doesn't keep, and its list of their
+messages inside the panel, which Yapfast's search panel shows instead, are
+left out.
+
+Yapfast adds, beyond Discord's: Time out for 60s, 5m, 10m, 1h, 1d or 1w in
+one click under the actions, without the dialog or a reason; Copy mention,
+which copies `<@id>`; a "New account" mark under the join date of an
+account made in the last 7 days, and how long ago each date was; and the
+ban dialog starting with the last ban's reason and deletion until Yapfast
+closes, for the many bans of a raid.
 
 ## Invites
 

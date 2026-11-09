@@ -88,6 +88,9 @@ pub fn command(
     let Some(command) = super::audit_log::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::people::mod_view(command, discord, events) else {
+        return;
+    };
     let Some(command) = super::people::command(command, discord, events) else {
         return;
     };

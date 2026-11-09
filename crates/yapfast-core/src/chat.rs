@@ -2986,6 +2986,13 @@ pub enum DiscordCommand {
         server: String,
         query: MembersQuery,
     },
+    /// What Mod View shows of a member that Yapfast doesn't hold, by the
+    /// server's id: an [`Event::ModViewLoaded`] follows for each
+    /// [`ModViewPart`].
+    ModView {
+        server: String,
+        user: String,
+    },
     /// What Invites asks of Discord; [`Event::InvitesLoaded`],
     /// [`Event::InviteRevoked`] or [`Event::ServerPaused`] follows.
     Invites {
@@ -3255,12 +3262,25 @@ pub struct AuditUser {
 }
 
 /// Which audit log entries to fetch: before an entry's id, by a user, of
-/// an action.
+/// an action, done to someone (Mod View's Moderator Action Log).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AuditQuery {
     pub before: Option<String>,
     pub user: Option<String>,
     pub action: Option<u16>,
+    pub target: Option<String>,
+}
+
+/// What Mod View fetches about a member besides what Yapfast holds;
+/// [`Event::ModViewLoaded`] brings each.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModViewPart {
+    /// The member as Members' search finds them: when and how they
+    /// joined, and Discord's signals; `None` when it finds nobody.
+    Member(Result<Option<ListedMember>, String>),
+    /// How many messages they sent in the server, of them with links, and
+    /// with media.
+    Activity(Result<[u64; 3], String>),
 }
 
 /// Someone banned from a Discord server, as Bans lists them: their name,
@@ -3375,6 +3395,8 @@ pub struct ListedMember {
     pub spammer: bool,
     pub quarantined: bool,
     pub joined_by: JoinMethod,
+    /// Who made the invite they joined by, or added the bot, by id.
+    pub inviter: Option<String>,
     /// A bot, which can't be given the server.
     pub bot: bool,
 }
@@ -4037,6 +4059,12 @@ pub enum Event {
         server: String,
         query: AuditQuery,
         result: Result<AuditLog, String>,
+    },
+    /// A part of what [`DiscordCommand::ModView`] asked for.
+    ModViewLoaded {
+        server: String,
+        user: String,
+        part: ModViewPart,
     },
     /// The members [`DiscordCommand::Members`] asked for, and how many
     /// match in all, or why Discord didn't send them.

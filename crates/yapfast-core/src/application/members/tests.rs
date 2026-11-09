@@ -28,6 +28,7 @@ fn a_member_below_gets_every_choice_in_discords_order() {
             Ignore,
             Block,
             Roles,
+            ModView,
             Timeout,
             Kick,
             Ban,
@@ -40,7 +41,7 @@ fn a_member_below_gets_every_choice_in_discords_order() {
 fn nobody_acts_on_those_above_them_or_the_owner() {
     let app = staff();
     let personal = [
-        Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
+        Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Roles, ModView, CopyId,
     ];
     assert_eq!(app.person_choices("3"), personal, "Cara, a Lead");
     assert_eq!(app.person_choices("99"), personal, "Owen, the owner");
@@ -73,7 +74,7 @@ fn ones_own_entry_has_no_friend_or_moderation_choices() {
     // has it, whether or not she may change it.
     assert_eq!(
         staff().person_choices("1"),
-        [Profile, EditServerProfile, Roles, CopyId]
+        [Profile, EditServerProfile, Roles, ModView, CopyId]
     );
     // Without Manage Roles.
     assert_eq!(
@@ -409,6 +410,7 @@ fn invite_to_server_lists_where_one_may_invite_but_the_server_theyre_shown_in() 
             Ignore,
             Block,
             Roles,
+            ModView,
             Timeout,
             Kick,
             Ban,
@@ -490,6 +492,7 @@ fn in_a_voice_channel_the_menu_adds_what_the_call_offers_in_discords_order() {
             Block,
             Roles,
             MoveTo,
+            ModView,
             ServerMute,
             ServerDeafen,
             Disconnect,
@@ -508,6 +511,7 @@ fn in_a_voice_channel_the_menu_adds_what_the_call_offers_in_discords_order() {
             EditServerProfile,
             Roles,
             MoveTo,
+            ModView,
             ServerMute,
             ServerDeafen,
             CopyId
@@ -582,4 +586,206 @@ fn server_mute_deafen_move_and_disconnect_change_straight_from_the_menu() {
         !change("3", MemberChange::ServerMute(true)),
         "Cara isn't in voice"
     );
+}
+
+fn open_mod_view(app: &mut Application, user: &str) -> Vec<Effect> {
+    app.dispatch(Action::ModView(ModViewInput::Open {
+        place: GENERAL.into(),
+        user: user.into(),
+    }))
+}
+
+#[test]
+fn mod_view_opens_for_moderators_and_asks_discord_what_it_lacks() {
+    let mut app = staff();
+    assert!(app.person_choices("4").contains(&ModView));
+    // Leads hold no moderation permission.
+    assert!(!server(&["40"]).person_choices("4").contains(&ModView));
+    assert!(open_mod_view(&mut server(&["40"]), "4").is_empty());
+
+    // Without View Audit Log, the log isn't asked for.
+    let effects = open_mod_view(&mut app, "4");
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::Backend(Command::Discord(DiscordCommand::ModView { server, user }))]
+                if server == SERVER && user == "4"
+        ),
+        "{} effects",
+        effects.len()
+    );
+    let view = app.state.mod_view.as_ref().unwrap();
+    assert!(view.log.failed && view.member.is_none() && view.activity.is_none());
+
+    // What Discord sends fills it in; another member's is dropped.
+    let found = crate::chat::ListedMember {
+        person: crate::chat::RoleMember {
+            id: "4".into(),
+            name: "Dave".into(),
+            username: Some("dave".into()),
+            avatar: String::new(),
+        },
+        roles: vec!["20".into()],
+        joined: 1_700_000_000_000,
+        timed_out_until: 0,
+        unusual_dms: true,
+        spammer: false,
+        quarantined: false,
+        joined_by: crate::chat::JoinMethod::Invite("abc".into()),
+        inviter: Some("3".into()),
+        bot: false,
+    };
+    for user in ["3", "4"] {
+        app.apply(Event::ModViewLoaded {
+            server: SERVER.into(),
+            user: user.into(),
+            part: crate::chat::ModViewPart::Activity(Ok([12, 3, 1])),
+        });
+    }
+    app.apply(Event::ModViewLoaded {
+        server: SERVER.into(),
+        user: "4".into(),
+        part: crate::chat::ModViewPart::Member(Ok(Some(found))),
+    });
+    let view = app.state.mod_view.as_ref().unwrap();
+    assert_eq!(view.activity, Some(Ok([12, 3, 1])));
+    let member = app.mod_view_member().unwrap();
+    assert_eq!(member.name, "Dave");
+    assert_eq!(member.username.as_deref(), Some("dave"));
+    assert_eq!(member.joined, Some(1_700_000_000_000));
+    assert_eq!(member.inviter.as_deref(), Some("Cara"));
+    assert_eq!(
+        member
+            .roles
+            .iter()
+            .map(|(role, removable)| (role.name.as_str(), *removable))
+            .collect::<Vec<_>>(),
+        [("Crew", true)]
+    );
+    // Wardens she may give; Leads and Staff are above or at her.
+    let addable: Vec<_> = member
+        .addable
+        .iter()
+        .map(|role| role.name.as_str())
+        .collect();
+    assert_eq!(addable, ["Wardens"]);
+    assert!(member.may_kick && member.may_ban && member.may_timeout && !member.me);
+    // @everyone's permissions, and none of a moderator's.
+    let bits: Vec<u32> = member.granted.iter().map(|granted| granted.bit).collect();
+    assert!(bits.contains(&10) && !bits.contains(&1), "{bits:?}");
+    assert_eq!(member.granted[0].roles, ["@everyone"]);
+
+    app.dispatch(Action::ModView(ModViewInput::Panel(ModPanel::Permissions)));
+    assert_eq!(
+        app.state.mod_view.as_ref().unwrap().panel,
+        ModPanel::Permissions
+    );
+    app.dispatch(Action::ModView(ModViewInput::Close));
+    assert!(app.state.mod_view.is_none());
+}
+
+#[test]
+fn mod_view_lists_what_gives_a_moderator_their_permissions() {
+    let mut app = staff();
+    open_mod_view(&mut app, "6");
+    let member = app.mod_view_member().unwrap();
+    // Gus's Wardens role has Administrator, which gives him everything.
+    let kick = member
+        .granted
+        .iter()
+        .find(|granted| granted.bit == 1)
+        .unwrap();
+    assert_eq!(kick.roles, ["Wardens"]);
+    assert!(!member.may_timeout, "an administrator can't be timed out");
+    // The owner holds everything as the owner.
+    open_mod_view(&mut app, "99");
+    let member = app.mod_view_member().unwrap();
+    assert!(member.granted.iter().all(|granted| granted.owner));
+    assert!(!member.may_kick && !member.may_ban);
+}
+
+#[test]
+fn mod_views_quick_timeouts_skip_the_dialog() {
+    let mut app = staff();
+    open_mod_view(&mut app, "4");
+    let sent = app.dispatch(Action::ModView(ModViewInput::QuickTimeout(1)));
+    let now = crate::clock::now_ms();
+    assert!(
+        matches!(
+            sent.as_slice(),
+            [Effect::Backend(Command::Discord(DiscordCommand::Member {
+                user, change: MemberChange::Timeout { until_ms: Some(until), .. }, ..
+            }))] if user == "4" && until.abs_diff(now + 300_000) < 5_000
+        ),
+        "{} effects",
+        sent.len()
+    );
+    // Hal is timed out already, and Gus is an administrator.
+    for user in ["7", "6"] {
+        open_mod_view(&mut app, user);
+        assert!(
+            app.dispatch(Action::ModView(ModViewInput::QuickTimeout(0)))
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn mod_views_action_log_is_the_audit_log_about_them() {
+    // Wardens give Alice Administrator, and so View Audit Log.
+    let mut app = server(&["60"]);
+    let effects = open_mod_view(&mut app, "4");
+    let query = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::AuditLog { server, query }))
+                if server == SERVER =>
+            {
+                Some(query.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(query.target.as_deref(), Some("4"));
+    assert!(app.state.mod_view.as_ref().unwrap().log.fetching());
+    let entry = crate::chat::AuditEntry {
+        id: "500".into(),
+        action: 24,
+        target: Some("4".into()),
+        user: Some("1".into()),
+        reason: None,
+        changes: vec![],
+        options: Default::default(),
+    };
+    app.apply(Event::AuditLogLoaded {
+        server: SERVER.into(),
+        query,
+        result: Ok(crate::chat::AuditLog {
+            entries: vec![entry],
+            users: Default::default(),
+            names: Default::default(),
+        }),
+    });
+    let log = &app.state.mod_view.as_ref().unwrap().log;
+    assert!(!log.fetching() && log.rows.len() == 1, "{:?}", log.rows);
+}
+
+#[test]
+fn the_last_bans_reason_and_deletion_start_the_next_ban() {
+    let mut app = staff();
+    app.dispatch(Action::AskMember {
+        place: GENERAL.into(),
+        user: "4".into(),
+        ask: PersonAsk::Ban,
+    });
+    app.dispatch(Action::ChoosePersonOption(2));
+    app.dispatch(Action::AnswerPerson("raid".into()));
+    app.dispatch(Action::ClosePersonDialog);
+    app.dispatch(Action::AskMember {
+        place: GENERAL.into(),
+        user: "7".into(),
+        ask: PersonAsk::Ban,
+    });
+    let dialog = app.state.person_dialog.as_ref().unwrap();
+    assert_eq!((dialog.choice, dialog.text.as_deref()), (2, Some("raid")));
 }

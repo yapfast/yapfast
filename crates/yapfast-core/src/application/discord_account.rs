@@ -394,6 +394,9 @@ impl Application {
                 let Some(server) = dialog.server.clone() else {
                     return vec![];
                 };
+                if dialog.ask == PersonAsk::Ban {
+                    self.last_ban = Some((dialog.choice, text.clone()));
+                }
                 let change = members::change(dialog.ask, dialog.choice, text);
                 DiscordCommand::Member {
                     server,

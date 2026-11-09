@@ -61,6 +61,8 @@ import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateR
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
+import { ModViewPrompt, ModViewPanel } from "mod_view.slint";
+export { ModViewChip, ModPermissionRow } from "mod_view.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
@@ -473,6 +475,11 @@ export component YapfastWindow inherits Window {
     in property <bool> history-failed;
     // A Discord thread beside the open channel, opened from a message's link,
     // in place of the member list: its messages, history and composer.
+    /// Mod View, beside the channel in place of its member list.
+    in property <bool> mod-view-open;
+    in property <ModViewPrompt> mod-view;
+    /// Something done in Mod View; see ModViewPanel.
+    callback mod-view-act(int, string, int);
     in property <bool> aside-open;
     in property <string> aside-name;
     /// The thread beside the channel's room id, which its More menu is about.
@@ -1714,18 +1721,21 @@ export component YapfastWindow inherits Window {
     changed active-item => { root.hide-badge-tips(); }
 
     // The member list is a second sidebar, on the right of the conversation.
-    property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked;
+    property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked && !root.mod-view-docked;
+    // Mod View takes the place of the member list, the profile and a
+    // thread beside, until it closes; search results take its place.
+    property <bool> mod-view-docked: root.mod-view-open && !root.search-open;
     // A thread opened beside the channel takes the place of the member list
     // and the profile, and search results take its place.
     // The thread beside the channel, or the form that starts one, in place
     // of its member list.
-    property <bool> aside-docked: (root.aside-open || root.new-thread-open) && !root.search-open;
+    property <bool> aside-docked: (root.aside-open || root.new-thread-open) && !root.search-open && !root.mod-view-docked;
     // Rows remade under the pointer show their tooltip again; it goes with the screen.
     changed friends-open => { Tip.text = ""; }
     changed browse-open => { Tip.text = ""; }
-    property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
+    property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked && !root.mod-view-docked;
     // Search results take the place of the member list or the profile.
-    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? ClientStyle.members-width : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
+    property <length> docked-width: root.search-open || root.mod-view-docked ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? ClientStyle.members-width : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
     // The pin and add buttons open their popovers under themselves.
     property <length> popover-x;
     property <length> popover-y;
@@ -3647,6 +3657,11 @@ export component YapfastWindow inherits Window {
                         open-link(link) => { root.open-link(link); }
                         more-results => { root.more-results(); }
                         close => { root.search-text = ""; root.search(""); }
+                    }
+                    if root.mod-view-docked: ModViewPanel {
+                        width: 420px;
+                        view: root.mod-view;
+                        act(what, text, number) => { root.mod-view-act(what, text, number); }
                     }
                     if root.aside-docked && root.new-thread-open: NewThreadPanel {
                         width: root.aside-shown;

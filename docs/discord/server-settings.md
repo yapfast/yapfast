@@ -256,8 +256,9 @@ The page holds the members fetched, and only the page shown has rows and
 asks for avatars.
 
 Left out, as with the rest of the plan's: the date, role, signal and join
-method filters, Prune, selecting members to ban several at once, the mod
-view, the count of members who joined since the page opened, and Show
+method filters, Prune, selecting members to ban several at once, a row's
+Open Mod View (Yapfast opens [Mod View](servers.md#mod-view) beside a
+channel), the count of members who joined since the page opened, and Show
 Members In Channel List.
 
 ## Invites
