@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use yapfast_plugin_api::{Frame, Kind, ReadError, Request, Response};
+use yapfast_plugin_api::{
+    Frame, Kind, MAX_FRAME_LEN, MAX_PAYLOAD_LEN, ReadError, Request, Response,
+};
 use yapfast_plugin_host::protocol::{self, Backend, Outcome, ServeError};
 
 /// A backend with no engine: it remembers what is loaded and echoes what it is
@@ -42,6 +44,18 @@ impl Backend for Fake {
             "echo" => Ok(payload.to_vec()),
             // An export that sets no output: Extism hands back no bytes.
             "silent" => Ok(Vec::new()),
+            // A valid JSON answer that cannot fit a frame: a string just past
+            // the payload limit, before the envelope is counted at all.
+            "huge" => {
+                let mut json = Vec::with_capacity(MAX_PAYLOAD_LEN + 2);
+                json.push(b'"');
+                json.resize(MAX_PAYLOAD_LEN + 1, b'a');
+                json.push(b'"');
+                Ok(json)
+            }
+            // The same problem in an error message, in characters wider than a
+            // byte, so a byte-wise cut would split one.
+            "long-error" => Err("€".repeat(40_000)),
             other => Err(format!("Function not found: {other}")),
         }
     }
@@ -233,6 +247,93 @@ fn an_export_that_answers_nothing_replies_null() {
     ]);
 
     assert_eq!(reply_json(&answers[2].2), Value::Null);
+}
+
+#[test]
+fn an_oversize_reply_becomes_an_error_and_the_helper_keeps_serving() {
+    // A guest can answer with more JSON than a frame holds. That is the guest's
+    // fault, not a reason to end the helper: the call is answered with an error
+    // at its own id, and every other instance stays callable.
+    let (outcome, answers) = run(vec![
+        load("a", 1),
+        load("b", 2),
+        call("a", "huge", Value::Null, 3),
+        call("b", "echo", json!({"still": "here"}), 4),
+        unload("a", 5),
+        unload("b", 6),
+    ]);
+
+    assert_eq!(outcome.expect("the helper keeps serving"), Outcome::Idle);
+    assert_eq!(answers.len(), 7, "one answer per request: {answers:?}");
+    assert_eq!(
+        (answers[3].0, answers[3].1),
+        (Kind::Error, 3),
+        "the oversize reply is an error at the call's id: {answers:?}"
+    );
+    match &answers[3].2 {
+        Response::Error { message } => {
+            assert!(message.contains("huge"), "names the export: {message}");
+            assert!(
+                message.contains(&MAX_FRAME_LEN.to_string()),
+                "states the frame limit: {message}"
+            );
+            assert!(
+                message.len() <= 8 * 1024,
+                "the message is bounded: {} bytes",
+                message.len()
+            );
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+    assert_eq!(
+        (answers[4].0, answers[4].1),
+        (Kind::Reply, 4),
+        "another instance still answers after the oversize reply"
+    );
+    assert_eq!(reply_json(&answers[4].2), json!({"still": "here"}));
+    assert_eq!((answers[5].0, answers[5].1), (Kind::Unloaded, 5));
+    assert_eq!((answers[6].0, answers[6].1), (Kind::Unloaded, 6));
+}
+
+#[test]
+fn a_guest_error_message_is_cut_on_a_character_boundary() {
+    // Extism hands back whatever the guest wrote with `error_set`, and a message
+    // that does not fit a frame would end the helper exactly as an oversize
+    // reply would. The cut has to be marked and must not split a character:
+    // a byte-wise cut here would panic building the frame.
+    let (outcome, answers) = run(vec![
+        load("a", 1),
+        call("a", "long-error", Value::Null, 2),
+        call("a", "echo", json!("after"), 3),
+        unload("a", 4),
+    ]);
+
+    assert_eq!(outcome.expect("the helper keeps serving"), Outcome::Idle);
+    let message = match &answers[2].2 {
+        Response::Error { message } => message,
+        other => panic!("expected an error, got {other:?}"),
+    };
+    assert!(
+        message.len() <= 8 * 1024,
+        "the message is bounded: {} bytes",
+        message.len()
+    );
+    assert!(
+        message.ends_with("[truncated]"),
+        "the cut is marked: {message:?}"
+    );
+    let kept = message.trim_end_matches("[truncated]").trim_end();
+    assert!(kept.starts_with('€'), "keeps the guest's own words");
+    assert!(
+        kept.chars().all(|character| character == '€'),
+        "a cut on a character boundary leaves no broken character"
+    );
+    assert!(!message.contains('\u{fffd}'), "nothing was replaced");
+    assert_eq!(
+        reply_json(&answers[3].2),
+        json!("after"),
+        "the plugin still answers after a guest's oversize error"
+    );
 }
 
 #[test]

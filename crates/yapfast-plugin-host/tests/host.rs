@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use yapfast_plugin_api::{Frame, Request, Response};
+use yapfast_plugin_api::{Frame, Payload, Request, Response};
 use yapfast_plugin_host::protocol::{self, Outcome};
 use yapfast_plugin_host::runtime::{Cache, CacheConfig, CacheError, Config, Runtime};
 
@@ -124,6 +124,45 @@ fn echo_loads_calls_and_unloads() {
     assert_eq!(answers[0], Response::Loaded);
     assert_eq!(reply_json(&answers[1]), payload);
     assert_eq!(answers[2], Response::Unloaded);
+}
+
+#[test]
+fn a_call_and_its_reply_keep_the_exact_json_bytes() {
+    // Whitespace, key order, an exponent and an integer past u64: re-encoding
+    // through serde_json::Value would rewrite every one of them, and lose the
+    // integer outright. The bytes go through the real host and the real guest,
+    // which echoes its input, so the reply's bytes are the call's bytes if the
+    // forwarding holds end to end.
+    const JSON: &str =
+        r#"{ "b" : [ 1, 2 ],   "a" : 1E+3, "big" : 123456789012345678901234567890, "s" : "é" }"#;
+    let (_dir, module) = support::wasm_fixture("echo.wat");
+    let mut runtime = Runtime::new(Config::default()).expect("runtime");
+    let payload = Payload::new(JSON).expect("the call payload is JSON");
+
+    let (_, answers) = run(
+        &mut runtime,
+        vec![
+            load("echo", &module, 1),
+            request(
+                &Request::Call {
+                    plugin: "echo".to_owned(),
+                    method: "echo".to_owned(),
+                    payload,
+                },
+                2,
+            ),
+            unload("echo", 3),
+        ],
+    );
+
+    match &answers[1] {
+        Response::Reply { payload } => assert_eq!(
+            payload.as_str(),
+            JSON,
+            "the reply is the call's JSON byte for byte"
+        ),
+        other => panic!("expected a reply, got {other:?}"),
+    }
 }
 
 #[test]
@@ -250,10 +289,9 @@ fn a_guest_that_grows_past_the_page_limit_fails_the_call() {
 
     assert_eq!(answers[0], Response::Loaded);
     match &answers[1] {
-        Response::Error { message } => assert!(
-            message.contains("oom"),
-            "Extism classifies the cap as oom: {message}"
-        ),
+        // Pinned exactly: the helper prefixes the plugin and export, and Extism
+        // itself reports the limiter's root cause as plain `oom`.
+        Response::Error { message } => assert_eq!(message, "oom.eat_memory: oom"),
         other => panic!("expected an error, got {other:?}"),
     }
 }
@@ -360,4 +398,86 @@ fn a_relative_cache_file_is_refused() {
         matches!(error, CacheError::RelativeFile(_)),
         "expected RelativeFile, got {error:?}"
     );
+}
+
+#[test]
+fn writing_an_identical_cache_config_leaves_the_file_alone() {
+    // Helpers sharing one cache write the same config. Truncating it to rewrite
+    // identical bytes would let another helper read an empty file, so an
+    // identical write must not happen at all: a read-only file can only be left
+    // alone.
+    let data = tempfile::tempdir().expect("temp dir");
+    let cache = CacheConfig::under(data.path()).expect("cache config");
+    cache.write().expect("the first write creates the file");
+    let file = cache.file().to_path_buf();
+    let mut permissions = std::fs::metadata(&file).expect("metadata").permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&file, permissions.clone()).expect("make the file read-only");
+
+    let second = cache.write();
+
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&file, permissions).expect("make the file writable again");
+    second.expect("an identical config is not rewritten");
+}
+
+#[test]
+fn a_changed_cache_config_is_rewritten() {
+    // The skip is for identical content only: a config that names another
+    // directory has to reach the disk.
+    let data = tempfile::tempdir().expect("temp dir");
+    let file = data.path().join("wasmtime-cache.toml");
+    let first = CacheConfig::new(data.path().join("one"), &file).expect("cache config");
+    first.write().expect("the first write");
+    let second = CacheConfig::new(data.path().join("two"), &file).expect("cache config");
+    second.write().expect("a changed config is written");
+
+    let written = std::fs::read_to_string(&file).expect("the cache file exists");
+    assert!(
+        written.contains(&toml_string(&data.path().join("two").display().to_string())),
+        "the file names the new directory: {written}"
+    );
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn a_cache_directory_that_is_not_utf8_is_refused() {
+    // wasmtime's config is TOML text, so a path that is not UTF-8 cannot be
+    // written into it. Losing the lost bytes to `display()` and caching under
+    // the wrong directory is worse than refusing the cache.
+    let data = tempfile::tempdir().expect("temp dir");
+    let cache = CacheConfig::new(non_utf8_directory(), data.path().join("cache.toml"))
+        .expect("the path is absolute");
+    let error = cache
+        .write()
+        .expect_err("a path that is not UTF-8 is refused");
+
+    assert!(
+        error.to_string().contains("UTF-8"),
+        "the message names the reason: {error}"
+    );
+    assert!(
+        !data.path().join("cache.toml").exists(),
+        "nothing is written for a path that cannot be named"
+    );
+}
+
+/// An absolute path whose last component cannot be expressed as UTF-8. Every
+/// platform spells that differently, and cfgs keep the other arm out of the
+/// build.
+#[cfg(unix)]
+fn non_utf8_directory() -> PathBuf {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(OsStr::from_bytes(b"/nonexistent/\xff-cache"))
+}
+
+#[cfg(windows)]
+fn non_utf8_directory() -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    // "C:\" followed by an unpaired surrogate, which `Path` holds and `str`
+    // cannot.
+    let wide = vec![0x0043, 0x003A, 0x005C, 0xD800];
+    PathBuf::from(OsString::from_wide(&wide))
 }
