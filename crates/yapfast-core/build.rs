@@ -76,6 +76,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(vaapivpp)");
     println!("cargo::rustc-check-cfg=cfg(nvcuda)");
     println!("cargo::rustc-check-cfg=cfg(nvdec)");
+    println!("cargo::rustc-check-cfg=cfg(mfxdec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
     println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
@@ -407,6 +408,24 @@ fn main() {
             .warnings(true);
         nvdec.compile("yapfast_hwdec_cuda");
         println!("cargo::rustc-cfg=nvdec");
+    }
+    // Intel's own decoder, for the machine VA-API doesn't open: native/hwdec_mfx.c
+    // decodes through oneVPL (MFX) on a VA display and exports the surface the
+    // same way the VA-API shim does. oneVPL and libva are both dlopened, so a
+    // machine with neither still starts and says why. It is built wherever this
+    // target is and the vendored oneVPL and libva headers are there, which is
+    // every Linux build of the Discord flavour.
+    if target_os == "linux" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
+        if let Some(folders) = std::env::var_os("DEP_FFMPEG_INCLUDE") {
+            let mut mfx = cc::Build::new();
+            mfx.file("native/hwdec_mfx.c")
+                .std("gnu17")
+                .warnings(true)
+                .include("native")
+                .includes(std::env::split_paths(&folders));
+            mfx.compile("yapfast_hwdec_mfx");
+            println!("cargo::rustc-cfg=mfxdec");
+        }
     }
     let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("aarch64") => "arm64",
