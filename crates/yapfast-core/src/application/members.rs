@@ -173,6 +173,29 @@ impl Application {
         vec![]
     }
 
+    /// What moving someone in the voice channel `place` to the voice
+    /// channel `to` does, from their menu's Move to or by dragging them onto
+    /// it: this account joins it, and someone else is moved there. Nothing
+    /// unless `to` is one of their [`move_targets`](Self::move_targets).
+    pub fn move_to(&self, place: &str, user: &str, to: &str) -> Option<Action> {
+        if !self
+            .move_targets(place, user)
+            .iter()
+            .any(|(room, _)| room == to)
+        {
+            return None;
+        }
+        Some(if self.state.relation(user) == Relation::Me {
+            Action::RequestJoinVoice(to.to_owned())
+        } else {
+            Action::ChangeMember {
+                place: place.to_owned(),
+                user: user.to_owned(),
+                change: MemberChange::Move(Some(to.to_owned())),
+            }
+        })
+    }
+
     /// A server member's menu, in the order of Discord's: who they are and
     /// how to reach them, in a voice channel they're in its mute, their
     /// nickname and how this account stands with them, their roles and
@@ -485,6 +508,7 @@ impl Application {
                 user,
                 name,
                 ask,
+                location: "ContextMenu",
                 text: Some(text),
                 saving: false,
                 error: None,

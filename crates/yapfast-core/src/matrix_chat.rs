@@ -879,12 +879,16 @@ impl Matrix {
                 }
             }
             // `Command::route` sends these elsewhere.
-            // Matrix videos are files to save for now.
+            // Matrix videos and voice messages are files to save for now.
             Command::Voice(_)
             | Command::Discord(_)
             | Command::Aside(_)
             | Command::PlayVideo { .. }
-            | Command::Video(_) => {}
+            | Command::Video(_)
+            | Command::PlayVoiceMessage { .. }
+            | Command::MoveVoiceMessage { .. }
+            | Command::PauseVoiceMessage
+            | Command::TuneVoiceMessage(_) => {}
         }
         true
     }
@@ -1222,6 +1226,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             official: false,
             empty: false,
             preview: None,
+            voice_started: None,
         });
     }
     result.sort_by(|a, b| {

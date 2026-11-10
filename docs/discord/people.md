@@ -128,6 +128,8 @@ Right-clicking a DM offers, besides Profile and copying, these:
 - Remove friend is `DELETE /users/@me/relationships/{id}`, and Block is `PUT`
   on the same path with `{"type": 2}`, each after the person confirms, with
   `{"location":"ContextMenu"}` as the context. Unblock is the same `DELETE`.
+  From a profile's More button all three send
+  `{"location":"user profile overflow menu"}`; see [profiles](#profiles).
 - Ignore is `PUT /users/@me/relationships/{id}/ignore`, and `DELETE` stops it.
   Discord marks the relationship `user_ignored`, which Yapfast tracks to offer
   the opposite.
@@ -253,18 +255,39 @@ from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
 and the servers and friends the account shares with them. Profiles are kept for
-five minutes, at most 32 of them. On this account's own profile the lists are
-its own friends and servers, which it shares with nobody, so the card and its
-tabs say "5 friends" and "2 servers" rather than "5 mutual friends" and
-"2 mutual servers", and an empty tab says "No friends." rather than "No friends
-in common." Presence and activity come from the member
-list, since the profile doesn't carry them. Their custom status, or what
+five minutes, at most 32 of them. This account's own profile shares its
+friends and servers with nobody, so, as in Discord's client, its card shows
+no mutual line and its full profile no mutual tabs. Presence and activity
+come from the member list, since the profile doesn't carry them. Their
+custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
 Discord's: two lines at most, and all of it while pointed at. One's
 own card, small or full, has Edit Profile in place of the friend and
-message buttons, which opens the [editor](#editing-ones-main-profile). When Discord refuses, the card
+message buttons, which opens the [editor](#editing-ones-main-profile).
+The More button of a card, a full profile and a DM's profile panel opens
+the person's menu, as a right click on them does: a member's in a server, a
+DM's in their DM, and elsewhere Message, the friend request, Block, or
+Unblock for someone blocked, and Copy ID. One's own profile has no Block, as
+in Discord. Block asks first, as from a DM's menu, and unfriending, blocking
+and unblocking from there send `{"location":"user profile overflow menu"}`,
+as Discord's client does from its profile's menu, in place of
+`{"location":"ContextMenu"}`. Blocking ends a friendship or a friend request,
+as Discord does, and neither a profile nor a DM's header offers a friend
+request to someone blocked. When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
+
+A profile with a theme, Nitro's two colours, is drawn in them as Discord
+draws it: the card, the full profile's panel, the account's card and the
+editor's preview run from the first colour to the second under a wash. The
+theme is light or dark by its first colour alone, as Discord's client decides
+it: light when its red, green and blue, weighed 0.299, 0.587 and 0.114, come
+to at least half of full. A light theme lies under 60% white, with text in
+black at 96%, 88% and 76% for the strong, subtle and muted kinds, and tiles
+and boxes in 24% white; a dark one lies under 60% black, with the same text in
+white. Yapfast's own theme, light or dark, changes none of it, as Discord's
+light and dark themes don't (`ProfileTheme` in `ui/people.slint`). A profile
+without a theme is drawn in Yapfast's colours.
 
 The profile shows each of the person's activities as a card, as Discord's does:
 what they're playing, streaming, listening to, watching or competing in, or
@@ -286,7 +309,10 @@ anything but plain characters show no picture. A game Discord detected has no
 pictures, so its card shows the game's icon, which Yapfast asks for once per
 game with `GET /applications/public?application_ids={id}` and downloads from
 `/app-icons/`. Application pictures stay in the picture cache. The timers tick
-once a second, and only while a profile with one shows. Matrix members and
+once a second, and only while a profile with one shows; the same clock ticks
+every 15 seconds for
+[busy voice channels' times](voice.md#how-long-a-channels-call-has-gone-on)
+otherwise. Matrix members and
 one-to-one Matrix DMs get the same card with their name, Matrix ID, avatar and
 room role.
 
@@ -396,7 +422,7 @@ rules:
 | Board | It's one's own, or they have widgets |
 | Activity | Always |
 | Wishlist | It's one's own, or it's public and they're a friend or share a server |
-| Mutual friends, mutual servers | Always |
+| Mutual friends, mutual servers | It isn't one's own |
 
 It opens on Activity. Activity lists their activities, then, under "Recent
 activity", from `GET /content-inventory/users/{id}/outbox` when the tab first

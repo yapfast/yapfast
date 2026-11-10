@@ -29,6 +29,14 @@ impl DateFormat {
             Self::YearMonthDay => "%Y-%m-%d",
         }
     }
+
+    fn long(self) -> &'static str {
+        match self {
+            Self::DayMonthYear => "%-d %B %Y",
+            Self::MonthDayYear => "%B %-d, %Y",
+            Self::YearMonthDay => "%Y-%m-%d",
+        }
+    }
 }
 
 const AUTO_FORMAT: u8 = 0;
@@ -62,6 +70,32 @@ pub fn now_ms() -> u64 {
         .map_or(0, |since| {
             u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
         })
+}
+
+/// `text` with Discord's `<t:…>` timestamps written as times; as it is
+/// without Discord.
+pub fn render_timestamps(text: &str) -> String {
+    #[cfg(feature = "discord")]
+    return yapfast_discord::message::render_timestamps(text);
+    #[cfg(not(feature = "discord"))]
+    text.to_owned()
+}
+
+/// Writes the `<t:…>` timestamps in Discord messages on a 12-hour clock from
+/// now on, or a 24-hour one, as the app's setting says, and their dates in
+/// the format [`set_date_format`] set.
+pub fn set_twelve_hour_clock(on: bool) {
+    #[cfg(feature = "discord")]
+    {
+        let dates = format_for(on);
+        yapfast_discord::message::set_timestamp_format(yapfast_discord::message::TimestampFormat {
+            twelve_hour: on,
+            short_date: dates.numeric(),
+            long_date: dates.long(),
+        });
+    }
+    #[cfg(not(feature = "discord"))]
+    let _ = on;
 }
 
 /// The clock time of a Unix time, such as `14:05`.
@@ -221,6 +255,21 @@ where
     }
 }
 
+/// How long something that started at `started` has gone on at `now`, both
+/// in Unix seconds, to the minute, as a busy voice channel's row shows it:
+/// `<1m`, `42m`, `1h 05m`, `2d 3h`. A start after `now`, from a clock that's
+/// a little behind Discord's, has only begun.
+pub fn lasted(started: u64, now: u64) -> String {
+    let minutes = now.saturating_sub(started) / 60;
+    let (days, hours, minutes) = (minutes / (24 * 60), minutes / 60 % 24, minutes % 60);
+    match (days, hours, minutes) {
+        (0, 0, 0) => "<1m".to_owned(),
+        (0, 0, minutes) => format!("{minutes}m"),
+        (0, hours, minutes) => format!("{hours}h {minutes:02}m"),
+        (days, hours, _) => format!("{days}d {hours}h"),
+    }
+}
+
 /// The local calendar date of a Unix time, which [`day`] names; none when unknown.
 pub fn date(seconds: u64) -> Option<chrono::NaiveDate> {
     (seconds != 0).then(|| at(&Local, seconds).date_naive())
@@ -230,12 +279,7 @@ fn day_in<Tz: TimeZone>(zone: &Tz, seconds: u64, dates: DateFormat) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    let format = match dates {
-        DateFormat::DayMonthYear => "%-d %B %Y",
-        DateFormat::MonthDayYear => "%B %-d, %Y",
-        DateFormat::YearMonthDay => "%Y-%m-%d",
-    };
-    at(zone, seconds).format(format).to_string()
+    at(zone, seconds).format(dates.long()).to_string()
 }
 
 fn at<Tz: TimeZone>(zone: &Tz, seconds: u64) -> DateTime<Tz> {
@@ -249,6 +293,22 @@ mod tests {
     use chrono::FixedOffset;
 
     use super::*;
+
+    #[test]
+    fn says_how_long_a_voice_session_has_gone_on() {
+        let start = 1_767_225_600;
+        assert_eq!(lasted(start, start), "<1m");
+        assert_eq!(lasted(start, start + 59), "<1m");
+        assert_eq!(lasted(start, start + 60), "1m");
+        assert_eq!(lasted(start, start + 42 * 60 + 30), "42m");
+        assert_eq!(lasted(start, start + 3600 + 5 * 60), "1h 05m");
+        assert_eq!(lasted(start, start + 23 * 3600 + 59 * 60 + 59), "23h 59m");
+        assert_eq!(
+            lasted(start, start + 2 * 86_400 + 3 * 3600 + 7 * 60),
+            "2d 3h"
+        );
+        assert_eq!(lasted(start, start - 5), "<1m", "a clock behind Discord's");
+    }
 
     #[test]
     fn times_and_days_follow_the_time_zone() {

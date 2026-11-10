@@ -62,7 +62,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   since sync loads members lazily, and membership changes refresh it. Voice
   channels and one-to-one DMs have no member list; a one-to-one DM shows the
   other person's profile there instead, which the person icon in its header
-  hides or shows. A Discord text channel
+  hides or shows. Dragging the list's edge makes it 200 to 480px wide,
+  leaving the conversation 420px, and Yapfast keeps the width
+  (`members_width` in `layout.json`); a double click on the edge goes back to
+  the style's width. A Discord text channel
   lists whoever can read it, grouped as in Discord: under hoisted roles, then
   ONLINE and OFFLINE, with counts, avatars, status dots, role colours,
   custom statuses, and a red clock beside someone timed out. An app has an APP
@@ -71,6 +74,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   feed of what people there are doing and did lately; see
   [the Activity panel](discord/people.md#the-activity-panel). Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
+  The list shows a change at once, then holds for half a second and shows
+  the changes from that time together, so a busy server's list draws at most
+  twice a second.
 - Read live text messages. Earlier history loads once the timeline has
   stayed within a screen of its top for 50 ms, a page at a time (30 events
   for Matrix, 50 messages for Discord), until the conversation's first
@@ -172,12 +178,16 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Delete appears on your own messages, and on anyone's for a Discord moderator
   with Manage Messages. Until you have reacted, the most used reactions are 👍,
   ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
-  in `layout.json` on this computer. The icons have tooltips and accessible
+  in `layout.json` on this computer. A custom emoji among them shows the
+  picture the application keeps of it, fetched for the toolbar when it isn't
+  there yet, as after a restart, rather than the picker's own, which goes when
+  the picker closes. The icons have tooltips and accessible
   names. Add reaction opens a picker with a search field, favourite emoji,
   frequently used emoji and every category of the `emojis` crate up to
   Unicode 15.0, which Noto Color
   Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
-  reaction adds or removes yours.
+  reaction adds or removes yours. A message's reactions wrap onto as many
+  lines as its width needs, as in Discord's client.
 - Holding Shift turns the toolbar into quick actions, as in Discord's
   client: the reactions give way to Pin or Unpin, Create Thread, and on your
   own message Reply, before Add reaction and Edit or Reply; Forward follows;
@@ -381,18 +391,22 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   360×270, decoded with dimension and memory limits, with a save button over the
   picture on hover. Other files show a card with a save button. Saving writes the
   decrypted file where you choose. A Discord message with several images shows
-  them as square tiles, two to a row.
+  them as square tiles, two to a row. Where the timeline is narrower than a
+  message's pictures, or a link preview's, they shrink to its width, keeping
+  their shape, as in Discord's client; they never grow past their size.
 - Click an image to see it large over the window. It opens at the image's full
   proportions with the preview, then sharpens when Yapfast has downloaded it at up
   to 1920×1200. The left and right arrow keys or the side buttons step through
   the message's other images, a counter shows which one it is, and Escape, the
   close button or a click outside the image closes it. It can save the image
   too.
-- Send through the SDK's persistent send queue. A message appears at once with
-  "Sending...". After a connection problem it shows "Not sent yet" and goes out
-  by itself when sync recovers. Sync uses the SDK's offline mode, which keeps
-  probing the homeserver. A refused message shows "Not sent" with Retry. Queued
-  messages can be cancelled, and they survive closing Yapfast.
+- Send through the SDK's persistent send queue. A message appears at once,
+  faint until the server has it, with nothing under it; one with files says
+  "Sending..." with Cancel while they upload. After a connection problem it
+  shows "Not sent yet" and goes out by itself when sync recovers. Sync uses
+  the SDK's offline mode, which keeps probing the homeserver. A refused
+  message shows "Not sent" with Retry. Queued messages can be cancelled, and
+  they survive closing Yapfast.
 - Save each room's draft in the encrypted session store, so drafts survive
   restarts. Sending clears the saved draft.
 - Show unread channels in bold with a short pill at the sidebar edge, and the
@@ -457,9 +471,13 @@ in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 `ui/title_bar.slint`): a 32px bar on the rail's ground across the top, with
 the server's name, "Direct messages" or "Yapfast" in the middle and
 minimize, maximize or restore, and close at the right. Signed in, it also has
-back and forward arrows at the left, which walk the conversations visited as
-Alt+Left and Alt+Right do, up to 50 of them and past any that are gone, and
-Inbox and Help before the window's buttons. Help opens Discord's support site.
+back and forward arrows at the left, which walk the places visited as
+Alt+Left and Alt+Right and a mouse's back and forward buttons do, up to 50 of
+them and past any that are gone, and Inbox and Help before the window's
+buttons. A place is a conversation, a screen of the direct messages (Friends,
+or the requests) or a server's Browse Channels, as in Discord's client; the
+settings open over the window and are not one. A thread beside a channel isn't
+one either. Help opens Discord's support site.
 Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
 conversations with unread messages, muted ones only for a mention, and
 Mentions, those that mention this account, each with its count; Discord's own
@@ -636,7 +654,10 @@ The window follows Discord's arrangement:
   server's call, or under a voice channel, their volume sits above that
   menu, which adds a Mute just for you, Move to and, in red, Server mute,
   Server deafen and Disconnect; see
-  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Time out and Ban ask how long
+  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Where Move
+  to is offered, they can also be dragged onto another voice channel in the
+  channel list; see
+  [Discord](discord/servers.md#dragging-someone-to-another-voice-channel). Time out and Ban ask how long
   or how much in their dialog, and each asks a reason. In a one-to-one DM, the
   other person's menu is the DM's own, less Mark as read and Copy link, and
   Copy ID copies theirs. Clicking an author's avatar or name, which underlines while

@@ -77,11 +77,13 @@
             nasm
           ];
           buildInputs = libraries;
-          # The C++ runtime is not a library of ours, but a test binary links
-          # one: libwebrtc is C++, so a test binary that pulls in the media
-          # stack dies before its first test with a missing libstdc++.so.6.
-          # It stays out of `native.runtimeLibraries`, which the shipped
-          # binary's wrapper uses.
+          # The C++ runtime is not a library of ours, but two things reach for
+          # it. rustc links with its own rust-lld, which skips the Nix ld
+          # wrapper that would put libstdc++'s directory in the binary's
+          # runpath. And libwebrtc is C++, so a test binary that pulls in the
+          # media stack dies before its first test with a missing
+          # libstdc++.so.6. It stays out of `native.runtimeLibraries`, which
+          # the shipped binary's wrapper uses.
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
           CC = "clang";
           CXX = "clang++";

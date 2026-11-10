@@ -70,7 +70,7 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{AccountCardShown, Reach, SidebarShown, SwitcherShown};
+use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -301,6 +301,31 @@ const EVENT_BATCH: usize = 256;
 /// How long the zoom level shows after it changes.
 const ZOOM_NOTE: Duration = Duration::from_millis(1200);
 
+/// What the mouse's back and forward buttons do, as Alt+Left and Alt+Right
+/// do.
+fn side_button_action(button: slint::winit_030::winit::event::MouseButton) -> Option<Action> {
+    use slint::winit_030::winit::event::MouseButton;
+    match button {
+        MouseButton::Back => Some(Action::NavigateBack),
+        MouseButton::Forward => Some(Action::NavigateForward),
+        _ => None,
+    }
+}
+
+/// Carries out `action` once the event that asked for it is done.
+fn navigate(
+    adapter: &std::rc::Weak<RefCell<Adapter>>,
+    window: &slint::Weak<YapfastWindow>,
+    action: Action,
+) {
+    let (adapter, window) = (adapter.clone(), window.clone());
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        if let (Some(adapter), Some(window)) = (adapter.upgrade(), window.upgrade()) {
+            adapter.borrow_mut().action(&window, action);
+        }
+    });
+}
+
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
 /// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
@@ -309,7 +334,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
         winit::{
-            event::{ElementState, KeyEvent, WindowEvent},
+            event::{ElementState, KeyEvent, MouseButton, WindowEvent},
             keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
         },
     };
@@ -543,6 +568,42 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
+                // Escape lets go of someone dragged from a voice channel,
+                // wherever the focus is, and does nothing else; see RoomList.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && key.logical_key == Key::Named(NamedKey::Escape)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_person_moving()
+                {
+                    window.set_person_moving(false);
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().stop_moving_person(&window);
+                        }
+                    });
+                    return EventResult::PreventDefault;
+                }
+                // Someone dragged whose row went away, as when the list
+                // scrolled or their channel's people changed, can be let go
+                // where no row hears the button go up. Once Slint has taken
+                // the release, which drops them if it can, nothing is dragged.
+                if let WindowEvent::MouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                    ..
+                } = event
+                    && let Some(window) = weak.upgrade()
+                    && window.get_person_moving()
+                {
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().stop_moving_person(&window);
+                        }
+                    });
+                }
                 // Ctrl+K opens the quick switcher, or closes it, wherever the
                 // focus is, as in Discord; not over the settings or a link
                 // that asks before it opens, which the window keeps. Those
@@ -613,19 +674,28 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     && !window.get_settings_open()
                 {
                     if !key.repeat {
-                        let action = if named == NamedKey::ArrowLeft {
-                            Action::NavigateBack
-                        } else {
-                            Action::NavigateForward
-                        };
-                        let (adapter, weak) = (adapter.clone(), weak.clone());
-                        slint::Timer::single_shot(Duration::ZERO, move || {
-                            if let (Some(adapter), Some(window)) =
-                                (adapter.upgrade(), weak.upgrade())
-                            {
-                                adapter.borrow_mut().action(&window, action);
-                            }
-                        });
+                        navigate(
+                            &adapter,
+                            &weak,
+                            if named == NamedKey::ArrowLeft {
+                                Action::NavigateBack
+                            } else {
+                                Action::NavigateForward
+                            },
+                        );
+                    }
+                    return EventResult::PreventDefault;
+                }
+                // So do the mouse's back and forward buttons. The release is
+                // kept from the window too, so that it isn't taken for a click.
+                if let WindowEvent::MouseInput { state, button, .. } = event
+                    && let Some(action) = side_button_action(*button)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                {
+                    if *state == ElementState::Pressed {
+                        navigate(&adapter, &weak, action);
                     }
                     return EventResult::PreventDefault;
                 }
@@ -1131,6 +1201,9 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// The member list's width, as its edge was last dragged; none for the
+    /// style's own.
+    members_width: Option<f32>,
     /// The expression picker's width, the GIFs and the emoji alike, as its
     /// left edge last dragged it wider. `gif_picker_width` named it while only
     /// the GIFs took it.
@@ -1219,6 +1292,9 @@ struct Layout {
     noise_strength: yapfast_core::noise::Strength,
     /// Discord calls take the room's reverb out of the microphone.
     reduce_room_echo: bool,
+    /// Windows runs its microphone effects on Discord calls' microphone;
+    /// off, Yapfast skips them. See [`yapfast_core::set_windows_effects`].
+    windows_microphone_effects: bool,
     /// The quietest speech Discord calls send, in dBFS; -60 unless changed.
     input_sensitivity: Option<i32>,
     /// Whether calls send the voice the gate hears or only while a key is
@@ -1343,6 +1419,9 @@ fn show_motion(window: &YapfastWindow) {
         Animate::Never => false,
     };
     window.global::<Motion>().set_playing(playing);
+    window
+        .global::<Motion>()
+        .set_never(ANIMATE.get() == Animate::Never);
     // Animated emoji hold still with everything else, at once rather than at
     // the next refresh.
     i_slint_core::yapfast_emoji::set_playing(playing);
@@ -1372,13 +1451,15 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
 }
 
 impl Layout {
-    /// Hands the date format to what formats times.
+    /// Hands the date format and the 12-hour clock to what formats times.
     fn apply_date_format(&self) {
         clock::set_date_format(self.date_format.and_then(|index| {
             clock::DateFormat::ALL
                 .get(usize::try_from(index).ok()?)
                 .copied()
         }));
+        // After the date format, which Discord's timestamps follow.
+        clock::set_twelve_hour_clock(self.twelve_hour_clock);
     }
 
     /// The voice gate's sensitivity, in whole dBFS from -80 to 0.
@@ -1503,6 +1584,7 @@ impl Layout {
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
+        window.set_members_width(self.members_width.unwrap_or(0.));
         if let Some(width) = self.picker_width {
             window.set_picker_width(width);
         }
@@ -1533,6 +1615,9 @@ impl Layout {
         yapfast_core::noise::set_strength(self.noise_strength);
         window.set_dereverb(self.reduce_room_echo);
         yapfast_core::noise::set_dereverb(self.reduce_room_echo);
+        window.set_windows_effects_choice(cfg!(windows));
+        window.set_windows_effects(self.windows_microphone_effects);
+        yapfast_core::set_windows_effects(self.windows_microphone_effects);
         let sensitivity = self.sensitivity();
         window.set_sensitivity(sensitivity);
         yapfast_core::noise::set_sensitivity(sensitivity as f32);
@@ -1902,8 +1987,11 @@ struct Adapter {
     window: slint::Weak<YapfastWindow>,
     away: away::Away,
     call_timer: call_timer::CallTimer,
-    /// Ticks ActivityClock while a profile on screen times an activity.
+    /// Ticks ActivityClock while a profile on screen times an activity, or
+    /// the channel list a busy voice channel's call.
     activity_clock: slint::Timer,
+    /// A row of the channel list counts a voice channel's call time.
+    voice_timed: bool,
     navigation: Navigation,
     /// Whether the forward dialog was open at the last refresh.
     forwarding: bool,
@@ -1926,6 +2014,14 @@ struct Adapter {
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
+    /// What the member list showed last, so it's built again only once that changes.
+    roster_shown: Option<RosterShown>,
+    /// Runs for [`ROSTER_PAUSE`] after the member list was built; see
+    /// `show_members`.
+    roster_due: slint::Timer,
+    /// Whether the member list changed while `roster_due` ran, to show
+    /// once it ends.
+    roster_held: bool,
     /// The account's own profile its card showed last, so the card is built
     /// again only once that or one of its pictures changes.
     account_profile_shown: Option<AccountCardShown>,
@@ -1936,12 +2032,17 @@ struct Adapter {
     places: Vec<String>,
     /// The channel or category being dragged there, by room id.
     arranging: Option<String>,
+    /// Someone being dragged from a voice channel to another, by the
+    /// channel's room id and their user id.
+    moving_person: Option<(String, String)>,
     /// The voice channel of the call the rail last showed, so a voice event
     /// builds the rail again only when the call moves.
     rail_call: Option<String>,
     /// A hash of what the friends picker's rows were built from, so they're
     /// built again only once that changes.
     picker_shown: Option<u64>,
+    /// The bot picker rows last shown; unchanged syncs keep their widgets.
+    bot_select_shown: Option<u64>,
     /// The same for the list of threads, and the minute it was built in,
     /// as its rows say how long ago each was active.
     threads_shown: Option<u64>,
@@ -1984,6 +2085,9 @@ struct Adapter {
     animations: emoji_animation::Animations,
     /// `AppState::picture_changes` when the message rows were last built.
     pictures_seen: u64,
+    /// `AppState::picture_changes` when `PictureStore` last caught up with
+    /// it; none before the first refresh.
+    pictures_sourced: Option<u64>,
     /// The last jump to a message the timeline made; see `AppState::jump`.
     jumped: Option<(String, u64)>,
     /// `AppState::unread_jump` when the timeline last brought the first
@@ -2275,6 +2379,7 @@ impl Adapter {
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
                 activity_clock: slint::Timer::default(),
+                voice_timed: false,
                 navigation: Navigation::default(),
                 forwarding: false,
                 selection_version: 0,
@@ -2283,12 +2388,17 @@ impl Adapter {
                 messages: Arc::new(Vec::new()),
                 rows: Vec::new(),
                 sidebar: None,
+                roster_shown: None,
+                roster_due: slint::Timer::default(),
+                roster_held: false,
                 account_profile_shown: None,
                 switcher: None,
                 places: Vec::new(),
                 arranging: None,
+                moving_person: None,
                 rail_call: None,
                 picker_shown: None,
+                bot_select_shown: None,
                 threads_shown: None,
                 forum_shown: None,
                 topic_shown: None,
@@ -2307,6 +2417,7 @@ impl Adapter {
                 sticker_card: None,
                 animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
+                pictures_sourced: None,
                 jumped: None,
                 unread_jumped: 0,
                 latest_due: false,
@@ -2840,6 +2951,10 @@ impl Adapter {
         // the profile editor only the editor; the rest of the window
         // stays as it is.
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        let bot_input = matches!(
+            action,
+            Action::SetModalField { .. } | Action::SearchSelect(_) | Action::ToggleSelect(_)
+        );
         let profiling = matches!(action, Action::WriteProfile { .. });
         // Typing on Roles changes only the settings, too.
         let setting = matches!(
@@ -2877,6 +2992,8 @@ impl Adapter {
             self.show_channel_settings(window);
         } else if composing {
             self.show_composer(window);
+        } else if bot_input {
+            self.show_bot_interactions(window);
         } else if profiling {
             self.show_profile_editor(window);
         } else if setting {

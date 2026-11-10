@@ -19,10 +19,17 @@ live. A jump to a message that isn't loaded shows the messages around it; see
 [jumping to a message](#jumping-to-a-message). Opening a channel subscribes to
 its server, as the web client does, because Discord sends large servers'
 messages only to subscribers. Yapfast sends, replies, edits, deletes, reacts
-and sends files through Discord's cloud uploads. Mentions and timestamps show
-as text, custom emoji and stickers as pictures, every attachment shows, images
-with previews scaled by Discord's media proxy, and channels the account can't
-send in are read-only. Reacting follows Add Reactions instead, as in Discord's
+and sends files through Discord's cloud uploads. Mentions show as text, and
+timestamps (`<t:SECONDS:STYLE>`) as Discord's client writes each style (`t`,
+`T`, `d`, `D`, `f`, `F`, `s`, `S`, `R`), with the app's date format and
+12-hour clock where Discord's follows the locale. `R` counts as Discord's
+does (seconds under a minute, minutes up to 59, then hours, days, months
+and years), when the message renders, as messages render once; a tag with
+another style, or a time it can't place, shows as written. The profile
+editor's preview writes its bio's the same way. Custom emoji and
+stickers show as pictures, every attachment shows, images with previews
+scaled by Discord's media proxy, and channels the account can't send in are
+read-only. Reacting follows Add Reactions instead, as in Discord's
 client: a channel the account can't send in, such as an announcement channel,
 still takes reactions, and without Add Reactions it can add to a reaction
 already on a message or take its own back. A timeout, or an archived thread
@@ -321,6 +328,42 @@ Yapfast is back, rather than showing an error.
   squared, so its middle sounds about half as loud. Turning it to nothing
   mutes, and unmuting brings back the level it had. The next video plays as
   loud, until Yapfast closes.
+- A voice message, a message flagged `IS_VOICE_MESSAGE` (`1 << 13`) whose
+  only attachment is its Ogg Opus recording, shows as a pill instead of a file
+  card, mixing Discord's phone and desktop players: a round button that plays
+  or pauses it, its waveform as 32 round bars, and how long it plays. The
+  bars come from the attachment's `waveform`, base64 of up to 256 loudness
+  bytes, each bar the loudest of its stretch; the length from its
+  `duration_secs`, in whole seconds rounded up, as Discord's client has it.
+  Playing, the bars fill up to where it has played and the time counts down
+  what's left of the recording, at any speed. The time keeps the width of
+  its widest, so the pill doesn't change width as it counts. While the
+  pointer or the keyboard is on the pill, or its volume is open, a speed
+  button and a volume button slide out after the time; with animations off
+  in the settings they always show. The speed button goes from 1x to 1.5x to
+  2x and back. The volume button mutes and unmutes, keeping the volume to
+  unmute to, as Discord's does; the pointer on it opens an upright slider in
+  a popup over it, as Discord's desktop player has, or under it without room
+  above, from 0 to 100%, squared as a video's is. While a popup is open
+  Slint gives the window no pointer events, so the popup covers the button
+  too, with its own mute button in the same place, and closes as the pointer
+  leaves it, or with Escape. Up and Down move the slider 5%, Page Up and Page
+  Down 20%, and the wheel over the popup 5%. Moving it unmutes, and 0 mutes.
+  All of them apply to the one playing at once and to the next, until
+  Yapfast closes. The recording downloads whole, up to 16
+  MiB, and is kept in memory while it's the last one played; it decodes a
+  packet at a time on a thread of its own (`voice_message.rs`), is sped up
+  at the same pitch by WSOLA, as FFmpeg's `atempo` does (Yapfast's FFmpeg
+  has no filters), and plays on the call's speakers through `audio_io.rs`,
+  on Linux and Windows. One plays at a time: playing another stops it, as
+  does closing its channel, or its thread beside the channel. Paused, it
+  plays on from there; at its end it goes back to its start. Pressing the
+  waveform moves it there, and it follows the pointer while held, as in
+  Discord: playing, it pauses while held and plays on once let go; paused,
+  it stays paused; another voice message waits there paused in place of the
+  one playing. Moved, its thread seeks the
+  recording 80 ms early, Opus's pre-roll, and leaves out what's before the
+  time.
 - Markdown shows as Discord's client shows it. Bold, italics, strikethrough,
   inline code, lists and links are Slint's Markdown. Headings (`#` to `###`),
   subtext (`-# `), quotes (`> ` lines, or `>>> ` and the rest) and code fenced
@@ -494,6 +537,44 @@ Yapfast is back, rather than showing an error.
   shows the status to others itself, so Yapfast sends it with opcode 3 once
   connected, whenever the settings change, and clears it when it ends. A
   custom emoji in a status needs Nitro.
+
+## Bots' buttons, menus and forms
+
+An app's buttons and select menus work in channels, DMs and the thread
+beside a channel, as Discord's client uses them (`interactions.rs` in the
+core and in `discord_text`):
+
+- A click sends `POST /interactions` with the message's id and flags, the
+  gateway session and a snowflake nonce. The app is the message's
+  `application_id`, or else its author's id, which a bot's user shares with
+  its app; Discord's client asks nothing more. A menu's choices go as
+  `values`, with its kind as `type`.
+- A message's controls wait while one of them waits for its bot, and only
+  that message's, as Discord's client queues one interaction a message. The
+  gateway's `INTERACTION_SUCCESS` or `INTERACTION_FAILURE`, by nonce, ends
+  the wait; a failure says "This interaction failed" under the message's
+  controls, or "Slow down! You're clicking too fast." when Discord refused
+  for that, until the channel changes or the control is used again. With no
+  answer in 15 s, through a gateway that reconnected meanwhile, the bot
+  "did not respond", in Discord's words; Discord itself fails a bot after
+  3 s.
+- A select menu opens its options in a dialog, with a search; Discord's
+  drops down under the menu. User, role, mentionable and channel menus offer
+  the people, roles and channels Yapfast knows, and a search of two letters
+  or more asks Discord for the server's members; a channel menu offers only
+  the channel kinds the app allows.
+- `INTERACTION_MODAL_CREATE` opens the app's form, wherever Yapfast is, since
+  Discord sends it only to the session that asked. A form shows text inputs,
+  its text (Markdown, as a component's) and select menus, and goes back in
+  the shape it came, a text display as `{"type": 10}`. A form with a kind of
+  field Yapfast lacks, such as a file upload, says so and isn't sent. One
+  that fails stays open with what was typed and why.
+- A premium button opens its offer in Discord's App Directory in the
+  browser, where the purchase happens. Link buttons open their link.
+
+Yapfast doesn't unarchive a thread before a control in it is used, as
+Discord's client does, and doesn't count a bot's reply carrying the nonce as
+its answer; Discord sends `INTERACTION_SUCCESS` as well.
 
 ## GIFs
 

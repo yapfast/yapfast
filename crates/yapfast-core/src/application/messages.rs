@@ -282,6 +282,101 @@ impl Application {
         })]
     }
 
+    /// Plays a voice message, from where it paused, or pauses it while it
+    /// plays. The button changes at once; the backend's
+    /// [`Event::VoiceMessage`] follows.
+    pub(super) fn toggle_voice_message(&mut self, item: String) -> Vec<Effect> {
+        let voice = self
+            .state
+            .message(&item)
+            .is_some_and(|message| message.voice.is_some());
+        let Some(room) = self.state.room_of(&item).cloned().filter(|_| voice) else {
+            return vec![];
+        };
+        let playback = &mut self.state.voice_message;
+        if let Some(playing) = playback
+            .as_mut()
+            .filter(|playing| playing.item == item && playing.playing)
+        {
+            playing.playing = false;
+            return vec![Effect::Backend(Command::PauseVoiceMessage)];
+        }
+        // Where it paused, when it's this one.
+        let paused = playback
+            .as_ref()
+            .filter(|paused| paused.item == item && paused.error.is_none())
+            .map(|paused| paused.position_ms);
+        *playback = Some(chat::VoicePlayback {
+            room: room.clone(),
+            item: item.clone(),
+            loading: paused.is_none(),
+            playing: true,
+            position_ms: paused.unwrap_or(0),
+            error: None,
+        });
+        vec![Effect::Backend(Command::PlayVoiceMessage {
+            room,
+            item,
+            speakers: self.state.voice.speaker.clone(),
+            tuning: self.state.voice_tuning,
+        })]
+    }
+
+    /// Moves a voice message `fraction` of the way through, from 0 to 1, as
+    /// its waveform is clicked or dragged: the one playing or paused goes on
+    /// from there as it was, and another waits there paused in its place, as
+    /// in Discord. Its waveform and time follow at once; the backend's
+    /// [`Event::VoiceMessage`] follows.
+    pub(super) fn move_voice_message(&mut self, item: String, fraction: f32) -> Vec<Effect> {
+        let Some(duration) = self
+            .state
+            .message(&item)
+            .and_then(|message| message.voice.as_ref())
+            .map(|voice| voice.duration_ms)
+        else {
+            return vec![];
+        };
+        let Some(room) = self.state.room_of(&item).cloned() else {
+            return vec![];
+        };
+        let at_ms = (f64::from(fraction.clamp(0.0, 1.0)) * duration as f64) as u64;
+        let playback = &mut self.state.voice_message;
+        match playback
+            .as_mut()
+            .filter(|shown| shown.item == item && shown.error.is_none())
+        {
+            Some(shown) => shown.position_ms = at_ms,
+            None => {
+                *playback = Some(chat::VoicePlayback {
+                    room: room.clone(),
+                    item: item.clone(),
+                    loading: true,
+                    playing: false,
+                    position_ms: at_ms,
+                    error: None,
+                });
+            }
+        }
+        vec![Effect::Backend(Command::MoveVoiceMessage {
+            room,
+            item,
+            at_ms,
+            speakers: self.state.voice.speaker.clone(),
+            tuning: self.state.voice_tuning,
+        })]
+    }
+
+    /// Plays the voice message playing, if one is, as fast and loud as now
+    /// chosen.
+    pub(super) fn tune_voice_message(&self) -> Vec<Effect> {
+        match &self.state.voice_message {
+            Some(_) => vec![Effect::Backend(Command::TuneVoiceMessage(
+                self.state.voice_tuning,
+            ))],
+            None => vec![],
+        }
+    }
+
     pub(super) fn view_image(&mut self, item: String, index: usize) -> Vec<Effect> {
         if !self
             .state
