@@ -647,3 +647,15 @@ yapfast.exe
 The log says for each thread whether it was raised: "an audio thread raised
 its priority" or "an audio thread stays at normal priority", with the
 reason.
+
+With `YAPFAST_LOG=yapfast_discord::call_connection=debug`, the call's thread
+sums up its audio every 5 s in one line, "the call's audio over the last
+5 s", counted as it goes without logging anything else: `ticks`;
+`mic_frames` sent, of which `mic_underfilled` had less than 20 ms of the
+microphone waiting and `mic_empty` none; `mic_fewest`, the fewest samples
+waiting as a frame was taken, and `mic_dropped`, samples the microphone's
+buffer dropped as too old (more than 250 ms waiting); `late_p99_us` and
+`late_most_us`, how late ticks came; `batch_most` and `batch_longest_us`, the
+most datagrams a tick read before playing and the longest that took;
+`speakers`, and the frames they `skipped` (to cut delay) and `concealed`;
+and `dave_dropped`, audio packets DAVE dropped.

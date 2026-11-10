@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc as channel,
     },
     time::Duration,
@@ -83,11 +83,19 @@ const RETRIES: u32 = 3;
 const STEADY: Duration = Duration::from_secs(60);
 /// How much longer each resume after the first waits.
 const RESUME_WAIT: Duration = Duration::from_secs(1);
+/// How often the call's audio is summed up in the log, at debug level.
+const DIAGNOSE_EVERY: Duration = Duration::from_secs(5);
+/// Ticks' lateness is counted in steps of this many microseconds, up to
+/// 32 ms; the last step counts any later.
+const LATE_STEP: u64 = 250;
+const LATE_STEPS: usize = 128;
 
 /// What the microphone sends: written by Yapfast, read every 20 ms.
 pub(crate) struct Sending {
     pub buffer: Arc<Mutex<VecDeque<f32>>>,
     pub playing: Arc<AtomicBool>,
+    /// Samples dropped from the buffer as too old, counted by its writer.
+    pub dropped: Arc<AtomicU64>,
 }
 
 /// Orders for a running call.
@@ -303,6 +311,114 @@ struct Media {
     /// last receiver reports said about this account's packets.
     stats: Arc<CallStats>,
     reported: Reported,
+    diagnostics: Diagnostics,
+}
+
+/// What a call's audio did over [`DIAGNOSE_EVERY`], for one line in the
+/// log at debug level: counts the ticks add to, with no logging of their
+/// own.
+struct Diagnostics {
+    since: std::time::Instant,
+    /// Ticks that sent the microphone, those with less than a frame of it
+    /// waiting (padded with silence) and those with none.
+    mic_frames: u32,
+    mic_underfilled: u32,
+    mic_empty: u32,
+    /// The fewest samples of the microphone that waited as a tick took a
+    /// frame, and those its buffer dropped as too old.
+    mic_fewest: Option<usize>,
+    mic_dropped: u64,
+    /// Ticks by how late they came, in [`LATE_STEP`]s, and the latest.
+    late: [u32; LATE_STEPS],
+    latest: Duration,
+    /// The most datagrams a tick read before playing, and the longest that
+    /// reading took.
+    batch_most: usize,
+    batch_longest: Duration,
+    /// Audio packets DAVE dropped.
+    dave_dropped: u32,
+}
+
+impl Diagnostics {
+    fn new() -> Self {
+        Self {
+            since: std::time::Instant::now(),
+            mic_frames: 0,
+            mic_underfilled: 0,
+            mic_empty: 0,
+            mic_fewest: None,
+            mic_dropped: 0,
+            late: [0; LATE_STEPS],
+            latest: Duration::ZERO,
+            batch_most: 0,
+            batch_longest: Duration::ZERO,
+            dave_dropped: 0,
+        }
+    }
+
+    /// A tick that sent the microphone, with `waiting` samples of it.
+    fn microphone(&mut self, waiting: usize, dropped: u64) {
+        self.mic_frames += 1;
+        self.mic_underfilled += u32::from(waiting > 0 && waiting < FRAME);
+        self.mic_empty += u32::from(waiting == 0);
+        self.mic_fewest = Some(
+            self.mic_fewest
+                .map_or(waiting, |fewest| fewest.min(waiting)),
+        );
+        self.mic_dropped += dropped;
+    }
+
+    fn tick(&mut self, late: Duration) {
+        let step = (late.as_micros() as u64 / LATE_STEP).min(LATE_STEPS as u64 - 1);
+        self.late[step as usize] += 1;
+        self.latest = self.latest.max(late);
+    }
+
+    fn read(&mut self, datagrams: usize, took: Duration) {
+        self.batch_most = self.batch_most.max(datagrams);
+        self.batch_longest = self.batch_longest.max(took);
+    }
+
+    /// How late 99 ticks in 100 came at most, to a step.
+    fn late_p99(&self) -> Duration {
+        let ticks: u32 = self.late.iter().sum();
+        let mut counted = 0;
+        for (step, count) in self.late.iter().enumerate() {
+            counted += count;
+            if counted * 100 >= ticks * 99 {
+                return Duration::from_micros((step as u64 + 1) * LATE_STEP);
+            }
+        }
+        Duration::ZERO
+    }
+
+    /// Logs what was counted since the last time, with what the speakers
+    /// counted, and starts again.
+    fn log(&mut self, speakers: &mut HashMap<u32, Speaker>) {
+        let (mut skipped, mut concealed) = (0, 0);
+        for speaker in speakers.values_mut() {
+            skipped += std::mem::take(&mut speaker.skipped);
+            concealed += std::mem::take(&mut speaker.concealed);
+        }
+        tracing::debug!(
+            ticks = self.late.iter().sum::<u32>(),
+            mic_frames = self.mic_frames,
+            mic_underfilled = self.mic_underfilled,
+            mic_empty = self.mic_empty,
+            mic_fewest = self.mic_fewest,
+            mic_dropped = self.mic_dropped,
+            late_p99_us = self.late_p99().as_micros() as u64,
+            late_most_us = self.latest.as_micros() as u64,
+            batch_most = self.batch_most,
+            batch_longest_us = self.batch_longest.as_micros() as u64,
+            speakers = speakers.len(),
+            skipped,
+            concealed,
+            dave_dropped = self.dave_dropped,
+            "the call's audio over the last 5 s"
+        );
+        *self = Self::new();
+    }
 }
 
 impl Media {
@@ -323,6 +439,7 @@ impl Media {
             watching: Receiving::new(video),
             stats,
             reported: Reported::default(),
+            diagnostics: Diagnostics::new(),
         })
     }
 
@@ -401,6 +518,7 @@ impl Media {
                         }
                     },
                     due = ticks.tick() => {
+                        self.diagnostics.tick(due.elapsed());
                         if due.elapsed() > STALLED {
                             // The ticks a stall skips pass in the timestamp
                             // all the same.
@@ -426,8 +544,12 @@ impl Media {
                             }
                             read += 1;
                         }
+                        self.diagnostics.read(read, started.elapsed());
                         self.hear(listener);
                         self.watching.repair(connection).await?;
+                        if self.diagnostics.since.elapsed() >= DIAGNOSE_EVERY {
+                            self.diagnostics.log(&mut self.speakers);
+                        }
                     }
                     _ = heartbeat.tick() => {
                         connection.heartbeat().await?;
@@ -560,6 +682,8 @@ impl Media {
             match sending.as_ref() {
                 Some(sending) if sending.playing.load(Ordering::Relaxed) => {
                     let mut buffer = lock(&sending.buffer);
+                    let dropped = sending.dropped.swap(0, Ordering::Relaxed);
+                    self.diagnostics.microphone(buffer.len(), dropped);
                     let count = buffer.len().min(FRAME);
                     for (out, sample) in self.pcm.chunks_exact_mut(2).zip(buffer.drain(..count)) {
                         out.fill(sample);
@@ -675,6 +799,7 @@ impl Media {
         // Silence passes in the clear even while sealed audio fails.
         let sealed = packet.payload.ends_with(&[0xfa, 0xfa]);
         let Some(opus) = connection.dave.decrypt_opus(user, packet.payload.to_vec()) else {
+            self.diagnostics.dave_dropped += 1;
             let reason = connection.dave.unreadable.take().unwrap_or_default();
             self.report_drop(packet.ssrc, &reason, &connection.dave, packet.payload);
             // Its sequence number carried nothing to play, as Discord's
@@ -740,6 +865,9 @@ struct Speaker {
     follows: Option<u32>,
     /// Packets missing in a row.
     missing: u8,
+    /// Frames skipped for the one after, and concealed, for the log.
+    skipped: u32,
+    concealed: u32,
     /// Whether the packets wait longer than their lateness needs, as a
     /// sender whose clock runs fast makes them.
     surplus: Surplus,
@@ -781,6 +909,8 @@ impl Speaker {
             next: None,
             follows: None,
             missing: 0,
+            skipped: 0,
+            concealed: 0,
             surplus: Surplus::with_cushion(START - 1),
             pcm: vec![0; LONGEST * usize::from(crate::voice::CHANNELS)],
             left: 0..0,
@@ -908,6 +1038,7 @@ impl Speaker {
                     decoded = self.decode(next.wrapping_add(1));
                     if decoded.is_ok() {
                         splice(&skipped, &mut self.pcm);
+                        self.skipped += 1;
                     }
                 }
                 decoded
@@ -942,6 +1073,7 @@ impl Speaker {
                     }
                 };
                 if let Ok(samples) = concealed {
+                    self.concealed += 1;
                     self.follows = self
                         .follows
                         .map(|follows| follows.wrapping_add(samples as u32));
@@ -1550,6 +1682,44 @@ mod tests {
         let (sounded, fewest) = two_dropped(false);
         assert_eq!(sounded, 48 + usize::from(GONE) - 1);
         assert_eq!(fewest, START - 1);
+    }
+
+    #[test]
+    fn diagnostics_count_the_microphone_and_late_ticks() {
+        let mut diagnostics = Diagnostics::new();
+        for waiting in [FRAME * 2, FRAME / 2, 0, FRAME] {
+            diagnostics.microphone(waiting, 10);
+        }
+        assert_eq!(
+            (
+                diagnostics.mic_frames,
+                diagnostics.mic_underfilled,
+                diagnostics.mic_empty
+            ),
+            (4, 1, 1)
+        );
+        assert_eq!(
+            (diagnostics.mic_fewest, diagnostics.mic_dropped),
+            (Some(0), 40)
+        );
+        // 99 ticks on time and one 40 ms late: 99 in 100 within the first
+        // step, and the latest beyond the steps counted.
+        for _ in 0..99 {
+            diagnostics.tick(Duration::from_micros(100));
+        }
+        diagnostics.tick(Duration::from_millis(40));
+        assert_eq!(diagnostics.late_p99(), Duration::from_micros(LATE_STEP));
+        assert_eq!(diagnostics.latest, Duration::from_millis(40));
+        diagnostics.tick(Duration::from_millis(40));
+        assert_eq!(
+            diagnostics.late_p99(),
+            Duration::from_micros(LATE_STEP * LATE_STEPS as u64)
+        );
+        let mut speakers = HashMap::from([(1, Speaker::new(7).unwrap())]);
+        speakers.get_mut(&1).unwrap().concealed = 3;
+        diagnostics.log(&mut speakers);
+        assert_eq!(speakers[&1].concealed, 0);
+        assert_eq!(diagnostics.mic_frames, 0);
     }
 
     #[test]
