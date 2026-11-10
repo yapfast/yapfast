@@ -45,7 +45,66 @@ pub use lasting::{LastingInput, LastingOutput};
 /// allow it. Otherwise the thread carries on as it was. It lasts until the
 /// thread ends.
 pub fn raise_thread_priority() {
-    platform::raise_priority();
+    platform::raise_priority(Priority::Playback);
+}
+
+/// Raises the calling thread as [`raise_thread_priority`] does, a step below
+/// the threads that play, for a microphone's thread and its processing:
+/// MMCSS's "Audio" task on Windows. Above every ordinary thread, such as
+/// a game's or a stream's encoder, it doesn't hold up what plays.
+#[cfg(feature = "discord")]
+pub fn raise_capture_priority() {
+    platform::raise_priority(Priority::Capture);
+}
+
+/// Which audio threads a thread joins in priority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+enum Priority {
+    /// Threads that play: a call's and the speakers'.
+    Playback,
+    /// A microphone's.
+    Capture,
+}
+
+/// Keeps the whole process running at full speed while held, as a call
+/// needs with its window in the background: on Windows the process opts
+/// out of power throttling (EcoQoS), which Windows 11 may otherwise give a
+/// minimized or hidden window's process, putting its threads on efficient
+/// cores at a low clock, and Windows' timer wakes it every millisecond
+/// rather than every 15.6, minimized or not. Elsewhere it changes nothing.
+/// Holds nest; the last one dropped gives the system its default back.
+#[cfg(feature = "discord")]
+pub struct FullSpeed(());
+
+#[cfg(feature = "discord")]
+static FULL_SPEED: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+#[cfg(feature = "discord")]
+impl FullSpeed {
+    pub fn hold() -> Self {
+        let mut held = FULL_SPEED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *held == 0 {
+            platform::full_speed(true);
+        }
+        *held += 1;
+        Self(())
+    }
+}
+
+#[cfg(feature = "discord")]
+impl Drop for FullSpeed {
+    fn drop(&mut self) {
+        let mut held = FULL_SPEED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *held -= 1;
+        if *held == 0 {
+            platform::full_speed(false);
+        }
+    }
 }
 
 static WINDOWS_EFFECTS: AtomicBool = AtomicBool::new(false);

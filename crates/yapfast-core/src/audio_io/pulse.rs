@@ -17,12 +17,16 @@ use super::Format;
 use crate::voice::NAMED;
 
 /// Real-time priority for Yapfast's audio threads: above every ordinary
-/// thread, and below PipeWire's own, which run at 88 or more.
+/// thread, and below PipeWire's own, which run at 88 or more. A
+/// microphone's thread runs a step below those that play.
 const REALTIME: i32 = 10;
 
-pub fn raise_priority() {
+pub fn raise_priority(priority: super::Priority) {
     let param = libc::sched_param {
-        sched_priority: REALTIME,
+        sched_priority: match priority {
+            super::Priority::Playback => REALTIME,
+            super::Priority::Capture => REALTIME - 1,
+        },
     };
     // SAFETY: 0 is the calling thread, and `param` outlives the call. Threads
     // it starts later begin at normal priority again.
@@ -36,6 +40,11 @@ pub fn raise_priority() {
         );
     }
 }
+
+/// Linux neither throttles a background window's process nor needs a
+/// finer timer.
+#[cfg(feature = "discord")]
+pub fn full_speed(_: bool) {}
 
 pub struct Output(Simple);
 

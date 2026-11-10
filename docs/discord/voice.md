@@ -164,7 +164,11 @@ connection carrying video with DAVE. It also leaves one libopus, libwebrtc's.
 
 A call's connection sends Opus stereo at 128 kbit/s in its music mode, 20 ms
 a packet, with five silent frames when the microphone pauses, as Discord's
-clients do. It marks speaking with op 5 when it starts. The RTP timestamp
+clients do. It marks speaking with op 5 when it starts. A tick with less than
+20 ms of the microphone waiting, as when the microphone's thread is held up,
+sends nothing, and what waited goes in the next packet: others' clients
+conceal the missing one, which sounds smoother than a frame cut short with
+silence. The RTP timestamp
 goes on 20 ms every tick, sending or not, as a microphone's clock does.
 WebRTC's jitter buffer (NetEq), which Discord's clients play others through,
 compares packets' arrival times with their timestamps, so with a timestamp
@@ -219,8 +223,22 @@ threads do, so a game using every core doesn't hold them up past the 40 ms
 the speakers have queued. On Linux they ask for `SCHED_FIFO` at priority 10,
 below PipeWire's, which works where the user's limits allow real-time
 priority, as PipeWire's set them for its group; otherwise they stay as they
-were. The microphone's thread, which runs the noise suppressor, stays at
-normal priority.
+were. The microphone's thread, which runs the noise suppressor, raises its
+priority a step below theirs (`audio_io::raise_capture_priority`): MMCSS's
+"Audio" task on Windows, `SCHED_FIFO` at 9 on Linux. Above every ordinary
+thread, a stream's x264 encoder or a game on a weak processor doesn't hold it
+up past the microphone's buffer, which others hear as a robotic voice; see
+[Microphone](#microphone) for how it catches up when it's held up all the
+same.
+
+While a call goes on, Yapfast holds `audio_io::FullSpeed`: on Windows the
+process opts out of power throttling (`SetProcessInformation` with
+`ProcessPowerThrottling`, clearing `PROCESS_POWER_THROTTLING_EXECUTION_SPEED`
+and `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`), as Windows 11 may
+otherwise run a minimized or hidden window's process at EcoQoS, on efficient
+cores at a low clock, and asks for a 1 ms timer (`timeBeginPeriod`), so the
+call's 20 ms ticks come on time rather than on Windows' 15.6 ms clock. The call
+ending gives both back. Linux has neither.
 
 Before it selects the protocol, a connection, a call's or a stream's, learns
 its public address and port with UDP address discovery: a 74-byte ask, which
@@ -462,6 +480,19 @@ DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
 suppresses its noise. A
 call going on switches at its next block, after DeepFilterNet's 0.2 s load if
 switching to it.
+
+The microphone's thread keeps an estimate of how much audio waits in the
+microphone's buffer (`Pace` in `discord_audio.rs`): a read that waits found
+it empty, and one that doesn't took a block of what waited while the last
+block was processed. Once 40 ms waits, past what a device's larger packets
+leave, DeepFilterNet runs only its encoder, as in a pause, but passes the
+block as it came, at its usual delay, until less than a block waits. That
+takes about a quarter of the time, so a thread held up 60 ms catches up in
+about six blocks, a little less suppressed, rather than losing audio.
+Falling behind and catching up log at debug level with counts, as does
+Windows saying the microphone lost audio before it was read
+(`AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY`).
+
 Muting closes the microphone, but the call's microphone thread,
 `yapfast-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it

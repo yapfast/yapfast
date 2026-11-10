@@ -2928,9 +2928,13 @@ async fn calls_and_goes_live() {
     // The call measures its connection, as Discord's voice panel shows it:
     // the heartbeats' round trips, and the share of this account's audio
     // Discord's receiver reports say was lost.
+    // The fake reports every 50 packets, and the share is read from two
+    // reports in a row while it's lost; `say` pushes a frame a little less
+    // often than the call ticks, and a tick without a whole frame sends
+    // nothing, so this leaves a margin.
     post_control(server, "/_control/voice-link?loss=10", "");
     track.play().unwrap();
-    say(&microphone, 120).await;
+    say(&microphone, 160).await;
     track.pause().unwrap();
     post_control(server, "/_control/voice-link", "");
     let stats = call.stats();

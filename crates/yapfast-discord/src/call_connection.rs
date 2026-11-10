@@ -78,6 +78,9 @@ const RETRIES: u32 = 3;
 const STEADY: Duration = Duration::from_secs(60);
 /// How much longer each resume after the first waits.
 const RESUME_WAIT: Duration = Duration::from_secs(1);
+/// Ticks the microphone had no whole frame for are logged once, then every
+/// this many, 5 s of them.
+const SHORT_LOGGED: u32 = 250;
 
 /// What the microphone sends: written by Yapfast, read every 20 ms.
 pub(crate) struct Sending {
@@ -241,6 +244,18 @@ async fn run(
     }
 }
 
+/// Takes the next 20 ms of the microphone into `pcm`, in both channels,
+/// and says whether a whole frame waited; if not, it takes nothing.
+fn take_frame(buffer: &mut VecDeque<f32>, pcm: &mut [f32]) -> bool {
+    if buffer.len() < FRAME {
+        return false;
+    }
+    for (out, sample) in pcm.chunks_exact_mut(2).zip(buffer.drain(..FRAME)) {
+        out.fill(sample);
+    }
+    true
+}
+
 /// The voice gateway's close code, when it closed with one.
 fn closed(error: &anyhow::Error) -> Option<u16> {
     error
@@ -277,6 +292,8 @@ struct Media {
     /// still to send since it stopped.
     speaking: bool,
     silent: u8,
+    /// Ticks that sent nothing for lack of a whole frame of the microphone.
+    short: u32,
     /// Everyone else, by their audio SSRC, and whose each SSRC is.
     speakers: HashMap<u32, Speaker>,
     users: HashMap<u32, u64>,
@@ -304,6 +321,7 @@ impl Media {
             timestamp: rand::random(),
             speaking: false,
             silent: 0,
+            short: 0,
             speakers: HashMap::new(),
             users: HashMap::new(),
             dropped: HashMap::new(),
@@ -343,8 +361,9 @@ impl Media {
         let interval = connection.interval.min(PING_EVERY);
         let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
         let mut ticks = tokio::time::interval(Duration::from_millis(20));
-        // Windows wakes timers on its 15.6 ms clock, so a 20 ms tick often
-        // comes at 31 ms. Catching up on the ticks missed keeps 50 frames a
+        // Windows wakes timers on its 15.6 ms clock unless the process asks
+        // for a finer one, as Yapfast does during calls, so a 20 ms tick
+        // can come at 31 ms. Catching up on the ticks missed keeps 50 frames a
         // second each way; delaying them sent and played two thirds of that.
         ticks.set_missed_tick_behavior(MissedTickBehavior::Burst);
         let mut keepalive = tokio::time::interval(KEEPALIVE);
@@ -535,27 +554,37 @@ impl Media {
     }
 
     /// Sends 20 ms of the microphone while it plays, then five silent
-    /// frames when it stops. Each call is a tick.
+    /// frames when it stops. Each call is a tick. A tick with less than a
+    /// whole frame of the microphone waiting, as when its thread is held
+    /// up, sends nothing: others' clients conceal the missing packet, which
+    /// sounds smoother than a frame cut short with silence, and what waited
+    /// goes in the next one.
     async fn send(
         &mut self,
         connection: &mut Connection,
         sending: &Mutex<Option<Sending>>,
     ) -> Result<()> {
-        let playing = {
+        let taken = {
             let sending = lock(sending);
             match sending.as_ref() {
                 Some(sending) if sending.playing.load(Ordering::Relaxed) => {
-                    let mut buffer = lock(&sending.buffer);
-                    let count = buffer.len().min(FRAME);
-                    for (out, sample) in self.pcm.chunks_exact_mut(2).zip(buffer.drain(..count)) {
-                        out.fill(sample);
-                    }
-                    self.pcm[count * 2..].fill(0.0);
-                    true
+                    Some(take_frame(&mut lock(&sending.buffer), &mut self.pcm))
                 }
-                _ => false,
+                _ => None,
             }
         };
+        if taken == Some(false) {
+            self.short += 1;
+            if self.short % SHORT_LOGGED == 1 {
+                tracing::debug!(
+                    ticks = self.short,
+                    "the call's microphone had no whole frame to send"
+                );
+            }
+            self.timestamp = self.timestamp.wrapping_add(FRAME as u32);
+            return Ok(());
+        }
+        let playing = taken == Some(true);
         let marker = playing && !self.speaking;
         if marker {
             send_json(
@@ -951,6 +980,23 @@ impl Speaker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tick_takes_only_a_whole_frame_of_the_microphone() {
+        let mut pcm = vec![1.0; FRAME * 2];
+        let mut buffer: VecDeque<f32> = (0..FRAME / 2).map(|at| at as f32).collect();
+        assert!(!take_frame(&mut buffer, &mut pcm));
+        assert_eq!(
+            buffer.len(),
+            FRAME / 2,
+            "what waited stays for the next tick"
+        );
+        buffer.extend((FRAME / 2..FRAME * 3 / 2).map(|at| at as f32));
+        assert!(take_frame(&mut buffer, &mut pcm));
+        assert_eq!(&pcm[..4], &[0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(pcm[FRAME * 2 - 1], (FRAME - 1) as f32);
+        assert_eq!(buffer.front(), Some(&(FRAME as f32)));
+    }
 
     fn tone(encoder: &mut opus::Encoder, frame: usize) -> Vec<u8> {
         let pcm: Vec<f32> = (0..FRAME)
