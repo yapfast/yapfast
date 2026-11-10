@@ -358,6 +358,37 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
 }
 
 #[test]
+fn ctrl_shortcuts_work_on_cyrillic_and_thai_layouts() {
+    use slint::platform::{Key, WindowEvent};
+    let window = one_message("Hi");
+    window.invoke_focus_composer();
+    let select_all = |letter: &str| {
+        window.window().dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Control.into(),
+        });
+        tap(&window, letter.into());
+        window.window().dispatch_event(WindowEvent::KeyReleased {
+            text: Key::Control.into(),
+        });
+    };
+    // The key under A types "ฟ" on the Thai layout and "ф" on the Russian
+    // one. With Ctrl it selects everything, which the next key replaces.
+    for (typed, a, next) in [("ฟห", "ฟ", "ก"), ("фы", "ф", "в")] {
+        for letter in typed.chars() {
+            tap(&window, letter.into());
+        }
+        assert_eq!(window.get_draft(), typed);
+        select_all(a);
+        assert_eq!(window.get_draft(), typed, "Ctrl and a letter types nothing");
+        tap(&window, next.into());
+        assert_eq!(window.get_draft(), next);
+        select_all(a);
+        tap(&window, Key::Backspace.into());
+        assert_eq!(window.get_draft(), "");
+    }
+}
+
+#[test]
 fn typing_with_nothing_focused_goes_to_the_composer() {
     use slint::platform::{Key, WindowEvent};
     let window = one_message("Hi");
