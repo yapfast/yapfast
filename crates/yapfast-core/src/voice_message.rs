@@ -320,7 +320,7 @@ fn play(
         }
     }
     frames.clear();
-    tempo.finish(&mut frames);
+    tempo.finish(tuning.speed(), &mut frames);
     louder(&frames, tuning.gain(), &mut samples);
     if !samples.is_empty() {
         speakers.write(&samples).context("could not play")?;
@@ -438,11 +438,17 @@ impl Tempo {
             .map_or(around, |(_, start)| start)
     }
 
-    /// Adds the last window's fading half to `output`, at the sound's end.
-    fn finish(&mut self, output: &mut Vec<[f32; 2]>) {
-        if self.follows.is_some() {
-            output.append(&mut self.tail);
+    /// Adds to `output` what's left at the sound's end: windows over the
+    /// last of it, which no whole window reached, with silence after, then
+    /// the last window's fading half.
+    fn finish(&mut self, speed: f32, output: &mut Vec<[f32; 2]>) {
+        if self.input.is_empty() {
+            return;
         }
+        // Enough for windows a half hop apart, the slowest, to pass its end.
+        let silence = [0.0; 2].repeat(2 * WINDOW + SEEK);
+        self.run(&silence, speed, output);
+        output.append(&mut self.tail);
     }
 }
 
@@ -545,6 +551,26 @@ mod tests {
         assert_eq!(reports.blocking_recv(), Some(Report::Position(0)));
         drop(control);
         assert_eq!(playing.join().unwrap(), (false, 0));
+    }
+
+    #[test]
+    fn keeps_the_recordings_end() {
+        // A steady tone 2.3 windows long, which no whole number of windows
+        // covers: its last frames still play, at full level, at 1x.
+        let frames = WINDOW * 23 / 10;
+        let sound: Vec<f32> = [0.5; 2].repeat(frames);
+        let mut tempo = Tempo::new();
+        let mut output = Vec::new();
+        tempo.run(&sound, 1.0, &mut output);
+        tempo.finish(1.0, &mut output);
+        assert!(
+            output.len() >= frames,
+            "{} of {frames} frames",
+            output.len()
+        );
+        for frame in &output[HOP..frames] {
+            assert!((frame[0] - 0.5).abs() < 1e-3, "{frame:?}");
+        }
     }
 
     #[test]
