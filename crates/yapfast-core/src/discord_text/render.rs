@@ -98,6 +98,8 @@ pub(super) fn found(
     ChatMessage {
         id: format!("d:{}", message.id),
         item: format!("d:{}", message.id),
+        application_id: message.application_id.clone(),
+        flags: message.flags,
         sender: discord::sender_id(&message.author_id),
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
@@ -260,17 +262,19 @@ pub(super) async fn preview(discord: &Discord, url: &str) -> Option<Arc<Picture>
         .await
         .ok()?;
     let url = url.to_owned();
-    tokio::task::spawn_blocking(move || {
-        decode(
-            &url,
-            &data,
-            (crate::chat::PREVIEW_WIDTH, crate::chat::PREVIEW_HEIGHT),
-        )
-    })
-    .await
-    .ok()
-    .flatten()
-    .map(Arc::new)
+    // A sticker is decoded at the size a message shows it, as Discord draws
+    // it, whatever the timeline's preview size is.
+    let size = if yapfast_discord::ready::is_sticker(url.as_str()) {
+        let side = yapfast_discord::stickers::MESSAGE_SIZE;
+        (side, side)
+    } else {
+        (crate::chat::PREVIEW_WIDTH, crate::chat::PREVIEW_HEIGHT)
+    };
+    tokio::task::spawn_blocking(move || decode(&url, &data, size))
+        .await
+        .ok()
+        .flatten()
+        .map(Arc::new)
 }
 
 /// A picture downloaded from `url`, decoded to fit `width` by `height`: as
@@ -634,6 +638,35 @@ pub(super) fn chat_profile(
                 since: connection.since.map(|ms| crate::clock::day(ms / 1000)),
             })
             .collect(),
+        widgets: profile
+            .widgets
+            .into_iter()
+            .map(|widget| crate::chat::ProfileWidget {
+                title: widget.title,
+                application: widget.application,
+                lists_games: widget.lists_games,
+                games: widget
+                    .games
+                    .into_iter()
+                    .map(|game| crate::chat::ProfileGame {
+                        id: game.id,
+                        name: game.name,
+                        icon: game.icon,
+                        comment: game.comment,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        wishlist_place: profile.wishlist.map(|place| crate::chat::WishlistPlace {
+            id: place.id,
+            private: place.private,
+        }),
+        // Each tab of the full profile asks for its own when it opens.
+        wishlist: Default::default(),
+        board_asked: false,
+        board_named: false,
+        recent: Vec::new(),
+        recent_asked: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
@@ -681,8 +714,11 @@ pub(super) fn chat_card(
             Style::Success => ButtonStyle::Success,
             Style::Danger => ButtonStyle::Danger,
             Style::Link => ButtonStyle::Link,
+            Style::Premium => ButtonStyle::Premium,
         },
         url: button.url.clone(),
+        custom_id: button.custom_id.clone(),
+        sku_id: button.sku_id.clone(),
         disabled: button.disabled,
     };
     Card {
@@ -705,9 +741,34 @@ pub(super) fn chat_card(
                     large: *large,
                 },
                 Row::Buttons(buttons) => CardRow::Buttons(buttons.iter().map(button).collect()),
-                Row::Select { text, disabled } => CardRow::Select {
+                Row::Select {
+                    text,
+                    disabled,
+                    kind,
+                    custom_id,
+                    options,
+                    defaults,
+                    channel_types,
+                    min_values,
+                    max_values,
+                } => CardRow::Select {
                     text: text.clone(),
                     disabled: *disabled,
+                    kind: *kind,
+                    custom_id: custom_id.clone(),
+                    options: options
+                        .iter()
+                        .map(|option| crate::chat::CardOption {
+                            label: option.label.clone(),
+                            value: option.value.clone(),
+                            description: option.description.clone(),
+                            default: option.default,
+                        })
+                        .collect(),
+                    defaults: defaults.clone(),
+                    channel_types: channel_types.clone(),
+                    min_values: *min_values,
+                    max_values: *max_values,
                 },
                 Row::Unknown => CardRow::Unknown,
             })
@@ -768,6 +829,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         roles: member.roles,
         timed_out_until: member.timed_out_until,
         tag: discord::server_tag(member.tag),
+        boosting_since: member.boosting_since,
     }
 }
 

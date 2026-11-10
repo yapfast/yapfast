@@ -1340,6 +1340,22 @@ async fn fetches_the_favourite_and_used_emoji_with_the_favourite_gifs() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_star_saves_the_favourite_emoji_and_leaves_the_rest() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("a_star_saves_the_favourite_emoji_and_leaves_the_rest").await;
+    let (gifs, before) = discord.favorite_gifs_and_emojis().await.unwrap();
+    let mut favorites = before.favorites.unwrap();
+    favorites.push("joy".into());
+    discord.set_favorite_emojis(&favorites).await.unwrap();
+    // The favourites are the new ones, and the GIFs and the uses stay.
+    let (kept_gifs, after) = discord.favorite_gifs_and_emojis().await.unwrap();
+    assert_eq!(after.favorites.as_ref(), Some(&favorites));
+    assert_eq!(kept_gifs, gifs);
+    assert_eq!(after.used, before.used);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn fetches_the_profile_effect_a_profile_names() {
     let Fixture {
         _fake,
@@ -2031,6 +2047,113 @@ async fn votes_in_and_posts_polls() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn uses_bots_controls_and_forms() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("uses_bots_controls_and_forms").await;
+    let mut live = discord.live();
+    post_control(server, "/_control/components", "");
+    let deployed = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content.starts_with("Deploy") => Some(message),
+        _ => None,
+    })
+    .await;
+    // As Discord's client sends it: a bot's message names no app, so its
+    // author's id stands for it.
+    let component = |nonce: &str, custom_id: &str, values: Option<&[&str]>| {
+        let mut data = serde_json::json!({"component_type": 2, "custom_id": custom_id});
+        if let Some(values) = values {
+            data = serde_json::json!({
+                "component_type": 3, "custom_id": custom_id, "type": 3, "values": values,
+            });
+        }
+        serde_json::json!({
+            "type": 3, "nonce": nonce, "guild_id": guild, "channel_id": general,
+            "message_flags": deployed.flags, "message_id": deployed.id,
+            "application_id": deployed.author_id, "data": data,
+        })
+    };
+    discord
+        .interact(component("1", "approve", None))
+        .await
+        .unwrap();
+    live_where(&mut live, |event| match event {
+        Live::InteractionSuccess { nonce } if nonce == "1" => Some(()),
+        _ => None,
+    })
+    .await;
+    live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content == "Approved by Alice." => Some(()),
+        _ => None,
+    })
+    .await;
+    // A form, with its text, comes back to this session; its answers go
+    // back in its shape.
+    discord
+        .interact(component("2", "rollback", None))
+        .await
+        .unwrap();
+    let modal = live_where(&mut live, |event| match event {
+        Live::InteractionModal(modal) if modal["nonce"] == "2" => Some(modal),
+        _ => None,
+    })
+    .await;
+    assert_eq!(modal["title"], "Roll back v2.4");
+    assert_eq!(modal["components"][0]["type"], 10);
+    discord
+        .interact(serde_json::json!({
+            "type": 5, "nonce": "3", "guild_id": guild, "channel_id": general,
+            "application_id": modal["application"]["id"],
+            "data": {"id": modal["id"], "custom_id": "rollback", "components": [
+                {"type": 10},
+                {"type": 18, "component": {"type": 4, "custom_id": "why", "value": "Broke the login"}},
+            ]},
+        }))
+        .await
+        .unwrap();
+    live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content == "Rolled back to **v2.3**: Broke the login" => {
+            Some(())
+        }
+        _ => None,
+    })
+    .await;
+    discord
+        .interact(component("4", "environment", Some(&["production"])))
+        .await
+        .unwrap();
+    live_where(&mut live, |event| match event {
+        Live::InteractionFailure { nonce, .. } if nonce == "4" => Some(()),
+        _ => None,
+    })
+    .await;
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    assert_eq!(sent.as_array().unwrap().len(), 4);
+    assert_eq!(sent[0]["application_id"], "1400000000000000007");
+    assert!(
+        sent[0]["session_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
+    // An app the message isn't from is turned away.
+    let refused = discord
+        .interact(serde_json::json!({
+            "type": 3, "nonce": "5", "channel_id": general, "message_id": deployed.id,
+            "message_flags": 0, "application_id": "1",
+            "data": {"component_type": 2, "custom_id": "approve"},
+        }))
+        .await;
+    assert!(refused.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn forwards_messages() {
     let Fixture {
         _fake,
@@ -2574,6 +2697,19 @@ async fn shows_profiles() {
     // Bob's profile: in the server, his server bio wins over his own; from
     // a DM, his own shows.
     let mut in_server = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    // The profile's member teaches Names his roles, which colour his name in
+    // messages.
+    let snapshot = discord.snapshots().borrow().clone();
+    let shared = snapshot
+        .servers
+        .iter()
+        .find(|shared| shared.id == guild)
+        .unwrap();
+    assert_eq!(
+        discord.color(shared, &bob),
+        Some(0x3498db),
+        "Bob's name takes the Mods role's blue"
+    );
     assert_eq!(in_server.name, "Bob");
     assert_eq!(in_server.pronouns.as_deref(), Some("he/him"));
     assert_eq!(in_server.bio.as_deref(), Some("Keeps #general tidy."));
@@ -3222,6 +3358,127 @@ async fn asks_again_when_address_discovery_is_lost() {
         "{took:?}"
     );
     assert_eq!(asks(), serde_json::json!({"dropped": 10, "answered": 2}));
+}
+
+/// A call's audio, as [`Hearer`] hears it, and why its connection dropped.
+#[derive(Default)]
+struct Dropping {
+    heard: Hearer,
+    dropped: std::sync::Mutex<Vec<String>>,
+}
+
+impl Listener for Dropping {
+    fn tick(&self, voices: &[(u64, &[i16])]) {
+        self.heard.tick(voices);
+    }
+    fn disconnected(&self, reason: &str) {
+        self.dropped.lock().unwrap().push(reason.to_owned());
+    }
+}
+
+/// Joins the Lounge, connecting a call that reports to `listener`.
+async fn join_lounge(
+    fixture: &Fixture,
+    listener: Arc<Dropping>,
+) -> (yapfast_discord::service::VoiceServer, Call) {
+    let assigned = fixture
+        .discord
+        .join(&fixture.guild, &fixture.lounge)
+        .await
+        .unwrap();
+    let call = timeout(
+        WAIT,
+        Call::connect(&assigned, &fixture.guild, &fixture.lounge, listener),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+    (assigned, call)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_call_follows_a_move_to_another_voice_server() {
+    let fixture = Fixture::start("a_call_follows_a_move_to_another_voice_server").await;
+    let (discord, server, guild) = (&fixture.discord, fixture.server, &fixture.guild);
+    let listener = Arc::new(Dropping::default());
+    let (assigned, mut call) = join_lounge(&fixture, listener.clone()).await;
+    let mut live = discord.live();
+    // Someone drags Alice to Create Room, on another voice server: her
+    // voice state says so, the old server closes the call with 4014, and
+    // the new server is named just after, as in a user's log.
+    let to = discord
+        .snapshots()
+        .borrow()
+        .servers
+        .iter()
+        .flat_map(|server| &server.voice_channels)
+        .find(|found| found.name == "Create Room")
+        .map(|found| found.id.clone())
+        .unwrap();
+    post_control(server, &format!("/_control/voice-move?channel={to}"), "");
+    let channel = live_where(&mut live, |event| match event {
+        Live::VoiceChannel {
+            guild: moved,
+            channel,
+        } if moved == *guild => Some(channel),
+        _ => None,
+    })
+    .await;
+    assert_eq!(channel, to);
+    let moved = live_where(&mut live, |event| match event {
+        Live::VoiceMoved {
+            guild: moved,
+            server,
+        } if moved == *guild => Some(server),
+        _ => None,
+    })
+    .await;
+    assert_eq!(moved.session_id, assigned.session_id);
+    until("the old connection closed", || {
+        !listener.dropped.lock().unwrap().is_empty()
+    })
+    .await;
+    assert!(listener.dropped.lock().unwrap()[0].contains("4014"));
+    // The call waited, and carries on there: Bob's tone comes through.
+    timeout(WAIT, call.move_to(&moved, &to))
+        .await
+        .expect("timed out moving the call")
+        .unwrap();
+    post_control(server, "/_control/bob-speak", "");
+    let bob: u64 = fixture.bob.parse().unwrap();
+    until("Bob's tone was heard", || {
+        listener
+            .heard
+            .0
+            .lock()
+            .unwrap()
+            .get(&bob)
+            .copied()
+            .unwrap_or(0)
+            > 3_000
+    })
+    .await;
+    assert_eq!(listener.dropped.lock().unwrap().len(), 1);
+    call.leave();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_call_disconnected_from_voice_ends_after_the_grace() {
+    let fixture = Fixture::start("a_call_disconnected_from_voice_ends_after_the_grace").await;
+    let listener = Arc::new(Dropping::default());
+    let (assigned, mut call) = join_lounge(&fixture, listener.clone()).await;
+    // Someone disconnects Alice from voice: 4014, and no new server.
+    post_control(fixture.server, "/_control/voice-kick", "");
+    until("the connection closed", || {
+        !listener.dropped.lock().unwrap().is_empty()
+    })
+    .await;
+    tokio::time::sleep(yapfast_discord::voice::MOVE_GRACE + Duration::from_millis(500)).await;
+    let late = call.move_to(&assigned, &fixture.lounge).await.unwrap_err();
+    assert_eq!(late.to_string(), "the call has ended");
+    assert_eq!(listener.dropped.lock().unwrap().len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -5882,27 +6139,43 @@ async fn keeps_emoji_and_stickers_as_discords_client_does() {
     fn fields(name: &str) -> [(&str, &str); 3] {
         [("name", name), ("tags", "👋"), ("description", "")]
     }
+    // The server has three of its own to begin with, as a fake's do.
+    let seeded = discord.guild_stickers(guild).await.unwrap();
+    assert_eq!(
+        seeded
+            .iter()
+            .map(|sticker| sticker.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Wave", "Bounce", "Lottie"]
+    );
     discord
-        .create_sticker(guild, fields("Wave"), ("wave.png", "image/png", &png))
+        .create_sticker(guild, fields("Mine"), ("mine.png", "image/png", &png))
         .await
         .unwrap();
     let stickers = live_where(&mut live, |live| match live {
         Live::ServerStickers {
             guild: changed,
             stickers,
-        } if changed == guild && !stickers.is_empty() => Some(stickers),
+        } if changed == guild && stickers.iter().any(|sticker| sticker.name == "Mine") => {
+            Some(stickers)
+        }
         _ => None,
     })
     .await;
     // Only the list says who uploaded it.
-    assert_eq!(
-        (stickers[0].name.as_str(), stickers[0].user_id.as_deref()),
-        ("Wave", None)
-    );
+    let mine = stickers
+        .iter()
+        .find(|sticker| sticker.name == "Mine")
+        .expect("the new sticker lists");
+    assert_eq!(mine.user_id, None);
     let listed = discord.guild_stickers(guild).await.unwrap();
-    assert_eq!(listed[0].user.as_ref().unwrap().username, "alice");
-    assert_eq!((listed[0].format, listed[0].tags.as_str()), (1, "👋"));
-    let id = listed[0].id.clone();
+    let mine = listed
+        .iter()
+        .find(|sticker| sticker.name == "Mine")
+        .expect("the new sticker lists");
+    assert_eq!(mine.user.as_ref().unwrap().username, "alice");
+    assert_eq!((mine.format, mine.tags.as_str()), (1, "👋"));
+    let id = mine.id.clone();
     discord
         .edit_sticker(guild, &id, "Hello", "👋", "A hand waving")
         .await
@@ -5915,11 +6188,14 @@ async fn keeps_emoji_and_stickers_as_discords_client_does() {
         "a description of one character"
     );
     let listed = discord.guild_stickers(guild).await.unwrap();
-    assert_eq!(
-        (listed[0].name.as_str(), listed[0].description.as_str()),
-        ("Hello", "A hand waving")
-    );
-    for n in 1..5 {
+    let mine = listed
+        .iter()
+        .find(|sticker| sticker.name == "Hello")
+        .expect("the renamed sticker lists");
+    assert_eq!(mine.description, "A hand waving");
+    // Three seeded and this one leave one of the five slots, which a sixth
+    // sticker then can't have.
+    for n in 0..1 {
         let name = format!("Sticker {n}");
         discord
             .create_sticker(guild, fields(&name), ("s.png", "image/png", &png))
@@ -5938,6 +6214,116 @@ async fn keeps_emoji_and_stickers_as_discords_client_does() {
     discord.delete_sticker(guild, &id).await.unwrap();
     assert_eq!(discord.guild_stickers(guild).await.unwrap().len(), 4);
     post_control(server, "/_control/guild-reset", "");
+}
+
+/// The sticker picker's default packs, kept for the next start, and a sticker
+/// clicked sent as a message of its own; part of [`talks_to_the_fake_server`].
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn picks_the_stickers_of_the_default_packs() {
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        general,
+        ..
+    } = Fixture::start("picks_the_stickers_of_the_default_packs").await;
+    // Discord's default packs, as its client offers them.
+    let packs = discord.sticker_packs().await.unwrap();
+    let names: Vec<&str> = packs.iter().map(|pack| pack.name.as_str()).collect();
+    assert_eq!(names, ["Wumpus", "Animated"]);
+    let wumpus = &packs[0].stickers[0];
+    assert_eq!((wumpus.name.as_str(), wumpus.format), ("Wumpus Wave", 1));
+    assert!(
+        wumpus
+            .picture()
+            .ends_with("/stickers/1400000000000000330.png?size=96"),
+        "the picker's tiles are 96px: {}",
+        wumpus.picture()
+    );
+    assert_eq!(
+        packs[0].stickers[1].format,
+        yapfast_discord::ready::STICKER_GIF
+    );
+    assert!(
+        packs[0].stickers[1].picture().contains("/stickers/")
+            && packs[0].stickers[1].picture().ends_with(".gif?size=96"),
+        "a GIF sticker is the media proxy's"
+    );
+    let lottie = &packs[1].stickers[0];
+    assert!(yapfast_discord::ready::lottie_sticker(&lottie.picture()));
+
+    // Kept on disk by the app beside its account cache, which this test has
+    // none of; `cache`'s own tests read and write them.
+
+    // The server's own stickers come with the snapshot, for the picker to
+    // list above the packs, and GUILD_STICKERS_UPDATE keeps them current.
+    use base64::Engine;
+    let dot = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(dot)
+        .unwrap();
+    discord
+        .create_sticker(
+            &guild,
+            [("name", "Wave"), ("tags", "\u{1f44b}"), ("description", "")],
+            ("wave.png", "image/png", &png),
+        )
+        .await
+        .unwrap();
+    let server_stickers = |snapshot: &Snapshot| {
+        snapshot
+            .servers
+            .iter()
+            .find(|known| known.id == guild)
+            .is_some_and(|known| known.stickers.iter().any(|sticker| sticker.name == "Wave"))
+    };
+    let snapshot = snapshot_where(&discord, server_stickers).await;
+    // The picker lists them from there, as Discord's client reads them from
+    // READY, at the tiles' size.
+    let owned = &snapshot
+        .servers
+        .iter()
+        .find(|known| known.id == guild)
+        .unwrap()
+        .stickers;
+    let wave = owned
+        .iter()
+        .find(|sticker| sticker.name == "Wave")
+        .expect("the server's own stickers come, not only Discord's packs");
+    assert!(!wave.unavailable, "the server's boosts cover it");
+    assert!(
+        wave.picture().ends_with("?size=96"),
+        "the picker's tiles are 96px: {}",
+        wave.picture()
+    );
+    assert!(
+        owned
+            .iter()
+            .any(|sticker| sticker.format == yapfast_discord::ready::STICKER_GIF),
+        "the server's GIF sticker comes too"
+    );
+
+    // A sticker clicked is a message of the sticker alone, which the gateway
+    // shows.
+    let mut live = discord.live();
+    discord
+        .send_sticker(&guild, &general, &wumpus.id)
+        .await
+        .unwrap();
+    let sent = live_where(&mut live, |event| match event {
+        Live::Created(message) if !message.attachments.is_empty() => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(sent.content, "");
+    assert_eq!(sent.attachments[0].shown, Shown::Sticker);
+    assert!(sent.attachments[0].url.contains(&wumpus.id));
+    // One Discord doesn't have isn't sent.
+    assert!(
+        discord.send_sticker(&guild, &general, "1").await.is_err(),
+        "a sticker that doesn't exist isn't sent"
+    );
 }
 
 /// Transfer Ownership and Delete Server, as the server's owner: by the code
@@ -6068,6 +6454,7 @@ async fn edits_the_main_profile_as_discords_client_does() {
         .save_main_profile(
             &serde_json::json!({"global_name": "Ally", "avatar": dot}),
             &serde_json::json!({"bio": "Hi, I'm **Ally**", "pronouns": "she/her", "accent_color": 0x5865f2}),
+            None,
         )
         .await
         .unwrap();
@@ -6089,7 +6476,11 @@ async fn edits_the_main_profile_as_discords_client_does() {
     assert_eq!(own.accent, Some(0x5865f2));
     assert!(
         discord
-            .save_main_profile(&serde_json::json!({}), &serde_json::json!({"banner": dot}))
+            .save_main_profile(
+                &serde_json::json!({}),
+                &serde_json::json!({"banner": dot}),
+                None,
+            )
             .await
             .is_err(),
         "a banner takes Nitro"
@@ -6100,6 +6491,7 @@ async fn edits_the_main_profile_as_discords_client_does() {
         .save_main_profile(
             &serde_json::json!({"global_name": "", "avatar": null}),
             &serde_json::json!({"accent_color": null}),
+            None,
         )
         .await
         .unwrap();
@@ -6117,6 +6509,28 @@ async fn edits_the_main_profile_as_discords_client_does() {
         (own.name.as_str(), own.avatar, own.accent),
         ("", None, None)
     );
+    // The server tag she wears goes to its own endpoint, and shows in the
+    // profile fetched next; none takes it off.
+    let empty = serde_json::json!({});
+    let me = discord.snapshots().borrow().user_id.clone().unwrap();
+    let tag = async || {
+        discord
+            .profile(yapfast_discord::ready::PRIVATE, &me, |_| {})
+            .await
+            .unwrap()
+            .tag
+            .map(|tag| tag.text)
+    };
+    discord
+        .save_main_profile(&empty, &empty, Some(Some(&fixture.guild)))
+        .await
+        .unwrap();
+    assert_eq!(tag().await.as_deref(), Some("CREW"));
+    discord
+        .save_main_profile(&empty, &empty, Some(None))
+        .await
+        .unwrap();
+    assert_eq!(tag().await, None);
     post_control(server, "/_control/profile-reset", "");
     snapshot_where(discord, renamed("Alice")).await;
 }

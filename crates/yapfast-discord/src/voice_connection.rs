@@ -212,7 +212,9 @@ async fn discover_waiting(udp: &UdpSocket, ssrc: u32, wait: Duration) -> Result<
     let mut answer = [0u8; 1500];
     let mut unreadable = None;
     for ask in 1..=DISCOVERY_ASKS {
-        udp.send(&request).await?;
+        udp.send(&request)
+            .await
+            .context("couldn't send address discovery to the voice server")?;
         let next = tokio::time::Instant::now() + wait;
         loop {
             let length = match tokio::time::timeout_at(next, udp.recv(&mut answer)).await {
@@ -321,7 +323,8 @@ impl Connection {
         let url = gateway_url(&identity.endpoint)?;
         let (mut ws, _) = timeout(HANDSHAKE, websocket::connect(url.as_str()))
             .await
-            .context("the voice server didn't answer")??;
+            .context("the voice server didn't answer")?
+            .context("couldn't reach the voice server")?;
         send_json(
             &mut ws,
             0,

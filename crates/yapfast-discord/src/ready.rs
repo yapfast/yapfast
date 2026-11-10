@@ -40,6 +40,9 @@ pub mod permission {
     pub const ADMINISTRATOR: u64 = 1 << 3;
     pub const MANAGE_CHANNELS: u64 = 1 << 4;
     pub const MANAGE_GUILD: u64 = 1 << 5;
+    /// Adding a reaction nobody has added to a message yet; adding to one
+    /// already there needs only reading the channel's history.
+    pub const ADD_REACTIONS: u64 = 1 << 6;
     pub const VIEW_AUDIT_LOG: u64 = 1 << 7;
     /// Deleting others' messages and removing their reactions.
     pub const MANAGE_MESSAGES: u64 = 1 << 13;
@@ -61,10 +64,14 @@ pub mod permission {
     pub const MANAGE_WEBHOOKS: u64 = 1 << 29;
     /// Changing and deleting any of a server's emoji, stickers and sounds.
     pub const MANAGE_GUILD_EXPRESSIONS: u64 = 1 << 30;
+    /// Using another server's emoji, for those with Nitro.
+    pub const USE_EXTERNAL_EMOJIS: u64 = 1 << 18;
     /// Seeing every private thread, and sending in locked ones.
     pub const MANAGE_THREADS: u64 = 1 << 34;
     pub const CREATE_PUBLIC_THREADS: u64 = 1 << 35;
     pub const CREATE_PRIVATE_THREADS: u64 = 1 << 36;
+    /// Sending another server's stickers, for those with Nitro.
+    pub const USE_EXTERNAL_STICKERS: u64 = 1 << 37;
     pub const SEND_MESSAGES_IN_THREADS: u64 = 1 << 38;
     /// Timing members out.
     pub const MODERATE_MEMBERS: u64 = 1 << 40;
@@ -120,6 +127,9 @@ pub struct Server {
     pub icon: Option<String>,
     /// The address of its banner, if it has one.
     pub banner: Option<String>,
+    /// The tag its members can wear, if it offers one.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
     /// How many members it has, as of READY or GUILD_CREATE.
     pub member_count: Option<u64>,
     /// Text and announcement channels, in Discord's order.
@@ -172,6 +182,9 @@ pub struct Server {
     /// [`crate::marked::MarkedServer::follows_only`].
     #[serde(default)]
     pub community: bool,
+    /// The channel its rules are in, from `rules_channel_id`.
+    #[serde(default)]
+    pub rules_channel: Option<String>,
     /// This account's timeout here while it lasts, set on a copy of the
     /// server when the service publishes it; see [`crate::marked`] for the
     /// rest of what's this account's.
@@ -195,10 +208,20 @@ pub struct Server {
     pub mfa_level: u8,
     /// Its custom emoji, by name.
     pub emojis: Arc<Vec<Emoji>>,
+    /// Its stickers, as READY or GUILD_CREATE gives them, which the sticker
+    /// picker offers.
+    #[serde(default)]
+    pub stickers: Arc<Vec<crate::stickers::Sticker>>,
     /// Its scheduled events that haven't ended, soonest first, which its
     /// header counts; see [`ScheduledEvent`].
     #[serde(default)]
     pub events: Arc<Vec<ScheduledEvent>>,
+    /// How many boosts it has, and whether its owner shows the progress bar
+    /// toward the next goal at the top of its channel list.
+    #[serde(default)]
+    pub boosts: u32,
+    #[serde(default)]
+    pub boost_bar: bool,
     /// When this account joined it, as Discord's ISO 8601 time.
     pub joined_at: Option<String>,
     /// Out of reach in a Discord outage: still listed, with what was last
@@ -300,6 +323,9 @@ pub fn emojis(list: &Value) -> Vec<Emoji> {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Channel {
+    /// Discord's channel type, which an app's channel menu filters by.
+    #[serde(default)]
+    pub channel_type: Option<u8>,
     pub id: String,
     pub name: String,
     pub position: i64,
@@ -332,6 +358,12 @@ pub struct Channel {
     /// A stage channel, among the voice channels, where no join sound plays.
     #[serde(default)]
     pub stage: bool,
+    /// A media channel: a forum whose posts lead with pictures and videos.
+    #[serde(default)]
+    pub media: bool,
+    /// Age-restricted, as its `nsfw` says.
+    #[serde(default)]
+    pub nsfw: bool,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -720,6 +752,31 @@ impl Server {
         } else {
             Access::Join
         }
+    }
+
+    /// Whether @everyone is kept out of `channel`, which Discord's client
+    /// marks with a lock on its icon: the channel's own overwrite for
+    /// @everyone denies viewing it, or for a voice or stage channel,
+    /// @everyone may not connect to it. Other roles may still be let in.
+    pub fn private(&self, channel: &Channel) -> bool {
+        let everyone = channel
+            .overwrites
+            .iter()
+            .find(|overwrite| !overwrite.member && overwrite.id == self.id);
+        if everyone.is_some_and(|overwrite| overwrite.deny & VIEW_CHANNEL != 0) {
+            return true;
+        }
+        let voice = self
+            .voice_channels
+            .iter()
+            .any(|voice| voice.id == channel.id);
+        // Without the server's roles, @everyone is taken to connect.
+        voice
+            && self.roles.get(&self.id).is_some_and(|base| {
+                let connects =
+                    everyone.map_or(*base, |overwrite| *base & !overwrite.deny | overwrite.allow);
+                connects & CONNECT == 0
+            })
     }
 
     /// Whether `user`, holding `roles`, may send in `channel`'s text. A voice
@@ -1339,6 +1396,7 @@ pub fn server(guild: &Value) -> Option<Server> {
         .or_else(|| guild["properties"]["premium_tier"].as_u64())
         .unwrap_or_default();
     let mut server = Server {
+        tag: offered_tag(guild),
         id,
         name,
         icon,
@@ -1359,7 +1417,16 @@ pub fn server(guild: &Value) -> Option<Server> {
             .or_else(|| guild["properties"]["mfa_level"].as_u64())
             .map_or(0, |level| u8::try_from(level).unwrap_or(1)),
         emojis: Arc::new(emojis(&guild["emojis"])),
+        stickers: Arc::new(crate::stickers::parse_all(&guild["stickers"])),
         events: Arc::new(scheduled_events(&guild["guild_scheduled_events"])),
+        boosts: guild["premium_subscription_count"]
+            .as_u64()
+            .or_else(|| guild["properties"]["premium_subscription_count"].as_u64())
+            .map_or(0, |count| u32::try_from(count).unwrap_or(u32::MAX)),
+        boost_bar: guild["premium_progress_bar_enabled"]
+            .as_bool()
+            .or_else(|| guild["properties"]["premium_progress_bar_enabled"].as_bool())
+            .unwrap_or(false),
         joined_at: guild["joined_at"].as_str().map(str::to_owned),
         default_level: Level::from(&guild["properties"]["default_message_notifications"])
             .or_else(|| Level::from(&guild["default_message_notifications"]))
@@ -1368,6 +1435,10 @@ pub fn server(guild: &Value) -> Option<Server> {
         forwarding_disabled: has("FORWARDING_DISABLED"),
         verified: has("VERIFIED") || has("PARTNERED"),
         community: has("COMMUNITY"),
+        rules_channel: guild["rules_channel_id"]
+            .as_str()
+            .or_else(|| guild["properties"]["rules_channel_id"].as_str())
+            .map(str::to_owned),
         ..Default::default()
     };
     for role in guild["roles"].as_array().into_iter().flatten() {
@@ -1486,6 +1557,9 @@ pub fn parse_thread(value: &Value) -> Option<Channel> {
 
 fn parse_channel(channel: &Value) -> Option<Channel> {
     Some(Channel {
+        channel_type: channel["type"]
+            .as_u64()
+            .and_then(|kind| u8::try_from(kind).ok()),
         id: channel["id"].as_str()?.to_owned(),
         name: channel["name"].as_str().unwrap_or_default().to_owned(),
         position: channel["position"].as_i64().unwrap_or_default(),
@@ -1497,6 +1571,8 @@ fn parse_channel(channel: &Value) -> Option<Channel> {
         overwrites: Arc::new(overwrites(channel)),
         announcement: channel["type"].as_u64() == Some(GUILD_ANNOUNCEMENT),
         stage: channel["type"].as_u64() == Some(GUILD_STAGE_VOICE),
+        media: channel["type"].as_u64() == Some(GUILD_MEDIA),
+        nsfw: channel["nsfw"].as_bool().unwrap_or(false),
         archive_after: channel["default_auto_archive_duration"]
             .as_u64()
             .and_then(|minutes| u16::try_from(minutes).ok())
@@ -1534,13 +1610,30 @@ pub(crate) fn media() -> &'static str {
 pub const STICKER_LOTTIE: u64 = 3;
 pub const STICKER_GIF: u64 = 4;
 
-/// A sticker's picture at the size Discord shows it. Animated GIF stickers come
-/// from the media proxy; Lottie stickers are JSON from the CDN.
+/// A sticker's picture at the size Discord shows it in a message. Animated
+/// GIF stickers come from the media proxy; Lottie stickers are JSON from the
+/// CDN.
 pub fn sticker(id: &str, format: u64) -> String {
+    sticker_at(id, format, crate::stickers::MESSAGE_SIZE)
+}
+
+/// Whether `url` is a sticker's, of any size, as [`sticker`] and
+/// [`sticker_at`] make them: Discord's CDN's or its media proxy's.
+pub fn is_sticker(url: &str) -> bool {
+    [cdn(), media()].iter().any(|base| {
+        url.strip_prefix(*base)
+            .and_then(|path| path.strip_prefix("/stickers/"))
+            .is_some()
+    })
+}
+
+/// A sticker's picture at `size` pixels: the message shows it at 160, and
+/// the picker's tiles at [`crate::stickers::TILE_SIZE`].
+pub fn sticker_at(id: &str, format: u64, size: u32) -> String {
     match format {
-        STICKER_GIF => format!("{}/stickers/{id}.gif?size=160", media()),
+        STICKER_GIF => format!("{}/stickers/{id}.gif?size={size}", media()),
         STICKER_LOTTIE => format!("{}/stickers/{id}.json", cdn()),
-        _ => format!("{}/stickers/{id}.png?size=160", cdn()),
+        _ => format!("{}/stickers/{id}.png?size={size}", cdn()),
     }
 }
 
@@ -1557,6 +1650,29 @@ pub fn lottie_sticker(url: &str) -> bool {
 pub fn custom_emoji(id: &str, animated: bool, size: u32) -> String {
     let format = if animated { "gif" } else { "png" };
     format!("{}/emojis/{id}.{format}?size={size}", cdn())
+}
+
+/// The tag a server offers its members, from its `profile`, which a user
+/// account's READY puts under its `properties`.
+fn offered_tag(guild: &Value) -> Option<crate::message::Tag> {
+    let id = guild["id"]
+        .as_str()
+        .or_else(|| guild["properties"]["id"].as_str())?;
+    let profile = match &guild["properties"]["profile"] {
+        Value::Null => &guild["profile"],
+        profile => profile,
+    };
+    let text = profile["tag"]
+        .as_str()
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())?;
+    Some(crate::message::Tag {
+        text: text.into(),
+        badge: profile["badge"]
+            .as_str()
+            .filter(|badge| !badge.is_empty())
+            .map(|badge| guild_tag_badge(id, badge).into()),
+    })
 }
 
 /// The badge of a server's tag, which people wearing it show by their name.
@@ -1673,6 +1789,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preserves_exact_channel_types_for_component_filters() {
+        for kind in [0, 2, 5, 10, 11, 12, 13, 15, 16] {
+            let channel = parse_channel(&serde_json::json!({"id": "1", "type": kind})).unwrap();
+            assert_eq!(channel.channel_type, Some(kind as u8));
+        }
+    }
+
+    #[test]
+    fn servers_offer_their_tag_from_their_profile() {
+        let guild = json!({"id": "9", "properties": {"profile": {"tag": "GUYS", "badge": "abc"}}});
+        let tag = offered_tag(&guild).unwrap();
+        assert_eq!(&*tag.text, "GUYS");
+        assert!(
+            tag.badge
+                .unwrap()
+                .ends_with("/clan-badges/9/abc.png?size=32")
+        );
+        assert_eq!(offered_tag(&json!({"id": "9", "profile": null})), None);
+    }
+
+    #[test]
     fn only_lottie_sticker_addresses_are_lottie() {
         assert!(lottie_sticker(&sticker("9", STICKER_LOTTIE)));
         for url in [
@@ -1746,6 +1883,40 @@ mod tests {
                 .role_icon(&mine)
                 .unwrap()
                 .contains("/role-icons/20/abc.png")
+        );
+    }
+
+    #[test]
+    fn channels_say_what_their_icons_mark() {
+        let guild = json!({
+            "id": "10",
+            "properties": {"name": "Test", "rules_channel_id": "11"},
+            "roles": [{"id": "10", "name": "@everyone", "permissions": (VIEW_CHANNEL | CONNECT).to_string(), "position": 0}],
+            "channels": [
+                {"id": "11", "name": "rules", "type": 0, "position": 0},
+                {"id": "12", "name": "news", "type": 5, "position": 1, "nsfw": true},
+                {"id": "13", "name": "art", "type": 16, "position": 2},
+                {"id": "14", "name": "staff", "type": 0, "position": 3,
+                 "permission_overwrites": [{"id": "10", "type": 0, "allow": "0", "deny": VIEW_CHANNEL.to_string()}]},
+                {"id": "15", "name": "Lounge", "type": 2, "position": 0,
+                 "permission_overwrites": [{"id": "10", "type": 0, "allow": "0", "deny": CONNECT.to_string()}]},
+                {"id": "16", "name": "Talks", "type": 13, "position": 1},
+            ],
+        });
+        let server = server(&guild).unwrap();
+        assert_eq!(server.rules_channel.as_deref(), Some("11"));
+        let channel = |id: &str| server.channel(id).unwrap();
+        assert!(channel("12").announcement && channel("12").nsfw);
+        assert!(channel("13").media && !channel("13").nsfw);
+        assert!(channel("16").stage);
+        let private: Vec<_> = ["11", "12", "13", "14", "15", "16"]
+            .into_iter()
+            .filter(|id| server.private(channel(id)))
+            .collect();
+        assert_eq!(
+            private,
+            ["14", "15"],
+            "@everyone may not see staff, nor connect to Lounge"
         );
     }
 

@@ -7,20 +7,28 @@ impl Application {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];
         };
-        if !self.state.can_write_in(&room)
-            || !self
-                .state
-                .message(&item)
-                .is_some_and(|message| message.can_react)
-        {
+        let Some(message) = self
+            .state
+            .message(&item)
+            .filter(|message| message.can_react)
+        else {
+            return vec![];
+        };
+        let there = message
+            .reactions
+            .iter()
+            .find(|reaction| reaction.key == key);
+        let adding = !there.is_some_and(|reaction| reaction.mine);
+        // A reaction nobody added yet needs leave to add any; adding to one
+        // there, or taking one's own back, doesn't.
+        let allowed = match self.state.reacts_in(&room) {
+            Reacts::Any => true,
+            Reacts::Existing => there.is_some(),
+            Reacts::None => false,
+        };
+        if !allowed {
             return vec![];
         }
-        let adding = !self.state.message(&item).is_some_and(|message| {
-            message
-                .reactions
-                .iter()
-                .any(|reaction| reaction.key == key && reaction.mine)
-        });
         if adding {
             *self.reaction_uses.entry(key.clone()).or_default() += 1;
         }

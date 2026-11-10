@@ -5,16 +5,24 @@ the connection while browsing text channels, other servers and DMs. Each join
 starts muted and turns the microphone on as the call connects, unless Settings
 › Voice & video turns that off. The dock under the rail and sidebar exposes
 mute, deafen, audio devices and Leave. A caret beside mute and beside deafen
-opens a menu that chooses the input or output device and links to the full
-settings. Deafen also mutes the microphone; undeafening keeps it muted, while
-unmuting when deafened undeafens too. The voice view shows the participants and
-their mute, deafen and speaking state; a deafened person shows crossed-out
+opens a menu, as Vesktop's: the input or output device chosen, which a click
+opens into the list of devices in place, the microphone or speaker volume
+(the same as Settings › Voice & video, saved as the slider is let go), and a
+way into the voice settings. The input menu adds the microphone's level, and
+with Discord linked, its noise suppression. Deafen also mutes the microphone;
+undeafening keeps it muted, while unmuting when deafened undeafens too. The
+voice view shows the participants and their mute, deafen and speaking state; a
+deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
-Yapfast calls only your own shows. Clicking a voice channel joins it. Clicking
-another one during a call opens a dialog that asks before leaving the current
-one. Coming back to a server that had a voice channel selected shows it without
-joining.
+Yapfast calls only your own shows. Clicking a voice channel joins it and leaves
+what's on screen as it was, as Discord's client does: the call shows in the
+dock, and clicking the channel again, or the channel's line in the dock, opens
+it. A voice channel whose chat mentions you opens on its chat as it joins, as
+in Discord, and one you can't join opens without joining. Clicking another one
+during a call opens a dialog that asks before leaving the current one, and
+confirming joins it the same way. Coming back to a server that had a voice
+channel selected shows it without joining.
 
 The native LiveKit audio engine captures and plays audio through system
 devices. Settings › Voice & video selects the microphone and speakers too.

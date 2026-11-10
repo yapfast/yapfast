@@ -3,10 +3,19 @@
 //! records; reading and writing wait for it on the caller's thread, and copy
 //! straight between the caller's samples and the engine's buffer.
 //!
+//! Microphones open in raw mode unless [`super::set_windows_effects`] says
+//! otherwise: Windows then skips the effects it, or a driver, would run on
+//! them ("device default effects", "audio enhancements"), whose noise
+//! suppression muffles a voice that Yapfast's own suppressor works on again.
+//! A device without raw mode opens with its effects.
+//!
 //! WebRTC's Windows device module names each device by its endpoint id, as
 //! `IMMDevice::GetId` gives it, so a device id opens the endpoint directly.
 
-use std::time::{Duration, Instant};
+use std::{
+    cell::RefCell,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context as _, Result, anyhow, ensure};
 use windows::{
@@ -16,8 +25,9 @@ use windows::{
             Audio::{
                 AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
                 AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, DEVICE_STATE_ACTIVE, EDataFlow,
-                IAudioCaptureClient, IAudioClient, IAudioRenderClient, IMMDevice,
+                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDCLNT_STREAMOPTIONS_RAW,
+                AudioCategory_Other, AudioClientProperties, DEVICE_STATE_ACTIVE, EDataFlow,
+                IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioRenderClient, IMMDevice,
                 IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
                 WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
             },
@@ -31,14 +41,45 @@ use windows::{
             Com::{
                 CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
             },
-            Threading::{CreateEventW, WaitForSingleObject},
+            Threading::{
+                AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, CreateEventW,
+                WaitForSingleObject,
+            },
         },
     },
-    core::HSTRING,
+    core::{HSTRING, w},
 };
 
 use super::Format;
 use crate::voice::NAMED;
+
+/// A thread's place in MMCSS's "Pro Audio" task, given back as it ends.
+struct ProAudio(HANDLE);
+
+impl Drop for ProAudio {
+    fn drop(&mut self) {
+        // SAFETY: the handle AvSetMmThreadCharacteristicsW gave this thread.
+        let _ = unsafe { AvRevertMmThreadCharacteristics(self.0) };
+    }
+}
+
+thread_local! {
+    static PRO_AUDIO: RefCell<Option<ProAudio>> = const { RefCell::new(None) };
+}
+
+pub fn raise_priority() {
+    PRO_AUDIO.with_borrow_mut(|held| {
+        if held.is_some() {
+            return;
+        }
+        let mut task = 0;
+        // SAFETY: registers the calling thread; the name is a constant.
+        match unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task) } {
+            Ok(handle) => *held = Some(ProAudio(handle)),
+            Err(error) => tracing::warn!(%error, "an audio thread stays at normal priority"),
+        }
+    });
+}
 
 /// What a stream without a queue of its own keeps queued.
 const DEFAULT_QUEUE: Duration = Duration::from_millis(200);
@@ -180,6 +221,29 @@ impl Stream {
         let client =
             unsafe { device.Activate(CLSCTX_ALL, None) }.context("the device refused a stream")?;
         Self::initialize(client, format, buffer, 0)
+    }
+
+    /// As [`Self::open`], skipping the device's effects where it can, or
+    /// with them where it can't.
+    fn open_raw(device: &IMMDevice, format: Format, buffer: Duration) -> Result<Self> {
+        let raw = AudioClientProperties {
+            cbSize: size_of::<AudioClientProperties>() as u32,
+            bIsOffload: false.into(),
+            eCategory: AudioCategory_Other,
+            Options: AUDCLNT_STREAMOPTIONS_RAW,
+        };
+        // SAFETY: plain COM calls; the properties outlive the call.
+        let client = unsafe { device.Activate::<IAudioClient2>(CLSCTX_ALL, None) }
+            .and_then(|client| unsafe { client.SetClientProperties(&raw) }.map(|()| client))
+            .context("no raw mode")
+            .and_then(|client| Self::initialize(client.into(), format, buffer, 0));
+        client.or_else(|error| {
+            tracing::debug!(
+                error = format!("{error:#}"),
+                "opening with the device's effects"
+            );
+            Self::open(device, format, buffer)
+        })
     }
 
     /// Starts `client` as a stream, with `flags` besides the usual ones.
@@ -373,7 +437,12 @@ impl Input {
     ) -> Result<Self> {
         let device =
             device(microphone, eCapture).context("this microphone is no longer connected")?;
-        let mut stream = Stream::open(&device, format, (fragment * 4).max(RECORDING))?;
+        let buffer = (fragment * 4).max(RECORDING);
+        let mut stream = if super::windows_effects() {
+            Stream::open(&device, format, buffer)?
+        } else {
+            Stream::open_raw(&device, format, buffer)?
+        };
         // SAFETY: an initialized client.
         let capture = unsafe { stream.client.GetService::<IAudioCaptureClient>() }?;
         let left = Vec::with_capacity(stream.buffer as usize * format.frame_bytes());

@@ -31,6 +31,12 @@
 //! - `discord-gif-home.json`: the home as Discord last answered it, with when,
 //!   so a start within [`GIF_HOME_FRESH`] shows it without asking Discord. It
 //!   is public — nobody's data — so it is not sealed.
+//! - `discord-server-stickers.json`: each server's own stickers, by its id, as
+//!   the picker last had them, so it lists them at once next time.
+//! - `discord-sticker-packs.json`: Discord's default sticker packs, as the
+//!   picker last had them and when, so it shows them at once and fetches
+//!   their pictures ahead of opening. Public — every account has the same
+//!   ones — so it is not sealed.
 //!
 //! The files name the login they belong to by a hash of the token, so another
 //! account linked meanwhile starts empty, and unlinking deletes them all.
@@ -239,7 +245,7 @@ pub(crate) fn keep_build_number(number: u64) {
     let Some(file) = build_number_file() else {
         return;
     };
-    if let Err(error) = std::fs::write(&file, format!("{number}\n")) {
+    if let Err(error) = write_bytes(&file, format!("{number}\n").as_bytes()) {
         tracing::warn!(%error, "could not keep Discord's build number");
     }
 }
@@ -396,7 +402,9 @@ pub fn has_gif(url: &str) -> bool {
 /// request each. A tile still asks when it shows.
 pub fn skip_gif_ahead(url: &str) {
     if let Some(file) = gif_file(url) {
-        let _ = std::fs::write(file.with_extension("skip"), []);
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        let _ = open_in_folder(&options, &file.with_extension("skip"));
     }
 }
 
@@ -517,6 +525,71 @@ pub fn keep_gif(url: &str, thumbnail: KeptGif<'_>) -> Option<PathBuf> {
 pub enum KeptGif<'a> {
     File(&'a Path),
     Bytes(&'a [u8]),
+}
+
+fn sticker_packs_file() -> Option<PathBuf> {
+    Some(file()?.with_file_name("discord-sticker-packs.json"))
+}
+
+/// How long Discord's default sticker packs, as it last answered them, are
+/// shown before it is asked again: they change when it ships new ones.
+pub const STICKER_PACKS_FRESH: u64 = 24 * 60 * 60 * 1000;
+
+/// Discord's default sticker packs as the picker last had them, with when
+/// they came.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct KeptStickerPacks {
+    /// When Discord's answer came, in Unix milliseconds.
+    pub fetched: u64,
+    pub packs: Vec<crate::stickers::Collection>,
+}
+
+/// Discord's default sticker packs as the picker last had them. It reads the
+/// disk, so the async side calls it off its threads.
+pub fn sticker_packs() -> Option<KeptStickerPacks> {
+    read_packs(&sticker_packs_file()?)
+}
+
+/// [`sticker_packs`] from `file`, which a test can give it.
+fn read_packs(file: &Path) -> Option<KeptStickerPacks> {
+    serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
+}
+
+/// Keeps Discord's default sticker packs as they just came, stamped with the
+/// time, so a start shows them without asking.
+pub fn keep_sticker_packs(packs: Vec<crate::stickers::Collection>) {
+    let Some(file) = sticker_packs_file() else {
+        return;
+    };
+    write_packs(&file, packs);
+}
+
+/// [`keep_sticker_packs`] into `file`, which a test can give it.
+fn write_packs(file: &Path, packs: Vec<crate::stickers::Collection>) {
+    let kept = KeptStickerPacks {
+        fetched: now(),
+        packs,
+    };
+    let Ok(text) = serde_json::to_vec(&kept) else {
+        return;
+    };
+    if let Err(error) = write_bytes(file, &text) {
+        tracing::warn!(%error, "could not keep Discord's default sticker packs");
+    }
+}
+
+/// Whether the packs that came at `fetched` are still worth showing as they
+/// are, without asking Discord again.
+pub fn sticker_packs_are_fresh(fetched: u64) -> bool {
+    now().saturating_sub(fetched) < STICKER_PACKS_FRESH
+}
+
+/// This moment, in Unix milliseconds.
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 fn messages_directory() -> Option<PathBuf> {
@@ -719,11 +792,7 @@ pub fn save_messages(channel: &str, messages: Vec<Message>) {
         return;
     };
     let newest = &messages[messages.len().saturating_sub(CHANNEL_MESSAGES)..];
-    let written = file
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .map_err(anyhow::Error::from)
-        .and_then(|()| write_sealed(&file, &newest));
+    let written = write_sealed(&file, &newest);
     if let Err(error) = written {
         tracing::warn!(%error, "could not save a Discord channel");
     }
@@ -759,11 +828,7 @@ pub(crate) fn save_profile(guild: &str, user: &str, profile: &Profile) {
     let Some(file) = profile_file(guild, user) else {
         return;
     };
-    let written = file
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .map_err(anyhow::Error::from)
-        .and_then(|()| write_sealed(&file, profile));
+    let written = write_sealed(&file, profile);
     if let Err(error) = written {
         tracing::warn!(%error, "could not save a Discord profile");
     }
@@ -789,6 +854,12 @@ fn picture_file(url: &str) -> Option<KeptPicture> {
     } else {
         None
     }
+}
+
+/// Whether the picture at `url` is kept on disk, without reading it: what a
+/// prefetch checks before asking for one again.
+pub fn picture_is_kept(url: &str) -> bool {
+    picture_file(url).is_some_and(|kept| kept.file().is_file())
 }
 
 /// A picture kept on disk: plain, or encrypted.
@@ -837,9 +908,6 @@ impl KeptPicture {
 
     /// Keeps `data` as the picture. Without a key, an encrypted one isn't.
     fn write(&self, data: &[u8]) -> anyhow::Result<()> {
-        if let Some(directory) = self.file().parent() {
-            std::fs::create_dir_all(directory)?;
-        }
         match self {
             Self::Plain(file) => write_bytes(file, data),
             Self::Sealed(file) => write_sealed_with(file, |sealing| Ok(sealing.write_all(data)?)),
@@ -977,9 +1045,14 @@ fn prune(directory: &Path, size: u64, count: usize) {
 
 /// Deletes everything kept, as when unlinking.
 pub fn forget() {
-    for file in [file(), favorite_gifs_file(), gif_home_answer_file()]
-        .into_iter()
-        .flatten()
+    for file in [
+        file(),
+        favorite_gifs_file(),
+        gif_home_answer_file(),
+        sticker_packs_file(),
+    ]
+    .into_iter()
+    .flatten()
     {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
@@ -1042,12 +1115,30 @@ fn write_with(
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut writer = std::io::BufWriter::new(options.open(&partial)?);
+    let mut writer = std::io::BufWriter::new(open_in_folder(&options, &partial)?);
     fill(&mut writer)?;
     writer.flush()?;
     drop(writer);
     std::fs::rename(&partial, file)?;
     Ok(())
+}
+
+/// Opens `file` with `options`, making its folder first if it's gone: one
+/// made at the start, or the whole data folder, can be deleted while Yapfast
+/// runs, by a cleaner, and every save after would fail.
+pub(crate) fn open_in_folder(
+    options: &std::fs::OpenOptions,
+    file: &Path,
+) -> std::io::Result<std::fs::File> {
+    match options.open(file) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(folder) = file.parent() {
+                std::fs::create_dir_all(folder)?;
+            }
+            options.open(file)
+        }
+        opened => opened,
+    }
 }
 
 #[cfg(test)]
@@ -1261,6 +1352,8 @@ mod tests {
         assert_eq!(favorite_gifs(), None);
         load("token", Some(KEY));
         keep_gif_home_answer(&KeptHome::default());
+        keep_sticker_packs(vec![]);
+        assert!(sticker_packs().is_some());
         std::fs::create_dir_all(gif_home().unwrap()).unwrap();
         forget();
         assert!(load("token", Some(KEY)).snapshot.servers.is_empty());
@@ -1271,6 +1364,10 @@ mod tests {
         assert_eq!(kept_gif(gif), None);
         assert!(!gif_home().unwrap().exists());
         assert_eq!(gif_home_answer(), None);
+        assert!(
+            sticker_packs().is_none(),
+            "unlinking deletes the sticker packs"
+        );
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
@@ -1338,6 +1435,18 @@ mod tests {
     }
 
     #[test]
+    fn saves_again_after_its_folder_is_deleted() {
+        let data =
+            std::env::temp_dir().join(format!("yapfast-discord-deleted-{}", std::process::id()));
+        let file = data.join("discord-pictures").join("picture");
+        write_bytes(&file, b"one").unwrap();
+        std::fs::remove_dir_all(&data).unwrap();
+        write_bytes(&file, b"two").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"two");
+        std::fs::remove_dir_all(&data).unwrap();
+    }
+
+    #[test]
     fn prunes_the_least_lately_used_files() {
         let directory =
             std::env::temp_dir().join(format!("yapfast-discord-pictures-{}", std::process::id()));
@@ -1368,5 +1477,35 @@ mod tests {
         prune(&directory, u64::MAX, 2);
         assert_eq!(left(), ["e"]);
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn keeps_the_sticker_packs_and_tells_when_they_go_stale() {
+        let file = std::env::temp_dir().join(format!(
+            "yapfast-discord-sticker-packs-{}.json",
+            std::process::id()
+        ));
+        let packs = vec![crate::stickers::Collection {
+            id: "1".into(),
+            name: "Wumpus".into(),
+            stickers: vec![crate::stickers::Sticker {
+                id: "10".into(),
+                name: "Wave".into(),
+                format: 1,
+                unavailable: false,
+            }],
+        }];
+        write_packs(&file, packs.clone());
+        let kept = read_packs(&file).expect("the packs read back");
+        assert_eq!(kept.packs, packs);
+        assert!(
+            sticker_packs_are_fresh(kept.fetched),
+            "packs from a moment ago are fresh"
+        );
+        assert!(
+            !sticker_packs_are_fresh(kept.fetched.saturating_sub(STICKER_PACKS_FRESH + 1)),
+            "one from over a day ago is stale"
+        );
+        std::fs::remove_file(&file).ok();
     }
 }

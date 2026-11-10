@@ -241,6 +241,42 @@ fn navigation_restores_each_scope_selection_and_draft() {
 }
 
 #[test]
+fn the_voice_panels_channel_line_opens_the_call_unless_it_shows() {
+    let mut app = connected();
+    assert!(app.dispatch(Action::GoToCall).is_empty(), "no call");
+    app.state.voice.room = Some("lounge".into());
+    app.state.voice.phase = voice::Phase::Connected;
+    // From a DM: to the channel's server, and the channel's call.
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.navigation, Navigation::Server("friends".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("lounge"));
+    assert!(!app.state.voice_chat);
+    assert!(app.dispatch(Action::GoToCall).is_empty(), "already there");
+    // A preview voice room has no chat; a Discord voice channel's has.
+    let lounge = app.state.rooms.iter_mut().find(|room| room.id == "lounge");
+    Arc::make_mut(lounge.unwrap()).network = Network::Discord;
+    app.dispatch(Action::ShowVoiceChat(true));
+    assert!(
+        app.dispatch(Action::GoToCall).is_empty(),
+        "its chat is beside the same call"
+    );
+    assert!(app.state.voice_chat);
+    // From another channel of the server.
+    app.dispatch(Action::SelectRoom("games".into()));
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.selected.as_deref(), Some("lounge"));
+    // A DM's call goes to the DM, from the server or the friends list.
+    app.state.voice.room = Some("dm".into());
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::GoToCall);
+    assert_eq!(app.state.dm_screen, None);
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+}
+
+#[test]
 fn servers_open_their_last_channel_across_runs_or_the_top_one() {
     let mut app = connected();
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
@@ -290,6 +326,7 @@ fn members_belong_to_the_selected_text_room() {
         tag: None,
         group_icon: None,
         role_icon: None,
+        boosting_since: None,
     };
     app.apply(Event::Members {
         room: "games".into(),
@@ -320,7 +357,7 @@ fn members_belong_to_the_selected_text_room() {
         members: Err(late),
     });
     assert_eq!(app.state.members, Some(Err(late)), "loading ends");
-    app.dispatch(Action::SelectRoom("lounge".into()));
+    app.dispatch(Action::Open("lounge".into()));
     assert!(!app.state.lists_members());
 
     let mut preview = Application::default();
@@ -1734,21 +1771,36 @@ fn clicking_someone_with_only_a_camera_shows_the_channel_without_joining() {
 }
 
 #[test]
-fn clicking_a_voice_channel_joins_it_and_asks_before_leaving_another() {
+fn clicking_a_voice_channel_joins_it_where_you_are_and_asks_before_leaving_another() {
     let mut app = Application::default();
     app.dispatch(Action::Preview);
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    // Joining keeps the channel on screen, as Discord's client does: the
+    // call shows in the voice dock.
     app.dispatch(Action::SelectRoom("lounge".into()));
     assert_eq!(app.state.voice.room.as_deref(), Some("lounge"));
-    // Clicking the channel you are in only shows it.
-    app.dispatch(Action::SelectRoom("general".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    // Clicking the channel you are in shows its call.
     app.dispatch(Action::SelectRoom("lounge".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("lounge"));
     assert!(app.state.switch_voice.is_none());
+    // Another server's channel asks first, and still doesn't show.
     app.dispatch(Action::Navigate(Navigation::Server("coop".into())));
+    app.dispatch(Action::SelectRoom("looking-for-group".into()));
     app.dispatch(Action::SelectRoom("party-voice".into()));
     assert_eq!(app.state.voice.room.as_deref(), Some("lounge"));
     assert_eq!(app.state.switch_voice.as_deref(), Some("party-voice"));
     app.dispatch(Action::CancelVoiceSwitch);
     assert_eq!(app.state.voice.room.as_deref(), Some("lounge"));
+    app.dispatch(Action::SelectRoom("party-voice".into()));
+    app.dispatch(Action::ConfirmVoiceSwitch);
+    assert_eq!(app.state.voice.room.as_deref(), Some("party-voice"));
+    assert_eq!(app.state.selected.as_deref(), Some("looking-for-group"));
+    // The voice dock's channel line goes to the call.
+    app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
+    app.dispatch(Action::Open("party-voice".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("party-voice"));
+    assert!(!app.state.voice_chat);
     // Coming back to a server restores its voice channel without joining it.
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
     app.dispatch(Action::Voice(voice::Command::Leave));
@@ -1757,6 +1809,35 @@ fn clicking_a_voice_channel_joins_it_and_asks_before_leaving_another() {
     assert!(!app.state.voice.active() && app.state.switch_voice.is_none());
     app.dispatch(Action::SelectRoom("party-voice".into()));
     assert_eq!(app.state.voice.room.as_deref(), Some("party-voice"));
+}
+
+#[test]
+fn a_voice_channel_whose_chat_mentions_you_opens_its_chat_as_it_joins() {
+    let mut app = connected();
+    let id = "discord:10:11";
+    let mut room = preview_room(id, "Lounge", false, 3);
+    room.voice = true;
+    room.mentions = 1;
+    app.state.discord_online = true;
+    app.state.rooms.push(Arc::new(room));
+    Arc::make_mut(&mut app.state.servers[0])
+        .channels
+        .push(id.into());
+    assert!(
+        app.state
+            .rooms
+            .iter()
+            .any(|room| room.id == id && room.voice_chat())
+    );
+    let server = app.state.servers[0].id.clone();
+    app.dispatch(Action::Navigate(Navigation::Server(server)));
+
+    let effects = app.dispatch(Action::SelectRoom(id.into()));
+    assert_eq!(app.state.selected.as_deref(), Some(id));
+    assert!(app.state.voice_chat);
+    assert!(effects.iter().any(|effect| matches!(
+        effect, Effect::Backend(Command::Voice(voice::Command::Join(room))) if room == id
+    )));
 }
 
 #[test]
@@ -2995,6 +3076,7 @@ fn member(id: &str, name: &str) -> ChatMember {
         tag: None,
         group_icon: None,
         role_icon: None,
+        boosting_since: None,
     }
 }
 
@@ -3720,15 +3802,30 @@ fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
     assert!(!app.state.room_ready, "a channel not shown before loads");
     app.apply(Event::Timeline {
         room: "discord:10:22".into(),
-        messages: timeline(vec![]),
+        messages: timeline(vec![ChatMessage {
+            item: "d:2".into(),
+            body: "Out now".into(),
+            can_react: true,
+            ..Default::default()
+        }]),
     });
     assert!(!app.state.can_write(), "read-only channel");
+    // It takes reactions all the same, as Add Reactions isn't sending.
+    assert_eq!(app.state.reacts_in("discord:10:22"), chat::Reacts::Any);
+    let effects = app.dispatch(Action::React {
+        item: "d:2".into(),
+        key: "🎉".into(),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::React { room, .. })] if room == "discord:10:22"
+    ));
     // Back to general: shown as it was left at once, while the backend
     // sends it afresh.
     app.dispatch(Action::SelectRoom("discord:10:21".into()));
     assert!(app.state.room_ready);
     assert_eq!(app.state.messages[0].body, "kept");
-    assert_eq!(app.state.members, Some(Ok(vec![])));
+    assert_eq!(app.state.members, Some(Ok(Arc::new(vec![]))));
     app.apply(Event::Timeline {
         room: "discord:10:21".into(),
         messages: timeline(vec![]),
@@ -3738,6 +3835,7 @@ fn discord_text_channels_write_without_matrix_trust_and_read_once_read() {
         ..snapshot(false)
     }));
     assert!(!app.state.can_write(), "sending waits for Discord");
+    assert_eq!(app.state.reacts_in("discord:10:21"), chat::Reacts::None);
 }
 
 #[test]
@@ -3827,7 +3925,7 @@ fn a_linked_discord_profile_loads_for_someone_not_listed() {
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user }))
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user, .. }))
                 if room == "discord:10:11" && user == "4242"
         )),
         "Discord's profile is fetched"
@@ -3927,6 +4025,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             tag: None,
             group_icon: None,
             role_icon: None,
+            boosting_since: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {
@@ -4019,6 +4118,85 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn profile_switches_that_are_off_ask_for_nothing() {
+    use yapfast_discord::{
+        collectibles::Nameplate,
+        service::{Account, Conversation, Snapshot, Status},
+    };
+    let open = |cosmetics: Cosmetics| {
+        let mut app = Application::default();
+        app.dispatch(Action::SetCosmetics(cosmetics));
+        // Nameplates have their own switch, which follows decorations here.
+        app.dispatch(Action::HideNameplates(!cosmetics.decorations));
+        app.apply(discord_event(Snapshot {
+            status: Status::Online,
+            conversations: vec![Arc::new(Conversation {
+                id: "30".into(),
+                name: "Ann".into(),
+                decoration: Some("ring.png".into()),
+                person: Some("7".into()),
+                people: 2,
+                ..Default::default()
+            })],
+            account: Some(Account {
+                username: String::new(),
+                name: "Me".into(),
+                avatar: "me.png".into(),
+                decoration: Some("mine.png".into()),
+                nameplate: Some(Nameplate {
+                    picture: "plate.png".into(),
+                    colors: Some([0x730bc8, 0x730bc8]),
+                }),
+                premium_type: 0,
+                mfa_enabled: false,
+                has_email: true,
+            }),
+            ..Default::default()
+        }));
+        let effects = app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
+        let effect = effects.iter().find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { effect, .. })) => {
+                Some(*effect)
+            }
+            _ => None,
+        });
+        (app, effect)
+    };
+    let off = Cosmetics {
+        effects: false,
+        decorations: false,
+        moving: false,
+        name_styles: false,
+        server_tags: false,
+    };
+    let (app, effect) = open(off);
+    assert_eq!(effect, Some(false), "the effect isn't asked about");
+    for url in ["ring.png", "mine.png", "plate.png"] {
+        assert!(!app.requested_pictures.contains(url), "{url} isn't fetched");
+    }
+    // By default everything shows, as the stack draws it.
+    let (app, effect) = open(Cosmetics::default());
+    assert_eq!(effect, Some(true), "the effect is asked about");
+    assert!(app.requested_pictures.contains("ring.png"));
+    if cfg!(not(feature = "matrix")) {
+        assert!(app.requested_pictures.contains("mine.png"));
+        assert!(app.requested_pictures.contains("plate.png"));
+    }
+    // Effects alone off asks for no effect, and still for decorations.
+    let (app, effect) = open(Cosmetics {
+        effects: false,
+        ..Cosmetics::default()
+    });
+    assert_eq!(
+        effect,
+        Some(false),
+        "an effect that may not play isn't asked about"
+    );
+    assert!(app.requested_pictures.contains("ring.png"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn discord_profiles_load_the_rest_from_discord() {
     use yapfast_discord::service::{Conversation, Snapshot, Status};
     let mut app = Application::default();
@@ -4038,7 +4216,7 @@ fn discord_profiles_load_the_rest_from_discord() {
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user })) if room == "discord:@me:30" && user == "7"
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user, .. })) if room == "discord:@me:30" && user == "7"
         )),
         "Discord's profile is fetched"
     );
@@ -4435,7 +4613,7 @@ fn a_one_to_one_dm_shows_its_persons_profile_beside_it() {
     });
     assert!(effects.iter().any(|effect| matches!(
         effect,
-        Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user })) if room == "discord:@me:30" && user == "7"
+        Effect::Backend(Command::Discord(DiscordCommand::Profile { room, user, .. })) if room == "discord:@me:30" && user == "7"
     )));
     let view = app.state.profile.as_ref().unwrap();
     assert!(!view.large && view.profile.name == "Ann");
@@ -4573,11 +4751,14 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         app.dispatch(Action::DeclineCall(dm.clone())).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::DeclineCall { room }))] if *room == dm
     ));
+    let erin = "discord:@me:40";
+    app.dispatch(Action::Open(erin.into()));
+    assert_eq!(app.state.selected.as_deref(), Some(erin));
     let effects = app.dispatch(Action::AcceptCall(dm.clone()));
     assert_eq!(
-        app.state.selected.as_ref(),
-        Some(&dm),
-        "answering opens the DM"
+        app.state.selected.as_deref(),
+        Some(erin),
+        "answering leaves what shows, as Discord's client does"
     );
     assert!(matches!(
         effects.last(),
@@ -4882,6 +5063,7 @@ fn discord_dialogs_stop_waiting_when_the_backend_cant_answer() {
         loading: true,
         kept: false,
         note: None,
+        ..Default::default()
     });
     app.stopped();
     let editor = app.state.status_editor.as_ref().expect("still open");
@@ -5228,7 +5410,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
             ..message("e:$ann", false)
         }]),
     });
-    app.state.members = Some(Ok(vec![ChatMember {
+    app.state.members = Some(Ok(Arc::new(vec![ChatMember {
         bot: false,
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
@@ -5236,7 +5418,7 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
             colors: Some([0x730bc8, 0x972fed]),
         }),
         ..member("@bob", "Bob")
-    }]));
+    }])));
     for url in ["ring.png", "bobs-ring.png", "plate.png"]
         .into_iter()
         .map(String::from)
@@ -5257,14 +5439,14 @@ fn decorations_and_nameplates_stay_while_their_people_show() {
 #[test]
 fn hidden_nameplates_are_not_kept_with_the_pictures_on_screen() {
     let mut app = connected();
-    app.state.members = Some(Ok(vec![ChatMember {
+    app.state.members = Some(Ok(Arc::new(vec![ChatMember {
         decoration: Some("bobs-ring.png".into()),
         nameplate: Some(crate::chat::Nameplate {
             picture: "plate.png".into(),
             colors: None,
         }),
         ..member("@bob", "Bob")
-    }]));
+    }])));
     app.dispatch(Action::HideNameplates(true));
     for url in ["bobs-ring.png", "plate.png"]
         .into_iter()
@@ -5300,6 +5482,11 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
         })
     };
     let mut app = connected();
+    // Effects play only once the profile switch lets them.
+    app.dispatch(Action::SetCosmetics(Cosmetics {
+        effects: true,
+        ..Cosmetics::default()
+    }));
     for sku in 0..10 {
         app.apply(Event::ProfileEffect(effect(&sku.to_string())));
     }
@@ -5330,6 +5517,7 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
         loading: false,
         kept: false,
         note: None,
+        ..Default::default()
     });
     app.dispatch(Action::CloseAside);
     assert!(app.requested_pictures.contains("9-still.png#effect"));
@@ -5480,6 +5668,149 @@ fn custom_emoji_kept_do_not_let_other_pictures_pile_up() {
         2 * KEPT_PICTURES,
         "only the emoji stay"
     );
+}
+
+#[test]
+fn a_closed_picker_lets_go_of_every_emoji_but_those_on_screen() {
+    let mut app = connected();
+    let shown = "https://cdn.discordapp.com/emojis/1.png".to_owned();
+    let mut message = ChatMessage {
+        item: "m1".into(),
+        ..Default::default()
+    };
+    message.emoji.push(yapfast_core_emoji(&shown));
+    app.state.messages = Arc::new(vec![Arc::new(message)]);
+    let arrive = |app: &mut Application, url: String| {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    };
+    arrive(&mut app, shown.clone());
+    // A handful, far fewer than a large account has.
+    for index in 2..12 {
+        arrive(
+            &mut app,
+            format!("https://cdn.discordapp.com/emojis/{index}.png"),
+        );
+    }
+    arrive(&mut app, "avatar.png".into());
+    app.dispatch(Action::UnloadEmojiPictures);
+    let mut kept: Vec<&str> = app.state.pictures.keys().map(String::as_str).collect();
+    kept.sort_unstable();
+    assert_eq!(kept, ["avatar.png", shown.as_str()]);
+    // The next look asks for those it let go of again.
+    assert!(
+        !app.requested_pictures
+            .contains("https://cdn.discordapp.com/emojis/2.png")
+    );
+    assert!(app.requested_pictures.contains(&shown));
+}
+
+#[test]
+fn emoji_the_picker_let_go_of_are_called_off_and_not_kept_if_they_come() {
+    let mut app = connected();
+    let near = "https://cdn.discordapp.com/emojis/1.png".to_owned();
+    let far = "https://cdn.discordapp.com/emojis/2.png".to_owned();
+    let asked = app.dispatch(Action::LoadPicturesFirst(vec![near.clone(), far.clone()]));
+    assert_eq!(asked.len(), 1);
+    // The picker scrolled on: the far one, not come yet, is called off.
+    let effects = app.dispatch(Action::KeepEmojiPictures(vec![near.clone()]));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::CancelPictures(urls)))]
+            if *urls == [far.clone()]
+    ));
+    // It comes all the same, and isn't kept; the near one is.
+    for url in [&far, &near] {
+        app.apply(Event::Picture {
+            url: url.clone(),
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    assert!(!app.state.pictures.contains_key(&far));
+    assert!(app.state.pictures.contains_key(&near));
+    // Asked for again, it is kept when it comes.
+    app.dispatch(Action::LoadPicturesFirst(vec![far.clone()]));
+    app.apply(Event::Picture {
+        url: far.clone(),
+        picture: Arc::new(Picture::default()),
+    });
+    assert!(app.state.pictures.contains_key(&far));
+}
+
+#[test]
+fn animation_pins_cover_viewport_emoji_not_every_loaded_message() {
+    let mut app = connected();
+    app.state.messages = Arc::new(
+        (0..100)
+            .map(|index| {
+                Arc::new(ChatMessage {
+                    item: format!("m{index}"),
+                    emoji: vec![yapfast_core_emoji(&format!("emoji-{index}.gif"))],
+                    ..Default::default()
+                })
+            })
+            .collect(),
+    );
+    assert_eq!(
+        app.visible_message_emoji().count(),
+        0,
+        "no viewport has been reported yet"
+    );
+    app.visible_messages = vec!["m40".into(), "m42".into()];
+    let pictures: Vec<&str> = app
+        .visible_message_emoji()
+        .map(|emoji| emoji.picture.as_str())
+        .collect();
+    assert_eq!(pictures, ["emoji-40.gif", "emoji-41.gif", "emoji-42.gif"]);
+    app.visible_messages = vec!["m90".into()];
+    assert_eq!(app.visible_message_emoji().count(), 1);
+    app.visible_messages.clear();
+    assert_eq!(app.visible_message_emoji().count(), 0);
+}
+
+fn yapfast_core_emoji(picture: &str) -> crate::chat::CustomEmoji {
+    crate::chat::CustomEmoji {
+        text: ":one:".into(),
+        id: "1".into(),
+        animated: false,
+        usable: true,
+        picture: picture.into(),
+    }
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_picker_finds_every_emoji_by_id_and_says_which_it_may_use() {
+    use yapfast_discord::{
+        ready::{Emoji, Server},
+        service::{Snapshot, Status},
+    };
+    let mut app = connected();
+    let emoji = |id: &str, name: &str, animated| Emoji {
+        id: id.into(),
+        name: name.into(),
+        animated,
+        available: true,
+    };
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Elsewhere".into(),
+            emojis: vec![emoji("5", "talk", false), emoji("6", "party", true)].into(),
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    // Without Nitro, another server's emoji are found, locked.
+    let found = app.emoji_by_id(&["6", "7"].into_iter().collect());
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].text, ":party:");
+    assert!(found[0].animated && !found[0].usable);
+    assert!(found[0].picture.contains("/emojis/6"));
 }
 
 #[cfg(feature = "discord")]
@@ -6720,7 +7051,7 @@ fn server_channels_list_their_pins_and_search_them() {
             if place == "discord:10"
     ));
     // A voice channel has neither.
-    app.dispatch(Action::SelectRoom("discord:10:14".into()));
+    app.dispatch(Action::Open("discord:10:14".into()));
     assert!(app.state.conversation_that(|can| can.pins).is_none());
     assert!(app.dispatch(Action::ShowPins(true)).is_empty());
 }
@@ -6889,7 +7220,7 @@ fn a_server_search_stays_open_in_its_channels_and_jumps_into_them() {
     );
 
     // A voice channel can't search, so it closes the search.
-    app.dispatch(Action::SelectRoom("discord:10:14".into()));
+    app.dispatch(Action::Open("discord:10:14".into()));
     assert!(app.state.search.is_none());
 }
 
@@ -8069,8 +8400,13 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
         result: Ok(()),
     });
     assert!(
-        app.state.profile_editor.is_none(),
-        "its pictures go with it"
+        app.state
+            .profile_editor
+            .as_ref()
+            .unwrap()
+            .change()
+            .is_none(),
+        "it stays open with nothing left to save"
     );
 
     // Resetting the server avatar sends none, so the main one shows.
@@ -8097,11 +8433,16 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
         "not without Discord"
     );
     let mut app = discord_server();
+    // The account's own profile comes too, for its theme and name style,
+    // when the account is known.
     assert!(matches!(
         app.dispatch(Action::EditProfile).as_slice(),
-        [Effect::Backend(Command::Discord(
-            DiscordCommand::OwnProfile { server: None }
-        ))]
+        [
+            Effect::Backend(Command::Discord(DiscordCommand::OwnProfile {
+                server: None
+            })),
+            ..
+        ]
     ));
     let profile = OwnProfile {
         name: "Alice".into(),
@@ -8217,7 +8558,14 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
         server: None,
         result: Ok(()),
     });
-    assert!(app.state.profile_editor.is_none());
+    assert!(
+        app.state
+            .profile_editor
+            .as_ref()
+            .unwrap()
+            .change()
+            .is_none()
+    );
 
     // With Nitro: a banner and an animated avatar, and no banner colour,
     // which Discord shows only without.
@@ -8243,6 +8591,223 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
     let change = saved(app.dispatch(Action::SaveProfile));
     assert!(matches!(&change.avatar, Some(Some(picked)) if picked.mime == "image/gif"));
     assert!(change.accent.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
+    use chat::OwnProfile;
+    let mut app = discord_server();
+    app.state.discord_user = Some("1".into());
+    app.dispatch(Action::EditProfile);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(OwnProfile::default()),
+    });
+    assert!(
+        app.state
+            .profile_editor
+            .as_ref()
+            .unwrap()
+            .change()
+            .is_none()
+    );
+
+    let saved = |effects: Vec<Effect>| match effects.as_slice() {
+        [
+            Effect::Backend(Command::Discord(DiscordCommand::SaveProfile {
+                server: None,
+                change,
+            })),
+        ] => change.primary_server.clone(),
+        other => panic!("{} effects", other.len()),
+    };
+    app.dispatch(Action::ChooseServerTag("9".into()));
+    assert_eq!(
+        saved(app.dispatch(Action::SaveProfile)),
+        Some(Some("9".into()))
+    );
+    let effects = app.apply(Event::ProfileSaved {
+        server: None,
+        result: Ok(()),
+    });
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert!(editor.change().is_none(), "it stays open, saved");
+    assert_eq!(
+        editor.chosen_tag,
+        Some(Some("9".into())),
+        "the tag stays shown"
+    );
+    let profile = editor.profile.clone().unwrap();
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile),
+    });
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert!(!editor.refreshing);
+    assert!(
+        editor.change().is_none(),
+        "the saved tag is no longer a change"
+    );
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::Backend(Command::Discord(
+                DiscordCommand::OwnProfile { server: None }
+            ))]
+        ),
+        "the profile is read back once"
+    );
+    assert!(
+        app.dispatch(Action::LoadOwnProfile).iter().any(|effect| matches!(
+            effect,
+            Effect::Backend(Command::Discord(DiscordCommand::Profile { user, .. })) if user == "1"
+        )),
+        "what the popout shows comes fresh as it opens"
+    );
+
+    // An empty id takes the tag off; a refusal stays on screen.
+    app.dispatch(Action::EditProfile);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(OwnProfile::default()),
+    });
+    app.dispatch(Action::ChooseServerTag(String::new()));
+    assert_eq!(saved(app.dispatch(Action::SaveProfile)), Some(None));
+    let effects = app.apply(Event::ProfileSaved {
+        server: None,
+        result: Err("no".into()),
+    });
+    // Requests before the one refused went through, so what Discord has is
+    // asked for again, once; the popout asks as it next opens.
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::OwnProfile { server: None }
+        ))]
+    ));
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert_eq!(editor.error.as_deref(), Some("no"));
+    assert!(!editor.saving);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(OwnProfile::default()),
+    });
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert_eq!(editor.error.as_deref(), Some("no"), "the refusal stays");
+    assert_eq!(
+        editor.change().and_then(|change| change.primary_server),
+        Some(None),
+        "what was refused is still a change"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn what_is_written_while_a_save_is_read_back_stays() {
+    use chat::OwnProfile;
+    let mut app = discord_server();
+    app.state.discord_user = Some("1".into());
+    app.dispatch(Action::EditProfile);
+    let profile = |name: &str, bio: &str| OwnProfile {
+        name: name.into(),
+        bio: bio.into(),
+        ..Default::default()
+    };
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile("Ann", "old")),
+    });
+    app.dispatch(Action::WriteProfile {
+        field: ProfileText::Name,
+        text: "Annie".into(),
+    });
+    app.dispatch(Action::WriteProfile {
+        field: ProfileText::Bio,
+        text: "new".into(),
+    });
+    app.dispatch(Action::SaveProfile);
+    // Typed while the save is on its way, and while it's read back.
+    app.dispatch(Action::WriteProfile {
+        field: ProfileText::Bio,
+        text: "newer".into(),
+    });
+    app.apply(Event::ProfileSaved {
+        server: None,
+        result: Ok(()),
+    });
+    app.dispatch(Action::WriteProfile {
+        field: ProfileText::Pronouns,
+        text: "she/her".into(),
+    });
+    // Discord's answer, with what it now has and a name it changed.
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile("Annie!", "new")),
+    });
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert!(!editor.refreshing);
+    assert_eq!(
+        editor.name, "Annie!",
+        "what wasn't touched since comes from Discord"
+    );
+    assert_eq!(editor.bio, "newer");
+    assert_eq!(editor.pronouns, "she/her");
+    let change = editor.change().expect("the later edits are still to save");
+    assert_eq!(change.name, None);
+    assert_eq!(change.bio.as_deref(), Some("newer"));
+    assert_eq!(change.pronouns.as_deref(), Some("she/her"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_save_that_fails_part_way_keeps_what_was_written_and_reads_back_the_rest() {
+    use chat::OwnProfile;
+    let mut app = discord_server();
+    app.state.discord_user = Some("1".into());
+    app.dispatch(Action::EditProfile);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(OwnProfile {
+            name: "Ann".into(),
+            ..Default::default()
+        }),
+    });
+    app.dispatch(Action::WriteProfile {
+        field: ProfileText::Name,
+        text: "Annie".into(),
+    });
+    app.dispatch(Action::WriteProfile {
+        field: ProfileText::Bio,
+        text: "hi".into(),
+    });
+    app.dispatch(Action::SaveProfile);
+    // The name went through; the bio was refused.
+    app.apply(Event::ProfileSaved {
+        server: None,
+        result: Err("too long".into()),
+    });
+    assert!(
+        app.state
+            .profile_editor
+            .as_ref()
+            .unwrap()
+            .change()
+            .is_none()
+    );
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(OwnProfile {
+            name: "Annie".into(),
+            ..Default::default()
+        }),
+    });
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert_eq!((editor.name.as_str(), editor.bio.as_str()), ("Annie", "hi"));
+    assert_eq!(editor.error.as_deref(), Some("too long"));
+    let change = editor.change().expect("the bio is still to save");
+    assert_eq!(change.name, None, "the name Discord took is no change");
+    assert_eq!(change.bio.as_deref(), Some("hi"));
 }
 
 #[test]
@@ -8428,7 +8993,7 @@ fn a_channels_threads_list_as_discords_client_lists_them() {
     let sections = app.thread_sections().unwrap();
     assert_eq!(rooms(&sections.other), ["34"]);
     // A voice channel has none.
-    app.dispatch(Action::SelectRoom("discord:10:13".into()));
+    app.dispatch(Action::Open("discord:10:13".into()));
     assert_eq!(app.state.threads_channel(), None);
 }
 
@@ -9385,6 +9950,485 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
         saved.as_slice(),
         [Command::Discord(DiscordCommand::SetFavoriteGifs(favorites))] if favorites.len() == 1
     ));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn emoji_prefetch_fills_partial_accounts_without_repeating_picker_requests() {
+    use yapfast_discord::{
+        ready::{Emoji, Server},
+        service::{Snapshot, Status},
+    };
+    let mut app = connected();
+    let snapshot = |ids: &[&str]| {
+        discord_event(Snapshot {
+            status: Status::Online,
+            servers: vec![MarkedServer::from(Server {
+                id: "10".into(),
+                name: "Test".into(),
+                emojis: ids
+                    .iter()
+                    .map(|id| Emoji {
+                        id: (*id).into(),
+                        name: format!("emoji_{id}"),
+                        available: true,
+                        animated: false,
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+                ..Default::default()
+            })],
+            ..Default::default()
+        })
+    };
+    let prefetched = |effects: Vec<Effect>| -> Vec<String> {
+        effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::PrefetchPictures(urls))) => {
+                    Some(urls)
+                }
+                _ => None,
+            })
+            .flatten()
+            .filter(|url| url.contains("/emojis/"))
+            .collect()
+    };
+    // An early snapshot with no emoji must not mark the whole account done.
+    assert!(prefetched(app.apply(snapshot(&[]))).is_empty());
+    let first = prefetched(app.apply(snapshot(&["5"])));
+    assert_eq!(first.len(), 1);
+    assert!(first[0].contains("/emojis/5.png"));
+    assert!(prefetched(app.dispatch(Action::CacheEmojiPictures)).is_empty());
+    assert!(prefetched(app.apply(snapshot(&["5"]))).is_empty());
+    // A later snapshot adds an emoji; only that picture is queued.
+    let added = prefetched(app.apply(snapshot(&["5", "6"])));
+    assert_eq!(added.len(), 1);
+    assert!(added[0].contains("/emojis/6.png"));
+    assert!(prefetched(app.dispatch(Action::CacheEmojiPictures)).is_empty());
+    assert!(
+        app.state.pictures.is_empty(),
+        "prefetch never requests decoded pictures"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn server_icons_are_fetched_ahead_once_for_the_pickers_rails() {
+    use yapfast_discord::ready::Server;
+    let mut app = connected();
+    let icon = "https://cdn.discordapp.com/icons/10/abc.png?size=128".to_string();
+    let snapshot = || {
+        discord_event(yapfast_discord::service::Snapshot {
+            status: yapfast_discord::service::Status::Online,
+            servers: vec![MarkedServer::from(Server {
+                id: "10".into(),
+                name: "Test".into(),
+                icon: Some(icon.clone()),
+                ..Default::default()
+            })],
+            ..Default::default()
+        })
+    };
+    let asked = |effects: &[Effect], url: &str| {
+        effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Backend(Command::Discord(DiscordCommand::PrefetchPictures(urls)))
+                    if urls == &[url.to_owned()]
+            )
+        })
+    };
+    // The rails show every server's icon, so they are fetched ahead.
+    let first = app.apply(snapshot());
+    assert!(asked(&first, &icon), "the server's icon is fetched ahead");
+    // Each is fetched once, not on every snapshot.
+    let again = app.apply(snapshot());
+    assert!(!asked(&again, &icon));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
+    use crate::chat::{Sticker, StickerCollection};
+    use std::sync::Arc;
+    use yapfast_discord::ready::{Channel, Server};
+    let mut app = connected();
+    let at_start = app.apply(discord_event(yapfast_discord::service::Snapshot {
+        status: yapfast_discord::service::Status::Online,
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Test".into(),
+            text_channels: vec![Channel {
+                id: "21".into(),
+                name: "general".into(),
+                ..Default::default()
+            }],
+            stickers: Arc::new(vec![
+                yapfast_discord::stickers::Sticker {
+                    id: "5".into(),
+                    name: "Wave".into(),
+                    format: 1,
+                    unavailable: false,
+                },
+                // One the server's boosts no longer cover, which isn't listed.
+                yapfast_discord::stickers::Sticker {
+                    id: "8".into(),
+                    name: "Gone".into(),
+                    format: 1,
+                    unavailable: true,
+                },
+            ]),
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom("discord:10:21".into()));
+    app.apply(Event::Timeline {
+        room: "discord:10:21".into(),
+        messages: timeline(vec![]),
+    });
+    let backend = |effects: Vec<Effect>| -> Vec<Command> {
+        effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(command) => Some(command),
+                _ => None,
+            })
+            .collect()
+    };
+    let wave = "https://cdn.discordapp.com/stickers/5.png?size=96";
+    assert!(app.state.can_pick_stickers());
+    // A start asks Discord for its default packs and fetches the pictures of
+    // the stickers the snapshot gave every server ahead, those its boosts
+    // cover; no server's list is asked for, as READY gave them. The GIFs'
+    // picker is asked for at the same start, so only the stickers' asks are
+    // read here.
+    let at_start: Vec<Command> = backend(at_start)
+        .into_iter()
+        .filter(|command| match command {
+            Command::Discord(DiscordCommand::StickerPacks) => true,
+            Command::Discord(DiscordCommand::PrefetchPictures(urls)) => {
+                urls.iter().any(|url| url.contains("/stickers/"))
+            }
+            _ => false,
+        })
+        .collect();
+    assert!(
+        matches!(
+            at_start.as_slice(),
+            [
+                Command::Discord(DiscordCommand::StickerPacks),
+                Command::Discord(DiscordCommand::PrefetchPictures(urls)),
+            ] if urls == &[wave.to_owned()]
+        ),
+        "a start asks for the packs and fetches the servers' stickers ahead"
+    );
+    // A snapshot that leaves the list as it was fetches nothing again.
+    assert!(
+        app.state.stickers.servers.is_empty(),
+        "a closed picker holds no list"
+    );
+
+    // Opening lists the stickers the snapshot gave, without asking Discord;
+    // their pictures were fetched ahead already.
+    let asked = backend(app.dispatch(Action::OpenStickers));
+    assert!(asked.is_empty(), "the list and its pictures were there");
+    assert_eq!(
+        app.state
+            .stickers
+            .servers
+            .iter()
+            .find(|server| server.id == "10")
+            .map(|server| {
+                (
+                    server.name.as_str(),
+                    server
+                        .stickers
+                        .iter()
+                        .map(|sticker| sticker.name.as_str())
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        Some(("Test", vec!["Wave"]))
+    );
+
+    // The packs come, whose pictures are fetched ahead too.
+    let packs = vec![StickerCollection {
+        id: "1".into(),
+        name: "Wumpus".into(),
+        stickers: vec![Sticker {
+            id: "7".into(),
+            name: "Party".into(),
+            format: 1,
+            picture: "https://cdn.discordapp.com/stickers/7.png?size=96".into(),
+            usable: true,
+        }],
+    }];
+    // The packs a start kept show at once, and their pictures are fetched
+    // ahead then too; Discord's answer asks for none again.
+    let kept = backend(app.apply(Event::KeptStickerPacks(packs.clone())));
+    assert!(
+        matches!(
+            kept.as_slice(),
+            [Command::Discord(DiscordCommand::PrefetchPictures(urls))]
+                if urls == &["https://cdn.discordapp.com/stickers/7.png?size=96"]
+        ),
+        "a start fetches the kept packs' pictures ahead"
+    );
+    let fetched = backend(app.apply(Event::StickerPacks(Ok(packs.clone()))));
+    assert!(
+        fetched.is_empty(),
+        "every picture was fetched ahead already"
+    );
+    let listed: Vec<String> = app
+        .state
+        .stickers
+        .collections(false)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    // Frequently Used, every server's stickers, and Discord's packs.
+    assert_eq!(listed, ["Frequently Used", "Test", "Wumpus"]);
+    // Nothing was sent yet, so Frequently Used shows Discord's own first.
+    let seeded: Vec<String> = app
+        .state
+        .stickers
+        .collections(true)
+        .into_iter()
+        .find(|collection| collection.name == "Frequently Used")
+        .map(|collection| {
+            collection
+                .stickers
+                .iter()
+                .map(|sticker| sticker.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(seeded, ["Party"]);
+    fn usable(app: &Application, nitro: bool, collection: &str) -> bool {
+        app.state
+            .stickers
+            .collections(nitro)
+            .into_iter()
+            .find(|listed| listed.name == collection)
+            .is_some_and(|listed| listed.stickers.iter().all(|sticker| sticker.usable))
+    }
+    assert!(
+        usable(&app, false, "Test"),
+        "the open server's stickers are usable"
+    );
+    // Discord's packs are anyone's, as its client has them.
+    assert!(
+        usable(&app, false, "Wumpus"),
+        "Discord's packs need no Nitro"
+    );
+    assert!(usable(&app, true, "Wumpus"));
+    // Before this device has sent one, Frequently Used shows Discord's own.
+    assert!(usable(&app, false, "Frequently Used"));
+    // Another server's stickers need Nitro: in a DM, none is the open one's.
+    app.state.stickers.server_for = None;
+    app.state.stickers.external = true;
+    assert!(
+        !usable(&app, false, "Test"),
+        "another server's stickers need Nitro"
+    );
+    assert!(usable(&app, true, "Test"));
+    app.state.stickers.server_for = Some("10".into());
+    let with_nitro: Vec<String> = app
+        .state
+        .stickers
+        .collections(true)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    assert_eq!(with_nitro, ["Frequently Used", "Test", "Wumpus"]);
+
+    // A tile in sight is asked for, once.
+    let shown = backend(app.dispatch(Action::StickersShown(vec![wave.to_owned()])));
+    assert!(matches!(
+        shown.as_slice(),
+        [Command::Discord(DiscordCommand::StickerPicture { url })] if url == wave
+    ));
+    assert!(backend(app.dispatch(Action::StickersShown(vec![wave.to_owned()]))).is_empty());
+    app.apply(Event::StickerPicture {
+        url: wave.to_owned(),
+        picture: None,
+    });
+    assert!(matches!(
+        app.state.stickers.pictures.get(wave),
+        Some(StickerPicture::Failed)
+    ));
+
+    // A click sends the sticker as a message of its own, and the picker
+    // closes, letting go of its pictures and its lists.
+    let sent = backend(app.dispatch(Action::PickSticker("5".into())));
+    assert!(matches!(
+        sent.as_slice(),
+        [Command::Discord(DiscordCommand::SendSticker { room, id })]
+            if room == "discord:10:21" && id == "5"
+    ));
+    assert!(!app.state.stickers.open && app.state.stickers.pictures.is_empty());
+    assert!(app.state.stickers.servers.is_empty());
+    // The rest is read with the picker open again.
+    app.dispatch(Action::OpenStickers);
+
+    // A sticker that couldn't be sent says why in the room.
+    app.apply(Event::StickerSent {
+        room: "discord:10:21".into(),
+        result: Err("Couldn't send the sticker: no".into()),
+    });
+    assert_eq!(
+        app.state.notice.as_deref(),
+        Some("Couldn't send the sticker: no")
+    );
+
+    // Sending a sticker counts it, and Frequently Used lists it first.
+    let frequent: Vec<String> = app
+        .state
+        .stickers
+        .collections(false)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    assert_eq!(
+        frequent.first().map(String::as_str),
+        Some("Frequently Used"),
+        "the sticker sent lists under Frequently Used first"
+    );
+    assert_eq!(app.sticker_uses().len(), 1);
+    assert!(app.sticker_uses()[0].uses >= 1);
+
+    // The search keeps the stickers whose names hold it, and Enter picks the
+    // first of those.
+    app.dispatch(Action::SearchStickers("part".into()));
+    let found: Vec<(String, Vec<String>)> = app
+        .state
+        .stickers
+        .collections(true)
+        .into_iter()
+        .map(|collection| {
+            (
+                collection.name,
+                collection
+                    .stickers
+                    .iter()
+                    .map(|sticker| sticker.name.clone())
+                    .collect(),
+            )
+        })
+        .collect();
+    // Frequently Used holds the sticker this device sent, whose name the
+    // search doesn't hold; only Discord's pack's is left.
+    assert_eq!(found, [("Wumpus".to_string(), vec!["Party".to_string()])]);
+    app.dispatch(Action::SearchStickers(String::new()));
+    assert_eq!(
+        app.state.stickers.collections(true).len(),
+        3,
+        "Frequently Used, the server's stickers and the pack's"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+fn the_sticker_picker_lists_the_servers_own_stickers_from_discord() {
+    use crate::{backend::Backend, chat::Start, runtime::BackgroundRuntime};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    // The fake's server and #general.
+    let (guild, general) = ("1400000000000000100", "1400000000000000102");
+    let runtime = Arc::new(BackgroundRuntime::new().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let (backend, mut events) = Backend::start(runtime.clone(), root.path().into(), Start::Restore);
+    let mut app = Application::default();
+    // What the window does with every event and effect.
+    let send = |backend: &Backend, effects: Vec<Effect>| {
+        for effect in effects {
+            if let Effect::Backend(command) = effect {
+                let _ = backend.send(command);
+            }
+        }
+    };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !app.state.discord_online {
+        let Ok(event) = events.try_recv() else {
+            assert!(
+                Instant::now() < deadline,
+                "the fake Discord never came online"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            continue;
+        };
+        let effects = app.apply(event);
+        send(&backend, effects);
+    }
+    // Open the fake's channel, then the sticker picker as the button does.
+    for action in [
+        Action::Navigate(Navigation::Server(discord::server_id(guild))),
+        Action::SelectRoom(discord::room_id(guild, general)),
+    ] {
+        let effects = app.dispatch(action);
+        send(&backend, effects);
+    }
+    // READY gave the server's stickers, which list as the picker opens.
+    let opened = app.dispatch(Action::OpenStickers);
+    send(&backend, opened);
+    // Discord's answer, applied as the window applies it.
+    let server_stickers = |app: &Application| {
+        app.state
+            .stickers
+            .servers
+            .iter()
+            .find(|server| server.id == guild)
+            .is_none_or(|server| server.stickers.is_empty())
+    };
+    while server_stickers(&app) {
+        let Ok(event) = events.try_recv() else {
+            assert!(
+                Instant::now() < deadline,
+                "no server stickers: collections {:?}, error {:?}",
+                app.state
+                    .stickers
+                    .collections(true)
+                    .iter()
+                    .map(|collection| collection.name.clone())
+                    .collect::<Vec<_>>(),
+                app.state.stickers.error
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            continue;
+        };
+        let effects = app.apply(event);
+        send(&backend, effects);
+    }
+    let server = app
+        .state
+        .stickers
+        .servers
+        .iter()
+        .find(|server| server.id == guild)
+        .unwrap();
+    assert_eq!(server.name, "Server");
+    assert!(
+        server.stickers.iter().any(|sticker| sticker.name == "Wave"),
+        "the server's own stickers list: {:?}",
+        server.stickers
+    );
+    // The picker lists them before Discord's packs.
+    let names: Vec<String> = app
+        .state
+        .stickers
+        .collections(true)
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
+    assert_eq!(
+        names.first().map(String::as_str),
+        Some("Server"),
+        "the server's stickers come first: {names:?}"
+    );
 }
 
 #[test]
@@ -10413,6 +11457,152 @@ fn discord_emoji_favourites_and_uses_rank_and_last_through_partial_updates() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn another_servers_emoji_and_stickers_need_the_channels_leave() {
+    use yapfast_discord::{
+        marked::MarkedServer,
+        ready::{
+            Channel, Emoji, Overwrite, Server,
+            permission::{SEND_MESSAGES, USE_EXTERNAL_EMOJIS, USE_EXTERNAL_STICKERS, VIEW_CHANNEL},
+        },
+        service::{Account, Snapshot, Status},
+        stickers::Sticker,
+    };
+    let mut app = connected();
+    let everyone = VIEW_CHANNEL | SEND_MESSAGES | USE_EXTERNAL_EMOJIS | USE_EXTERNAL_STICKERS;
+    let channel = |id: &str, deny| Channel {
+        id: id.into(),
+        name: id.into(),
+        overwrites: std::sync::Arc::new(vec![Overwrite {
+            id: "10".into(),
+            member: false,
+            allow: 0,
+            deny,
+        }]),
+        ..Default::default()
+    };
+    // Nitro, in "Test", whose #22 denies using other servers' emoji and
+    // stickers; "Other" has its own of each.
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        user_id: Some("1".into()),
+        account: Some(Account {
+            username: String::new(),
+            name: "Alice".into(),
+            avatar: String::new(),
+            decoration: None,
+            nameplate: None,
+            premium_type: 2,
+            mfa_enabled: false,
+            has_email: true,
+        }),
+        servers: vec![
+            MarkedServer::from(Server {
+                id: "10".into(),
+                name: "Test".into(),
+                roles: std::collections::HashMap::from([("10".to_owned(), everyone)]).into(),
+                text_channels: vec![
+                    channel("21", 0),
+                    channel("22", USE_EXTERNAL_EMOJIS | USE_EXTERNAL_STICKERS),
+                ],
+                ..Default::default()
+            }),
+            MarkedServer::from(Server {
+                id: "30".into(),
+                name: "Other".into(),
+                emojis: vec![Emoji {
+                    id: "5".into(),
+                    name: "wave".into(),
+                    animated: false,
+                    available: true,
+                }]
+                .into(),
+                stickers: std::sync::Arc::new(vec![Sticker {
+                    id: "7".into(),
+                    name: "Hi".into(),
+                    format: 1,
+                    unavailable: false,
+                }]),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    }));
+    let other_usable = |app: &mut Application, room: &str| {
+        app.dispatch(Action::SelectRoom(room.into()));
+        app.dispatch(Action::OpenStickers);
+        let emoji = app
+            .emoji_sets()
+            .into_iter()
+            .find(|set| set.id == "30")
+            .map(|set| set.emoji[0].usable);
+        let sticker = app
+            .state
+            .stickers
+            .collections(true)
+            .into_iter()
+            .find(|collection| collection.id == "30")
+            .map(|collection| collection.stickers[0].usable);
+        app.dispatch(Action::CloseStickers);
+        (emoji, sticker)
+    };
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    assert_eq!(
+        other_usable(&mut app, "discord:10:21"),
+        (Some(true), Some(true)),
+        "with Nitro, where the channel leaves it"
+    );
+    assert_eq!(
+        other_usable(&mut app, "discord:10:22"),
+        (Some(false), Some(false)),
+        "not where it denies Use External Emojis and Stickers, Nitro or not"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_emoji_star_keeps_the_discord_accounts_favourites() {
+    let mut app = connected();
+    app.apply(Event::DiscordEmojis(crate::chat::DiscordEmojis {
+        favorites: Some(vec!["skull_crossbones".into()]),
+        ..Default::default()
+    }));
+    let saved = |effects: Vec<Effect>| -> Option<Vec<String>> {
+        effects.into_iter().find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::SetFavoriteEmojis(favorites))) => {
+                Some(favorites)
+            }
+            _ => None,
+        })
+    };
+    // A star puts it last, and Discord keeps them all, in that order.
+    assert_eq!(
+        saved(app.dispatch(Action::FavoriteEmoji("1400000000000000300".into()))),
+        Some(vec![
+            "skull_crossbones".to_owned(),
+            "1400000000000000300".to_owned()
+        ])
+    );
+    assert_eq!(
+        app.state.discord_emojis.favorites,
+        ["skull_crossbones", "1400000000000000300"]
+    );
+    // Starred again, it goes.
+    assert_eq!(
+        saved(app.dispatch(Action::FavoriteEmoji("skull_crossbones".into()))),
+        Some(vec!["1400000000000000300".to_owned()])
+    );
+    // Discord keeps 250 at most, as its client says.
+    app.state.discord_emojis.favorites = (0..250).map(|index| index.to_string()).collect();
+    assert_eq!(
+        saved(app.dispatch(Action::FavoriteEmoji("joy".into()))),
+        None
+    );
+    assert_eq!(app.state.discord_emojis.favorites.len(), 250);
+    assert!(app.state.notice.is_some());
+}
+
+#[test]
 fn only_as_many_frequent_emoji_as_discord_keeps_stay() {
     let mut app = connected();
     let now = crate::clock::now_ms();
@@ -10529,4 +11719,546 @@ fn back_and_forward_walk_the_conversations_visited_without_recording_the_walk() 
     assert_eq!(app.state.selected.as_deref(), Some("games"));
     app.dispatch(Action::NavigateBack);
     assert_eq!(app.state.selected.as_deref(), Some("general"));
+}
+
+#[test]
+fn back_and_forward_return_to_the_screens_of_the_dm_list() {
+    let mut app = connected();
+    app.state.nav_back.clear();
+    let screen = |app: &Application| app.state.dm_screen;
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    // Opening the screen already open records nothing.
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::OpenDmScreen(DmScreen::Requests));
+    assert_eq!(
+        app.state.nav_back,
+        [
+            HistoryPlace::Room("dm".into()),
+            HistoryPlace::Dm(DmScreen::Friends)
+        ]
+    );
+    assert!(app.state.can_go_back() && !app.state.can_go_forward());
+
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(screen(&app), Some(DmScreen::Friends));
+    assert_eq!(app.state.selected, None);
+    assert!(app.state.can_go_back() && app.state.can_go_forward());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(screen(&app), None);
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+    assert!(!app.state.can_go_back() && app.state.can_go_forward());
+
+    // Forward goes through the screens again, and the walk records nothing.
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(screen(&app), Some(DmScreen::Friends));
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(screen(&app), Some(DmScreen::Requests));
+    assert!(!app.state.can_go_forward());
+    assert!(app.state.nav_forward.is_empty());
+    assert_eq!(app.state.nav_back.len(), 2);
+
+    // A new visit drops what was forward.
+    app.dispatch(Action::NavigateBack);
+    app.dispatch(Action::SelectRoom("dm".into()));
+    assert!(!app.state.can_go_forward());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(screen(&app), Some(DmScreen::Friends));
+}
+
+#[test]
+fn back_from_a_server_returns_to_the_friends_list_among_the_direct_messages() {
+    let mut app = connected();
+    app.state.nav_back.clear();
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
+    assert_eq!(app.state.dm_screen, None);
+    assert!(app.state.selected.is_some());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert_eq!(app.state.selected, None);
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(app.state.navigation, Navigation::Server("friends".into()));
+    assert_eq!(app.state.dm_screen, None);
+}
+
+#[test]
+fn a_place_that_is_gone_is_skipped_and_the_history_keeps_fifty() {
+    let mut app = connected();
+    app.state.nav_back.clear();
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::SelectRoom("dm".into()));
+    app.dispatch(Action::Open("games".into()));
+    // Behind "games" are "dm", the friends list and "dm" again; with "dm"
+    // gone the arrow still has the screen to go to.
+    app.state.rooms.retain(|room| room.id != "dm");
+    assert!(app.state.can_go_back());
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert!(!app.state.can_go_back());
+
+    let mut app = connected();
+    app.state.nav_back.clear();
+    for turn in 0..80 {
+        let screen = if turn % 2 == 0 {
+            DmScreen::Friends
+        } else {
+            DmScreen::Requests
+        };
+        app.dispatch(Action::OpenDmScreen(screen));
+        app.dispatch(Action::SelectRoom("dm".into()));
+    }
+    assert_eq!(app.state.nav_back.len(), 50);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn back_and_forward_return_to_browse_channels() {
+    let mut app = discord_server();
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    change_server(&mut app, |server| server.community = true);
+    app.dispatch(Action::SelectRoom("discord:10:11".into()));
+    app.state.nav_back.clear();
+    app.dispatch(Action::BrowseChannels);
+    assert!(app.state.browse.is_some());
+    app.dispatch(Action::SelectRoom("discord:10:13".into()));
+    assert!(app.state.browse.is_none());
+    assert_eq!(
+        app.state.nav_back,
+        [
+            HistoryPlace::Room("discord:10:11".into()),
+            HistoryPlace::Browse("discord:10".into())
+        ]
+    );
+
+    app.dispatch(Action::NavigateBack);
+    let browse = app.state.browse.as_ref().expect("Browse Channels");
+    assert_eq!(browse.server, "discord:10");
+    assert_eq!(app.state.selected, None);
+    assert!(app.state.can_go_back() && app.state.can_go_forward());
+    app.dispatch(Action::NavigateBack);
+    assert!(app.state.browse.is_none());
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:11"));
+    assert!(!app.state.can_go_back() && app.state.can_go_forward());
+    app.dispatch(Action::NavigateForward);
+    assert!(app.state.browse.is_some());
+    app.dispatch(Action::NavigateForward);
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:13"));
+    assert!(!app.state.can_go_forward());
+
+    // A server that stops offering it takes it out of the arrows' reach.
+    change_server(&mut app, |server| server.community = false);
+    assert!(app.state.can_go_back(), "the first channel is still there");
+    app.dispatch(Action::NavigateBack);
+    assert_eq!(app.state.selected.as_deref(), Some("discord:10:11"));
+    assert!(!app.state.can_go_back());
+}
+
+/// A profile whose wishlist is at `id`.
+#[cfg(feature = "discord")]
+fn profile_with_wishlist(id: Option<&str>) -> chat::OwnProfile {
+    chat::OwnProfile {
+        fallback: chat::Profile {
+            wishlist_place: id.map(|id| chat::WishlistPlace {
+                id: id.to_owned(),
+                private: false,
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+#[cfg(feature = "discord")]
+fn wishlist_asked(effects: &[Effect]) -> Option<&str> {
+    match effects {
+        [Effect::Backend(Command::Discord(DiscordCommand::Wishlist { id }))] => Some(id),
+        _ => None,
+    }
+}
+
+/// The account's card keeps its main profile: a card of the account opened
+/// in a server, whose banner, bio and theme are the server's, leaves it be.
+#[test]
+fn the_account_card_keeps_the_main_profile_not_a_servers() {
+    let mut app = Application::default();
+    app.state.discord_user = Some("1".into());
+    let main = Profile {
+        id: "1".into(),
+        bio: "main".into(),
+        theme: Some([1, 2]),
+        ..Default::default()
+    };
+    app.apply(Event::Profile {
+        user: "1".into(),
+        result: Ok(main.clone()),
+    });
+    app.apply(Event::KeptProfile {
+        user: "1".into(),
+        profile: Profile {
+            bio: "server".into(),
+            theme: Some([3, 4]),
+            joined: Some("1 September 2026".into()),
+            ..main.clone()
+        },
+    });
+    app.apply(Event::Profile {
+        user: "1".into(),
+        result: Ok(Profile {
+            bio: "server".into(),
+            joined: Some("1 September 2026".into()),
+            ..main.clone()
+        }),
+    });
+    assert_eq!(app.state.account_profile.as_deref(), Some(&main));
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn the_wishlist_is_asked_for_only_when_its_tab_opens() {
+    let mut app = discord_server();
+    app.dispatch(Action::EditProfile);
+    let loaded = app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile_with_wishlist(Some("90"))),
+    });
+    assert_eq!(wishlist_asked(&loaded), None, "not with the profile");
+    assert_eq!(
+        wishlist_asked(&app.dispatch(Action::OpenWishlist)),
+        Some("90")
+    );
+    let editor = |app: &Application| app.state.profile_editor.clone().unwrap();
+    assert_eq!(editor(&app).wishlist, chat::Wishlist::Loading);
+    assert_eq!(
+        wishlist_asked(&app.dispatch(Action::OpenWishlist)),
+        None,
+        "once"
+    );
+
+    // Another's answer changes nothing, and this one's stays.
+    let items = chat::Wishlist::Loaded(vec![chat::WishlistItem {
+        name: "Nitro".into(),
+        picture: None,
+    }]);
+    app.apply(Event::Wishlist {
+        id: "91".into(),
+        wishlist: items.clone(),
+    });
+    assert_eq!(editor(&app).wishlist, chat::Wishlist::Loading);
+    app.apply(Event::Wishlist {
+        id: "90".into(),
+        wishlist: items.clone(),
+    });
+    assert_eq!(editor(&app).wishlist, items);
+    assert_eq!(wishlist_asked(&app.dispatch(Action::OpenWishlist)), None);
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn a_wishlist_that_failed_is_asked_for_again() {
+    let mut app = discord_server();
+    app.dispatch(Action::EditProfile);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile_with_wishlist(Some("90"))),
+    });
+    app.dispatch(Action::OpenWishlist);
+    app.apply(Event::Wishlist {
+        id: "90".into(),
+        wishlist: chat::Wishlist::Failed,
+    });
+    assert_eq!(
+        app.state.profile_editor.as_ref().unwrap().wishlist,
+        chat::Wishlist::Failed
+    );
+    assert_eq!(
+        wishlist_asked(&app.dispatch(Action::OpenWishlist)),
+        Some("90")
+    );
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn a_wishlist_opened_early_waits_for_the_profile() {
+    let mut app = discord_server();
+    app.dispatch(Action::EditProfile);
+    assert_eq!(wishlist_asked(&app.dispatch(Action::OpenWishlist)), None);
+    let wishlist = |app: &Application| app.state.profile_editor.clone().unwrap().wishlist;
+    assert_eq!(wishlist(&app), chat::Wishlist::Loading);
+    let loaded = app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile_with_wishlist(Some("90"))),
+    });
+    assert_eq!(wishlist_asked(&loaded), Some("90"));
+
+    // A profile that didn't come can't say where it is, and that's the end of it.
+    let mut app = discord_server();
+    app.dispatch(Action::EditProfile);
+    app.dispatch(Action::OpenWishlist);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Err("no".into()),
+    });
+    assert_eq!(wishlist(&app), chat::Wishlist::Failed);
+}
+
+/// The editor names its board's games once, from the profile it reads, as
+/// the full profile does; the look comes with that profile too.
+#[cfg(feature = "discord")]
+#[test]
+fn the_profile_editor_names_its_boards_games_once() {
+    use chat::OwnProfile;
+    let mut app = discord_server();
+    app.state.discord_user = Some("1".into());
+    let opened = app.dispatch(Action::EditProfile);
+    assert!(
+        matches!(
+            opened.as_slice(),
+            [Effect::Backend(Command::Discord(
+                DiscordCommand::OwnProfile { server: None }
+            ))]
+        ),
+        "the profile is asked for once"
+    );
+    let widgets = vec![chat::ProfileWidget {
+        title: "Want to Play".into(),
+        lists_games: true,
+        games: vec![chat::ProfileGame {
+            id: "7".into(),
+            name: "Unknown game".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let profile = OwnProfile {
+        fallback: Profile {
+            id: "1".into(),
+            theme: Some([0x11_22_33, 0x44_55_66]),
+            widgets: widgets.clone(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let effects = app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile.clone()),
+    });
+    let asked = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Discord(DiscordCommand::ProfileBoard { user, .. }))
+                        if user == "1"
+                )
+            })
+            .count()
+    };
+    assert_eq!(asked(&effects), 1);
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert_eq!(editor.theme(), Ok(Some([0x11_22_33, 0x44_55_66])));
+
+    let mut named = widgets;
+    named[0].games[0].name = "Celeste".into();
+    app.apply(Event::ProfileBoard {
+        user: "1".into(),
+        widgets: named.clone(),
+    });
+    let fallback = &app
+        .state
+        .profile_editor
+        .as_ref()
+        .unwrap()
+        .profile
+        .as_ref()
+        .unwrap()
+        .fallback;
+    assert_eq!(fallback.widgets, named);
+    assert!(fallback.board_named);
+    // Read back after a save, it keeps its names and isn't asked for again.
+    app.dispatch(Action::ChooseServerTag("9".into()));
+    app.dispatch(Action::SaveProfile);
+    app.apply(Event::ProfileSaved {
+        server: None,
+        result: Ok(()),
+    });
+    let effects = app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile),
+    });
+    assert_eq!(asked(&effects), 0);
+    let fallback = &app
+        .state
+        .profile_editor
+        .as_ref()
+        .unwrap()
+        .profile
+        .as_ref()
+        .unwrap()
+        .fallback;
+    assert_eq!(fallback.widgets, named);
+}
+
+#[cfg(feature = "discord")]
+/// A full profile on screen with a public wishlist at 90, and a game on its board.
+fn full_profile_with_tabs(large: bool) -> Application {
+    let mut app = Application::default();
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "2".into(),
+            wishlist_place: Some(chat::WishlistPlace {
+                id: "90".into(),
+                private: false,
+            }),
+            widgets: vec![chat::ProfileWidget {
+                title: "Want to Play".into(),
+                lists_games: true,
+                games: vec![chat::ProfileGame {
+                    id: "7".into(),
+                    name: "Unknown game".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        large,
+        ..Default::default()
+    });
+    app
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn someone_elses_lists_are_asked_for_only_when_a_full_profiles_tab_opens() {
+    // A card asks for nothing.
+    let mut card = full_profile_with_tabs(false);
+    assert!(
+        card.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty()
+    );
+
+    let mut app = full_profile_with_tabs(true);
+    let asked = app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist));
+    assert_eq!(wishlist_asked(&asked), Some("90"));
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty(),
+        "once"
+    );
+    // Only the list it asked for counts.
+    app.apply(Event::Wishlist {
+        id: "91".into(),
+        wishlist: chat::Wishlist::Hidden,
+    });
+    let wishlist = |app: &Application| app.state.profile.clone().unwrap().profile.wishlist;
+    assert_eq!(wishlist(&app), chat::Wishlist::Loading);
+    app.apply(Event::Wishlist {
+        id: "90".into(),
+        wishlist: chat::Wishlist::Hidden,
+    });
+    assert_eq!(wishlist(&app), chat::Wishlist::Hidden);
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty(),
+        "private stays private"
+    );
+
+    let asked = app.dispatch(Action::OpenProfileTab(ProfileTab::Board));
+    let [Effect::Backend(Command::Discord(DiscordCommand::ProfileBoard { user, widgets }))] =
+        asked.as_slice()
+    else {
+        panic!("it should ask for the names on the board");
+    };
+    assert_eq!(user, "2");
+    let mut named = widgets.clone();
+    named[0].games[0].name = "Made-up Racers".into();
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Board))
+            .is_empty(),
+        "once"
+    );
+    app.apply(Event::ProfileBoard {
+        user: "2".into(),
+        widgets: named,
+    });
+    let profile = app.state.profile.clone().unwrap().profile;
+    assert!(profile.board_named);
+    assert_eq!(profile.widgets[0].games[0].name, "Made-up Racers");
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn a_profile_coming_after_a_tab_opened_keeps_what_it_asked_and_asks_what_it_didnt() {
+    let mut app = full_profile_with_tabs(true);
+    {
+        let view = app.state.profile.as_mut().unwrap();
+        view.loading = true;
+        view.profile.wishlist_place = None;
+    }
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Wishlist))
+            .is_empty(),
+        "the profile will say where it is"
+    );
+    let fresh = Profile {
+        id: "2".into(),
+        wishlist_place: Some(chat::WishlistPlace {
+            id: "90".into(),
+            private: false,
+        }),
+        ..Default::default()
+    };
+    let asked = app.apply(Event::Profile {
+        user: "2".into(),
+        result: Ok(fresh),
+    });
+    assert_eq!(wishlist_asked(&asked), Some("90"));
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn recent_activity_is_asked_for_once_when_the_activity_tab_opens() {
+    let mut app = full_profile_with_tabs(true);
+    let asked = app.dispatch(Action::OpenProfileTab(ProfileTab::Activity));
+    assert!(matches!(
+        asked.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::ProfileRecent { user }))] if user == "2"
+    ));
+    assert!(
+        app.dispatch(Action::OpenProfileTab(ProfileTab::Activity))
+            .is_empty()
+    );
+    app.apply(Event::ProfileRecent {
+        user: "2".into(),
+        recent: vec![chat::RecentActivity {
+            title: "A song".into(),
+            ..Default::default()
+        }],
+    });
+    let view = app.state.profile.as_ref().unwrap();
+    assert_eq!(view.profile.recent[0].title, "A song");
+    // A card asks for none of it.
+    let mut card = full_profile_with_tabs(false);
+    assert!(
+        card.dispatch(Action::OpenProfileTab(ProfileTab::Activity))
+            .is_empty()
+    );
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn a_profile_without_a_wishlist_has_an_empty_one() {
+    let mut app = discord_server();
+    app.dispatch(Action::EditProfile);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(profile_with_wishlist(None)),
+    });
+    assert_eq!(wishlist_asked(&app.dispatch(Action::OpenWishlist)), None);
+    assert_eq!(
+        app.state.profile_editor.as_ref().unwrap().wishlist,
+        chat::Wishlist::Loaded(Vec::new())
+    );
 }

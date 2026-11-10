@@ -30,6 +30,10 @@
 // `--channels N` adds text channels room-1 to room-N to "Server", each with 60
 // messages, every third with a picture, written in turn by `--authors N`
 // people of their own (Bob without it), for a long session across channels.
+// `--members N` adds N people, online, to Server's member list, as a busy
+// server's first hundred rows are. POST /_control/churn-start takes one of
+// them offline or back online ten times a second, each a member list update,
+// and /_control/churn-stop stops it.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -50,7 +54,9 @@
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
 // seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
-// resume with op 7. Each call connection gets an RTCP receiver report about
+// resume with op 7. POST /_control/voice-discovery?off makes the voice
+// server ignore UDP address discovery, so that joining fails as a blocked
+// network makes it, and without ?off answer again. Each call connection gets an RTCP receiver report about
 // its audio every 50 packets, as Discord's voice server sends; POST
 // /_control/voice-link?ping=300&loss=7 holds each heartbeat ACK (op 6) back
 // 300 ms and reports 7% of the audio lost, and with no parameters sets both
@@ -67,7 +73,9 @@
 // counted, and AV1's RTP aggregation and OBU framing are checked too. GET
 // /_control/video lists what each stream received.
 // /_control/voice-move moves Alice's call in the server to another voice
-// server, and GET /_control/voice-identifies lists the tokens voice
+// server, or with ?channel=ID moves her to that channel on another voice
+// server, as a member who drags her there does; POST /_control/voice-kick
+// disconnects her from voice. GET /_control/voice-identifies lists the tokens voice
 // connections identified with. POST /_control/elsewhere has Alice join the
 // Lounge on another client, whose session her voice state then names, and
 // ends her calls here; ?leave leaves it there. Op 4 with no channel takes
@@ -138,6 +146,14 @@
 // buttons and a menu under its text, and one of components outside a
 // container, with a gallery of its attachments and a file. It answers with
 // the notice's id.
+// POST /interactions takes Alice's use of Status Bot's controls, as
+// Discord's client sends it (its user's id is its app's), and answers 204;
+// the session named answers over the gateway with INTERACTION_CREATE, then:
+// "approve" succeeds and Status Bot says so, "rollback" opens a form with a
+// text display and a reason (INTERACTION_MODAL_CREATE), whose submission
+// succeeds with a reply, and choosing "production" in its menu fails
+// (INTERACTION_FAILURE); "staging" succeeds. GET /_control/interactions
+// lists what was sent, oldest first.
 // POST /_control/unlooked-reply?channel=ID&to=ID makes Bob reply to a message
 // in a channel, live and in its history without `referenced_message`, as when
 // Discord didn't look the original up, and answers with the reply's id.
@@ -164,7 +180,10 @@
 // the others there; GET /_control/custom-call-sounds lists those she asked
 // for.
 // The server has two custom emoji, :talk: and the animated :party:, served
-// from /emojis/, and a sticker from /stickers/. `--nitro` gives Alice Nitro,
+// from /emojis/, and three stickers from /stickers/: Wave, the GIF Bounce and
+// Lottie. GET /sticker-packs lists Discord's default packs, whose stickers
+// come from /stickers/ too, so the sticker picker has both. `--nitro` gives
+// Alice Nitro,
 // so every server's emoji are hers to use, and `--cdn-delay MS` makes each
 // emoji and sticker take that long, as a round trip to the real CDN does. POST /_control/showcase makes
 // Bob post a spoiler, custom emoji, stickers, a GIF, a spoilered picture and a reply
@@ -319,6 +338,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
@@ -372,6 +392,11 @@ const EMOJI_PARTY = "1400000000000000301";
 const STICKER_WAVE = "1400000000000000310";
 const STICKER_BOUNCE = "1400000000000000311";
 const STICKER_LOTTIE = "1400000000000000312";
+// Discord's default packs' stickers, which the picker offers beside the
+// server's own.
+const STICKER_WUMPUS = "1400000000000000330";
+const STICKER_PARTY = "1400000000000000331";
+const STICKER_PUFF = "1400000000000000332";
 const ALICE = "1400000000000000001";
 
 /** The profile effect Bob equips: an intro layer and a looping one over the card. */
@@ -638,11 +663,12 @@ function wireUser(user: User) {
     discriminator: "0",
     public_flags: 0,
     // Bob wears the server's tag, as Discord sends the server a user
-    // chose to represent them; everyone else has none.
+    // chose to represent them, and Alice the one she chose with PUT
+    // /users/@me/clan; everyone else has none.
     primary_guild:
       user.id === users.bob.id
         ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
-        : null,
+        : (user as any).clan ?? null,
     avatar_decoration_data: decoration
       ? { asset: `a_${decoration}`, sku_id: decoration, expires_at: null }
       : null,
@@ -758,8 +784,10 @@ function collectiblePicture(sku: string, animated: boolean): Uint8Array {
 // banner and banner colour with PATCH /users/@me/profile, each answered
 // with USER_UPDATE. An empty display name goes by her username, and null
 // takes a picture or colour away. The banner needs Nitro, and an animated
-// avatar Nitro or Classic, here `--nitro`. GET /_control/profile shows hers,
-// and POST /_control/profile-reset puts it back as it started.
+// avatar Nitro or Classic, here `--nitro`. PUT /users/@me/clan with
+// {identity_guild_id, identity_enabled} chooses the server tag she wears,
+// "CREW" for "Server", or takes it off with null. GET /_control/profile shows
+// hers, and POST /_control/profile-reset puts it back as it started.
 const memberRoles = new Map<string, string[]>();
 const memberNicks = new Map<string, string>();
 /** Server profiles by user: avatar and banner hashes, bio and pronouns. */
@@ -1636,6 +1664,7 @@ const rooms = Array.from({ length: Number(args.channels) }, (_, n) => {
   return id;
 });
 let crowd: ReturnType<typeof setInterval> | undefined;
+let churn: ReturnType<typeof setInterval> | undefined;
 let crowdCount = 0;
 let burst: ReturnType<typeof setInterval> | undefined;
 let burstPosted = 0;
@@ -2354,12 +2383,51 @@ const SERVER_EMOJIS = (): ServerEmoji[] => [
   { id: EMOJI_TALK, name: "talk", animated: false, user: users.bob.id },
   { id: EMOJI_PARTY, name: "party", animated: true, user: users.bob.id },
 ];
+/** "Server"'s own stickers, as its members' picker lists them. */
+const SERVER_STICKERS = (): ServerSticker[] => [
+  { id: STICKER_WAVE, name: "Wave", tags: "👋", description: "", format_type: 1, user: users.bob.id },
+  { id: STICKER_BOUNCE, name: "Bounce", tags: "🏀", description: "", format_type: 4, user: users.bob.id },
+  { id: STICKER_LOTTIE, name: "Lottie", tags: "✨", description: "", format_type: 3, user: users.bob.id },
+];
 const expressions = {
   emojis: SERVER_EMOJIS(),
-  stickers: [] as ServerSticker[],
+  stickers: SERVER_STICKERS(),
   made: 0,
   pictures: new Map<string, { type: string; data: Uint8Array }>(),
 };
+
+// Discord's default sticker packs, as GET /sticker-packs lists them: PNG, GIF
+// and Lottie stickers, all served from the CDN like the server's own.
+const STICKER_PACKS = {
+  sticker_packs: [
+    {
+      id: "1400000000000000400", name: "Wumpus", description: "Wumpus everywhere", sku_id: "1400000000000000500",
+      cover_sticker_id: STICKER_WUMPUS, banner_asset_id: null,
+      stickers: [
+        { id: STICKER_WUMPUS, name: "Wumpus Wave", tags: "wave", description: null, type: 1, format_type: 1, available: true },
+        { id: STICKER_PARTY, name: "Wumpus Party", tags: "party", description: null, type: 1, format_type: 4, available: true },
+      ],
+    },
+    {
+      id: "1400000000000000401", name: "Animated", description: "The ones that move", sku_id: "1400000000000000501",
+      cover_sticker_id: STICKER_PUFF, banner_asset_id: null,
+      stickers: [
+        { id: STICKER_PUFF, name: "Puff", tags: "puff", description: null, type: 1, format_type: 3, available: true },
+      ],
+    },
+  ],
+};
+
+/** A sticker's id, name and format, by id: a server's own or a default pack's. */
+function stickerById(id: string): { id: string; name: string; format_type: number } | undefined {
+  const own = expressions.stickers.find((sticker) => sticker.id === id);
+  if (own) return { id: own.id, name: own.name, format_type: own.format_type };
+  for (const pack of STICKER_PACKS.sticker_packs) {
+    const found = pack.stickers.find((sticker) => sticker.id === id);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 function wireEmoji(emoji: ServerEmoji, uploader = false) {
   const user = Object.values(users).find((known) => known.id === emoji.user);
@@ -2402,7 +2470,7 @@ const mfa = {
 function resetGuild() {
   Object.assign(serverSettings, SERVER_SETTINGS);
   expressions.emojis = SERVER_EMOJIS();
-  expressions.stickers = [];
+  expressions.stickers = SERVER_STICKERS();
   expressions.pictures.clear();
   revokedInvites.clear();
   Object.assign(mfa, { on: false, methods: ["totp"], code: "123456" });
@@ -2828,6 +2896,18 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+// The people of `--members`, in Server's member list alone.
+const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
+  id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
+  username: `member${n}`,
+  global_name: `Member ${n}`,
+  avatar: `m${n}`,
+}));
+for (const person of listed) {
+  userById.set(person.id, person);
+  presences[person.id] = { status: "online", activities: [] };
+}
+
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
 // panel here shows: someone in no server, and a custom status.
@@ -2898,7 +2978,7 @@ function listId(channelId: string): string {
 
 function memberList(id = "everyone") {
   const offline = (user: User) => presences[user.id]!.status === "offline";
-  const present = Object.values(users).filter((user) => !removed.has(user.id));
+  const present = [...Object.values(users), ...listed].filter((user) => !removed.has(user.id));
   const mods = present.filter((user) => memberRoles.get(user.id)?.includes(MODS));
   const others = present.filter((user) => !mods.includes(user));
   const groups = [
@@ -3432,8 +3512,14 @@ const voiceSockets = new Set<Socket>();
 /** The token Alice's voice session holds now: a connection identifying
  *  with the one before is no longer valid, as on Discord. */
 let voiceToken = VOICE_TOKEN;
+/** Whether POST /_control/voice-discovery?off has the voice server ignore
+ *  address discovery. */
+let discoveryOff = false;
 const voiceEndpoint = (ws: Socket) => `${ws.data.origin.replace(/^http/, "ws")}/voice`;
 let ssrcs = 100;
+
+/** A stream's own socket, as op 14 answers it with its codec. */
+type StreamSocket = { send(text: string): void };
 
 /** What a stream connection sent, by its video SSRC. */
 type Received = {
@@ -3446,7 +3532,7 @@ type Received = {
   /** The video codecs the streamer offered, most wanted first, and whether
    * it can encode each; and its stream socket, for op 14. */
   offers: { name: string; payloadType: number; encode: boolean }[];
-  socket?: { send(text: string): unknown };
+  socket?: StreamSocket;
   announced: unknown;
   packets: number;
   undecryptable: number;
@@ -4500,6 +4586,7 @@ const udp = await Bun.udpSocket({
   socket: {
     data(socket, data, port, address) {
       // IP discovery: type 1, length 70, SSRC, then the answer fills in the address.
+      if (discoveryOff && data.length === 74 && data.readUInt16BE(0) === 1) return;
       if (data.length !== 74 || data.readUInt16BE(0) !== 1) {
         if (data.length > 12 && (data[0]! & 0xc0) === 0x80 && !(data[1]! >= 192 && data[1]! <= 223)) {
           const ssrc = data.readUInt32BE(8);
@@ -4951,6 +5038,42 @@ function linkedGifEmbed(content: string, origin: string) {
 }
 let frecencySettings: string | null = null;
 
+/** A protobuf's top-level fields, each its number and its bytes as written. */
+function writtenFields(bytes: Uint8Array): { number: number; bytes: Uint8Array }[] {
+  const fields: { number: number; bytes: Uint8Array }[] = [];
+  let at = 0;
+  const varint = () => {
+    let value = 0n;
+    for (let shift = 0n; ; shift += 7n) {
+      const byte = bytes[at++]!;
+      value |= BigInt(byte & 0x7f) << shift;
+      if (byte < 0x80) return value;
+    }
+  };
+  while (at < bytes.length) {
+    const start = at;
+    const tag = Number(varint());
+    switch (tag & 7) {
+      case 0: varint(); break;
+      case 1: at += 8; break;
+      // The length first: `at += …` would read `at` before it moved past it.
+      case 2: { const length = Number(varint()); at += length; break; }
+      case 5: at += 4; break;
+      default: throw new Error(`wire type ${tag & 7}`);
+    }
+    fields.push({ number: tag >> 3, bytes: bytes.slice(start, at) });
+  }
+  return fields;
+}
+
+/** `kept` with each top-level field `patch` has replaced by the patch's. */
+function mergeProto(kept: string, patch: string): string {
+  const patched = writtenFields(Buffer.from(patch, "base64"));
+  const replaced = new Set(patched.map((field) => field.number));
+  const merged = [...writtenFields(Buffer.from(kept, "base64")).filter((field) => !replaced.has(field.number)), ...patched];
+  return Buffer.concat(merged.map((field) => field.bytes)).toString("base64");
+}
+
 const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   description: "Discard this unrelated catalogue metadata when caching",
   executables: [
@@ -4960,6 +5083,7 @@ const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   ], third_party_skus: [] }];
 
 async function api(req: Request, path: string, origin: string): Promise<Response> {
+  if (req.method === "POST" && path === "/interactions") return interact(await req.json(), origin);
   // A Rich Presence application and its images. Games leave out their name
   // and name images by key, which the client turns into the application's
   // name and image ids before the presence goes to the gateway.
@@ -5280,6 +5404,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json(incidents() ?? {});
   }
 
+  // Discord's default sticker packs, which its client offers beside a
+  // server's own; the CDN serves their stickers like any other.
+  if (method === "GET" && path === "/sticker-packs") return json(STICKER_PACKS);
+
   // Emoji and Stickers in Server Settings. GET /guilds/{id}/emojis lists
   // "Server"'s emoji with who uploaded each; POST adds one from `{name,
   // image}`, a data URI under 256 KB; PATCH renames one and DELETE removes
@@ -5294,7 +5422,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
     const manage = aliceMay(30);
     const create = manage || aliceMay(43);
-    if (!create) return json({ message: "Missing Permissions", code: 50013 }, 403);
+    // Listing takes no permission, as any member may list a server's emoji and
+    // stickers; adding and changing them do. Who uploaded each comes only to
+    // those who may.
+    if (!create && method !== "GET") return json({ message: "Missing Permissions", code: 50013 }, 403);
     const emojis = m[2] === "emojis";
     const id = m[3];
     const invalid = (field: string, code: string, message: string) =>
@@ -5311,8 +5442,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       typeof name === "string" && name.length >= low && name.length <= high;
     if (method === "GET" && !id) {
       return json(emojis
-        ? expressions.emojis.map((emoji) => wireEmoji(emoji, true))
-        : expressions.stickers.map((sticker) => wireSticker(sticker, true)));
+        ? expressions.emojis.map((emoji) => wireEmoji(emoji, create))
+        : expressions.stickers.map((sticker) => wireSticker(sticker, create)));
     }
     if (method === "DELETE" && found) {
       if (emojis) expressions.emojis = expressions.emojis.filter((emoji) => emoji.id !== id);
@@ -5757,6 +5888,21 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         };
         polls.push(asked);
       }
+      // A sticker, as Discord's client sends one: a message of the stickers
+      // alone, one to three of them.
+      let stickers: { id: string; name: string; format_type: number }[] | undefined;
+      if (body.sticker_ids) {
+        const ids: string[] = Array.isArray(body.sticker_ids) ? body.sticker_ids.map(String) : [];
+        if (ids.length < 1 || ids.length > 3 || body.content) {
+          return json({ message: "Invalid Form Body", code: 50035 }, 400);
+        }
+        stickers = [];
+        for (const id of ids) {
+          const sticker = stickerById(id);
+          if (!sticker) return notFound("Unknown Sticker", 10060);
+          stickers.push(sticker);
+        }
+      }
       const reply = body.message_reference?.message_id;
       const attached = takeUploads(body.attachments, m[1]!);
       if (!attached) return json({ message: "Invalid Form Body", code: 50035 }, 400);
@@ -5764,6 +5910,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         nonce: body.nonce ? String(body.nonce) : undefined,
         reply: reply && byId.has(reply) ? reply : undefined,
         files: attached,
+        stickers,
         poll,
       });
       // An env's favourite GIF comes with its embed, so a recording doesn't
@@ -6047,7 +6194,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // message points back at the message, which gains it, and its channel
   // hears of it if the message wasn't among its ten newest.
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/messages\/(\d+)\/threads$/))) {
-    const [, parent, id] = m as unknown as [string, string, string];
+    const parent = m[1]!;
+    const id = m[2]!;
     if (!messages.has(parent) || privates.has(parent) || threads.has(parent)) return notFound("Unknown Channel", 10003);
     const original = byId.get(id);
     if (!original || original.channel !== parent) return notFound("Unknown Message", 10008);
@@ -6299,8 +6447,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/2") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
-    frecencySettings = body.settings;
-    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: frecencySettings }, partial: true });
+    // Each field the PATCH carries takes the place of the one kept; the rest
+    // stay, as a save of the favourite emoji leaves the GIFs.
+    frecencySettings = mergeProto(frecencySettings ??= favoriteGifs(origin), body.settings);
+    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: body.settings }, partial: true });
     return json({ settings: frecencySettings });
   }
 
@@ -6638,6 +6788,18 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       alice.avatar = null;
     }
     if ("global_name" in body) alice.global_name = body.global_name || null;
+    const wire = { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 };
+    dispatch("USER_UPDATE", wire);
+    return json(wire);
+  }
+  if (method === "PUT" && path === "/users/@me/clan") {
+    const body: any = await req.json().catch(() => ({}));
+    const alice: any = users.alice;
+    const guild = body.identity_guild_id;
+    if (guild !== null && guild !== GUILD) return json({ message: "Unknown Guild", code: 10004 }, 404);
+    alice.clan = guild === null
+      ? null
+      : { identity_guild_id: guild, identity_enabled: body.identity_enabled, tag: "CREW", badge: "crew" };
     const wire = { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 };
     dispatch("USER_UPDATE", wire);
     return json(wire);
@@ -7478,6 +7640,55 @@ function postComponents(origin: string): string {
   return notice.id;
 }
 
+/** What Alice's client sent to POST /interactions, oldest first. */
+const interactions: unknown[] = [];
+
+/** Status Bot answers its controls and forms, to the session that used them. */
+function interact(body: any, origin: string): Response {
+  interactions.push(body);
+  const session = [...sockets].find((ws) => ws.data.identified && ws.data.session === body.session_id);
+  if (!session) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+  const message = (messages.get(body.channel_id) ?? []).find((each) => each.id === body.message_id);
+  const known = body.application_id === statusBot.id
+    && (body.type === 5 || (body.type === 3 && message?.author.id === statusBot.id));
+  if (!known) return json({ message: "Unknown Application", code: 10002 }, 404);
+  const now = Date.now();
+  const id = snowflake(now, interactions.length);
+  const nonce = body.nonce;
+  const reply = (content: string) => {
+    const said = post(body.channel_id, statusBot, content, now + 1);
+    dispatch("MESSAGE_CREATE", dispatched(said, origin));
+  };
+  queueMicrotask(() => {
+    send(session, 0, { id, nonce }, "INTERACTION_CREATE");
+    const data = body.data ?? {};
+    if (body.type === 5 && data.custom_id === "rollback") {
+      const why = data.components?.find((row: any) => row.type === 18)?.component?.value;
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply(`Rolled back to **v2.3**: ${why}`);
+    } else if (data.custom_id === "approve") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Approved by Alice.");
+    } else if (data.custom_id === "rollback") {
+      send(session, 0, {
+        id, nonce, channel_id: body.channel_id, custom_id: "rollback", title: "Roll back v2.4",
+        application: { id: statusBot.id, name: "Status Bot", icon: null, description: "", bot_public: true },
+        components: [
+          { type: 10, id: 1, content: "**This redeploys v2.3** to everyone." },
+          { type: 18, id: 2, label: "Why", component: { type: 4, id: 3, custom_id: "why", style: 2, required: true } },
+        ],
+      }, "INTERACTION_MODAL_CREATE");
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+    } else if (data.custom_id === "environment" && data.values?.[0] === "staging") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Deploying to staging.");
+    } else {
+      send(session, 0, { id, nonce, reason_code: 1 }, "INTERACTION_FAILURE");
+    }
+  });
+  return new Response(null, { status: 204 });
+}
+
 // --- Environments -------------------------------------------------------------
 // With --env, the fixture made above is emptied and the env's content fills
 // the same stores: people in userById, history through post(), DMs in
@@ -7513,7 +7724,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
  *  and channels. */
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
-  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move",
+  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
@@ -8071,7 +8282,7 @@ const server = Bun.serve<SocketData>({
       return Response.json({ global_name, avatar, ...aliceProfile });
     }
     if (req.method === "POST" && path === "/_control/profile-reset") {
-      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1" });
+      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1", clan: null });
       Object.assign(aliceProfile, { bio: "", pronouns: "", banner: null, accent_color: null });
       dispatch("USER_UPDATE", { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 });
       return new Response("Alice's profile is as it started\n");
@@ -8100,6 +8311,23 @@ const server = Bun.serve<SocketData>({
       presences[users.bob.id] = { status: "online", activities: [], client_status: { mobile: "online" } };
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, ...presences[users.bob.id] });
       return new Response("Bob is on his phone\n");
+    }
+    if (req.method === "POST" && path === "/_control/churn-start") {
+      let turn = 0;
+      clearInterval(churn);
+      churn = setInterval(() => {
+        const person = listed[(turn++ * 7) % listed.length]!;
+        changeMembers(() => {
+          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
+          presences[person.id] = { status, activities: [] };
+          dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
+        });
+      }, 100);
+      return new Response("churn\n");
+    }
+    if (req.method === "POST" && path === "/_control/churn-stop") {
+      clearInterval(churn);
+      return new Response("no churn\n");
     }
     if (req.method === "POST" && path === "/_control/bob-offline") {
       presences[users.bob.id] = { status: "offline", activities: [] };
@@ -8145,6 +8373,7 @@ const server = Bun.serve<SocketData>({
       return new Response(`${name}'s camera is ${state.self_video ? "on" : "off"} in ${calls.length} call(s)\n`);
     }
     if (path === "/_control/soundboard-sends") return Response.json(soundboardSends);
+    if (path === "/_control/interactions") return Response.json(interactions);
     if (path === "/_control/custom-call-sounds") return Response.json(customCallSounds);
     if (req.method === "POST" && path === "/_control/soundboard-play") {
       const who = url.searchParams.get("user") ?? "bob";
@@ -8182,6 +8411,10 @@ const server = Bun.serve<SocketData>({
     if (req.method === "GET" && path === "/_control/discovery-drop") {
       return Response.json({ dropped: discovery.dropped, answered: discovery.answered });
     }
+    if (req.method === "POST" && path === "/_control/voice-discovery") {
+      discoveryOff = url.searchParams.has("off");
+      return new Response(`address discovery ${discoveryOff ? "ignored" : "answered"}\n`);
+    }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
       for (const ws of calls) ws.close(4015, "Voice server crashed.");
@@ -8190,14 +8423,38 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/voice-move") {
       // Discord moves Alice's call in the server to another voice server: it
       // names the new one, and the old one closes with 4014 once she's there.
+      // Someone moving her to ?channel=ID on another voice server goes as on
+      // Discord: her voice state says where, the old server closes her call
+      // with 4014, and the new one is named 40 ms later.
       const state = voice.get(ALICE);
       if (!state?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
-      voiceToken = MOVED_VOICE_TOKEN;
-      for (const ws of sockets) {
-        if (ws.data.session !== state.session) continue;
-        send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+      const name = () => {
+        voiceToken = MOVED_VOICE_TOKEN;
+        for (const ws of sockets) {
+          if (ws.data.session !== state.session) continue;
+          send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+        }
+      };
+      const to = url.searchParams.get("channel");
+      if (!to) {
+        name();
+        return new Response("moved Alice's call\n");
       }
-      return new Response("moved Alice's call\n");
+      state.channel = to;
+      announce(ALICE);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      setTimeout(name, 40);
+      return new Response(`moved Alice to ${to}\n`);
+    }
+    if (req.method === "POST" && path === "/_control/voice-kick") {
+      // Someone disconnects Alice from voice: her voice state has no
+      // channel, and the voice server closes her call with 4014.
+      const before = voice.get(ALICE);
+      if (!before?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
+      voice.delete(ALICE);
+      moved(ALICE, before, origin);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      return new Response("disconnected Alice from voice\n");
     }
     if (req.method === "POST" && path === "/_control/elsewhere") {
       // Alice joins the Lounge on another client, such as her phone, or
