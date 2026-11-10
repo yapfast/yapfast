@@ -1236,6 +1236,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_open_discord_captcha, Action::OpenDiscordCaptcha);
     bind!(on_cancel_discord_link, Action::CancelDiscordLink);
     bind!(on_unlink_discord, Action::UnlinkDiscord);
+    bind!(on_open_manage_accounts, Action::OpenManageAccounts);
+    bind!(on_close_manage_accounts, Action::CloseManageAccounts);
+    bind_item!(on_open_account_menu, Action::OpenAccountMenu);
+    bind_item!(on_switch_discord_account, Action::SwitchDiscordAccount);
+    bind_item!(on_log_out_discord_account, Action::LogOutDiscordAccount);
     bind!(on_close_add_friend, Action::CloseAddFriend);
     bind!(on_close_person, Action::ClosePersonDialog);
     bind!(on_close_invite, Action::CloseInvite);

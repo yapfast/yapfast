@@ -1,4 +1,5 @@
 import { AccountPopover } from "yapfast/account-popover.slint";
+import { AccountRow, AccountFlyout, ManageAccountsDialog } from "yapfast/accounts.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
@@ -435,6 +436,18 @@ export component YapfastWindow inherits Window {
     callback open-discord-captcha;
     callback cancel-discord-link;
     callback unlink-discord;
+    /// The Discord accounts linked on this device, for Switch Accounts and
+    /// Manage Accounts; the active one is marked.
+    in property <[AccountRow]> accounts;
+    in property <bool> manage-accounts-open;
+    /// The account whose menu Manage Accounts has open, by id.
+    in property <string> account-menu-id;
+    in property <bool> can-add-account;
+    callback switch-discord-account(string);
+    callback log-out-discord-account(string);
+    callback open-manage-accounts;
+    callback close-manage-accounts;
+    callback open-account-menu(string);
     in-out property <bool> show-hidden-channels;
     callback show-hidden-channels-toggled(bool);
     /// A link in a message was clicked.
@@ -1573,7 +1586,7 @@ export component YapfastWindow inherits Window {
         || root.role-open || root.server-card-open || root.emoji-card-open || root.topic-open
         || root.pins-open || root.threads-open || root.add-people-open || root.viewer-open
         || (VideoPlayer.expanded && VideoPlayer.item != "") || root.stage-full
-        || root.switcher-open || root.mfa-open || root.add-friend-open || root.invite-open
+        || root.switcher-open || root.mfa-open || root.add-friend-open || root.manage-accounts-open || root.invite-open
         || root.join-open || root.event-open || root.gift-open || root.oauth-open
         || root.channel-open || root.move-sync-open || root.leave-open || root.person-open
         || root.status-open || root.poll-open || root.new-dm-open || root.reactions-open
@@ -2059,6 +2072,10 @@ export component YapfastWindow inherits Window {
     }
     // The status menu opens above the account panel, along its left edge.
     property <bool> account-status-expanded;
+    // Switch Accounts' list beside the account card, and how far down the
+    // card its row is.
+    property <bool> account-switcher-open;
+    property <length> account-switch-y;
     function open-status-menu() {
         root.account-status-expanded = false;
         root.menu-x = account-panel.absolute-position.x + (ClientStyle.enabled ? 0px : 8px);
@@ -2093,17 +2110,30 @@ export component YapfastWindow inherits Window {
             }
         }
     }
+    // Switch Accounts' list opens beside the card, in the popup's own room.
+    property <length> status-menu-width: ClientStyle.enabled ? 300px : 248px;
     status-menu := PopupWindow {
-        width: ClientStyle.enabled ? 300px : 248px; height: status-menu-content.preferred-height;
-        x: max(8px, min(root.width - self.width - 8px, root.menu-x));
+        width: root.status-menu-width + (ClientStyle.enabled && root.account-switcher-open ? 226px : 0px);
+        height: status-menu-content.preferred-height;
+        x: max(8px, min(root.width - root.status-menu-width - 8px, root.menu-x));
         y: max(8px, root.menu-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
+        if ClientStyle.enabled && root.account-switcher-open: AccountFlyout {
+            x: root.status-menu-width + 6px;
+            y: max(0px, min(root.account-switch-y, status-menu.height - self.height));
+            accounts: root.accounts;
+            choose(id) => { root.switch-discord-account(id); status-menu.close(); }
+            manage => { root.open-manage-accounts(); status-menu.close(); }
+        }
         status-menu-content := VerticalLayout {
+            width: root.status-menu-width;
             if ClientStyle.enabled: AccountPopover {
+                can-switch: root.accounts.length > 0;
+                switch-accounts(y) => { root.account-switch-y = y; root.account-switcher-open = true; }
                 available-height: max(120px, root.menu-y - 12px);
                 name: root.account-name; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture;
                 user-id: root.account-user-id; profile: root.account-profile;
-                opened => { root.account-opened(); }
+                opened => { root.account-switcher-open = false; root.account-opened(); }
                 open-link(link) => { root.open-link(link); status-menu.close(); }
                 status: root.discord-status; has-custom-status: root.has-custom-status;
                 custom-text: root.account-status; custom-emoji: root.account-status-emoji;
@@ -4556,6 +4586,22 @@ export component YapfastWindow inherits Window {
         add-friend-sending: root.add-friend-sending; add-friend-sent: root.add-friend-sent; add-friend-note: root.add-friend-note;
         add-friend(name) => { root.add-friend(name); }
         close-add-friend => { root.close-add-friend(); }
+    }
+    // The linked Discord accounts, to switch between, log out or add to; see
+    // ManageAccountsDialog.
+    manage-accounts-motion := PopupMotion { open: root.manage-accounts-open; }
+    if manage-accounts-motion.shown: ManageAccountsDialog {
+        motion: manage-accounts-motion.amount;
+        accounts: root.accounts; menu-id: root.account-menu-id; can-add: root.can-add-account;
+        link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
+        choose(id) => { root.switch-discord-account(id); }
+        log-out(id) => { root.log-out-discord-account(id); }
+        open-menu(id) => { root.open-account-menu(id); }
+        link-discord => { root.link-discord(); }
+        link-discord-token(token) => { root.link-discord-token(token); }
+        open-discord-captcha => { root.open-discord-captcha(); }
+        cancel-discord-link => { root.cancel-discord-link(); }
+        close => { root.close-manage-accounts(); }
     }
     // A Discord server's or channel's invite link; see InviteDialog.
     invite-motion := PopupMotion { open: root.invite-open; }

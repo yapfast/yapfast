@@ -38,6 +38,11 @@ export component AccountPopover inherits Rectangle {
     callback edit-profile;
     callback settings;
     callback copy-id;
+    /// Accounts are linked to switch between, so Switch Accounts shows.
+    in property <bool> can-switch;
+    /// Switch Accounts is chosen or hovered, with how far down the card it
+    /// is, which its list beside the card lines up with.
+    callback switch-accounts(length);
     callback game-duration-due;
     property <string> presence-label: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
     background: root.themed
@@ -150,6 +155,12 @@ export component AccountPopover inherits Rectangle {
                     background: Theme.raised; border-radius: 8px;
                     VerticalLayout {
                         padding: 8px; spacing: 4px;
+                        if root.can-switch: MenuItem {
+                            height: 40px; text: "Switch Accounts"; icon: @image-url("../icons/user-circle.svg"); submenu: true;
+                            clicked => { root.switch-accounts(self.absolute-position.y - root.absolute-position.y); }
+                            hovered => { root.switch-accounts(self.absolute-position.y - root.absolute-position.y); }
+                        }
+                        if root.can-switch: Rectangle { height: 1px; background: Theme.line; }
                         if root.user-id != "": MenuItem { height: 40px; text: "Copy User ID"; icon: @image-url("../icons/copy.svg"); clicked => { root.copy-id(); } }
                         MenuItem { height: 40px; text: "User Settings"; icon: @image-url("../icons/settings.svg"); clicked => { root.settings(); } }
                     }

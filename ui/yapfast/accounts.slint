@@ -1,0 +1,243 @@
+import { Theme, Popup, Middle, Label } from "../theme.slint";
+import { Avatar, IconButton, ActionButton, MenuItem } from "../controls.slint";
+import { DiscordLinkPanel } from "../discord.slint";
+
+/// A Discord account linked on this device, as Switch Accounts and Manage
+/// Accounts list it, by its username.
+export struct AccountRow {
+    id: string, name: string, initial: string, tint: color, picture-url: string, active: bool,
+}
+
+// The blue check, in the theme's accent, that marks the active account.
+component ActiveCheck inherits Rectangle {
+    width: 16px; height: 16px; border-radius: 8px; background: Theme.accent;
+    Image {
+        width: 10px; height: 10px; x: 3px; y: 3px; image-fit: contain;
+        source: @image-url("../icons/check.svg"); colorize: Theme.on-accent;
+    }
+}
+
+component AccountChoice inherits Rectangle {
+    in property <AccountRow> account;
+    callback clicked;
+    height: 40px; border-radius: 4px;
+    background: touch.has-hover ? Theme.active : transparent;
+    border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+    accessible-role: button; accessible-label: root.account.name;
+    accessible-checkable: true; accessible-checked: root.account.active;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    HorizontalLayout {
+        padding-left: 8px; padding-right: 8px; spacing: 8px;
+        Middle { Avatar { size: 24px; initial: root.account.initial; tint: root.account.tint; picture-url: root.account.picture-url; } }
+        Text { text: root.account.name; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+        if root.account.active: Middle { ActiveCheck { } }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.clicked(); return accept; }
+            return reject;
+        }
+        touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    }
+}
+
+// Switch Accounts' list, beside the account card: the accounts to choose
+// from, the active one checked, and Manage Accounts under them.
+export component AccountFlyout inherits Rectangle {
+    in property <[AccountRow]> accounts;
+    callback choose(string);
+    callback manage;
+    width: 220px; height: content.preferred-height;
+    background: Theme.panel; border-radius: 8px;
+    border-width: 1px; border-color: Theme.line;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    accessible-role: groupbox; accessible-label: "Switch Accounts";
+    content := VerticalLayout {
+        padding: 8px; spacing: 0px;
+        for account in root.accounts: AccountChoice {
+            account: account;
+            clicked => { root.choose(account.id); }
+        }
+        Rectangle { height: 13px; Rectangle { y: 6px; height: 1px; background: Theme.line; } }
+        Rectangle {
+            height: 40px; border-radius: 4px;
+            background: manage-touch.has-hover ? Theme.active : transparent;
+            border-width: manage-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+            accessible-role: button; accessible-label: "Manage Accounts";
+            accessible-action-default => { root.manage(); }
+            forward-focus: manage-focus;
+            Text { x: 8px; width: parent.width - 16px; text: "Manage Accounts"; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+            manage-focus := FocusScope {
+                key-pressed(event) => {
+                    if event.text == " " || event.text == "\n" { root.manage(); return accept; }
+                    return reject;
+                }
+                manage-touch := TouchArea { mouse-cursor: pointer; clicked => { root.manage(); } }
+            }
+        }
+    }
+}
+
+// One account in Manage Accounts: its picture and username, "Active Account"
+// under the one in use, and the button for its menu.
+component ManagedAccount inherits Rectangle {
+    in property <AccountRow> account;
+    /// Opens the account's menu, below where this is, by how far down the
+    /// window that is.
+    callback more(length);
+    height: 64px; border-radius: 8px; background: Theme.active;
+    accessible-role: groupbox; accessible-label: root.account.name;
+    accessible-description: root.account.active ? "Active Account" : "";
+    HorizontalLayout {
+        padding-left: 16px; padding-right: 12px; spacing: 8px;
+        Middle { Avatar { size: 40px; initial: root.account.initial; tint: root.account.tint; picture-url: root.account.picture-url; } }
+        VerticalLayout {
+            alignment: center; horizontal-stretch: 1; spacing: 0px;
+            Text { text: root.account.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
+            if root.account.active: Text { text: "Active Account"; color: Theme.live; font-size: 13px; font-weight: 600; }
+        }
+        Middle {
+            IconButton {
+                icon: @image-url("../icons/ellipsis.svg"); label: "More options for " + root.account.name; size: 32px; glyph: 20px;
+                clicked => { root.more(root.absolute-position.y + root.height); }
+            }
+        }
+    }
+}
+
+// Manage Accounts: the linked accounts, each with a menu to switch to it or
+// log it out, and Add Account, which links another beside them. Clicking
+// outside or Escape closes it; while adding, Escape goes back.
+export component ManageAccountsDialog inherits Rectangle {
+    in property <[AccountRow]> accounts;
+    /// The account whose menu is open, by id; empty for none.
+    in property <string> menu-id;
+    /// Linking another account, as DiscordLinkPanel says.
+    in property <int> link-phase;
+    in property <image> link-code;
+    in property <string> link-name;
+    in property <string> link-note;
+    /// Whether another account can be added; the most are linked otherwise.
+    in property <bool> can-add: true;
+    callback choose(string);
+    callback log-out(string);
+    callback open-menu(string);
+    callback link-discord;
+    callback link-discord-token(string);
+    callback open-discord-captcha;
+    callback cancel-discord-link;
+    callback close;
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    // Add Account's step, which its button opens and Back closes.
+    property <bool> adding;
+    property <bool> linking: root.adding || root.link-phase != 0;
+    property <length> menu-y;
+    function back() {
+        root.adding = false;
+        root.cancel-discord-link();
+    }
+    init => { scope.focus(); }
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    card := Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(480px, root.width - 48px); height: content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: root.linking ? "Add Account" : "Manage Accounts";
+        TouchArea { clicked => { if root.menu-id != "" { root.open-menu(""); } } }
+        scope := FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    if root.menu-id != "" { root.open-menu(""); }
+                    else if root.linking { root.back(); }
+                    else { root.close(); }
+                    return accept;
+                }
+                return reject;
+            }
+            content := VerticalLayout {
+                padding: 24px; spacing: 16px;
+                VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        Text {
+                            text: root.linking ? "Add Account" : "Manage Accounts"; color: Theme.text;
+                            font-size: 20px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1;
+                        }
+                        IconButton { icon: @image-url("../icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    }
+                    Label {
+                        text: root.linking ? "Link another Discord account to switch between them." : "Switch between different accounts - log in, log out, do whatever you want";
+                        color: Theme.secondary; font-size: 15px;
+                    }
+                }
+                if !root.linking: VerticalLayout {
+                    spacing: 8px;
+                    for account in root.accounts: ManagedAccount {
+                        account: account;
+                        more(y) => { root.menu-y = y - card.absolute-position.y; root.open-menu(account.id); }
+                    }
+                }
+                if !root.linking: Rectangle {
+                    height: 40px; border-radius: 8px;
+                    background: !root.can-add ? Theme.active.with-alpha(0.5) : add-touch.has-hover ? Theme.button-default-hover : Theme.active;
+                    border-width: add-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+                    accessible-role: button; accessible-label: "Add Account";
+                    accessible-description: root.can-add ? "" : "You can link up to 5 accounts. Log one out to add another.";
+                    accessible-enabled: root.can-add;
+                    accessible-action-default => { if root.can-add { root.adding = true; } }
+                    forward-focus: add-focus;
+                    Text { text: "Add Account"; color: root.can-add ? Theme.text : Theme.muted; font-size: 15px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    add-focus := FocusScope {
+                        key-pressed(event) => {
+                            if root.can-add && (event.text == " " || event.text == "\n") { root.adding = true; return accept; }
+                            return reject;
+                        }
+                        add-touch := TouchArea {
+                            mouse-cursor: root.can-add ? MouseCursor.pointer : MouseCursor.default;
+                            clicked => { if root.can-add { root.adding = true; } }
+                        }
+                    }
+                }
+                if !root.can-add && !root.linking: Label { text: "You can link up to 5 accounts. Log one out to add another."; }
+                if root.linking: DiscordLinkPanel {
+                    phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
+                    begin => { root.link-discord(); }
+                    reopen => { root.open-discord-captcha(); }
+                    link-token(token) => { root.link-discord-token(token); }
+                }
+                if root.linking: HorizontalLayout {
+                    alignment: start;
+                    ActionButton { text: "Back"; clicked => { root.back(); } }
+                }
+            }
+        }
+        // An account's menu, open under its button.
+        if root.menu-id != "" && !root.linking: Rectangle {
+            x: parent.width - 24px - 12px - 200px; y: min(root.menu-y, parent.height - menu-card.preferred-height - 8px);
+            width: 200px; height: menu-card.preferred-height;
+            background: Theme.menu; border-radius: 8px; border-width: 1px; border-color: Theme.menu-line;
+            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+            accessible-role: groupbox; accessible-label: "Account menu";
+            TouchArea { }
+            menu-card := VerticalLayout {
+                padding: 8px; spacing: 2px;
+                for account in root.accounts: VerticalLayout {
+                    spacing: 2px;
+                    if account.id == root.menu-id && !account.active: MenuItem {
+                        text: "Switch Account"; icon: @image-url("../icons/refresh-cw.svg");
+                        clicked => { root.choose(account.id); }
+                    }
+                    if account.id == root.menu-id: MenuItem {
+                        text: "Log Out"; icon: @image-url("../icons/log-out.svg"); danger: true;
+                        clicked => { root.log-out(account.id); }
+                    }
+                }
+            }
+        }
+    }
+}

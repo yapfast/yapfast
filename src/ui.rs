@@ -1779,6 +1779,8 @@ struct Models {
     emoji_sections: Rc<VecModel<EmojiSection>>,
     emoji_suggestions: Rc<VecModel<EmojiCell>>,
     forward_targets: Rc<VecModel<PlaceRow>>,
+    /// The Discord accounts linked on this device.
+    accounts: Rc<VecModel<AccountRow>>,
     switcher_places: Rc<VecModel<PlaceRow>>,
     participants: Rc<VecModel<PersonRow>>,
     /// The GIF picker's tiles.
@@ -1856,6 +1858,7 @@ impl Models {
         window.set_emoji_sections(ModelRc::from(self.emoji_sections.clone()));
         window.set_emoji_suggestions(ModelRc::from(self.emoji_suggestions.clone()));
         window.set_forward_targets(ModelRc::from(self.forward_targets.clone()));
+        window.set_accounts(ModelRc::from(self.accounts.clone()));
         window.set_switcher_places(ModelRc::from(self.switcher_places.clone()));
         window.set_participants(ModelRc::from(self.participants.clone()));
         window.set_gif_tiles(ModelRc::from(self.gif_tiles.clone()));
