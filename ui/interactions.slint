@@ -1,0 +1,159 @@
+import { Theme } from "theme.slint";
+import { ScrollView, ListView } from "scrollview.slint";
+import { ActionButton, IconButton, TextField } from "controls.slint";
+import { TextBlock, TextBlocks } from "messages.slint";
+
+export struct SelectChoice { index: int, label: string, value: string, description: string, selected: bool }
+/// A field of a bot's form, by its component `kind`: 4 a text input, 3 and
+/// 5–8 select menus, 10 text the form shows, in `blocks`.
+export struct ModalField { label: string, value: string, placeholder: string, required: bool, paragraph: bool, kind: int, summary: string, blocks: [TextBlock] }
+
+export component BotSelectDialog inherits Rectangle {
+    in property <string> heading;
+    in property <[SelectChoice]> choices;
+    in-out property <string> query;
+    in property <int> min-values;
+    in property <int> max-values;
+    callback toggle(int);
+    callback search(string);
+    callback submit;
+    callback close;
+    background: #00000099;
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        width: min(480px, root.width - 40px); height: min(select-layout.preferred-height, 560px, root.height - 80px);
+        background: Theme.raised; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+        drop-shadow-blur: 28px; drop-shadow-color: #00000077;
+        accessible-role: groupbox; accessible-label: root.heading;
+        TouchArea { }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => { if event.text == Key.Escape { root.close(); return accept; } return reject; }
+            select-layout := VerticalLayout {
+                padding: 20px; spacing: 12px;
+                HorizontalLayout {
+                    Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; overflow: elide; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                }
+                Text { text: root.max-values > 1 ? "Choose " + root.min-values + " to " + root.max-values : root.min-values == 0 ? "Choose up to one option" : "Choose one option"; color: Theme.secondary; font-size: 13px; }
+                TextField {
+                    text <=> root.query; placeholder: "Find an option"; label: "Search options";
+                    edited(value) => { root.search(value); }
+                }
+                if root.choices.length == 0: Text {
+                    text: "No matching options.";
+                    color: Theme.secondary; font-size: 13px;
+                }
+                ListView {
+                    vertical-stretch: 1;
+                    // As tall as its rows, a description's being taller.
+                    preferred-height: root.choices.length * 56px;
+                    for choice[index] in root.choices: Rectangle {
+                        height: choice.description != "" ? 64px : 48px;
+                        border-radius: 6px; background: choice-touch.has-hover ? Theme.hover : Theme.sunken;
+                        accessible-role: checkbox; accessible-label: choice.label; accessible-checked: choice.selected;
+                        accessible-action-default => { root.toggle(choice.index); }
+                        HorizontalLayout {
+                            padding-left: 12px; padding-right: 12px; spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 18px; height: 18px; border-width: 1px; border-radius: 4px;
+                                    border-color: choice.selected ? Theme.accent : Theme.secondary;
+                                    background: choice.selected ? Theme.accent : transparent;
+                                    if choice.selected: Text { text: "✓"; color: Theme.on-accent; horizontal-alignment: center; vertical-alignment: center; font-size: 14px; }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center; horizontal-stretch: 1;
+                                Text { text: choice.label; color: Theme.text; font-size: 15px; overflow: elide; }
+                                if choice.description != "": Text { text: choice.description; color: Theme.secondary; font-size: 12px; overflow: elide; }
+                            }
+                        }
+                        choice-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.toggle(choice.index); } }
+                    }
+                }
+                HorizontalLayout {
+                    Rectangle { horizontal-stretch: 1; }
+                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: "Submit"; primary: true; clicked => { root.submit(); } }
+                }
+            }
+        }
+    }
+}
+
+export component BotModalDialog inherits Rectangle {
+    in property <string> heading;
+    in property <[ModalField]> fields;
+    in property <bool> supported;
+    in property <bool> saving;
+    in property <string> error;
+    callback field-edited(int, string);
+    callback open-select(int);
+    callback submit;
+    callback close;
+    background: #00000099;
+    TouchArea { enabled: !root.saving; clicked => { root.close(); } }
+    Rectangle {
+        width: min(520px, root.width - 40px); height: min(modal-layout.preferred-height, root.height - 48px);
+        background: Theme.raised; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+        drop-shadow-blur: 28px; drop-shadow-color: #00000077;
+        accessible-role: groupbox; accessible-label: root.heading;
+        TouchArea { }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => { if event.text == Key.Escape { root.close(); return accept; } return reject; }
+            modal-layout := VerticalLayout {
+                padding: 20px; spacing: 20px;
+                HorizontalLayout {
+                    Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; wrap: word-wrap; vertical-alignment: center; }
+                    IconButton { icon: @image-url("icons/x.svg"); enabled: !root.saving; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                }
+                ScrollView {
+                    min-height: 0px; preferred-height: fields-layout.preferred-height;
+                    vertical-stretch: 1;
+                    fields-layout := VerticalLayout {
+                        spacing: 16px; alignment: start;
+                        for field[index] in root.fields: VerticalLayout {
+                            spacing: 8px;
+                            if field.kind == 10: TextBlocks { blocks: field.blocks; font-size: 15px; }
+                            if field.kind != 10: Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; }
+                            if field.kind != 4 && field.kind != 10: ActionButton {
+                                enabled: !root.saving;
+                                text: field.summary != "" ? field.summary : "Choose an option";
+                                clicked => { root.open-select(index); }
+                            }
+                            if field.kind == 4 && !field.paragraph: TextField {
+                                enabled: !root.saving;
+                                text: field.value; placeholder: field.placeholder; label: field.label;
+                                edited(value) => { root.field-edited(index, value); }
+                            }
+                            if field.kind == 4 && field.paragraph: Rectangle {
+                                height: 100px; background: Theme.sunken; border-radius: 6px;
+                                TextInput {
+                                    x: 10px; y: 8px; width: parent.width - 20px; height: parent.height - 16px;
+                                    read-only: root.saving;
+                                    text: field.value; color: Theme.text; font-size: 15px; wrap: word-wrap;
+                                    accessible-label: field.label;
+                                    edited => { root.field-edited(index, self.text); }
+                                }
+                            }
+                        }
+                        if !root.supported: Text {
+                            text: "This form has a field Yapfast cannot submit yet. Open it in Discord to continue.";
+                            color: Theme.danger; wrap: word-wrap; font-size: 14px;
+                        }
+                    }
+                }
+                if root.error != "": Text { text: root.error; color: Theme.danger; wrap: word-wrap; font-size: 14px; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Rectangle { horizontal-stretch: 1; }
+                    ActionButton { text: "Cancel"; enabled: !root.saving; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: root.saving ? "Submitting…" : "Submit"; primary: true; enabled: root.supported && !root.saving; clicked => { root.submit(); } }
+                }
+            }
+        }
+    }
+}

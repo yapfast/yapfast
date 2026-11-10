@@ -61,11 +61,13 @@ import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateR
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
+import { BotSelectDialog, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
+export { BuildInfo } from "yapfast/build-info.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
@@ -73,6 +75,7 @@ export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles } from "controls.slint";
 export { ServerTagRow } from "server.slint";
+export { ProfileTheme } from "people.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
@@ -80,6 +83,7 @@ export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
+export { SelectChoice, ModalField } from "interactions.slint";
 
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
@@ -435,6 +439,33 @@ export component YapfastWindow inherits Window {
     callback show-hidden-channels-toggled(bool);
     /// A link in a message was clicked.
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
+    in property <bool> bot-select-open;
+    /// The message whose bot control waits, and the one whose control
+    /// failed, with why.
+    in property <string> bot-busy-item;
+    in property <string> bot-failed-item;
+    in property <string> bot-failed-text;
+    in property <string> bot-select-heading;
+    in property <[SelectChoice]> bot-select-choices;
+    in property <string> bot-select-query;
+    in property <int> bot-select-min;
+    in property <int> bot-select-max;
+    callback bot-select-toggle(int);
+    callback bot-select-search(string);
+    callback bot-select-submit;
+    callback bot-select-close;
+    in property <bool> bot-modal-open;
+    in property <string> bot-modal-heading;
+    in property <[ModalField]> bot-modal-fields;
+    in property <bool> bot-modal-supported;
+    in property <bool> bot-modal-saving;
+    in property <string> bot-modal-error;
+    callback bot-modal-field-edited(int, string);
+    callback bot-modal-open-select(int);
+    callback bot-modal-submit;
+    callback bot-modal-close;
     in-out property <bool> sync-discord-reads;
     callback sync-discord-reads-toggled(bool);
     in-out property <bool> show-idle: true;
@@ -1222,6 +1253,10 @@ export component YapfastWindow inherits Window {
     }
     in-out property <int> noise-strength;
     in-out property <bool> dereverb;
+    /// Windows runs its microphone effects in Discord calls; the switch shows
+    /// on Windows only.
+    in-out property <bool> windows-effects;
+    in property <bool> windows-effects-choice;
     in-out property <int> sensitivity: -60;
     /// The Discord microphone as its voice gate hears it, in dBFS, and whether
     /// the gate is open, refreshed by gate-meter-tick while voice settings
@@ -3354,7 +3389,7 @@ export component YapfastWindow inherits Window {
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
                                                     }
                                                     MessageContent {
-                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled;
+                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
@@ -3376,6 +3411,8 @@ export component YapfastWindow inherits Window {
                                                             root.open-link(link);
                                                         }
                                                         open-link(link) => { root.open-link(link); }
+                                                        use-button(item, id) => { root.use-button(item, id); }
+                                                        open-select(item, id) => { root.open-select(item, id); }
                                                         open-thread(room) => { root.open-aside(room); }
                                                         react(item, key) => { root.react(item, key); }
                                                         retry(item) => { root.retry(item); }
@@ -3799,7 +3836,7 @@ export component YapfastWindow inherits Window {
                         typing-tick: root.aside-typing-tick;
                         composer-focused => { root.aside-composer-last = true; }
                         escape-composing => { return root.escape-composing(); }
-                        busy: root.busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
+                        busy: root.busy; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
                         reactions-enabled: root.aside-reactions-enabled; new-reactions-enabled: root.aside-new-reactions-enabled;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }
@@ -3860,6 +3897,8 @@ export component YapfastWindow inherits Window {
                         jump-to(item) => { root.jump-to(item); }
                         link-clicked(link, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-link(link); }
                         open-link(link) => { root.open-link(link); }
+                        use-button(item, id) => { root.use-button(item, id); }
+                        open-select(item, id) => { root.open-select(item, id); }
                         open-thread(room) => { root.open-aside(room); }
                         retry(item) => { root.retry(item); }
                         cancel-send(item) => { root.cancel-send(item); }
@@ -4070,6 +4109,7 @@ export component YapfastWindow inherits Window {
         discord-build: root.discord-build; preview: root.preview;
         close => { root.settings-open = false; }
         refresh-devices => { root.refresh-devices(); }
+        copy-text(text) => { root.copy-text(text); }
         if root.settings-section == 0: AccountSettings {
             account-name: root.account-name; account-status: root.account-status; account-status-emoji: root.account-status-emoji;
             account-initial: root.account-initial; account-tint: root.account-tint; account-picture: root.account-picture;
@@ -4107,6 +4147,7 @@ export component YapfastWindow inherits Window {
             camera-testing <=> root.camera-testing; camera-preview: root.camera-preview; camera-note: root.camera-note;
             unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
+            windows-effects <=> root.windows-effects; windows-effects-choice: root.windows-effects-choice;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
@@ -4816,6 +4857,23 @@ export component YapfastWindow inherits Window {
         close-switcher => { root.close-switcher(); }
     }
     // Over everything, as the request it confirms may come from anywhere.
+    if root.bot-modal-open: BotModalDialog {
+        heading: root.bot-modal-heading; fields: root.bot-modal-fields; supported: root.bot-modal-supported;
+        saving: root.bot-modal-saving; error: root.bot-modal-error;
+        field-edited(index, value) => { root.bot-modal-field-edited(index, value); }
+        open-select(index) => { root.bot-modal-open-select(index); }
+        submit => { root.bot-modal-submit(); }
+        close => { root.bot-modal-close(); }
+    }
+    if root.bot-select-open: BotSelectDialog {
+        heading: root.bot-select-heading; choices: root.bot-select-choices;
+        query: root.bot-select-query;
+        min-values: root.bot-select-min; max-values: root.bot-select-max;
+        toggle(index) => { root.bot-select-toggle(index); }
+        search(query) => { root.bot-select-search(query); }
+        submit => { root.bot-select-submit(); }
+        close => { root.bot-select-close(); }
+    }
     mfa-motion := PopupMotion { open: root.mfa-open; }
     if mfa-motion.shown: MfaDialog {
         motion: mfa-motion.amount;

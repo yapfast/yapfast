@@ -105,9 +105,16 @@ their own, and a keyframe's first packet marked as starting a coded video
 sequence (N). A frame with a malformed OBU isn't sent. DAVE leaves an AV1
 frame's last OBU without its size, its trailer after it, and receivers keep
 it so, since DAVE's decryptor reads the frame as it was sealed. Past a
-frame's first 8 packets, 4 go out
-each millisecond: a 1080p keyframe of 200 sent at once can overflow buffers on
-the way. Yapfast keeps the last 2048 video packets, and when a viewer reports
+frame's first 8 packets, the rest are paced at 2.5 times the stream's
+target bitrate, as libwebrtc's pacer sends, or faster when that wouldn't
+send the frame within two frames' time, so a keyframe doesn't hold back the
+frames after it until they're dropped: a 1080p keyframe of 200 packets sent
+at once can overflow buffers on the way, and fills the sender's uplink. A
+frame's packets wait in a queue with when each is due, and go out from a
+branch of their own, so the stream's sound, NACKs and receiver reports are
+handled while a frame goes out, and a report is timed when it comes; the
+next frame is taken once the queue is empty.
+Yapfast keeps the last 2048 video packets, and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
 the original sequence number before the payload (RFC 4588), and the repaired
@@ -120,15 +127,55 @@ Discord's client asks for them: 720p, 1080p or the screen's own size (up to
 doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. Larger screens, and those of another shape, are scaled down to fit. Yapfast
-sends them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
+caps them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
 and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
-`max_framerate`. Like Discord's client it also follows the server's bandwidth
-estimate (REMB): when that drops below the cap, the encoder aims for the
-estimate instead, though never below 500 kbit/s, and it changes only when the
-two differ by more than a tenth. Discord's client allows accounts without Nitro
-720p30, but trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts
-captured frames to I420 with libyuv, scales them with libyuv's filtering
-scaler, and encodes those; the preview is the same picture scaled down to 720p.
+`max_framerate`. Discord's client allows accounts without Nitro 720p30, but
+trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
+frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
+encodes those; the preview is the same picture scaled down to 720p.
+
+Under the cap, the bitrate follows what the sender's uplink carries
+(`yapfast_discord::congestion`). Sending more than it carries fills its
+router's queue, and everything else the sender does online waits in it: a
+game's ping climbs to hundreds of milliseconds and stays there while the
+stream lasts. Discord's client runs libwebrtc's delay-based control on
+transport-wide feedback (RTCP 205/15, about the sequence numbers of
+extension 5), which Discord's stream server sends a sender on its UDP
+connection too, about 9 a second. Yapfast doesn't read that feedback yet; it
+measures the round trip from the receiver reports the server sends about the
+video, about two a second, which echo the last sender report (`lsr`) with
+the delay since (`dlsr`), as RFC 3550 describes, and reads the share of
+packets lost from them. A queue at the router lengthens the round trip as
+much as the delay it adds.
+
+A stream starts at 2.5 Mbit/s, or its cap when that's lower. Each report
+whose round trip is within 25 ms of the lowest of the last minute, with at
+most 2% of packets lost, raises the target by 8%, up to the cap: about 17 s
+from the start to 1080p's 9 Mbit/s, with a report a second. It doesn't rise
+past 1.5 times what went out over the last half second, video and resends,
+counted in slices of 50 ms, nor before the stream has sent for that long: a
+calm picture sends less than the target, and a target raised over it would
+be tried on the uplink only once the picture gets busy, all at once. A
+round trip more than 60 ms over the lowest in two reports in a row, not one
+alone as after a keyframe, or more than 10% of packets lost in one, lowers
+it to 85% of what Discord's server received, or of the target when that's
+lower, and it doesn't rise again for 3 s. What the server received comes
+from its receiver reports at least 0.4 s apart: how far the highest
+sequence number it got went, less the packets it counted lost meanwhile, at
+the size of the packets sent lately. While a queue builds that's what the
+uplink carries, however much more went out, so when a calm picture turns
+busy at once and sends far past it, one back-off takes the target under
+it. Without a count, as before the second report, it backs off from what
+went out over the last half second. From
+80% of the rate it backed off from, each rise adds a hundredth of that rate,
+so it comes back to where the queue built slowly and stays there longer
+before the next back-off; past 115% of it the uplink carries more than it
+did, and the target rises by 8% again. It stays under the server's bandwidth
+estimate (REMB) when that's lower than the cap, and never goes below
+500 kbit/s. Without a measured round trip, as when reports don't echo a
+sender report, the target doesn't rise from where it started. The encoder
+changes its bitrate only when it differs from the target by more than a
+tenth, so a rise reaches it every second step and a fall at once.
 
 Discord shows a still of each stream, in the call and to people outside it.
 Like Discord's client, Yapfast makes one once the stream connects and the
@@ -178,8 +225,14 @@ also those named in video attributes (op 12) or in the stream key.
 With `YAPFAST_LOG=debug`, Yapfast logs every 5 s while sharing what it sent and the
 RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports
-(`lsr`), its bitrate estimate (REMB), and keyframe requests, and each change
-of bitrate. The voice connection logs the voice server's RTCP too, to compare
+(`lsr`), its bitrate estimate (REMB), and keyframe requests, with the last
+round trip measured (`round_trip_ms`), the target (`target_kbps`) and what
+went out over the last half second (`sending_kbps`) and what the server
+received (`received_kbps`). Each
+change of the target is logged as "changing the stream's bitrate", with
+`kbps`, the `reason`, the report's `round_trip_ms` and `lost` (out of 256),
+and the lowest round trip (`lowest_ms`); the encoder following it logs "the
+encoder follows the stream's target". The voice connection logs the voice server's RTCP too, to compare
 with a sender Discord accepts. Messages the stream server sends are logged
 too, except those carrying keys.
 

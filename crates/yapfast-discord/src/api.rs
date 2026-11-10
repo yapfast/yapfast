@@ -525,6 +525,14 @@ impl Api {
         }
     }
 
+    /// The signed-in account uses a bot's message component or submits its
+    /// modal. Discord acknowledges this request before the app responds over
+    /// the gateway; a successful HTTP response alone is not the app's result.
+    pub async fn interact(&self, body: &Value) -> Result<()> {
+        self.empty(with_json(self.request(Method::POST, "/interactions"), body))
+            .await
+    }
+
     /// Sends a message, as a reply when `options` names one in the same
     /// channel, with uploaded files.
     pub async fn send(

@@ -103,6 +103,40 @@ make the same file, and the release carries one. A prerelease is never
 releases, and takes a nightly AppImage to the latest stable release, not the
 next nightly.
 
+## Which build is running
+
+Settings shows which build it's in, in two lines under its sections, and
+`yapfast --version` prints it, so a report says at once whether it comes from
+a stable release, a nightly or a build from source, and whether that has a fix
+or a feature. A click on the lines copies them as one line for a bug report:
+
+```
+Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07
+```
+
+The channel is Stable, Nightly, Pre-release (a release whose version has some
+other prerelease part, such as `0.5.0-rc.1`) or Development build, and the
+commit and its day, in UTC, follow. A development build's first line names its
+commit, not the version of the release it grew from. `src/build_info.rs` makes
+the text, and `build.rs` gives it the commit.
+
+A build is a release only when its packaging says so. `Cargo.toml` holds a
+stable release's version between releases too, so the version alone would call
+every build from source a stable release. `scripts/build-windows`, the
+`release` package in the flake (which the AppImage holds) and the Arch
+PKGBUILD set `YAPFAST_RELEASE`; a plain `cargo run` doesn't, and is a
+development build. A nightly says what it is in its version, which only the
+Nightly workflow sets.
+
+The commit comes from Git where the build runs in a checkout of this
+repository. Nix's sandbox has no Git, so the flake gives it `self.rev` as
+`YAPFAST_COMMIT`, and the commit's time as `YAPFAST_COMMIT_DATE`; a release
+built after `scripts/set-version` has a dirty tree, and the flake's
+`dirtyRev` names its commit as well. This makes Nix rebuild the program for a
+new commit even when no file it reads changed. A build outside a repository,
+such as a source archive, names no commit. A build doesn't look for edits to
+files on top of the commit, so a development build can't say it has them.
+
 ## The app icon
 
 `packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in

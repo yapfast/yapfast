@@ -423,6 +423,8 @@ export component ServerTagChip inherits Rectangle {
     in property <color> fill: #97979f33;
     in property <color> outline: transparent;
     in property <length> outline-width: 0px;
+    /// The text's colour, which a profile's theme sets on its card.
+    in property <color> text-color: Theme.text;
     property <length> badge-size: root.font-size + 2px;
     property <length> gap: 2px;
     property <image> badge-picture: root.badge != "" ? PictureStore.picture(root.badge, PictureStore.revision(root.badge)) : @image-url("");
@@ -447,7 +449,7 @@ export component ServerTagChip inherits Rectangle {
             Image { source: root.badge-picture; width: root.badge-size; height: root.badge-size; image-fit: contain; }
         }
         tag-text := Text {
-            text: root.text; color: Theme.text; font-size: root.font-size; font-weight: root.font-weight;
+            text: root.text; color: root.text-color; font-size: root.font-size; font-weight: root.font-weight;
             vertical-alignment: center;
         }
     }
@@ -896,6 +898,8 @@ export component TextField inherits Rectangle {
     in property <bool> ring: true;
     /// What the placeholder is drawn in.
     in property <color> placeholder-color: Theme.muted;
+    /// The text's colour, for a field on another ground than Yapfast's own.
+    in property <color> ink: Theme.text;
     /// A picture at the field's right end, such as a smiley, which the text
     /// stays clear of.
     in property <image> trailing-icon;
@@ -929,7 +933,7 @@ export component TextField inherits Rectangle {
             single-line: true;
             vertical-alignment: center;
             font-size: root.text-size;
-            color: root.enabled ? Theme.text : Theme.muted;
+            color: root.enabled ? root.ink : Theme.muted;
             input-type: root.password ? InputType.password : InputType.text;
             selection-background-color: Theme.accent.with-alpha(0.35);
             selection-foreground-color: Theme.text;

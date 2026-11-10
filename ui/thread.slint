@@ -18,6 +18,9 @@ export component ThreadPanel inherits Rectangle {
     in property <bool> start;
     in property <bool> failed;
     in property <bool> busy;
+    in property <string> bot-busy-item;
+    in property <string> bot-failed-item;
+    in property <string> bot-failed-text;
     in property <bool> composer-enabled;
     in property <bool> reactions-enabled;
     in property <bool> new-reactions-enabled;
@@ -86,6 +89,8 @@ export component ThreadPanel inherits Rectangle {
     /// A link in a message's text, and where the pointer clicked it.
     callback link-clicked(string, length, length);
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
     callback open-thread(string);
     callback retry(string);
     callback cancel-send(string);
@@ -229,7 +234,7 @@ export component ThreadPanel inherits Rectangle {
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
                             }
                             MessageContent {
-                                message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled;
+                                message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                 end-padding: 16px; collapse-long: root.collapse-long;
                                 // The view keeps the message's top: it stops following
@@ -249,6 +254,8 @@ export component ThreadPanel inherits Rectangle {
                                     root.link-clicked(link, row-pointer.absolute-position.x + row-pointer.mouse-x, row-pointer.absolute-position.y + row-pointer.mouse-y);
                                 }
                                 open-link(link) => { root.open-link(link); }
+                                use-button(item, id) => { root.use-button(item, id); }
+                                open-select(item, id) => { root.open-select(item, id); }
                                 open-thread(room) => { root.open-thread(room); }
                                 open-sticker(item, index, x, y, width, height) => { root.open-sticker(item, index, x, y, width, height); }
                                 react(item, key) => { root.react(item, key); }
