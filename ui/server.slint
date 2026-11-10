@@ -1898,7 +1898,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                             Text {
                                                 text: root.pronouns != "" ? root.pronouns : root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : "Add pronouns";
                                                 color: root.pronouns != "" || root.prompt.pronouns-fallback != "" ? Theme.secondary : Theme.muted;
-                                                font-size: 14px; font-weight: 500; overflow: elide;
+                                                font-size: 14px; font-weight: 500;
                                                 HoverEdit {
                                                     x: -5px; y: (parent.height - self.height) / 2; width: parent.width + 10px; height: 32px;
                                                     enabled: root.ready; label: "Edit pronouns";
@@ -1923,9 +1923,9 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 animate background { duration: 120ms; }
                                                 accessible-role: button; accessible-label: "Change server tag";
                                                 tag-row := HorizontalLayout {
-                                                    padding-left: 7px; padding-right: 5px; spacing: 4px;
+                                                    padding-left: 7px; padding-right: 10px; spacing: 5px;
                                                     if root.prompt.tag-text == "": Text { text: "Server Tag"; color: Theme.secondary; font-size: 12px; font-italic: true; vertical-alignment: center; }
-                                                    if root.prompt.tag-text != "": Middle { ServerTagChip { text: root.prompt.tag-text; badge: root.prompt.tag-icon; } }
+                                                    if root.prompt.tag-text != "": Middle { ServerTagChip { text: root.prompt.tag-text; badge: root.prompt.tag-icon; fill: transparent; } }
                                                     Image { source: @image-url("icons/chevron-down.svg"); width: 14px; image-fit: contain; colorize: Theme.secondary; }
                                                 }
                                                 tag-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { tag-menu.show(); } }
@@ -1968,16 +1968,27 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 }
                                             }
                                         }
-                                        // Their badges, in a pill after the tag.
-                                        if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: Middle {
+                                    }
+                                    // Their badges, in a box of their own under the line, as
+                                    // Discord's are: twelve of them, then how many besides.
+                                    if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: HorizontalLayout {
+                                        padding-top: 10px; alignment: start;
+                                        Rectangle {
+                                            width: min(root.prompt.preview.badges.length, 12) * 25px + (root.prompt.preview.badges.length > 12 ? 26px : 0px) + 6px; height: 24px;
+                                            background: pill-hover.has-hover ? #97979f33 : #97979f1f;
+                                            border-radius: 8px; border-width: 1px; border-color: #97979f0a;
+                                            pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
                                             Rectangle {
-                                                height: 26px; border-radius: 8px; background: #00000059;
-                                                HorizontalLayout {
-                                                    padding-left: 4px; padding-right: 4px;
-                                                    for badge in root.prompt.preview.badges: Rectangle {
-                                                        width: 22px;
-                                                        ProfileBadge { width: 18px; height: 18px; badge: badge; open-link(link) => { root.open-link(link); } }
-                                                    }
+                                                x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
+                                                for badge[index] in root.prompt.preview.badges: ProfileBadge {
+                                                    x: index * 25px; width: 20px; height: 20px; visible: index < 12;
+                                                    badge: badge;
+                                                    open-link(url) => { root.open-link(url); }
+                                                }
+                                                if root.prompt.preview.badges.length > 12: Text {
+                                                    x: 12 * 25px; width: 24px; height: 20px;
+                                                    text: "+" + (root.prompt.preview.badges.length - 12); color: Theme.secondary;
+                                                    font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center;
                                                 }
                                             }
                                         }
